@@ -176,11 +176,29 @@ export function createJulesTools(client: IJulesClient) {
         // Automatically inject TDD instructions into the prompt
         const enhancedPrompt = buildPromptWithTDD(validated.prompt);
 
+        // Validate repo is connected to Jules
+        const sources = await client.listSources();
+        const expectedSource = `sources/github/${validated.repo}`;
+        const sourceExists = sources.some((s) => s.name === expectedSource);
+
+        if (!sourceExists) {
+          const connectedRepos = sources
+            .map((s) => `${s.githubRepo.owner}/${s.githubRepo.repo}`)
+            .join(', ');
+          return errorResult(
+            `Repository "${validated.repo}" is not connected to Jules. ` +
+              `Connected repos: ${connectedRepos || 'none'}. ` +
+              `Connect at https://jules.google`
+          );
+        }
+
         const session = await client.createSession({
           prompt: enhancedPrompt,
           sourceContext: {
-            source: `sources/github-${validated.repo.replace('/', '-')}`,
-            branch: validated.branch
+            source: expectedSource,
+            githubRepoContext: validated.branch
+              ? { startingBranch: validated.branch }
+              : undefined
           },
           title: validated.title,
           requirePlanApproval: true,

@@ -5,8 +5,8 @@ import type { Source, Session, Activity, PullRequestOutput } from '../types.js';
 // ============================================================================
 
 export const mockSource: Source = {
-  name: 'sources/github-lvlup-sw-test-repo',
-  id: 'github-lvlup-sw-test-repo',
+  name: 'sources/github/lvlup-sw/test-repo',
+  id: 'github/lvlup-sw/test-repo',
   githubRepo: {
     owner: 'lvlup-sw',
     repo: 'test-repo',
@@ -20,8 +20,8 @@ export const mockSource: Source = {
 };
 
 export const mockPrivateSource: Source = {
-  name: 'sources/github-lvlup-sw-private-repo',
-  id: 'github-lvlup-sw-private-repo',
+  name: 'sources/github/lvlup-sw/private-repo',
+  id: 'github/lvlup-sw/private-repo',
   githubRepo: {
     owner: 'lvlup-sw',
     repo: 'private-repo',
