@@ -161,9 +161,16 @@ init_terraform_backend() {
     local backend_config="$INFRA_DIR/provider.conf.json"
 
     # Check if backend storage account variables are set
-    if [[ -z "${AZURE_TFSTATE_STORAGE_ACCOUNT:-}" ]]; then
-        log_warning "AZURE_TFSTATE_STORAGE_ACCOUNT not set. Using local backend."
-        log_info "To use remote state, run: ./scripts/setup-backend.sh"
+    # Remote backend is OPTIONAL - local state is the default when not configured
+    if [[ -z "${AZURE_TFSTATE_STORAGE_ACCOUNT:-}" ]] || [[ -z "${AZURE_TFSTATE_RESOURCE_GROUP:-}" ]]; then
+        log_info "Remote backend not configured. Using local Terraform state (default)."
+        log_info ""
+        log_info "To enable remote state with Azure AD authentication:"
+        log_info "  1. Run: ./scripts/setup-backend.sh"
+        log_info "  2. Set variables via: azd env set AZURE_TFSTATE_STORAGE_ACCOUNT <name>"
+        log_info "                        azd env set AZURE_TFSTATE_RESOURCE_GROUP <rg>"
+        log_info ""
+        log_info "Remote backend uses use_azuread_auth for passwordless authentication."
         return 0
     fi
 

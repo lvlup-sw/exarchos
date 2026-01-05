@@ -23,7 +23,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 log_pass() { echo -e "${GREEN}PASS${NC}: $1"; }
-log_fail() { echo -e "${RED}FAIL${NC}: $1"; ((ERRORS++)); }
+log_fail() { echo -e "${RED}FAIL${NC}: $1"; ERRORS=$((ERRORS + 1)); }
 log_skip() { echo -e "${YELLOW}SKIP${NC}: $1"; }
 log_info() { [ "$VERBOSE" = "--verbose" ] && echo "INFO: $1" || true; }
 

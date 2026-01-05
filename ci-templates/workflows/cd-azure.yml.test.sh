@@ -35,31 +35,31 @@ test_required_fields() {
   # Check for name field
   if ! grep -q '^name:' "$WORKFLOW_FILE"; then
     echo "FAIL: Missing 'name' field"
-    ((errors++))
+    errors=$((errors + 1))
   fi
 
   # Check for on: push trigger
   if ! grep -q 'push:' "$WORKFLOW_FILE"; then
     echo "FAIL: Missing push trigger"
-    ((errors++))
+    errors=$((errors + 1))
   fi
 
   # Check for jobs
   if ! grep -q '^jobs:' "$WORKFLOW_FILE"; then
     echo "FAIL: Missing 'jobs' section"
-    ((errors++))
+    errors=$((errors + 1))
   fi
 
   # Check for Blacksmith runner
   if ! grep -q 'blacksmith' "$WORKFLOW_FILE"; then
     echo "FAIL: Missing Blacksmith runner"
-    ((errors++))
+    errors=$((errors + 1))
   fi
 
   # Check for OIDC login
   if ! grep -q 'azure/login' "$WORKFLOW_FILE"; then
     echo "FAIL: Missing Azure login action"
-    ((errors++))
+    errors=$((errors + 1))
   fi
 
   if [[ $errors -gt 0 ]]; then
@@ -72,9 +72,9 @@ test_required_fields() {
 main() {
   local failures=0
 
-  test_workflow_exists || ((failures++))
-  test_yaml_valid || ((failures++))
-  test_required_fields || ((failures++))
+  test_workflow_exists || failures=$((failures + 1))
+  test_yaml_valid || failures=$((failures + 1))
+  test_required_fields || failures=$((failures + 1))
 
   if [[ $failures -gt 0 ]]; then
     echo ""
