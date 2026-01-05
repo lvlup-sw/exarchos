@@ -89,6 +89,9 @@ resource "azurerm_container_registry" "main" {
   sku                 = var.is_dev_environment ? "Basic" : "Standard"
   admin_enabled       = false
 
+  # Restrict public access in production (requires private endpoints or VNet integration)
+  public_network_access_enabled = var.is_dev_environment ? true : false
+
   tags = var.tags
 }
 
