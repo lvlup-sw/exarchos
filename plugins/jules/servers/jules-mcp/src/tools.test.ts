@@ -85,6 +85,7 @@ describe('Jules MCP Tools', () => {
   describe('jules_create_task', () => {
     it('should create task and return session info', async () => {
       // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
       vi.mocked(mockClient.createSession).mockResolvedValue(mockSession);
 
       // Act
@@ -101,8 +102,9 @@ describe('Jules MCP Tools', () => {
       expect(parsed.url).toContain('jules.google');
     });
 
-    it('should pass branch parameter correctly', async () => {
+    it('should pass branch parameter correctly using githubRepoContext', async () => {
       // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
       vi.mocked(mockClient.createSession).mockResolvedValue(mockSession);
 
       // Act
@@ -115,15 +117,43 @@ describe('Jules MCP Tools', () => {
       // Assert
       expect(mockClient.createSession).toHaveBeenCalledWith(
         expect.objectContaining({
-          sourceContext: expect.objectContaining({
-            branch: 'develop'
-          })
+          sourceContext: {
+            source: 'sources/github/lvlup-sw/test-repo',
+            githubRepoContext: {
+              startingBranch: 'develop'
+            }
+          }
         })
       );
     });
 
-    it('should use default branch when not specified', async () => {
+    it('should use default branch main when not specified', async () => {
       // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
+      vi.mocked(mockClient.createSession).mockResolvedValue(mockSession);
+
+      // Act
+      await tools.jules_create_task({
+        repo: 'lvlup-sw/test-repo',
+        prompt: 'Test task'
+      });
+
+      // Assert
+      expect(mockClient.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceContext: {
+            source: 'sources/github/lvlup-sw/test-repo',
+            githubRepoContext: {
+              startingBranch: 'main'
+            }
+          }
+        })
+      );
+    });
+
+    it('should use correct source format with slashes', async () => {
+      // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
       vi.mocked(mockClient.createSession).mockResolvedValue(mockSession);
 
       // Act
@@ -136,14 +166,48 @@ describe('Jules MCP Tools', () => {
       expect(mockClient.createSession).toHaveBeenCalledWith(
         expect.objectContaining({
           sourceContext: expect.objectContaining({
-            branch: 'main'
+            source: 'sources/github/lvlup-sw/test-repo'
           })
         })
       );
     });
 
+    it('should return error when repo is not connected to Jules', async () => {
+      // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
+
+      // Act
+      const result = await tools.jules_create_task({
+        repo: 'other-org/other-repo',
+        prompt: 'Test task'
+      });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not connected to Jules');
+      expect(result.content[0].text).toContain('lvlup-sw/test-repo');
+      expect(mockClient.createSession).not.toHaveBeenCalled();
+    });
+
+    it('should return error with empty connected repos message when none connected', async () => {
+      // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([]);
+
+      // Act
+      const result = await tools.jules_create_task({
+        repo: 'any/repo',
+        prompt: 'Test task'
+      });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not connected to Jules');
+      expect(result.content[0].text).toContain('none');
+    });
+
     it('should automatically inject TDD instructions into prompt', async () => {
       // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
       vi.mocked(mockClient.createSession).mockResolvedValue(mockSession);
 
       // Act
@@ -196,19 +260,20 @@ describe('Jules MCP Tools', () => {
 
     it('should handle API errors gracefully', async () => {
       // Arrange
+      vi.mocked(mockClient.listSources).mockResolvedValue([mockSource]);
       vi.mocked(mockClient.createSession).mockRejectedValue(
-        new Error('Source not found')
+        new Error('API error')
       );
 
       // Act
       const result = await tools.jules_create_task({
-        repo: 'invalid/repo',
+        repo: 'lvlup-sw/test-repo',
         prompt: 'Test task'
       });
 
       // Assert
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Source not found');
+      expect(result.content[0].text).toContain('API error');
     });
   });
 

@@ -14,7 +14,7 @@ import {
   mockErrorSourceNotFound
 } from './test/fixtures.js';
 
-const BASE_URL = 'https://jules.google/v1alpha';
+const BASE_URL = 'https://jules.googleapis.com/v1alpha';
 
 describe('JulesClient', () => {
   const apiKey = 'test-api-key';
@@ -33,7 +33,7 @@ describe('JulesClient', () => {
 
       // Assert
       expect(sources).toHaveLength(1);
-      expect(sources[0].name).toBe('sources/github-lvlup-sw-test-repo');
+      expect(sources[0].name).toBe('sources/github/lvlup-sw/test-repo');
       expect(sources[0].githubRepo.owner).toBe('lvlup-sw');
       expect(fetchMock).toHaveBeenCalledWith(
         `${BASE_URL}/sources`,
@@ -103,7 +103,7 @@ describe('JulesClient', () => {
       const client = new JulesClient(apiKey);
       const params = {
         prompt: 'Add user profile feature with TDD',
-        sourceContext: { source: 'sources/github-lvlup-sw-test-repo' }
+        sourceContext: { source: 'sources/github/lvlup-sw/test-repo' }
       };
 
       // Act
@@ -128,8 +128,8 @@ describe('JulesClient', () => {
       const params = {
         prompt: 'Add user profile feature',
         sourceContext: {
-          source: 'sources/github-lvlup-sw-test-repo',
-          branch: 'develop'
+          source: 'sources/github/lvlup-sw/test-repo',
+          githubRepoContext: { startingBranch: 'develop' }
         },
         title: 'User Profile Feature',
         requirePlanApproval: true,
@@ -143,7 +143,9 @@ describe('JulesClient', () => {
       const requestBody = JSON.parse(
         fetchMock.mock.calls[0][1]?.body as string
       );
-      expect(requestBody.sourceContext.branch).toBe('develop');
+      expect(requestBody.sourceContext.githubRepoContext.startingBranch).toBe(
+        'develop'
+      );
       expect(requestBody.title).toBe('User Profile Feature');
       expect(requestBody.requirePlanApproval).toBe(true);
       expect(requestBody.automationMode).toBe('AUTO_CREATE_PR');
@@ -157,7 +159,7 @@ describe('JulesClient', () => {
       await expect(
         client.createSession({
           prompt: '',
-          sourceContext: { source: 'sources/github-lvlup-sw-test-repo' }
+          sourceContext: { source: 'sources/github/lvlup-sw/test-repo' }
         })
       ).rejects.toThrow('Prompt cannot be empty');
     });
@@ -170,7 +172,7 @@ describe('JulesClient', () => {
       await expect(
         client.createSession({
           prompt: '   ',
-          sourceContext: { source: 'sources/github-lvlup-sw-test-repo' }
+          sourceContext: { source: 'sources/github/lvlup-sw/test-repo' }
         })
       ).rejects.toThrow('Prompt cannot be empty');
     });

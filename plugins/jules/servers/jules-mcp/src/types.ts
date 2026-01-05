@@ -17,8 +17,8 @@ export interface GitHubRepo {
 }
 
 export interface Source {
-  name: string; // "sources/github-{owner}-{repo}"
-  id: string; // "github-{owner}-{repo}"
+  name: string; // "sources/github/{owner}/{repo}"
+  id: string; // "github/{owner}/{repo}"
   githubRepo: GitHubRepo;
 }
 
@@ -44,9 +44,13 @@ export type SessionState =
 
 export type AutomationMode = 'AUTO_CREATE_PR' | 'MANUAL';
 
+export interface GitHubRepoContext {
+  startingBranch?: string;
+}
+
 export interface SourceContext {
-  source: string; // "sources/github-{owner}-{repo}"
-  branch?: string; // default: "main"
+  source: string; // "sources/github/{owner}/{repo}"
+  githubRepoContext?: GitHubRepoContext;
 }
 
 export interface PullRequestOutput {
