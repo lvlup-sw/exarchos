@@ -140,13 +140,15 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 
 ## Transition
 
-After brainstorming completes, follow the Auto-Chain section in `commands/ideate.md`:
+After brainstorming completes, this is a **human checkpoint**:
 
-1. Summarize the saved design document path
-2. Ask for confirmation to continue to `/plan`
-3. On confirmation, invoke:
+1. Update state with design path
+2. Summarize the saved design document path
+3. **PAUSE for user confirmation** to continue to `/plan`
+4. On confirmation, invoke:
    ```typescript
    Skill({ skill: "plan", args: "<design-path>" })
    ```
 
-This leads to the **implementation-planning** skill for TDD task breakdown.
+This is one of only TWO human checkpoints in the workflow.
+After user confirms, workflow runs autonomously until PR merge confirmation.

@@ -248,12 +248,19 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 
 ## Transition
 
-### If PASS:
-> "Spec review passed. Proceeding to quality review..."
+All transitions happen **immediately** without user confirmation:
 
-Orchestrator dispatches quality-review subagent.
+### If PASS:
+1. Update state with review results
+2. Output: "Spec review passed. Auto-continuing to quality review..."
+3. Orchestrator dispatches quality-review subagent immediately
 
 ### If FAIL:
-> "Spec review found [N] issues. Returning to implementer for fixes."
+1. Update state with failed issues
+2. Output: "Spec review found [N] issues. Auto-continuing to fixes..."
+3. Auto-invoke delegation with fix tasks:
+   ```typescript
+   Skill({ skill: "delegate", args: "--fixes <plan-path>" })
+   ```
 
-Returns verdict to orchestrator, which auto-invokes delegation with fix tasks.
+This is NOT a human checkpoint - workflow continues autonomously.

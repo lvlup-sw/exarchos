@@ -122,38 +122,25 @@ For each feedback item:
 
 Track the plan path used for delegation as `$PLAN_PATH`.
 
-## Checkpoint Boundary
+## Idempotency
 
-After all delegated tasks complete, this is a natural checkpoint for context management.
-
-### Save Checkpoint
-
-```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
-```
-
-### Offer Options
-
-```markdown
-All [N] tasks complete and verified.
-
-**Checkpoint saved to:** `docs/workflow-state/<feature>.state.json`
-
-Choose an option:
-1. **Continue in this session:** `/review $PLAN_PATH`
-2. **Start fresh session:** `/resume docs/workflow-state/<feature>.state.json`
-
-(Option 2 recommended if this session has been long-running)
-```
+Before delegating, check task status:
+1. Read tasks from state file
+2. Skip tasks where `status == "complete"`
+3. Only dispatch pending/failed tasks
+4. If all tasks already complete, skip to auto-chain
 
 ## Auto-Chain
 
-If user chooses to continue (or context is healthy):
+After all delegated tasks complete, **auto-continue immediately** (no user confirmation needed):
 
-1. Summarize: "All [N] tasks complete and verified."
-2. Invoke immediately:
+1. Update state: `.phase = "review"` and mark all tasks complete
+2. Output: "All [N] tasks complete. Auto-continuing to review..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "$PLAN_PATH" })
    ```
 
-If context is heavy or user chooses fresh session, output the `/resume` command instead.
+**No pause for user input** - this is not a human checkpoint.
+
+State is saved automatically, enabling recovery after context compaction.

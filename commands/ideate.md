@@ -69,14 +69,26 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 
 Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$DESIGN_PATH`.
 
+## Human Checkpoint
+
+After saving the design document, this is a **human checkpoint** - user confirmation required.
+
+This is one of only TWO human checkpoints in the workflow:
+1. Here (design confirmation)
+2. After `/synthesize` (merge confirmation)
+
 ## Auto-Chain
 
 After saving the design document:
 
-1. Summarize: "Design saved to `$DESIGN_PATH`."
-2. Ask: "Continue to implementation planning with `/plan`? (yes/no)"
-3. On user confirmation (yes, y, continue, proceed):
+1. Update state with design path
+2. Output: "Design saved to `$DESIGN_PATH`."
+3. **PAUSE for user input**: "Continue to implementation planning? (yes/no)"
+
+4. **On 'yes'** (yes, y, continue, proceed):
    ```typescript
    Skill({ skill: "plan", args: "$DESIGN_PATH" })
    ```
-4. On decline: "No problem. Run `/plan $DESIGN_PATH` when ready."
+   From here, workflow runs autonomously until PR merge confirmation.
+
+5. **On 'no'**: "Workflow paused. Run `/plan $DESIGN_PATH` or `/resume` to continue later."

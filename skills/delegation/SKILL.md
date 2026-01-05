@@ -273,12 +273,14 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase =
 
 ## Transition
 
-After all tasks complete, follow the Auto-Chain section in `commands/delegate.md`:
+After all tasks complete, **auto-continue immediately** (no user confirmation):
 
-1. Summarize the completed task count
-2. Invoke immediately:
+1. Update state: `.phase = "review"`, mark all tasks complete
+2. Output: "All [N] tasks complete. Auto-continuing to review..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "<plan-path>" })
    ```
 
-This leads to **spec-review** and **quality-review** skills.
+This is NOT a human checkpoint - workflow continues autonomously.
+State is saved, enabling recovery after context compaction.

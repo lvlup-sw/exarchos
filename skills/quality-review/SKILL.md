@@ -300,17 +300,30 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase =
 
 ## Transition
 
-### If APPROVED:
-> "Quality review passed. All tasks ready for synthesis."
+All transitions happen **immediately** without user confirmation:
 
-Returns verdict to orchestrator, which auto-invokes `/synthesize`.
+### If APPROVED:
+1. Update state: `.phase = "synthesize"`
+2. Output: "Quality review passed. Auto-continuing to synthesis..."
+3. Auto-invoke synthesize:
+   ```typescript
+   Skill({ skill: "synthesize", args: "<feature-name>" })
+   ```
 
 ### If NEEDS_FIXES:
-> "Quality review found [N] HIGH priority issues. Returning for fixes."
-
-Returns verdict to orchestrator, which auto-invokes delegation with fix tasks.
+1. Update state with failed issues
+2. Output: "Quality review found [N] HIGH priority issues. Auto-continuing to fixes..."
+3. Auto-invoke delegation with fix tasks:
+   ```typescript
+   Skill({ skill: "delegate", args: "--fixes <plan-path>" })
+   ```
 
 ### If BLOCKED:
-> "Quality review blocked. Critical issue requires design discussion: [issue]"
+1. Update state: `.phase = "blocked"`
+2. Output: "Quality review blocked: [issue]. Returning to design..."
+3. Auto-invoke ideate for redesign:
+   ```typescript
+   Skill({ skill: "ideate", args: "--redesign <feature-name>" })
+   ```
 
-Returns verdict to orchestrator, which auto-invokes `/ideate --redesign`.
+This is NOT a human checkpoint - workflow continues autonomously.

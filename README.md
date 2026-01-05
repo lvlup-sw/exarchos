@@ -256,7 +256,24 @@ Final integration:
 
 ## Context Management
 
-Long-running workflows can exhaust Claude Code's context window. The context management system provides:
+Long-running workflows can exhaust Claude Code's context window. The context management system provides **autonomous continuation** after compaction.
+
+### Autonomous Workflow
+
+The workflow runs autonomously with only **TWO human checkpoints**:
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)     (auto)      (auto)          ↑
+         HUMAN                                                       HUMAN
+       CHECKPOINT                                                  CHECKPOINT
+```
+
+Between checkpoints, Claude automatically:
+- Saves state after each phase
+- Detects active workflows on session start
+- Resumes from saved state after compaction
+- Continues to next phase without asking
 
 ### State Persistence
 
@@ -268,39 +285,29 @@ Workflow state is saved to `docs/workflow-state/<feature>.state.json`:
 
 State files are **gitignored** - they persist locally but aren't committed.
 
-### Checkpoint Boundaries
+### Auto-Resume After Compaction
 
-Natural break points where you can safely start a new session:
+When context is compacted/summarized:
+1. Claude detects active workflow via `scripts/workflow-state.sh list`
+2. Reads state to restore context
+3. Determines next action via `scripts/workflow-state.sh next-action`
+4. Auto-continues if not at a human checkpoint
 
-| After | Checkpoint |
-|-------|------------|
-| `/delegate` completes | All tasks done, before review |
-| PR created | Before feedback iteration |
-| Feedback round | Between fix cycles |
+### Human Checkpoints
 
-### Commands
+Only two phases pause for user input:
+
+| Phase | Checkpoint | Why |
+|-------|------------|-----|
+| `/ideate` | Design confirmation | User approves design before work begins |
+| `/synthesize` | Merge confirmation | User approves merge or requests fixes |
+
+### Manual Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/checkpoint` | Save current state, get resume instructions |
-| `/resume <state-file>` | Restore context from state file |
-
-### Example Session Handoff
-
-```bash
-# Session 1: Context getting heavy after delegation
-> /checkpoint
-Checkpoint saved to: docs/workflow-state/my-feature.state.json
-To resume: /resume docs/workflow-state/my-feature.state.json
-
-# Session 2: Fresh start with restored context
-> /resume docs/workflow-state/my-feature.state.json
-Workflow Context Restored
-Feature: my-feature
-Phase: review
-Tasks: 5/5 complete
-Next: /review docs/plans/2026-01-05-my-feature.md
-```
+| `/checkpoint` | Force save current state (usually automatic) |
+| `/resume <state-file>` | Manually restore from state file |
 
 ### Context Reduction
 

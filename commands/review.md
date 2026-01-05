@@ -122,36 +122,47 @@ Task({
 
 Re-review after fixes.
 
+## Idempotency
+
+Before reviewing, check review status:
+1. Read review status from state for each task
+2. Skip tasks where both reviews already passed
+3. Only review pending tasks
+4. If all reviews passed, skip to auto-chain
+
 ## Output
 
 Track the feature name and plan path as `$FEATURE_NAME` and `$PLAN_PATH`.
 
 ## Auto-Chain
 
+All transitions happen **immediately** without user confirmation:
+
 ### On PASS (both spec and quality stages):
 
-1. Summarize: "Spec review: PASS. Quality review: APPROVED."
-2. Invoke immediately:
+1. Update state: `.phase = "synthesize"`
+2. Output: "All reviews passed. Auto-continuing to synthesis..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "synthesize", args: "$FEATURE_NAME" })
    ```
 
 ### On FAIL (spec or quality issues):
 
-Do NOT offer synthesis. Instead:
-
-1. Summarize: "[Stage] found [N] issues."
-2. Auto-invoke delegate with fix context:
+1. Update state with failed review details
+2. Output: "[Stage] found [N] issues. Auto-continuing to fixes..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "delegate", args: "--fixes $PLAN_PATH" })
    ```
 
 ### On BLOCKED (critical design issues):
 
-Do NOT offer synthesis. Instead:
-
-1. Summarize: "Quality review BLOCKED: [critical issue]. Returning to design discussion."
-2. Auto-invoke ideate for redesign:
+1. Update state: `.phase = "blocked"`
+2. Output: "Quality review BLOCKED: [critical issue]. Returning to design."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "ideate", args: "--redesign $FEATURE_NAME" })
    ```
+
+**No pause for user input** - this is not a human checkpoint.

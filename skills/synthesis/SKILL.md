@@ -341,12 +341,15 @@ If the user receives PR review comments:
 
 ## Transition
 
-After PR created:
-> "PR created: [URL]. Waiting for review/CI."
+After PR created, this is a **human checkpoint**:
+
+1. Update state with PR URL
+2. Output: "PR created: [URL]. Waiting for review/CI."
+3. **PAUSE for user input**: "Merge PR? (yes/no/feedback)"
+
+This is one of only TWO human checkpoints in the workflow.
 
 Options:
-- **Merge**: Sync and merge PR
-- **Feedback**: Loop to `/delegate --pr-fixes` to address comments
-- **Decline**: Manual handling
-
-This completes the orchestration workflow cycle (or loops back for fixes).
+- **'yes'**: Merge PR, update state to "completed"
+- **'feedback'**: Auto-continue to `/delegate --pr-fixes` to address comments, then return here
+- **'no'**: Pause workflow, can resume later with `/resume`

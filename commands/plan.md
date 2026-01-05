@@ -90,12 +90,22 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 
 Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN_PATH`.
 
+## Idempotency
+
+Before planning, check if plan already exists:
+1. Read state file for `.artifacts.plan`
+2. If plan file exists and is valid, skip planning
+3. Auto-chain directly to delegate
+
 ## Auto-Chain
 
-After saving the implementation plan:
+After saving the implementation plan, **auto-continue immediately** (no user confirmation needed):
 
-1. Summarize: "Plan saved to `$PLAN_PATH` with [N] tasks in [M] parallel groups."
-2. Invoke immediately:
+1. Update state: `.phase = "delegate"`
+2. Output: "Plan saved to `$PLAN_PATH` with [N] tasks. Auto-continuing to delegation..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "delegate", args: "$PLAN_PATH" })
    ```
+
+**No pause for user input** - this is not a human checkpoint.

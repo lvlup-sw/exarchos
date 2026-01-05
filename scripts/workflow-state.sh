@@ -9,6 +9,7 @@
 #   set <state-file> <jq-filter> Update state using jq filter
 #   summary <state-file>  Output minimal summary for context restoration
 #   reconcile <state-file> Verify state matches reality
+#   next-action <state-file> Determine next auto-continue action
 #
 
 set -euo pipefail
@@ -27,6 +28,7 @@ usage() {
     echo "  set <state-file> <jq-filter>   Update state using jq filter"
     echo "  summary <state-file>           Output minimal summary"
     echo "  reconcile <state-file>         Verify state matches reality"
+    echo "  next-action <state-file>       Determine next auto-continue action"
     exit 1
 }
 
@@ -241,6 +243,83 @@ cmd_reconcile() {
     echo "Reconciliation complete."
 }
 
+# Determine next auto-continue action based on current state
+cmd_next_action() {
+    local state_file="$1"
+
+    if [ ! -f "$state_file" ]; then
+        echo "ERROR:state-not-found"
+        exit 1
+    fi
+
+    local phase=$(jq -r '.phase' "$state_file")
+    local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
+    local pr=$(jq -r '.synthesis.prUrl // ""' "$state_file")
+    local total_tasks=$(jq '.tasks | length' "$state_file")
+    local complete_tasks=$(jq '[.tasks[] | select(.status == "complete")] | length' "$state_file")
+
+    # Check review status
+    local spec_pending=$(jq '[.tasks[] | select(.reviewStatus.specReview == null or .reviewStatus.specReview == "pending")] | length' "$state_file")
+    local spec_failed=$(jq '[.tasks[] | select(.reviewStatus.specReview == "fail")] | length' "$state_file")
+    local quality_pending=$(jq '[.tasks[] | select(.reviewStatus.qualityReview == null or .reviewStatus.qualityReview == "pending")] | length' "$state_file")
+    local quality_failed=$(jq '[.tasks[] | select(.reviewStatus.qualityReview == "needs_fixes" or .reviewStatus.qualityReview == "blocked")] | length' "$state_file")
+
+    case "$phase" in
+        ideate)
+            # Human checkpoint - design confirmation
+            echo "WAIT:human-checkpoint:design-confirmation"
+            ;;
+        plan)
+            if [ -n "$plan" ] && [ "$plan" != "null" ]; then
+                # Plan saved, auto-continue to delegate
+                echo "AUTO:delegate:$plan"
+            else
+                echo "WAIT:incomplete:plan-not-saved"
+            fi
+            ;;
+        delegate)
+            if [ "$total_tasks" -eq 0 ]; then
+                echo "WAIT:incomplete:no-tasks-defined"
+            elif [ "$complete_tasks" -eq "$total_tasks" ]; then
+                # All tasks complete, auto-continue to review
+                echo "AUTO:review:$plan"
+            else
+                echo "WAIT:in-progress:tasks-$complete_tasks-of-$total_tasks"
+            fi
+            ;;
+        review)
+            if [ "$spec_failed" -gt 0 ] || [ "$quality_failed" -gt 0 ]; then
+                # Review failed, auto-continue to fixes
+                echo "AUTO:delegate:--fixes $plan"
+            elif [ "$spec_pending" -gt 0 ] || [ "$quality_pending" -gt 0 ]; then
+                # Reviews still pending
+                echo "WAIT:in-progress:reviews-pending"
+            else
+                # All reviews passed, auto-continue to synthesize
+                local feature=$(jq -r '.featureId' "$state_file")
+                echo "AUTO:synthesize:$feature"
+            fi
+            ;;
+        synthesize)
+            if [ -n "$pr" ] && [ "$pr" != "null" ] && [ "$pr" != "" ]; then
+                # PR created - human checkpoint for merge confirmation
+                echo "WAIT:human-checkpoint:merge-confirmation"
+            else
+                echo "WAIT:incomplete:pr-not-created"
+            fi
+            ;;
+        completed)
+            echo "DONE"
+            ;;
+        blocked)
+            echo "WAIT:blocked:requires-redesign"
+            ;;
+        *)
+            echo "UNKNOWN:$phase"
+            ;;
+    esac
+}
+
 # Main dispatcher
 case "${1:-}" in
     init)
@@ -265,6 +344,10 @@ case "${1:-}" in
     reconcile)
         [ -n "${2:-}" ] || usage
         cmd_reconcile "$2"
+        ;;
+    next-action)
+        [ -n "${2:-}" ] || usage
+        cmd_next_action "$2"
         ;;
     *)
         usage

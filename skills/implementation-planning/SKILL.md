@@ -200,12 +200,13 @@ Each task in state should include:
 
 ## Transition
 
-After planning completes, follow the Auto-Chain section in `commands/plan.md`:
+After planning completes, **auto-continue immediately** (no user confirmation):
 
-1. Summarize the saved plan document path and task count
-2. Invoke immediately:
+1. Update state: `.phase = "delegate"`, populate tasks
+2. Output: "Plan saved with [N] tasks. Auto-continuing to delegation..."
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "delegate", args: "<plan-path>" })
    ```
 
-This leads to the **delegation** skill for Jules/subagent dispatch.
+This is NOT a human checkpoint - workflow continues autonomously.

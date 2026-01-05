@@ -99,52 +99,46 @@ You can make direct edits to the integration branch at any time:
 
 The workflow will sync before merge confirmation.
 
-## Checkpoint Boundary
+## Idempotency
 
-After PR is created, this is a natural checkpoint for PR feedback iterations.
+Before synthesizing, check synthesis status:
+1. Check if `synthesis.prUrl` exists in state
+2. If PR exists and is open, skip to merge confirmation
+3. If PR merged, update phase to "completed"
 
-### Save Checkpoint
+## Human Checkpoint
+
+After PR is created, this is a **human checkpoint** - user confirmation required.
+
+### Save State
 
 ```bash
 scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.pr = "[PR_URL]" | .synthesis.prUrl = "[PR_URL]"'
 ```
 
-### On Feedback Request
-
-If user chooses to address feedback, offer session options:
-
-```markdown
-**Checkpoint saved for feedback loop.**
-
-Options:
-1. **Continue in this session:** Address feedback now
-2. **Start fresh session:** `/resume docs/workflow-state/<feature>.state.json`
-
-(Option 2 recommended for extensive feedback or long sessions)
-```
-
 ## Auto-Chain
 
 After PR created:
 
-1. Summarize: "PR created: [URL]. All checks passing."
-2. Update state with PR URL
-3. Ask: "Merge PR? (yes/no/feedback)"
+1. Update state with PR URL
+2. Output: "PR created: [URL]. All checks passing."
+3. **PAUSE for user input**: "Merge PR? (yes/no/feedback)"
+
+This is one of only TWO human checkpoints in the workflow.
+
 4. **On 'yes'** (yes, y, merge):
    ```bash
-   # Sync any direct commits first
    git pull origin feature/integration-<feature-name>
    gh pr merge [PR_NUMBER] --merge
    ```
-   Then update state: `.phase = "completed"`
+   Update state: `.phase = "completed"`
 
 5. **On 'feedback'** (feedback, comments, fixes, changes, address):
-   - Save checkpoint with PR feedback
-   - Offer session options (continue or fresh)
-   - If continuing:
-     ```typescript
-     Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
-     ```
+   Auto-continue to fixes:
+   ```typescript
+   Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+   ```
+   After fixes complete, workflow returns here automatically.
 
-6. **On 'no'**: "No problem. Run `gh pr merge [PR_NUMBER] --merge` when ready, or `/resume docs/workflow-state/<feature>.state.json` in a new session to address feedback."
+6. **On 'no'**: "Workflow paused. Run `/resume` to continue later."
