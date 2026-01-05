@@ -16,7 +16,7 @@ Delegate tasks for: "$ARGUMENTS"
                       --pr-fixes ───┴──────────────────────────────────┘
 ```
 
-Auto-invokes `/review` after all tasks complete.
+Auto-invokes `/review` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
 
 ## Invocation Modes
 
@@ -232,13 +232,26 @@ Before delegating, check task status:
 
 ## Auto-Chain
 
-After all delegated tasks complete, **auto-continue immediately** (no user confirmation needed):
+After all delegated tasks complete, **auto-continue immediately** (no user confirmation needed).
+
+### For normal delegation and --fixes mode:
 
 1. Update state: `.phase = "review"` and mark all tasks complete
 2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "$PLAN_PATH" })
+   ```
+
+### For --pr-fixes mode:
+
+Human review already happened - skip automated review and return to merge confirmation.
+
+1. Update state: `.phase = "synthesize"` and mark all fixes complete
+2. Output: "All [N] fixes applied and pushed. Returning to merge confirmation..."
+3. Invoke immediately:
+   ```typescript
+   Skill({ skill: "synthesize", args: "$PR_URL" })
    ```
 
 **No pause for user input** - this is not a human checkpoint.
