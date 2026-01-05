@@ -60,8 +60,11 @@ fi
 
 # Test 4: Auto-merge enabled for patch updates only
 if [[ -f "$SCRIPT_DIR/renovate.json" ]]; then
-    # Check for either updateTypes or matchUpdateTypes syntax
-    if jq -e '.packageRules[] | select((.updateTypes == ["patch"] or .matchUpdateTypes == ["patch"]) and .automerge == true)' "$SCRIPT_DIR/renovate.json" >/dev/null 2>&1; then
+    # Verify automerge is enabled for patch and NOT for minor/major
+    PATCH_AUTOMERGE=$(jq '[.packageRules[] | select((.updateTypes == ["patch"] or .matchUpdateTypes == ["patch"]) and .automerge == true)] | length' "$SCRIPT_DIR/renovate.json" 2>/dev/null)
+    NON_PATCH_AUTOMERGE=$(jq '[.packageRules[] | select((.updateTypes // .matchUpdateTypes) as $types | ($types != ["patch"] and ($types | length) > 0) and .automerge == true)] | length' "$SCRIPT_DIR/renovate.json" 2>/dev/null)
+    
+    if [[ "$PATCH_AUTOMERGE" -gt 0 && "$NON_PATCH_AUTOMERGE" -eq 0 ]]; then
         pass "Auto-merge enabled for patch updates only"
     else
         fail "Auto-merge not properly configured for patch updates"
