@@ -64,6 +64,8 @@ Delegate tasks to Google's Jules autonomous coding agent.
 | `jules_approve_plan` | Approve execution plan |
 | `jules_send_feedback` | Send instructions |
 | `jules_list_sources` | List connected repos |
+| `jules_get_conversation` | Get session history |
+| `jules_get_pending_question` | Check if awaiting input |
 | `jules_cancel` | Cancel task |
 
 Use `/delegate` for workflow integration. Use `jules_*` tools directly for standalone tasks.
@@ -111,6 +113,10 @@ claude-config/
 │   ├── install.sh          # One-time setup
 │   ├── new-project.sh      # Per-project setup (optional)
 │   └── workflow-state.sh   # State management
+├── azd-templates/      # Azure Developer CLI templates
+│   └── infra/          # Terraform modules + deployment hooks
+├── renovate-config/    # Renovate dependency automation presets
+├── ci-templates/       # Reusable CI workflow templates
 └── docs/
     ├── designs/        # Design documents
     ├── plans/          # Implementation plans
@@ -143,3 +149,7 @@ This approach:
 4. Restart Claude Code
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.
+
+## License
+
+This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.

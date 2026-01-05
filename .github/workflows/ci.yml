@@ -30,9 +30,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install validation tools
-        run: |
-          pip install pyyaml
-          sudo apt-get update && sudo apt-get install -y jq
+        run: pip install pyyaml
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -82,9 +80,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
 
       - name: Run renovate tests
         run: ./renovate-config/renovate.test.sh
