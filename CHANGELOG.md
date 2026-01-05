@@ -4,6 +4,32 @@ Update sparingly - high signal/impactful changes only.
 
 ## 2026-01-04
 
+### Streamlined Auto-Chain Flow
+
+Reduced confirmation prompts in the workflow pipeline:
+
+**New flow:**
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)    (auto)     (auto)           ↓
+            └──────────── ON BLOCKED ────────────────────────────────────┘
+                          ON FAIL → /delegate --fixes (auto)
+```
+
+**Changes:**
+- `/plan` → `/delegate`: Now auto-invokes (no confirmation)
+- `/delegate` → `/review`: Now auto-invokes (no confirmation)
+- `/review` → `/synthesize`: Now auto-invokes on PASS (no confirmation)
+- `/synthesize` → merge: Added confirmation before merging PR
+- `/review`: Now dispatches to subagents (preserves orchestrator context)
+
+**Files modified:**
+- `commands/plan.md`, `commands/delegate.md`, `commands/review.md`, `commands/synthesize.md`
+- `skills/spec-review/SKILL.md`, `skills/quality-review/SKILL.md`
+- `skills/implementation-planning/SKILL.md`, `skills/delegation/SKILL.md`
+
+---
+
 ### Initial Global Configuration
 
 - **Skills (7)**: brainstorming, implementation-planning, git-worktrees, delegation, spec-review, quality-review, synthesis

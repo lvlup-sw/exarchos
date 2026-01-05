@@ -6,6 +6,17 @@ description: Dispatch tasks to Jules or Claude Code subagents
 
 Delegate tasks for: "$ARGUMENTS"
 
+## Workflow Position
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                                 ▲▲▲▲▲▲▲▲
+                                    │
+                      ON FAIL ──────┘ (returns here with --fixes)
+```
+
+Auto-invokes `/review` after all tasks complete.
+
 ## Skill References
 
 - Delegation skill: `@skills/delegation/SKILL.md`
@@ -80,9 +91,7 @@ Track the plan path used for delegation as `$PLAN_PATH`.
 After all delegated tasks complete:
 
 1. Summarize: "All [N] tasks complete and verified."
-2. Ask: "Continue to review with `/review`? (yes/no)"
-3. On user confirmation (yes, y, continue, proceed):
+2. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "$PLAN_PATH" })
    ```
-4. On decline: "No problem. Run `/review $PLAN_PATH` when ready."

@@ -14,6 +14,24 @@ Activate this skill when:
 - Ready to assess code quality
 - Before synthesis/merge
 
+## Execution Context
+
+This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
+
+The orchestrator provides:
+- Design document path
+- Plan document path
+- Implementation file paths
+- Test file paths
+- Spec review results (must be PASS)
+
+The subagent:
+- Reads artifacts
+- Runs static analysis
+- Performs code walkthrough
+- Generates report
+- Returns verdict to orchestrator
+
 ## Review Scope
 
 **Quality Review focuses on:**
@@ -243,16 +261,16 @@ Task({
 ## Transition
 
 ### If APPROVED:
-> "Quality review passed. All tasks ready for synthesis with `/synthesize`."
+> "Quality review passed. All tasks ready for synthesis."
 
-This leads to **synthesis** skill.
+Returns verdict to orchestrator, which auto-invokes `/synthesize`.
 
 ### If NEEDS_FIXES:
 > "Quality review found [N] HIGH priority issues. Returning for fixes."
 
-Returns to **delegation** skill for quality fixes.
+Returns verdict to orchestrator, which auto-invokes delegation with fix tasks.
 
 ### If BLOCKED:
 > "Quality review blocked. Critical issue requires design discussion: [issue]"
 
-Returns to **brainstorming** skill for redesign.
+Returns verdict to orchestrator, which auto-invokes `/ideate --redesign`.

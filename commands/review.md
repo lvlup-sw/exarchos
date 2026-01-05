@@ -6,10 +6,47 @@ description: Run two-stage review (spec compliance + code quality)
 
 Review implementation for: "$ARGUMENTS"
 
+## Workflow Position
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+            ↑                               ▲▲▲▲▲▲
+            └──────────── ON BLOCKED ───────────┘
+                          ON FAIL → /delegate --fixes (auto)
+```
+
+- **ON PASS**: Auto-invokes `/synthesize`
+- **ON FAIL**: Auto-invokes `/delegate --fixes`
+- **ON BLOCKED**: Auto-invokes `/ideate --redesign`
+
 ## Skill References
 
 - Spec review: `@skills/spec-review/SKILL.md`
 - Quality review: `@skills/quality-review/SKILL.md`
+
+## Execution Mode
+
+Reviews MUST be dispatched to subagents (not run inline):
+
+### Dispatch Spec Review
+```typescript
+Task({
+  subagent_type: "general-purpose",
+  model: "opus",
+  description: "Spec review for $FEATURE_NAME",
+  prompt: `[Full spec review prompt with artifacts from skills/spec-review/SKILL.md]`
+})
+```
+
+### Dispatch Quality Review (after spec passes)
+```typescript
+Task({
+  subagent_type: "general-purpose",
+  model: "opus",
+  description: "Quality review for $FEATURE_NAME",
+  prompt: `[Full quality review prompt with artifacts from skills/quality-review/SKILL.md]`
+})
+```
 
 ## Two-Stage Process
 
@@ -79,12 +116,10 @@ Track the feature name and plan path as `$FEATURE_NAME` and `$PLAN_PATH`.
 ### On PASS (both spec and quality stages):
 
 1. Summarize: "Spec review: PASS. Quality review: APPROVED."
-2. Ask: "Continue to synthesis with `/synthesize`? (yes/no)"
-3. On user confirmation (yes, y, continue, proceed):
+2. Invoke immediately:
    ```typescript
    Skill({ skill: "synthesize", args: "$FEATURE_NAME" })
    ```
-4. On decline: "No problem. Run `/synthesize $FEATURE_NAME` when ready."
 
 ### On FAIL (spec or quality issues):
 

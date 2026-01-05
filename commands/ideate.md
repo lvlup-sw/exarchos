@@ -6,6 +6,21 @@ description: Start collaborative design exploration for a feature or problem
 
 Begin brainstorming session for: "$ARGUMENTS"
 
+## Workflow Overview
+
+This command is the **entry point** of the development workflow:
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)    (auto)     (auto)           ↓
+            └──────────── ON BLOCKED ────────────────────────────────────┘
+                          ON FAIL → /delegate --fixes (auto)
+```
+
+**Confirmation points:**
+- After `/ideate`: User confirms before implementation planning begins
+- After `/synthesize`: User confirms before PR is merged
+
 ## Skill Reference
 
 Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`

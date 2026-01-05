@@ -172,8 +172,7 @@ Follow: `MethodName_Scenario_ExpectedOutcome`
 After planning completes, follow the Auto-Chain section in `commands/plan.md`:
 
 1. Summarize the saved plan document path and task count
-2. Ask for confirmation to continue to `/delegate`
-3. On confirmation, invoke:
+2. Invoke immediately:
    ```typescript
    Skill({ skill: "delegate", args: "<plan-path>" })
    ```

@@ -229,8 +229,7 @@ TaskOutput({ task_id: "task-002-id" })
 After all tasks complete, follow the Auto-Chain section in `commands/delegate.md`:
 
 1. Summarize the completed task count
-2. Ask for confirmation to continue to `/review`
-3. On confirmation, invoke:
+2. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "<plan-path>" })
    ```

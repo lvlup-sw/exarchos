@@ -12,6 +12,22 @@ Activate this skill when:
 - Need to verify spec compliance before quality review
 - Subagent reports task completion
 
+## Execution Context
+
+This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
+
+The orchestrator provides:
+- Design document path
+- Plan document path
+- Implementation file paths
+- Test file paths
+
+The subagent:
+- Reads artifacts
+- Runs verification commands
+- Generates report
+- Returns verdict to orchestrator
+
 ## Review Scope
 
 **Spec Review focuses on:**
@@ -203,9 +219,9 @@ Task({
 ### If PASS:
 > "Spec review passed. Proceeding to quality review..."
 
-This leads to **quality-review** skill.
+Orchestrator dispatches quality-review subagent.
 
 ### If FAIL:
 > "Spec review found [N] issues. Returning to implementer for fixes."
 
-Returns to **delegation** skill with fix tasks.
+Returns verdict to orchestrator, which auto-invokes delegation with fix tasks.

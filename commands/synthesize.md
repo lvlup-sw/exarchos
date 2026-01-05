@@ -6,6 +6,15 @@ description: Merge branches and create pull request
 
 Create final PR for: "$ARGUMENTS"
 
+## Workflow Position
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                                                       ▲▲▲▲▲▲▲▲▲▲
+```
+
+This command is the **exit point** of the development workflow. After creating the PR, asks for confirmation before merging.
+
 ## Skill Reference
 
 Follow the synthesis skill: `@skills/synthesis/SKILL.md`
@@ -79,6 +88,16 @@ Merged: [list of branches]
 
 Tests: PASS
 Build: PASS
-
-Next: Wait for CI, then merge
 ```
+
+## Auto-Chain
+
+After PR created:
+
+1. Summarize: "PR created: [URL]. All checks passing."
+2. Ask: "Merge PR? (yes/no)"
+3. On user confirmation (yes, y, continue, proceed):
+   ```bash
+   gh pr merge [PR_NUMBER] --merge
+   ```
+4. On decline: "No problem. Run `gh pr merge [PR_NUMBER] --merge` when ready."

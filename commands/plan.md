@@ -6,6 +6,15 @@ description: Create TDD implementation plan from design document
 
 Create implementation plan for: "$ARGUMENTS"
 
+## Workflow Position
+
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                        ▲▲▲
+```
+
+Auto-invokes `/delegate` after plan is saved.
+
 ## Skill Reference
 
 Follow the implementation-planning skill: `@skills/implementation-planning/SKILL.md`
@@ -68,9 +77,7 @@ Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN
 After saving the implementation plan:
 
 1. Summarize: "Plan saved to `$PLAN_PATH` with [N] tasks in [M] parallel groups."
-2. Ask: "Continue to task delegation with `/delegate`? (yes/no)"
-3. On user confirmation (yes, y, continue, proceed):
+2. Invoke immediately:
    ```typescript
    Skill({ skill: "delegate", args: "$PLAN_PATH" })
    ```
-4. On decline: "No problem. Run `/delegate $PLAN_PATH` when ready."
