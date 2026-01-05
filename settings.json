@@ -97,6 +97,8 @@
       "Bash(yq:*)",
 
       "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
       "Bash(cp:*)",
       "Bash(mv:*)",
       "Bash(touch:*)",
