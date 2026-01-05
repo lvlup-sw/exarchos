@@ -182,12 +182,13 @@ resource "azurerm_container_app_environment" "main" {
   # Infrastructure subnet (optional - for VNet integration)
   # infrastructure_subnet_id = var.infrastructure_subnet_id
 
-  # Workload profiles for scale-to-zero in dev environments
+  # Workload profile - Consumption for serverless, or dedicated for premium workloads
   workload_profile {
-    name                  = "Consumption"
-    workload_profile_type = "Consumption"
-    minimum_count         = 0
-    maximum_count         = 0
+    name                  = var.sku_name
+    workload_profile_type = var.sku_name
+    # min/max counts only apply to dedicated workload profiles, not Consumption
+    minimum_count         = var.sku_name == "Consumption" ? 0 : 1
+    maximum_count         = var.sku_name == "Consumption" ? 0 : 3
   }
 
   tags = var.tags

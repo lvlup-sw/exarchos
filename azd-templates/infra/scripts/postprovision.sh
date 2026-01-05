@@ -21,7 +21,10 @@ readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
 readonly NC='\033[0m' # No Color
 
+# Determine script and infrastructure directories
+SCRIPT_DIR=
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR=
 INFRA_DIR="$(dirname "$SCRIPT_DIR")"
 
 # -----------------------------------------------------------------------------
@@ -48,6 +51,9 @@ log_error() {
 # Extract Terraform Outputs
 # -----------------------------------------------------------------------------
 
+# Extracts Terraform outputs and sets azd environment variables
+# Requires: Valid Terraform state in INFRA_DIR
+# Side effects: Sets azd env variables for Container Registry, Key Vault, etc.
 extract_terraform_outputs() {
     log_info "Extracting Terraform outputs..."
 
@@ -60,7 +66,7 @@ extract_terraform_outputs() {
     fi
 
     # Get outputs as JSON
-    local outputs
+    local outputs=
     outputs=$(terraform output -json 2>/dev/null || echo "{}")
 
     if [[ "$outputs" == "{}" ]]; then
@@ -72,43 +78,49 @@ extract_terraform_outputs() {
     log_success "Terraform outputs:"
 
     # Container Registry
-    local acr_endpoint
+    local acr_endpoint=
     acr_endpoint=$(echo "$outputs" | jq -r '.AZURE_CONTAINER_REGISTRY_ENDPOINT.value // empty')
     if [[ -n "$acr_endpoint" ]]; then
         echo "  Container Registry: $acr_endpoint"
         azd env set AZURE_CONTAINER_REGISTRY_ENDPOINT "$acr_endpoint" 2>/dev/null || true
+        # Export to current shell for subsequent scripts
+        export AZURE_CONTAINER_REGISTRY_ENDPOINT="$acr_endpoint"
     fi
 
     # Container Apps Environment
-    local cae_name
+    local cae_name=
     cae_name=$(echo "$outputs" | jq -r '.AZURE_CONTAINER_APPS_ENVIRONMENT_NAME.value // empty')
     if [[ -n "$cae_name" ]]; then
         echo "  Container Apps Environment: $cae_name"
         azd env set AZURE_CONTAINER_APPS_ENVIRONMENT_NAME "$cae_name" 2>/dev/null || true
+        export AZURE_CONTAINER_APPS_ENVIRONMENT_NAME="$cae_name"
     fi
 
     # Key Vault
-    local kv_endpoint
+    local kv_endpoint=
     kv_endpoint=$(echo "$outputs" | jq -r '.AZURE_KEY_VAULT_ENDPOINT.value // empty')
     if [[ -n "$kv_endpoint" ]]; then
         echo "  Key Vault: $kv_endpoint"
         azd env set AZURE_KEY_VAULT_ENDPOINT "$kv_endpoint" 2>/dev/null || true
+        export AZURE_KEY_VAULT_ENDPOINT="$kv_endpoint"
     fi
 
     # Resource Group
-    local rg_name
+    local rg_name=
     rg_name=$(echo "$outputs" | jq -r '.AZURE_RESOURCE_GROUP.value // empty')
     if [[ -n "$rg_name" ]]; then
         echo "  Resource Group: $rg_name"
         azd env set AZURE_RESOURCE_GROUP "$rg_name" 2>/dev/null || true
+        export AZURE_RESOURCE_GROUP="$rg_name"
     fi
 
     # Managed Identity
-    local mi_client_id
+    local mi_client_id=
     mi_client_id=$(echo "$outputs" | jq -r '.AZURE_MANAGED_IDENTITY_CLIENT_ID.value // empty')
     if [[ -n "$mi_client_id" ]]; then
         echo "  Managed Identity Client ID: ${mi_client_id:0:8}..."
         azd env set AZURE_MANAGED_IDENTITY_CLIENT_ID "$mi_client_id" 2>/dev/null || true
+        export AZURE_MANAGED_IDENTITY_CLIENT_ID="$mi_client_id"
     fi
 }
 
@@ -116,6 +128,9 @@ extract_terraform_outputs() {
 # Verify Provisioned Resources
 # -----------------------------------------------------------------------------
 
+# Verifies resources were provisioned in the target resource group
+# Requires: AZURE_RESOURCE_GROUP environment variable
+# Outputs: Resource count log message
 verify_resources() {
     log_info "Verifying provisioned resources..."
 
@@ -126,7 +141,7 @@ verify_resources() {
     fi
 
     # List resources in the resource group
-    local resource_count
+    local resource_count=
     resource_count=$(az resource list --resource-group "$resource_group" --query "length(@)" -o tsv 2>/dev/null || echo "0")
 
     if [[ "$resource_count" -eq 0 ]]; then
@@ -140,10 +155,20 @@ verify_resources() {
 # Configure Container Registry Access
 # -----------------------------------------------------------------------------
 
+# Logs into Azure Container Registry for local development
+# Derives ACR name from endpoint if AZURE_CONTAINER_REGISTRY_NAME not set
+# Side effects: Authenticates Docker to ACR
 configure_acr_access() {
     log_info "Configuring Container Registry access..."
 
+    # Try to get ACR name from explicit variable or derive from endpoint
     local acr_name="${AZURE_CONTAINER_REGISTRY_NAME:-}"
+    if [[ -z "$acr_name" ]] && [[ -n "${AZURE_CONTAINER_REGISTRY_ENDPOINT:-}" ]]; then
+        # Derive ACR name from endpoint (e.g., "acrdev123.azurecr.io" -> "acrdev123")
+        acr_name=$(echo "${AZURE_CONTAINER_REGISTRY_ENDPOINT}" | sed 's/\.azurecr\.io.*//' | sed 's|https://||')
+        export AZURE_CONTAINER_REGISTRY_NAME="$acr_name"
+    fi
+
     if [[ -z "$acr_name" ]]; then
         log_warning "AZURE_CONTAINER_REGISTRY_NAME not set. Skipping ACR configuration."
         return 0

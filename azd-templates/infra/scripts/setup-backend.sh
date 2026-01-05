@@ -70,6 +70,8 @@ usage() {
 # Verify Prerequisites
 # -----------------------------------------------------------------------------
 
+# Verifies Azure CLI is installed and authenticated
+# Exits with error if prerequisites are not met
 verify_prerequisites() {
     log_info "Verifying prerequisites..."
 
@@ -92,6 +94,10 @@ verify_prerequisites() {
 # Create Resource Group
 # -----------------------------------------------------------------------------
 
+# Creates an Azure resource group for Terraform state storage
+# Arguments:
+#   $1 - Resource group name
+#   $2 - Azure region location
 create_resource_group() {
     local rg_name="$1"
     local location="$2"
@@ -116,6 +122,11 @@ create_resource_group() {
 # Create Storage Account
 # -----------------------------------------------------------------------------
 
+# Creates an Azure Storage Account for Terraform state
+# Arguments:
+#   $1 - Storage account name (globally unique)
+#   $2 - Resource group name
+#   $3 - Azure region location
 create_storage_account() {
     local sa_name="$1"
     local rg_name="$2"
@@ -147,6 +158,11 @@ create_storage_account() {
 # Create Blob Container
 # -----------------------------------------------------------------------------
 
+# Creates a blob container for storing Terraform state files
+# Arguments:
+#   $1 - Storage account name
+#   $2 - Resource group name
+#   $3 - Container name
 create_blob_container() {
     local sa_name="$1"
     local rg_name="$2"
@@ -183,6 +199,10 @@ create_blob_container() {
 # Assign RBAC Role
 # -----------------------------------------------------------------------------
 
+# Assigns Storage Blob Data Contributor role to current user
+# Arguments:
+#   $1 - Storage account name
+#   $2 - Resource group name
 assign_rbac_role() {
     local sa_name="$1"
     local rg_name="$2"
@@ -190,7 +210,7 @@ assign_rbac_role() {
     log_info "Assigning Storage Blob Data Contributor role..."
 
     # Get current user's object ID
-    local user_id
+    local user_id=
     user_id=$(az ad signed-in-user show --query "id" -o tsv 2>/dev/null || echo "")
 
     if [[ -z "$user_id" ]]; then
@@ -199,7 +219,7 @@ assign_rbac_role() {
     fi
 
     # Get storage account resource ID
-    local sa_id
+    local sa_id=
     sa_id=$(az storage account show --name "$sa_name" --resource-group "$rg_name" --query "id" -o tsv)
 
     # Assign role (ignore if already assigned)
@@ -217,6 +237,10 @@ assign_rbac_role() {
 # Generate Environment Variables
 # -----------------------------------------------------------------------------
 
+# Outputs configuration instructions for using the Terraform backend
+# Arguments:
+#   $1 - Storage account name
+#   $2 - Resource group name
 generate_env_vars() {
     local sa_name="$1"
     local rg_name="$2"

@@ -60,13 +60,13 @@ variable "log_retention_days" {
 }
 
 variable "sku_name" {
-  description = "SKU name for Container Apps Environment workload profile"
+  description = "Workload profile type for Container Apps Environment (Consumption for serverless, or dedicated like D4, D8, D16, D32, E4, E8, E16, E32)"
   type        = string
   default     = "Consumption"
 
   validation {
-    condition     = contains(["Consumption", "Premium"], var.sku_name)
-    error_message = "SKU name must be 'Consumption' or 'Premium'."
+    condition     = contains(["Consumption", "D4", "D8", "D16", "D32", "E4", "E8", "E16", "E32"], var.sku_name)
+    error_message = "SKU name must be 'Consumption' (serverless) or a dedicated workload profile type (D4, D8, D16, D32, E4, E8, E16, E32)."
   }
 }
 

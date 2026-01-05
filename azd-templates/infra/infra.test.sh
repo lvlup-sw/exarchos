@@ -1,8 +1,32 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# Terraform Infrastructure Validation Test Suite
+# Validates Terraform configuration files and module structure
+# -----------------------------------------------------------------------------
+#
+# This script validates:
+#   - Required Terraform files exist (main.tf, variables.tf, outputs.tf, etc.)
+#   - Container Apps module has all required files
+#   - Terraform configuration is syntactically valid
+#
+# Usage: ./infra.test.sh
+# Exit codes: 0 = all tests passed, 1 = one or more tests failed
+# -----------------------------------------------------------------------------
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ERRORS=0
+
+# -----------------------------------------------------------------------------
+# Test Helper Functions
+# -----------------------------------------------------------------------------
+
+# Increments error counter in a set -e compatible way
+# Usage: increment_errors
+increment_errors() {
+    ERRORS=$((ERRORS + 1))
+}
 
 echo "=== Terraform Infrastructure Validation ==="
 
@@ -12,7 +36,7 @@ if [ -f "$SCRIPT_DIR/main.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: backend.tf exists
@@ -21,7 +45,7 @@ if [ -f "$SCRIPT_DIR/backend.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: variables.tf exists
@@ -30,7 +54,7 @@ if [ -f "$SCRIPT_DIR/variables.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: outputs.tf exists
@@ -39,7 +63,7 @@ if [ -f "$SCRIPT_DIR/outputs.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: Container Apps module exists
@@ -48,7 +72,7 @@ if [ -f "$SCRIPT_DIR/modules/container-apps/main.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: Container Apps module variables exists
@@ -57,7 +81,7 @@ if [ -f "$SCRIPT_DIR/modules/container-apps/variables.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: Container Apps module outputs exists
@@ -66,7 +90,7 @@ if [ -f "$SCRIPT_DIR/modules/container-apps/outputs.tf" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: main.tfvars.json template exists
@@ -75,7 +99,7 @@ if [ -f "$SCRIPT_DIR/main.tfvars.json" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: provider.conf.json template exists
@@ -84,7 +108,7 @@ if [ -f "$SCRIPT_DIR/provider.conf.json" ]; then
     echo "PASS"
 else
     echo "FAIL"
-    ((ERRORS++))
+    increment_errors
 fi
 
 # Test: Terraform syntax valid (if terraform available)
@@ -94,7 +118,7 @@ if command -v terraform &>/dev/null; then
         echo "PASS"
     else
         echo "FAIL (terraform validate failed)"
-        ((ERRORS++))
+        increment_errors
     fi
 else
     echo "SKIP (terraform not installed)"

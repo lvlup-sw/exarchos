@@ -21,7 +21,10 @@ readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
 readonly NC='\033[0m' # No Color
 
+# Determine script and infrastructure directories
+SCRIPT_DIR=
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR=
 INFRA_DIR="$(dirname "$SCRIPT_DIR")"
 
 # -----------------------------------------------------------------------------
@@ -48,6 +51,9 @@ log_error() {
 # Azure CLI Authentication Check
 # -----------------------------------------------------------------------------
 
+# Verifies the user is authenticated to Azure CLI
+# Exits with error if not authenticated
+# Outputs: Logs subscription name and ID on success
 verify_azure_auth() {
     log_info "Verifying Azure CLI authentication..."
 
@@ -56,9 +62,9 @@ verify_azure_auth() {
         exit 1
     fi
 
-    local account_name
+    local account_name=
     account_name=$(az account show --query "name" -o tsv)
-    local subscription_id
+    local subscription_id=
     subscription_id=$(az account show --query "id" -o tsv)
 
     log_success "Authenticated to Azure subscription: $account_name ($subscription_id)"
@@ -68,6 +74,9 @@ verify_azure_auth() {
 # Get Current User Principal ID
 # -----------------------------------------------------------------------------
 
+# Retrieves the principal ID of the current Azure user or service principal
+# Returns: Principal ID via stdout, empty string if not found
+# Side effects: Logs warnings if principal cannot be determined
 get_principal_id() {
     log_info "Retrieving current user principal ID..."
 
@@ -101,6 +110,9 @@ get_principal_id() {
 # Set Terraform Environment Variables
 # -----------------------------------------------------------------------------
 
+# Exports TF_VAR_* environment variables for Terraform
+# Reads from azd environment variables (AZURE_ENV_NAME, AZURE_LOCATION, etc.)
+# Side effects: Creates .env.terraform file for persistence
 set_terraform_vars() {
     log_info "Setting Terraform environment variables..."
 
@@ -110,7 +122,7 @@ set_terraform_vars() {
     local resource_group="${AZURE_RESOURCE_GROUP:-rg-${env_name}}"
 
     # Get principal ID
-    local principal_id
+    local principal_id=
     principal_id=$(get_principal_id)
 
     # Export TF_VAR_* variables for Terraform
@@ -140,6 +152,9 @@ EOF
 # Initialize Terraform Backend
 # -----------------------------------------------------------------------------
 
+# Initializes Terraform with remote backend if configured
+# Requires: AZURE_TFSTATE_STORAGE_ACCOUNT environment variable for remote state
+# Side effects: Runs terraform init, creates temporary config file
 init_terraform_backend() {
     log_info "Checking Terraform backend configuration..."
 
@@ -160,7 +175,7 @@ init_terraform_backend() {
     log_info "Initializing Terraform with remote backend..."
 
     # Substitute environment variables in provider.conf.json
-    local temp_config
+    local temp_config=
     temp_config=$(mktemp)
     envsubst < "$backend_config" > "$temp_config"
 
