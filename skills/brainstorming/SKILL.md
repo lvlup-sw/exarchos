@@ -115,7 +115,13 @@ Activate this skill when:
 
 ## Transition
 
-After brainstorming completes, suggest:
-> "Design documented. Ready to create implementation plan with `/plan`?"
+After brainstorming completes, follow the Auto-Chain section in `commands/ideate.md`:
+
+1. Summarize the saved design document path
+2. Ask for confirmation to continue to `/plan`
+3. On confirmation, invoke:
+   ```typescript
+   Skill({ skill: "plan", args: "<design-path>" })
+   ```
 
 This leads to the **implementation-planning** skill for TDD task breakdown.

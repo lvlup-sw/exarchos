@@ -72,8 +72,36 @@ Re-review after fixes.
 
 ## Output
 
-When both stages pass:
-> "Review complete. All tasks ready for `/synthesize`."
+Track the feature name and plan path as `$FEATURE_NAME` and `$PLAN_PATH`.
 
-When issues found:
-> "[Stage] found [N] issues. Returning for fixes."
+## Auto-Chain
+
+### On PASS (both spec and quality stages):
+
+1. Summarize: "Spec review: PASS. Quality review: APPROVED."
+2. Ask: "Continue to synthesis with `/synthesize`? (yes/no)"
+3. On user confirmation (yes, y, continue, proceed):
+   ```typescript
+   Skill({ skill: "synthesize", args: "$FEATURE_NAME" })
+   ```
+4. On decline: "No problem. Run `/synthesize $FEATURE_NAME` when ready."
+
+### On FAIL (spec or quality issues):
+
+Do NOT offer synthesis. Instead:
+
+1. Summarize: "[Stage] found [N] issues."
+2. Auto-invoke delegate with fix context:
+   ```typescript
+   Skill({ skill: "delegate", args: "--fixes $PLAN_PATH" })
+   ```
+
+### On BLOCKED (critical design issues):
+
+Do NOT offer synthesis. Instead:
+
+1. Summarize: "Quality review BLOCKED: [critical issue]. Returning to design discussion."
+2. Auto-invoke ideate for redesign:
+   ```typescript
+   Skill({ skill: "ideate", args: "--redesign $FEATURE_NAME" })
+   ```

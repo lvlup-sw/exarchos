@@ -226,7 +226,13 @@ TaskOutput({ task_id: "task-002-id" })
 
 ## Transition
 
-After all tasks complete, suggest:
-> "All [N] tasks complete. Ready for review with `/review`?"
+After all tasks complete, follow the Auto-Chain section in `commands/delegate.md`:
+
+1. Summarize the completed task count
+2. Ask for confirmation to continue to `/review`
+3. On confirmation, invoke:
+   ```typescript
+   Skill({ skill: "review", args: "<plan-path>" })
+   ```
 
 This leads to **spec-review** and **quality-review** skills.

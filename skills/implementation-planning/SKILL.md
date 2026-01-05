@@ -169,7 +169,13 @@ Follow: `MethodName_Scenario_ExpectedOutcome`
 
 ## Transition
 
-After planning completes, suggest:
-> "Plan ready with [N] tasks in [N] parallel groups. Delegate with `/delegate`?"
+After planning completes, follow the Auto-Chain section in `commands/plan.md`:
+
+1. Summarize the saved plan document path and task count
+2. Ask for confirmation to continue to `/delegate`
+3. On confirmation, invoke:
+   ```typescript
+   Skill({ skill: "delegate", args: "<plan-path>" })
+   ```
 
 This leads to the **delegation** skill for Jules/subagent dispatch.

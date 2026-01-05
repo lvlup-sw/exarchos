@@ -73,5 +73,16 @@ Task({ model: "opus", description: "Task 002", prompt: "..." })
 
 ## Output
 
-When all tasks complete:
-> "All [N] tasks complete. Ready for review with `/review`?"
+Track the plan path used for delegation as `$PLAN_PATH`.
+
+## Auto-Chain
+
+After all delegated tasks complete:
+
+1. Summarize: "All [N] tasks complete and verified."
+2. Ask: "Continue to review with `/review`? (yes/no)"
+3. On user confirmation (yes, y, continue, proceed):
+   ```typescript
+   Skill({ skill: "review", args: "$PLAN_PATH" })
+   ```
+4. On decline: "No problem. Run `/review $PLAN_PATH` when ready."

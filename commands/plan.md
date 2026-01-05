@@ -61,5 +61,16 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ## Output
 
-When complete:
-> "Plan ready with [N] tasks in [N] parallel groups. Delegate with `/delegate`?"
+Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN_PATH`.
+
+## Auto-Chain
+
+After saving the implementation plan:
+
+1. Summarize: "Plan saved to `$PLAN_PATH` with [N] tasks in [M] parallel groups."
+2. Ask: "Continue to task delegation with `/delegate`? (yes/no)"
+3. On user confirmation (yes, y, continue, proceed):
+   ```typescript
+   Skill({ skill: "delegate", args: "$PLAN_PATH" })
+   ```
+4. On decline: "No problem. Run `/delegate $PLAN_PATH` when ready."
