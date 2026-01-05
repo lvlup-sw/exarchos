@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+tone_instructions: Exacting, prioritizing technical optimality
+early_access: true
+reviews:
+  request_changes_workflow: true
+  high_level_summary_instructions: Review git commit messages and related documents in addition to code changes.
+  auto_apply_labels: true
+  auto_assign_reviewers: true
+  path_filters:
+    - '!**/*.lock'
+    - '!**/package-lock.json'
+    - '!**/yarn.lock'
+    - '!**/*.generated.*'
+    - '!**/dist/**'
+    - '!**/node_modules/**'
+    - '!**/*.min.js'
+  path_instructions:
+    - path: '**/*.test.*'
+      instructions: Focus on test coverage, assertion quality, and edge cases.
+    - path: '**/api/**'
+      instructions: 'Prioritize security: auth, input validation, error handling.'
+    - path: docs/**
+      instructions: Check for accuracy and completeness. Light review only.
+  pre_merge_checks:
+    custom_checks:
+      - mode: error
+        name: SPEC COMPLIANCE
+        instructions: |-
+          ## Spec Compliance Review
+
+          ### Checklist
+
+          - [ ] All specified requirements implemented (no missing features)
+          - [ ] No over-engineering beyond spec (flag scope creep)
+          - [ ] Tests exist for each feature
+          - [ ] Test names follow `Method_Scenario_Outcome` pattern
+          - [ ] Coverage: >80% line, >70% branch for new code
+
+          ### Flag as SPEC ISSUE
+
+          - Missing functionality from design/plan
+          - Untested public APIs
+          - Behavior differs from specification
+          - Features added that weren't specified (scope creep)
+
+          ### Test File Review (`*.test.*`)
+
+          - Tests exist for all new functionality
+          - Arrange-Act-Assert structure present
+          - Meaningful assertions (not `expect(true)`)
+          - Edge cases and error paths covered
+          - No shared mutable state between tests
+
+          ### Summary
+
+          End with:
+
+          Spec Review
+
+          Status: PASS | FAIL
+
+          Missing: [list any unimplemented requirements]
+          Untested: [list any untested features]
+          Scope Creep: [list any unspecified additions]
+      - mode: error
+        name: CODE QUALITY
+        instructions: |-
+          ## Code Quality Review
+
+          Assumes spec compliance has passed. Focus on maintainability and security.
+
+          ### 🔴 HIGH (must fix before merge)
+
+          - Security: SQL injection, XSS, secrets in code, unsanitized input
+          - Data loss risks, unhandled errors that could crash
+          - Missing error handling at system boundaries
+          - Floating promises (missing await)
+
+          ### 🟡 MEDIUM (should fix)
+
+          - SOLID violations (god classes, tight coupling)
+          - Functions >30 lines or multiple responsibilities
+          - Deep nesting—prefer guard clauses + early returns:
+          // GOOD: guard clause
+          if (invalid) return;
+          // main logic flat
+
+          // BAD: arrow code
+          if (valid) {
+              if (another) {
+              // deeply nested
+              }
+          }
+          - Copy-paste duplication (DRY violations)
+          - N+1 queries, obvious O(n²) when O(n) works
+          - Poor test quality (weak assertions, no edge cases)
+
+          ### 🟢 LOW (nice to have)
+
+          - Naming clarity improvements
+          - Minor refactoring opportunities
+          - Documentation suggestions
+
+          ### API Endpoints (`**/api/**`)
+
+          - Input validation and sanitization
+          - Parameterized queries only (no string interpolation)
+          - Auth checks present
+          - Error responses don't leak internals
+
+          ### Summary
+
+          End with:
+
+          Quality Review
+
+          Status: APPROVED | NEEDS_FIXES | BLOCKED
+
+          HIGH: [count] | MEDIUM: [count] | LOW: [count]
+
+          [List HIGH items requiring action]
+
+          - **APPROVED**: Ready to merge
+          - **NEEDS_FIXES**: Address HIGH items and re-request review
+          - **BLOCKED**: Critical design flaw requiring discussion
