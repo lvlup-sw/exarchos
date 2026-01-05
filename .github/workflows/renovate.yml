@@ -1,0 +1,25 @@
+name: Renovate
+
+on:
+  # Weekend schedule matching renovate-config/renovate.json
+  schedule:
+    - cron: '0 13 * * 6'  # Saturday 6am Denver (13:00 UTC)
+    - cron: '0 13 * * 0'  # Sunday 6am Denver (13:00 UTC)
+  # Manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@v44.2.2
+        with:
+          configurationFile: renovate-config.js
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          LOG_LEVEL: info
