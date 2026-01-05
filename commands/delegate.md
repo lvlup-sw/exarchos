@@ -95,67 +95,158 @@ Task({ model: "opus", description: "Task 002", prompt: "..." })
 
 When invoked with `--pr-fixes [PR_URL]`:
 
-### Step 1: Fetch PR Comments
+### Priority Levels
+
+| Priority | Source | Description |
+|----------|--------|-------------|
+| 1 | `coderabbit:critical` | 🔴 Critical issues + SPEC COMPLIANCE failures |
+| 2 | `human` | Human reviewer comments (authority over automation) |
+| 3 | `coderabbit:major` | 🟠 Major issues + CODE QUALITY HIGH items |
+| 4 | `coderabbit:minor` | 🟡 Minor issues |
+
+### Step 1: Fetch All PR Feedback
+
 ```bash
 # Extract owner, repo, PR number from URL
-gh pr view [PR_NUMBER] --repo [OWNER/REPO] --comments --json comments,reviews,body
+# Get reviews (includes CHANGES_REQUESTED state)
+gh api repos/{owner}/{repo}/pulls/{number}/reviews
+
+# Get line-specific comments (contains severity labels)
 gh api repos/{owner}/{repo}/pulls/{number}/comments
+
+# Get general PR comments (pre-merge check summaries)
+gh api repos/{owner}/{repo}/issues/{number}/comments
 ```
 
-### Step 2: Parse Feedback into Fix Tasks
+### Step 2: Parse CodeRabbit Feedback
 
-For each actionable comment, create a structured fix task:
+**2a: Identify CodeRabbit comments** by author = `coderabbitai[bot]`
+
+**2b: Parse line comments by severity label:**
+
+| Label | Priority |
+|-------|----------|
+| `🔴 Critical` | 1 |
+| `🟠 Major` | 2 |
+| `🟡 Minor` | 3 |
+
+Extract from each comment:
+- Severity label (emoji + text)
+- File path and line number
+- Issue description
+- Suggested fix (from `🔎 Proposed fix` section if present)
+
+**2c: Parse pre-merge check summaries:**
+- `Status: FAIL` in Spec Review → Priority 1
+- `Status: NEEDS_FIXES | BLOCKED` in Quality Review → Priority 2
+- Extract items from `Missing:`, `Untested:`, `Scope Creep:` lists
+
+**2d: Parse reviews with `CHANGES_REQUESTED`:**
+- Note "Actionable comments posted: N" count
+- Cross-reference with line comments already parsed
+
+### Step 3: Parse Human Comments (Priority 2)
+
+For non-CodeRabbit comments, assign `priority: 2` (human authority over automation).
+
+Skip comments that are:
+- Purely praise/acknowledgment ("LGTM", "Nice work")
+- Questions without action items
+- Already marked resolved
+- From other bots (CI notifications, etc.)
+
+### Step 4: Create Fix Tasks
+
+For each actionable item, create a structured fix task:
 
 | Field | Description |
 |-------|-------------|
-| `id` | Unique identifier (e.g., `fix-001`) |
-| `source` | Comment ID or review ID |
-| `file` | File path mentioned (if any) |
-| `line` | Line number mentioned (if any) |
-| `issue` | What's wrong (from reviewer) |
-| `action` | What needs to change |
+| `id` | `fix-001`, `fix-002`, etc. |
+| `priority` | `1` (critical), `2` (human), `3` (major), `4` (minor) |
+| `source` | `"coderabbit:critical"`, `"human"`, `"coderabbit:major"`, `"coderabbit:minor"` |
+| `severity` | `"🔴 Critical"`, `"🟠 Major"`, `"🟡 Minor"`, or null |
+| `file` | File path |
+| `line` | Line number (if line comment) |
+| `issue` | Problem description |
+| `action` | Required change / suggested fix |
 
-Skip comments that are:
-- Purely praise/acknowledgment
-- Questions without action items
-- Already resolved
+### Step 5: Sort and Display Fix Tasks
 
-### Step 3: Track Fix Tasks
+Sort by priority (1→4), then by file path for grouping.
+
+Display summary:
+```markdown
+## PR Fix Tasks (N total)
+
+### Priority 1: Critical 🔴 (count)
+- fix-001: [issue] in [file:line]
+
+### Priority 2: Human Feedback (count)
+- fix-002: [issue] from @reviewer
+
+### Priority 3: Major 🟠 (count)
+- fix-003: [issue] in [file:line]
+
+### Priority 4: Minor 🟡 (count)
+- fix-004: [issue] in [file:line]
+```
+
+### Step 6: Track Fix Tasks
 
 ```typescript
 TodoWrite({
   todos: [
-    { content: "Fix 001: [issue summary]", status: "pending", activeForm: "Fixing [issue]" },
-    // ... one entry per fix task
+    { content: "Fix 001 [P1 🔴]: Division by zero", status: "pending", activeForm: "Fixing division by zero" },
+    { content: "Fix 002 [P2 HUMAN]: Reviewer suggestion", status: "pending", activeForm: "Addressing feedback" },
+    { content: "Fix 003 [P3 🟠]: Missing validation", status: "pending", activeForm: "Adding validation" },
+    { content: "Fix 004 [P4 🟡]: Naming convention", status: "pending", activeForm: "Fixing naming" },
   ]
 })
 ```
 
-### Step 4: Dispatch Fixes (MANDATORY)
+### Step 7: Dispatch Fixes (MANDATORY - Priority Order)
 
-**You MUST spawn subagents for each fix task.** This step is not optional.
+**You MUST spawn subagents for each fix task, processing in priority order.**
 
-**Option A: Task Tool (for local repo access)**
+**Dispatch sequence:**
+1. Dispatch all P1 (critical) fixes in parallel
+2. Wait for completion
+3. Dispatch all P2 (human) fixes in parallel
+4. Wait for completion
+5. Dispatch all P3 (major) fixes in parallel
+6. Wait for completion
+7. Dispatch all P4 (minor) fixes in parallel
+8. Wait for completion
+
+**Task prompt template:**
 ```typescript
 Task({
   subagent_type: "general-purpose",
   model: "opus",  // REQUIRED for code changes
-  description: "Fix: [issue summary]",
+  description: "Fix [P{priority} {severity}]: {issue summary}",
   prompt: `
-# Task: Fix PR Feedback - [issue summary]
+# Task: Fix PR Feedback - {issue summary}
+
+## Priority
+{priority} - {source}
+- P1 = 🔴 Critical (blocking)
+- P2 = Human feedback (authority)
+- P3 = 🟠 Major
+- P4 = 🟡 Minor
 
 ## Context
-PR: [PR_URL]
-Reviewer comment: "[original comment text]"
+PR: {PR_URL}
+Source: {source}
+Original feedback: "{original comment text}"
 
 ## Working Directory
-[absolute path to repo]
+{absolute path to repo}
 
 ## Fix Required
-File: [file path]
-Line: [line number if applicable]
-Issue: [what's wrong]
-Action: [what to change]
+File: {file path}
+Line: {line number if applicable}
+Issue: {issue description}
+Action: {required change}
 
 ## TDD Requirements
 1. Write a test that would catch this issue (if applicable)
@@ -164,32 +255,23 @@ Action: [what to change]
 4. Verify test passes
 
 ## Success Criteria
-- [ ] Issue addressed per reviewer feedback
+- [ ] Issue addressed per feedback
 - [ ] Tests pass
 - [ ] No regressions introduced
 `
 })
 ```
 
-**Option B: Jules (for async execution)**
-```typescript
-jules_create_task({
-  repo: "[owner/repo]",
-  branch: "[PR branch name]",
-  prompt: "[Same structured prompt as above]"
-})
-```
-
-**For parallel fixes:** Launch multiple Task tools in a single message:
+**For parallel fixes within a priority level:**
 ```typescript
 // CORRECT: Single message with multiple tasks
-Task({ model: "opus", description: "Fix 001: ...", prompt: "..." })
-Task({ model: "opus", description: "Fix 002: ...", prompt: "..." })
+Task({ model: "opus", description: "Fix [P1 🔴]: ...", prompt: "..." })
+Task({ model: "opus", description: "Fix [P1 🔴]: ...", prompt: "..." })
 ```
 
-**CHECKPOINT:** Do NOT proceed to Step 5 until you have confirmed that Task or jules_create_task tools have been invoked for EVERY fix task identified in Step 2.
+**CHECKPOINT:** Do NOT proceed to Step 8 until all fixes in the current priority level have completed.
 
-### Step 5: Monitor Completion
+### Step 8: Monitor Completion
 
 For Task tool:
 ```typescript
@@ -203,20 +285,39 @@ jules_check_status({ sessionId: "[session-id]" })
 
 Update TodoWrite as each fix completes.
 
-### Step 6: Push and Report
+### Step 9: Push and Report
 
 After all fixes complete:
 ```bash
-git add -A && git commit -m "fix: address PR review feedback"
+git add -A && git commit -m "fix: address PR review feedback
+
+Fixes:
+- P1 Critical: [count] issues
+- P2 Human: [count] items
+- P3 Major: [count] issues
+- P4 Minor: [count] issues"
 git push origin [branch]
 ```
 
 Report to user:
-- Number of fixes applied
+- Total fixes applied by priority
 - Files modified
-- Suggestion to request re-review
+- Suggest requesting re-review
 
 Then auto-chain back to `/synthesize` for merge confirmation.
+
+### Handling Missing CodeRabbit Comments
+
+If no CodeRabbit comments found:
+```
+Note: No CodeRabbit feedback found. Processing human reviewer comments only.
+Possible reasons:
+- CodeRabbit not configured for this repository
+- Pre-merge checks haven't completed yet
+- PR has no code changes (documentation-only)
+```
+
+Proceed with human comments (Priority 4) only.
 
 ## Output
 
