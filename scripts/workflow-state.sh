@@ -14,9 +14,36 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+# Auto-detect repo root - works from any directory within the repo
+# Priority: 1) Script location, 2) Git root, 3) Current directory
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+elif git rev-parse --show-toplevel &>/dev/null; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+else
+    REPO_ROOT="$(pwd)"
+fi
+
 STATE_DIR="$REPO_ROOT/docs/workflow-state"
+
+# Resolve state file paths - handle both relative and absolute paths
+resolve_state_file() {
+    local input="$1"
+    if [[ "$input" == /* ]]; then
+        # Absolute path - use as-is
+        echo "$input"
+    elif [[ "$input" == docs/workflow-state/* ]]; then
+        # Relative from repo root
+        echo "$REPO_ROOT/$input"
+    elif [[ "$input" == *.state.json ]]; then
+        # Just filename - prepend STATE_DIR
+        echo "$STATE_DIR/$input"
+    else
+        # Assume relative from repo root
+        echo "$REPO_ROOT/$input"
+    fi
+}
 
 usage() {
     echo "Usage: workflow-state.sh <command> [args]"
@@ -91,7 +118,8 @@ cmd_list() {
 
 # Get state or specific field
 cmd_get() {
-    local state_file="$1"
+    local state_file
+    state_file="$(resolve_state_file "$1")"
     local query="${2:-.}"
 
     if [ ! -f "$state_file" ]; then
@@ -104,7 +132,8 @@ cmd_get() {
 
 # Update state using jq filter
 cmd_set() {
-    local state_file="$1"
+    local state_file
+    state_file="$(resolve_state_file "$1")"
     local filter="$2"
     local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -123,7 +152,8 @@ cmd_set() {
 
 # Output minimal summary for context restoration
 cmd_summary() {
-    local state_file="$1"
+    local state_file
+    state_file="$(resolve_state_file "$1")"
 
     if [ ! -f "$state_file" ]; then
         echo "ERROR: State file not found: $state_file" >&2
@@ -204,7 +234,8 @@ cmd_summary() {
 
 # Reconcile state with reality (git worktrees, Jules sessions)
 cmd_reconcile() {
-    local state_file="$1"
+    local state_file
+    state_file="$(resolve_state_file "$1")"
 
     if [ ! -f "$state_file" ]; then
         echo "ERROR: State file not found: $state_file" >&2
@@ -245,7 +276,8 @@ cmd_reconcile() {
 
 # Determine next auto-continue action based on current state
 cmd_next_action() {
-    local state_file="$1"
+    local state_file
+    state_file="$(resolve_state_file "$1")"
 
     if [ ! -f "$state_file" ]; then
         echo "ERROR:state-not-found"
