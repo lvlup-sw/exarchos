@@ -124,9 +124,11 @@ resource "azurerm_key_vault" "main" {
   # Enable Azure RBAC for access control (recommended over access policies)
   rbac_authorization_enabled = true
 
-  # Network rules - allow Azure services
+  # Network rules - restrict public access in production
+  # Dev environments allow public access for easier local development
+  # Production environments deny public access (use private endpoints or VNet integration)
   network_acls {
-    default_action = "Allow"
+    default_action = var.is_dev_environment ? "Allow" : "Deny"
     bypass         = "AzureServices"
   }
 
