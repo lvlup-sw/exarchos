@@ -96,18 +96,47 @@ export interface SendMessageParams {
 // Activity Types
 // ============================================================================
 
-export type ActivityType =
-  | 'PLANNING'
-  | 'CODING'
-  | 'TESTING'
-  | 'MESSAGE'
-  | 'ERROR';
+export type ActivityEventType =
+  | 'planGenerated'
+  | 'planApproved'
+  | 'userMessaged'
+  | 'agentMessaged'
+  | 'progressUpdated'
+  | 'sessionCompleted'
+  | 'sessionFailed';
+
+export interface Artifact {
+  type: 'changeset' | 'bashOutput' | 'media';
+  // ChangeSet fields
+  baseCommitId?: string;
+  unidiffPatch?: string;
+  suggestedCommitMessage?: string;
+  // Bash output fields
+  command?: string;
+  output?: string;
+  exitCode?: number;
+  // Media fields
+  mimeType?: string;
+  data?: string; // base64
+}
 
 export interface Activity {
   name: string;
-  type: ActivityType;
-  message: string;
+  id: string;
+  originator: 'system' | 'agent' | 'user';
+  description: string;
   createTime: string;
+
+  // Event-specific content (exactly one will be present)
+  planGenerated?: { steps: string[] };
+  planApproved?: { approvedBy: string };
+  userMessaged?: { content: string };
+  agentMessaged?: { content: string };
+  progressUpdated?: { status: string };
+  sessionCompleted?: { summary: string };
+  sessionFailed?: { reason: string };
+
+  artifacts?: Artifact[];
 }
 
 export interface ListActivitiesResponse {

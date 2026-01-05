@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { IJulesClient, ToolResult } from './types.js';
+import type { IJulesClient, ToolResult, Activity } from './types.js';
 
 // ============================================================================
 // Input Schemas
@@ -31,6 +31,15 @@ const cancelSchema = z.object({
   sessionId: z.string().min(1, 'sessionId is required')
 });
 
+const getConversationSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  limit: z.number().optional().default(50)
+});
+
+const getPendingQuestionSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required')
+});
+
 // ============================================================================
 // Exported Schemas and Descriptions
 // ============================================================================
@@ -41,7 +50,9 @@ export const toolSchemas = {
   jules_check_status: checkStatusSchema,
   jules_approve_plan: approvePlanSchema,
   jules_send_feedback: sendFeedbackSchema,
-  jules_cancel: cancelSchema
+  jules_cancel: cancelSchema,
+  jules_get_conversation: getConversationSchema,
+  jules_get_pending_question: getPendingQuestionSchema
 };
 
 export const toolDescriptions = {
@@ -50,7 +61,9 @@ export const toolDescriptions = {
   jules_check_status: 'Check the status of a Jules session',
   jules_approve_plan: 'Approve a pending Jules execution plan',
   jules_send_feedback: 'Send feedback or instructions to a Jules session',
-  jules_cancel: 'Cancel/delete a Jules session'
+  jules_cancel: 'Cancel/delete a Jules session',
+  jules_get_conversation: 'Get conversation history for a Jules session',
+  jules_get_pending_question: 'Check if Jules has a pending question requiring user input'
 };
 
 // ============================================================================
@@ -70,6 +83,32 @@ function jsonResult(data: object, isError = false): ToolResult {
 
 function errorResult(message: string): ToolResult {
   return textResult(`Error: ${message}`, true);
+}
+
+// ============================================================================
+// Activity Helpers
+// ============================================================================
+
+function getActivityType(activity: Activity): string {
+  if (activity.planGenerated) return 'plan';
+  if (activity.planApproved) return 'plan_approved';
+  if (activity.userMessaged) return 'user_message';
+  if (activity.agentMessaged) return 'agent_message';
+  if (activity.progressUpdated) return 'progress';
+  if (activity.sessionCompleted) return 'completed';
+  if (activity.sessionFailed) return 'failed';
+  return 'unknown';
+}
+
+function getActivityContent(activity: Activity): string {
+  if (activity.planGenerated) return activity.planGenerated.steps.join('\n');
+  if (activity.planApproved) return `Approved by: ${activity.planApproved.approvedBy}`;
+  if (activity.userMessaged) return activity.userMessaged.content;
+  if (activity.agentMessaged) return activity.agentMessaged.content;
+  if (activity.progressUpdated) return activity.progressUpdated.status;
+  if (activity.sessionCompleted) return activity.sessionCompleted.summary;
+  if (activity.sessionFailed) return activity.sessionFailed.reason;
+  return activity.description;
 }
 
 // ============================================================================
@@ -134,6 +173,42 @@ public async Task Method_Scenario_Outcome()
 
 function buildPromptWithTDD(userPrompt: string): string {
   return `${userPrompt}${TDD_INSTRUCTIONS}`;
+}
+
+// ============================================================================
+// Question Detection
+// ============================================================================
+
+/**
+ * Detects if content appears to be a question requiring user input.
+ * Uses heuristics to identify common question patterns.
+ */
+export function detectQuestion(content: string): boolean {
+  if (!content || content.trim().length === 0) {
+    return false;
+  }
+
+  const trimmed = content.trim();
+
+  // Pattern: ends with question mark (but not optional chaining like config?.json)
+  // Must have a space before the question mark or be a short string
+  if (/\?\s*$/.test(trimmed) && !/\w\?\.\w/.test(trimmed)) {
+    return true;
+  }
+
+  // Question phrase patterns (case insensitive)
+  const questionPatterns = [
+    /\bshould I\b/i,
+    /\bdo you (want|prefer|need)\b/i,
+    /\bcan you (provide|specify|confirm|clarify)\b/i,
+    /\bplease (clarify|confirm|let me know|specify)\b/i,
+    /\bwhich (option|approach|method|way)\b/i,
+    /\bwhat (should|would you)\b/i,
+    /\bwould you (like|prefer)\b/i,
+    /\bcould you (provide|clarify|confirm)\b/i
+  ];
+
+  return questionPatterns.some((pattern) => pattern.test(trimmed));
 }
 
 // ============================================================================
@@ -307,6 +382,86 @@ export function createJulesTools(client: IJulesClient) {
         }
         return errorResult((error as Error).message);
       }
+    },
+
+    async jules_get_conversation(
+      input: z.infer<typeof getConversationSchema>
+    ): Promise<ToolResult> {
+      try {
+        const validated = getConversationSchema.parse(input);
+        const activities = await client.getActivities(validated.sessionId);
+
+        const limitedActivities = activities.slice(0, validated.limit);
+
+        const formattedActivities = limitedActivities.map((activity) => ({
+          id: activity.id,
+          type: getActivityType(activity),
+          timestamp: activity.createTime,
+          content: getActivityContent(activity),
+          originator: activity.originator,
+          artifacts: activity.artifacts?.map((a) => ({
+            type: a.type,
+            summary:
+              a.type === 'changeset'
+                ? a.suggestedCommitMessage || 'Code changes'
+                : a.type === 'bashOutput'
+                  ? `Command: ${a.command}`
+                  : 'Media attachment'
+          }))
+        }));
+
+        return jsonResult({
+          sessionId: validated.sessionId,
+          activities: formattedActivities
+        });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return errorResult(error.errors[0].message);
+        }
+        return errorResult((error as Error).message);
+      }
+    },
+
+    async jules_get_pending_question(
+      input: z.infer<typeof getPendingQuestionSchema>
+    ): Promise<ToolResult> {
+      try {
+        const validated = getPendingQuestionSchema.parse(input);
+        const activities = await client.getActivities(validated.sessionId);
+
+        // Find the last agent message
+        const agentMessages = activities.filter((a) => a.agentMessaged);
+        const lastAgentMessage = agentMessages[agentMessages.length - 1];
+
+        if (!lastAgentMessage || !lastAgentMessage.agentMessaged) {
+          return jsonResult({
+            sessionId: validated.sessionId,
+            hasPendingQuestion: false
+          });
+        }
+
+        const content = lastAgentMessage.agentMessaged.content;
+        const isQuestion = detectQuestion(content);
+
+        if (isQuestion) {
+          return jsonResult({
+            sessionId: validated.sessionId,
+            hasPendingQuestion: true,
+            question: content,
+            detectedAt: lastAgentMessage.createTime
+          });
+        }
+
+        return jsonResult({
+          sessionId: validated.sessionId,
+          hasPendingQuestion: false
+        });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return errorResult(error.errors[0].message);
+        }
+        return errorResult((error as Error).message);
+      }
     }
   };
 }
@@ -318,3 +473,5 @@ export type CheckStatusInput = z.infer<typeof checkStatusSchema>;
 export type ApprovePlanInput = z.infer<typeof approvePlanSchema>;
 export type SendFeedbackInput = z.infer<typeof sendFeedbackSchema>;
 export type CancelInput = z.infer<typeof cancelSchema>;
+export type GetConversationInput = z.infer<typeof getConversationSchema>;
+export type GetPendingQuestionInput = z.infer<typeof getPendingQuestionSchema>;

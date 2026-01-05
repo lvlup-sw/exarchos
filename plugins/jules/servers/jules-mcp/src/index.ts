@@ -141,6 +141,47 @@ server.tool(
   }
 );
 
+// Register jules_get_conversation tool
+server.tool(
+  'jules_get_conversation',
+  toolDescriptions.jules_get_conversation,
+  {
+    sessionId: z.string().describe('The Jules session ID'),
+    limit: z
+      .number()
+      .optional()
+      .describe('Maximum number of activities to return (default: 50)')
+  },
+  async (args) => {
+    const result = await tools.jules_get_conversation({
+      sessionId: args.sessionId,
+      limit: args.limit ?? 50
+    });
+    return {
+      content: result.content,
+      isError: result.isError
+    };
+  }
+);
+
+// Register jules_get_pending_question tool
+server.tool(
+  'jules_get_pending_question',
+  toolDescriptions.jules_get_pending_question,
+  {
+    sessionId: z.string().describe('The Jules session ID')
+  },
+  async (args) => {
+    const result = await tools.jules_get_pending_question({
+      sessionId: args.sessionId
+    });
+    return {
+      content: result.content,
+      isError: result.isError
+    };
+  }
+);
+
 // Connect to stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

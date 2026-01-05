@@ -426,8 +426,10 @@ describe('JulesClient', () => {
 
       // Assert
       expect(activities).toHaveLength(2);
-      expect(activities[0].type).toBe('PLANNING');
-      expect(activities[1].type).toBe('CODING');
+      expect(activities[0].originator).toBe('agent');
+      expect(activities[0].description).toBe('Analyzing codebase structure');
+      expect(activities[1].originator).toBe('agent');
+      expect(activities[1].description).toBe('Implementing UserProfile entity');
     });
 
     it('should return empty array when no activities', async () => {
