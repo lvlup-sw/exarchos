@@ -12,7 +12,7 @@ module.exports = {
 
   // Extend the shared base config (schedule, automerge, rate limits)
   extends: [
-    'local>renovate-config'
+    'github>lvlup-sw/lvlup-claude//renovate-config/renovate.json'
   ],
 
   // Use different branch prefix to avoid conflicts with Mend app
