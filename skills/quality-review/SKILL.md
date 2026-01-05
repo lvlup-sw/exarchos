@@ -151,6 +151,27 @@ if (input != null) {
 | SQL injection | Parameterized queries |
 | XSS prevention | Output encoding |
 
+### 7. Frontend Aesthetics (if applicable)
+
+For frontend code (React, Vue, HTML/CSS, etc.), verify distinctive design:
+
+| Check | Verify |
+|-------|--------|
+| Distinctive typography | Not using Inter, Roboto, Arial, or system defaults |
+| Intentional color palette | CSS variables defined, not ad-hoc colors |
+| Purposeful motion | Orchestrated animations, not scattered micro-interactions |
+| Atmospheric backgrounds | Layered/textured, not flat solid colors |
+| Overall distinctiveness | Doesn't exhibit "AI slop" patterns |
+
+**Anti-patterns to flag:**
+- Purple gradients on white backgrounds
+- Perfectly centered symmetric layouts
+- Generic font choices
+- Flat #f5f5f5 or pure white/black backgrounds
+- Animation without purpose
+
+**Reference:** See `skills/frontend-design/SKILL.md` for full aesthetics guidelines.
+
 ## Priority Levels
 
 | Priority | Action | Examples |
