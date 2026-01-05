@@ -129,6 +129,8 @@ ci-templates/
 │   ├── pr-comment.md.template        # PR comment template reference
 │   └── fixtures/
 │       └── sample-coverage.xml       # Test fixture
+├── templates/
+│   └── global.json                   # MTP runner config for .NET 10+
 └── workflows/
     └── ci-dotnet.yml                 # .NET CI workflow template
 ```
@@ -142,6 +144,15 @@ Complete CI workflow for .NET projects:
 - **build-test**: Build and test with coverage collection
 - **coverage-gate**: Enforce coverage threshold, post PR comment
 - **update-baseline**: Cache coverage on main merge (optional)
+
+#### .NET 10 Compatibility
+
+This workflow uses Microsoft Testing Platform (MTP) for .NET 10+.
+
+**Requirements:**
+1. Add `global.json` with MTP runner config (see `templates/global.json`)
+2. Add `Microsoft.Testing.Extensions.CodeCoverage` package to test projects
+3. Remove `coverlet.collector` package if present (incompatible with MTP)
 
 #### Customization
 

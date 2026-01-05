@@ -50,19 +50,18 @@ jobs:
 
       - name: Test with coverage
         run: |
-          dotnet test ${{ env.SOLUTION_PATH }} \
+          dotnet test --solution ${{ env.SOLUTION_PATH }} \
             --no-build \
             --configuration Release \
-            --collect:"XPlat Code Coverage" \
+            --coverage \
+            --coverage-output-format cobertura \
             --results-directory ./TestResults
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
-          path: |
-            **/coverage.cobertura.xml
-            ./TestResults/**/coverage.cobertura.xml
+          path: ./TestResults/**/*.cobertura.xml
           retention-days: 7
 
   coverage-gate:
@@ -86,7 +85,7 @@ jobs:
       - name: Merge coverage reports
         run: |
           reportgenerator \
-            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
+            -reports:"./coverage-reports/**/*.cobertura.xml" \
             -targetdir:"./coverage-merged" \
             -reporttypes:"Cobertura;TextSummary"
 
@@ -129,7 +128,7 @@ jobs:
       - name: Generate merged report
         run: |
           reportgenerator \
-            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
+            -reports:"./coverage-reports/**/*.cobertura.xml" \
             -targetdir:"./coverage-merged" \
             -reporttypes:"JsonSummary"
 
