@@ -68,7 +68,7 @@ The orchestrator (you) MUST:
 
 ## Implementer Prompt Template
 
-Use `references/implementer-prompt.md` as template for Task tool prompts.
+Use `@skills/delegation/references/implementer-prompt.md` as template for Task tool prompts.
 
 **Key sections:**
 - Task description (full text, not file references)
@@ -224,7 +224,7 @@ This skill tracks task progress in workflow state for context persistence.
 Instead of re-parsing plan, read task list from state:
 
 ```bash
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
 ```
 
 ### On Task Dispatch
@@ -232,14 +232,14 @@ scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
 Update task status when dispatched:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "001")).status = "in_progress" | (.tasks[] | select(.id == "001")).startedAt = "2026-01-05T10:00:00Z"'
 ```
 
 If creating worktree:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.worktrees[".worktrees/001-name"] = {"branch": "feature/001-name", "taskId": "001", "status": "active"}'
 ```
 
@@ -248,7 +248,7 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 Update task status when subagent reports completion:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "001")).status = "complete" | (.tasks[] | select(.id == "001")).completedAt = "2026-01-05T10:30:00Z"'
 ```
 
@@ -257,7 +257,7 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 Update phase and suggest checkpoint:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
 ```
 
 ## Completion Criteria

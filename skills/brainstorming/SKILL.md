@@ -115,7 +115,7 @@ Initialize workflow state:
 
 ```bash
 # Generate feature ID from design name
-scripts/workflow-state.sh init <feature-id>
+~/.claude/scripts/workflow-state.sh init <feature-id>
 ```
 
 This creates `docs/workflow-state/<feature-id>.state.json`.
@@ -125,7 +125,7 @@ This creates `docs/workflow-state/<feature-id>.state.json`.
 Update state with design artifact:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
 ```
 

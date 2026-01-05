@@ -5,6 +5,8 @@
   "author": {
     "name": "lvlup-sw"
   },
-  "repository": "https://github.com/lvlup-sw/jules-plugin",
-  "keywords": ["jules", "autonomous-agent", "delegation"]
+  "repository": "https://github.com/lvlup-sw/lvlup-claude",
+  "keywords": ["jules", "autonomous-agent", "delegation"],
+  "commands": "./commands",
+  "mcpServers": "./mcp-servers.json"
 }

@@ -117,13 +117,29 @@ claude-config/
     └── workflow-state/ # State files (gitignored)
 ```
 
+## Plugin Marketplace Installation
+
+As an alternative to the symlink-based install, you can install the Jules plugin via the Claude Code plugin marketplace:
+
+```bash
+# In Claude Code, run:
+/plugin marketplace add lvlup-sw/lvlup-claude
+/plugin install jules@lvlup-claude
+```
+
+This approach:
+- Automatically manages MCP server configuration
+- Supports auto-updates when the marketplace updates
+- Keeps plugin files separate from your config repo
+
 ## Troubleshooting
 
 **Commands not available**: Re-run `./scripts/install.sh`
 
 **Jules not working**:
 1. Check API key: `echo $JULES_API_KEY`
-2. Check symlink: `ls -la ~/.claude/plugins/jules`
-3. Reinstall: `cd ~/.claude/plugins/jules/servers/jules-mcp && npm install`
+2. Check MCP config: `jq '.mcpServers.jules' ~/.claude.json`
+3. Rebuild MCP server: `cd ~/Documents/code/claude-config/plugins/jules/servers/jules-mcp && npm run build`
+4. Restart Claude Code
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.

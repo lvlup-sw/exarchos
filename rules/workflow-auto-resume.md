@@ -11,7 +11,7 @@ This rule ensures autonomous workflow continuation after context compaction.
 At the START of every session, BEFORE responding to any user request, silently check for active workflows:
 
 ```bash
-scripts/workflow-state.sh list 2>/dev/null
+~/.claude/scripts/workflow-state.sh list 2>/dev/null
 ```
 
 If an active (non-completed) workflow exists, auto-restore and continue.
@@ -26,8 +26,8 @@ Look for state files in `docs/workflow-state/` with phase != "completed".
 
 If active workflow found, run:
 ```bash
-scripts/workflow-state.sh summary <state-file>
-scripts/workflow-state.sh next-action <state-file>
+~/.claude/scripts/workflow-state.sh summary <state-file>
+~/.claude/scripts/workflow-state.sh next-action <state-file>
 ```
 
 Display a brief context restoration message.

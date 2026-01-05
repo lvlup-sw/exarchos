@@ -29,7 +29,7 @@ State files are gitignored - they persist locally but are not committed.
 At the start of `/ideate`:
 
 ```bash
-scripts/workflow-state.sh init <feature-id>
+~/.claude/scripts/workflow-state.sh init <feature-id>
 ```
 
 This creates a new state file with phase "ideate".
@@ -40,13 +40,13 @@ To restore context:
 
 ```bash
 # Full state
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json
 
 # Specific field
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.phase'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.phase'
 
 # Task list
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
 ```
 
 ### Update State
@@ -55,16 +55,16 @@ Use jq filters to update state:
 
 ```bash
 # Update phase
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "delegate"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "delegate"'
 
 # Set artifact path
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.artifacts.design = "docs/designs/2026-01-05-feature.md"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.artifacts.design = "docs/designs/2026-01-05-feature.md"'
 
 # Mark task complete
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '(.tasks[] | select(.id == "001")).status = "complete"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '(.tasks[] | select(.id == "001")).status = "complete"'
 
 # Add worktree
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'
 ```
 
 ### Get Summary
@@ -72,7 +72,7 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.worktre
 For context restoration after summarization:
 
 ```bash
-scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
 ```
 
 This outputs a minimal summary suitable for rebuilding orchestrator context.
@@ -82,7 +82,7 @@ This outputs a minimal summary suitable for rebuilding orchestrator context.
 Verify state matches git reality:
 
 ```bash
-scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
 ```
 
 Checks that worktrees and branches referenced in state actually exist.
@@ -160,16 +160,16 @@ Key sections:
 
 ```bash
 # Start new workflow
-scripts/workflow-state.sh init user-authentication
+~/.claude/scripts/workflow-state.sh init user-authentication
 
 # After design phase
-scripts/workflow-state.sh set docs/workflow-state/user-authentication.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/user-authentication.state.json \
   '.artifacts.design = "docs/designs/2026-01-05-user-auth.md" | .phase = "plan"'
 
 # Check state
-scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
+~/.claude/scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
 
 # Resume after context loss
-scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
+~/.claude/scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
 # -> Outputs context restoration prompt
 ```

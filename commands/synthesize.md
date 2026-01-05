@@ -113,7 +113,7 @@ After PR is created, this is a **human checkpoint** - user confirmation required
 ### Save State
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.pr = "[PR_URL]" | .synthesis.prUrl = "[PR_URL]"'
 ```
 

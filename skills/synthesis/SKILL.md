@@ -231,42 +231,42 @@ This skill tracks synthesis progress in workflow state.
 Get worktrees and merge order from state:
 
 ```bash
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.worktrees'
-scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.synthesis.mergeOrder'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.worktrees'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.synthesis.mergeOrder'
 ```
 
 ### On Integration Branch Created
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.synthesis.integrationBranch = "feature/integration-<feature>"'
 ```
 
 ### On Branch Merged
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.synthesis.mergedBranches += ["feature/001-name"]'
 ```
 
 ### On PR Created
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.pr = "https://github.com/org/repo/pull/42" | .synthesis.prUrl = "https://github.com/org/repo/pull/42"'
 ```
 
 ### On PR Feedback Received
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.synthesis.prFeedback += [{"author": "reviewer", "comment": "Fix the error handling", "file": "src/api.ts", "line": 42, "resolved": false}]'
 ```
 
 ### On Merge Complete
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "completed"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "completed"'
 ```
 
 ## Completion Criteria

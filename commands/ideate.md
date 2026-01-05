@@ -55,13 +55,13 @@ After user selects approach:
 Initialize workflow state at the start:
 
 ```bash
-scripts/workflow-state.sh init <feature-id>
+~/.claude/scripts/workflow-state.sh init <feature-id>
 ```
 
 After saving design, update state:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.design = "<design-path>" | .phase = "plan"'
 ```
 

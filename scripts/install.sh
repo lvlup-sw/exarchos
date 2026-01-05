@@ -84,7 +84,9 @@ echo ""
 link_dir "$REPO_ROOT/skills" "$CLAUDE_HOME/skills"
 link_dir "$REPO_ROOT/commands" "$CLAUDE_HOME/commands"
 link_dir "$REPO_ROOT/rules" "$CLAUDE_HOME/rules"
-link_dir "$REPO_ROOT/plugins/jules" "$CLAUDE_HOME/plugins/jules"
+link_dir "$REPO_ROOT/scripts" "$CLAUDE_HOME/scripts"
+# Note: Don't symlink plugins/jules - it causes ${CLAUDE_PLUGIN_ROOT} resolution issues
+# The MCP server is configured directly in ~/.claude.json with an absolute path
 
 # Link files
 link_file "$REPO_ROOT/settings.json" "$CLAUDE_HOME/settings.json"
@@ -99,36 +101,51 @@ echo "  [done] npm run build"
 
 echo ""
 echo "Configuring Jules MCP server..."
-# Add Jules MCP server to ~/.claude.json
+# Add Jules MCP server to ~/.claude.json (user-scoped, works from any directory)
+# Use the repo path directly since we don't symlink the plugin directory
+MCP_SERVER_PATH="$REPO_ROOT/plugins/jules/servers/jules-mcp"
 if command -v jq &> /dev/null; then
-    JULES_MCP_CONFIG='{
-        "type": "stdio",
-        "command": "node",
-        "args": ["dist/index.js"],
-        "cwd": "'"$CLAUDE_HOME"'/plugins/jules/servers/jules-mcp",
-        "env": {
-            "JULES_API_KEY": "${JULES_API_KEY}"
-        }
-    }'
-
+    # Build the config with proper escaping
     if [ -f "$HOME/.claude.json" ]; then
-        # Update existing config
-        jq --argjson jules "$JULES_MCP_CONFIG" '.mcpServers.jules = $jules' "$HOME/.claude.json" > /tmp/claude.json
+        # Update existing config - ensure mcpServers object exists
+        jq '.mcpServers //= {} | .mcpServers.jules = {
+            "type": "stdio",
+            "command": "node",
+            "args": ["'"$MCP_SERVER_PATH"'/dist/index.js"],
+            "env": {
+                "JULES_API_KEY": "${JULES_API_KEY}"
+            }
+        }' "$HOME/.claude.json" > /tmp/claude.json
         mv /tmp/claude.json "$HOME/.claude.json"
     else
         # Create new config
-        echo "{\"mcpServers\": {\"jules\": $JULES_MCP_CONFIG}}" > "$HOME/.claude.json"
+        echo '{
+  "mcpServers": {
+    "jules": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["'"$MCP_SERVER_PATH"'/dist/index.js"],
+      "env": {
+        "JULES_API_KEY": "${JULES_API_KEY}"
+      }
+    }
+  }
+}' > "$HOME/.claude.json"
     fi
     echo "  [done] Added Jules MCP server to ~/.claude.json"
 else
-    echo "  [warn] jq not installed - manually add Jules MCP server with: claude mcp add jules"
+    echo "  [warn] jq not installed - run: claude mcp add jules --scope user -- node $MCP_SERVER_PATH/dist/index.js"
 fi
 
 echo ""
 echo "Installation complete!"
 echo ""
-echo "Next steps:"
-echo "  1. Set JULES_API_KEY in your shell profile (~/.zshrc or ~/.bashrc)"
-echo "  2. Restart Claude Code to load the MCP server"
-echo "  3. For new projects, run: $REPO_ROOT/scripts/new-project.sh /path/to/project"
+echo "To use Jules:"
+echo "  1. Set JULES_API_KEY: echo 'export JULES_API_KEY=\"your-key\"' >> ~/.zshrc"
+echo "  2. Restart Claude Code"
+echo "  3. Verify with: /mcp (should show 'jules: Connected')"
+echo ""
+echo "Alternative: Install via plugin marketplace:"
+echo "  /plugin marketplace add lvlup-sw/lvlup-claude"
+echo "  /plugin install jules@lvlup-claude"
 echo ""

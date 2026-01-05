@@ -34,7 +34,7 @@ Use diffs instead of full file contents to reduce context by 80-90%:
 
 ```bash
 # Generate diff for review subagent
-scripts/review-diff.sh .worktrees/<task> main
+~/.claude/scripts/review-diff.sh .worktrees/<task> main
 ```
 
 ### Dispatch Spec Review

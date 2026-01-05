@@ -18,7 +18,7 @@ This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
 The orchestrator provides:
 - State file path (preferred) OR design/plan paths
-- Diff output from `scripts/review-diff.sh` (context-efficient)
+- Diff output from `~/.claude/scripts/review-diff.sh` (context-efficient)
 - Task ID being reviewed
 
 The subagent:
@@ -34,7 +34,7 @@ Instead of full file contents, receive git diffs:
 
 ```bash
 # Generate diff for review
-scripts/review-diff.sh .worktrees/<task> main
+~/.claude/scripts/review-diff.sh .worktrees/<task> main
 ```
 
 This reduces context consumption by 80-90%.
@@ -225,15 +225,15 @@ Update workflow state with review results.
 
 ```bash
 # Update task review status
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "pass"'
 
 # Or if failed:
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "fail"'
 
 # Add review details
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.reviews["<task-id>"].specReview = {"status": "pass", "issues": []}'
 ```
 

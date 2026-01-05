@@ -44,9 +44,9 @@ Location: `docs/workflow-state/<feature-id>.state.json`
 
 ### Scripts
 
-- `scripts/workflow-state.sh` - State read/write/reconcile operations
-- `scripts/review-diff.sh` - Generate context-efficient diffs
-- `scripts/extract-task.sh` - Extract single task from plan
+- `~/.claude/scripts/workflow-state.sh` - State read/write/reconcile operations
+- `~/.claude/scripts/review-diff.sh` - Generate context-efficient diffs
+- `~/.claude/scripts/extract-task.sh` - Extract single task from plan
 
 ## Integration Points
 

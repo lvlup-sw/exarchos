@@ -24,7 +24,7 @@ Restore workflow context after:
 If no argument provided, list available workflows:
 
 ```bash
-scripts/workflow-state.sh list
+~/.claude/scripts/workflow-state.sh list
 ```
 
 ### Step 2: Reconcile State
@@ -32,7 +32,7 @@ scripts/workflow-state.sh list
 Verify state matches git reality:
 
 ```bash
-scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
 ```
 
 Report any discrepancies (missing worktrees, branches).
@@ -42,7 +42,7 @@ Report any discrepancies (missing worktrees, branches).
 Generate minimal context restoration prompt:
 
 ```bash
-scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
 ```
 
 ### Step 4: Display Context
@@ -119,7 +119,7 @@ The resume process is designed to be context-efficient:
 ERROR: State file not found: <path>
 
 Available workflows:
-  <list from scripts/workflow-state.sh list>
+  <list from ~/.claude/scripts/workflow-state.sh list>
 ```
 
 ### Reconciliation Issues

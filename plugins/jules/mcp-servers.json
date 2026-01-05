@@ -1,0 +1,10 @@
+{
+  "jules": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/servers/jules-mcp/dist/index.js"],
+    "env": {
+      "JULES_API_KEY": "${JULES_API_KEY}"
+    }
+  }
+}

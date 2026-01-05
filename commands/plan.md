@@ -74,15 +74,15 @@ After saving plan, update state with tasks:
 
 ```bash
 # Set plan path
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.artifacts.plan = "<plan-path>"'
 
 # Populate tasks from plan
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.tasks = [{"id": "001", "title": "...", "status": "pending", "branch": "feature/001-..."}]'
 
 # Update phase
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.phase = "delegate"'
 ```
 

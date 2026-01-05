@@ -10,16 +10,16 @@ If given a state file path, read task details:
 
 ```bash
 # Get your task
-scripts/workflow-state.sh get <state-file> '.tasks[] | select(.id == "<task-id>")'
+~/.claude/scripts/workflow-state.sh get <state-file> '.tasks[] | select(.id == "<task-id>")'
 
 # Get plan path
-scripts/workflow-state.sh get <state-file> '.artifacts.plan'
+~/.claude/scripts/workflow-state.sh get <state-file> '.artifacts.plan'
 ```
 
 Then read the specific task section:
 
 ```bash
-scripts/extract-task.sh <plan-path> <task-id>
+~/.claude/scripts/extract-task.sh <plan-path> <task-id>
 ```
 
 ## Reading for Review
@@ -27,7 +27,7 @@ scripts/extract-task.sh <plan-path> <task-id>
 If reviewing, read the diff instead of full files:
 
 ```bash
-scripts/review-diff.sh <worktree-path> main
+~/.claude/scripts/review-diff.sh <worktree-path> main
 ```
 
 ## Reading Design Context
@@ -36,7 +36,7 @@ If you need design context:
 
 ```bash
 # Get design path from state
-scripts/workflow-state.sh get <state-file> '.artifacts.design'
+~/.claude/scripts/workflow-state.sh get <state-file> '.artifacts.design'
 
 # Then read the design file
 cat <design-path>

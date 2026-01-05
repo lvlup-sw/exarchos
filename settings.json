@@ -168,7 +168,7 @@
       "Bash(local:*)",
       "Bash(eval:*)",
 
-      "Bash(scripts/workflow-state.sh:*)"
+      "Bash(~/.claude/scripts/workflow-state.sh:*)"
     ]
   }
 }

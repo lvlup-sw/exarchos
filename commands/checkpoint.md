@@ -25,7 +25,7 @@ Use `/checkpoint` when:
 Find the current state file:
 
 ```bash
-scripts/workflow-state.sh list
+~/.claude/scripts/workflow-state.sh list
 ```
 
 Or if you know the feature:
@@ -47,7 +47,7 @@ Update state file with latest progress:
 Verify state matches reality:
 
 ```bash
-scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
+~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
 ```
 
 Fix any discrepancies.

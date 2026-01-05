@@ -20,7 +20,7 @@ This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
 The orchestrator provides:
 - State file path (preferred) OR design/plan paths
-- Diff output from `scripts/review-diff.sh` (context-efficient)
+- Diff output from `~/.claude/scripts/review-diff.sh` (context-efficient)
 - Task ID being reviewed
 - Spec review results (must be PASS)
 
@@ -38,7 +38,7 @@ Instead of full file contents, receive git diffs:
 
 ```bash
 # Generate diff for review
-scripts/review-diff.sh .worktrees/<task> main
+~/.claude/scripts/review-diff.sh .worktrees/<task> main
 ```
 
 This reduces context consumption by 80-90%.
@@ -111,7 +111,7 @@ if (input != null) {
 | Composition over inheritance | Inheritance depth > 2 is a smell |
 | Sealed by default | Explicitly design for extension |
 
-**Language-specific rules:** See `.claude/rules/coding-standards-{language}.md`
+**Language-specific rules:** See `~/.claude/rules/coding-standards-{language}.md`
 
 ### 3. Error Handling
 
@@ -269,15 +269,15 @@ Update workflow state with review results.
 
 ```bash
 # Update task review status
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "approved"'
 
 # Or if needs fixes:
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "needs_fixes"'
 
 # Add review details
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.reviews["<task-id>"].qualityReview = {"status": "approved", "highPriority": [], "mediumPriority": []}'
 ```
 
@@ -286,7 +286,7 @@ scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
 Update phase for synthesis:
 
 ```bash
-scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "synthesize"'
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "synthesize"'
 ```
 
 ## Completion Criteria
