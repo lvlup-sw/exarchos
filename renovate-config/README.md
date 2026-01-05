@@ -10,7 +10,7 @@ To use this configuration in your project, create a `renovate.json` file in the 
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>jules-labs/jules-project/renovate-config"
+    "github>lvlup-sw/lvlup-claude/renovate-config"
   ]
 }
 ```
@@ -23,8 +23,8 @@ You can extend the provided presets and override the configuration as needed. Fo
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>jules-labs/jules-project/renovate-config",
-    "github>jules-labs/jules-project/renovate-config:presets/dotnet"
+    "github>lvlup-sw/lvlup-claude/renovate-config",
+    "github>lvlup-sw/lvlup-claude/renovate-config:presets/dotnet"
   ],
   "packageRules": [
     {
