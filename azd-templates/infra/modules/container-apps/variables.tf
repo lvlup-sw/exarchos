@@ -60,13 +60,26 @@ variable "log_retention_days" {
 }
 
 variable "sku_name" {
-  description = "Workload profile type for Container Apps Environment (Consumption for serverless, or dedicated like D4, D8, D16, D32, E4, E8, E16, E32)"
+  description = <<-EOT
+    Workload profile type for Container Apps Environment.
+    Valid values:
+    - Consumption: Serverless, scale-to-zero (default)
+    - D4, D8, D16, D32: General purpose dedicated compute
+    - E4, E8, E16, E32: Memory optimized dedicated compute
+    See: https://learn.microsoft.com/en-us/azure/container-apps/workload-profiles-overview
+  EOT
   type        = string
   default     = "Consumption"
 
   validation {
-    condition     = contains(["Consumption", "D4", "D8", "D16", "D32", "E4", "E8", "E16", "E32"], var.sku_name)
-    error_message = "SKU name must be 'Consumption' (serverless) or a dedicated workload profile type (D4, D8, D16, D32, E4, E8, E16, E32)."
+    condition = contains([
+      "Consumption",
+      # General purpose (D-series)
+      "D4", "D8", "D16", "D32",
+      # Memory optimized (E-series)
+      "E4", "E8", "E16", "E32",
+    ], var.sku_name)
+    error_message = "Invalid sku_name. Valid values: Consumption, D4, D8, D16, D32, E4, E8, E16, E32. See https://learn.microsoft.com/en-us/azure/container-apps/workload-profiles-overview"
   }
 }
 

@@ -278,10 +278,11 @@ main() {
 
     # Generate resource names
     # Storage account names must be 3-24 chars, lowercase alphanumeric only
-    local base_name
+    local base_name=
     base_name=$(echo "$env_name" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
     local rg_name="rg-tfstate-${base_name}"
-    local sa_name="tfstate${base_name}$(date +%s | tail -c 5)"  # Add unique suffix
+    local sa_name=
+    sa_name="tfstate${base_name}$(date +%s | tail -c 5)"  # Add unique suffix
     local container_name="tfstate"
 
     # Ensure storage account name is valid length

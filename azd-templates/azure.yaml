@@ -20,7 +20,6 @@ hooks:
   preprovision:
     shell: bash
     run: ./infra/scripts/preprovision.sh
-    interactive: true
     continueOnError: false
   postprovision:
     shell: bash

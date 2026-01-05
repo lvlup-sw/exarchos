@@ -18,7 +18,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.80"
+      version = "~> 4.0"
     }
   }
 }
@@ -122,7 +122,7 @@ resource "azurerm_key_vault" "main" {
   purge_protection_enabled    = var.is_dev_environment ? false : true
 
   # Enable Azure RBAC for access control (recommended over access policies)
-  enable_rbac_authorization = true
+  rbac_authorization_enabled = true
 
   # Network rules - allow Azure services
   network_acls {
@@ -182,13 +182,25 @@ resource "azurerm_container_app_environment" "main" {
   # Infrastructure subnet (optional - for VNet integration)
   # infrastructure_subnet_id = var.infrastructure_subnet_id
 
-  # Workload profile - Consumption for serverless, or dedicated for premium workloads
-  workload_profile {
-    name                  = var.sku_name
-    workload_profile_type = var.sku_name
-    # min/max counts only apply to dedicated workload profiles, not Consumption
-    minimum_count         = var.sku_name == "Consumption" ? 0 : 1
-    maximum_count         = var.sku_name == "Consumption" ? 0 : 3
+  # Consumption workload profile (serverless, scale-to-zero)
+  # Note: Consumption profiles do not use minimum_count/maximum_count
+  dynamic "workload_profile" {
+    for_each = var.sku_name == "Consumption" ? [1] : []
+    content {
+      name                  = "Consumption"
+      workload_profile_type = "Consumption"
+    }
+  }
+
+  # Dedicated workload profile (for non-Consumption SKUs like D4, D8, E4, E8, etc.)
+  dynamic "workload_profile" {
+    for_each = var.sku_name != "Consumption" ? [1] : []
+    content {
+      name                  = var.sku_name
+      workload_profile_type = var.sku_name
+      minimum_count         = 1
+      maximum_count         = 3
+    }
   }
 
   tags = var.tags
@@ -212,9 +224,8 @@ resource "azurerm_monitor_diagnostic_setting" "container_env" {
     category = "ContainerAppSystemLogs"
   }
 
-  metric {
+  enabled_metric {
     category = "AllMetrics"
-    enabled  = true
   }
 }
 
@@ -231,8 +242,7 @@ resource "azurerm_monitor_diagnostic_setting" "key_vault" {
     category = "AzurePolicyEvaluationDetails"
   }
 
-  metric {
+  enabled_metric {
     category = "AllMetrics"
-    enabled  = true
   }
 }
