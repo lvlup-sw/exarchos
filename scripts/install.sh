@@ -88,6 +88,7 @@ link_dir "$REPO_ROOT/plugins/jules" "$CLAUDE_HOME/plugins/jules"
 
 # Link files
 link_file "$REPO_ROOT/settings.json" "$CLAUDE_HOME/settings.json"
+link_file "$REPO_ROOT/.mcp.json" "$CLAUDE_HOME/.mcp.json"
 
 echo ""
 echo "Installing jules plugin dependencies..."
