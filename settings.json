@@ -166,7 +166,9 @@
       "Bash(getopts:*)",
       "Bash(declare:*)",
       "Bash(local:*)",
-      "Bash(eval:*)"
+      "Bash(eval:*)",
+
+      "Bash(scripts/workflow-state.sh:*)"
     ]
   }
 }
