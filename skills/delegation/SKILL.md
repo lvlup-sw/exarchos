@@ -215,14 +215,61 @@ TaskOutput({ task_id: "task-002-id" })
 | File search/exploration | (default) | Speed over quality |
 | Simple queries | `haiku` | Fast, low cost |
 
+## State Management
+
+This skill tracks task progress in workflow state for context persistence.
+
+### Read Tasks from State
+
+Instead of re-parsing plan, read task list from state:
+
+```bash
+scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
+```
+
+### On Task Dispatch
+
+Update task status when dispatched:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "001")).status = "in_progress" | (.tasks[] | select(.id == "001")).startedAt = "2026-01-05T10:00:00Z"'
+```
+
+If creating worktree:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.worktrees[".worktrees/001-name"] = {"branch": "feature/001-name", "taskId": "001", "status": "active"}'
+```
+
+### On Task Complete
+
+Update task status when subagent reports completion:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "001")).status = "complete" | (.tasks[] | select(.id == "001")).completedAt = "2026-01-05T10:30:00Z"'
+```
+
+### On All Tasks Complete
+
+Update phase and suggest checkpoint:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
+```
+
 ## Completion Criteria
 
-- [ ] All tasks extracted from plan
+- [ ] All tasks extracted from plan (or read from state)
 - [ ] Worktrees created for parallel groups
+- [ ] State file updated with worktree locations
 - [ ] TodoWrite updated with all tasks
 - [ ] Implementers dispatched with full context
 - [ ] All tasks report completion
 - [ ] All tests pass in worktrees
+- [ ] State file reflects all task completions
 
 ## Transition
 

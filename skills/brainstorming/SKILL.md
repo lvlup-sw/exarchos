@@ -105,12 +105,37 @@ Activate this skill when:
 | Ignore existing patterns | Reference codebase conventions |
 | Skip documentation | Save design to docs/designs/ |
 
+## State Management
+
+This skill manages workflow state for context persistence.
+
+### On Start (before Phase 1)
+
+Initialize workflow state:
+
+```bash
+# Generate feature ID from design name
+scripts/workflow-state.sh init <feature-id>
+```
+
+This creates `docs/workflow-state/<feature-id>.state.json`.
+
+### On Design Save (after Phase 3)
+
+Update state with design artifact:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
+```
+
 ## Completion Criteria
 
 - [ ] Problem is clearly understood (Phase 1 complete)
 - [ ] 2-3 distinct options presented with trade-offs
 - [ ] User has selected an approach
 - [ ] Design document saved to `docs/designs/`
+- [ ] State file created and updated with design path
 - [ ] Ready for implementation planning
 
 ## Transition

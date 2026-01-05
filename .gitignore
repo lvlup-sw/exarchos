@@ -5,3 +5,6 @@ plugins/*/servers/*/coverage/
 
 # Local settings
 *.local.json
+
+# Workflow state files (not tracked)
+docs/workflow-state/*.state.json

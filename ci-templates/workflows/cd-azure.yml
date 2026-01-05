@@ -1,0 +1,66 @@
+# Azure CD Workflow Template
+#
+# Deploys to Azure Container Apps via azd
+# Uses OIDC authentication (no secrets stored)
+#
+# Prerequisites:
+#   - Azure service principal with federated credentials
+#   - Repository secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+#
+# Usage:
+#   Copy to .github/workflows/cd.yml and update:
+#   - SERVICE_NAME to match your azure.yaml service
+#   - ENVIRONMENT_NAME for your target environment
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  SERVICE_NAME: 'api'  # Update to match azure.yaml service name
+  ENVIRONMENT_NAME: ${{ github.event.inputs.environment || 'dev' }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment || 'dev' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install azd
+        uses: Azure/setup-azd@v2
+
+      - name: Deploy with azd
+        run: |
+          azd env select ${{ env.ENVIRONMENT_NAME }}
+          azd deploy --service ${{ env.SERVICE_NAME }} --no-prompt
+        env:
+          AZURE_ENV_NAME: ${{ env.ENVIRONMENT_NAME }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus' }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

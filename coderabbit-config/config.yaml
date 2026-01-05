@@ -34,7 +34,7 @@ reviews:
           - [ ] No over-engineering beyond spec (flag scope creep)
           - [ ] Tests exist for each feature
           - [ ] Test names follow `Method_Scenario_Outcome` pattern
-          - [ ] Coverage: >80% line, >70% branch for new code
+          - [ ] Coverage: >90% line, >70% branch for new code
 
           ### Flag as SPEC ISSUE
 

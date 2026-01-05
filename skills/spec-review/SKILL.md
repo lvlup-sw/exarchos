@@ -17,16 +17,27 @@ Activate this skill when:
 This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
 The orchestrator provides:
-- Design document path
-- Plan document path
-- Implementation file paths
-- Test file paths
+- State file path (preferred) OR design/plan paths
+- Diff output from `scripts/review-diff.sh` (context-efficient)
+- Task ID being reviewed
 
 The subagent:
-- Reads artifacts
+- Reads state file to get artifact paths
+- Uses diff output instead of reading full files
 - Runs verification commands
 - Generates report
 - Returns verdict to orchestrator
+
+### Context-Efficient Input
+
+Instead of full file contents, receive git diffs:
+
+```bash
+# Generate diff for review
+scripts/review-diff.sh .worktrees/<task> main
+```
+
+This reduces context consumption by 80-90%.
 
 ## Review Scope
 
@@ -206,6 +217,26 @@ Task({
 | Approve without tests | Require test coverage |
 | Let scope creep pass | Flag over-engineering |
 
+## State Management
+
+Update workflow state with review results.
+
+### On Review Complete
+
+```bash
+# Update task review status
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "pass"'
+
+# Or if failed:
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "fail"'
+
+# Add review details
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.reviews["<task-id>"].specReview = {"status": "pass", "issues": []}'
+```
+
 ## Completion Criteria
 
 - [ ] All spec requirements verified
@@ -213,6 +244,7 @@ Task({
 - [ ] Tests pass
 - [ ] Coverage meets thresholds
 - [ ] No missing functionality
+- [ ] State file updated with review results
 
 ## Transition
 

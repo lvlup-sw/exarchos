@@ -222,6 +222,53 @@ git commit -m "Feature: Description"
 | Skip conflict resolution | Carefully resolve each conflict |
 | Create PR with failing tests | Ensure all tests pass first |
 
+## State Management
+
+This skill tracks synthesis progress in workflow state.
+
+### Read Worktree State
+
+Get worktrees and merge order from state:
+
+```bash
+scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.worktrees'
+scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.synthesis.mergeOrder'
+```
+
+### On Integration Branch Created
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.synthesis.integrationBranch = "feature/integration-<feature>"'
+```
+
+### On Branch Merged
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.synthesis.mergedBranches += ["feature/001-name"]'
+```
+
+### On PR Created
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.artifacts.pr = "https://github.com/org/repo/pull/42" | .synthesis.prUrl = "https://github.com/org/repo/pull/42"'
+```
+
+### On PR Feedback Received
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.synthesis.prFeedback += [{"author": "reviewer", "comment": "Fix the error handling", "file": "src/api.ts", "line": 42, "resolved": false}]'
+```
+
+### On Merge Complete
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "completed"'
+```
+
 ## Completion Criteria
 
 - [ ] All branches merged to integration branch
@@ -229,6 +276,7 @@ git commit -m "Feature: Description"
 - [ ] Build succeeds
 - [ ] PR created with proper description
 - [ ] PR link provided to user
+- [ ] State file updated with PR URL and merge status
 
 ## Final Report
 

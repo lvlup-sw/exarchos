@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "workflow-state.schema.json",
+  "title": "Workflow State",
+  "description": "Persistent state for Claude Code orchestration workflow",
+  "type": "object",
+  "required": ["version", "featureId", "phase", "artifacts", "tasks"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version"
+    },
+    "featureId": {
+      "type": "string",
+      "description": "Unique identifier for this feature/workflow"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the workflow was started"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the state was last updated"
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["ideate", "plan", "delegate", "review", "synthesize", "completed", "blocked"],
+      "description": "Current workflow phase"
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Paths to workflow artifacts",
+      "properties": {
+        "design": {
+          "type": ["string", "null"],
+          "description": "Path to design document"
+        },
+        "plan": {
+          "type": ["string", "null"],
+          "description": "Path to implementation plan"
+        },
+        "pr": {
+          "type": ["string", "null"],
+          "description": "Pull request URL"
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "description": "Task list from implementation plan",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task identifier (e.g., '001', 'A1')"
+          },
+          "title": {
+            "type": "string",
+            "description": "Brief task description"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "in_progress", "complete", "failed", "blocked"],
+            "description": "Task execution status"
+          },
+          "assignee": {
+            "type": "string",
+            "enum": ["jules", "subagent", "manual"],
+            "description": "Who/what is executing this task"
+          },
+          "julesSessionId": {
+            "type": ["string", "null"],
+            "description": "Jules session ID if delegated to Jules"
+          },
+          "worktree": {
+            "type": ["string", "null"],
+            "description": "Worktree path (e.g., '.worktrees/001-types')"
+          },
+          "branch": {
+            "type": ["string", "null"],
+            "description": "Git branch name"
+          },
+          "startedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "reviewStatus": {
+            "type": ["object", "null"],
+            "properties": {
+              "specReview": {
+                "type": "string",
+                "enum": ["pending", "pass", "fail"]
+              },
+              "qualityReview": {
+                "type": "string",
+                "enum": ["pending", "approved", "needs_fixes", "blocked"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "worktrees": {
+      "type": "object",
+      "description": "Active git worktrees",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "branch": { "type": "string" },
+          "taskId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "merged", "removed"]
+          },
+          "baselineTestsPass": { "type": "boolean" }
+        }
+      }
+    },
+    "julesSessions": {
+      "type": "object",
+      "description": "Active Jules sessions",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "taskId": { "type": "string" },
+          "repo": { "type": "string" },
+          "status": { "type": "string" },
+          "prUrl": { "type": ["string", "null"] },
+          "lastChecked": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "reviews": {
+      "type": "object",
+      "description": "Review results per task",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "specReview": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string" },
+              "issues": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "qualityReview": {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string" },
+              "highPriority": { "type": "array", "items": { "type": "string" } },
+              "mediumPriority": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "synthesis": {
+      "type": "object",
+      "description": "Synthesis/merge state",
+      "properties": {
+        "integrationBranch": { "type": ["string", "null"] },
+        "mergeOrder": { "type": "array", "items": { "type": "string" } },
+        "mergedBranches": { "type": "array", "items": { "type": "string" } },
+        "prUrl": { "type": ["string", "null"] },
+        "prFeedback": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "author": { "type": "string" },
+              "comment": { "type": "string" },
+              "file": { "type": ["string", "null"] },
+              "line": { "type": ["integer", "null"] },
+              "resolved": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@
 #
 # This workflow template provides:
 # - Build and test with coverage collection
-# - Coverage gate enforcement (80% threshold)
+# - Coverage gate enforcement (90% threshold)
 # - PR comment with coverage summary
 #
 # Usage:
@@ -26,7 +26,7 @@ env:
   DOTNET_VERSION: '10.0.x'
   DOTNET_QUALITY: 'preview'
   SOLUTION_PATH: 'src/YourSolution.sln'  # Update this
-  COVERAGE_THRESHOLD: 80
+  COVERAGE_THRESHOLD: 90
 
 jobs:
   build-test:

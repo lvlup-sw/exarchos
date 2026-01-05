@@ -122,12 +122,38 @@ For each feedback item:
 
 Track the plan path used for delegation as `$PLAN_PATH`.
 
+## Checkpoint Boundary
+
+After all delegated tasks complete, this is a natural checkpoint for context management.
+
+### Save Checkpoint
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
+```
+
+### Offer Options
+
+```markdown
+All [N] tasks complete and verified.
+
+**Checkpoint saved to:** `docs/workflow-state/<feature>.state.json`
+
+Choose an option:
+1. **Continue in this session:** `/review $PLAN_PATH`
+2. **Start fresh session:** `/resume docs/workflow-state/<feature>.state.json`
+
+(Option 2 recommended if this session has been long-running)
+```
+
 ## Auto-Chain
 
-After all delegated tasks complete:
+If user chooses to continue (or context is healthy):
 
 1. Summarize: "All [N] tasks complete and verified."
 2. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "$PLAN_PATH" })
    ```
+
+If context is heavy or user chooses fresh session, output the `/resume` command instead.

@@ -84,7 +84,7 @@ The workflow will:
 
 ## What's Included
 
-### Skills (7)
+### Skills (8)
 
 Workflow orchestration patterns that Claude Code invokes automatically:
 
@@ -97,8 +97,9 @@ Workflow orchestration patterns that Claude Code invokes automatically:
 | `spec-review` | Stage 1: Functional completeness verification |
 | `quality-review` | Stage 2: Code quality and SOLID compliance |
 | `synthesis` | Branch merge and PR creation |
+| `workflow-state` | Context persistence across sessions |
 
-### Commands (6)
+### Commands (8)
 
 Slash commands for the orchestration workflow:
 
@@ -110,6 +111,8 @@ Slash commands for the orchestration workflow:
 | `/review` | Run two-stage review (spec → quality) |
 | `/synthesize` | Merge branches and create PR |
 | `/tdd` | TDD workflow reference |
+| `/checkpoint` | Save workflow state for session handoff |
+| `/resume` | Restore context from saved state file |
 
 ### Rules (4)
 
@@ -176,14 +179,19 @@ claude-config/
 │   │   └── references/
 │   ├── spec-review/
 │   ├── quality-review/
-│   └── synthesis/
+│   ├── synthesis/
+│   ├── workflow-state/    # Context persistence
+│   └── shared/
+│       └── prompts/       # Reusable prompt fragments
 ├── commands/              # Slash commands
 │   ├── ideate.md
 │   ├── plan.md
 │   ├── delegate.md
 │   ├── review.md
 │   ├── synthesize.md
-│   └── tdd.md
+│   ├── tdd.md
+│   ├── checkpoint.md      # Save state for handoff
+│   └── resume.md          # Restore from state
 ├── rules/                 # Language-specific rules
 │   ├── tdd-typescript.md
 │   ├── tdd-csharp.md
@@ -191,9 +199,17 @@ claude-config/
 │   └── coding-standards-csharp.md
 ├── plugins/
 │   └── jules/             # Jules MCP plugin
-└── scripts/
-    ├── install.sh         # One-time global setup
-    └── new-project.sh     # Per-project setup
+├── scripts/
+│   ├── install.sh         # One-time global setup
+│   ├── new-project.sh     # Per-project setup
+│   ├── workflow-state.sh  # State management utilities
+│   ├── review-diff.sh     # Generate diffs for review
+│   └── extract-task.sh    # Extract task from plan
+└── docs/
+    ├── designs/           # Design documents
+    ├── plans/             # Implementation plans
+    ├── schemas/           # JSON schemas
+    └── workflow-state/    # State files (gitignored)
 ```
 
 ## The Orchestration Workflow
@@ -237,6 +253,63 @@ Final integration:
 - Merge worktree branches in dependency order
 - Run full test suite
 - Create PR with `gh pr create`
+
+## Context Management
+
+Long-running workflows can exhaust Claude Code's context window. The context management system provides:
+
+### State Persistence
+
+Workflow state is saved to `docs/workflow-state/<feature>.state.json`:
+- Task status and progress
+- Worktree locations
+- PR URLs and feedback
+- Review results
+
+State files are **gitignored** - they persist locally but aren't committed.
+
+### Checkpoint Boundaries
+
+Natural break points where you can safely start a new session:
+
+| After | Checkpoint |
+|-------|------------|
+| `/delegate` completes | All tasks done, before review |
+| PR created | Before feedback iteration |
+| Feedback round | Between fix cycles |
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/checkpoint` | Save current state, get resume instructions |
+| `/resume <state-file>` | Restore context from state file |
+
+### Example Session Handoff
+
+```bash
+# Session 1: Context getting heavy after delegation
+> /checkpoint
+Checkpoint saved to: docs/workflow-state/my-feature.state.json
+To resume: /resume docs/workflow-state/my-feature.state.json
+
+# Session 2: Fresh start with restored context
+> /resume docs/workflow-state/my-feature.state.json
+Workflow Context Restored
+Feature: my-feature
+Phase: review
+Tasks: 5/5 complete
+Next: /review docs/plans/2026-01-05-my-feature.md
+```
+
+### Context Reduction
+
+Reviews use git diffs instead of full file contents, reducing context by 80-90%:
+
+```bash
+# Generate diff for review (used automatically)
+scripts/review-diff.sh .worktrees/task-001 main
+```
 
 ## TDD Enforcement
 

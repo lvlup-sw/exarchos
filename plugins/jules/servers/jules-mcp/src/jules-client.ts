@@ -10,7 +10,7 @@ import type {
   IJulesClient
 } from './types.js';
 
-const BASE_URL = 'https://jules.google/v1alpha';
+const BASE_URL = 'https://jules.googleapis.com/v1alpha';
 
 export class JulesClient implements IJulesClient {
   private readonly apiKey: string;

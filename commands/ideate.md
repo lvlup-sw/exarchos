@@ -50,6 +50,21 @@ After user selects approach:
 - Include diagrams if helpful
 - Save to `docs/designs/YYYY-MM-DD-<feature>.md`
 
+## State Management
+
+Initialize workflow state at the start:
+
+```bash
+scripts/workflow-state.sh init <feature-id>
+```
+
+After saving design, update state:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.artifacts.design = "<design-path>" | .phase = "plan"'
+```
+
 ## Output
 
 Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$DESIGN_PATH`.

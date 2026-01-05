@@ -158,6 +158,36 @@ Follow: `MethodName_Scenario_ExpectedOutcome`
 | "Tests slow me down" | Debugging without tests is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
+## State Management
+
+This skill updates workflow state with plan details.
+
+### On Plan Save
+
+Update state with plan artifact and tasks:
+
+```bash
+# Set plan path
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.artifacts.plan = "docs/plans/YYYY-MM-DD-<feature>.md"'
+
+# Add tasks (repeat for each task)
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "branch": "feature/001-name"}]'
+
+# Update phase
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.phase = "delegate"'
+```
+
+### Task State Structure
+
+Each task in state should include:
+- `id`: Task identifier matching plan (e.g., "001", "A1")
+- `title`: Brief description
+- `status`: "pending" (initially)
+- `branch`: Git branch name for this task
+
 ## Completion Criteria
 
 - [ ] Design document read and understood
@@ -166,6 +196,7 @@ Follow: `MethodName_Scenario_ExpectedOutcome`
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan saved to `docs/plans/`
+- [ ] State file updated with plan path and tasks
 
 ## Transition
 

@@ -68,6 +68,24 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 **Parallelizable:** [Yes/No]
 ```
 
+## State Management
+
+After saving plan, update state with tasks:
+
+```bash
+# Set plan path
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.artifacts.plan = "<plan-path>"'
+
+# Populate tasks from plan
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.tasks = [{"id": "001", "title": "...", "status": "pending", "branch": "feature/001-..."}]'
+
+# Update phase
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.phase = "delegate"'
+```
+
 ## Output
 
 Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN_PATH`.

@@ -9,7 +9,7 @@ The coverage gate script enforces code coverage thresholds and posts PR comments
 ### Features
 
 - Parses Cobertura XML coverage reports
-- Enforces configurable coverage threshold (default: 80%)
+- Enforces configurable coverage threshold (default: 90%)
 - Posts PR comment with coverage badge and per-project breakdown
 - Sets GitHub Actions outputs for integration with other steps
 - Portable: uses grep/sed/awk (no xmllint required)
@@ -50,7 +50,7 @@ In GitHub Settings > Branches > Branch protection rules:
 
 Options:
   --coverage-file <path>   Path to merged cobertura XML (default: ./coverage-merged/Cobertura.xml)
-  --threshold <percent>    Minimum line coverage required (default: 80)
+  --threshold <percent>    Minimum line coverage required (default: 90)
   --output-dir <path>      Directory for generated files (default: ./coverage-merged)
 
 Exit codes:
@@ -72,7 +72,7 @@ The script generates a markdown file (`pr-comment.md`) with:
 
 | Metric | Value | Threshold | Status |
 |--------|-------|-----------|--------|
-| Line Coverage | 85.20% | 80% | PASS |
+| Line Coverage | 92.50% | 90% | PASS |
 | Branch Coverage | 78.20% | - | - |
 
 ### Per-Project Breakdown
@@ -99,10 +99,10 @@ The coverage gate works alongside CodeRabbit's SPEC COMPLIANCE check:
 
 | Check | Threshold | Enforcement |
 |-------|-----------|-------------|
-| Coverage Gate (CI) | 80% line | Blocks merge |
-| CodeRabbit SPEC COMPLIANCE | 80% line, 70% branch | PR comment |
+| Coverage Gate (CI) | 90% line | Blocks merge |
+| CodeRabbit SPEC COMPLIANCE | 90% line, 70% branch | PR comment |
 
-Both thresholds are aligned at 80% line coverage.
+Both thresholds are aligned at 90% line coverage.
 
 ### Dependencies
 
@@ -161,7 +161,7 @@ This workflow uses `dotnet-coverage` tool for code coverage collection, which is
 | `DOTNET_VERSION` | `10.0.x` | .NET SDK version |
 | `DOTNET_QUALITY` | `preview` | SDK quality (preview, ga) |
 | `SOLUTION_PATH` | `src/YourSolution.sln` | Path to solution file |
-| `COVERAGE_THRESHOLD` | `80` | Minimum coverage percentage |
+| `COVERAGE_THRESHOLD` | `90` | Minimum coverage percentage |
 
 #### Runner
 

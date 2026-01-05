@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "jules": {
+      "command": "npx",
+      "args": ["tsx", "./plugins/jules/servers/jules-mcp/src/index.ts"],
+      "env": {
+        "JULES_API_KEY": "${JULES_API_KEY}"
+      }
+    }
+  }
+}

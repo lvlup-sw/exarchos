@@ -19,18 +19,29 @@ Activate this skill when:
 This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
 The orchestrator provides:
-- Design document path
-- Plan document path
-- Implementation file paths
-- Test file paths
+- State file path (preferred) OR design/plan paths
+- Diff output from `scripts/review-diff.sh` (context-efficient)
+- Task ID being reviewed
 - Spec review results (must be PASS)
 
 The subagent:
-- Reads artifacts
+- Reads state file to get artifact paths
+- Uses diff output instead of reading full files
 - Runs static analysis
 - Performs code walkthrough
 - Generates report
 - Returns verdict to orchestrator
+
+### Context-Efficient Input
+
+Instead of full file contents, receive git diffs:
+
+```bash
+# Generate diff for review
+scripts/review-diff.sh .worktrees/<task> main
+```
+
+This reduces context consumption by 80-90%.
 
 ## Review Scope
 
@@ -250,6 +261,34 @@ Task({
 | Accept poor test quality | Tests are code too |
 | Apply generic standards to language issues | Reference language-specific rules |
 
+## State Management
+
+Update workflow state with review results.
+
+### On Review Complete
+
+```bash
+# Update task review status
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "approved"'
+
+# Or if needs fixes:
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "needs_fixes"'
+
+# Add review details
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.reviews["<task-id>"].qualityReview = {"status": "approved", "highPriority": [], "mediumPriority": []}'
+```
+
+### On All Reviews Pass
+
+Update phase for synthesis:
+
+```bash
+scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "synthesize"'
+```
+
 ## Completion Criteria
 
 - [ ] Static analysis passes
@@ -257,6 +296,7 @@ Task({
 - [ ] No security vulnerabilities
 - [ ] Test quality acceptable
 - [ ] Code is maintainable
+- [ ] State file updated with review results
 
 ## Transition
 

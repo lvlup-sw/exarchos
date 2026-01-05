@@ -26,7 +26,16 @@ Review implementation for: "$ARGUMENTS"
 
 ## Execution Mode
 
-Reviews MUST be dispatched to subagents (not run inline):
+Reviews MUST be dispatched to subagents (not run inline).
+
+### Context-Efficient Reviews
+
+Use diffs instead of full file contents to reduce context by 80-90%:
+
+```bash
+# Generate diff for review subagent
+scripts/review-diff.sh .worktrees/<task> main
+```
 
 ### Dispatch Spec Review
 ```typescript
@@ -34,7 +43,10 @@ Task({
   subagent_type: "general-purpose",
   model: "opus",
   description: "Spec review for $FEATURE_NAME",
-  prompt: `[Full spec review prompt with artifacts from skills/spec-review/SKILL.md]`
+  prompt: `[Spec review prompt with:
+    - State file path
+    - Diff output from review-diff.sh
+    - Task ID being reviewed]`
 })
 ```
 
@@ -44,7 +56,10 @@ Task({
   subagent_type: "general-purpose",
   model: "opus",
   description: "Quality review for $FEATURE_NAME",
-  prompt: `[Full quality review prompt with artifacts from skills/quality-review/SKILL.md]`
+  prompt: `[Quality review prompt with:
+    - State file path
+    - Diff output from review-diff.sh
+    - Task ID being reviewed]`
 })
 ```
 
