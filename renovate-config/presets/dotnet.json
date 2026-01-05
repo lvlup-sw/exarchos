@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": ".NET preset. Enables Central Package Management and groups common .NET packages. .NET SDK updates are enabled automatically if a global.json file is present in the repository root.",
+  "packageRules": [
+    {
+      "matchPackagePrefixes": [
+        "Aspire."
+      ],
+      "groupName": "aspire packages"
+    },
+    {
+      "matchPackagePrefixes": [
+        "Wolverine"
+      ],
+      "groupName": "Wolverine packages"
+    },
+    {
+      "matchPackagePrefixes": [
+        "OpenTelemetry"
+      ],
+      "groupName": "OpenTelemetry packages"
+    },
+    {
+      "matchPackagePrefixes": [
+        "xunit"
+      ],
+      "groupName": "xunit packages"
+    },
+    {
+      "matchPackagePrefixes": [
+        "Microsoft.Extensions."
+      ],
+      "groupName": "Microsoft.Extensions packages"
+    }
+  ],
+  "nuget": {
+    "centralPackageManagement": true
+  }
+}
