@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+#
+# coverage-gate.sh - Coverage gate script for CI/CD pipelines
+#
+# Parses cobertura XML coverage reports, enforces thresholds,
+# and generates PR comments with coverage summaries.
+#
+# Usage: ./coverage-gate.sh [OPTIONS]
+#
+# Options:
+#   --coverage-file <path>   Path to merged cobertura XML (default: ./coverage-merged/Cobertura.xml)
+#   --threshold <percent>    Minimum line coverage required (default: 80)
+#   --output-dir <path>      Directory for generated files (default: ./coverage-merged)
+#   --baseline <path>        Optional baseline JSON for diff calculation
+#
+# Exit codes:
+#   0 - Coverage meets threshold
+#   1 - Coverage below threshold
+#   2 - Error (missing file, parse error, etc.)
+#
+
+# ============================================================================
+# Coverage Parsing Functions
+# ============================================================================
+
+# Extract attribute value from XML using grep/sed (portable, no xmllint needed)
+extract_xml_attr() {
+  local file="$1"
+  local element="$2"
+  local attr="$3"
+
+  # Extract the element line and then the attribute value
+  grep -o "<${element}[^>]*${attr}=\"[^\"]*\"" "$file" 2>/dev/null | \
+    head -1 | \
+    sed -n "s/.*${attr}=\"\([^\"]*\)\".*/\1/p"
+}
+
+parse_line_coverage() {
+  local file="$1"
+  local line_rate
+
+  line_rate=$(extract_xml_attr "$file" "coverage" "line-rate")
+
+  if [[ -z "$line_rate" ]]; then
+    echo "0.00"
+    return
+  fi
+
+  # Use awk for portable floating point math
+  awk "BEGIN { printf \"%.2f\", $line_rate * 100 }"
+}
+
+parse_branch_coverage() {
+  local file="$1"
+  local branch_rate
+
+  branch_rate=$(extract_xml_attr "$file" "coverage" "branch-rate")
+
+  if [[ -z "$branch_rate" ]]; then
+    echo "0.00"
+    return
+  fi
+
+  awk "BEGIN { printf \"%.2f\", $branch_rate * 100 }"
+}
+
+# ============================================================================
+# Threshold Checking
+# ============================================================================
+
+check_threshold() {
+  local coverage="$1"
+  local threshold="$2"
+  # Use awk for portable comparison
+  awk "BEGIN { exit !($coverage >= $threshold) }"
+}
+
+get_coverage_badge_color() {
+  local coverage="$1"
+  local threshold="$2"
+
+  # Check if passing
+  if ! check_threshold "$coverage" "$threshold"; then
+    echo "red"
+    return
+  fi
+
+  # Check if within 5% of threshold (yellow zone)
+  local yellow_zone
+  yellow_zone=$(awk "BEGIN { print $threshold + 5 }")
+  local is_yellow
+  is_yellow=$(awk "BEGIN { print ($coverage < $yellow_zone) ? 1 : 0 }")
+
+  if [[ "$is_yellow" -eq 1 ]]; then
+    echo "yellow"
+  else
+    echo "brightgreen"
+  fi
+}
+
+# ============================================================================
+# Package Coverage Parsing
+# ============================================================================
+
+parse_package_coverage() {
+  local file="$1"
+
+  # Extract package elements and parse name + line-rate attributes
+  # Output format: PackageName|line_coverage
+  grep -o '<package[^>]*>' "$file" 2>/dev/null | while read -r line; do
+    local name
+    local rate
+    local percentage
+
+    # Extract name attribute
+    name=$(echo "$line" | sed -n 's/.*name="\([^"]*\)".*/\1/p')
+    # Extract line-rate attribute
+    rate=$(echo "$line" | sed -n 's/.*line-rate="\([^"]*\)".*/\1/p')
+
+    if [[ -n "$name" && -n "$rate" ]]; then
+      percentage=$(awk "BEGIN { printf \"%.2f\", $rate * 100 }")
+      echo "${name}|${percentage}"
+    fi
+  done
+}
+
+# ============================================================================
+# PR Comment Generation
+# ============================================================================
+
+generate_pr_comment() {
+  local coverage_file="$1"
+  local threshold="$2"
+  local output_dir="$3"
+
+  local line_coverage
+  local branch_coverage
+  local badge_color
+  local gate_status
+
+  line_coverage=$(parse_line_coverage "$coverage_file")
+  branch_coverage=$(parse_branch_coverage "$coverage_file")
+  badge_color=$(get_coverage_badge_color "$line_coverage" "$threshold")
+
+  if check_threshold "$line_coverage" "$threshold"; then
+    gate_status="PASS"
+  else
+    gate_status="FAIL"
+  fi
+
+  # URL-encode the percentage sign for shields.io
+  local badge_url="https://img.shields.io/badge/coverage-${line_coverage}%25-${badge_color}"
+
+  # Generate per-project breakdown
+  local project_rows=""
+  while IFS='|' read -r name coverage; do
+    if [[ -n "$name" ]]; then
+      project_rows="${project_rows}| ${name} | ${coverage}% |
+"
+    fi
+  done < <(parse_package_coverage "$coverage_file")
+
+  # Write markdown file
+  mkdir -p "$output_dir"
+  cat > "$output_dir/pr-comment.md" << EOF
+## Coverage Report
+
+![Coverage](${badge_url})
+
+### Summary
+
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| Line Coverage | ${line_coverage}% | ${threshold}% | ${gate_status} |
+| Branch Coverage | ${branch_coverage}% | - | - |
+
+### Per-Project Breakdown
+
+| Project | Coverage |
+|---------|----------|
+${project_rows}
+---
+*Generated by coverage-gate.sh*
+EOF
+}
+
+# Main entry point (only runs when script is executed directly, not sourced)
+main() {
+  local coverage_file="./coverage-merged/Cobertura.xml"
+  local threshold=80
+  local output_dir="./coverage-merged"
+  local baseline=""
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --coverage-file) coverage_file="$2"; shift 2 ;;
+      --threshold) threshold="$2"; shift 2 ;;
+      --output-dir) output_dir="$2"; shift 2 ;;
+      --baseline) baseline="$2"; shift 2 ;;
+      *) echo "Unknown option: $1"; exit 2 ;;
+    esac
+  done
+
+  # Validate input file exists
+  if [[ ! -f "$coverage_file" ]]; then
+    echo "::error::Coverage file not found: $coverage_file"
+    exit 2
+  fi
+
+  # Parse coverage
+  local line_coverage
+  local branch_coverage
+  line_coverage=$(parse_line_coverage "$coverage_file")
+  branch_coverage=$(parse_branch_coverage "$coverage_file")
+
+  echo "Line coverage: ${line_coverage}%"
+  echo "Branch coverage: ${branch_coverage}%"
+
+  # Generate PR comment
+  mkdir -p "$output_dir"
+  generate_pr_comment "$coverage_file" "$threshold" "$output_dir"
+
+  # Check threshold
+  if check_threshold "$line_coverage" "$threshold"; then
+    echo "::notice::Coverage ${line_coverage}% meets threshold ${threshold}%"
+
+    # Set GitHub Actions outputs
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      echo "line-coverage=${line_coverage}" >> "$GITHUB_OUTPUT"
+      echo "branch-coverage=${branch_coverage}" >> "$GITHUB_OUTPUT"
+      echo "gate-status=PASS" >> "$GITHUB_OUTPUT"
+    fi
+
+    exit 0
+  else
+    echo "::error::Coverage ${line_coverage}% is below threshold ${threshold}%"
+
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+      echo "line-coverage=${line_coverage}" >> "$GITHUB_OUTPUT"
+      echo "branch-coverage=${branch_coverage}" >> "$GITHUB_OUTPUT"
+      echo "gate-status=FAIL" >> "$GITHUB_OUTPUT"
+    fi
+
+    exit 1
+  fi
+}
+
+# Only run main if script is executed directly (not sourced for testing)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

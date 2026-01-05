@@ -1,0 +1,140 @@
+# .NET CI Workflow Template
+#
+# This workflow template provides:
+# - Build and test with coverage collection
+# - Coverage gate enforcement (80% threshold)
+# - PR comment with coverage summary
+#
+# Usage:
+#   Copy this file to your project's .github/workflows/ directory
+#   and customize as needed.
+#
+# Prerequisites:
+#   - Copy scripts/ci/coverage-gate.sh to your project
+#   - Ensure solution file path is correct
+#   - Configure branch protection to require 'coverage-gate' check
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  DOTNET_QUALITY: 'preview'
+  SOLUTION_PATH: 'src/YourSolution.sln'  # Update this
+  COVERAGE_THRESHOLD: 80
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-quality: ${{ env.DOTNET_QUALITY }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.SOLUTION_PATH }}
+
+      - name: Build
+        run: dotnet build ${{ env.SOLUTION_PATH }} --no-restore --configuration Release
+
+      - name: Test with coverage
+        run: |
+          dotnet test ${{ env.SOLUTION_PATH }} \
+            --no-build \
+            --configuration Release \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            **/coverage.cobertura.xml
+            ./TestResults/**/coverage.cobertura.xml
+          retention-days: 7
+
+  coverage-gate:
+    name: Coverage Gate
+    needs: build-test
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+          path: ./coverage-reports
+
+      - name: Install ReportGenerator
+        run: dotnet tool install -g dotnet-reportgenerator-globaltool
+
+      - name: Merge coverage reports
+        run: |
+          reportgenerator \
+            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
+            -targetdir:"./coverage-merged" \
+            -reporttypes:"Cobertura;TextSummary"
+
+      - name: Run coverage gate
+        id: coverage
+        run: |
+          chmod +x ./scripts/ci/coverage-gate.sh
+          ./scripts/ci/coverage-gate.sh \
+            --coverage-file ./coverage-merged/Cobertura.xml \
+            --threshold ${{ env.COVERAGE_THRESHOLD }} \
+            --output-dir ./coverage-merged
+
+      - name: Post PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file ./coverage-merged/pr-comment.md \
+            --edit-last || \
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file ./coverage-merged/pr-comment.md
+
+  # Optional: Update baseline on main merge
+  update-baseline:
+    name: Update Coverage Baseline
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build-test
+    steps:
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+          path: ./coverage-reports
+
+      - name: Install ReportGenerator
+        run: dotnet tool install -g dotnet-reportgenerator-globaltool
+
+      - name: Generate merged report
+        run: |
+          reportgenerator \
+            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
+            -targetdir:"./coverage-merged" \
+            -reporttypes:"JsonSummary"
+
+      - name: Cache baseline coverage
+        uses: actions/cache/save@v4
+        with:
+          path: ./coverage-merged/Summary.json
+          key: coverage-baseline-${{ github.sha }}
