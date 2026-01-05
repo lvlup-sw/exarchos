@@ -181,16 +181,25 @@ init_terraform_backend() {
 
     log_info "Initializing Terraform with remote backend..."
 
-    # Substitute environment variables in provider.conf.json
-    local temp_config=
-    temp_config=$(mktemp)
-    envsubst < "$backend_config" > "$temp_config"
+    # Check if envsubst is available
+    if ! command -v envsubst &> /dev/null; then
+        log_warning "envsubst not found. Using backend config without variable substitution."
+        log_info "Install gettext package to enable variable substitution (apt-get install gettext)"
+        # Use original config file without substitution
+        local temp_config="$backend_config"
+    else
+        # Substitute environment variables in provider.conf.json
+        local temp_config=
+        temp_config=$(mktemp)
+        trap 'rm -f "$temp_config"' RETURN
+        envsubst < "$backend_config" > "$temp_config"
+    fi
 
     # Run terraform init
     cd "$INFRA_DIR"
     terraform init -backend-config="$temp_config" -reconfigure
 
-    rm -f "$temp_config"
+    # Note: temp file cleanup is handled by trap when envsubst was used
 
     log_success "Terraform backend initialized"
 }

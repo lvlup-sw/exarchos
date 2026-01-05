@@ -13,14 +13,23 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
+# Verify jq is available
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}ERROR${NC}: jq is not installed. Please install jq to run these tests."
+    echo "  macOS: brew install jq"
+    echo "  Ubuntu/Debian: apt-get install jq"
+    exit 1
+fi
+
+
 pass() {
     echo -e "${GREEN}PASS${NC}: $1"
-    ((++PASS)) || true
+    PASS=$((PASS + 1))
 }
 
 fail() {
     echo -e "${RED}FAIL${NC}: $1"
-    ((++FAIL)) || true
+    FAIL=$((FAIL + 1))
 }
 
 # Test 1: renovate.json exists
@@ -59,9 +68,9 @@ if [[ -f "$SCRIPT_DIR/renovate.json" ]]; then
     fi
 fi
 
-# Test 5: Schedule set to weekends
+# Test 5: Schedule set to weekends (case-insensitive check)
 if [[ -f "$SCRIPT_DIR/renovate.json" ]]; then
-    if jq -e '.schedule | any(contains("weekend") or contains("saturday") or contains("sunday"))' "$SCRIPT_DIR/renovate.json" >/dev/null 2>&1; then
+    if jq -e '.schedule | map(ascii_downcase) | any(contains("weekend") or contains("saturday") or contains("sunday"))' "$SCRIPT_DIR/renovate.json" >/dev/null 2>&1; then
         pass "Schedule includes weekends"
     else
         fail "Schedule does not include weekends"
