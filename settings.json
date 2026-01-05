@@ -5,7 +5,8 @@
       "WebFetch(domain:jules.google)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:developers.google.com)"
+      "WebFetch(domain:developers.google.com)",
+      "Bash(gh:*)"
     ]
   }
 }
