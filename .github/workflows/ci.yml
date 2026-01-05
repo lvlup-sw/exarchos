@@ -1,0 +1,90 @@
+# CI Workflow for lvlup-claude configuration templates
+#
+# Features:
+# - YAML/JSON validation
+# - Shell script syntax checking
+# - Terraform validation
+# - Test suite execution
+#
+# Uses Blacksmith runners for fast builds
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate Templates
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation tools
+        run: |
+          pip install pyyaml
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.0'
+
+      - name: Run template validation
+        run: ./scripts/validate-templates.sh --verbose
+
+  test-azd:
+    name: Test azd Templates
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9.0'
+
+      - name: Run azd tests
+        run: ./azd-templates/azd.test.sh
+
+      - name: Run infra tests
+        run: ./azd-templates/infra/infra.test.sh
+
+      - name: Run hooks tests
+        run: ./azd-templates/infra/scripts/hooks.test.sh
+
+  test-ci-templates:
+    name: Test CI Templates
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run coverage-gate tests
+        run: ./ci-templates/coverage-gate/coverage-gate.test.sh
+
+      - name: Run cd-azure workflow tests
+        run: ./ci-templates/workflows/cd-azure.yml.test.sh
+
+  test-renovate:
+    name: Test Renovate Config
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Run renovate tests
+        run: ./renovate-config/renovate.test.sh
