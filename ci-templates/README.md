@@ -109,6 +109,7 @@ Both thresholds are aligned at 80% line coverage.
 | Tool | Purpose | Notes |
 |------|---------|-------|
 | grep, sed, awk | XML parsing | Pre-installed on all runners |
+| dotnet-coverage | Collect coverage | Installed via `dotnet tool` |
 | ReportGenerator | Merge reports | Installed via `dotnet tool` |
 | gh CLI | Post PR comments | Pre-installed on GitHub runners |
 
@@ -147,12 +148,11 @@ Complete CI workflow for .NET projects:
 
 #### .NET 10 Compatibility
 
-This workflow uses Microsoft Testing Platform (MTP) for .NET 10+.
+This workflow uses `dotnet-coverage` tool for code coverage collection, which is compatible with both VSTest and Microsoft Testing Platform.
 
 **Requirements:**
 1. Add `global.json` with MTP runner config (see `templates/global.json`)
-2. Add `Microsoft.Testing.Extensions.CodeCoverage` package to test projects
-3. Remove `coverlet.collector` package if present (incompatible with MTP)
+2. No special packages needed in test projects - coverage is collected externally
 
 #### Customization
 

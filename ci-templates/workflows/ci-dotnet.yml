@@ -48,20 +48,23 @@ jobs:
       - name: Build
         run: dotnet build ${{ env.SOLUTION_PATH }} --no-restore --configuration Release
 
+      - name: Install dotnet-coverage
+        run: dotnet tool install -g dotnet-coverage
+
       - name: Test with coverage
         run: |
-          dotnet test ${{ env.SOLUTION_PATH }} \
-            --no-build \
-            --configuration Release \
-            --coverage \
-            --coverage-output-format cobertura \
-            --results-directory ./TestResults
+          dotnet-coverage collect \
+            --output ./TestResults/coverage.cobertura.xml \
+            --output-format cobertura \
+            -- dotnet test ${{ env.SOLUTION_PATH }} \
+              --no-build \
+              --configuration Release
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
-          path: ./TestResults/**/*.cobertura.xml
+          path: ./TestResults/coverage.cobertura.xml
           retention-days: 7
 
   coverage-gate:
@@ -85,7 +88,7 @@ jobs:
       - name: Merge coverage reports
         run: |
           reportgenerator \
-            -reports:"./coverage-reports/**/*.cobertura.xml" \
+            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
             -targetdir:"./coverage-merged" \
             -reporttypes:"Cobertura;TextSummary"
 
@@ -128,7 +131,7 @@ jobs:
       - name: Generate merged report
         run: |
           reportgenerator \
-            -reports:"./coverage-reports/**/*.cobertura.xml" \
+            -reports:"./coverage-reports/**/coverage.cobertura.xml" \
             -targetdir:"./coverage-merged" \
             -reporttypes:"JsonSummary"
 
