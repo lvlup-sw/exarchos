@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createJulesTools } from './tools.js';
+import { createJulesTools, detectQuestion } from './tools.js';
 import type { IJulesClient } from './types.js';
 import {
   mockSource,
@@ -7,7 +7,13 @@ import {
   mockSession,
   mockSessionAwaitingApproval,
   mockSessionCompleted,
-  mockActivityPlanning
+  mockActivityPlanning,
+  // NEW FIXTURES TO ADD:
+  mockActivityAgentQuestion,
+  mockActivityAgentStatement,
+  mockActivityUserMessage,
+  mockActivityPlanGenerated,
+  mockActivityWithArtifacts
 } from './test/fixtures.js';
 
 describe('Jules MCP Tools', () => {
@@ -516,6 +522,248 @@ describe('Jules MCP Tools', () => {
       expect(toolDescriptions.jules_approve_plan.toLowerCase()).toContain('approve');
       expect(toolDescriptions.jules_send_feedback.toLowerCase()).toContain('feedback');
       expect(toolDescriptions.jules_cancel.toLowerCase()).toContain('cancel');
+    });
+  });
+
+  // ==========================================================================
+  // jules_get_conversation Tests
+  // ==========================================================================
+  describe('jules_get_conversation', () => {
+    it('jules_get_conversation_ValidSession_ReturnsActivities', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityPlanGenerated,
+        mockActivityAgentQuestion,
+        mockActivityUserMessage,
+        mockActivityAgentStatement
+      ]);
+
+      // Act
+      const result = await tools.jules_get_conversation({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.sessionId).toBe('abc123');
+      expect(parsed.activities).toHaveLength(4);
+      expect(parsed.activities[0].type).toBe('plan');
+      expect(parsed.activities[1].type).toBe('agent_message');
+      expect(parsed.activities[2].type).toBe('user_message');
+    });
+
+    it('jules_get_conversation_WithLimit_RespectsLimit', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityPlanGenerated,
+        mockActivityAgentQuestion,
+        mockActivityUserMessage,
+        mockActivityAgentStatement
+      ]);
+
+      // Act
+      const result = await tools.jules_get_conversation({
+        sessionId: 'abc123',
+        limit: 2
+      });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.activities).toHaveLength(2);
+    });
+
+    it('jules_get_conversation_EmptyActivities_ReturnsEmptyArray', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockResolvedValue([]);
+
+      // Act
+      const result = await tools.jules_get_conversation({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.activities).toEqual([]);
+    });
+
+    it('jules_get_conversation_EmptySessionId_ReturnsError', async () => {
+      // Act
+      const result = await tools.jules_get_conversation({ sessionId: '' });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('sessionId');
+    });
+
+    it('jules_get_conversation_ApiError_ReturnsError', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockRejectedValue(
+        new Error('Session not found')
+      );
+
+      // Act
+      const result = await tools.jules_get_conversation({ sessionId: 'invalid' });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session not found');
+    });
+
+    it('jules_get_conversation_WithArtifacts_IncludesArtifactSummary', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityWithArtifacts
+      ]);
+
+      // Act
+      const result = await tools.jules_get_conversation({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.activities[0].artifacts).toBeDefined();
+      expect(parsed.activities[0].artifacts[0].type).toBe('changeset');
+    });
+  });
+
+  // ==========================================================================
+  // detectQuestion Tests
+  // ==========================================================================
+  describe('detectQuestion', () => {
+    it('detectQuestion_EndsWithQuestionMark_ReturnsTrue', () => {
+      expect(detectQuestion('What framework should I use?')).toBe(true);
+    });
+
+    it('detectQuestion_ContainsShouldI_ReturnsTrue', () => {
+      expect(detectQuestion('Should I use React or Vue for this project')).toBe(true);
+    });
+
+    it('detectQuestion_ContainsDoYouWant_ReturnsTrue', () => {
+      expect(detectQuestion('Do you want me to proceed with the implementation')).toBe(true);
+    });
+
+    it('detectQuestion_ContainsPleaseConfirm_ReturnsTrue', () => {
+      expect(detectQuestion('Please confirm the database schema before I continue')).toBe(true);
+    });
+
+    it('detectQuestion_ContainsWhichOption_ReturnsTrue', () => {
+      expect(detectQuestion('Which option would you prefer for the API design')).toBe(true);
+    });
+
+    it('detectQuestion_ContainsCanYouProvide_ReturnsTrue', () => {
+      expect(detectQuestion('Can you provide more details about the expected behavior')).toBe(true);
+    });
+
+    it('detectQuestion_PlainStatement_ReturnsFalse', () => {
+      expect(detectQuestion('I have completed the implementation.')).toBe(false);
+    });
+
+    it('detectQuestion_ProgressUpdate_ReturnsFalse', () => {
+      expect(detectQuestion('Working on the user profile feature now.')).toBe(false);
+    });
+
+    it('detectQuestion_EmptyString_ReturnsFalse', () => {
+      expect(detectQuestion('')).toBe(false);
+    });
+
+    it('detectQuestion_QuestionMarkInMiddle_ReturnsFalse', () => {
+      // Question mark in middle shouldn't trigger - must be end or question phrase
+      expect(detectQuestion('The file config?.json was updated successfully.')).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // jules_get_pending_question Tests
+  // ==========================================================================
+  describe('jules_get_pending_question', () => {
+    it('jules_get_pending_question_HasQuestion_ReturnsQuestion', async () => {
+      // Arrange - last activity is an agent question
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityPlanGenerated,
+        mockActivityUserMessage,
+        mockActivityAgentQuestion  // Last activity is a question
+      ]);
+
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.sessionId).toBe('abc123');
+      expect(parsed.hasPendingQuestion).toBe(true);
+      expect(parsed.question).toContain('Which database should I use');
+      expect(parsed.detectedAt).toBeDefined();
+    });
+
+    it('jules_get_pending_question_NoQuestion_ReturnsFalse', async () => {
+      // Arrange - last activity is a statement, not a question
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityPlanGenerated,
+        mockActivityAgentQuestion,
+        mockActivityUserMessage,
+        mockActivityAgentStatement  // Last activity is NOT a question
+      ]);
+
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.hasPendingQuestion).toBe(false);
+      expect(parsed.question).toBeUndefined();
+    });
+
+    it('jules_get_pending_question_NoAgentMessages_ReturnsFalse', async () => {
+      // Arrange - only user messages and plans, no agent messages
+      vi.mocked(mockClient.getActivities).mockResolvedValue([
+        mockActivityPlanGenerated,
+        mockActivityUserMessage
+      ]);
+
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.hasPendingQuestion).toBe(false);
+    });
+
+    it('jules_get_pending_question_EmptyActivities_ReturnsFalse', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockResolvedValue([]);
+
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: 'abc123' });
+
+      // Assert
+      expect(result.isError).toBeFalsy();
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.hasPendingQuestion).toBe(false);
+    });
+
+    it('jules_get_pending_question_EmptySessionId_ReturnsError', async () => {
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: '' });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('sessionId');
+    });
+
+    it('jules_get_pending_question_ApiError_ReturnsError', async () => {
+      // Arrange
+      vi.mocked(mockClient.getActivities).mockRejectedValue(
+        new Error('Session not found')
+      );
+
+      // Act
+      const result = await tools.jules_get_pending_question({ sessionId: 'invalid' });
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session not found');
     });
   });
 });

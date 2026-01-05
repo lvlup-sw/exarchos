@@ -2,6 +2,10 @@
 tone_instructions: Exacting, prioritizing technical optimality
 early_access: true
 reviews:
+  auto_review:
+    enabled: true
+    ignore_usernames:
+      - renovate[bot]  # Skip dependency update PRs, but review Jules and other bots
   request_changes_workflow: true
   high_level_summary_instructions: Review git commit messages and related documents in addition to code changes.
   auto_apply_labels: true
