@@ -8,3 +8,9 @@ plugins/*/servers/*/coverage/
 
 # Workflow state files (not tracked)
 docs/workflow-state/*.state.json
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+

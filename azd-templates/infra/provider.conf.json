@@ -1,0 +1,7 @@
+{
+  "resource_group_name": "${AZURE_TFSTATE_RESOURCE_GROUP}",
+  "storage_account_name": "${AZURE_TFSTATE_STORAGE_ACCOUNT}",
+  "container_name": "tfstate",
+  "key": "${AZURE_ENV_NAME}.terraform.tfstate",
+  "use_azuread_auth": true
+}
