@@ -41,8 +41,8 @@ validate_yaml() {
             log_fail "$file - invalid YAML syntax"
         fi
     else
-        # Fallback: basic syntax check with Python
-        if python3 -c "import yaml; yaml.safe_load(open('$file'))" 2>/dev/null; then
+        # Fallback: basic syntax check with Python (parameterized to avoid command injection)
+        if python3 -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))" "$file" 2>/dev/null; then
             log_pass "$file (python fallback)"
         else
             log_fail "$file - invalid YAML syntax"
