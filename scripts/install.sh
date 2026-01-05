@@ -88,18 +88,47 @@ link_dir "$REPO_ROOT/plugins/jules" "$CLAUDE_HOME/plugins/jules"
 
 # Link files
 link_file "$REPO_ROOT/settings.json" "$CLAUDE_HOME/settings.json"
-link_file "$REPO_ROOT/.mcp.json" "$CLAUDE_HOME/.mcp.json"
 
 echo ""
 echo "Installing jules plugin dependencies..."
 cd "$REPO_ROOT/plugins/jules/servers/jules-mcp"
 npm install --silent
 echo "  [done] npm install"
+npm run build --silent
+echo "  [done] npm run build"
+
+echo ""
+echo "Configuring Jules MCP server..."
+# Add Jules MCP server to ~/.claude.json
+if command -v jq &> /dev/null; then
+    JULES_MCP_CONFIG='{
+        "type": "stdio",
+        "command": "node",
+        "args": ["dist/index.js"],
+        "cwd": "'"$CLAUDE_HOME"'/plugins/jules/servers/jules-mcp",
+        "env": {
+            "JULES_API_KEY": "${JULES_API_KEY}"
+        }
+    }'
+
+    if [ -f "$HOME/.claude.json" ]; then
+        # Update existing config
+        jq --argjson jules "$JULES_MCP_CONFIG" '.mcpServers.jules = $jules' "$HOME/.claude.json" > /tmp/claude.json
+        mv /tmp/claude.json "$HOME/.claude.json"
+    else
+        # Create new config
+        echo "{\"mcpServers\": {\"jules\": $JULES_MCP_CONFIG}}" > "$HOME/.claude.json"
+    fi
+    echo "  [done] Added Jules MCP server to ~/.claude.json"
+else
+    echo "  [warn] jq not installed - manually add Jules MCP server with: claude mcp add jules"
+fi
 
 echo ""
 echo "Installation complete!"
 echo ""
 echo "Next steps:"
 echo "  1. Set JULES_API_KEY in your shell profile (~/.zshrc or ~/.bashrc)"
-echo "  2. For new projects, run: $REPO_ROOT/scripts/new-project.sh /path/to/project"
+echo "  2. Restart Claude Code to load the MCP server"
+echo "  3. For new projects, run: $REPO_ROOT/scripts/new-project.sh /path/to/project"
 echo ""
