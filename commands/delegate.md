@@ -10,12 +10,21 @@ Delegate tasks for: "$ARGUMENTS"
 
 ```
 /ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲▲▲▲▲▲▲▲
-                                    │
-                      ON FAIL ──────┘ (returns here with --fixes)
+                                 ▲▲▲▲▲▲▲▲                              │
+                                    │                                  │
+                      ON FAIL ──────┤                                  │
+                      --pr-fixes ───┴──────────────────────────────────┘
 ```
 
 Auto-invokes `/review` after all tasks complete.
+
+## Invocation Modes
+
+| Flag | Source | Use Case |
+|------|--------|----------|
+| (none) | Implementation plan | Initial task delegation |
+| `--fixes` | Review issues | Address spec/quality failures |
+| `--pr-fixes` | PR comments | Address human review feedback |
 
 ## Skill References
 
@@ -81,6 +90,33 @@ Launch parallel tasks in SINGLE message:
 Task({ model: "opus", description: "Task 001", prompt: "..." })
 Task({ model: "opus", description: "Task 002", prompt: "..." })
 ```
+
+## PR Feedback Mode (--pr-fixes)
+
+When invoked with `--pr-fixes [PR_URL]`:
+
+### Step 1: Fetch PR Comments
+```bash
+gh pr view [PR_NUMBER] --comments
+gh api repos/{owner}/{repo}/pulls/{number}/comments
+```
+
+### Step 2: Parse Feedback
+Extract actionable items from:
+- Review comments on specific lines
+- General PR comments
+- Requested changes
+
+### Step 3: Create Fix Tasks
+For each feedback item:
+- Identify file and line (if applicable)
+- Create targeted fix task
+- Include original comment context
+
+### Step 4: Dispatch and Verify
+- Dispatch fixes to subagents
+- Push changes to integration branch
+- Return to `/synthesize` for merge confirmation
 
 ## Output
 

@@ -260,9 +260,45 @@ git commit -m "Feature: Description"
 - Plan: docs/plans/YYYY-MM-DD-feature.md
 ```
 
+## Direct Commits
+
+Users can make direct edits to the integration branch:
+- Edit files in their IDE
+- Commit directly to `feature/integration-<feature-name>`
+- Push to remote
+
+**Before merge confirmation**, always sync:
+```bash
+git pull origin feature/integration-<feature-name>
+```
+
+## Handling PR Feedback
+
+If the user receives PR review comments:
+
+1. Offer to address feedback:
+   ```typescript
+   Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+   ```
+
+2. Delegate reads PR comments via:
+   ```bash
+   gh pr view [PR_NUMBER] --comments
+   gh api repos/{owner}/{repo}/pulls/{number}/comments
+   ```
+
+3. Creates fix tasks from review comments
+4. After fixes, push to integration branch
+5. Return to merge confirmation
+
 ## Transition
 
 After PR created:
-> "PR created: [URL]. Waiting for review/CI. Worktrees will be cleaned after merge."
+> "PR created: [URL]. Waiting for review/CI."
 
-This completes the orchestration workflow cycle.
+Options:
+- **Merge**: Sync and merge PR
+- **Feedback**: Loop to `/delegate --pr-fixes` to address comments
+- **Decline**: Manual handling
+
+This completes the orchestration workflow cycle (or loops back for fixes).

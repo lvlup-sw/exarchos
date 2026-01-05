@@ -90,14 +90,29 @@ Tests: PASS
 Build: PASS
 ```
 
+## Direct Commits
+
+You can make direct edits to the integration branch at any time:
+- Edit files in your IDE
+- Commit directly to `feature/integration-<feature-name>`
+- Push to remote
+
+The workflow will sync before merge confirmation.
+
 ## Auto-Chain
 
 After PR created:
 
 1. Summarize: "PR created: [URL]. All checks passing."
-2. Ask: "Merge PR? (yes/no)"
-3. On user confirmation (yes, y, continue, proceed):
+2. Ask: "Merge PR? (yes/no/feedback)"
+3. **On 'yes'** (yes, y, merge):
    ```bash
+   # Sync any direct commits first
+   git pull origin feature/integration-<feature-name>
    gh pr merge [PR_NUMBER] --merge
    ```
-4. On decline: "No problem. Run `gh pr merge [PR_NUMBER] --merge` when ready."
+4. **On 'feedback'** (feedback, comments, fixes, changes, address):
+   ```typescript
+   Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+   ```
+5. **On 'no'**: "No problem. Run `gh pr merge [PR_NUMBER] --merge` when ready, or `/delegate --pr-fixes [PR_URL]` to address feedback."

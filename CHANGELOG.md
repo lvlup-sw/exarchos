@@ -4,6 +4,30 @@ Update sparingly - high signal/impactful changes only.
 
 ## 2026-01-04
 
+### PR Feedback Loop & Direct Commits
+
+Added support for human interaction with PRs:
+
+**PR Review Feedback:**
+- New `--pr-fixes` flag for `/delegate`
+- Fetches PR comments via `gh api`
+- Creates fix tasks from review feedback
+- Loops back to merge confirmation after fixes
+
+**Direct Commits:**
+- Users can commit directly to integration branch
+- Workflow syncs (`git pull`) before merge confirmation
+- Documented in synthesize command and skill
+
+**Updated flow:**
+```
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                                 ▲                                     │
+                                 └─────────── --pr-fixes ──────────────┘
+```
+
+---
+
 ### Streamlined Auto-Chain Flow
 
 Reduced confirmation prompts in the workflow pipeline:

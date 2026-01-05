@@ -12,14 +12,16 @@ This command is the **entry point** of the development workflow:
 
 ```
 /ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)    (auto)     (auto)           ↓
-            └──────────── ON BLOCKED ────────────────────────────────────┘
-                          ON FAIL → /delegate --fixes (auto)
+            ↑           (auto)    ▲ (auto)  (auto)     (auto)          │
+            │                     │                                    │
+            │   ON FAIL ──────────┤                                    │
+            │   --pr-fixes ───────┴────────────────────────────────────┘
+            └──────────── ON BLOCKED ──────────────────────────────────┘
 ```
 
 **Confirmation points:**
 - After `/ideate`: User confirms before implementation planning begins
-- After `/synthesize`: User confirms before PR is merged
+- After `/synthesize`: User confirms before PR is merged (or requests feedback fixes)
 
 ## Skill Reference
 
