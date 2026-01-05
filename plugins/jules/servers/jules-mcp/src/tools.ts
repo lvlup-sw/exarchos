@@ -101,14 +101,54 @@ function getActivityType(activity: Activity): string {
 }
 
 function getActivityContent(activity: Activity): string {
-  if (activity.planGenerated) return activity.planGenerated.steps.join('\n');
-  if (activity.planApproved) return `Approved by: ${activity.planApproved.approvedBy}`;
-  if (activity.userMessaged) return activity.userMessaged.content;
-  if (activity.agentMessaged) return activity.agentMessaged.content;
-  if (activity.progressUpdated) return activity.progressUpdated.status;
-  if (activity.sessionCompleted) return activity.sessionCompleted.summary;
-  if (activity.sessionFailed) return activity.sessionFailed.reason;
-  return activity.description;
+  // Handle planGenerated with nested plan.steps structure
+  if (activity.planGenerated?.plan?.steps) {
+    const steps = activity.planGenerated.plan.steps;
+    if (Array.isArray(steps)) {
+      // Steps are objects with title/description
+      return steps
+        .map((s: { title?: string; description?: string }) =>
+          s.title || s.description || String(s))
+        .join('\n');
+    }
+    return String(steps);
+  }
+  // Legacy: direct steps array
+  if (activity.planGenerated?.steps) {
+    const steps = activity.planGenerated.steps;
+    if (Array.isArray(steps)) {
+      return steps
+        .map((s: unknown) =>
+          typeof s === 'string' ? s : (s as { title?: string })?.title || String(s))
+        .join('\n');
+    }
+    return String(steps);
+  }
+  if (activity.planGenerated) {
+    return 'Plan generated';
+  }
+  if (activity.planApproved) {
+    return `Approved by: ${activity.planApproved.approvedBy ?? 'unknown'}`;
+  }
+  if (activity.userMessaged) {
+    return activity.userMessaged.content ?? '';
+  }
+  if (activity.agentMessaged) {
+    return activity.agentMessaged.content ?? '';
+  }
+  if (activity.progressUpdated) {
+    return activity.progressUpdated.title
+      || activity.progressUpdated.description
+      || activity.progressUpdated.status
+      || '';
+  }
+  if (activity.sessionCompleted) {
+    return activity.sessionCompleted.summary ?? '';
+  }
+  if (activity.sessionFailed) {
+    return activity.sessionFailed.reason ?? '';
+  }
+  return activity.description ?? '';
 }
 
 // ============================================================================

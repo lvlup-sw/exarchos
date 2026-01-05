@@ -8,11 +8,11 @@ import {
   mockSessionAwaitingApproval,
   mockSessionCompleted,
   mockActivityPlanning,
-  // NEW FIXTURES TO ADD:
   mockActivityAgentQuestion,
   mockActivityAgentStatement,
   mockActivityUserMessage,
   mockActivityPlanGenerated,
+  mockActivityPlanApproved,
   mockActivityWithArtifacts
 } from './test/fixtures.js';
 

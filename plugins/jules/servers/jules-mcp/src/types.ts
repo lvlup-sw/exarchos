@@ -128,13 +128,21 @@ export interface Activity {
   createTime: string;
 
   // Event-specific content (exactly one will be present)
-  planGenerated?: { steps: string[] };
-  planApproved?: { approvedBy: string };
+  // Real API structure: planGenerated.plan.steps where steps are objects
+  planGenerated?: {
+    plan?: {
+      id?: string;
+      steps?: Array<{ id?: string; title?: string; description?: string; index?: number }>;
+    };
+    // Legacy/fallback: direct steps
+    steps?: string[] | string;
+  };
+  planApproved?: { approvedBy?: string; planId?: string };
   userMessaged?: { content: string };
   agentMessaged?: { content: string };
-  progressUpdated?: { status: string };
-  sessionCompleted?: { summary: string };
-  sessionFailed?: { reason: string };
+  progressUpdated?: { status?: string; title?: string; description?: string };
+  sessionCompleted?: { summary?: string };
+  sessionFailed?: { reason?: string };
 
   artifacts?: Artifact[];
 }
