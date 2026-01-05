@@ -1,11 +1,19 @@
 {
   "permissions": {
     "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "Task",
+      "LSP",
+
       "WebSearch",
-      "WebFetch(domain:jules.google)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:developers.google.com)",
+      "WebFetch",
+
+      "mcp__*",
 
       "Bash(gh:*)",
       "Bash(git:*)",
