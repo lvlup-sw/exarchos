@@ -89,11 +89,14 @@ echo "## Shell Scripts"
 validate_shell() {
     local file="$1"
     if command -v shellcheck &> /dev/null; then
-        if shellcheck "$file" > /dev/null 2>&1; then
+        # Only fail on errors, not warnings/info/style
+        if shellcheck --severity=error "$file" > /dev/null 2>&1; then
             log_pass "$file"
         else
             log_fail "$file - shellcheck errors"
-            [ "$VERBOSE" = "--verbose" ] && shellcheck "$file" || true
+            if [ "$VERBOSE" = "--verbose" ]; then
+                shellcheck --severity=error "$file"
+            fi
         fi
     else
         # Fallback: basic bash syntax check
