@@ -1,0 +1,60 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working in this repository.
+
+## Global Workflow
+
+Uses global Claude Code workflow from `~/.claude/`:
+
+| Command | Purpose |
+|---------|---------|
+| `/ideate` | Collaborative design exploration |
+| `/plan` | TDD implementation task breakdown |
+| `/delegate` | Jules + Task tool dispatch |
+| `/review` | Two-stage: spec + quality review |
+| `/synthesize` | Branch merge and PR creation |
+| `/tdd` | TDD workflow reference |
+
+## TDD (Mandatory)
+
+All code changes follow strict Test-Driven Development:
+
+1. **RED**: Write a failing test FIRST
+2. **GREEN**: Write MINIMUM code to pass
+3. **REFACTOR**: Clean up while tests stay green
+
+See `~/.claude/rules/tdd-{language}.md` for language-specific patterns.
+
+## Coding Standards
+
+See `~/.claude/rules/coding-standards-{language}.md` for language-specific standards.
+
+## Project-Specific Configuration
+
+### Test Commands
+
+```bash
+# Run tests
+npm run test:run
+
+# Coverage
+npm run test:coverage
+
+# Type check
+npm run typecheck
+```
+
+### Additional Context
+
+[Add project-specific notes, architectural decisions, or constraints here]
+
+## Project Structure
+
+```
+project/
+├── src/           # Source code
+├── tests/         # Test files (or co-located with src)
+├── docs/          # Documentation
+└── .claude/       # Project-specific overrides (optional)
+    └── settings.json
+```

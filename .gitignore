@@ -1,0 +1,7 @@
+# Ignore node_modules in plugins
+plugins/*/servers/*/node_modules/
+plugins/*/servers/*/dist/
+plugins/*/servers/*/coverage/
+
+# Local settings
+*.local.json

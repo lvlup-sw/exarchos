@@ -1,0 +1,10 @@
+{
+  "name": "jules",
+  "description": "Delegate coding tasks to Jules autonomous agent",
+  "version": "1.0.0",
+  "author": {
+    "name": "lvlup-sw"
+  },
+  "repository": "https://github.com/lvlup-sw/jules-plugin",
+  "keywords": ["jules", "autonomous-agent", "delegation"]
+}
