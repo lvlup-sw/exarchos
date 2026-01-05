@@ -50,7 +50,7 @@ jobs:
 
       - name: Test with coverage
         run: |
-          dotnet test --solution ${{ env.SOLUTION_PATH }} \
+          dotnet test ${{ env.SOLUTION_PATH }} \
             --no-build \
             --configuration Release \
             --coverage \
