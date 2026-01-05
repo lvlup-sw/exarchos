@@ -15,12 +15,12 @@ NC='\033[0m' # No Color
 
 pass() {
     echo -e "${GREEN}PASS${NC}: $1"
-    ((PASS++))
+    ((++PASS)) || true
 }
 
 fail() {
     echo -e "${RED}FAIL${NC}: $1"
-    ((FAIL++))
+    ((++FAIL)) || true
 }
 
 # Test 1: renovate.json exists
@@ -51,7 +51,8 @@ fi
 
 # Test 4: Auto-merge enabled for patch updates only
 if [[ -f "$SCRIPT_DIR/renovate.json" ]]; then
-    if jq -e '.packageRules[] | select(.matchUpdateTypes == ["patch"] and .automerge == true)' "$SCRIPT_DIR/renovate.json" >/dev/null 2>&1; then
+    # Check for either updateTypes or matchUpdateTypes syntax
+    if jq -e '.packageRules[] | select((.updateTypes == ["patch"] or .matchUpdateTypes == ["patch"]) and .automerge == true)' "$SCRIPT_DIR/renovate.json" >/dev/null 2>&1; then
         pass "Auto-merge enabled for patch updates only"
     else
         fail "Auto-merge not properly configured for patch updates"
@@ -109,27 +110,27 @@ if [[ -f "$SCRIPT_DIR/presets/dotnet.json" ]]; then
 
     # Check for aspire group
     if jq -e '.packageRules[] | select(.groupName | test("aspire"; "i"))' "$SCRIPT_DIR/presets/dotnet.json" >/dev/null 2>&1; then
-        ((GROUPS_FOUND++))
+        GROUPS_FOUND=$((GROUPS_FOUND + 1))
     fi
 
     # Check for Wolverine group
     if jq -e '.packageRules[] | select(.groupName | test("wolverine"; "i"))' "$SCRIPT_DIR/presets/dotnet.json" >/dev/null 2>&1; then
-        ((GROUPS_FOUND++))
+        GROUPS_FOUND=$((GROUPS_FOUND + 1))
     fi
 
     # Check for OpenTelemetry group
     if jq -e '.packageRules[] | select(.groupName | test("opentelemetry"; "i"))' "$SCRIPT_DIR/presets/dotnet.json" >/dev/null 2>&1; then
-        ((GROUPS_FOUND++))
+        GROUPS_FOUND=$((GROUPS_FOUND + 1))
     fi
 
     # Check for xunit group
     if jq -e '.packageRules[] | select(.groupName | test("xunit"; "i"))' "$SCRIPT_DIR/presets/dotnet.json" >/dev/null 2>&1; then
-        ((GROUPS_FOUND++))
+        GROUPS_FOUND=$((GROUPS_FOUND + 1))
     fi
 
     # Check for Microsoft.Extensions group
     if jq -e '.packageRules[] | select(.groupName | test("microsoft.*extensions"; "i"))' "$SCRIPT_DIR/presets/dotnet.json" >/dev/null 2>&1; then
-        ((GROUPS_FOUND++))
+        GROUPS_FOUND=$((GROUPS_FOUND + 1))
     fi
 
     if [[ $GROUPS_FOUND -ge 5 ]]; then
