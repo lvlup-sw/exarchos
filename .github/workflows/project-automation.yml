@@ -109,15 +109,6 @@ jobs:
               ? priorityMap[labels.find(l => priorityMap[l])]
               : 'P2';
 
-            const typeMap = {
-              'type:bug': 'Bug',
-              'type:feature': 'Feature',
-              'type:docs': 'Docs',
-              'type:chore': 'Chore',
-              'type:question': 'Question'
-            };
-            const type = typeMap[labels.find(l => typeMap[l])];
-
             // 3. Check if should assign to current iteration (P0/urgent)
             const urgentKeywords = /urgent|critical|blocker|p0|asap|emergency/;
             const isUrgent = labels.includes('priority:high') && urgentKeywords.test(body);
@@ -208,23 +199,6 @@ jobs:
               }
             }
 
-            // Set Type
-            if (type) {
-              const typeField = fields.find(f => f.name === 'Type');
-              if (typeField) {
-                const option = typeField.options.find(o => o.name === type);
-                if (option) {
-                  await github.graphql(mutation, {
-                    projectId: project.id,
-                    itemId: item.id,
-                    fieldId: typeField.id,
-                    value: { singleSelectOptionId: option.id }
-                  });
-                  console.log(`Set Type: ${type}`);
-                }
-              }
-            }
-
             // Set Iteration (only if urgent)
             if (isUrgent) {
               const iterField = fields.find(f => f.name === 'Sprint' || f.name === 'Iteration');
@@ -244,6 +218,45 @@ jobs:
                   });
                   console.log(`Set Iteration: ${currentIter.title} (urgent item)`);
                 }
+              }
+            }
+
+            // 7. Auto-link parent issue if referenced in body
+            // Patterns: "Parent: #123", "Parent #123", "Sub-issue of #123", "Child of #123"
+            const parentMatch = content.body?.match(/(?:parent:?\s*#|sub-?issue\s+of\s+#|child\s+of\s+#)(\d+)/i);
+            if (parentMatch && context.payload.issue) {
+              const parentNumber = parseInt(parentMatch[1]);
+              console.log(`Detected parent reference: #${parentNumber}`);
+
+              try {
+                // Get parent issue node ID
+                const parentIssue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentNumber
+                });
+
+                // Add as sub-issue using GraphQL
+                const addSubIssueMutation = `
+                  mutation($parentId: ID!, $childId: ID!) {
+                    addSubIssue(input: {
+                      issueId: $parentId
+                      subIssueId: $childId
+                    }) {
+                      issue { id }
+                      subIssue { id }
+                    }
+                  }
+                `;
+
+                await github.graphql(addSubIssueMutation, {
+                  parentId: parentIssue.data.node_id,
+                  childId: contentId
+                });
+
+                console.log(`Linked as sub-issue of #${parentNumber}`);
+              } catch (err) {
+                console.log(`Failed to link parent: ${err.message}`);
               }
             }
 
