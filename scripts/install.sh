@@ -10,7 +10,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_NAME="$(basename "$REPO_ROOT")"
 CLAUDE_HOME="${HOME}/.claude"
+
+# Colors
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 echo "Claude Config Installation"
 echo "=========================="
@@ -18,6 +23,14 @@ echo ""
 echo "Repo location: $REPO_ROOT"
 echo "Claude home:   $CLAUDE_HOME"
 echo ""
+
+# Warn if using old directory name
+if [[ "$REPO_NAME" == "claude-config" ]]; then
+    echo -e "${YELLOW}WARNING${NC}: Directory still named 'claude-config'"
+    echo "  Consider renaming to 'lvlup-claude' to match remote repo"
+    echo "  Run: ./scripts/migrate-to-lvlup-claude.sh"
+    echo ""
+fi
 
 # Check for Jules API key
 if [ -z "${JULES_API_KEY:-}" ]; then

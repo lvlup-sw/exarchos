@@ -318,7 +318,7 @@ From design document, validated by this implementation:
 ## File Structure After Implementation
 
 ```
-claude-config/
+lvlup-claude/
 ├── ci-templates/
 │   ├── README.md                    # Updated (90% threshold)
 │   ├── coverage-gate/

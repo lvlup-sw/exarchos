@@ -5,8 +5,8 @@ Shared configuration for Claude Code: TDD-enforced workflow orchestration with J
 ## Quick Start
 
 ```bash
-git clone <repo-url> ~/Documents/code/claude-config
-cd ~/Documents/code/claude-config && ./scripts/install.sh
+git clone <repo-url> ~/Documents/code/lvlup-claude
+cd ~/Documents/code/lvlup-claude && ./scripts/install.sh
 ```
 
 Done. Commands work in any project immediately.
@@ -104,7 +104,7 @@ echo '{"permissions":{"allow":["Bash(npm run custom)"]}}' > .claude/settings.jso
 ## Repository Structure
 
 ```
-claude-config/
+lvlup-claude/
 ├── commands/           # Slash commands (/ideate, /plan, etc.)
 ├── skills/             # Workflow orchestration patterns
 ├── rules/              # Language-specific TDD + coding standards
@@ -145,7 +145,7 @@ This approach:
 **Jules not working**:
 1. Check API key: `echo $JULES_API_KEY`
 2. Check MCP config: `jq '.mcpServers.jules' ~/.claude.json`
-3. Rebuild MCP server: `cd ~/Documents/code/claude-config/plugins/jules/servers/jules-mcp && npm run build`
+3. Rebuild MCP server: `cd ~/Documents/code/lvlup-claude/plugins/jules/servers/jules-mcp && npm run build`
 4. Restart Claude Code
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.
