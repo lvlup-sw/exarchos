@@ -82,6 +82,173 @@ jobs:
           github-token: ${{ secrets.PROJECT_TOKEN }}
 
   # ============================================================
+  # PROJECT FIELD INIT: Set Priority, Type, Iteration on new items
+  # ============================================================
+  project-field-init:
+    needs: project-sync
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Initialize project fields
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            // 1. Get item content (issue or PR)
+            const content = context.payload.issue || context.payload.pull_request;
+            const contentId = content.node_id;
+            const labels = content.labels?.map(l => l.name) || [];
+            const body = (content.body || '').toLowerCase();
+
+            // 2. Determine field values
+            const priorityMap = { 'priority:high': 'High', 'priority:low': 'Low' };
+            const priority = labels.find(l => priorityMap[l])
+              ? priorityMap[labels.find(l => priorityMap[l])]
+              : 'Low';
+
+            const typeMap = {
+              'type:bug': 'Bug',
+              'type:feature': 'Feature',
+              'type:docs': 'Docs',
+              'type:chore': 'Chore',
+              'type:question': 'Question'
+            };
+            const type = typeMap[labels.find(l => typeMap[l])];
+
+            // 3. Check if should assign to current iteration (P0/urgent)
+            const urgentKeywords = /urgent|critical|blocker|p0|asap|emergency/;
+            const isUrgent = labels.includes('priority:high') && urgentKeywords.test(body);
+
+            // 4. Query project fields
+            const projectQuery = `
+              query($org: String!, $number: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 20) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
+                        ... on ProjectV2IterationField {
+                          id
+                          name
+                          configuration {
+                            iterations { id title startDate duration }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const { organization } = await github.graphql(projectQuery, {
+              org: context.repo.owner,
+              number: parseInt(process.env.PROJECT_NUMBER)
+            });
+
+            const project = organization.projectV2;
+            const fields = project.fields.nodes.filter(f => f.id);
+
+            // 5. Find project item
+            const itemQuery = `
+              query($projectId: ID!) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    items(first: 100) {
+                      nodes {
+                        id
+                        content { ... on Issue { id } ... on PullRequest { id } }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const itemData = await github.graphql(itemQuery, { projectId: project.id });
+            const item = itemData.node.items.nodes.find(i => i.content?.id === contentId);
+
+            if (!item) {
+              console.log('Item not found in project');
+              return;
+            }
+
+            // 6. Update fields
+            const mutation = `
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId
+                  itemId: $itemId
+                  fieldId: $fieldId
+                  value: $value
+                }) { projectV2Item { id } }
+              }
+            `;
+
+            // Set Priority
+            const priorityField = fields.find(f => f.name === 'Priority');
+            if (priorityField) {
+              const option = priorityField.options.find(o => o.name === priority);
+              if (option) {
+                await github.graphql(mutation, {
+                  projectId: project.id,
+                  itemId: item.id,
+                  fieldId: priorityField.id,
+                  value: { singleSelectOptionId: option.id }
+                });
+                console.log(`Set Priority: ${priority}`);
+              }
+            }
+
+            // Set Type
+            if (type) {
+              const typeField = fields.find(f => f.name === 'Type');
+              if (typeField) {
+                const option = typeField.options.find(o => o.name === type);
+                if (option) {
+                  await github.graphql(mutation, {
+                    projectId: project.id,
+                    itemId: item.id,
+                    fieldId: typeField.id,
+                    value: { singleSelectOptionId: option.id }
+                  });
+                  console.log(`Set Type: ${type}`);
+                }
+              }
+            }
+
+            // Set Iteration (only if urgent)
+            if (isUrgent) {
+              const iterField = fields.find(f => f.name === 'Sprint' || f.name === 'Iteration');
+              if (iterField?.configuration?.iterations) {
+                const now = new Date();
+                const currentIter = iterField.configuration.iterations.find(iter => {
+                  const start = new Date(iter.startDate);
+                  const end = new Date(start.getTime() + iter.duration * 7 * 24 * 60 * 60 * 1000);
+                  return now >= start && now < end;
+                });
+                if (currentIter) {
+                  await github.graphql(mutation, {
+                    projectId: project.id,
+                    itemId: item.id,
+                    fieldId: iterField.id,
+                    value: { iterationId: currentIter.id }
+                  });
+                  console.log(`Set Iteration: ${currentIter.title} (urgent item)`);
+                }
+              }
+            }
+
+            console.log('Field initialization complete');
+
+  # ============================================================
   # PROJECT STATUS: Update project board status on events
   # ============================================================
   project-status-update:
