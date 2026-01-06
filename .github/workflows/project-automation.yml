@@ -67,6 +67,132 @@ jobs:
             });
 
   # ============================================================
+  # PROJECT SYNC: Add issues/PRs to project board
+  # ============================================================
+  project-sync:
+    if: |
+      (github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add to project
+        uses: actions/add-to-project@v1.0.2
+        with:
+          project-url: https://github.com/orgs/lvlup-sw/projects/${{ env.PROJECT_NUMBER }}
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+
+  # ============================================================
+  # PROJECT STATUS: Update project board status on events
+  # ============================================================
+  project-status-update:
+    if: |
+      github.event_name == 'issues' ||
+      github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update project status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const statusMap = {
+              'issues.closed': 'Done',
+              'issues.reopened': 'Backlog',
+              'pull_request.ready_for_review': 'In Review',
+              'pull_request.closed': context.payload.pull_request?.merged ? 'Done' : 'Backlog'
+            };
+
+            const eventKey = `${context.eventName}.${context.payload.action}`;
+            const newStatus = statusMap[eventKey];
+
+            if (!newStatus) return;
+
+            const contentId = context.payload.issue?.node_id || context.payload.pull_request?.node_id;
+            if (!contentId) return;
+
+            // Get project and field info
+            const projectQuery = `
+              query($org: String!, $number: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    id
+                    field(name: "Status") {
+                      ... on ProjectV2SingleSelectField {
+                        id
+                        options { id name }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const projectData = await github.graphql(projectQuery, {
+              org: context.repo.owner,
+              number: parseInt(process.env.PROJECT_NUMBER)
+            });
+
+            const project = projectData.organization.projectV2;
+            const statusField = project.field;
+            const targetOption = statusField.options.find(o => o.name === newStatus);
+
+            if (!targetOption) {
+              console.log(`Status option "${newStatus}" not found`);
+              return;
+            }
+
+            // Find item in project
+            const itemQuery = `
+              query($projectId: ID!, $contentId: ID!) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    items(first: 100) {
+                      nodes {
+                        id
+                        content { ... on Issue { id } ... on PullRequest { id } }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const itemData = await github.graphql(itemQuery, {
+              projectId: project.id,
+              contentId: contentId
+            });
+
+            const item = itemData.node.items.nodes.find(
+              i => i.content?.id === contentId
+            );
+
+            if (!item) {
+              console.log('Item not found in project');
+              return;
+            }
+
+            // Update status
+            const mutation = `
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId
+                  itemId: $itemId
+                  fieldId: $fieldId
+                  value: { singleSelectOptionId: $optionId }
+                }) { projectV2Item { id } }
+              }
+            `;
+
+            await github.graphql(mutation, {
+              projectId: project.id,
+              itemId: item.id,
+              fieldId: statusField.id,
+              optionId: targetOption.id
+            });
+
+            console.log(`Updated status to: ${newStatus}`);
+
+  # ============================================================
   # STALE MANAGEMENT: Mark and close inactive issues
   # ============================================================
   stale:
