@@ -27,7 +27,7 @@
     },
     "phase": {
       "type": "string",
-      "enum": ["ideate", "plan", "delegate", "review", "synthesize", "completed", "blocked"],
+      "enum": ["ideate", "plan", "delegate", "integrate", "review", "synthesize", "completed", "blocked"],
       "description": "Current workflow phase"
     },
     "artifacts": {
@@ -182,6 +182,40 @@
               "line": { "type": ["integer", "null"] },
               "resolved": { "type": "boolean" }
             }
+          }
+        }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "description": "Integration phase state",
+      "properties": {
+        "branch": {
+          "type": ["string", "null"],
+          "description": "Integration branch name"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "passed", "failed"],
+          "description": "Integration status"
+        },
+        "mergedBranches": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of branches successfully merged"
+        },
+        "failureDetails": {
+          "type": ["string", "null"],
+          "description": "Details if integration failed"
+        },
+        "testResults": {
+          "type": "object",
+          "description": "Results of integration verification",
+          "properties": {
+            "tests": { "type": "string", "enum": ["pending", "pass", "fail"] },
+            "typecheck": { "type": "string", "enum": ["pending", "pass", "fail"] },
+            "lint": { "type": "string", "enum": ["pending", "pass", "fail"] },
+            "build": { "type": "string", "enum": ["pending", "pass", "fail"] }
           }
         }
       }

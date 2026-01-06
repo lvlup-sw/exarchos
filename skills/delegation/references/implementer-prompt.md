@@ -10,6 +10,24 @@ Use this template when dispatching tasks via the Task tool.
 ## Working Directory
 [Absolute path to worktree or project root]
 
+## CRITICAL: Worktree Verification (MANDATORY)
+
+Before making ANY file changes, you MUST verify you are in a worktree:
+
+1. Run: `pwd`
+2. Verify the path contains `.worktrees/`
+3. If NOT in a worktree directory:
+   - STOP immediately
+   - Report: "ERROR: Working directory is not a worktree. Aborting task."
+   - DO NOT proceed with any file modifications
+
+**Example verification:**
+```bash
+pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
+```
+
+This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
+
 ## Task Description
 [Full task description from implementation plan - never reference external files]
 
@@ -93,6 +111,24 @@ Task({
 
 ## Working Directory
 /home/user/project/.worktrees/task-003
+
+## CRITICAL: Worktree Verification (MANDATORY)
+
+Before making ANY file changes, you MUST verify you are in a worktree:
+
+1. Run: \`pwd\`
+2. Verify the path contains \`.worktrees/\`
+3. If NOT in a worktree directory:
+   - STOP immediately
+   - Report: "ERROR: Working directory is not a worktree. Aborting task."
+   - DO NOT proceed with any file modifications
+
+**Example verification:**
+\`\`\`bash
+pwd | grep -q "\\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
+\`\`\`
+
+This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
 ## Task Description
 Implement email validation for user registration. The validator should:

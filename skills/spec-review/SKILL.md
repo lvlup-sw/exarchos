@@ -30,16 +30,31 @@ The subagent:
 
 ### Context-Efficient Input
 
-Instead of full file contents, receive git diffs:
+Instead of per-worktree diffs, receive the integrated diff:
 
 ```bash
-# Generate diff for review
-~/.claude/scripts/review-diff.sh .worktrees/<task> main
+# Generate diff for review (integrated branch vs main)
+git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
+
+# Alternative: use review-diff script with integration branch
+~/.claude/scripts/review-diff.sh feature/integration-<feature> main
 ```
 
-This reduces context consumption by 80-90%.
+This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
 
 ## Review Scope
+
+### Review Scope: Integrated Changes
+
+After the integration phase passes, spec review examines:
+- The **complete integrated diff** (main...feature/integration-branch)
+- All changes across all tasks in one view
+- The full picture of combined functionality
+
+This enables catching:
+- Cross-task interface mismatches
+- Integration bugs not visible in isolation
+- Combined behavior vs specification
 
 **Spec Review focuses on:**
 - Functional completeness
@@ -258,7 +273,7 @@ All transitions happen **immediately** without user confirmation:
 ### If FAIL:
 1. Update state with failed issues
 2. Output: "Spec review found [N] issues. Auto-continuing to fixes..."
-3. Auto-invoke delegation with fix tasks:
+3. Auto-invoke delegate with fix tasks:
    ```typescript
    Skill({ skill: "delegate", args: "--fixes <plan-path>" })
    ```

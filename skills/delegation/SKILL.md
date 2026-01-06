@@ -195,6 +195,67 @@ TaskOutput({ task_id: "task-001-id" })
 TaskOutput({ task_id: "task-002-id" })
 ```
 
+## Worktree Enforcement (MANDATORY)
+
+All implementation tasks MUST run in isolated worktrees, not the main project root.
+
+### Why Worktrees Are Required
+
+- **Isolation:** Prevents merge conflicts between parallel tasks
+- **Safety:** Protects main project state
+- **Parallelism:** Enables multiple subagents to work simultaneously
+- **Recovery:** Easy rollback via branch deletion
+
+### Pre-Dispatch Checklist
+
+Before dispatching ANY implementer:
+
+1. **Ensure .worktrees is gitignored:**
+   ```bash
+   git check-ignore -q .worktrees || echo ".worktrees/" >> .gitignore
+   ```
+
+2. **Create feature branch:**
+   ```bash
+   git branch feature/<task-id>-<name> main
+   ```
+
+3. **Create worktree:**
+   ```bash
+   git worktree add .worktrees/<task-id>-<name> feature/<task-id>-<name>
+   ```
+
+4. **Run setup in worktree:**
+   ```bash
+   cd .worktrees/<task-id>-<name> && npm install
+   ```
+
+5. **Verify baseline tests pass:**
+   ```bash
+   npm run test:run
+   ```
+
+### Worktree State Tracking
+
+Track worktrees in the workflow state file:
+
+```bash
+~/.claude/scripts/workflow-state.sh set <state-file> \
+  '.worktrees[".worktrees/<task-id>-<name>"] = {
+    "branch": "feature/<task-id>-<name>",
+    "taskId": "<task-id>",
+    "status": "active"
+  }'
+```
+
+### Implementer Prompt Requirements
+
+Include in ALL implementer prompts:
+
+1. **Absolute worktree path** as Working Directory
+2. **Worktree verification block** (from implementer-prompt.md template)
+3. **Abort instructions** if not in worktree
+
 ## Anti-Patterns
 
 | Don't | Do Instead |
@@ -259,6 +320,75 @@ Update phase and suggest checkpoint:
 ```bash
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
 ```
+
+## Fix Mode (--fixes)
+
+When invoked with `--fixes`, delegation handles review failures instead of initial implementation.
+
+### Trigger
+
+```bash
+/delegate --fixes docs/plans/YYYY-MM-DD-feature.md
+```
+
+Or auto-invoked after review/integration failures.
+
+### Fix Mode Process
+
+1. **Read failure details** from state file:
+   ```bash
+   ~/.claude/scripts/workflow-state.sh get <state-file> '.integration.failureDetails'
+   ~/.claude/scripts/workflow-state.sh get <state-file> '.reviews'
+   ```
+
+2. **Extract fix tasks** from failure reports:
+   - Parse issue descriptions
+   - Identify file paths and line numbers
+   - Determine which worktree/branch owns the fix
+
+3. **Create fix tasks** for each issue:
+   - Use `fixer-prompt.md` template
+   - Include full issue context
+   - Specify target worktree
+
+4. **Dispatch fixers** (same as implementers, different prompt):
+   ```typescript
+   Task({
+     subagent_type: "general-purpose",
+     model: "opus",
+     description: "Fix: [issue summary]",
+     prompt: "[fixer-prompt template with issue details]"
+   })
+   ```
+
+5. **Re-integrate after fixes**:
+   After all fix tasks complete, auto-invoke integration phase:
+   ```typescript
+   Skill({ skill: "integrate", args: "<state-file>" })
+   ```
+
+### Fix Task Structure
+
+Each fix task extracted should include:
+
+| Field | Description |
+|-------|-------------|
+| issue | Problem description from review |
+| file | File path needing fix |
+| line | Line number (if known) |
+| worktree | Which worktree to fix in |
+| branch | Which branch owns this fix |
+| priority | HIGH / MEDIUM / LOW |
+
+### Transition After Fixes
+
+Unlike normal delegation which goes to review, fix mode goes back to integration:
+
+```
+/delegate --fixes -> [fixes applied] -> /integrate -> /review
+```
+
+This ensures merged code is re-verified after fixes.
 
 ## Completion Criteria
 

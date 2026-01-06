@@ -2,20 +2,28 @@
 
 ## Overview
 
-Final integration phase: Merge worktree branches, verify combined tests, and create pull request.
+Final step: Create pull request from the integration branch after integration phase completes.
 
 **Prerequisites:**
-- All tasks complete
-- Spec review passed for all tasks
-- Quality review approved for all tasks
+- Integration phase passed (all branches merged and tested)
+- Integration branch already exists: `feature/integration-<feature-name>`
+- All tests pass on integration branch
+- Spec review and quality review passed for all tasks
 
 ## Triggers
 
 Activate this skill when:
 - User runs `/synthesize` command
-- All reviews are approved
+- Integration phase has completed successfully
 - Ready to create final PR
-- Worktrees need consolidation
+
+## Simplified Process (Integration Already Complete)
+
+Since the integration phase handles branch merging and testing, synthesis focuses on:
+1. Verifying the integration branch is ready
+2. Creating the pull request
+3. Handling PR feedback (if any)
+4. Cleanup after merge
 
 ## Synthesis Process
 
@@ -25,93 +33,63 @@ Activate this skill when:
 ```markdown
 ## Synthesis Readiness
 
-- [ ] All tasks marked complete in TodoWrite
-- [ ] Spec review: PASS for all tasks
-- [ ] Quality review: APPROVED for all tasks
+- [ ] Integration phase complete
+- [ ] Integration branch exists and is up to date
+- [ ] All tests pass on integration branch (verified in integration phase)
+- [ ] All spec reviews: PASS
+- [ ] All quality reviews: APPROVED
 - [ ] No outstanding fix requests
 ```
 
-If any check fails, return to appropriate phase.
+If any check fails, return to appropriate phase (likely `/integrate` or `/review`).
 
-### Step 2: List Active Worktrees
+### Step 2: List Active Worktrees (Reference)
 
 ```bash
 git worktree list
 ```
 
-Identify branches to merge:
+This is for reference only - branches were already merged in integration phase:
 ```markdown
-## Branches to Merge
+## Merged Branches (from Integration)
 
 | Worktree | Branch | Status |
 |----------|--------|--------|
-| .worktrees/001-types | feature/001-types | Ready |
-| .worktrees/002-api | feature/002-api | Ready |
-| .worktrees/003-tests | feature/003-tests | Ready |
+| .worktrees/001-types | feature/001-types | Merged |
+| .worktrees/002-api | feature/002-api | Merged |
+| .worktrees/003-tests | feature/003-tests | Merged |
 ```
 
-### Step 3: Determine Merge Order
+### Step 3: Verify Integration Branch
 
-Merge in dependency order (from implementation plan):
-
-```markdown
-## Merge Order
-
-1. feature/001-types (no dependencies)
-2. feature/002-api (depends on 001)
-3. feature/003-tests (depends on 001, 002)
-```
-
-### Step 4: Create Integration Branch
+The integration phase already created and populated the integration branch.
 
 ```bash
-# Ensure main is up to date
-git checkout main
-git pull origin main
+# Checkout integration branch
+git checkout feature/integration-<feature-name>
 
-# Create integration branch
-git checkout -b feature/integration-<feature-name>
+# Ensure it's up to date with remote
+git pull origin feature/integration-<feature-name>
+
+# Verify branch exists and has all commits
+git log --oneline -10
 ```
 
-### Step 5: Merge Branches
+### Step 4: Verify Tests (Quick Confirmation)
 
-For each branch in dependency order:
+Tests already passed in integration phase, but run a quick verification:
 
 ```bash
-# Merge branch
-git merge --no-ff feature/001-types -m "Merge feature/001-types: Add type definitions"
-
-# Verify tests pass after each merge
+# Quick test verification (already passed in integration)
 npm run test:run
 
-# If tests fail, resolve conflicts before continuing
-```
-
-**Conflict Resolution:**
-1. Identify conflicting files
-2. Resolve conflicts preserving both changes where possible
-3. Run tests after resolution
-4. Commit resolution
-
-### Step 6: Run Full Test Suite
-
-```bash
-# Run all tests
-npm run test:run
-
-# Run type checking
-npm run typecheck
-
-# Run linting
-npm run lint
-
-# Run build
+# Verify build still works
 npm run build
 ```
 
-All must pass before creating PR.
+If these fail, return to integration phase to resolve.
 
-### Step 7: Create Pull Request
+### Step 5: Create Pull Request
 
 ```bash
 # Push integration branch
@@ -144,7 +122,7 @@ EOF
 )"
 ```
 
-### Step 8: Cleanup Worktrees
+### Step 6: Cleanup Worktrees
 
 After PR is created (or after merge):
 
@@ -163,47 +141,15 @@ git branch -d feature/003-tests
 git worktree prune
 ```
 
-## Merge Strategies
-
-### Simple Merge (Recommended)
-
-For most cases:
-```bash
-git merge --no-ff feature/branch-name
-```
-
-### Rebase for Linear History
-
-If project prefers linear history:
-```bash
-git rebase main feature/branch-name
-git checkout main
-git merge --ff-only feature/branch-name
-```
-
-### Squash for Clean History
-
-If many small commits:
-```bash
-git merge --squash feature/branch-name
-git commit -m "Feature: Description"
-```
-
 ## Handling Failures
 
-### Test Failure After Merge
+### Test Failure (Unexpected)
 
-1. Identify which merge introduced failure
-2. Create fix task
-3. Dispatch to implementer
-4. Re-run synthesis after fix
+If tests fail during synthesis (they passed in integration):
 
-### Merge Conflict
-
-1. Identify conflicting changes
-2. Resolve preserving both intents
-3. Run tests after resolution
-4. Continue merge sequence
+1. Return to integration phase to investigate
+2. Re-run `/integrate` to fix and re-test
+3. Return to synthesis after integration passes
 
 ### PR Checks Fail
 
@@ -216,37 +162,23 @@ git commit -m "Feature: Description"
 
 | Don't | Do Instead |
 |-------|------------|
-| Merge without test verification | Run tests after each merge |
+| Skip integration phase | Always run `/integrate` first |
 | Force push integration branch | Use normal push |
 | Delete worktrees before PR approval | Wait for merge confirmation |
-| Skip conflict resolution | Carefully resolve each conflict |
-| Create PR with failing tests | Ensure all tests pass first |
+| Create PR with failing tests | Ensure integration phase passes first |
+| Re-merge branches in synthesis | Branches already merged in integration |
 
 ## State Management
 
 This skill tracks synthesis progress in workflow state.
 
-### Read Worktree State
+### Read Integration State
 
-Get worktrees and merge order from state:
-
-```bash
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.worktrees'
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.synthesis.mergeOrder'
-```
-
-### On Integration Branch Created
+Get integration branch info from state (populated by integration phase):
 
 ```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.synthesis.integrationBranch = "feature/integration-<feature>"'
-```
-
-### On Branch Merged
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.synthesis.mergedBranches += ["feature/001-name"]'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.integration.branch'
+~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.integration.mergedBranches'
 ```
 
 ### On PR Created
@@ -271,12 +203,11 @@ Get worktrees and merge order from state:
 
 ## Completion Criteria
 
-- [ ] All branches merged to integration branch
-- [ ] All tests pass on integration branch
-- [ ] Build succeeds
+- [ ] Integration branch verified (created in integration phase)
+- [ ] Quick test verification passed
 - [ ] PR created with proper description
 - [ ] PR link provided to user
-- [ ] State file updated with PR URL and merge status
+- [ ] State file updated with PR URL
 
 ## Final Report
 
