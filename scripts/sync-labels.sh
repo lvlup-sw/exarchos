@@ -3,7 +3,7 @@
 #
 # Usage: ./scripts/sync-labels.sh [--dry-run]
 #
-# Requires: gh (GitHub CLI), yq (YAML processor)
+# Requires: gh (GitHub CLI), python3 with pyyaml
 
 set -euo pipefail
 
@@ -59,8 +59,8 @@ check_deps() {
     if ! command -v gh &> /dev/null; then
         error "gh (GitHub CLI) is required but not installed"
     fi
-    if ! command -v yq &> /dev/null; then
-        error "yq is required but not installed. Install with: pip install yq"
+    if ! python3 -c "import yaml" &> /dev/null; then
+        error "Python yaml module is required. Install with: pip install pyyaml"
     fi
     if [[ ! -f "$LABELS_FILE" ]]; then
         error "Labels file not found: $LABELS_FILE"
@@ -87,8 +87,8 @@ delete_default_labels() {
 sync_labels() {
     info "Syncing labels from $LABELS_FILE..."
 
-    # Parse YAML and create labels
-    yq -r '.[] | "\(.name)|\(.color)|\(.description)"' "$LABELS_FILE" | \
+    # Parse YAML and create labels using Python
+    python3 -c "import yaml; [print(f\"{l['name']}|{l['color']}|{l['description']}\") for l in yaml.safe_load(open('$LABELS_FILE'))]" | \
     while IFS='|' read -r name color desc; do
         if [[ "$DRY_RUN" == "true" ]]; then
             echo "  [dry-run] Would create/update: $name ($color) - $desc"
