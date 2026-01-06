@@ -171,7 +171,7 @@ Read design/plan and verify each requirement:
 ## Spec Review Report
 
 ### Summary
-- Status: [PASS | FAIL | NEEDS_FIXES]
+- Status: [PASS | FAIL]
 - Tested: [timestamp]
 - Reviewer: Copilot CLI
 

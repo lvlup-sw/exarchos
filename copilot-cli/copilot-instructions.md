@@ -48,7 +48,7 @@ If in doubt, delegate.
 
 ### Test Naming Convention
 
-```
+```plaintext
 MethodName_Scenario_ExpectedOutcome
 ```
 

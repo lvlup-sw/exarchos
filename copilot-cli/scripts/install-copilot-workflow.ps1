@@ -252,11 +252,16 @@ function Test-Installation {
     if (Test-Path $WorkflowScript) {
         try {
             # Test that PowerShell can parse the script
+            $tokens = $null
+            $parseErrors = $null
             $null = [System.Management.Automation.Language.Parser]::ParseFile(
                 $WorkflowScript,
-                [ref]$null,
-                [ref]$null
+                [ref]$tokens,
+                [ref]$parseErrors
             )
+            if ($parseErrors.Count -gt 0) {
+                throw "Parse errors found: $($parseErrors[0].Message)"
+            }
             Write-Host "    [OK] workflow-state.ps1 syntax valid" -ForegroundColor Green
         } catch {
             Write-Host "    [ERROR] workflow-state.ps1 has syntax errors" -ForegroundColor Red

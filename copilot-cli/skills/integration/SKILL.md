@@ -10,7 +10,7 @@ description: "Merge worktree branches in dependency order, run combined tests, a
 Integration phase: Merge worktree branches in dependency order, run combined tests, and verify before review.
 
 **Position in workflow:**
-```
+```text
 /delegate -> /integrate -> /review -> /synthesize
 ```
 

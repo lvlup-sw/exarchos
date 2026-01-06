@@ -52,8 +52,10 @@ if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
 
 # Auto-detect repo root - works from any directory within a git repo
 $RepoRoot = git rev-parse --show-toplevel 2>$null
-if (-not $RepoRoot) {
+$script:InGitRepo = $LASTEXITCODE -eq 0
+if (-not $script:InGitRepo) {
     $RepoRoot = Get-Location
+    Write-Host "WARNING: Not in a git repository. State files will be created in current directory." -ForegroundColor Yellow
 }
 $StateDir = Join-Path $RepoRoot "docs/workflow-state"
 
@@ -209,7 +211,13 @@ function Invoke-Set {
     $TempFile = [System.IO.Path]::GetTempFileName()
     $FullFilter = "$Filter | .updatedAt = `"$Now`""
 
-    Get-Content $StateFile -Raw | jq $FullFilter | Set-Content -Path $TempFile -Encoding UTF8
+    $Result = Get-Content $StateFile -Raw | jq $FullFilter
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item -Path $TempFile -ErrorAction SilentlyContinue
+        Write-Error "ERROR: Invalid jq filter or JSON error"
+        exit 1
+    }
+    $Result | Set-Content -Path $TempFile -Encoding UTF8
     Move-Item -Path $TempFile -Destination $StateFile -Force
 
     Write-Output "Updated: $StateFile"
@@ -314,6 +322,11 @@ function Invoke-Reconcile {
     #>
     param([string]$StateFileInput)
 
+    if (-not $script:InGitRepo) {
+        Write-Error "ERROR: reconcile command requires a git repository"
+        exit 1
+    }
+
     if (-not $StateFileInput) {
         Write-Error "Usage: workflow-state.ps1 reconcile <state-file>"
         exit 1
@@ -334,7 +347,7 @@ function Invoke-Reconcile {
     # Check worktrees
     Write-Output "## Git Worktrees"
     $StateWorktrees = $Content | jq -r '.worktrees | keys[]' 2>$null
-    $ActualWorktrees = git worktree list --porcelain 2>$null | Where-Object { $_ -match "^worktree " } | ForEach-Object { ($_ -split " ", 2)[1] }
+    $ActualWorktrees = @(git worktree list --porcelain 2>$null | Where-Object { $_ -match "^worktree " } | ForEach-Object { ($_ -split " ", 2)[1] })
 
     if ($StateWorktrees) {
         foreach ($Wt in $StateWorktrees -split "`n") {

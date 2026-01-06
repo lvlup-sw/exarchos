@@ -29,7 +29,7 @@ Activate this skill when:
 
 **Command:** `/delegate`
 
-```
+```bash
 /delegate Implement user authentication with email/password login.
 Include unit tests following TDD. Create login endpoint at POST /api/auth/login.
 ```
@@ -49,7 +49,7 @@ The coding agent will:
 
 **Command:** `/agent implementer`
 
-```
+```plaintext
 /agent implementer
 
 ## Task: Implement User Model
@@ -107,7 +107,7 @@ From implementation plan, extract for each task:
 ### Step 3: Track Tasks
 
 Use the todo tool to track all delegated tasks:
-```
+```plaintext
 Add todo: "Task 001: User model" (in_progress)
 Add todo: "Task 002: Auth endpoints" (pending)
 ```
@@ -115,12 +115,12 @@ Add todo: "Task 002: Auth endpoints" (pending)
 ### Step 4: Dispatch Implementers
 
 **For async (Copilot coding agent):**
-```
+```bash
 /delegate Implement Task 001: User model with email validation...
 ```
 
 **For sync (custom agent):**
-```
+```plaintext
 /agent implementer
 
 [Full task context as shown in Mode 2 above]
@@ -163,13 +163,13 @@ Group B (depends on Group A):
 ### Dispatching Parallel Tasks
 
 For sync agents, dispatch sequentially but work in separate worktrees:
-```
+```bash
 /agent implementer
 [Task 001 in .worktrees/001-types]
 ```
 
 Then:
-```
+```bash
 /agent implementer
 [Task 002 in .worktrees/002-interfaces]
 ```
