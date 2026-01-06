@@ -1,0 +1,62 @@
+# GitHub Labels Configuration
+# Sync with: gh label sync --force
+
+# Type Labels
+- name: "type:bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "type:feature"
+  color: "a2eeef"
+  description: "New feature or enhancement"
+
+- name: "type:docs"
+  color: "0075ca"
+  description: "Documentation improvements"
+
+- name: "type:chore"
+  color: "fef2c0"
+  description: "Maintenance, dependencies, CI"
+
+- name: "type:question"
+  color: "d876e3"
+  description: "Question or discussion"
+
+# Scope Labels
+- name: "scope:workflow"
+  color: "c5def5"
+  description: "Workflow commands (/ideate, /plan, etc.)"
+
+- name: "scope:jules"
+  color: "bfdadc"
+  description: "Jules MCP integration"
+
+- name: "scope:templates"
+  color: "d4c5f9"
+  description: "CI/CD, Renovate, azd templates"
+
+- name: "scope:rules"
+  color: "fbca04"
+  description: "TDD and coding standards"
+
+# Status Labels
+- name: "status:triage"
+  color: "ededed"
+  description: "Needs initial review"
+
+- name: "status:blocked"
+  color: "b60205"
+  description: "Blocked by external factor"
+
+- name: "status:stale"
+  color: "ffffff"
+  description: "No activity, will auto-close"
+
+# Priority Labels
+- name: "priority:high"
+  color: "d93f0b"
+  description: "Address soon"
+
+- name: "priority:low"
+  color: "0e8a16"
+  description: "Nice to have"
