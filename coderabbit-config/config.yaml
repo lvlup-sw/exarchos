@@ -1,13 +1,12 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-tone_instructions: Exacting, prioritizing technical optimality
+tone_instructions: Prioritize technical optimality without being nitpicky.
 early_access: true
 reviews:
-  auto_review:
-    enabled: true
-    ignore_usernames:
-      - renovate[bot]  # Skip dependency update PRs, but review Jules and other bots
   request_changes_workflow: true
-  high_level_summary_instructions: Review git commit messages and related documents in addition to code changes.
+  high_level_summary_instructions: |-
+    Provide cumulative summary of entire PR state.
+    Do not reference individual commits.
+    Focus on: What does this PR accomplish? What issues remain?
   auto_apply_labels: true
   auto_assign_reviewers: true
   path_filters:
@@ -25,6 +24,9 @@ reviews:
       instructions: 'Prioritize security: auth, input validation, error handling.'
     - path: docs/**
       instructions: Check for accuracy and completeness. Light review only.
+  auto_review:
+    ignore_usernames:
+      - renovate[bot]
   pre_merge_checks:
     custom_checks:
       - mode: error
@@ -32,98 +34,123 @@ reviews:
         instructions: |-
           ## Spec Compliance Review
 
-          ### Checklist
+          **IMPORTANT:** Do NOT be nitpicky! Only surface legitimately impactful issues!
 
-          - [ ] All specified requirements implemented (no missing features)
-          - [ ] No over-engineering beyond spec (flag scope creep)
+          Review the ENTIRE PR diff against base branch (cumulative, not incremental).
+
+          ### Output Format (MANDATORY)
+
+          For EACH issue found, use this exact format:
+
+          ```
+          🔴 Critical | 🟠 Major | 🟡 Minor
+          **File:** `path/to/file.ext:LINE`
+          **Issue:** [Clear description of what's wrong]
+          **Expected:** [What the spec/design requires]
+          **Fix:** [Specific action to remediate]
+          ```
+
+          ### Severity Definitions
+
+          - 🔴 **Critical**: Missing required functionality, behavior differs from spec
+          - 🟠 **Major**: Untested public API, incomplete edge case handling
+          - 🟡 **Minor**: Test naming convention, documentation gaps
+
+          ### Checklist (verify each, report deviations)
+
+          - [ ] All specified requirements implemented
+          - [ ] No scope creep (unspecified features)
           - [ ] Tests exist for each feature
-          - [ ] Test names follow `Method_Scenario_Outcome` pattern
-          - [ ] Coverage: >90% line, >70% branch for new code
+          - [ ] Test names: `Method_Scenario_Outcome`
+          - [ ] Coverage: >90% line, >70% branch
 
-          ### Flag as SPEC ISSUE
+          ### Deterministic Criteria
 
-          - Missing functionality from design/plan
-          - Untested public APIs
-          - Behavior differs from specification
-          - Features added that weren't specified (scope creep)
+          Same code state MUST produce same verdict. Do not:
+          - Reference previous reviews or comments
+          - Change assessment based on commit count
+          - Provide different feedback for same code
 
-          ### Test File Review (`*.test.*`)
+          ### Summary Table (REQUIRED)
 
-          - Tests exist for all new functionality
-          - Arrange-Act-Assert structure present
-          - Meaningful assertions (not `expect(true)`)
-          - Edge cases and error paths covered
-          - No shared mutable state between tests
+          | Severity | Count | Items |
+          |----------|-------|-------|
+          | 🔴 Critical | N | [Brief list] |
+          | 🟠 Major | N | [Brief list] |
+          | 🟡 Minor | N | [Brief list] |
 
-          ### Summary
+          ### Verdict
 
-          End with:
+          **Status:** PASS | FAIL
 
-          Spec Review
+          - PASS: No 🔴 Critical issues, ≤2 🟠 Major issues
+          - FAIL: Any 🔴 Critical OR >2 🟠 Major issues
 
-          Status: PASS | FAIL
-
-          Missing: [list any unimplemented requirements]
-          Untested: [list any untested features]
-          Scope Creep: [list any unspecified additions]
+          **Missing:** [list or "None"]
+          **Untested:** [list or "None"]
+          **Scope Creep:** [list or "None"]
       - mode: error
         name: CODE QUALITY
         instructions: |-
           ## Code Quality Review
 
-          Assumes spec compliance has passed. Focus on maintainability and security.
+          **IMPORTANT:** Do NOT be nitpicky! Only surface legitimately impactful issues!
 
-          ### 🔴 HIGH (must fix before merge)
+          Review the ENTIRE PR diff (cumulative state, not incremental commits).
+          Assumes spec compliance has passed.
 
-          - Security: SQL injection, XSS, secrets in code, unsanitized input
-          - Data loss risks, unhandled errors that could crash
-          - Missing error handling at system boundaries
-          - Floating promises (missing await)
+          ### Output Format (MANDATORY)
 
-          ### 🟡 MEDIUM (should fix)
+          For EACH issue, use this exact format:
 
+          ```
+          🔴 Critical | 🟠 Major | 🟡 Minor
+          **File:** `path/to/file.ext:LINE`
+          **Category:** Security | Performance | SOLID | Error Handling | Style
+          **Issue:** [Clear description]
+          **Current:** [What the code does now]
+          🔎 **Proposed fix:**
+          [Specific code or action to remediate]
+          ```
+
+          ### Severity Definitions
+
+          #### 🔴 Critical (MUST fix before merge)
+          - Security: SQL injection, XSS, secrets in code
+          - Data loss risks, unhandled crashes
+          - Missing await (floating promises)
+
+          #### 🟠 Major (SHOULD fix)
           - SOLID violations (god classes, tight coupling)
-          - Functions >30 lines or multiple responsibilities
-          - Deep nesting—prefer guard clauses + early returns:
-          // GOOD: guard clause
-          if (invalid) return;
-          // main logic flat
-
-          // BAD: arrow code
-          if (valid) {
-              if (another) {
-              // deeply nested
-              }
-          }
+          - Functions >30 lines, deep nesting
+          - N+1 queries, O(n²) when O(n) works
           - Copy-paste duplication (DRY violations)
-          - N+1 queries, obvious O(n²) when O(n) works
-          - Poor test quality (weak assertions, no edge cases)
 
-          ### 🟢 LOW (nice to have)
-
-          - Naming clarity improvements
-          - Minor refactoring opportunities
+          #### 🟡 Minor (NICE to have)
+          - Naming improvements
+          - Minor refactoring
           - Documentation suggestions
 
-          ### API Endpoints (`**/api/**`)
+          ### Idempotency Rules
 
-          - Input validation and sanitization
-          - Parameterized queries only (no string interpolation)
-          - Auth checks present
-          - Error responses don't leak internals
+          1. Review full PR diff, not commit-by-commit
+          2. Same code = same findings (deterministic)
+          3. Don't reference previous CodeRabbit comments
+          4. Base verdict on current code state only
 
-          ### Summary
+          ### Summary Table (REQUIRED)
 
-          End with:
+          | Severity | Category | File:Line | Issue |
+          |----------|----------|-----------|-------|
+          | 🔴 | Security | `src/api.ts:42` | SQL injection |
+          | 🟠 | SOLID | `src/service.ts:100` | God class |
 
-          Quality Review
+          ### Verdict
 
-          Status: APPROVED | NEEDS_FIXES | BLOCKED
+          **Status:** APPROVED | NEEDS_FIXES | BLOCKED
 
-          HIGH: [count] | MEDIUM: [count] | LOW: [count]
+          🔴 Critical: [N] | 🟠 Major: [N] | 🟡 Minor: [N]
 
-          [List HIGH items requiring action]
-
-          - **APPROVED**: Ready to merge
-          - **NEEDS_FIXES**: Address HIGH items and re-request review
-          - **BLOCKED**: Critical design flaw requiring discussion
+          - **APPROVED**: 0 🔴 Critical AND ≤3 🟠 Major
+          - **NEEDS_FIXES**: Any 🔴 Critical OR >3 🟠 Major
+          - **BLOCKED**: Architectural flaw requiring redesign

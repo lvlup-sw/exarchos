@@ -55,12 +55,23 @@ npm run build
 ```
 
 ### Step 5: Create PR
+
+Follow `@rules/pr-descriptions.md` for concise format.
+
 ```bash
 git push -u origin feature/integration-<feature-name>
 
 gh pr create \
-  --title "Feature: <name>" \
-  --body "[Summary, changes, test plan]"
+  --title "<type>: <what>" \
+  --body "$(cat <<'EOF'
+## Summary
+<1-2 sentences: what changed and why>
+
+Tests: X pass | Build: 0 errors
+
+Design: docs/path.md
+EOF
+)"
 ```
 
 ### Step 6: Cleanup (After Merge)
@@ -83,11 +94,7 @@ When complete:
 ## Synthesis Complete
 
 PR: [URL]
-
-Merged: [list of branches]
-
-Tests: PASS
-Build: PASS
+Tests: X pass | Build: 0 errors
 ```
 
 ## Direct Commits
