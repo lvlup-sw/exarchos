@@ -234,16 +234,16 @@ This skill tracks task progress in workflow state for context persistence.
 
 Instead of re-parsing plan, read task list from state:
 
-```bash
-~/.copilot/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
+```powershell
+& "$env:USERPROFILE\.copilot\scripts\workflow-state.ps1" get docs/workflow-state/<feature>.state.json '.tasks'
 ```
 
 ### On Task Dispatch
 
 Update task status when dispatched:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+```powershell
+& "$env:USERPROFILE\.copilot\scripts\workflow-state.ps1" set docs/workflow-state/<feature>.state.json `
   '(.tasks[] | select(.id == "001")).status = "in_progress"'
 ```
 
@@ -251,8 +251,8 @@ Update task status when dispatched:
 
 Update task status when agent reports completion:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+```powershell
+& "$env:USERPROFILE\.copilot\scripts\workflow-state.ps1" set docs/workflow-state/<feature>.state.json `
   '(.tasks[] | select(.id == "001")).status = "complete"'
 ```
 
@@ -260,8 +260,8 @@ Update task status when agent reports completion:
 
 Update phase:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "integrate"'
+```powershell
+& "$env:USERPROFILE\.copilot\scripts\workflow-state.ps1" set docs/workflow-state/<feature>.state.json '.phase = "integrate"'
 ```
 
 ## Fix Mode (--fixes)

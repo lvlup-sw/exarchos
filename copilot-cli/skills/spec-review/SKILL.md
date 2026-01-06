@@ -202,7 +202,7 @@ If review FAILS:
 3. Re-review after fixes
 4. Repeat until PASS
 
-```
+```bash
 /agent implementer
 
 # Fix Required: Spec Review Failed

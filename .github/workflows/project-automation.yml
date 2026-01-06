@@ -70,7 +70,7 @@ jobs:
   # AUTO-ASSIGN: Assign PR author as assignee
   # ============================================================
   auto-assign-author:
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
+    if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write

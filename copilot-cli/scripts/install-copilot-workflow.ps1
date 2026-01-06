@@ -118,7 +118,7 @@ function Resolve-SourceRepo {
     # Check for expected directory structure
     $ExpectedDirs = @(
         "copilot-cli/scripts",
-        "examples/copilot-cli/agents"
+        "copilot-cli/agents"
     )
 
     foreach ($Dir in $ExpectedDirs) {
@@ -160,22 +160,22 @@ function Install-WorkflowFiles {
             Description = "Workflow state management script"
         },
         @{
-            Source = "examples/copilot-cli/agents/orchestrator.agent.md"
+            Source = "copilot-cli/agents/orchestrator.agent.md"
             Dest = Join-Path $AgentsDir "orchestrator.agent.md"
             Description = "Orchestrator agent"
         },
         @{
-            Source = "examples/copilot-cli/agents/implementer.agent.md"
+            Source = "copilot-cli/agents/implementer.agent.md"
             Dest = Join-Path $AgentsDir "implementer.agent.md"
             Description = "Implementer agent"
         },
         @{
-            Source = "examples/copilot-cli/agents/reviewer.agent.md"
+            Source = "copilot-cli/agents/reviewer.agent.md"
             Dest = Join-Path $AgentsDir "reviewer.agent.md"
             Description = "Reviewer agent"
         },
         @{
-            Source = "examples/copilot-cli/agents/integrator.agent.md"
+            Source = "copilot-cli/agents/integrator.agent.md"
             Dest = Join-Path $AgentsDir "integrator.agent.md"
             Description = "Integrator agent"
         }
