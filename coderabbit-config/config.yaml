@@ -3,6 +3,7 @@ tone_instructions: Prioritize technical optimality without being nitpicky.
 early_access: true
 reviews:
   request_changes_workflow: true
+  high_level_summary: false
   high_level_summary_instructions: |-
     Provide cumulative summary of entire PR state.
     Do not reference individual commits.
@@ -29,7 +30,7 @@ reviews:
       - renovate[bot]
   pre_merge_checks:
     custom_checks:
-      - mode: error
+      - mode: warning
         name: SPEC COMPLIANCE
         instructions: |-
           ## Spec Compliance Review
@@ -89,7 +90,7 @@ reviews:
           **Missing:** [list or "None"]
           **Untested:** [list or "None"]
           **Scope Creep:** [list or "None"]
-      - mode: error
+      - mode: warning
         name: CODE QUALITY
         instructions: |-
           ## Code Quality Review

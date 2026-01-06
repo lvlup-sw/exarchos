@@ -207,13 +207,35 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Test 10: Script is idempotent (safe to run multiple times)
+# Test 10: Script handles intermediate lvlup-claude location
 # -----------------------------------------------------------------------------
-echo "--- Test 10: Idempotency check ---"
+echo "--- Test 10: Intermediate location detection ---"
 if [[ -f "$MIGRATION_SCRIPT" && -x "$MIGRATION_SCRIPT" ]]; then
     export HOME="$TEST_DIR/test-home-10"
-    mkdir -p "$HOME/Documents/code/lvlup-claude"  # Target already exists
+    mkdir -p "$HOME/Documents/code/lvlup-claude"  # Intermediate location
     touch "$HOME/Documents/code/lvlup-claude/settings.json"
+
+    OUTPUT=$("$MIGRATION_SCRIPT" --dry-run 2>&1 || true)
+
+    if echo "$OUTPUT" | grep -qiE "(intermediate|needs relocation|lvlup-sw|move)"; then
+        pass "Script detects intermediate lvlup-claude location"
+    else
+        fail "Script should detect intermediate lvlup-claude and plan relocation"
+    fi
+
+    unset HOME
+else
+    fail "Cannot test intermediate detection - script does not exist or is not executable"
+fi
+
+# -----------------------------------------------------------------------------
+# Test 11: Script is idempotent (safe to run multiple times)
+# -----------------------------------------------------------------------------
+echo "--- Test 11: Idempotency check ---"
+if [[ -f "$MIGRATION_SCRIPT" && -x "$MIGRATION_SCRIPT" ]]; then
+    export HOME="$TEST_DIR/test-home-11"
+    mkdir -p "$HOME/Documents/code/lvlup-sw/lvlup-claude"  # Target already exists
+    touch "$HOME/Documents/code/lvlup-sw/lvlup-claude/settings.json"
 
     OUTPUT=$("$MIGRATION_SCRIPT" --dry-run 2>&1 || true)
     EXIT_CODE=$?
