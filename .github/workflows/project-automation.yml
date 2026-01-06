@@ -14,7 +14,7 @@ on:
     - cron: '0 9 * * 1'  # Weekly stale check, Monday 9am UTC
 
 env:
-  PROJECT_NUMBER: 1  # Update after creating project
+  PROJECT_NUMBER: 3
 
 jobs:
   # ============================================================
