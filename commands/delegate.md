@@ -9,14 +9,14 @@ Delegate tasks for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲▲▲▲▲▲▲▲                              │
-                                    │                                  │
-                      ON FAIL ──────┤                                  │
-                      --pr-fixes ───┴──────────────────────────────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+                                 ▲▲▲▲▲▲▲▲                                            │
+                                    │                                                │
+                      ON FAIL ──────┤                                                │
+                      --pr-fixes ───┴────────────────────────────────────────────────┘
 ```
 
-Auto-invokes `/review` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
+Auto-invokes `/integrate` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
 
 ## Invocation Modes
 
@@ -337,11 +337,11 @@ After all delegated tasks complete, **auto-continue immediately** (no user confi
 
 ### For normal delegation and --fixes mode:
 
-1. Update state: `.phase = "review"` and mark all tasks complete
-2. Output: "All [N] tasks complete. Auto-continuing to review..."
+1. Update state: `.phase = "integrate"` and mark all tasks complete
+2. Output: "All [N] tasks complete. Auto-continuing to integration..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "review", args: "$PLAN_PATH" })
+   Skill({ skill: "integrate", args: "$STATE_FILE" })
    ```
 
 ### For --pr-fixes mode:

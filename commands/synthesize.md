@@ -1,5 +1,5 @@
 ---
-description: Merge branches and create pull request
+description: Create pull request from integration branch
 ---
 
 # Synthesize
@@ -9,8 +9,8 @@ Create final PR for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                                       ▲▲▲▲▲▲▲▲▲▲
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+                                                                    ▲▲▲▲▲▲▲▲▲▲
 ```
 
 This command is the **exit point** of the development workflow. After creating the PR, asks for confirmation before merging.
@@ -21,40 +21,22 @@ Follow the synthesis skill: `@skills/synthesis/SKILL.md`
 
 ## Prerequisites
 
-- [ ] All tasks complete
-- [ ] Spec review: PASS for all tasks
-- [ ] Quality review: APPROVED for all tasks
+- [ ] Integration phase complete (branches already merged and tested)
+- [ ] Integration branch exists: `feature/integration-<feature-name>`
+- [ ] Spec review: PASS
+- [ ] Quality review: APPROVED
 
-## Process
+## Simplified Process
 
-### Step 1: List Worktrees
+Since `/integrate` handles branch merging and test verification, synthesis focuses on PR creation.
+
+### Step 1: Verify Integration Branch
 ```bash
-git worktree list
+git checkout feature/integration-<feature-name>
+git log --oneline -5  # Confirm merged branches
 ```
 
-### Step 2: Create Integration Branch
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/integration-<feature-name>
-```
-
-### Step 3: Merge in Dependency Order
-For each branch:
-```bash
-git merge --no-ff feature/task-branch
-npm run test:run  # Verify after each merge
-```
-
-### Step 4: Run Full Verification
-```bash
-npm run test:run
-npm run typecheck
-npm run lint
-npm run build
-```
-
-### Step 5: Create PR
+### Step 2: Create PR
 
 Follow `@rules/pr-descriptions.md` for concise format.
 
@@ -74,7 +56,7 @@ EOF
 )"
 ```
 
-### Step 6: Cleanup (After Merge)
+### Step 3: Cleanup (After Merge)
 ```bash
 git worktree remove .worktrees/task-name
 git branch -d feature/task-branch
@@ -83,9 +65,8 @@ git worktree prune
 
 ## Handling Failures
 
-- **Test failure after merge:** Create fix task, re-synthesize
-- **Merge conflict:** Resolve carefully, test after resolution
 - **PR checks fail:** Push fixes to integration branch
+- **Review feedback:** Use `/delegate --pr-fixes` to address comments
 
 ## Output
 

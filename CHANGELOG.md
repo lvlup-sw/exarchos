@@ -2,6 +2,55 @@
 
 Update sparingly - high signal/impactful changes only.
 
+## 2026-01-06
+
+### Workflow Phase Restructuring
+
+Added explicit integration phase and orchestrator constraints:
+
+**New `/integrate` Phase:**
+- Merges worktree branches in dependency order
+- Runs combined test suite after each merge
+- Reports pass/fail with specific failure details
+- Auto-chains to `/review` on success, `/delegate --fixes` on failure
+
+**Orchestrator Constraints:**
+- Orchestrator no longer writes implementation code
+- All fixes delegated to subagents (fixer prompt template)
+- Worktree enforcement prevents accidental main project modifications
+
+**Review Updates:**
+- Reviews now assess integrated diff (not per-worktree fragments)
+- Full picture of combined code quality
+
+**Synthesis Simplification:**
+- Merge/test logic moved to `/integrate`
+- `/synthesize` now just creates PR from integration branch
+
+**Updated flow:**
+```
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↑
+          HUMAN                                                                    HUMAN
+                                   ↑                        │
+                                   └──── --fixes ───────────┘
+```
+
+**Files added:**
+- `rules/orchestrator-constraints.md`
+- `skills/integration/SKILL.md`
+- `skills/integration/references/integrator-prompt.md`
+- `skills/delegation/references/fixer-prompt.md`
+- 14 test scripts
+
+**Files modified:**
+- `skills/delegation/SKILL.md` (worktree enforcement + fix mode)
+- `skills/spec-review/SKILL.md`, `skills/quality-review/SKILL.md` (integrated diff)
+- `skills/synthesis/SKILL.md` (simplified)
+- `docs/schemas/workflow-state.schema.json` (integration object)
+
+---
+
 ## 2026-01-04
 
 ### PR Feedback Loop & Direct Commits
@@ -21,9 +70,9 @@ Added support for human interaction with PRs:
 
 **Updated flow:**
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲                                     │
-                                 └─────────── --pr-fixes ──────────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+                                            ▲                                       │
+                                            └─────────── --pr-fixes ────────────────┘
 ```
 
 ---
@@ -34,9 +83,9 @@ Reduced confirmation prompts in the workflow pipeline:
 
 **New flow:**
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)    (auto)     (auto)           ↓
-            └──────────── ON BLOCKED ────────────────────────────────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↓
+            └──────────── ON BLOCKED ──────────────────────────────────────────────────┘
                           ON FAIL → /delegate --fixes (auto)
 ```
 

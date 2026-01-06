@@ -9,8 +9,8 @@ Create implementation plan for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                        ▲▲▲
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+                        ▲▲▲▲
 ```
 
 Auto-invokes `/delegate` after plan is saved.

@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Running the full workflow (`/ideate` → `/plan` → `/delegate` → `/review` → `/synthesize`) exhausts context in the main Claude Code terminal. Context runs out during:
+Running the full workflow (`/ideate` → `/plan` → `/delegate` → `/integrate` → `/review` → `/synthesize`) exhausts context in the main Claude Code terminal. Context runs out during:
 1. `/delegate` - task extraction, worktree setup, subagent dispatch
 2. PR feedback iterations after `/synthesize`
 
@@ -54,6 +54,7 @@ Each workflow skill updates state at key moments:
 - `/ideate` → Creates state file
 - `/plan` → Populates tasks array
 - `/delegate` → Updates task status, worktree locations
+- `/integrate` → Updates integration status, merged branches
 - `/review` → Updates review results
 - `/synthesize` → Stores PR URL, feedback
 

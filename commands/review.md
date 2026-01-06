@@ -9,15 +9,17 @@ Review implementation for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-            ↑                               ▲▲▲▲▲▲
-            └──────────── ON BLOCKED ───────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+            ↑                                            ▲▲▲▲▲▲
+            └──────────── ON BLOCKED ────────────────────────┘
                           ON FAIL → /delegate --fixes (auto)
 ```
 
 - **ON PASS**: Auto-invokes `/synthesize`
 - **ON FAIL**: Auto-invokes `/delegate --fixes`
 - **ON BLOCKED**: Auto-invokes `/ideate --redesign`
+
+Review runs AFTER integration phase completes - reviews the integrated diff, not per-task fragments.
 
 ## Skill References
 
@@ -30,11 +32,11 @@ Reviews MUST be dispatched to subagents (not run inline).
 
 ### Context-Efficient Reviews
 
-Use diffs instead of full file contents to reduce context by 80-90%:
+Use the integrated diff (not per-worktree fragments) to reduce context by 80-90%:
 
 ```bash
-# Generate diff for review subagent
-~/.claude/scripts/review-diff.sh .worktrees/<task> main
+# Generate integrated diff for review subagent
+git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
 ```
 
 ### Dispatch Spec Review

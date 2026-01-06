@@ -14,9 +14,9 @@ Done. Commands work in any project immediately.
 ## The Workflow
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)     (auto)      (auto)          ↑
-          HUMAN                                                       HUMAN
+/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↑
+          HUMAN                                                                    HUMAN
 ```
 
 **Two human checkpoints.** Everything else auto-continues.
@@ -26,8 +26,9 @@ Done. Commands work in any project immediately.
 | `/ideate` | Design exploration with trade-offs |
 | `/plan` | TDD task decomposition |
 | `/delegate` | Dispatch to Jules (async) or subagents (sync) |
+| `/integrate` | Merge worktree branches, run combined tests |
 | `/review` | Two-stage: spec compliance → code quality |
-| `/synthesize` | Merge branches, create PR |
+| `/synthesize` | Create PR from integration branch |
 
 ### TDD Iron Law
 
@@ -76,7 +77,7 @@ Use `/delegate` for workflow integration. Use `jules_*` tools directly for stand
 
 | Type | Count | Examples |
 |------|-------|----------|
-| Commands | 8 | `/ideate`, `/plan`, `/delegate`, `/review`, `/synthesize` |
+| Commands | 9 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize` |
 | Skills | 8 | brainstorming, delegation, spec-review, quality-review |
 | Rules | 4 | TDD + coding standards for TypeScript, C# |
 | Plugins | 1 | Jules MCP integration |
