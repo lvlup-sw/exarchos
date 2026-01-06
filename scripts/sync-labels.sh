@@ -10,14 +10,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 LABELS_FILE="$REPO_ROOT/.github/labels.yml"
-REPO="lvlup-sw/lvlup-claude"
+
+# Auto-detect repository from git remote, environment, or use default
+if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+    # Use GitHub Actions environment variable
+    REPO="$GITHUB_REPOSITORY"
+elif command -v gh &> /dev/null && gh repo view --json nameWithOwner -q .nameWithOwner &> /dev/null; then
+    # Auto-detect from git remote via gh CLI
+    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+else
+    # Fallback to default
+    REPO="lvlup-sw/lvlup-claude"
+fi
 
 # Parse arguments
 DRY_RUN=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dry-run) DRY_RUN=true; shift ;;
-        *) shift ;;
+        -h|--help)
+            echo "Usage: $0 [--dry-run]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run  Show what would be done without making changes"
+            echo "  -h, --help Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown argument: $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
     esac
 done
 

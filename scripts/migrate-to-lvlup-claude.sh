@@ -16,7 +16,19 @@ DRY_RUN=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dry-run) DRY_RUN=true; shift ;;
-        *) shift ;;
+        -h|--help)
+            echo "Usage: $0 [--dry-run]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run  Show what would be done without making changes"
+            echo "  -h, --help Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown argument: $1" >&2
+            echo "Use --help for usage information" >&2
+            exit 1
+            ;;
     esac
 done
 
@@ -91,8 +103,16 @@ migrate_files() {
     else
         if [[ -d "$source_dir" ]]; then
             # Copy all files preserving structure
-            cp -r "$source_dir"/* "$NEW_DIR"/ 2>/dev/null || true
-            info "Migrated files from $source_dir to $NEW_DIR"
+            if ! cp -r "$source_dir"/* "$NEW_DIR"/ 2>/dev/null; then
+                # Check if directory was empty (not an error)
+                if [[ -z "$(ls -A "$source_dir" 2>/dev/null)" ]]; then
+                    warn "Source directory is empty, nothing to copy"
+                else
+                    error "Failed to copy files from $source_dir to $NEW_DIR"
+                fi
+            else
+                info "Migrated files from $source_dir to $NEW_DIR"
+            fi
         fi
     fi
 }
@@ -130,8 +150,8 @@ update_symlinks() {
             target=$(readlink "$link" 2>/dev/null || echo "")
             if [[ "$target" == *"claude-config"* ]]; then
                 local new_target="${target/claude-config/lvlup-claude}"
-                rm "$link"
-                ln -sf "$new_target" "$link"
+                # Use ln -sfn for atomic symlink replacement (no separate rm needed)
+                ln -sfn "$new_target" "$link"
                 info "Updated symlink: $link -> $new_target"
             fi
         done < <(find "$CLAUDE_DIR" -maxdepth 1 -type l -print0 2>/dev/null)
