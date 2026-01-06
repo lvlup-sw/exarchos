@@ -201,6 +201,7 @@ jobs:
             // Set Priority
             const priorityField = fields.find(f => f.name === 'Priority');
             if (priorityField) {
+              console.log('Priority options:', priorityField.options?.map(o => o.name).join(', '));
               const option = priorityField.options.find(o => o.name === priority);
               if (option) {
                 await github.graphql(mutation, {
