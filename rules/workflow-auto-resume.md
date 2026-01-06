@@ -39,6 +39,7 @@ The `next-action` command returns one of:
 | Response | Meaning | Action |
 |----------|---------|--------|
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
+| `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
 | `AUTO:synthesize:<feature>` | Auto-continue to synthesize | Invoke `/synthesize` |
 | `AUTO:delegate:--fixes <path>` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
@@ -66,7 +67,9 @@ ONLY pause for human input at these phases:
 
 All other phases auto-continue:
 - `plan` → auto-chains to `/delegate`
-- `delegate` (all tasks complete) → auto-chains to `/review`
+- `delegate` (all tasks complete) → auto-chains to `/integrate`
+- `integrate` (passed) → auto-chains to `/review`
+- `integrate` (failed) → auto-chains to `/delegate --fixes`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
 
@@ -96,7 +99,12 @@ Claude: Detecting active workflow...
         [Dispatches remaining 2 tasks]
         [Updates state on completion]
 
-        All 5 tasks complete. Auto-continuing to review...
+        All 5 tasks complete. Auto-continuing to integration...
+
+        [Invokes /integrate automatically]
+        [Integration passes]
+
+        Auto-continuing to review...
 
         [Invokes /review automatically]
 ```
