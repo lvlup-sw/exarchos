@@ -226,6 +226,71 @@ Before dispatching ANY implementer:
    npm run test:run
    ```
 
+## Azure DevOps Branch Creation
+
+When the workflow is configured for Azure DevOps (platform: "azure-devops" in state), use MCP tools for branch creation to enable branch policies.
+
+### Platform Detection
+
+Check state file for platform:
+```powershell
+$platform = ~/.copilot/scripts/workflow-state.ps1 get docs/workflow-state/<feature>.state.json '.platform'
+```
+
+### ADO Branch Creation (Optional Enhancement)
+
+For ADO workflows, you can create branches via MCP to immediately apply branch policies:
+
+```
+Tool: mcp_ado_repo_create_branch
+Parameters:
+  repositoryId: <from state.ado.repositoryId>
+  branchName: feature/<task-id>-<name>
+  sourceBranchName: main
+```
+
+**When to use MCP branch creation:**
+- Branch policies are configured in ADO
+- Need server-side branch validation
+- Want audit trail in ADO
+
+**When to use git commands:**
+- Local development workflow
+- No special branch policies
+- Faster iteration (default)
+
+### Combined ADO + Git Workflow
+
+1. **Create branch via MCP** (optional, for policy compliance):
+   ```
+   Tool: mcp_ado_repo_create_branch
+   Parameters:
+     repositoryId: "<repo-id>"
+     branchName: "feature/001-types"
+     sourceBranchName: "main"
+   ```
+
+2. **Create local worktree** (always required for isolation):
+   ```powershell
+   git fetch origin
+   git worktree add .worktrees/001-types origin/feature/001-types
+   ```
+
+3. **Or use pure git** (simpler, default):
+   ```powershell
+   git branch feature/001-types main
+   git worktree add .worktrees/001-types feature/001-types
+   ```
+
+### Recommendation
+
+For most workflows, pure git commands are sufficient. Use MCP branch creation only when:
+- Your ADO project has mandatory branch policies
+- You need server-side validation before work begins
+- Compliance requires server-side branch audit trail
+
+Note: Git commands work with Azure DevOps repositories. MCP branch creation is an optional enhancement, not a replacement for the standard git workflow.
+
 ## Anti-Patterns
 
 | Don't | Do Instead |
