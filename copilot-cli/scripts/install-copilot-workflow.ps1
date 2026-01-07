@@ -271,8 +271,8 @@ function Test-Installation {
 
     if ($Errors.Count -gt 0) {
         Write-Failure "Installation validation failed:"
-        foreach ($Error in $Errors) {
-            Write-Host "    - $Error" -ForegroundColor Red
+        foreach ($ErrorItem in $Errors) {
+            Write-Host "    - $ErrorItem" -ForegroundColor Red
         }
         throw "Installation incomplete. Please check errors above."
     }
