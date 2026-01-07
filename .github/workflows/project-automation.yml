@@ -67,6 +67,22 @@ jobs:
             });
 
   # ============================================================
+  # AUTO-ASSIGN: Assign PR author as assignee
+  # ============================================================
+  auto-assign-author:
+    if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Assign PR author
+        run: gh pr edit "$PR_URL" --add-assignee "$AUTHOR"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
   # PROJECT SYNC: Add issues/PRs to project board
   # ============================================================
   project-sync:
