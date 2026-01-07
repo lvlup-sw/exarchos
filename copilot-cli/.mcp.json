@@ -2,7 +2,7 @@
   "mcpServers": {
     "azure-devops": {
       "command": "npx",
-      "args": ["@anthropic/azure-devops-mcp"],
+      "args": ["@azure-devops/mcp"],
       "env": {
         "AZURE_DEVOPS_ORG_URL": "${AZURE_DEVOPS_ORG_URL}",
         "AZURE_DEVOPS_PAT": "${AZURE_DEVOPS_PAT}"

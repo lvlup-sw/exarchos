@@ -20,13 +20,13 @@ az extension add --name azure-devops
 
 ### Authentication
 
-**Option 1: Azure AD (Recommended for SSO environments)**
+#### Option 1: Azure AD (Recommended for SSO environments)
 ```powershell
 az login
 az devops configure --defaults organization=https://dev.azure.com/your-org
 ```
 
-**Option 2: Personal Access Token**
+#### Option 2: Personal Access Token
 ```powershell
 $env:AZURE_DEVOPS_EXT_PAT = "your-pat-here"
 az devops configure --defaults organization=https://dev.azure.com/your-org

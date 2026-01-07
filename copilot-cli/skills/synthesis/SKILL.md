@@ -135,8 +135,8 @@ When the workflow is configured for Azure DevOps (platform: "azure-devops" in st
 
 At the start of synthesis, check the workflow platform:
 
-```bash
-~/.copilot/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.platform'
+```powershell
+~/.copilot/scripts/workflow-state.ps1 get docs/workflow-state/<feature>.state.json '.platform'
 ```
 
 - If platform is `"azure-devops"` or `"ado"`: Use Step 5a/5b below

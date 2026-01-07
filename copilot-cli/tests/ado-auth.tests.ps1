@@ -59,7 +59,6 @@ Describe "Get-AdoToken" {
 
         It "Should return token from Azure CLI when PAT not set" {
             Mock az { "cli-token-value" }
-            Mock Set-Variable {}
             $global:LASTEXITCODE = 0
             $result = Get-AdoToken
             $result | Should -Be "cli-token-value"

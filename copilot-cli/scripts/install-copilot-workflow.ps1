@@ -71,6 +71,32 @@ function Write-Failure {
     Write-Host "[-] $Message" -ForegroundColor Red
 }
 
+function ConvertTo-Hashtable {
+    <#
+    .SYNOPSIS
+        Converts a PSCustomObject to a hashtable (PS 5.1 compatible)
+    .DESCRIPTION
+        Recursively converts PSCustomObject (from ConvertFrom-Json) to hashtable.
+        This provides compatibility with PowerShell 5.1 which lacks -AsHashtable.
+    #>
+    param([Parameter(ValueFromPipeline)]$InputObject)
+    process {
+        if ($null -eq $InputObject) { return $null }
+        if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string]) {
+            $collection = @(foreach ($object in $InputObject) { ConvertTo-Hashtable $object })
+            return ,$collection
+        }
+        if ($InputObject -is [psobject]) {
+            $hash = @{}
+            foreach ($property in $InputObject.PSObject.Properties) {
+                $hash[$property.Name] = ConvertTo-Hashtable $property.Value
+            }
+            return $hash
+        }
+        return $InputObject
+    }
+}
+
 function Test-Dependencies {
     <#
     .SYNOPSIS
@@ -360,7 +386,7 @@ function Install-AdoMcp {
             # Merge with existing config
             try {
                 $existingContent = Get-Content $ConfigPath -Raw
-                $existingConfig = $existingContent | ConvertFrom-Json -AsHashtable
+                $existingConfig = $existingContent | ConvertFrom-Json | ConvertTo-Hashtable
 
                 if (-not $existingConfig.mcpServers) {
                     $existingConfig.mcpServers = @{}

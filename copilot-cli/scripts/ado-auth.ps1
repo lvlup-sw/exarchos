@@ -7,7 +7,7 @@
     Supports PAT-based auth and Azure CLI fallback.
 .NOTES
     Token retrieval priority:
-    1. AZURE_DEVOPS_PAT environment variable
+    1. AZURE_DEVOPS_EXT_PAT environment variable (az devops CLI standard)
     2. Azure CLI access token (requires 'az login')
 #>
 
@@ -16,7 +16,7 @@ function Get-AdoToken {
     .SYNOPSIS
         Retrieves an Azure DevOps authentication token
     .DESCRIPTION
-        First checks AZURE_DEVOPS_PAT environment variable.
+        First checks AZURE_DEVOPS_EXT_PAT environment variable.
         Falls back to Azure CLI if PAT not set.
     .OUTPUTS
         String - The authentication token
@@ -24,7 +24,7 @@ function Get-AdoToken {
         $token = Get-AdoToken
         # Returns token from PAT env var or Azure CLI
     .EXAMPLE
-        $env:AZURE_DEVOPS_PAT = "your-pat-here"
+        $env:AZURE_DEVOPS_EXT_PAT = "your-pat-here"
         $token = Get-AdoToken
         # Returns the PAT token directly
     #>
@@ -33,13 +33,14 @@ function Get-AdoToken {
     param()
 
     # Try PAT first - fastest and most explicit auth method
-    if ($env:AZURE_DEVOPS_PAT) {
-        Write-Verbose "Using AZURE_DEVOPS_PAT environment variable"
-        return $env:AZURE_DEVOPS_PAT
+    # AZURE_DEVOPS_EXT_PAT is the standard env var recognized by az devops CLI
+    if ($env:AZURE_DEVOPS_EXT_PAT) {
+        Write-Verbose "Using AZURE_DEVOPS_EXT_PAT environment variable"
+        return $env:AZURE_DEVOPS_EXT_PAT
     }
 
     # Fall back to Azure CLI
-    Write-Verbose "AZURE_DEVOPS_PAT not set, attempting Azure CLI fallback"
+    Write-Verbose "AZURE_DEVOPS_EXT_PAT not set, attempting Azure CLI fallback"
     try {
         # Azure DevOps resource ID for token acquisition
         $adoResourceId = "499b84ac-1321-427f-aa17-267ca6975798"
@@ -58,7 +59,7 @@ function Get-AdoToken {
     catch {
         $errorMessage = @(
             "Failed to get ADO token.",
-            "Set AZURE_DEVOPS_PAT environment variable or run 'az login' first.",
+            "Set AZURE_DEVOPS_EXT_PAT environment variable or run 'az login' first.",
             "Error: $_"
         ) -join " "
 
@@ -100,6 +101,10 @@ function Test-AdoConnection {
         # First verify we can get a token
         $token = Get-AdoToken
         Write-Verbose "Token retrieved successfully"
+
+        # Export token to env var so az devops CLI can use it
+        # AZURE_DEVOPS_EXT_PAT is the standard env var recognized by az devops
+        $env:AZURE_DEVOPS_EXT_PAT = $token
 
         # Test with a simple API call to list projects
         $orgUrl = "https://dev.azure.com/$Organization"

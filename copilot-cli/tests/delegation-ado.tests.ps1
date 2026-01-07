@@ -8,11 +8,6 @@ Describe "Delegation Skill ADO Support" {
         $content | Should -Match "mcp_ado_repo_create_branch"
     }
 
-    It "Should contain MCP tool reference for branch creation" {
-        $content = Get-Content $SkillPath -Raw
-        $content | Should -Match "mcp_ado_repo_create_branch"
-    }
-
     It "Should document platform detection" {
         $content = Get-Content $SkillPath -Raw
         $content | Should -Match "azure-devops|ADO|platform"
