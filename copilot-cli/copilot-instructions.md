@@ -188,6 +188,65 @@ Use workflow-state.ps1 for state operations:
 ~/.copilot/scripts/workflow-state.ps1 next-action <state-file>
 ```
 
+## Azure DevOps Integration
+
+This workflow supports Azure DevOps as an alternative to GitHub for version control and pull requests.
+
+### Platform Detection
+
+Check workflow state for platform:
+```powershell
+$platform = ~/.copilot/scripts/workflow-state.ps1 get <state-file> '.platform'
+# Returns: "github" or "azure-devops"
+```
+
+Use platform-appropriate tools:
+- **GitHub**: `gh` CLI commands
+- **Azure DevOps**: MCP tools (`mcp_ado_*`)
+
+### ADO State Initialization
+
+Initialize an ADO workflow with organization details:
+```powershell
+~/.copilot/scripts/workflow-state.ps1 init-ado my-feature `
+  -Organization "my-org" `
+  -Project "my-project" `
+  -RepositoryId "repo-guid"
+```
+
+This creates a v1.1 state file with:
+- `platform: "azure-devops"`
+- `ado.organization`, `ado.project`, `ado.repositoryId`
+
+### Available MCP Tools
+
+When working with ADO workflows, these MCP tools are available:
+
+| Tool | Purpose |
+|------|---------|
+| `mcp_ado_repo_create_pull_request` | Create PR |
+| `mcp_ado_repo_update_pull_request` | Update PR status |
+| `mcp_ado_repo_list_pull_request_threads` | Get review comments |
+| `mcp_ado_repo_reply_to_comment` | Reply to reviewers |
+| `mcp_ado_wit_link_work_item_to_pull_request` | Link AB# items |
+| `mcp_ado_repo_create_branch` | Create branch (optional) |
+
+### Work Item References
+
+ADO work items use AB# syntax:
+- `AB#1234` in commit messages or PR descriptions
+- Automatically linked when detected
+
+### CLI Fallback
+
+If MCP tools are unavailable, use `az devops` CLI:
+```powershell
+# Example: Create PR via CLI
+az repos pr create --title "..." --source-branch "..." --target-branch "main"
+```
+
+See `docs/ado-cli-reference.md` for full CLI reference.
+
 ## rm Safety
 
 When using `rm` commands:
