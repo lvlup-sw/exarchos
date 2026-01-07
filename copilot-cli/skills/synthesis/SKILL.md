@@ -127,6 +127,73 @@ EOF
 )"
 ```
 
+## Azure DevOps PR Creation
+
+When the workflow is configured for Azure DevOps (platform: "azure-devops" in state), use MCP tools instead of gh CLI.
+
+### Platform Detection
+
+At the start of synthesis, check the workflow platform:
+
+```bash
+~/.copilot/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.platform'
+```
+
+- If platform is `"azure-devops"` or `"ado"`: Use Step 5a/5b below
+- If platform is `"github"` or not set: Use Step 5 above (gh CLI)
+
+### Step 5a: Create Pull Request (ADO)
+
+```
+Tool: mcp_ado_repo_create_pull_request
+Parameters:
+  repositoryId: <from state.ado.repositoryId>
+  sourceRefName: refs/heads/feature/integration-<feature-name>
+  targetRefName: refs/heads/main
+  title: "Feature: <Feature Name>"
+  description: |
+    ## Summary
+    [1-3 bullet points describing the feature]
+
+    ## Changes
+    - Task 001: [Description]
+    - Task 002: [Description]
+
+    ## Test Plan
+    - [ ] All unit tests pass
+    - [ ] Integration tests pass
+
+    ## Design Reference
+    - Design: `docs/designs/YYYY-MM-DD-<feature>.md`
+    - Plan: `docs/plans/YYYY-MM-DD-<feature>.md`
+```
+
+### Step 5b: Link Work Items (ADO)
+
+If AB# references exist in commits or description:
+
+```
+Tool: mcp_ado_wit_link_work_item_to_pull_request
+Parameters:
+  projectId: <from state.ado.project>
+  repositoryId: <from state.ado.repositoryId>
+  pullRequestId: <from create response>
+  workItemId: <extracted from AB#1234 syntax>
+```
+
+### ADO PR URL Format
+
+ADO PR URLs follow this pattern:
+```
+https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{id}
+```
+
+Store in state:
+```bash
+~/.copilot/scripts/workflow-state.ps1 set docs/workflow-state/<feature>.state.json \
+  '.artifacts.pr = "https://dev.azure.com/org/project/_git/repo/pullrequest/42" | .synthesis.prUrl = "https://dev.azure.com/org/project/_git/repo/pullrequest/42"'
+```
+
 ### Step 6: Cleanup Worktrees
 
 After PR is created (or after merge):
