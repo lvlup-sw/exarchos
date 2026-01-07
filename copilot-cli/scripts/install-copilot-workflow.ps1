@@ -24,6 +24,7 @@
     Installs without running validation tests.
 .NOTES
     Requires jq for JSON manipulation. Install with: winget install jqlang.jq
+    Requires npm for Azure DevOps MCP installation.
     Creates the following directory structure:
       ~/.copilot/
       ├── scripts/
@@ -33,7 +34,8 @@
       │   ├── implementer.agent.md
       │   ├── reviewer.agent.md
       │   └── integrator.agent.md
-      └── config.json
+      ├── config.json
+      └── .mcp.json (Azure DevOps MCP configuration)
 #>
 
 param(
@@ -67,6 +69,32 @@ function Write-Warning {
 function Write-Failure {
     param([string]$Message)
     Write-Host "[-] $Message" -ForegroundColor Red
+}
+
+function ConvertTo-Hashtable {
+    <#
+    .SYNOPSIS
+        Converts a PSCustomObject to a hashtable (PS 5.1 compatible)
+    .DESCRIPTION
+        Recursively converts PSCustomObject (from ConvertFrom-Json) to hashtable.
+        This provides compatibility with PowerShell 5.1 which lacks -AsHashtable.
+    #>
+    param([Parameter(ValueFromPipeline)]$InputObject)
+    process {
+        if ($null -eq $InputObject) { return $null }
+        if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string]) {
+            $collection = @(foreach ($object in $InputObject) { ConvertTo-Hashtable $object })
+            return ,$collection
+        }
+        if ($InputObject -is [System.Management.Automation.PSCustomObject]) {
+            $hash = @{}
+            foreach ($property in $InputObject.PSObject.Properties) {
+                $hash[$property.Name] = ConvertTo-Hashtable $property.Value
+            }
+            return $hash
+        }
+        return $InputObject
+    }
 }
 
 function Test-Dependencies {
@@ -280,6 +308,135 @@ function Test-Installation {
     Write-Success "Installation validated successfully"
 }
 
+function Install-AdoMcp {
+    <#
+    .SYNOPSIS
+        Installs Azure DevOps MCP server and configures it
+    .DESCRIPTION
+        Installs the @anthropic/azure-devops-mcp npm package and creates or updates
+        the MCP configuration file with the azure-devops server entry.
+    .PARAMETER ConfigPath
+        Optional path to MCP config file. Defaults to ~/.copilot/.mcp.json
+    .PARAMETER Force
+        Force reinstallation/reconfiguration even if already configured
+    .PARAMETER SkipNpmInstall
+        Skip the npm global install step (useful for testing or when package is already installed)
+    .EXAMPLE
+        Install-AdoMcp
+        Installs with default config path.
+    .EXAMPLE
+        Install-AdoMcp -ConfigPath "C:\custom\.mcp.json" -Force
+        Installs to custom path, forcing reconfiguration.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$ConfigPath = (Join-Path $env:USERPROFILE ".copilot" ".mcp.json"),
+        [switch]$Force,
+        [switch]$SkipNpmInstall
+    )
+
+    Write-Step "Installing Azure DevOps MCP server..."
+
+    # Install npm package globally (unless skipped or in test mode)
+    if (-not $SkipNpmInstall -and -not $env:COPILOT_TEST_MODE) {
+        if ($PSCmdlet.ShouldProcess("@anthropic/azure-devops-mcp", "npm install -g")) {
+            $installed = $null
+            try {
+                $installed = npm list -g @anthropic/azure-devops-mcp 2>$null
+            } catch {
+                # Package not installed
+            }
+
+            if (-not $installed -or $Force) {
+                Write-Host "    Installing @anthropic/azure-devops-mcp globally..." -ForegroundColor Gray
+                npm install -g @anthropic/azure-devops-mcp 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "Failed to install azure-devops-mcp globally. Will use npx to run on demand."
+                } else {
+                    Write-Success "Installed @anthropic/azure-devops-mcp globally"
+                }
+            } else {
+                Write-Host "    @anthropic/azure-devops-mcp already installed globally" -ForegroundColor Gray
+            }
+        }
+    }
+
+    # Define the azure-devops server configuration
+    $adoServerConfig = @{
+        command = "npx"
+        args = @("@anthropic/azure-devops-mcp")
+        env = @{
+            AZURE_DEVOPS_ORG_URL = '${AZURE_DEVOPS_ORG_URL}'
+            AZURE_DEVOPS_PAT = '${AZURE_DEVOPS_PAT}'
+        }
+    }
+
+    # Create config directory if it doesn't exist
+    $configDir = Split-Path $ConfigPath -Parent
+    if ($configDir -and -not (Test-Path $configDir)) {
+        if ($PSCmdlet.ShouldProcess($configDir, "Create directory")) {
+            New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+            Write-Host "    Created directory: $configDir" -ForegroundColor Gray
+        }
+    }
+
+    # Create or update MCP config
+    if ($PSCmdlet.ShouldProcess($ConfigPath, "Configure MCP")) {
+        if (Test-Path $ConfigPath) {
+            # Merge with existing config
+            try {
+                $existingContent = Get-Content $ConfigPath -Raw
+                $existingConfig = $existingContent | ConvertFrom-Json | ConvertTo-Hashtable
+
+                if (-not $existingConfig.mcpServers) {
+                    $existingConfig.mcpServers = @{}
+                }
+
+                # Check if already configured (idempotency)
+                if ($existingConfig.mcpServers.ContainsKey('azure-devops') -and -not $Force) {
+                    Write-Host "    Azure DevOps MCP already configured in $ConfigPath" -ForegroundColor Gray
+                    Write-Host "    Use -Force to reconfigure" -ForegroundColor Gray
+                    return
+                }
+
+                $existingConfig.mcpServers['azure-devops'] = $adoServerConfig
+                $existingConfig | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+                Write-Success "Updated MCP config at $ConfigPath"
+            } catch {
+                Write-Warning "Failed to parse existing config, creating new: $_"
+                $newConfig = @{
+                    mcpServers = @{
+                        'azure-devops' = $adoServerConfig
+                    }
+                }
+                $newConfig | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+                Write-Success "Created MCP config at $ConfigPath"
+            }
+        } else {
+            # Create new config
+            $newConfig = @{
+                mcpServers = @{
+                    'azure-devops' = $adoServerConfig
+                }
+            }
+            $newConfig | ConvertTo-Json -Depth 10 | Set-Content $ConfigPath -Encoding UTF8
+            Write-Success "Created MCP config at $ConfigPath"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "    Required environment variables:" -ForegroundColor Yellow
+    Write-Host "      AZURE_DEVOPS_ORG_URL  - Your Azure DevOps organization URL" -ForegroundColor Gray
+    Write-Host "                              Example: https://dev.azure.com/your-org" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "      AZURE_DEVOPS_PAT      - Personal Access Token (for MCP server)" -ForegroundColor Gray
+    Write-Host "                              Used by the Azure DevOps MCP server" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "      AZURE_DEVOPS_EXT_PAT  - Personal Access Token (for az CLI)" -ForegroundColor Gray
+    Write-Host "                              Used by 'az devops' CLI commands" -ForegroundColor DarkGray
+    Write-Host "                              Can be the same value as AZURE_DEVOPS_PAT" -ForegroundColor DarkGray
+}
+
 function Show-PostInstallInstructions {
     <#
     .SYNOPSIS
@@ -302,6 +459,12 @@ function Show-PostInstallInstructions {
     Write-Host "  |   +-- reviewer.agent.md"
     Write-Host "  |   +-- integrator.agent.md"
     Write-Host "  +-- config.json"
+    Write-Host "  +-- .mcp.json (Azure DevOps MCP config)"
+    Write-Host ""
+    Write-Host "Azure DevOps Setup:" -ForegroundColor White
+    Write-Host "  Set these environment variables before using ADO integration:" -ForegroundColor Gray
+    Write-Host "  `$env:AZURE_DEVOPS_ORG_URL = 'https://dev.azure.com/your-org'" -ForegroundColor Yellow
+    Write-Host "  `$env:AZURE_DEVOPS_PAT = 'your-personal-access-token'" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "Usage:" -ForegroundColor White
     Write-Host "  # Initialize a new workflow"
@@ -339,6 +502,11 @@ try {
     if (-not $SkipValidation) {
         Test-Installation
     }
+
+    # Install Azure DevOps MCP integration
+    Write-Host ""
+    Write-Host "=== Azure DevOps Integration ===" -ForegroundColor Cyan
+    Install-AdoMcp
 
     # Show post-install instructions
     Show-PostInstallInstructions

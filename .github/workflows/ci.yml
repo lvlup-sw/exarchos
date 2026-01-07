@@ -17,6 +17,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   # Detect which paths have changed to enable selective job execution
   changes:
