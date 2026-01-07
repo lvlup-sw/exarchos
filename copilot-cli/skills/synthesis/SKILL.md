@@ -140,11 +140,11 @@ At the start of synthesis, check the workflow platform:
 ```
 
 - If platform is `"azure-devops"` or `"ado"`: Use Step 5a/5b below
-- If platform is `"github"` or not set: Use Step 5 above (gh CLI)
+- If platform is `"github"` or not set: Use Step 5 above (GitHub CLI)
 
 ### Step 5a: Create Pull Request (ADO)
 
-```
+```text
 Tool: mcp_ado_repo_create_pull_request
 Parameters:
   repositoryId: <from state.ado.repositoryId>
@@ -172,7 +172,7 @@ Parameters:
 
 If AB# references exist in commits or description:
 
-```
+```text
 Tool: mcp_ado_wit_link_work_item_to_pull_request
 Parameters:
   projectId: <from state.ado.project>
@@ -184,7 +184,7 @@ Parameters:
 ### ADO PR URL Format
 
 ADO PR URLs follow this pattern:
-```
+```text
 https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{id}
 ```
 

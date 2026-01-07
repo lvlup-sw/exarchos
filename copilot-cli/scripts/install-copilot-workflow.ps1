@@ -86,7 +86,7 @@ function ConvertTo-Hashtable {
             $collection = @(foreach ($object in $InputObject) { ConvertTo-Hashtable $object })
             return ,$collection
         }
-        if ($InputObject -is [psobject]) {
+        if ($InputObject -is [System.Management.Automation.PSCustomObject]) {
             $hash = @{}
             foreach ($property in $InputObject.PSObject.Properties) {
                 $hash[$property.Name] = ConvertTo-Hashtable $property.Value
@@ -426,8 +426,15 @@ function Install-AdoMcp {
 
     Write-Host ""
     Write-Host "    Required environment variables:" -ForegroundColor Yellow
-    Write-Host "      AZURE_DEVOPS_ORG_URL - Your Azure DevOps organization URL" -ForegroundColor Gray
-    Write-Host "      AZURE_DEVOPS_PAT     - Personal Access Token with appropriate permissions" -ForegroundColor Gray
+    Write-Host "      AZURE_DEVOPS_ORG_URL  - Your Azure DevOps organization URL" -ForegroundColor Gray
+    Write-Host "                              Example: https://dev.azure.com/your-org" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "      AZURE_DEVOPS_PAT      - Personal Access Token (for MCP server)" -ForegroundColor Gray
+    Write-Host "                              Used by the Azure DevOps MCP server" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "      AZURE_DEVOPS_EXT_PAT  - Personal Access Token (for az CLI)" -ForegroundColor Gray
+    Write-Host "                              Used by 'az devops' CLI commands" -ForegroundColor DarkGray
+    Write-Host "                              Can be the same value as AZURE_DEVOPS_PAT" -ForegroundColor DarkGray
 }
 
 function Show-PostInstallInstructions {

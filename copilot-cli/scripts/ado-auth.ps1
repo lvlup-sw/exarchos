@@ -95,6 +95,9 @@ function Test-AdoConnection {
         [string]$Organization
     )
 
+    # Save original env var value to restore later
+    $originalExtPat = $env:AZURE_DEVOPS_EXT_PAT
+
     try {
         Write-Verbose "Testing connection to organization: $Organization"
 
@@ -126,6 +129,10 @@ function Test-AdoConnection {
     catch {
         Write-Warning "Connection test failed: $_"
         return $false
+    }
+    finally {
+        # Restore original env var value
+        $env:AZURE_DEVOPS_EXT_PAT = $originalExtPat
     }
 }
 
