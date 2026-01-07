@@ -5,15 +5,25 @@
 .DESCRIPTION
     Manages workflow state files for the development workflow.
     This is a PowerShell port of the bash workflow-state.sh script.
+    Supports both GitHub and Azure DevOps platforms (v1.1).
 .PARAMETER Command
-    The command to execute: init, list, get, set, summary, reconcile, next-action
+    The command to execute: init, init-ado, list, get, set, summary, reconcile, next-action
 .PARAMETER Arg1
     First argument (state file or feature ID depending on command)
 .PARAMETER Arg2
     Second argument (jq query or filter depending on command)
+.PARAMETER Organization
+    Azure DevOps organization name (required for init-ado command)
+.PARAMETER Project
+    Azure DevOps project name (required for init-ado command)
+.PARAMETER RepositoryId
+    Azure DevOps repository GUID (required for init-ado command)
 .EXAMPLE
     .\workflow-state.ps1 init my-feature
-    Creates a new state file for the 'my-feature' workflow.
+    Creates a new state file for the 'my-feature' workflow (GitHub platform, v1.0).
+.EXAMPLE
+    .\workflow-state.ps1 init-ado my-feature -Organization "my-org" -Project "my-project" -RepositoryId "guid-123"
+    Creates a new state file for Azure DevOps workflow (v1.1).
 .EXAMPLE
     .\workflow-state.ps1 get state.json '.phase'
     Gets the phase field from the state file.
@@ -35,14 +45,19 @@
 
 param(
     [Parameter(Position=0, Mandatory=$true)]
-    [ValidateSet('init', 'list', 'get', 'set', 'summary', 'reconcile', 'next-action')]
+    [ValidateSet('init', 'init-ado', 'list', 'get', 'set', 'summary', 'reconcile', 'next-action')]
     [string]$Command,
 
     [Parameter(Position=1)]
     [string]$Arg1,
 
     [Parameter(Position=2)]
-    [string]$Arg2
+    [string]$Arg2,
+
+    # ADO-specific parameters for init-ado command
+    [string]$Organization,
+    [string]$Project,
+    [string]$RepositoryId
 )
 
 # Verify jq is available
@@ -57,7 +72,13 @@ if (-not $script:InGitRepo) {
     $RepoRoot = Get-Location
     Write-Host "WARNING: Not in a git repository. State files will be created in current directory." -ForegroundColor Yellow
 }
-$StateDir = Join-Path $RepoRoot "docs/workflow-state"
+
+# Allow override via environment variable (for testing)
+if ($env:WORKFLOW_STATE_DIR) {
+    $StateDir = $env:WORKFLOW_STATE_DIR
+} else {
+    $StateDir = Join-Path $RepoRoot "docs/workflow-state"
+}
 
 # Ensure state directory exists
 if (-not (Test-Path $StateDir)) {
@@ -115,6 +136,7 @@ function Invoke-Init {
         createdAt = $Now
         updatedAt = $Now
         phase = "ideate"
+        platform = "github"
         artifacts = @{
             design = $null
             plan = $null
@@ -135,6 +157,75 @@ function Invoke-Init {
 
     $State | ConvertTo-Json -Depth 10 | Set-Content -Path $StateFile -Encoding UTF8
     Write-Output "Created: $StateFile"
+}
+
+function Invoke-InitAdo {
+    <#
+    .SYNOPSIS
+        Initialize a new workflow state file for Azure DevOps
+    .DESCRIPTION
+        Creates a workflow state file with ADO-specific configuration fields
+        including organization, project, and repositoryId.
+    .PARAMETER FeatureId
+        Unique identifier for the feature workflow
+    .PARAMETER Organization
+        Azure DevOps organization name
+    .PARAMETER Project
+        Azure DevOps project name
+    .PARAMETER RepositoryId
+        Azure DevOps repository GUID
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FeatureId,
+        [Parameter(Mandatory=$true)]
+        [string]$Organization,
+        [Parameter(Mandatory=$true)]
+        [string]$Project,
+        [Parameter(Mandatory=$true)]
+        [string]$RepositoryId
+    )
+
+    $StateFile = Join-Path $StateDir "$FeatureId.state.json"
+    $Now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+    if (Test-Path $StateFile) {
+        Write-Error "ERROR: State file already exists: $StateFile"
+        exit 1
+    }
+
+    $State = @{
+        version = "1.1"
+        featureId = $FeatureId
+        createdAt = $Now
+        updatedAt = $Now
+        phase = "ideate"
+        platform = "azure-devops"
+        ado = @{
+            organization = $Organization
+            project = $Project
+            repositoryId = $RepositoryId
+        }
+        artifacts = @{
+            design = $null
+            plan = $null
+            pr = $null
+        }
+        tasks = @()
+        worktrees = @{}
+        julesSessions = @{}
+        reviews = @{}
+        synthesis = @{
+            integrationBranch = $null
+            mergeOrder = @()
+            mergedBranches = @()
+            prUrl = $null
+            prFeedback = @()
+        }
+    }
+
+    $State | ConvertTo-Json -Depth 10 | Set-Content -Path $StateFile -Encoding UTF8
+    Write-Output "Created ADO workflow: $StateFile"
 }
 
 function Invoke-List {
@@ -472,6 +563,22 @@ function Invoke-NextAction {
 # Main dispatcher
 switch ($Command) {
     'init' { Invoke-Init $Arg1 }
+    'init-ado' {
+        # Validate required ADO parameters
+        if (-not $Organization) {
+            Write-Error "ERROR: -Organization parameter is required for init-ado"
+            exit 1
+        }
+        if (-not $Project) {
+            Write-Error "ERROR: -Project parameter is required for init-ado"
+            exit 1
+        }
+        if (-not $RepositoryId) {
+            Write-Error "ERROR: -RepositoryId parameter is required for init-ado"
+            exit 1
+        }
+        Invoke-InitAdo -FeatureId $Arg1 -Organization $Organization -Project $Project -RepositoryId $RepositoryId
+    }
     'list' { Invoke-List }
     'get' { Invoke-Get $Arg1 $Arg2 }
     'set' { Invoke-Set $Arg1 $Arg2 }
