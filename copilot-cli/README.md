@@ -6,14 +6,57 @@ Supports both **GitHub** and **Azure DevOps** platforms.
 
 ## Quick Start
 
+### 1. Install
+
 ```powershell
-# Clone and install
 git clone <repo-url> C:\repos\copilot-cli-workflow
 cd C:\repos\copilot-cli-workflow
 .\scripts\install-copilot-workflow.ps1
 ```
 
-Done. Agents and scripts installed to `~/.copilot/`.
+Agents and scripts installed to `~/.copilot/`.
+
+### 2. Start a Feature
+
+```
+/ideate user authentication system
+```
+
+Describe what you want to build. The orchestrator guides you through design exploration.
+
+### 3. Confirm Design
+
+Review the proposed design and approve:
+
+```
+yes, proceed with the JWT approach
+```
+
+### 4. Wait for Auto-Chain
+
+The workflow automatically progresses through:
+- `/plan` — TDD task decomposition
+- `/delegate` — Dispatch to implementer agents
+- `/integrate` — Merge branches, run tests
+- `/review` — Spec compliance + code quality
+- `/synthesize` — Create PR
+
+### 5. Merge PR
+
+Review the PR and confirm:
+
+```
+merge the PR
+```
+
+### 6. Pause/Resume Anytime
+
+```
+/checkpoint     # Save state, prepare for handoff
+/resume         # Continue from saved state
+```
+
+The workflow auto-resumes if you start a new session with an active workflow.
 
 ## The Workflow
 
@@ -51,6 +94,44 @@ Only pause for human input at:
 
 1. **Design confirmation** (after ideate) - User must approve design before planning
 2. **Merge confirmation** (after synthesize) - User must approve PR merge
+
+## Session Management
+
+Use slash commands to control workflow sessions:
+
+| Command | Purpose |
+|---------|---------|
+| `/ideate <description>` | Start new feature with design exploration |
+| `/checkpoint` | Save workflow state for later resumption |
+| `/resume` | Continue workflow from saved state |
+
+### Interruption and Recovery
+
+The workflow persists state to `docs/workflow-state/`. You can stop at any time:
+
+```
+# Working on a feature, need to stop
+/checkpoint
+
+# Later (new session, even different day)
+/resume
+```
+
+**Auto-resume:** If you start a new session with an active (non-completed) workflow, the orchestrator automatically detects it and continues from where you left off.
+
+### Manual Phase Invocation
+
+You can manually invoke any phase if needed:
+
+| Command | When to Use |
+|---------|-------------|
+| `/plan` | Re-run planning after design changes |
+| `/delegate` | Re-dispatch failed tasks |
+| `/delegate --fixes` | Address review failures |
+| `/delegate --pr-fixes <url>` | Address PR feedback |
+| `/integrate` | Re-run integration after fixes |
+| `/review` | Re-run reviews |
+| `/synthesize` | Create PR after manual integration |
 
 ## Prerequisites
 
@@ -194,6 +275,8 @@ Examples:
 
 Workflows persist across sessions via state files in `docs/workflow-state/`.
 
+> **Note:** You typically interact with state via slash commands (`/checkpoint`, `/resume`). The scripts below are used internally by the orchestrator, but can be useful for debugging or manual recovery.
+
 ### Commands
 
 ```powershell
@@ -321,15 +404,17 @@ Branch merging and combined testing.
 
 ## Skills
 
-| Skill | Purpose | Location |
-|-------|---------|----------|
+| Skill | Purpose | Command |
+|-------|---------|---------|
 | brainstorming | Design exploration, trade-off analysis | `/ideate` |
 | implementation-planning | TDD task decomposition from design | `/plan` |
 | delegation | Task dispatch to implementer agents | `/delegate` |
 | integration | Branch merging, combined testing | `/integrate` |
-| spec-review | Verify implementation matches plan | Review stage 1 |
-| quality-review | SOLID, patterns, security review | Review stage 2 |
+| spec-review | Verify implementation matches plan | (auto) |
+| quality-review | SOLID, patterns, security review | (auto) |
 | synthesis | PR creation from integration branch | `/synthesize` |
+| checkpoint | Save state for session handoff | `/checkpoint` |
+| resume | Continue from saved state | `/resume` |
 
 ## Coding Standards
 
