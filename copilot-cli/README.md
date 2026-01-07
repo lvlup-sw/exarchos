@@ -2,6 +2,8 @@
 
 Terminal-based agentic workflow orchestration for GitHub Copilot CLI on Windows. Enforces TDD methodology with automated phase chaining and persistent state management.
 
+Supports both **GitHub** and **Azure DevOps** platforms.
+
 ## Quick Start
 
 ```powershell
@@ -52,14 +54,28 @@ Only pause for human input at:
 
 ## Prerequisites
 
+### Core Requirements
+
 | Requirement | Install Command |
 |-------------|-----------------|
 | Windows | - |
 | PowerShell 5.1+ | Built-in on Windows 10+ |
 | jq | `winget install jqlang.jq` |
 | git | `winget install Git.Git` |
+
+### GitHub (default)
+
+| Requirement | Install Command |
+|-------------|-----------------|
 | GitHub CLI | `winget install GitHub.cli` |
 | GitHub Copilot CLI | `gh extension install github/gh-copilot` |
+
+### Azure DevOps (optional)
+
+| Requirement | Install Command |
+|-------------|-----------------|
+| Azure CLI | `winget install Microsoft.AzureCLI` |
+| Azure DevOps extension | `az extension add --name azure-devops` |
 
 ## Installation
 
@@ -96,6 +112,63 @@ Only pause for human input at:
 └── config.json                 # Installation metadata
 ```
 
+## Azure DevOps Support
+
+The workflow supports Azure DevOps as an alternative to GitHub. Platform is auto-detected from the workflow state.
+
+### Environment Variables
+
+| Variable | Purpose | Used By |
+|----------|---------|---------|
+| `AZURE_DEVOPS_ORG_URL` | Organization URL (e.g., `https://dev.azure.com/my-org`) | MCP server |
+| `AZURE_DEVOPS_PAT` | Personal Access Token | MCP server |
+| `AZURE_DEVOPS_EXT_PAT` | Personal Access Token | `az devops` CLI |
+
+You can use the same PAT value for both `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_EXT_PAT`.
+
+### Initialize ADO Workflow
+
+```powershell
+~/.copilot/scripts/workflow-state.ps1 init-ado my-feature `
+  -Organization "my-org" `
+  -Project "my-project" `
+  -RepositoryId "repo-guid-here"
+```
+
+This creates a v1.1 state file with `platform: "azure-devops"` and ADO-specific fields.
+
+### Platform Detection
+
+The workflow automatically detects the platform from the state file:
+
+| Platform Value | Behavior |
+|----------------|----------|
+| `"github"` or not set | Uses `gh` CLI for PRs |
+| `"azure-devops"` or `"ado"` | Uses MCP tools or `az devops` CLI |
+
+### ADO-Specific Operations
+
+| Operation | Tool |
+|-----------|------|
+| Create PR | `mcp_ado_repo_create_pull_request` |
+| Create branch | `mcp_ado_repo_create_branch` |
+| Link work items | `mcp_ado_wit_link_work_item_to_pull_request` |
+| Get PR threads | `mcp_ado_repo_list_pull_request_threads` |
+
+For CLI fallbacks, see [docs/ado-cli-reference.md](docs/ado-cli-reference.md).
+
+### Work Item Linking
+
+Reference work items in PR descriptions using `AB#` syntax:
+
+```markdown
+## Summary
+Implements user authentication feature.
+
+Fixes AB#1234
+Related AB#1235, AB#1236
+```
+
 ## TDD Iron Law
 
 Every implementation task follows Red-Green-Refactor:
@@ -124,8 +197,12 @@ Workflows persist across sessions via state files in `docs/workflow-state/`.
 ### Commands
 
 ```powershell
-# Initialize a new workflow
+# Initialize a new workflow (GitHub - default)
 ~/.copilot/scripts/workflow-state.ps1 init my-feature
+
+# Initialize a new workflow (Azure DevOps)
+~/.copilot/scripts/workflow-state.ps1 init-ado my-feature `
+  -Organization "my-org" -Project "my-project" -RepositoryId "guid"
 
 # List active workflows
 ~/.copilot/scripts/workflow-state.ps1 list
@@ -148,27 +225,46 @@ Workflows persist across sessions via state files in `docs/workflow-state/`.
 
 ### State File Structure
 
+**GitHub workflow (v1.0):**
+
 ```json
 {
   "version": "1.0",
   "featureId": "my-feature",
   "phase": "delegate",
+  "platform": "github",
   "artifacts": {
     "design": "docs/designs/2024-01-15-my-feature.md",
     "plan": "docs/plans/2024-01-15-my-feature.md",
     "pr": null
   },
   "tasks": [
-    {
-      "id": "001",
-      "title": "Add types",
-      "status": "complete",
-      "branch": "feature/001-types"
-    }
+    { "id": "001", "title": "Add types", "status": "complete", "branch": "feature/001-types" }
   ],
-  "worktrees": {},
   "synthesis": {
     "integrationBranch": "feature/integration-my-feature",
+    "prUrl": null
+  }
+}
+```
+
+**Azure DevOps workflow (v1.1):**
+
+```json
+{
+  "version": "1.1",
+  "featureId": "my-feature",
+  "phase": "delegate",
+  "platform": "azure-devops",
+  "ado": {
+    "organization": "my-org",
+    "project": "my-project",
+    "repositoryId": "repo-guid"
+  },
+  "artifacts": { "design": null, "plan": null, "pr": null },
+  "tasks": [],
+  "synthesis": {
+    "integrationBranch": null,
     "prUrl": null
   }
 }
@@ -282,9 +378,13 @@ public void Process(Input input)
 copilot-cli/
 ├── README.md                   # This file
 ├── copilot-instructions.md     # Consolidated rules for Copilot
+├── .mcp.json                   # MCP server configuration (ADO)
 ├── scripts/
 │   ├── install-copilot-workflow.ps1  # Installation script
-│   └── workflow-state.ps1            # State management
+│   ├── workflow-state.ps1            # State management
+│   └── ado-auth.ps1                  # ADO authentication helpers
+├── docs/
+│   └── ado-cli-reference.md          # ADO CLI fallback commands
 ├── agents/
 │   ├── orchestrator.agent.md   # Workflow coordinator
 │   ├── implementer.agent.md    # TDD implementer
