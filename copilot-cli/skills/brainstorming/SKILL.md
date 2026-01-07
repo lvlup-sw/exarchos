@@ -114,13 +114,15 @@ Activate this skill when:
 
 This skill manages workflow state for context persistence.
 
+**Skill Reference:** See `skills/workflow-state/SKILL.md` for full state management details.
+
 ### On Start (before Phase 1)
 
 Initialize workflow state:
 
-```bash
+```powershell
 # Generate feature ID from design name
-~/.copilot/scripts/workflow-state.sh init <feature-id>
+~/.copilot/scripts/workflow-state.ps1 init <feature-id>
 ```
 
 This creates `docs/workflow-state/<feature-id>.state.json`.
@@ -129,8 +131,8 @@ This creates `docs/workflow-state/<feature-id>.state.json`.
 
 Update state with design artifact:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set docs/workflow-state/<feature>.state.json `
   '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
 ```
 

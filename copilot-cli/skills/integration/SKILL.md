@@ -18,6 +18,11 @@ Integration phase: Merge worktree branches in dependency order, run combined tes
 - All delegate tasks complete
 - Each task branch has passing tests in its worktree
 
+## Skill References
+
+- **Integrator Prompt:** See `skills/integration/references/integrator-prompt.md` for agent dispatch template
+- **Worktree Management:** See `skills/git-worktrees/SKILL.md` for cleanup procedures
+
 ## Triggers
 
 Activate this skill when:
@@ -44,7 +49,7 @@ The integrator agent:
 
 ### Step 1: Prepare Integration Branch
 
-```bash
+```powershell
 # Ensure main is current
 git checkout main
 git pull origin main
@@ -57,7 +62,7 @@ git checkout -b feature/integration-<feature-name>
 
 For each branch from state file `.synthesis.mergeOrder`:
 
-```bash
+```powershell
 # Merge with no fast-forward to preserve history
 git merge --no-ff feature/<task-id>-<name> -m "Merge feature/<task-id>-<name>"
 
@@ -71,7 +76,7 @@ npm run test:run
 
 After all branches merged:
 
-```bash
+```powershell
 # Run complete test suite
 npm run test:run
 
@@ -140,31 +145,33 @@ feature/integration-<feature-name>
 
 ## State Management
 
+**Skill Reference:** See `skills/workflow-state/SKILL.md` for full state management details.
+
 ### On Integration Start
 
-```bash
-~/.copilot/scripts/workflow-state.sh set <state-file> \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set <state-file> `
   '.integration.status = "in_progress" | .integration.branch = "feature/integration-<name>"'
 ```
 
 ### On Branch Merged
 
-```bash
-~/.copilot/scripts/workflow-state.sh set <state-file> \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set <state-file> `
   '.integration.mergedBranches += ["feature/<task-id>-<name>"]'
 ```
 
 ### On Integration Pass
 
-```bash
-~/.copilot/scripts/workflow-state.sh set <state-file> \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set <state-file> `
   '.integration.status = "passed" | .integration.testResults = {"tests": "pass", "typecheck": "pass", "lint": "pass", "build": "pass"}'
 ```
 
 ### On Integration Fail
 
-```bash
-~/.copilot/scripts/workflow-state.sh set <state-file> \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set <state-file> `
   '.integration.status = "failed" | .integration.failureDetails = "<error details>"'
 ```
 

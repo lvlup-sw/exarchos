@@ -17,6 +17,13 @@ Activate this skill when:
 - User wants to parallelize work
 - Tasks are ready for execution
 
+## Skill References
+
+- **Worktree Management:** See `skills/git-worktrees/SKILL.md` for worktree lifecycle and validation
+- **Implementer Prompt:** See `skills/delegation/references/implementer-prompt.md` for task dispatch template
+- **Fixer Prompt:** See `skills/delegation/references/fixer-prompt.md` for fix task template
+- **TDD Requirements:** See `skills/shared/prompts/tdd-requirements.md`
+
 ## Delegation Modes
 
 ### Mode 1: Copilot Coding Agent (Async PRs)
@@ -90,9 +97,10 @@ As orchestrator, you MUST:
 ### Step 1: Prepare Environment
 
 For parallel tasks, create worktrees:
-```bash
+```powershell
 git worktree add .worktrees/task-001 feature/task-001
-cd .worktrees/task-001 && npm install
+Set-Location .worktrees/task-001
+npm install
 ```
 
 ### Step 2: Extract Task Details
@@ -192,27 +200,29 @@ All implementation tasks MUST run in isolated worktrees.
 Before dispatching ANY implementer:
 
 1. **Ensure .worktrees is gitignored:**
-   ```bash
-   git check-ignore -q .worktrees || echo ".worktrees/" >> .gitignore
+   ```powershell
+   git check-ignore -q .worktrees
+   if (-not $?) { Add-Content -Path .gitignore -Value ".worktrees/" }
    ```
 
 2. **Create feature branch:**
-   ```bash
+   ```powershell
    git branch feature/<task-id>-<name> main
    ```
 
 3. **Create worktree:**
-   ```bash
+   ```powershell
    git worktree add .worktrees/<task-id>-<name> feature/<task-id>-<name>
    ```
 
 4. **Run setup in worktree:**
-   ```bash
-   cd .worktrees/<task-id>-<name> && npm install
+   ```powershell
+   Set-Location .worktrees/<task-id>-<name>
+   npm install
    ```
 
 5. **Verify baseline tests pass:**
-   ```bash
+   ```powershell
    npm run test:run
    ```
 
@@ -230,20 +240,22 @@ Before dispatching ANY implementer:
 
 This skill tracks task progress in workflow state for context persistence.
 
+**Skill Reference:** See `skills/workflow-state/SKILL.md` for full state management details.
+
 ### Read Tasks from State
 
 Instead of re-parsing plan, read task list from state:
 
-```bash
-~/.copilot/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
+```powershell
+~/.copilot/scripts/workflow-state.ps1 get docs/workflow-state/<feature>.state.json '.tasks'
 ```
 
 ### On Task Dispatch
 
 Update task status when dispatched:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set docs/workflow-state/<feature>.state.json `
   '(.tasks[] | select(.id == "001")).status = "in_progress"'
 ```
 
@@ -251,8 +263,8 @@ Update task status when dispatched:
 
 Update task status when agent reports completion:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set docs/workflow-state/<feature>.state.json `
   '(.tasks[] | select(.id == "001")).status = "complete"'
 ```
 
@@ -260,8 +272,8 @@ Update task status when agent reports completion:
 
 Update phase:
 
-```bash
-~/.copilot/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "integrate"'
+```powershell
+~/.copilot/scripts/workflow-state.ps1 set docs/workflow-state/<feature>.state.json '.phase = "integrate"'
 ```
 
 ## Fix Mode (--fixes)
