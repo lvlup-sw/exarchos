@@ -84,15 +84,48 @@ This enables catching:
 | Comments | Only where logic isn't self-evident |
 | Formatting | Consistent with project style |
 
+### 1.1 DRY Enforcement
+
+| Pattern | Threshold | Priority |
+|---------|-----------|----------|
+| Identical code blocks | 3+ occurrences OR 5+ lines | HIGH (3+), MEDIUM (2) |
+| Similar code (literals differ) | 3+ occurrences | MEDIUM |
+| Repeated validation logic | 2+ locations | HIGH |
+| Repeated business rules | 2+ locations | HIGH |
+| Copy-pasted tests | 3+ similar tests | LOW |
+| Magic literals | Same value 3+ times | MEDIUM |
+
+**Detection checklist:**
+- [ ] Search for identical multi-line blocks (5+ lines duplicated)
+- [ ] Flag validation code outside designated validation layer
+- [ ] Trace business rule conditionals - must have single source
+- [ ] Check for repeated string/number literals without constants
+
 ### 2. SOLID Principles
 
-| Principle | Verify |
-|-----------|--------|
-| **S**ingle Responsibility | One reason to change per class/function |
-| **O**pen/Closed | Extensible without modification |
-| **L**iskov Substitution | Subtypes are substitutable |
-| **I**nterface Segregation | No forced dependencies |
-| **D**ependency Inversion | Depend on abstractions |
+| Principle | Verify | Specific Checks |
+|-----------|--------|-----------------|
+| **S**RP | One reason to change | Max 1 public type/file; class name matches responsibility |
+| **O**CP | Extensible without modification | No switch/if-else on types; uses strategy/polymorphism |
+| **L**SP | Subtypes substitutable | No `NotImplementedException`; no precondition strengthening |
+| **I**SP | No forced dependencies | Interface <= 5 methods; no empty implementations |
+| **D**IP | Depend on abstractions | No `new` for services; constructor injection only |
+
+#### ISP Violation Patterns
+
+| Pattern | Detection | Priority |
+|---------|-----------|----------|
+| Fat interface (> 5 methods) | Count methods on interface | MEDIUM |
+| Mixed read/write interface | Check for getters + mutators together | MEDIUM |
+| Empty/throw implementations | Scan for `NotImplementedException`, empty bodies | HIGH |
+| Vague interface names | `IService`, `IManager`, `IHandler` without qualifier | LOW |
+| Partial interface usage | Client uses < 50% of interface methods | MEDIUM |
+
+**ISP Checklist:**
+- [ ] No interface has more than 5 methods
+- [ ] Interfaces are role-specific (IReadable, IWritable, not IDataAccess)
+- [ ] No classes implement interfaces with NotImplementedException
+- [ ] Interface names describe a single capability
 
 ### 2.1 Control Flow Standards
 
@@ -120,11 +153,29 @@ if (input != null) {
 
 ### 2.2 Structural Standards
 
-| Standard | Check For |
-|----------|-----------|
-| One responsibility per file | Public types in dedicated files |
-| Composition over inheritance | Inheritance depth > 2 is a smell |
-| Sealed by default | Explicitly design for extension |
+| Standard | Check For | Priority |
+|----------|-----------|----------|
+| One responsibility per file | Public types in dedicated files | HIGH |
+| Composition over inheritance | See checklist below | MEDIUM-HIGH |
+| Sealed by default | `sealed` unless designed for extension | LOW |
+
+#### Composition Over Inheritance Checklist
+
+| Smell | Detection | Priority | Fix |
+|-------|-----------|----------|-----|
+| Inheritance depth > 2 | Count class hierarchy levels | MEDIUM | Refactor to delegation |
+| Base class with multiple concerns | Base has unrelated methods | MEDIUM | Split into interfaces + composition |
+| `protected` for code sharing | Many protected methods (> 2/class) | MEDIUM | Extract to utility or inject strategy |
+| Override that only extends | `super.method()` + additions | MEDIUM | Use decorator pattern |
+| Inherit for one method | Extends to reuse single method | HIGH | Compose with delegation |
+| Missing `sealed` | Non-sealed without extension design | LOW | Add `sealed` (C#) |
+
+**Composition Checklist:**
+- [ ] Inheritance represents true "is-a" relationship, not code reuse
+- [ ] Class hierarchy depth <= 2
+- [ ] `protected` methods are rare (< 2 per class)
+- [ ] No override methods that just call super + add logic
+- [ ] C# classes are `sealed` unless explicitly designed for inheritance
 
 **Language-specific rules:** See `~/.claude/rules/coding-standards-{language}.md`
 

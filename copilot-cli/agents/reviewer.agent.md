@@ -21,11 +21,23 @@ Verify:
 ## Stage 2: Quality Review
 
 Verify:
-- [ ] SOLID principles followed
+- [ ] SOLID principles followed (see quick reference below)
 - [ ] Guard clauses used (not nested ifs)
 - [ ] No security vulnerabilities
 - [ ] Error handling appropriate
 - [ ] No over-engineering
+- [ ] DRY: No code duplicated 3+ times or 5+ lines
+- [ ] ISP: Interfaces <= 5 methods, no empty implementations
+- [ ] Composition: Inheritance depth <= 2, prefer delegation
+
+### SOLID Quick Reference
+
+| Principle | Flag If |
+|-----------|---------|
+| ISP | Interface > 5 methods; `NotImplementedException` in impl |
+| DIP | `new ConcreteService()` inside class |
+| Composition | Inheritance depth > 2; `protected` methods for code reuse |
+| DRY | Same block 3+ times; validation logic in multiple places |
 
 ## Priority Levels
 
