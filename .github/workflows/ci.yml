@@ -5,6 +5,7 @@
 # - Shell script syntax checking
 # - Terraform validation
 # - Test suite execution
+# - Path-based filtering (jobs only run when relevant files change)
 #
 # Uses Blacksmith runners for fast builds
 
@@ -17,8 +18,46 @@ on:
     branches: [main]
 
 jobs:
+  # Detect which paths have changed to enable selective job execution
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      azd: ${{ steps.filter.outputs.azd }}
+      ci-templates: ${{ steps.filter.outputs.ci-templates }}
+      renovate: ${{ steps.filter.outputs.renovate }}
+      validate: ${{ steps.filter.outputs.validate }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            azd:
+              - 'azd-templates/**'
+              - '.github/workflows/ci.yml'
+            ci-templates:
+              - 'ci-templates/**'
+              - '.github/workflows/ci.yml'
+            renovate:
+              - 'renovate-config/**'
+              - 'renovate-config.js'
+              - 'renovate.json'
+              - '.github/workflows/ci.yml'
+            validate:
+              - 'scripts/**'
+              - 'azd-templates/**'
+              - 'ci-templates/**'
+              - 'renovate-config/**'
+              - '.github/workflows/ci.yml'
+
   validate:
     name: Validate Templates
+    needs: changes
+    if: ${{ needs.changes.outputs.validate == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
       - name: Checkout
@@ -42,6 +81,8 @@ jobs:
 
   test-azd:
     name: Test azd Templates
+    needs: changes
+    if: ${{ needs.changes.outputs.azd == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
       - name: Checkout
@@ -63,6 +104,8 @@ jobs:
 
   test-ci-templates:
     name: Test CI Templates
+    needs: changes
+    if: ${{ needs.changes.outputs.ci-templates == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
       - name: Checkout
@@ -76,6 +119,8 @@ jobs:
 
   test-renovate:
     name: Test Renovate Config
+    needs: changes
+    if: ${{ needs.changes.outputs.renovate == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
       - name: Checkout
