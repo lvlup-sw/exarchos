@@ -1,0 +1,179 @@
+Delivered-To: reedsalus@gmail.com
+Received: by 2002:a05:7301:e0b:b0:2ae:5a95:beef with SMTP id mj11csp1706258dyb;
+        Fri, 9 Jan 2026 10:51:11 -0800 (PST)
+X-Received: by 2002:a17:902:9348:b0:29e:c2de:4ad with SMTP id d9443c01a7336-2a3ee4619a2mr66441745ad.24.1767984671326;
+        Fri, 09 Jan 2026 10:51:11 -0800 (PST)
+ARC-Seal: i=1; a=rsa-sha256; t=1767984671; cv=none;
+        d=google.com; s=arc-20240605;
+        b=PFCYn+AJRcEpr8rHwS8MsdNU7+Nl4mvvjT0YhPBNisOvwywYbaAuZd3hQd72kCoJf/
+         yWHqvVGx/ycCvUixvsHTubGFFiyn+mnKfSo2sqjOhY4fTlTbkG3Vzfuqr7FqhVW4T/JB
+         IfS7T9im8XtR2RBTMHUs9YFw8dVjR3WseqB6VH9kjBdb+Wpas3nUA3AFJCytVAgEvQN7
+         Trkx2Sdg6ieVVvWYKw5O6TCSV/aUVyQvAxe8FjSF2ewF6h9maCqpZ5yS0KE9yuAgy/Qi
+         kkDlcdrf+EKBXP4FxW9JhDB7bwUhyW8FoKgUui/fQH86ozU3nAVPkEoFAOopM8CEKPQO
+         UmWA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :dkim-signature;
+        bh=+ZnGWcL5/TJ2KzHKfBRLDtK5/QRAnQVcxviRcOH6O4o=;
+        fh=cpcV9tge5c89aQXXyyqPiT503KV/TQlQPC4qACRidRI=;
+        b=c5fpLTKnV+N5DSVnNjXCzuSgTvL1NJaQzA2r648+md1wkDgNTT8XpG/wvLmX2j6i8f
+         xuPsS/sQ9kHaJWdyWNoeRjJTakQoiFnhxtuKFvuzKbCBJ9NlVuiQYgKrBM+kdb4RYA38
+         GGkY+pcYNwM1kD1FFvkgrahqPmSlOVX0Dekaq4LECAVBe/4Qqyb6u4iI1vlVirn8kouA
+         0/1CeNARiMHrrtiZGiZ30vvOdShBzAEILvqZzn152AihsG9T8VDDzCkdNlwk1q6yLM9a
+         UB1awYmNqBmbXfkRe9i/S3j6OEiplvUeB59MYLS5itphpbKaFymaJitM2v6uV9dbdaCo
+         OArw==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@coderabbit-ai.20230601.gappssmtp.com header.s=20230601 header.b=JlKgAHTs;
+       spf=pass (google.com: domain of sahana@coderabbit.ai designates 209.85.220.41 as permitted sender) smtp.mailfrom=sahana@coderabbit.ai;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=coderabbit.ai;
+       dara=pass header.i=@gmail.com
+Return-Path: <sahana@coderabbit.ai>
+Received: from mail-sor-f41.google.com (mail-sor-f41.google.com. [209.85.220.41])
+        by mx.google.com with SMTPS id d9443c01a7336-2a3e3c48f88sor64265675ad.4.2026.01.09.10.51.11
+        for <reedsalus@gmail.com>
+        (Google Transport Security);
+        Fri, 09 Jan 2026 10:51:11 -0800 (PST)
+Received-SPF: pass (google.com: domain of sahana@coderabbit.ai designates 209.85.220.41 as permitted sender) client-ip=209.85.220.41;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@coderabbit-ai.20230601.gappssmtp.com header.s=20230601 header.b=JlKgAHTs;
+       spf=pass (google.com: domain of sahana@coderabbit.ai designates 209.85.220.41 as permitted sender) smtp.mailfrom=sahana@coderabbit.ai;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=coderabbit.ai;
+       dara=pass header.i=@gmail.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=coderabbit-ai.20230601.gappssmtp.com; s=20230601; t=1767984671; x=1768589471; dara=google.com;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :from:to:cc:subject:date:message-id:reply-to;
+        bh=+ZnGWcL5/TJ2KzHKfBRLDtK5/QRAnQVcxviRcOH6O4o=;
+        b=JlKgAHTsXuH/5G0yywHqacoppjJ1JFI5c9L4OdgzjlBn3YdirASd2cKJFJoNK8ySh2
+         k0nP15ZqwVguxLN/c21MfBT94TjmM6OlJpY39m7rywRL6HEF71I4kQgV1tRMiPcATNWI
+         M2/Rc2mDoxEYhtKyGNYljFL80R6oZgxuWsD/eqaowx9+zDGMtmCT1bm0+xLAG0aWjU3B
+         P6rX1bNr0iY75XQSJ+stg8HHljXrlelgsUf4zjRn4jaxse6S46aIs1x6J2wQZrTmj89M
+         o/+uDDJcatnjvLNTod95q6GluObpeIQ8i+OmbfZK8RjH6I4hd9835wZnUECPK2IAZwiX
+         TVcg==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20230601; t=1767984671; x=1768589471;
+        h=to:subject:message-id:date:from:in-reply-to:references:mime-version
+         :x-gm-gg:x-gm-message-state:from:to:cc:subject:date:message-id
+         :reply-to;
+        bh=+ZnGWcL5/TJ2KzHKfBRLDtK5/QRAnQVcxviRcOH6O4o=;
+        b=YhtHCxK5wpPVQSQ6yMxtqPAf07MRzL/u1vCJlGg4ZrZY848I+5tWWekVgFlCnrXhOf
+         giJMeUMusHPupndHkbivDZch9M8MZTPD7bH4qFxNHRNIej9GOI4W41xWZjKOjVBrr/ic
+         LWJv8HCYTV06iMEdFQzbVdbAF6L7XBLQ3gYnVzhrCl53TwMARzrD+gmrIYdPGXVLTpSU
+         0xjdUnRmILLXCPiRGZJYqVkOrK6NTxtwKVrcDmNWmfZqBifFdiMFAVE7VQ//DysHJs1R
+         yZNIoYuYCfXM+1Ny/w8211BZRRWIl05TmAVD4S/Qh61x7/Gn6TKzEZ1QJ8k1Y9n1vDsJ
+         z+ag==
+X-Gm-Message-State: AOJu0YzhtePsmWnl/FM9yh4lKSjA1wHCAjTD6tlwksiLXqrYgJXajNJZ
+	RLkRGHQrwCVkhtR4enF7r9RCzlCZnkH5r36ADve4QbuC5fNYunDKTf1wXtjWzqrL7ZOhw49snES
+	7jkUW30YGpkr6EaHLBzb23kZFSdQhxiYm1XUakX/8JtRNnFZF3Sba3+IgnQWfQwuIR0RCmaT5/8
+	pSSjobTgAa8fk2WQD2oA29b64pyzAuuEoZ9A==
+X-Gm-Gg: AY/fxX70iA5WhLp+LT4GLL+GUd353XTbvABN5aCBxANdOetg0Uo5vqaWda6rAKP+pXZ
+	Srm0lZbLnp+iT+rg5UESKzr9hPGHWcnnjJW5iCPlDSkl60pHO3l7YhAzWYom/tfUgYPMHkX+fCo
+	B7GKwIf2aYWyZb9EcD3pzVT/64ntNQd8f8G4Lz8tvZ29ATBxZyGzLGpZaDXzaEErf+4u0UQYkLE
+	l7R4flaoGlvsISLEAN6XStQyvn58fsH7bU92qmzKlqGYSWdXq2AlaLUthY802KeB0TGHA==
+X-Google-Smtp-Source: AGHT+IH/WLWN0net/+k/TIiqhxiVeDGlR9cjOl2bna0w2IGj0EplWupH2fK9QtXy8DKJl2c2HcqbJuzRgGcZA/1jago=
+X-Received: by 2002:a17:903:2ec5:b0:297:f527:a38f with SMTP id
+ d9443c01a7336-2a3ee452d90mr101268165ad.18.1767984670456; Fri, 09 Jan 2026
+ 10:51:10 -0800 (PST)
+MIME-Version: 1.0
+References: <695c3b47.050a0220.17dd4.eb90@mx.google.com>
+In-Reply-To: <695c3b47.050a0220.17dd4.eb90@mx.google.com>
+From: Sahana Vijaya Prasad <sahana@coderabbit.ai>
+Date: Fri, 9 Jan 2026 10:50:59 -0800
+X-Gm-Features: AQt7F2o-JVozt7-I3qqZlunjv4R_3dxO7txu_SzCB-btbJvk4tj8nkgAX75SZLQ
+Message-ID: <CADskjQo6i7oAHA-fmS1cUCk3kx8EXqkVszHT1_Gu3t+QDH7BpA@mail.gmail.com>
+Subject: Re: How's your CodeRabbit Agentic Pre-Merge Checks setup working?
+To: reedsalus@gmail.com
+Content-Type: multipart/alternative; boundary="0000000000004050110647f902b4"
+
+--0000000000004050110647f902b4
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Reed,
+
+Thank you for your response to this feedback survey, we very much
+appreciate it. I see you have configured two Custom Pre-merge Checks within
+the organization, one for CODE QUALITY and the other for SPEC COMPLIANCE. I
+understand the intent behind why you created both the checks. I'm curious
+to hear, have you tried using Path-based Instructions
+<https://docs.coderabbit.ai/guides/review-instructions> and/or Coding
+Guidelines to ensure that CodeRababit's review refers to your specific code
+quality requirements?
+
+Additionally, our built-in checks for Issue Assessment
+<https://docs.coderabbit.ai/pr-reviews/pre-merge-checks> should be able to
+satisfy your spec compliance requirements. Did you try this and that didn't
+satisfy your requirements? If so, could you elaborate please?
+
+Best,
+Sahana
+
+On Mon, Jan 5, 2026 at 2:29=E2=80=AFPM <sahana@coderabbit.ai> wrote:
+
+> Hey Reed Salus,
+>
+> Happy New Year! I'm Sahana, PM at CodeRabbit. I saw your team set up *Cus=
+tom
+> Agentic Pre-merge Checks*. I'm curious how it's going! What's working,
+> and what's getting in the way?
+>
+> Can you please take a minute to share your feedback
+> <https://forms.gle/dHBVyNFar7NSxU296>? Or if you're up for it, would love
+> to hop on a quick call <https://calendly.com/sahana-coderabbit/30min> to
+> hear your thoughts and ideas. We're actively improving this based on user
+> feedback, so your input directly shapes what we build next.
+>
+> Thanks a ton for helping us make CodeRabbit better =F0=9F=A7=A1
+>
+> Best,
+> Sahana Vijaya Prasad
+> Product Manager | CodeRabbit
+>
+
+--0000000000004050110647f902b4
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">Reed,<div><br></div><div>Thank you for your response to th=
+is feedback survey, we very much appreciate it. I see you have configured t=
+wo Custom Pre-merge Checks within the organization, one for CODE QUALITY an=
+d the other for SPEC COMPLIANCE. I understand the intent behind why you=C2=
+=A0created both the checks. I&#39;m curious to hear, have you tried=C2=A0us=
+ing <a href=3D"https://docs.coderabbit.ai/guides/review-instructions">Path-=
+based Instructions</a> and/or Coding Guidelines to ensure that CodeRababit&=
+#39;s review refers to your specific=C2=A0code quality requirements?</div><=
+div><br></div><div>Additionally, our built-in checks for <a href=3D"https:/=
+/docs.coderabbit.ai/pr-reviews/pre-merge-checks">Issue Assessment</a> shoul=
+d be able to satisfy your spec compliance requirements. Did you try this an=
+d that didn&#39;t satisfy=C2=A0your requirements? If so, could you elaborat=
+e please?</div><div><br></div><div>Best,</div><div>Sahana</div></div><br><d=
+iv class=3D"gmail_quote gmail_quote_container"><div dir=3D"ltr" class=3D"gm=
+ail_attr">On Mon, Jan 5, 2026 at 2:29=E2=80=AFPM &lt;<a href=3D"mailto:saha=
+na@coderabbit.ai">sahana@coderabbit.ai</a>&gt; wrote:<br></div><blockquote =
+class=3D"gmail_quote" style=3D"margin:0px 0px 0px 0.8ex;border-left-width:1=
+px;border-left-style:solid;border-left-color:rgb(204,204,204);padding-left:=
+1ex">
+<div style=3D"font-family:&quot;Work Sans&quot;,sans-serif;line-height:1.6;=
+color:rgb(51,51,51)">
+<p>Hey Reed Salus,</p>
+
+<p>Happy New Year! I&#39;m Sahana, PM at CodeRabbit. I saw your team set up=
+ <b>Custom Agentic Pre-merge Checks</b>. I&#39;m curious how it&#39;s going=
+! What&#39;s working, and what&#39;s getting in the way?<br></p>
+<p>Can you please take a minute to <a href=3D"https://forms.gle/dHBVyNFar7N=
+SxU296" target=3D"_blank">share your feedback</a>? Or if you&#39;re up for =
+it, would love to <a href=3D"https://calendly.com/sahana-coderabbit/30min" =
+target=3D"_blank">hop on a quick call</a> to hear your thoughts and ideas. =
+We&#39;re actively improving this based on user feedback, so your input dir=
+ectly shapes what we build next.</p>
+
+<p>Thanks a ton for helping us make CodeRabbit better =F0=9F=A7=A1</p>
+
+<p>Best,<br>
+Sahana Vijaya Prasad<br>
+Product Manager | CodeRabbit</p>
+</div>
+</blockquote></div>
+
+--0000000000004050110647f902b4--
