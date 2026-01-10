@@ -1,0 +1,24 @@
+name: Jules Scan
+
+on:
+  schedule:
+    # Weekly on Sunday at 11pm UTC (6pm EST)
+    - cron: '0 23 * * 0'
+  workflow_dispatch:
+    inputs:
+      scan-type:
+        description: 'Scan type'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - security
+          - tech-debt
+          - both
+
+jobs:
+  scan:
+    uses: lvlup-sw/.github/.github/workflows/jules-scan.yml@main
+    with:
+      scan-type: ${{ inputs.scan-type || 'both' }}
+    secrets: inherit
