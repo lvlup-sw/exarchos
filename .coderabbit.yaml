@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+tone_instructions: Prioritize technical optimality without being nitpicky.
+early_access: true
+
+reviews:
+  request_changes_workflow: true
+  high_level_summary: false
+  auto_apply_labels: true
+  auto_assign_reviewers: true
+
+  path_filters:
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/yarn.lock"
+    - "!**/*.generated.*"
+    - "!**/dist/**"
+    - "!**/node_modules/**"
+    - "!**/*.min.js"
+
+  path_instructions:
+    - path: "**/*.ts"
+      instructions: |
+        Apply TypeScript standards from rules/coding-standards-typescript.md:
+        - SOLID: One class/component per file, discriminated unions over type switches
+        - Types: Interfaces for extendable shapes, readonly default, no `any`
+        - Control: Guard clauses first, early return, flatten async/await
+    - path: "**/*.test.ts"
+      instructions: |
+        Apply TDD standards from rules/tdd-typescript.md:
+        - Use describe/it with Arrange-Act-Assert pattern
+        - Test behavior not implementation
+        - Use vi.mock/vi.fn for dependencies
+    - path: "**/api/**"
+      instructions: "Prioritize security: auth, input validation, error handling."
+    - path: "docs/**"
+      instructions: "Check for accuracy and completeness. Light review only."
+
+  coding_guidelines:
+    - title: TypeScript SOLID Principles
+      description: |
+        Enforce SOLID constraints per rules/coding-standards-typescript.md:
+        SRP (one export per file), OCP (discriminated unions), LSP (full implementations),
+        ISP (small interfaces), DIP (inject dependencies)
+      file_patterns:
+        - "**/*.ts"
+        - "**/*.tsx"
+    - title: Type Safety
+      description: |
+        No `any` types. Use `unknown` with type guards or proper generics.
+        Prefer interfaces over type aliases for extendable shapes.
+        Use `as const` for literal types, `satisfies` for type checking without widening.
+      file_patterns:
+        - "**/*.ts"
+        - "**/*.tsx"
+    - title: TDD Compliance
+      description: |
+        Tests must follow Red-Green-Refactor. Use Vitest patterns.
+        Test names describe behavior: "should [expected behavior] when [condition]"
+      file_patterns:
+        - "**/*.test.ts"
+        - "**/*.spec.ts"
+
+  auto_review:
+    ignore_usernames:
+      - "renovate[bot]"
+
+  pre_merge_checks:
+    issue_assessment:
+      mode: warning
