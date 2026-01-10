@@ -8,6 +8,9 @@ on:
   issue_comment:
     types: [created]
   push:
+    branches: [main]
+    paths:
+      - '.github/labels.yml'
     tags:
       - 'v*'
   schedule:
@@ -17,6 +20,14 @@ env:
   PROJECT_NUMBER: 3
 
 jobs:
+  # ============================================================
+  # LABEL SYNC: Sync labels from labels.yml on push
+  # ============================================================
+  label-sync:
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    uses: lvlup-sw/.github/.github/workflows/label-sync.yml@main
+    secrets: inherit
+
   # ============================================================
   # AUTO-TRIAGE: Label new issues based on content
   # ============================================================
