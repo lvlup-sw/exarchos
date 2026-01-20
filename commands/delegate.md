@@ -83,6 +83,16 @@ Use TodoWrite to track all delegated tasks.
 - Jules: `jules_check_status`
 - Task tool: `TaskOutput`
 
+### Step 6: Schema Sync (Auto)
+After all tasks complete, auto-detect if API files were modified:
+```bash
+git diff --name-only origin/main...HEAD | grep -E "(Endpoints|Models|Dtos).*\.cs$"
+```
+
+If matches found, run `npm run sync:schemas` and commit generated files.
+
+See: `@skills/sync-schemas/SKILL.md`
+
 ## Parallel Execution
 
 Launch parallel tasks in SINGLE message:
