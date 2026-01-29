@@ -68,7 +68,7 @@ Triage → Investigate → Fix → Smoke Test → Merge
 - Auto-creates follow-up task for proper RCA if shipped
 - Validation: Affected tests pass + manual verification
 
-**State Phases:** `triage` → `investigate` → `fix` → `validate` → `completed`
+**State Phases:** `triage` → `investigate` → `implement` → `validate` → `completed`
 
 ### Thorough Track
 

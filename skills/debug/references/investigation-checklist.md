@@ -11,7 +11,7 @@ Before investigating, ensure you can trigger the bug:
 ```bash
 # Run the reproduction steps
 # Observe the failure
-# Capture any error output
+# Capture any error output (redact secrets/PII before sharing)
 ```
 
 **If cannot reproduce:**

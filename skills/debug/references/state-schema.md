@@ -75,10 +75,10 @@ Debug workflows extend the standard workflow state with additional fields.
 
 ### Phase Values
 
-| Track | Valid Phases |
-|-------|--------------|
-| Hotfix | triage → investigate → implement → validate → completed |
-| Thorough | triage → investigate → rca → design → implement → review → synthesize → completed |
+| Track    | Valid Phases                                                                          |
+|----------|-----------------------------------------------------------------------------------------|
+| Hotfix   | triage → investigate → implement → validate → completed                                 |
+| Thorough | triage → investigate → rca → design → implement → validate → review → synthesize → completed |
 
 Note: Thorough track may skip `rca` and `design` phases if root cause is straightforward.
 

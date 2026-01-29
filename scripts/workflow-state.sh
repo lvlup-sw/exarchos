@@ -328,7 +328,11 @@ cmd_summary() {
                 echo "Apply fix (TDD for thorough track)"
                 ;;
             validate)
-                echo "Run smoke tests and verify fix"
+                if [ "$track" = "hotfix" ]; then
+                    echo "Run smoke tests and verify fix"
+                else
+                    echo "Run full test suite before spec review"
+                fi
                 ;;
             review)
                 echo "Complete spec review"
