@@ -180,7 +180,7 @@ Note: Thorough track may skip `rca` and `design` phases if root cause is straigh
 
 ### Hotfix Track
 
-```
+```text
 triage → investigate → implement → validate → completed
    │          │            │           │          │
    │          │            │           │          └─ Human checkpoint: merge
@@ -192,7 +192,7 @@ triage → investigate → implement → validate → completed
 
 ### Thorough Track
 
-```
+```text
 triage → investigate → rca → design → implement → review → synthesize → completed
    │          │         │       │          │          │          │          │
    │          │         │       │          │          │          │          └─ Merge

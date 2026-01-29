@@ -53,7 +53,7 @@ Follow the code from entry point to failure:
 4. **Find the divergence** - Where does actual != expected?
 
 **Tracing Pattern:**
-```
+```text
 Entry Point → Function A → Function B → [FAILURE POINT] → Function C (never reached)
 ```
 
@@ -84,7 +84,7 @@ Once located, understand the mechanism:
 
 For hotfix track, investigation is time-boxed:
 
-```
+```text
 0:00  - Start investigation
 0:05  - Should have identified entry point
 0:10  - Should have narrowed to general area

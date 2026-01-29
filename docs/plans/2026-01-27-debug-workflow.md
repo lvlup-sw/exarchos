@@ -195,7 +195,7 @@ Implements a two-track debug workflow (hotfix vs thorough) with investigation-fi
 - Add debug phase handling in "Determine Next Action" table:
   - `AUTO:debug-investigate` - continue investigation
   - `AUTO:debug-rca` - continue RCA documentation
-  - `AUTO:debug-fix` - continue fix implementation
+  - `AUTO:debug-implement` - continue fix implementation
   - `AUTO:debug-validate` - continue validation
 - Handle hotfix vs thorough track differences
 - Maintain single human checkpoint (merge)

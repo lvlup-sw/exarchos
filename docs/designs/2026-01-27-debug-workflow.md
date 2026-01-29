@@ -26,7 +26,7 @@ Debugging requires an investigation-first approach: understand the problem deepl
 
 ### Workflow Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           /debug                                         │
 │                              │                                           │
@@ -51,7 +51,7 @@ Debugging requires an investigation-first approach: understand the problem deepl
 **Purpose:** Fix production issues or critical regressions ASAP. Confirm root cause through minimal fix.
 
 **Phases:**
-```
+```text
 Triage → Investigate → Fix → Smoke Test → Merge
   │          │          │         │          │
   │          │          │         │          └─ Direct merge or fast PR
@@ -75,7 +75,7 @@ Triage → Investigate → Fix → Smoke Test → Merge
 **Purpose:** Fix non-critical bugs and regressions with proper rigor. Capture institutional knowledge.
 
 **Phases:**
-```
+```text
 Triage → Investigate → RCA Doc → Fix Design → Implement → Spec Review → Synthesize
   │          │            │           │            │            │            │
   │          │            │           │            │            │            └─ PR creation
@@ -286,13 +286,13 @@ Add debug-specific fields to workflow state:
 ### Auto-Chain Behavior
 
 **Hotfix Track:**
-```
+```text
 triage → investigate → fix → validate → [merge]
          (auto)        (auto)  (auto)     (human checkpoint)
 ```
 
 **Thorough Track:**
-```
+```text
 triage → investigate → rca → design → implement → review → synthesize → [merge]
          (auto)        (auto) (auto)   (auto)      (auto)   (auto)       (human)
 ```
@@ -340,7 +340,7 @@ This ensures hotfixes don't become knowledge black holes.
 
 ### New Directories
 
-```
+```text
 docs/rca/                    # RCA documents
 skills/debug/                # Debug skill
 skills/debug/references/     # Templates and guides

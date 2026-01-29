@@ -220,13 +220,20 @@ cmd_summary() {
         exit 1
     fi
 
-    local feature=$(jq -r '.featureId' "$state_file")
-    local phase=$(jq -r '.phase' "$state_file")
-    local updated=$(jq -r '.updatedAt' "$state_file")
-    local workflow_type=$(jq -r '.workflowType // "feature"' "$state_file")
-    local pr=$(jq -r '.artifacts.pr // .synthesis.prUrl // "not created"' "$state_file")
-    local total_tasks=$(jq '.tasks | length' "$state_file")
-    local complete_tasks=$(jq '[.tasks[] | select(.status == "complete")] | length' "$state_file")
+    local feature
+    local phase
+    local updated
+    local workflow_type
+    local pr
+    local total_tasks
+    local complete_tasks
+    feature=$(jq -r '.featureId' "$state_file")
+    phase=$(jq -r '.phase' "$state_file")
+    updated=$(jq -r '.updatedAt' "$state_file")
+    workflow_type=$(jq -r '.workflowType // "feature"' "$state_file")
+    pr=$(jq -r '.artifacts.pr // .synthesis.prUrl // "not created"' "$state_file")
+    total_tasks=$(jq '.tasks | length' "$state_file")
+    complete_tasks=$(jq '[.tasks[] | select(.status == "complete")] | length' "$state_file")
 
     echo "## Workflow Context Restored"
     echo ""
@@ -284,7 +291,8 @@ cmd_summary() {
 
     # Debug investigation findings
     if [ "$workflow_type" = "debug" ]; then
-        local findings=$(jq -r '.investigation.findings[]? // empty' "$state_file" | head -5)
+        local findings
+        findings=$(jq -r '.investigation.findings // [] | .[]' "$state_file" | head -5)
         if [ -n "$findings" ]; then
             echo "### Investigation Findings"
             echo "$findings" | while read -r finding; do
