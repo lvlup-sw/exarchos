@@ -486,7 +486,14 @@ cmd_next_action() {
                 ;;
             implement)
                 # Check if implementation is complete
-                if [ "$total_tasks" -gt 0 ] && [ "$complete_tasks" -eq "$total_tasks" ]; then
+                # Auto-advance if: all tasks complete OR no tasks (direct implementation)
+                local fix_design
+                fix_design=$(jq -r '.artifacts.fixDesign // ""' "$state_file")
+                if [ "$total_tasks" -eq 0 ] && [ -n "$fix_design" ] && [ "$fix_design" != "null" ]; then
+                    # No tasks but fix design exists - direct implementation, auto-advance
+                    echo "AUTO:debug-validate"
+                elif [ "$total_tasks" -gt 0 ] && [ "$complete_tasks" -eq "$total_tasks" ]; then
+                    # All tasks complete
                     echo "AUTO:debug-validate"
                 else
                     echo "WAIT:in-progress:implementing"
