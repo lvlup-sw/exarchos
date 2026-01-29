@@ -54,9 +54,10 @@ for f in "$REPO_ROOT"/ci-templates/workflows/*.yml; do
     [ -f "$f" ] && validate_yaml "$f"
 done
 
-for f in "$REPO_ROOT"/coderabbit-config/*.yaml; do
-    [ -f "$f" ] && validate_yaml "$f"
-done
+# CodeRabbit config at repo root (moved from coderabbit-config/)
+if [ -f "$REPO_ROOT/.coderabbit.yaml" ]; then
+    validate_yaml "$REPO_ROOT/.coderabbit.yaml"
+fi
 
 echo ""
 
@@ -158,7 +159,7 @@ check_exists() {
 
 check_exists "ci-templates/workflows/ci-dotnet.yml"
 check_exists "ci-templates/coverage-gate/coverage-gate.sh"
-check_exists "coderabbit-config/config.yaml"
+check_exists ".coderabbit.yaml"
 
 echo ""
 

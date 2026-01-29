@@ -36,6 +36,8 @@ Display a brief context restoration message.
 
 The `next-action` command returns one of:
 
+#### Feature Workflow Actions
+
 | Response | Meaning | Action |
 |----------|---------|--------|
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
@@ -43,6 +45,23 @@ The `next-action` command returns one of:
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
 | `AUTO:synthesize:<feature>` | Auto-continue to synthesize | Invoke `/synthesize` |
 | `AUTO:delegate:--fixes <path>` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
+
+#### Debug Workflow Actions
+
+| Response | Meaning | Action |
+|----------|---------|--------|
+| `AUTO:debug-investigate` | Continue investigation | Resume investigation phase |
+| `AUTO:debug-rca` | Create RCA document | Continue RCA documentation |
+| `AUTO:debug-design` | Design fix approach | Continue fix design |
+| `AUTO:debug-implement` | Implement fix | Continue implementation |
+| `AUTO:debug-validate` | Validate fix | Run validation/smoke tests |
+| `AUTO:debug-review` | Spec review | Run spec review |
+| `AUTO:debug-synthesize` | Create PR | Create debug fix PR |
+
+#### Wait/Done States
+
+| Response | Meaning | Action |
+|----------|---------|--------|
 | `WAIT:human-checkpoint:*` | Human input required | Display status, wait |
 | `WAIT:in-progress:*` | Work in progress | Check task status, continue |
 | `DONE` | Workflow complete | No action needed |
@@ -60,6 +79,8 @@ For `WAIT:human-checkpoint:*` responses, display status and wait for user input.
 
 ONLY pause for human input at these phases:
 
+### Feature Workflow
+
 | Phase | Checkpoint | Why |
 |-------|------------|-----|
 | `ideate` | Design confirmation | User must approve design before planning |
@@ -72,6 +93,31 @@ All other phases auto-continue:
 - `integrate` (failed) → auto-chains to `/delegate --fixes`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
+
+### Debug Workflow
+
+| Phase | Checkpoint | Why |
+|-------|------------|-----|
+| `validate` (hotfix) | Merge confirmation | User must approve hotfix merge |
+| `synthesize` (thorough) | Merge confirmation | User must approve fix PR merge |
+
+All debug phases auto-continue:
+
+**Hotfix track:**
+- `triage` → auto-chains to `investigate`
+- `investigate` (found) → auto-chains to `implement`
+- `investigate` (not found in 15 min) → switches to thorough track
+- `implement` → auto-chains to `validate`
+- `validate` → HUMAN CHECKPOINT (merge)
+
+**Thorough track:**
+- `triage` → auto-chains to `investigate`
+- `investigate` → auto-chains to `rca`
+- `rca` → auto-chains to `design`
+- `design` → auto-chains to `implement`
+- `implement` → auto-chains to `review`
+- `review` → auto-chains to `synthesize`
+- `synthesize` → HUMAN CHECKPOINT (merge)
 
 ## Idempotency
 
