@@ -156,7 +156,43 @@ jules_check_status({ sessionId: "session-id" })
 When tasks complete:
 1. Verify all tests pass
 2. Update TodoWrite status
-3. Proceed to review phase
+3. Check if schema sync is needed (Step 7)
+4. Proceed to review phase
+
+### Step 7: Schema Sync (Auto-Detection)
+
+After all tasks complete, check if any modified API files that require schema regeneration:
+
+```bash
+# Check for API file modifications across all task branches
+API_FILES_MODIFIED=$(git diff --name-only origin/main...HEAD | grep -E "(Endpoints|Models|Requests|Responses|Dtos).*\.cs$" || true)
+
+if [[ -n "$API_FILES_MODIFIED" ]]; then
+  echo "API files modified - running schema sync..."
+  echo "$API_FILES_MODIFIED"
+
+  # Run schema sync from monorepo root
+  npm run sync:schemas
+
+  # Verify types
+  npm run typecheck
+
+  # Stage generated files
+  git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
+  git commit -m "chore: regenerate TypeScript types from OpenAPI" || true
+fi
+```
+
+**API File Patterns:**
+| Pattern | Triggers Sync |
+|---------|---------------|
+| `*Endpoints.cs` | Yes |
+| `Models/*.cs` | Yes |
+| `Requests/*.cs` | Yes |
+| `Responses/*.cs` | Yes |
+| `Dtos/*.cs` | Yes |
+
+**Skill Reference:** `@skills/sync-schemas/SKILL.md`
 
 ## Parallel Execution Strategy
 
@@ -399,6 +435,7 @@ This ensures merged code is re-verified after fixes.
 - [ ] Implementers dispatched with full context
 - [ ] All tasks report completion
 - [ ] All tests pass in worktrees
+- [ ] Schema sync run if API files modified
 - [ ] State file reflects all task completions
 
 ## Transition

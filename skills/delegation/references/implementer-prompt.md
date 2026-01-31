@@ -90,6 +90,20 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+## Schema Sync (If Modifying API Files)
+
+If this task modifies any of these file patterns, run schema sync after implementation:
+- `*Endpoints.cs` - API endpoint definitions
+- `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs` - DTOs
+
+```bash
+# From worktree root
+npm run sync:schemas
+npm run typecheck
+```
+
+This regenerates TypeScript types from the OpenAPI spec. Include generated files in your commit.
+
 ## Completion
 
 When done, report:
