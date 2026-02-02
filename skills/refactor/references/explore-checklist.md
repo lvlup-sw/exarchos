@@ -49,5 +49,5 @@ After exploration, update state with scope assessment:
     "modulesAffected": ["<list>"],
     "testCoverage": "good | gaps | none",
     "recommendedTrack": "polish | overhaul"
-  } | .track = "<selected-track>" | .explore.completedAt = "<ISO8601>"'
+  } | .track = "<selected-track>" | .explore.completedAt = "<ISO8601>" | .phase = "brief"'
 ```

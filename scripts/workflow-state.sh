@@ -109,6 +109,9 @@ cmd_init() {
   },
   "validation": {
     "testsPass": false,
+    "briefImplemented": false,
+    "scopeExpanded": false,
+    "filesChangedCount": 0,
     "goalsVerified": [],
     "docsUpdated": false
   },
@@ -730,9 +733,25 @@ cmd_next_action() {
                 ;;
             implement)
                 # Polish track only - check if implementation is done
-                # For polish, we check if goals are being verified
-                local tests_pass=$(jq -r '.validation.testsPass // false' "$state_file")
-                if [ "$tests_pass" = "true" ]; then
+                # Per polish-implement.md, ALL exit conditions must be met:
+                # 1. All changes from brief are implemented
+                # 2. All tests pass
+                # 3. No scope expansion occurred
+                # 4. ≤5 files changed
+                local tests_pass
+                tests_pass=$(jq -r '.validation.testsPass // false' "$state_file")
+                local brief_implemented
+                brief_implemented=$(jq -r '.validation.briefImplemented // false' "$state_file")
+                local scope_expanded
+                scope_expanded=$(jq -r '.validation.scopeExpanded // false' "$state_file")
+                local files_changed_count
+                files_changed_count=$(jq -r '.validation.filesChangedCount // 0' "$state_file")
+
+                # All conditions must be met to advance
+                if [ "$tests_pass" = "true" ] && \
+                   [ "$brief_implemented" = "true" ] && \
+                   [ "$scope_expanded" = "false" ] && \
+                   [ "$files_changed_count" -le 5 ]; then
                     echo "AUTO:refactor-validate"
                 else
                     echo "WAIT:in-progress:implementing"

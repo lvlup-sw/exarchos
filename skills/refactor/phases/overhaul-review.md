@@ -138,9 +138,9 @@ Every goal from the brief must be verified as achieved.
 
 | Brief Goal | Evidence | Status |
 |------------|----------|--------|
-| <goal 1> | <test/code reference> | [PASS | FAIL] |
-| <goal 2> | <test/code reference> | [PASS | FAIL] |
-| <goal 3> | <test/code reference> | [PASS | FAIL] |
+| <goal 1> | <test/code reference> | [PASS/FAIL] |
+| <goal 2> | <test/code reference> | [PASS/FAIL] |
+| <goal 3> | <test/code reference> | [PASS/FAIL] |
 
 **Goal verification process:**
 1. Re-read brief goals

@@ -9,7 +9,7 @@ Define automatic phase transitions for refactor workflows, minimizing human inte
 **Single human checkpoint per track.**
 
 - Polish track: One checkpoint at completion (commit approval)
-- Overhaul track: Two checkpoints (plan approval, PR approval)
+- Overhaul track: One checkpoint at merge (PR approval)
 
 All other transitions are automatic.
 
@@ -81,9 +81,9 @@ Ready to commit changes. Approve to commit, or request modifications.
 ## Overhaul Track Auto-Chain
 
 ```
-explore → brief → plan → CHECKPOINT → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
-                    ↑                                    │
-                    └────────── fixes ←──────────────────┘ (if review fails)
+explore → brief → plan → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
+                                        ↑                    │
+                                        └─── fixes ──────────┘ (if review fails)
 ```
 
 ### Transition Rules
@@ -92,8 +92,7 @@ explore → brief → plan → CHECKPOINT → delegate → integrate → review 
 |------|-----|-----------|-------|
 | explore | brief | Scope assessed | ✓ Yes |
 | brief | plan | Brief captured | ✓ Yes |
-| plan | plan-review | Plan created | ✓ Yes |
-| plan-review | delegate | Human approves | ✗ CHECKPOINT |
+| plan | delegate | Plan created | ✓ Yes |
 | delegate | integrate | All tasks complete | ✓ Yes |
 | integrate | review | Integration passes | ✓ Yes |
 | review (pass) | update-docs | Review approved | ✓ Yes |
@@ -114,19 +113,15 @@ explore → brief → plan → CHECKPOINT → delegate → integrate → review 
 
 # After plan
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: WAIT:human-checkpoint:plan-review
-
-# After plan approval
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:delegate
+# Returns: AUTO:refactor-delegate
 
 # After delegate
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:integrate
+# Returns: AUTO:refactor-integrate
 
 # After integrate
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:review
+# Returns: AUTO:refactor-review
 
 # After review (passed)
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
@@ -134,24 +129,20 @@ explore → brief → plan → CHECKPOINT → delegate → integrate → review 
 
 # After review (failed)
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:delegate:--fixes
+# Returns: AUTO:refactor-delegate:--fixes
 
 # After update-docs
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:synthesize
+# Returns: AUTO:refactor-synthesize
 
 # After synthesize
 ~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: WAIT:human-checkpoint:pr-review
+# Returns: WAIT:human-checkpoint:overhaul-merge
 ```
 
-### Overhaul Checkpoints
+### Overhaul Checkpoint
 
-#### Checkpoint 1: Plan Review
-
-Same as feature workflow plan-review checkpoint.
-
-#### Checkpoint 2: PR Approval
+#### PR Approval
 
 ```markdown
 ## Refactor PR Ready
@@ -227,21 +218,20 @@ All recoveries are automatic loops until success.
 │                           │                                ↓     │
 │                           │                          ▣ COMPLETE  │
 │                           │                                      │
-│                           └─→ [overhaul] ─→ plan ─→ ▣ plan-review│
+│                           └─→ [overhaul] ─→ plan ─→ delegate     │
 │                                                          ↓       │
-│                                              delegate ←──┘       │
-│                                                   ↓              │
-│                                              integrate           │
-│                                                   ↓              │
-│                                               review ────────┐   │
-│                                                   ↓          │   │
-│                                             update-docs  (fail)  │
-│                                                   ↓          │   │
-│                                             synthesize       │   │
-│                                                   ↓          │   │
-│                                             ▣ PR-REVIEW      │   │
-│                                                              │   │
-│                               delegate:--fixes ←─────────────┘   │
+│                                                      integrate   │
+│                                                          ↓       │
+│                                                      review ───┐ │
+│                                                          ↓     │ │
+│                                                    update-docs │ │
+│                                                          ↓     │ │
+│                                                    synthesize  │ │
+│                                                          ↓     │ │
+│                                                    ▣ PR-MERGE  │ │
+│                                                                │ │
+│                                  delegate:--fixes ←────────────┘ │
+│                                        (on review fail)          │
 │                                                                  │
 │  Legend: ▣ = Human Checkpoint                                   │
 └─────────────────────────────────────────────────────────────────┘
@@ -253,13 +243,14 @@ The auto-chain actions are handled by workflow-auto-resume.md rules:
 
 | Action | Skill Invoked |
 |--------|---------------|
+| AUTO:refactor-explore | Resume scope assessment |
 | AUTO:refactor-brief | Continue to brief capture |
 | AUTO:refactor-implement | Continue to implement phase |
 | AUTO:refactor-validate | Continue to validate phase |
 | AUTO:refactor-update-docs | Continue to update-docs phase |
 | AUTO:refactor-plan | Invoke /plan with refactor context |
-| AUTO:delegate | Invoke /delegate |
-| AUTO:delegate:--fixes | Invoke /delegate --fixes |
-| AUTO:integrate | Invoke /integrate |
-| AUTO:review | Invoke /review |
-| AUTO:synthesize | Invoke /synthesize |
+| AUTO:refactor-delegate | Invoke /delegate |
+| AUTO:refactor-delegate:--fixes | Invoke /delegate --fixes |
+| AUTO:refactor-integrate | Invoke /integrate |
+| AUTO:refactor-review | Invoke /review |
+| AUTO:refactor-synthesize | Invoke /synthesize |

@@ -249,7 +249,7 @@ Add refactor-specific fields to workflow state:
 /refactor --polish "Small contained refactor description"
 
 # Explore first, then decide track
-/refactor --explore "Unsure of scope, explore first"
+/refactor --explore-only "Unsure of scope, explore first"
 ```
 
 #### Mid-Workflow Commands
