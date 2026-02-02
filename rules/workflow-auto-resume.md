@@ -60,6 +60,21 @@ The `next-action` command returns one of:
 | `AUTO:debug-review` | Spec review | Run spec review |
 | `AUTO:debug-synthesize` | Create PR | Create debug fix PR |
 
+#### Refactor Workflow Actions
+
+| Response | Meaning | Action |
+|----------|---------|--------|
+| `AUTO:refactor-explore` | Continue exploration | Resume scope assessment |
+| `AUTO:refactor-brief` | Capture brief | Continue brief phase |
+| `AUTO:refactor-implement` | Polish track implement | Continue direct implementation |
+| `AUTO:refactor-validate` | Polish track validate | Run validation checks |
+| `AUTO:refactor-update-docs` | Update documentation | Continue doc updates |
+| `AUTO:refactor-plan` | Overhaul track plan | Invoke `/plan` |
+| `AUTO:refactor-delegate` | Overhaul track delegate | Invoke `/delegate` |
+| `AUTO:refactor-integrate` | Overhaul track integrate | Invoke `/integrate` |
+| `AUTO:refactor-review` | Overhaul track review | Invoke `/review` |
+| `AUTO:refactor-synthesize` | Overhaul track synthesize | Invoke `/synthesize` |
+
 #### Wait/Done States
 
 | Response | Meaning | Action |
@@ -135,6 +150,34 @@ All debug phases auto-continue:
 - `design` → auto-chains to `implement`
 - `implement` → auto-chains to `review`
 - `review` → auto-chains to `synthesize`
+- `synthesize` → HUMAN CHECKPOINT (merge)
+
+### Refactor Workflow
+
+| Phase | Checkpoint | Why |
+|-------|------------|-----|
+| `update-docs` (polish) | Completion confirmation | User must confirm refactor complete |
+| `synthesize` (overhaul) | Merge confirmation | User must approve PR merge |
+
+All refactor phases auto-continue:
+
+**Polish track:**
+- `explore` → auto-chains to `brief`
+- `brief` → auto-chains to `implement`
+- `implement` → auto-chains to `validate`
+- `validate` → auto-chains to `update-docs`
+- `update-docs` → HUMAN CHECKPOINT (completion)
+
+**Overhaul track:**
+- `explore` → auto-chains to `brief`
+- `brief` → auto-chains to `plan`
+- `plan` → auto-chains to `delegate`
+- `delegate` (all tasks complete) → auto-chains to `integrate`
+- `integrate` (passed) → auto-chains to `review`
+- `integrate` (failed) → auto-chains to `delegate --fixes`
+- `review` (all passed) → auto-chains to `update-docs`
+- `review` (failed) → auto-chains to `delegate --fixes`
+- `update-docs` → auto-chains to `synthesize`
 - `synthesize` → HUMAN CHECKPOINT (merge)
 
 ## Idempotency
