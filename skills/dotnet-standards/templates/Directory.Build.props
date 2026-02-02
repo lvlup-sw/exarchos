@@ -1,0 +1,56 @@
+<!-- Levelup Software Directory.Build.props Template -->
+<!-- Version: 1.0.0 -->
+<!--
+  This file defines centralized build settings for all projects in the solution.
+  Do not modify settings above the PROJECT-LOCAL marker. Add overrides below it.
+-->
+<Project>
+
+  <!-- Lvlup.Build meta-package provides analyzers and default settings -->
+  <ItemGroup>
+    <PackageReference Include="Lvlup.Build" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Project-wide settings -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Company>{{COMPANY_NAME}}</Company>
+    <Copyright>Copyright (c) {{COMPANY_NAME}}. All rights reserved.</Copyright>
+  </PropertyGroup>
+
+  <!-- Analyzer settings -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+  </PropertyGroup>
+
+  <!-- Code coverage settings -->
+  <PropertyGroup>
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <ThresholdType>line,branch,method</ThresholdType>
+    <Threshold>80</Threshold>
+  </PropertyGroup>
+
+  <!-- Test project detection and settings -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+  </PropertyGroup>
+
+  <!--
+    StyleCop configuration is provided by Lvlup.Build package.
+    To override company name, add a local stylecop.json in this directory.
+  -->
+
+  <!-- =========================================================================== -->
+  <!-- === PROJECT-LOCAL OVERRIDES BELOW ===                                      -->
+  <!-- Add project-specific settings here. This section is preserved during sync. -->
+  <!-- =========================================================================== -->
+
+</Project>

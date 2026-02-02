@@ -443,7 +443,28 @@ mockService.SaveAsync(Arg.Do<Order>(o => capturedOrder = o));
 
 ## Project Configuration
 
+### Lvlup.Build Package
+
+All Levelup Software C# projects should reference the `Lvlup.Build` meta-package, which provides:
+- StyleCop.Analyzers, Microsoft.CodeAnalysis.NetAnalyzers, VS Threading Analyzers
+- Default build settings (nullable, analyzers, warnings-as-errors)
+- Default `stylecop.json` configuration
+
+```xml
+<!-- In Directory.Build.props -->
+<ItemGroup>
+  <PackageReference Include="Lvlup.Build" PrivateAssets="all" />
+</ItemGroup>
+
+<!-- In Directory.Packages.props -->
+<ItemGroup>
+  <PackageVersion Include="Lvlup.Build" Version="1.2.0" />
+</ItemGroup>
+```
+
 ### Required Directory.Build.props Settings
+
+With `Lvlup.Build` referenced, these settings are provided automatically. Only specify if overriding:
 
 ```xml
 <PropertyGroup>
@@ -461,3 +482,15 @@ mockService.SaveAsync(Arg.Do<Order>(o => capturedOrder = o));
 - Define all package versions in `Directory.Packages.props`
 - Never specify versions in individual `.csproj` files
 - Use `<PackageReference Include="Package" />` without version
+
+### /dotnet-standards Skill
+
+Use the `/dotnet-standards` skill to manage project configuration:
+
+```bash
+/dotnet-standards validate      # Check compliance
+/dotnet-standards sync          # Update config files
+/dotnet-standards scaffold Name # Create new project
+```
+
+Templates: `~/.claude/skills/dotnet-standards/templates/`
