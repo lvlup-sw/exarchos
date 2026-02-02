@@ -355,10 +355,13 @@ cmd_summary() {
         local plan=$(jq -r '.artifacts.plan // "not created"' "$state_file")
         case "$phase" in
             ideate)
-                echo "Continue design exploration or run \`/plan\`"
+                echo "Continue design exploration (auto-chains to /plan when design saved)"
                 ;;
             plan)
-                echo "Run \`/delegate $plan\`"
+                echo "Continue planning (auto-chains to plan-review when plan saved)"
+                ;;
+            plan-review)
+                echo "Review plan-design delta and approve to continue to /delegate"
                 ;;
             delegate)
                 if [ "$complete_tasks" -eq "$total_tasks" ]; then
@@ -533,6 +536,7 @@ cmd_next_action() {
 
     # Handle feature workflows (original logic)
     local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
+    local design=$(jq -r '.artifacts.design // ""' "$state_file")
 
     # Check review status
     local spec_pending=$(jq '[.tasks[] | select(.reviewStatus.specReview == null or .reviewStatus.specReview == "pending")] | length' "$state_file")
@@ -542,13 +546,25 @@ cmd_next_action() {
 
     case "$phase" in
         ideate)
-            # Human checkpoint - design confirmation
-            echo "WAIT:human-checkpoint:design-confirmation"
+            # Auto-continue to plan after design is saved
+            if [ -n "$design" ] && [ "$design" != "null" ]; then
+                echo "AUTO:plan:$design"
+            else
+                echo "WAIT:incomplete:design-not-saved"
+            fi
             ;;
         plan)
             if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                # Plan saved, auto-continue to delegate
-                echo "AUTO:delegate:$plan"
+                # Plan saved, auto-continue to plan-review
+                echo "AUTO:plan-review:$plan"
+            else
+                echo "WAIT:incomplete:plan-not-saved"
+            fi
+            ;;
+        plan-review)
+            # Human checkpoint - plan approval
+            if [ -n "$plan" ] && [ "$plan" != "null" ]; then
+                echo "WAIT:human-checkpoint:plan-approval"
             else
                 echo "WAIT:incomplete:plan-not-saved"
             fi

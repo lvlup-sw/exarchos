@@ -2,7 +2,7 @@
 
 ## Overview
 
-Transform design documents into TDD-based implementation plans with granular, parallelizable tasks.
+Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Ensures complete spec coverage through explicit traceability.
 
 ## Triggers
 
@@ -11,6 +11,7 @@ Activate this skill when:
 - User wants to break down a design into tasks
 - A design document exists and needs implementation steps
 - User says "plan the implementation" or similar
+- Auto-chained from `/ideate` after design completion
 
 ## The Iron Law
 
@@ -58,12 +59,42 @@ Each task follows this structure:
 
 ### Step 1: Analyze Design Document
 
-Read the design and identify:
-- Core behaviors to implement
-- Data structures needed
-- API endpoints or interfaces
-- Integration points
-- Edge cases and error handling
+Read the design document thoroughly. For each major section, extract:
+- **Problem Statement** → Context (no tasks, but informs scope)
+- **Chosen Approach** → Architectural decisions to implement
+- **Technical Design** → Core implementation requirements
+- **Integration Points** → Integration and glue code tasks
+- **Testing Strategy** → Test coverage requirements
+- **Open Questions** → Decisions to resolve or explicitly defer
+
+### Step 1.5: Spec Tracing (Required)
+
+Create a traceability table mapping design sections to planned tasks. This ensures complete coverage.
+
+```markdown
+## Spec Traceability
+
+### Scope Declaration
+
+**Target:** [Full design | Partial: <specific components>]
+**Excluded:** [List any intentionally excluded sections with rationale]
+
+### Traceability Matrix
+
+| Design Section | Key Requirements | Task ID(s) | Status |
+|----------------|-----------------|------------|--------|
+| Technical Design > Component A | - Requirement 1<br>- Requirement 2 | 001, 002 | Covered |
+| Technical Design > Component B | - Requirement 3 | 003 | Covered |
+| Integration Points > X | - Connection to Y | 004 | Covered |
+| Testing Strategy | - Unit tests<br>- Integration tests | 005, 006 | Covered |
+| Open Questions > Q1 | Decision needed | — | Deferred: [reason] |
+```
+
+**Rules:**
+- Every sub-section of Technical Design MUST map to ≥1 task
+- Every file in "Files Changed" table MUST be touched by ≥1 task
+- Open Questions MUST be resolved OR explicitly deferred with rationale
+- For partial plans, declare scope upfront and only trace in-scope sections
 
 ### Step 2: Decompose into Tasks
 
@@ -109,10 +140,19 @@ Save to: `docs/plans/YYYY-MM-DD-<feature>.md`
 ## Source Design
 Link: `docs/designs/YYYY-MM-DD-<feature>.md`
 
+## Scope
+**Target:** [Full design | Partial: <specific components>]
+**Excluded:** [None | List excluded sections with rationale]
+
 ## Summary
 - Total tasks: [N]
 - Parallel groups: [N]
 - Estimated test count: [N]
+- Design coverage: [X of Y sections covered]
+
+## Spec Traceability
+
+[Traceability matrix from Step 1.5]
 
 ## Task Breakdown
 
@@ -122,12 +162,34 @@ Link: `docs/designs/YYYY-MM-DD-<feature>.md`
 
 [Which tasks can run in parallel worktrees]
 
+## Deferred Items
+
+[Open questions or design sections not addressed, with rationale]
+
 ## Completion Checklist
 - [ ] All tests written before implementation
 - [ ] All tests pass
 - [ ] Code coverage meets standards
 - [ ] Ready for review
 ```
+
+### Step 5: Plan Verification
+
+Before saving, verify completeness against the design document:
+
+**Coverage Checklist:**
+- [ ] Every sub-section of "Technical Design" has ≥1 task
+- [ ] All files in "Files Changed" table are touched by tasks
+- [ ] Testing strategy items have corresponding test tasks
+- [ ] Open questions are resolved OR explicitly deferred with rationale
+- [ ] For partial plans: scope declaration is clear and justified
+
+**Delta Analysis:**
+Compare design sections against task list. For each gap:
+1. Create a task to address it, OR
+2. Add to "Deferred Items" with explicit rationale
+
+If significant gaps remain that cannot be justified, **do not proceed** — return to design phase for clarification.
 
 ## Test Naming Convention
 
@@ -175,9 +237,9 @@ Update state with plan artifact and tasks:
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "branch": "feature/001-name"}]'
 
-# Update phase
+# Update phase to plan-review (NOT delegate)
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "delegate"'
+  '.phase = "plan-review"'
 ```
 
 ### Task State Structure
@@ -191,22 +253,84 @@ Each task in state should include:
 ## Completion Criteria
 
 - [ ] Design document read and understood
+- [ ] Spec traceability table created
+- [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
 - [ ] Each task starts with failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
+- [ ] Plan verification passed (Step 5)
 - [ ] Plan saved to `docs/plans/`
 - [ ] State file updated with plan path and tasks
 
 ## Transition
 
-After planning completes, **auto-continue immediately** (no user confirmation):
+After planning completes, **auto-continue to plan review** (no user confirmation yet):
 
-1. Update state: `.phase = "delegate"`, populate tasks
-2. Output: "Plan saved with [N] tasks. Auto-continuing to delegation..."
-3. Invoke immediately:
-   ```typescript
-   Skill({ skill: "delegate", args: "<plan-path>" })
-   ```
+1. Update state: `.phase = "plan-review"`, populate tasks
+2. Output: "Plan saved with [N] tasks. Running plan-design delta review..."
+3. Execute plan review inline (see Plan Review section below)
 
-This is NOT a human checkpoint - workflow continues autonomously.
+## Plan Review
+
+After the plan is saved, perform a formal delta analysis before requesting user approval.
+
+### Review Process
+
+1. **Re-read the design document** — Fresh pass to catch missed items
+2. **Compare against plan** — Section by section
+3. **Generate delta report:**
+
+```markdown
+## Plan Review: [Feature Name]
+
+### Coverage Summary
+- Design sections: [N]
+- Sections with tasks: [X]
+- Sections deferred: [Y]
+- Coverage: [X/N] ([percentage]%)
+
+### Delta Analysis
+
+| Design Section | Coverage | Notes |
+|----------------|----------|-------|
+| Technical Design > A | ✅ Full | Tasks 001-003 |
+| Technical Design > B | ⚠️ Partial | Task 004 covers core, edge cases deferred |
+| Integration Points | ✅ Full | Task 005 |
+| Testing Strategy | ✅ Full | Tasks 006-008 |
+| Open Questions > Q1 | ⏸️ Deferred | Awaiting API spec from team X |
+
+### Gaps Identified
+- [Gap 1]: [Description] — [Resolution: added task / deferred / out of scope]
+- [Gap 2]: [Description] — [Resolution]
+
+### Recommendation
+[APPROVE | REVISE | RETURN TO DESIGN]
+- [Rationale for recommendation]
+```
+
+4. **Present to user for approval** — This is the HUMAN CHECKPOINT
+
+### After Review
+
+**If approved:**
+```bash
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.phase = "delegate"'
+```
+Then invoke:
+```typescript
+Skill({ skill: "delegate", args: "<plan-path>" })
+```
+
+**If revisions needed:**
+- Address user feedback
+- Re-run plan review
+- Present again for approval
+
+**If return to design:**
+```bash
+~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+  '.phase = "ideate"'
+```
+Notify user that design needs refinement before planning can continue.

@@ -40,6 +40,8 @@ The `next-action` command returns one of:
 
 | Response | Meaning | Action |
 |----------|---------|--------|
+| `AUTO:plan:<design-path>` | Auto-continue to plan | Invoke `/plan` |
+| `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
 | `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
@@ -83,16 +85,32 @@ ONLY pause for human input at these phases:
 
 | Phase | Checkpoint | Why |
 |-------|------------|-----|
-| `ideate` | Design confirmation | User must approve design before planning |
+| `plan-review` | Plan approval | User must approve implementation plan before delegation |
 | `synthesize` (PR created) | Merge confirmation | User must approve merge or provide feedback |
 
 All other phases auto-continue:
-- `plan` → auto-chains to `/delegate`
+- `ideate` (design saved) → auto-chains to `/plan`
+- `plan` (plan saved) → auto-chains to plan-review (delta analysis)
+- `plan-review` (approved) → auto-chains to `/delegate`
 - `delegate` (all tasks complete) → auto-chains to `/integrate`
 - `integrate` (passed) → auto-chains to `/review`
 - `integrate` (failed) → auto-chains to `/delegate --fixes`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
+
+### Plan Review Phase
+
+The `plan-review` phase performs a delta analysis between design and plan:
+
+1. Re-reads the design document
+2. Compares each section against planned tasks
+3. Generates a coverage report with gaps identified
+4. Presents to user with recommendation (APPROVE / REVISE / RETURN TO DESIGN)
+
+**User actions at this checkpoint:**
+- **Approve**: Continue to `/delegate`
+- **Request revisions**: Address feedback, re-run plan review
+- **Return to design**: Go back to `/ideate` for design clarification
 
 ### Debug Workflow
 

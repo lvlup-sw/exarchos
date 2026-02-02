@@ -140,15 +140,21 @@ Update state with design artifact:
 
 ## Transition
 
-After brainstorming completes, this is a **human checkpoint**:
+After brainstorming completes, **auto-continue to planning** (no user confirmation):
 
-1. Update state with design path
-2. Summarize the saved design document path
-3. **PAUSE for user confirmation** to continue to `/plan`
-4. On confirmation, invoke:
+1. Update state with design path and phase:
+   ```bash
+   ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
+     '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
+   ```
+
+2. Output: "Design saved. Auto-continuing to implementation planning..."
+
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "plan", args: "<design-path>" })
    ```
 
-This is one of only TWO human checkpoints in the workflow.
-After user confirms, workflow runs autonomously until PR merge confirmation.
+This is NOT a human checkpoint. The human checkpoint occurs after plan review, before delegation.
+
+**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate`
