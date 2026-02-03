@@ -316,33 +316,18 @@ cmd_summary() {
         echo "- PR: $pr"
     elif [ "$workflow_type" = "refactor" ]; then
         local track=$(jq -r '.track // "not selected"' "$state_file")
-        local brief_problem=$(jq -r '.brief.problem // "not captured"' "$state_file")
-        local brief_goals=$(jq '.brief.goals | length' "$state_file")
-        local files_affected=$(jq '.explore.scopeAssessment.filesAffected | length' "$state_file")
-        local modules_affected=$(jq '.explore.scopeAssessment.modulesAffected | length' "$state_file")
-        local recommended_track=$(jq -r '.explore.scopeAssessment.recommendedTrack // "not assessed"' "$state_file")
+        local problem=$(jq -r '.brief.problem // "not captured"' "$state_file")
+        local goals_count=$(jq '.brief.goals | length' "$state_file")
+        local verified_count=$(jq '.validation.goalsVerified | length' "$state_file")
         local tests_pass=$(jq -r '.validation.testsPass // "not run"' "$state_file")
-        local goals_verified=$(jq '.validation.goalsVerified | length' "$state_file")
-        local docs_updated=$(jq -r '.validation.docsUpdated // "not updated"' "$state_file")
         local plan=$(jq -r '.artifacts.plan // "not created"' "$state_file")
 
         echo "**Type:** Refactor ($track track)"
         echo ""
-        echo "### Scope Assessment"
-        echo "- Files Affected: $files_affected"
-        echo "- Modules Affected: $modules_affected"
-        echo "- Recommended Track: $recommended_track"
-        echo ""
-        echo "### Brief"
-        echo "- Problem: $brief_problem"
-        echo "- Goals: $brief_goals defined"
-        echo ""
-        echo "### Validation"
-        echo "- Tests Pass: $tests_pass"
-        echo "- Goals Verified: $goals_verified"
-        echo "- Docs Updated: $docs_updated"
-        echo ""
-        echo "### Artifacts"
+        echo "### Refactor Context"
+        echo "- Problem: $problem"
+        echo "- Goals: $goals_count defined, $verified_count verified"
+        echo "- Tests: $tests_pass"
         echo "- Plan: \`$plan\`"
         echo "- PR: $pr"
     else
@@ -386,6 +371,20 @@ cmd_summary() {
             echo "$findings" | while read -r finding; do
                 echo "- $finding"
             done
+            echo ""
+        fi
+    fi
+
+    # Refactor scope assessment
+    if [ "$workflow_type" = "refactor" ]; then
+        local files_count=$(jq '.explore.scopeAssessment.filesAffected | length' "$state_file")
+        local modules_count=$(jq '.explore.scopeAssessment.modulesAffected | length' "$state_file")
+        local recommended_track=$(jq -r '.explore.scopeAssessment.recommendedTrack // "not assessed"' "$state_file")
+        if [ "$files_count" -gt 0 ] || [ "$modules_count" -gt 0 ]; then
+            echo "### Scope Assessment"
+            echo "- Files affected: $files_count"
+            echo "- Modules affected: $modules_count"
+            echo "- Recommended track: $recommended_track"
             echo ""
         fi
     fi
@@ -443,35 +442,26 @@ cmd_summary() {
         local track=$(jq -r '.track // ""' "$state_file")
         case "$phase" in
             explore)
-                echo "Analyze scope and select track (polish/overhaul)"
+                echo "Assess scope and select track (polish/overhaul)"
                 ;;
             brief)
-                echo "Capture problem statement and refactoring goals"
+                echo "Capture refactor intent and goals"
                 ;;
             plan)
-                echo "Create implementation plan for overhaul refactor"
+                echo "Create implementation plan"
                 ;;
             delegate)
-                if [ "$complete_tasks" -eq "$total_tasks" ]; then
-                    echo "All tasks complete. Auto-continues to integrate"
+                if [ "$complete_tasks" -eq "$total_tasks" ] && [ "$total_tasks" -gt 0 ]; then
+                    echo "All tasks complete. Run validation."
                 else
-                    echo "Monitor task completion ($complete_tasks/$total_tasks)"
+                    echo "Monitor task completion"
                 fi
                 ;;
-            integrate)
-                echo "Verify integration passes all tests"
-                ;;
-            implement)
-                echo "Apply polish refactor changes (TDD)"
-                ;;
             validate)
-                echo "Verify refactoring goals are met"
+                echo "Verify all goals met and tests pass"
                 ;;
             review)
-                echo "Complete review of refactored code"
-                ;;
-            update-docs)
-                echo "Update documentation to reflect changes"
+                echo "Complete spec review"
                 ;;
             synthesize)
                 if [ "$pr" != "not created" ]; then
@@ -481,7 +471,7 @@ cmd_summary() {
                 fi
                 ;;
             completed)
-                echo "Refactor workflow complete"
+                echo "Workflow complete"
                 ;;
             *)
                 echo "Check state file for details"
@@ -671,67 +661,45 @@ cmd_next_action() {
     if [ "$workflow_type" = "refactor" ]; then
         local track=$(jq -r '.track // ""' "$state_file")
         local brief_problem=$(jq -r '.brief.problem // ""' "$state_file")
-        local brief_goals=$(jq '.brief.goals | length' "$state_file")
+        local brief_goals_count=$(jq '.brief.goals | length' "$state_file")
+        local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
+        local tests_pass=$(jq -r 'if .validation.testsPass == null then "" else (.validation.testsPass | tostring) end' "$state_file")
         local docs_updated=$(jq -r 'if .validation.docsUpdated == null then "" else (.validation.docsUpdated | tostring) end' "$state_file")
+        local goals_verified_count=$(jq '.validation.goalsVerified | length' "$state_file")
+
+        # Check review status for overhaul track
+        local spec_pending=$(jq '[.tasks[] | select(.reviewStatus.specReview == null or .reviewStatus.specReview == "pending")] | length' "$state_file")
+        local spec_failed=$(jq '[.tasks[] | select(.reviewStatus.specReview == "fail")] | length' "$state_file")
+        local quality_pending=$(jq '[.tasks[] | select(.reviewStatus.qualityReview == null or .reviewStatus.qualityReview == "pending")] | length' "$state_file")
+        local quality_failed=$(jq '[.tasks[] | select(.reviewStatus.qualityReview == "needs_fixes" or .reviewStatus.qualityReview == "blocked")] | length' "$state_file")
 
         case "$phase" in
             explore)
-                # Check if exploration is complete (track selected)
+                # Auto-continue to brief after track is selected
                 if [ -n "$track" ] && [ "$track" != "null" ]; then
                     echo "AUTO:refactor-brief"
                 else
-                    echo "WAIT:in-progress:exploring-scope"
+                    echo "WAIT:incomplete:track-not-selected"
                 fi
                 ;;
             brief)
-                # Check if brief is complete
-                if [ -n "$brief_problem" ] && [ "$brief_problem" != "null" ] && [ "$brief_goals" -gt 0 ]; then
+                # Check if brief is captured (has problem and goals)
+                if [ -n "$brief_problem" ] && [ "$brief_problem" != "null" ] && [ "$brief_goals_count" -gt 0 ]; then
                     if [ "$track" = "polish" ]; then
                         echo "AUTO:refactor-implement"
-                    else
+                    elif [ "$track" = "overhaul" ]; then
                         echo "AUTO:refactor-plan"
+                    else
+                        echo "WAIT:incomplete:track-not-selected"
                     fi
                 else
                     echo "WAIT:in-progress:capturing-brief"
                 fi
                 ;;
-            plan)
-                # Overhaul track only - check if plan exists
-                local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
-                if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                    echo "AUTO:refactor-delegate"
-                else
-                    echo "WAIT:in-progress:planning"
-                fi
-                ;;
-            delegate)
-                # Check task completion
-                if [ "$total_tasks" -eq 0 ]; then
-                    echo "WAIT:incomplete:no-tasks-defined"
-                elif [ "$complete_tasks" -eq "$total_tasks" ]; then
-                    echo "AUTO:refactor-integrate"
-                else
-                    echo "WAIT:in-progress:tasks-$complete_tasks-of-$total_tasks"
-                fi
-                ;;
-            integrate)
-                # Check integration status from synthesis
-                local integration_passed=$(jq -r 'if .synthesis.integrationPassed == null then "" else (.synthesis.integrationPassed | tostring) end' "$state_file")
-                local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
-                if [ "$integration_passed" = "true" ]; then
-                    echo "AUTO:refactor-review"
-                elif [ "$integration_passed" = "false" ]; then
-                    echo "AUTO:delegate:--fixes $plan"
-                else
-                    echo "WAIT:in-progress:integrating"
-                fi
-                ;;
             implement)
                 # Polish track only - check if ALL implementation conditions met
                 if [ "$track" = "polish" ]; then
-                    # Read validation fields
-                    local tests_pass
-                    tests_pass=$(jq -r 'if .validation.testsPass == null then "" else (.validation.testsPass | tostring) end' "$state_file")
+                    # Read additional validation fields (separate declaration and assignment per SC2155)
                     local brief_implemented
                     brief_implemented=$(jq -r 'if .validation.briefImplemented == null then "" else (.validation.briefImplemented | tostring) end' "$state_file")
                     local scope_expanded
@@ -758,9 +726,7 @@ cmd_next_action() {
                 fi
                 ;;
             validate)
-                # Check if validation is complete
-                local tests_pass
-                tests_pass=$(jq -r 'if .validation.testsPass == null then "" else (.validation.testsPass | tostring) end' "$state_file")
+                # Polish track validation
                 if [ "$tests_pass" = "true" ]; then
                     echo "AUTO:refactor-update-docs"
                 elif [ "$tests_pass" = "false" ]; then
@@ -769,28 +735,54 @@ cmd_next_action() {
                     echo "WAIT:in-progress:validating"
                 fi
                 ;;
-            review)
-                # Overhaul track only
-                local review_passed=$(jq -r '.reviews | to_entries | all(.value.status == "pass")' "$state_file")
-                if [ "$review_passed" = "true" ]; then
-                    echo "AUTO:refactor-update-docs"
+            plan)
+                # Overhaul track planning
+                if [ -n "$plan" ] && [ "$plan" != "null" ]; then
+                    echo "AUTO:refactor-delegate"
                 else
-                    local review_failed=$(jq -r '.reviews | to_entries | any(.value.status == "fail" or .value.status == "needs_fixes")' "$state_file")
-                    if [ "$review_failed" = "true" ]; then
-                        echo "AUTO:delegate:--fixes"
-                    else
-                        echo "WAIT:in-progress:reviewing"
-                    fi
+                    echo "WAIT:in-progress:planning"
+                fi
+                ;;
+            delegate)
+                # Overhaul track delegation
+                if [ "$total_tasks" -eq 0 ]; then
+                    echo "WAIT:incomplete:no-tasks-defined"
+                elif [ "$complete_tasks" -eq "$total_tasks" ]; then
+                    echo "AUTO:refactor-integrate"
+                else
+                    echo "WAIT:in-progress:tasks-$complete_tasks-of-$total_tasks"
+                fi
+                ;;
+            integrate)
+                # Overhaul track integration
+                # Check integration status from state
+                local integration_passed=$(jq -r 'if .synthesis.integrationPassed == null then "" else (.synthesis.integrationPassed | tostring) end' "$state_file")
+                if [ "$integration_passed" = "true" ]; then
+                    echo "AUTO:refactor-review"
+                elif [ "$integration_passed" = "false" ]; then
+                    echo "AUTO:delegate:--fixes $plan"
+                else
+                    echo "WAIT:in-progress:integrating"
+                fi
+                ;;
+            review)
+                # Overhaul track review
+                if [ "$spec_failed" -gt 0 ] || [ "$quality_failed" -gt 0 ]; then
+                    echo "AUTO:delegate:--fixes $plan"
+                elif [ "$spec_pending" -gt 0 ] || [ "$quality_pending" -gt 0 ]; then
+                    echo "WAIT:in-progress:reviews-pending"
+                else
+                    echo "AUTO:refactor-update-docs"
                 fi
                 ;;
             update-docs)
-                # Check if docs are updated
+                # Documentation update phase
                 if [ "$docs_updated" = "true" ]; then
                     if [ "$track" = "polish" ]; then
-                        # Polish track - human checkpoint for completion
-                        echo "WAIT:human-checkpoint:polish-complete"
+                        # Polish track: human checkpoint for completion
+                        echo "WAIT:human-checkpoint:completion"
                     else
-                        # Overhaul track - continue to synthesize
+                        # Overhaul track: auto-continue to synthesize
                         echo "AUTO:refactor-synthesize"
                     fi
                 else
@@ -798,7 +790,7 @@ cmd_next_action() {
                 fi
                 ;;
             synthesize)
-                # Overhaul track only
+                # Overhaul track PR creation
                 if [ -n "$pr" ] && [ "$pr" != "null" ] && [ "$pr" != "" ]; then
                     echo "WAIT:human-checkpoint:merge-confirmation"
                 else
@@ -807,6 +799,9 @@ cmd_next_action() {
                 ;;
             completed)
                 echo "DONE"
+                ;;
+            blocked)
+                echo "WAIT:blocked:requires-attention"
                 ;;
             *)
                 echo "UNKNOWN:refactor-$phase"

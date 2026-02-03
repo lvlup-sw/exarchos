@@ -41,7 +41,6 @@ The `next-action` command returns one of:
 | Response | Meaning | Action |
 |----------|---------|--------|
 | `AUTO:plan:<design-path>` | Auto-continue to plan | Invoke `/plan` |
-| `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
 | `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
@@ -59,6 +58,21 @@ The `next-action` command returns one of:
 | `AUTO:debug-validate` | Validate fix | Run validation/smoke tests |
 | `AUTO:debug-review` | Spec review | Run spec review |
 | `AUTO:debug-synthesize` | Create PR | Create debug fix PR |
+
+#### Refactor Workflow Actions
+
+| Response | Meaning | Action |
+|----------|---------|--------|
+| `AUTO:refactor-explore` | Continue exploration | Resume scope assessment |
+| `AUTO:refactor-brief` | Capture brief | Continue brief phase |
+| `AUTO:refactor-implement` | Polish track implement | Continue direct implementation |
+| `AUTO:refactor-validate` | Polish track validate | Run validation checks |
+| `AUTO:refactor-update-docs` | Update documentation | Continue doc updates |
+| `AUTO:refactor-plan` | Overhaul track plan | Invoke `/plan` |
+| `AUTO:refactor-delegate` | Overhaul track delegate | Invoke `/delegate` |
+| `AUTO:refactor-integrate` | Overhaul track integrate | Invoke `/integrate` |
+| `AUTO:refactor-review` | Overhaul track review | Invoke `/review` |
+| `AUTO:refactor-synthesize` | Overhaul track synthesize | Invoke `/synthesize` |
 
 #### Wait/Done States
 
@@ -85,32 +99,16 @@ ONLY pause for human input at these phases:
 
 | Phase | Checkpoint | Why |
 |-------|------------|-----|
-| `plan-review` | Plan approval | User must approve implementation plan before delegation |
 | `synthesize` (PR created) | Merge confirmation | User must approve merge or provide feedback |
 
 All other phases auto-continue:
 - `ideate` (design saved) → auto-chains to `/plan`
-- `plan` (plan saved) → auto-chains to plan-review (delta analysis)
-- `plan-review` (approved) → auto-chains to `/delegate`
+- `plan` (plan saved) → auto-chains to `/delegate`
 - `delegate` (all tasks complete) → auto-chains to `/integrate`
 - `integrate` (passed) → auto-chains to `/review`
 - `integrate` (failed) → auto-chains to `/delegate --fixes`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
-
-### Plan Review Phase
-
-The `plan-review` phase performs a delta analysis between design and plan:
-
-1. Re-reads the design document
-2. Compares each section against planned tasks
-3. Generates a coverage report with gaps identified
-4. Presents to user with recommendation (APPROVE / REVISE / RETURN TO DESIGN)
-
-**User actions at this checkpoint:**
-- **Approve**: Continue to `/delegate`
-- **Request revisions**: Address feedback, re-run plan review
-- **Return to design**: Go back to `/ideate` for design clarification
 
 ### Debug Workflow
 
@@ -135,6 +133,34 @@ All debug phases auto-continue:
 - `design` → auto-chains to `implement`
 - `implement` → auto-chains to `review`
 - `review` → auto-chains to `synthesize`
+- `synthesize` → HUMAN CHECKPOINT (merge)
+
+### Refactor Workflow
+
+| Phase | Checkpoint | Why |
+|-------|------------|-----|
+| `update-docs` (polish) | Completion confirmation | User must confirm refactor complete |
+| `synthesize` (overhaul) | Merge confirmation | User must approve PR merge |
+
+All refactor phases auto-continue:
+
+**Polish track:**
+- `explore` → auto-chains to `brief`
+- `brief` → auto-chains to `implement`
+- `implement` → auto-chains to `validate`
+- `validate` → auto-chains to `update-docs`
+- `update-docs` → HUMAN CHECKPOINT (completion)
+
+**Overhaul track:**
+- `explore` → auto-chains to `brief`
+- `brief` → auto-chains to `plan`
+- `plan` → auto-chains to `delegate`
+- `delegate` (all tasks complete) → auto-chains to `integrate`
+- `integrate` (passed) → auto-chains to `review`
+- `integrate` (failed) → auto-chains to `delegate --fixes`
+- `review` (all passed) → auto-chains to `update-docs`
+- `review` (failed) → auto-chains to `delegate --fixes`
+- `update-docs` → auto-chains to `synthesize`
 - `synthesize` → HUMAN CHECKPOINT (merge)
 
 ## Idempotency

@@ -155,6 +155,6 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
    Skill({ skill: "plan", args: "<design-path>" })
    ```
 
-This is NOT a human checkpoint. The human checkpoint occurs after plan review, before delegation.
+This is NOT a human checkpoint. The human checkpoint occurs at synthesize (merge confirmation).
 
-**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate`
+**Workflow continues:** `/ideate` → `/plan` → `/delegate` → `/integrate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
