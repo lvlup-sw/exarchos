@@ -274,32 +274,50 @@ Update state:
   } | .phase = "plan"'
 ```
 
-#### 3. Plan Phase
-
-Invoke `/plan` skill with refactor-specific context:
-
-```bash
-# The plan skill extracts tasks from the brief
-# Focus on incremental, testable changes
-# Each task should leave code in working state
-# Dependency order matters more for refactors
+Then auto-invoke plan:
+```typescript
+Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
 ```
 
-Update state:
+#### 3. Plan Phase
+
+Invoke `/plan` skill with explicit Skill tool call:
+
+```typescript
+Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
+```
+
+The `/plan` skill:
+- Extracts tasks from the brief
+- Focuses on incremental, testable changes
+- Each task leaves code in working state
+- Dependency order matters more for refactors
+
+Update state on completion:
 ```bash
 ~/.claude/scripts/workflow-state.sh set <state-file> \
   '.artifacts.plan = "docs/plans/<plan-file>.md" | .phase = "delegate"'
+```
+
+Then auto-invoke delegate:
+```typescript
+Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
 ```
 
 #### 4. Delegate Phase
 
 Invoke `/delegate` skill for TDD implementation in worktrees:
 
-```bash
-# Create worktrees for each task
-# Full TDD: write failing test, implement, verify
-# Parallel execution where dependencies allow
+```typescript
+Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
 ```
+
+The `/delegate` skill:
+- Creates worktrees for each task
+- Dispatches subagents via Task tool with `model: "opus"`
+- Uses implementer prompt template for full context
+- Parallel execution where dependencies allow
+- Tracks progress in state file
 
 Update state on completion:
 ```bash
@@ -307,15 +325,23 @@ Update state on completion:
   '.phase = "integrate"'
 ```
 
+Then auto-invoke integrate:
+```typescript
+Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
+```
+
 #### 5. Integrate Phase
 
 Invoke `/integrate` skill to merge worktrees and run tests:
 
-```bash
-# Merge all task branches
-# Run full test suite
-# Verify no regressions
+```typescript
+Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
 ```
+
+The `/integrate` skill:
+- Merges all task branches
+- Runs full test suite
+- Verifies no regressions
 
 Update state on completion:
 ```bash
@@ -323,15 +349,23 @@ Update state on completion:
   '.phase = "review"'
 ```
 
+Then auto-invoke review:
+```typescript
+Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
+```
+
 #### 6. Review Phase
 
 Invoke `/review` skill with emphasis on quality:
 
-```bash
-# Quality review is emphasized for refactors
-# Refactors are high regression risk
-# Verify structure matches brief goals
+```typescript
+Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
 ```
+
+The `/review` skill:
+- Quality review is emphasized for refactors
+- Refactors are high regression risk
+- Verifies structure matches brief goals
 
 Update state on completion:
 ```bash
@@ -355,9 +389,20 @@ Update state:
   '.validation.docsUpdated = true | .artifacts.updatedDocs = ["<doc1>", "<doc2>"] | .phase = "synthesize"'
 ```
 
+Then auto-invoke synthesize:
+```typescript
+Skill({ skill: "synthesize", args: "<feature-name>" })
+```
+
 #### 8. Synthesize Phase
 
-Invoke `/synthesize` skill to create PR:
+Invoke `/synthesize` skill with explicit Skill tool call:
+
+```typescript
+Skill({ skill: "synthesize", args: "<feature-name>" })
+```
+
+The `/synthesize` skill creates the PR:
 
 ```bash
 gh pr create --title "refactor: <summary>" --body "$(cat <<'EOF'
@@ -495,13 +540,25 @@ Output to user:
 
 ### With Existing Skills
 
-| Skill | Usage |
-|-------|-------|
-| `/plan` | Overhaul track task extraction |
-| `/delegate` | Overhaul track implementation |
-| `/integrate` | Overhaul track merge and test |
-| `/review` | Overhaul track quality review |
-| `/synthesize` | Overhaul track PR creation |
+**CRITICAL:** All skill invocations MUST use explicit `Skill()` tool calls to ensure they actually execute:
+
+| Skill | Invocation | Usage |
+|-------|------------|-------|
+| `/plan` | `Skill({ skill: "plan", args: "--refactor <state-file>" })` | Task extraction from brief |
+| `/delegate` | `Skill({ skill: "delegate", args: "<state-file>" })` | Subagent dispatch for TDD |
+| `/integrate` | `Skill({ skill: "integrate", args: "<state-file>" })` | Worktree merge and test |
+| `/review` | `Skill({ skill: "review", args: "<state-file>" })` | Quality review |
+| `/synthesize` | `Skill({ skill: "synthesize", args: "<feature>" })` | PR creation |
+
+The `/delegate` skill dispatches subagents using:
+```typescript
+Task({
+  subagent_type: "general-purpose",
+  model: "opus",  // REQUIRED for coding tasks
+  description: "Implement task N",
+  prompt: "[Full implementer prompt with TDD requirements]"
+})
+```
 
 ### With workflow-state.sh
 

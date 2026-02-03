@@ -18,11 +18,17 @@ delegate → integrate → review → [update-docs OR delegate --fixes]
 
 ## Delegation Phase
 
-Invoke standard delegation:
+Invoke the delegation skill with explicit Skill tool call:
 
+```typescript
+Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
 ```
-/delegate docs/workflow-state/<feature>.state.json
-```
+
+The `/delegate` skill handles:
+- Creating worktrees for each task
+- Dispatching subagents via Task tool with `model: "opus"`
+- Using the implementer prompt template
+- Tracking task completion in state
 
 ### Refactor-Specific Task Guidance
 
@@ -123,6 +129,32 @@ No human checkpoints in this chain. Automatic progression:
 | review | update-docs | Review passes |
 | review | delegate --fixes | Review fails (loop) |
 
+## Transition to Integration
+
+After all tasks complete, auto-continue to integration:
+
+1. Update state: `.phase = "integrate"`
+2. Output: "All [N] tasks complete. Auto-continuing to integration..."
+3. Invoke immediately:
+   ```typescript
+   Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
+   ```
+
+This is NOT a human checkpoint - workflow continues autonomously.
+
+## Transition to Review (after integration)
+
+After integration passes, auto-continue to review:
+
+1. Update state: `.phase = "review"`
+2. Output: "Integration passed. Auto-continuing to review..."
+3. Invoke immediately:
+   ```typescript
+   Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
+   ```
+
+This is NOT a human checkpoint - workflow continues autonomously.
+
 ## Exit Conditions
 
 **Success Path:**
@@ -133,5 +165,8 @@ No human checkpoints in this chain. Automatic progression:
 
 **Failure Path:**
 - Review failures documented
-- Fix tasks dispatched via `--fixes`
+- Fix tasks dispatched via `--fixes`:
+  ```typescript
+  Skill({ skill: "delegate", args: "--fixes docs/workflow-state/<feature>.state.json" })
+  ```
 - Loop until review passes

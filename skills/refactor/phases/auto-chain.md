@@ -239,18 +239,39 @@ All recoveries are automatic loops until success.
 
 ## Integration with workflow-auto-resume.md
 
-The auto-chain actions are handled by workflow-auto-resume.md rules:
+The auto-chain actions are handled by workflow-auto-resume.md rules.
 
-| Action | Skill Invoked |
-|--------|---------------|
-| AUTO:refactor-explore | Resume scope assessment |
-| AUTO:refactor-brief | Continue to brief capture |
-| AUTO:refactor-implement | Continue to implement phase |
-| AUTO:refactor-validate | Continue to validate phase |
-| AUTO:refactor-update-docs | Continue to update-docs phase |
-| AUTO:refactor-plan | Invoke /plan with refactor context |
-| AUTO:refactor-delegate | Invoke /delegate |
-| AUTO:refactor-delegate:--fixes | Invoke /delegate --fixes |
-| AUTO:refactor-integrate | Invoke /integrate |
-| AUTO:refactor-review | Invoke /review |
-| AUTO:refactor-synthesize | Invoke /synthesize |
+**CRITICAL:** Use explicit `Skill()` tool invocations to ensure skills are actually invoked:
+
+| Action | Skill Invocation |
+|--------|------------------|
+| AUTO:refactor-explore | Resume scope assessment (inline) |
+| AUTO:refactor-brief | Continue to brief capture (inline) |
+| AUTO:refactor-implement | Continue to implement phase (inline - orchestrator implements) |
+| AUTO:refactor-validate | Continue to validate phase (inline) |
+| AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
+| AUTO:refactor-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
+| AUTO:refactor-delegate | `Skill({ skill: "delegate", args: "<state-file>" })` |
+| AUTO:refactor-delegate:--fixes | `Skill({ skill: "delegate", args: "--fixes <state-file>" })` |
+| AUTO:refactor-integrate | `Skill({ skill: "integrate", args: "<state-file>" })` |
+| AUTO:refactor-review | `Skill({ skill: "review", args: "<state-file>" })` |
+| AUTO:refactor-synthesize | `Skill({ skill: "synthesize", args: "<feature-name>" })` |
+
+### Example Overhaul Chain
+
+```typescript
+// After brief complete
+Skill({ skill: "plan", args: "--refactor docs/workflow-state/refactor-auth.state.json" })
+
+// After plan complete (invoked by /plan skill)
+Skill({ skill: "delegate", args: "docs/workflow-state/refactor-auth.state.json" })
+
+// After all tasks complete (invoked by /delegate skill)
+Skill({ skill: "integrate", args: "docs/workflow-state/refactor-auth.state.json" })
+
+// After integration passes (invoked by /integrate skill)
+Skill({ skill: "review", args: "docs/workflow-state/refactor-auth.state.json" })
+
+// After review passes, update-docs runs inline, then:
+Skill({ skill: "synthesize", args: "refactor-auth" })
+```

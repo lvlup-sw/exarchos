@@ -288,10 +288,14 @@ Transition to `delegate` phase when:
 
 After plan completion, auto-continue to delegate:
 
-```
-Output: "Refactor plan created with [N] tasks and [M] rollback points.
-        Auto-continuing to delegation..."
-```
+1. Update state with plan path and tasks (see State Updates above)
+2. Output: "Refactor plan created with [N] tasks and [M] rollback points. Auto-continuing to delegation..."
+3. Invoke immediately:
+   ```typescript
+   Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
+   ```
+
+This is NOT a human checkpoint - workflow continues autonomously.
 
 ## Anti-Patterns
 

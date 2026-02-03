@@ -150,3 +150,24 @@ If validation fails, prompt for missing fields.
 - Phase transitioned appropriately:
   - Polish -> implement
   - Overhaul -> plan
+
+## Transition
+
+After brief is captured, auto-continue to next phase:
+
+### Polish Track
+
+1. Update state: `.phase = "implement"`
+2. Output: "Brief captured. Auto-continuing to implementation..."
+3. Continue with implement phase inline (no Skill invocation - orchestrator implements directly)
+
+### Overhaul Track
+
+1. Update state: `.phase = "plan"`
+2. Output: "Brief captured. Auto-continuing to planning..."
+3. Invoke immediately:
+   ```typescript
+   Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
+   ```
+
+This is NOT a human checkpoint - workflow continues autonomously.

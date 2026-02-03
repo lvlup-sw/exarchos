@@ -187,6 +187,13 @@ After completing documentation updates:
 ~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "synthesize"'
 ```
 
+5. Auto-invoke synthesize immediately:
+```typescript
+Skill({ skill: "synthesize", args: "<feature-name>" })
+```
+
+This is NOT a human checkpoint - workflow continues autonomously.
+
 ## Common Issues
 
 ### No Documentation Exists
