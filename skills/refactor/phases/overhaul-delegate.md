@@ -7,7 +7,7 @@ Execute large refactors using worktree-isolated subagents with the standard dele
 ## Entry Conditions
 
 - Track is `overhaul`
-- Plan approved at plan-review checkpoint
+- Plan created with tasks defined
 - Tasks defined in plan document
 
 ## Phase Flow

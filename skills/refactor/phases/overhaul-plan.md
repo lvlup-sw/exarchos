@@ -253,9 +253,9 @@ After all tasks complete:
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "working_state_verified": false}]'
 
-# Transition to plan-review phase
+# Transition to delegate phase
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "plan-review"'
+  '.phase = "delegate"'
 ```
 
 ### Task State Structure
@@ -274,7 +274,7 @@ After all tasks complete:
 
 ## Exit Conditions
 
-Transition to `plan-review` checkpoint when:
+Transition to `delegate` phase when:
 
 - [ ] Plan document created at `docs/plans/`
 - [ ] All brief goals mapped to tasks
@@ -282,24 +282,16 @@ Transition to `plan-review` checkpoint when:
 - [ ] Rollback points identified (minimum 1)
 - [ ] Test strategy defined per task
 - [ ] State file updated with plan path and tasks
-- [ ] Phase set to `plan-review`
+- [ ] Phase set to `delegate`
 
-## Transition to Plan Review
+## Transition to Delegate
 
-After plan completion, auto-continue to plan-review:
+After plan completion, auto-continue to delegate:
 
 ```
 Output: "Refactor plan created with [N] tasks and [M] rollback points.
-        Running plan-design delta review..."
+        Auto-continuing to delegation..."
 ```
-
-The plan-review checkpoint verifies:
-1. All brief goals have corresponding tasks
-2. Incremental strategy is sound
-3. Rollback points are sufficient
-4. Test coverage is adequate
-
-**This is a HUMAN CHECKPOINT** - user must approve before delegation begins.
 
 ## Anti-Patterns
 

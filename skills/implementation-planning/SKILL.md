@@ -237,9 +237,9 @@ Update state with plan artifact and tasks:
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
   '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "branch": "feature/001-name"}]'
 
-# Update phase to plan-review (NOT delegate)
+# Update phase to delegate
 ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "plan-review"'
+  '.phase = "delegate"'
 ```
 
 ### Task State Structure
@@ -265,72 +265,11 @@ Each task in state should include:
 
 ## Transition
 
-After planning completes, **auto-continue to plan review** (no user confirmation yet):
+After planning completes, **auto-continue to delegate** (no user confirmation):
 
-1. Update state: `.phase = "plan-review"`, populate tasks
-2. Output: "Plan saved with [N] tasks. Running plan-design delta review..."
-3. Execute plan review inline (see Plan Review section below)
-
-## Plan Review
-
-After the plan is saved, perform a formal delta analysis before requesting user approval.
-
-### Review Process
-
-1. **Re-read the design document** — Fresh pass to catch missed items
-2. **Compare against plan** — Section by section
-3. **Generate delta report:**
-
-```markdown
-## Plan Review: [Feature Name]
-
-### Coverage Summary
-- Design sections: [N]
-- Sections with tasks: [X]
-- Sections deferred: [Y]
-- Coverage: [X/N] ([percentage]%)
-
-### Delta Analysis
-
-| Design Section | Coverage | Notes |
-|----------------|----------|-------|
-| Technical Design > A | ✅ Full | Tasks 001-003 |
-| Technical Design > B | ⚠️ Partial | Task 004 covers core, edge cases deferred |
-| Integration Points | ✅ Full | Task 005 |
-| Testing Strategy | ✅ Full | Tasks 006-008 |
-| Open Questions > Q1 | ⏸️ Deferred | Awaiting API spec from team X |
-
-### Gaps Identified
-- [Gap 1]: [Description] — [Resolution: added task / deferred / out of scope]
-- [Gap 2]: [Description] — [Resolution]
-
-### Recommendation
-[APPROVE | REVISE | RETURN TO DESIGN]
-- [Rationale for recommendation]
-```
-
-4. **Present to user for approval** — This is the HUMAN CHECKPOINT
-
-### After Review
-
-**If approved:**
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "delegate"'
-```
-Then invoke:
+1. Update state: `.phase = "delegate"`, populate tasks
+2. Output: "Plan saved with [N] tasks. Auto-continuing to delegation..."
+3. Invoke delegation:
 ```typescript
 Skill({ skill: "delegate", args: "<plan-path>" })
 ```
-
-**If revisions needed:**
-- Address user feedback
-- Re-run plan review
-- Present again for approval
-
-**If return to design:**
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "ideate"'
-```
-Notify user that design needs refinement before planning can continue.

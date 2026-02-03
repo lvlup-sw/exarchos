@@ -166,6 +166,9 @@ EOF
   },
   "validation": {
     "testsPass": null,
+    "briefImplemented": null,
+    "scopeExpanded": null,
+    "filesChangedCount": 0,
     "goalsVerified": [],
     "docsUpdated": null
   },
@@ -481,10 +484,7 @@ cmd_summary() {
                 echo "Continue design exploration (auto-chains to /plan when design saved)"
                 ;;
             plan)
-                echo "Continue planning (auto-chains to plan-review when plan saved)"
-                ;;
-            plan-review)
-                echo "Review plan-design delta and approve to continue to /delegate"
+                echo "Continue planning (auto-chains to /delegate when plan saved)"
                 ;;
             delegate)
                 if [ "$complete_tasks" -eq "$total_tasks" ]; then
@@ -697,10 +697,25 @@ cmd_next_action() {
                 fi
                 ;;
             implement)
-                # Polish track only - check if implementation conditions met
+                # Polish track only - check if ALL implementation conditions met
                 if [ "$track" = "polish" ]; then
-                    # Check if goals are being verified (implementation complete)
-                    if [ "$goals_verified_count" -gt 0 ] || [ "$tests_pass" = "true" ]; then
+                    # Read additional validation fields (separate declaration and assignment per SC2155)
+                    local brief_implemented
+                    brief_implemented=$(jq -r 'if .validation.briefImplemented == null then "" else (.validation.briefImplemented | tostring) end' "$state_file")
+                    local scope_expanded
+                    scope_expanded=$(jq -r 'if .validation.scopeExpanded == null then "" else (.validation.scopeExpanded | tostring) end' "$state_file")
+                    local files_changed_count
+                    files_changed_count=$(jq -r '.validation.filesChangedCount // 0' "$state_file")
+
+                    # ALL conditions must be met (per polish-implement.md exit conditions):
+                    # 1. All tests pass (testsPass = true)
+                    # 2. All changes from brief are implemented (briefImplemented = true)
+                    # 3. No scope expansion occurred (scopeExpanded = false)
+                    # 4. ≤5 files changed (filesChangedCount <= 5)
+                    if [ "$tests_pass" = "true" ] && \
+                       [ "$brief_implemented" = "true" ] && \
+                       [ "$scope_expanded" = "false" ] && \
+                       [ "$files_changed_count" -le 5 ]; then
                         echo "AUTO:refactor-validate"
                     else
                         echo "WAIT:in-progress:implementing"
@@ -816,16 +831,8 @@ cmd_next_action() {
             ;;
         plan)
             if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                # Plan saved, auto-continue to plan-review
-                echo "AUTO:plan-review:$plan"
-            else
-                echo "WAIT:incomplete:plan-not-saved"
-            fi
-            ;;
-        plan-review)
-            # Human checkpoint - plan approval
-            if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                echo "WAIT:human-checkpoint:plan-approval"
+                # Plan saved, auto-continue to delegate
+                echo "AUTO:delegate:$plan"
             else
                 echo "WAIT:incomplete:plan-not-saved"
             fi

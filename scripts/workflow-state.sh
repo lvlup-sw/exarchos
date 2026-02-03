@@ -81,65 +81,7 @@ cmd_init() {
     # Ensure state directory exists
     mkdir -p "$STATE_DIR"
 
-    if [ "$workflow_type" = "refactor" ]; then
-        # Refactor workflow state
-        cat > "$state_file" << EOF
-{
-  "version": "1.0",
-  "featureId": "$feature_id",
-  "workflowType": "refactor",
-  "createdAt": "$now",
-  "updatedAt": "$now",
-  "track": null,
-  "phase": "explore",
-  "scope": {
-    "files": [],
-    "modules": [],
-    "estimatedComplexity": null
-  },
-  "brief": {
-    "problem": null,
-    "goals": [],
-    "constraints": [],
-    "acceptanceCriteria": []
-  },
-  "artifacts": {
-    "plan": null,
-    "pr": null
-  },
-  "validation": {
-    "testsPass": false,
-    "briefImplemented": false,
-    "scopeExpanded": false,
-    "filesChangedCount": 0,
-    "goalsVerified": [],
-    "docsUpdated": false
-  },
-  "tasks": [],
-  "worktrees": {},
-  "reviews": {},
-  "integration": {
-    "branch": null,
-    "status": "pending",
-    "mergedBranches": [],
-    "failureDetails": null,
-    "testResults": {
-      "tests": "pending",
-      "typecheck": "pending",
-      "lint": "pending",
-      "build": "pending"
-    }
-  },
-  "synthesis": {
-    "integrationBranch": null,
-    "mergeOrder": [],
-    "mergedBranches": [],
-    "prUrl": null,
-    "prFeedback": []
-  }
-}
-EOF
-    elif [ "$workflow_type" = "debug" ]; then
+    if [ "$workflow_type" = "debug" ]; then
         # Debug workflow state
         cat > "$state_file" << EOF
 {
@@ -174,6 +116,61 @@ EOF
   "followUp": {
     "rcaRequired": false,
     "issueUrl": null
+  },
+  "tasks": [],
+  "worktrees": {},
+  "reviews": {},
+  "synthesis": {
+    "integrationBranch": null,
+    "mergeOrder": [],
+    "mergedBranches": [],
+    "prUrl": null,
+    "prFeedback": []
+  }
+}
+EOF
+    elif [ "$workflow_type" = "refactor" ]; then
+        # Refactor workflow state
+        cat > "$state_file" << EOF
+{
+  "version": "1.0",
+  "featureId": "$feature_id",
+  "workflowType": "refactor",
+  "createdAt": "$now",
+  "updatedAt": "$now",
+  "track": null,
+  "phase": "explore",
+  "explore": {
+    "startedAt": null,
+    "completedAt": null,
+    "scopeAssessment": {
+      "filesAffected": [],
+      "modulesAffected": [],
+      "testCoverage": null,
+      "recommendedTrack": null
+    }
+  },
+  "brief": {
+    "problem": null,
+    "goals": [],
+    "approach": null,
+    "affectedAreas": [],
+    "outOfScope": [],
+    "successCriteria": [],
+    "docsToUpdate": []
+  },
+  "artifacts": {
+    "plan": null,
+    "pr": null,
+    "updatedDocs": []
+  },
+  "validation": {
+    "testsPass": null,
+    "briefImplemented": null,
+    "scopeExpanded": null,
+    "filesChangedCount": 0,
+    "goalsVerified": [],
+    "docsUpdated": null
   },
   "tasks": [],
   "worktrees": {},
@@ -321,20 +318,20 @@ cmd_summary() {
         local track=$(jq -r '.track // "not selected"' "$state_file")
         local brief_problem=$(jq -r '.brief.problem // "not captured"' "$state_file")
         local brief_goals=$(jq '.brief.goals | length' "$state_file")
-        local scope_files=$(jq '.scope.files | length' "$state_file")
-        local scope_modules=$(jq '.scope.modules | length' "$state_file")
-        local complexity=$(jq -r '.scope.estimatedComplexity // "not assessed"' "$state_file")
-        local tests_pass=$(jq -r '.validation.testsPass // false' "$state_file")
+        local files_affected=$(jq '.explore.scopeAssessment.filesAffected | length' "$state_file")
+        local modules_affected=$(jq '.explore.scopeAssessment.modulesAffected | length' "$state_file")
+        local recommended_track=$(jq -r '.explore.scopeAssessment.recommendedTrack // "not assessed"' "$state_file")
+        local tests_pass=$(jq -r '.validation.testsPass // "not run"' "$state_file")
         local goals_verified=$(jq '.validation.goalsVerified | length' "$state_file")
-        local docs_updated=$(jq -r '.validation.docsUpdated // false' "$state_file")
+        local docs_updated=$(jq -r '.validation.docsUpdated // "not updated"' "$state_file")
         local plan=$(jq -r '.artifacts.plan // "not created"' "$state_file")
 
         echo "**Type:** Refactor ($track track)"
         echo ""
         echo "### Scope Assessment"
-        echo "- Files: $scope_files"
-        echo "- Modules: $scope_modules"
-        echo "- Complexity: $complexity"
+        echo "- Files Affected: $files_affected"
+        echo "- Modules Affected: $modules_affected"
+        echo "- Recommended Track: $recommended_track"
         echo ""
         echo "### Brief"
         echo "- Problem: $brief_problem"
@@ -497,10 +494,7 @@ cmd_summary() {
                 echo "Continue design exploration (auto-chains to /plan when design saved)"
                 ;;
             plan)
-                echo "Continue planning (auto-chains to plan-review when plan saved)"
-                ;;
-            plan-review)
-                echo "Review plan-design delta and approve to continue to /delegate"
+                echo "Continue planning (auto-chains to /delegate when plan saved)"
                 ;;
             delegate)
                 if [ "$complete_tasks" -eq "$total_tasks" ]; then
@@ -678,7 +672,7 @@ cmd_next_action() {
         local track=$(jq -r '.track // ""' "$state_file")
         local brief_problem=$(jq -r '.brief.problem // ""' "$state_file")
         local brief_goals=$(jq '.brief.goals | length' "$state_file")
-        local docs_updated=$(jq -r '.validation.docsUpdated // false' "$state_file")
+        local docs_updated=$(jq -r 'if .validation.docsUpdated == null then "" else (.validation.docsUpdated | tostring) end' "$state_file")
 
         case "$phase" in
             explore)
@@ -721,47 +715,56 @@ cmd_next_action() {
                 fi
                 ;;
             integrate)
-                # Check integration status
-                local integration_status=$(jq -r '.integration.status // "pending"' "$state_file")
-                if [ "$integration_status" = "passed" ]; then
+                # Check integration status from synthesis
+                local integration_passed=$(jq -r 'if .synthesis.integrationPassed == null then "" else (.synthesis.integrationPassed | tostring) end' "$state_file")
+                local plan=$(jq -r '.artifacts.plan // ""' "$state_file")
+                if [ "$integration_passed" = "true" ]; then
                     echo "AUTO:refactor-review"
-                elif [ "$integration_status" = "failed" ]; then
-                    echo "AUTO:delegate:--fixes"
+                elif [ "$integration_passed" = "false" ]; then
+                    echo "AUTO:delegate:--fixes $plan"
                 else
                     echo "WAIT:in-progress:integrating"
                 fi
                 ;;
             implement)
-                # Polish track only - check if implementation is done
-                # Per polish-implement.md, ALL exit conditions must be met:
-                # 1. All changes from brief are implemented
-                # 2. All tests pass
-                # 3. No scope expansion occurred
-                # 4. ≤5 files changed
-                local tests_pass
-                tests_pass=$(jq -r '.validation.testsPass // false' "$state_file")
-                local brief_implemented
-                brief_implemented=$(jq -r '.validation.briefImplemented // false' "$state_file")
-                local scope_expanded
-                scope_expanded=$(jq -r '.validation.scopeExpanded // false' "$state_file")
-                local files_changed_count
-                files_changed_count=$(jq -r '.validation.filesChangedCount // 0' "$state_file")
+                # Polish track only - check if ALL implementation conditions met
+                if [ "$track" = "polish" ]; then
+                    # Read validation fields
+                    local tests_pass
+                    tests_pass=$(jq -r 'if .validation.testsPass == null then "" else (.validation.testsPass | tostring) end' "$state_file")
+                    local brief_implemented
+                    brief_implemented=$(jq -r 'if .validation.briefImplemented == null then "" else (.validation.briefImplemented | tostring) end' "$state_file")
+                    local scope_expanded
+                    scope_expanded=$(jq -r 'if .validation.scopeExpanded == null then "" else (.validation.scopeExpanded | tostring) end' "$state_file")
+                    local files_changed_count
+                    files_changed_count=$(jq -r '.validation.filesChangedCount // 0' "$state_file")
 
-                # All conditions must be met to advance
-                if [ "$tests_pass" = "true" ] && \
-                   [ "$brief_implemented" = "true" ] && \
-                   [ "$scope_expanded" = "false" ] && \
-                   [ "$files_changed_count" -le 5 ]; then
-                    echo "AUTO:refactor-validate"
+                    # ALL conditions must be met (per polish-implement.md exit conditions):
+                    # 1. All tests pass (testsPass = true)
+                    # 2. All changes from brief are implemented (briefImplemented = true)
+                    # 3. No scope expansion occurred (scopeExpanded = false)
+                    # 4. ≤5 files changed (filesChangedCount <= 5)
+                    if [ "$tests_pass" = "true" ] && \
+                       [ "$brief_implemented" = "true" ] && \
+                       [ "$scope_expanded" = "false" ] && \
+                       [ "$files_changed_count" -le 5 ]; then
+                        echo "AUTO:refactor-validate"
+                    else
+                        echo "WAIT:in-progress:implementing"
+                    fi
                 else
+                    # Overhaul track shouldn't hit implement phase directly
                     echo "WAIT:in-progress:implementing"
                 fi
                 ;;
             validate)
                 # Check if validation is complete
-                local goals_verified=$(jq '.validation.goalsVerified | length' "$state_file")
-                if [ "$goals_verified" -gt 0 ]; then
+                local tests_pass
+                tests_pass=$(jq -r 'if .validation.testsPass == null then "" else (.validation.testsPass | tostring) end' "$state_file")
+                if [ "$tests_pass" = "true" ]; then
                     echo "AUTO:refactor-update-docs"
+                elif [ "$tests_pass" = "false" ]; then
+                    echo "WAIT:blocked:tests-failing"
                 else
                     echo "WAIT:in-progress:validating"
                 fi
@@ -833,16 +836,8 @@ cmd_next_action() {
             ;;
         plan)
             if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                # Plan saved, auto-continue to plan-review
-                echo "AUTO:plan-review:$plan"
-            else
-                echo "WAIT:incomplete:plan-not-saved"
-            fi
-            ;;
-        plan-review)
-            # Human checkpoint - plan approval
-            if [ -n "$plan" ] && [ "$plan" != "null" ]; then
-                echo "WAIT:human-checkpoint:plan-approval"
+                # Plan saved, auto-continue to delegate
+                echo "AUTO:delegate:$plan"
             else
                 echo "WAIT:incomplete:plan-not-saved"
             fi
