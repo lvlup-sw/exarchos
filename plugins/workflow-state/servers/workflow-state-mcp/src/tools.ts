@@ -8,6 +8,7 @@ import type {
   NextActionInput,
   TransitionsInput,
   CancelInput,
+  CheckpointInput,
   CheckpointMeta,
   WorkflowState,
 } from './types.js';
@@ -420,6 +421,68 @@ export async function handleCancel(
       actions: compensationResult.actions,
       previousPhase: currentPhase,
     },
+    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
+  };
+}
+
+// ─── handleCheckpoint ──────────────────────────────────────────────────────
+
+export async function handleCheckpoint(
+  input: CheckpointInput,
+  stateDir: string,
+): Promise<ToolResult> {
+  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+
+  let state: WorkflowState;
+  try {
+    state = await readStateFile(stateFile);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_NOT_FOUND,
+          message: `State not found for feature: ${input.featureId}`,
+        },
+      };
+    }
+    throw err;
+  }
+
+  // Work with a mutable copy
+  const mutableState = { ...state } as Record<string, unknown>;
+
+  // Reset checkpoint counter with current phase and optional summary
+  mutableState._checkpoint = resetCounter(
+    mutableState._checkpoint as WorkflowState['_checkpoint'],
+    state.phase,
+    input.summary,
+  );
+
+  // Append checkpoint event to event log
+  const trigger = input.summary ?? 'explicit checkpoint';
+  const appended = appendEvent(
+    mutableState._events as WorkflowState['_events'],
+    mutableState._eventSequence as number,
+    'checkpoint',
+    trigger,
+  );
+  mutableState._events = appended.events;
+  mutableState._eventSequence = appended.eventSequence;
+
+  // Update lastActivityTimestamp
+  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
+  checkpoint.lastActivityTimestamp = new Date().toISOString();
+
+  // Update top-level timestamp
+  mutableState.updatedAt = new Date().toISOString();
+
+  // Write back to disk
+  await writeStateFile(stateFile, mutableState as WorkflowState);
+
+  return {
+    success: true,
+    data: mutableState,
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
