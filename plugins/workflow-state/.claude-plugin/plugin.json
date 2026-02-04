@@ -2,7 +2,10 @@
   "name": "workflow-state",
   "description": "Workflow state management with HSM, event logging, and saga compensation",
   "version": "1.0.0",
-  "author": { "name": "lvlup-sw" },
+  "author": {
+    "name": "lvlup-sw"
+  },
   "repository": "https://github.com/lvlup-sw/lvlup-claude",
-  "keywords": ["workflow", "state-machine", "mcp"]
+  "keywords": ["workflow", "state-machine", "mcp"],
+  "mcpServers": "./mcp-servers.json"
 }
