@@ -11,6 +11,7 @@ import {
   handleReconcile,
   handleNextAction,
   handleTransitions,
+  handleCancel,
 } from '../tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../state-store.js';
 import type { WorkflowState } from '../types.js';
@@ -248,6 +249,94 @@ describe('Core Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('RESERVED_FIELD');
+    });
+  });
+
+  // ─── ToolCancel ──────────────────────────────────────────────────────────────
+
+  describe('ToolCancel_ActiveWorkflow_ExecutesCompensationAndTransitions', () => {
+    it('should cancel an active workflow, run compensation, and transition to cancelled', async () => {
+      await handleInit({ featureId: 'cancel-active', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleCancel(
+        { featureId: 'cancel-active' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result._meta).toBeDefined();
+
+      const data = result.data as Record<string, unknown>;
+      expect(data.phase).toBe('cancelled');
+      expect(data.actions).toBeDefined();
+      expect(Array.isArray(data.actions)).toBe(true);
+
+      // Verify events include compensation and cancel events
+      const state = await readStateFile(path.join(tmpDir, 'cancel-active.state.json'));
+      expect(state.phase).toBe('cancelled');
+
+      const events = state._events;
+      const cancelEvents = events.filter((e) => e.type === 'cancel');
+      expect(cancelEvents.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('ToolCancel_AlreadyCancelled_ReturnsAlreadyCancelled', () => {
+    it('should return ALREADY_CANCELLED error when workflow is already cancelled', async () => {
+      await handleInit({ featureId: 'cancel-twice', workflowType: 'feature' }, tmpDir);
+
+      // Cancel it once
+      await handleCancel({ featureId: 'cancel-twice' }, tmpDir);
+
+      // Try to cancel again
+      const result = await handleCancel({ featureId: 'cancel-twice' }, tmpDir);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error?.code).toBe('ALREADY_CANCELLED');
+    });
+  });
+
+  describe('ToolCancel_DryRun_ListsActionsNoExecution', () => {
+    it('should return actions list without executing or changing state when dryRun is true', async () => {
+      await handleInit({ featureId: 'cancel-dry', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleCancel(
+        { featureId: 'cancel-dry', dryRun: true },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+
+      const data = result.data as Record<string, unknown>;
+      expect(data.actions).toBeDefined();
+      expect(Array.isArray(data.actions)).toBe(true);
+      expect(data.dryRun).toBe(true);
+
+      // Verify state was NOT changed
+      const state = await readStateFile(path.join(tmpDir, 'cancel-dry.state.json'));
+      expect(state.phase).toBe('ideate');
+    });
+  });
+
+  describe('ToolCancel_WithReason_IncludedInEvent', () => {
+    it('should include the reason in the cancel event metadata', async () => {
+      await handleInit({ featureId: 'cancel-reason', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleCancel(
+        { featureId: 'cancel-reason', reason: 'Requirements changed' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+
+      const state = await readStateFile(path.join(tmpDir, 'cancel-reason.state.json'));
+      const cancelEvents = state._events.filter((e) => e.type === 'cancel');
+      expect(cancelEvents.length).toBeGreaterThanOrEqual(1);
+
+      const cancelEvent = cancelEvents[cancelEvents.length - 1];
+      expect(cancelEvent.metadata).toBeDefined();
+      expect(cancelEvent.metadata?.reason).toBe('Requirements changed');
     });
   });
 });
