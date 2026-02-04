@@ -28,7 +28,7 @@ fi
 
 ## API File Patterns
 
-Schema sync is needed after modifying these Aegis API files:
+Schema sync is needed after modifying these API files:
 
 | Pattern | Description |
 |---------|-------------|
@@ -37,6 +37,7 @@ Schema sync is needed after modifying these Aegis API files:
 | `apps/aegis-api/src/**/Requests/*.cs` | Request models |
 | `apps/aegis-api/src/**/Responses/*.cs` | Response models |
 | `apps/aegis-api/src/**/Dtos/*.cs` | Data transfer objects |
+| `apps/black-gate/src/**/*.ts` | Black Gate route definitions |
 
 ## Process
 
@@ -67,7 +68,7 @@ npm run sync:schemas
 
 This command:
 1. **Builds Aegis API** - Generates `apps/aegis-api/openapi.json`
-2. **Runs Orval** - Generates TypeScript types and Zod schemas
+2. **Runs Orval** - Generates TypeScript types and Zod schemas for both Aegis and Black Gate
 3. **Rebuilds shared packages** - Compiles the generated code
 
 ### Step 3: Verify TypeScript
@@ -86,6 +87,8 @@ Report what was regenerated:
 **OpenAPI Spec:** apps/aegis-api/openapi.json
 **TypeScript Types:** shared/types/src/generated/aegis.ts
 **Zod Schemas:** shared/validation/src/generated/aegis.zod.ts
+**Black Gate Zod:** shared/validation/src/generated/black-gate.zod.ts
+**Black Gate Component Schemas:** shared/validation/src/generated/schemas/black-gate/
 **Frontend Types:** apps/ares-elite-web/src/api/generated/aegis.schemas.ts
 
 Typecheck: PASS
@@ -113,6 +116,8 @@ fi
 | `apps/aegis-api/openapi.json` | OpenAPI specification |
 | `shared/types/src/generated/aegis.ts` | TypeScript types |
 | `shared/validation/src/generated/aegis.zod.ts` | Zod validation schemas |
+| `shared/validation/src/generated/black-gate.zod.ts` | Black Gate Zod validation schemas |
+| `shared/validation/src/generated/schemas/black-gate/` | Black Gate component schemas |
 | `apps/ares-elite-web/src/api/generated/aegis.schemas.ts` | TypeScript schema types |
 
 ## Failure Recovery
@@ -170,5 +175,6 @@ cd .worktrees/task-001
 - [ ] OpenAPI spec generated successfully
 - [ ] TypeScript types generated
 - [ ] Zod schemas generated
+- [ ] Black Gate Zod schemas generated
 - [ ] Typecheck passes
 - [ ] No uncommitted generated files (if committing)
