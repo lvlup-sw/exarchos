@@ -3,6 +3,10 @@ import type {
   ListInput,
   GetInput,
   SetInput,
+  SummaryInput,
+  ReconcileInput,
+  NextActionInput,
+  TransitionsInput,
   CheckpointMeta,
   WorkflowState,
 } from './types.js';
@@ -19,9 +23,11 @@ import {
   incrementOperations,
   resetCounter,
 } from './checkpoint.js';
-import { appendEvent } from './events.js';
-import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { appendEvent, getRecentEvents } from './events.js';
+import { getHSMDefinition, executeTransition, getValidTransitions } from './state-machine.js';
+import { getCircuitBreakerState } from './circuit-breaker.js';
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 
 // ─── Tool Result Interface ──────────────────────────────────────────────────
 
@@ -278,4 +284,371 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   }
 
   return current;
+}
+
+// ─── Human Checkpoint Phases ────────────────────────────────────────────────
+
+const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
+  feature: new Set(['synthesize']),
+  debug: new Set(['hotfix-validate', 'synthesize']),
+  refactor: new Set(['polish-update-docs', 'synthesize']),
+};
+
+// ─── Phase-to-Action Mapping ────────────────────────────────────────────────
+
+const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
+  feature: {
+    ideate: 'AUTO:plan',
+    plan: 'AUTO:delegate',
+    delegate: 'AUTO:integrate',
+    integrate: 'AUTO:review',
+    review: 'AUTO:synthesize',
+  },
+  debug: {
+    triage: 'AUTO:debug-investigate',
+    investigate: 'AUTO:debug-rca',
+    rca: 'AUTO:debug-design',
+    design: 'AUTO:debug-implement',
+    'debug-implement': 'AUTO:debug-validate',
+    'debug-review': 'AUTO:debug-synthesize',
+    'hotfix-implement': 'AUTO:debug-validate',
+  },
+  refactor: {
+    explore: 'AUTO:refactor-explore',
+    brief: 'AUTO:refactor-brief',
+    'polish-implement': 'AUTO:refactor-validate',
+    'polish-validate': 'AUTO:refactor-update-docs',
+    'overhaul-plan': 'AUTO:refactor-delegate',
+    'overhaul-delegate': 'AUTO:refactor-integrate',
+    'overhaul-integrate': 'AUTO:refactor-review',
+    'overhaul-review': 'AUTO:refactor-update-docs',
+    'overhaul-update-docs': 'AUTO:refactor-synthesize',
+  },
+};
+
+// ─── Compound State Lookup ──────────────────────────────────────────────────
+
+/**
+ * Find the compound state that contains the given phase, if any.
+ * Returns { compoundId, maxFixCycles } or undefined.
+ */
+function findCompoundForPhase(
+  workflowType: string,
+  phase: string,
+): { compoundId: string; maxFixCycles: number } | undefined {
+  const hsm = getHSMDefinition(workflowType);
+  const state = hsm.states[phase];
+  if (!state?.parent) return undefined;
+  const parent = hsm.states[state.parent];
+  if (!parent || parent.type !== 'compound') return undefined;
+  return {
+    compoundId: parent.id,
+    maxFixCycles: parent.maxFixCycles ?? 3,
+  };
+}
+
+// ─── handleSummary ──────────────────────────────────────────────────────────
+
+export async function handleSummary(
+  input: SummaryInput,
+  stateDir: string,
+): Promise<ToolResult> {
+  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+
+  let state: WorkflowState;
+  try {
+    state = await readStateFile(stateFile);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_NOT_FOUND,
+          message: `State not found for feature: ${input.featureId}`,
+        },
+      };
+    }
+    throw err;
+  }
+
+  // Task progress
+  const tasks = state.tasks ?? [];
+  const completedTasks = tasks.filter((t) => t.status === 'complete').length;
+
+  // Recent events (last 5)
+  const recentEvents = getRecentEvents(state._events, 5);
+
+  // Circuit breaker state for the relevant compound
+  const compound = findCompoundForPhase(state.workflowType, state.phase);
+  let circuitBreaker: Record<string, unknown> | undefined;
+  if (compound) {
+    const cbState = getCircuitBreakerState(
+      state._events,
+      compound.compoundId,
+      compound.maxFixCycles,
+    );
+    circuitBreaker = {
+      compoundId: cbState.compoundStateId,
+      fixCycleCount: cbState.fixCycleCount,
+      maxFixCycles: cbState.maxFixCycles,
+      open: cbState.open,
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      featureId: state.featureId,
+      workflowType: state.workflowType,
+      phase: state.phase,
+      taskProgress: {
+        completed: completedTasks,
+        total: tasks.length,
+      },
+      artifacts: state.artifacts,
+      recentEvents,
+      ...(circuitBreaker && { circuitBreaker }),
+    },
+    _meta: buildCheckpointMeta(state._checkpoint),
+  };
+}
+
+// ─── handleReconcile ────────────────────────────────────────────────────────
+
+export async function handleReconcile(
+  input: ReconcileInput,
+  stateDir: string,
+): Promise<ToolResult> {
+  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+
+  // Read validated state for metadata and checkpoint
+  let state: WorkflowState;
+  try {
+    state = await readStateFile(stateFile);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_NOT_FOUND,
+          message: `State not found for feature: ${input.featureId}`,
+        },
+      };
+    }
+    throw err;
+  }
+
+  // Read raw JSON to access worktree path fields (not in Zod schema)
+  const rawJson = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
+  const rawWorktrees = (rawJson.worktrees ?? {}) as Record<
+    string,
+    { branch: string; taskId: string; status: string; path?: string }
+  >;
+
+  const worktreeResults: Array<Record<string, unknown>> = [];
+
+  for (const [id, wt] of Object.entries(rawWorktrees)) {
+    let pathStatus: 'OK' | 'MISSING' | 'NO_PATH' = 'NO_PATH';
+
+    if (wt.path) {
+      try {
+        await fs.access(wt.path);
+        pathStatus = 'OK';
+      } catch {
+        pathStatus = 'MISSING';
+      }
+    }
+
+    worktreeResults.push({
+      id,
+      branch: wt.branch,
+      taskId: wt.taskId,
+      status: wt.status,
+      path: wt.path ?? null,
+      pathStatus,
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      featureId: state.featureId,
+      worktrees: worktreeResults,
+    },
+    _meta: buildCheckpointMeta(state._checkpoint),
+  };
+}
+
+// ─── handleNextAction ───────────────────────────────────────────────────────
+
+export async function handleNextAction(
+  input: NextActionInput,
+  stateDir: string,
+): Promise<ToolResult> {
+  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+
+  let state: WorkflowState;
+  try {
+    state = await readStateFile(stateFile);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_NOT_FOUND,
+          message: `State not found for feature: ${input.featureId}`,
+        },
+      };
+    }
+    throw err;
+  }
+
+  // Read raw JSON to evaluate guards against full state including non-schema fields
+  // (e.g., 'integration' is used by guards but not in the Zod schema)
+  const rawState = JSON.parse(
+    await fs.readFile(stateFile, 'utf-8'),
+  ) as Record<string, unknown>;
+
+  const currentPhase = state.phase;
+  const workflowType = state.workflowType;
+
+  // Check if completed
+  const hsm = getHSMDefinition(workflowType);
+  const currentState = hsm.states[currentPhase];
+  if (currentState?.type === 'final') {
+    return {
+      success: true,
+      data: { action: 'DONE', phase: currentPhase },
+      _meta: buildCheckpointMeta(state._checkpoint),
+    };
+  }
+
+  // Check human checkpoint phases
+  const humanCheckpoints = HUMAN_CHECKPOINT_PHASES[workflowType];
+  if (humanCheckpoints?.has(currentPhase)) {
+    return {
+      success: true,
+      data: {
+        action: `WAIT:human-checkpoint:${currentPhase}`,
+        phase: currentPhase,
+      },
+      _meta: buildCheckpointMeta(state._checkpoint),
+    };
+  }
+
+  // Check circuit breaker for fix-cycle transitions
+  const compound = findCompoundForPhase(workflowType, currentPhase);
+  if (compound) {
+    const cbState = getCircuitBreakerState(
+      state._events,
+      compound.compoundId,
+      compound.maxFixCycles,
+    );
+
+    // Check if any outbound transition is a fix-cycle that would be attempted
+    const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
+
+    for (const transition of outboundTransitions) {
+      if (transition.isFixCycle && transition.guard?.evaluate(rawState)) {
+        // A fix-cycle transition's guard passes, check circuit breaker
+        if (cbState.open) {
+          return {
+            success: true,
+            data: {
+              action: `BLOCKED:circuit-open:${compound.compoundId}`,
+              phase: currentPhase,
+              fixCycleCount: cbState.fixCycleCount,
+              maxFixCycles: cbState.maxFixCycles,
+            },
+            _meta: buildCheckpointMeta(state._checkpoint),
+          };
+        }
+      }
+    }
+  }
+
+  // Evaluate guards to find first valid transition
+  const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
+
+  for (const transition of outboundTransitions) {
+    if (transition.guard?.evaluate(rawState)) {
+      // Guard passes -- determine the action
+      if (transition.isFixCycle) {
+        return {
+          success: true,
+          data: {
+            action: 'AUTO:delegate:--fixes',
+            phase: currentPhase,
+            target: transition.to,
+          },
+          _meta: buildCheckpointMeta(state._checkpoint),
+        };
+      }
+
+      // Use the phase-to-action map, or derive from the target
+      const actionMap = PHASE_ACTION_MAP[workflowType];
+      const action = actionMap?.[currentPhase] ?? `AUTO:${transition.to}`;
+
+      return {
+        success: true,
+        data: {
+          action,
+          phase: currentPhase,
+          target: transition.to,
+        },
+        _meta: buildCheckpointMeta(state._checkpoint),
+      };
+    }
+  }
+
+  // No guard passes -- still in progress
+  return {
+    success: true,
+    data: {
+      action: `WAIT:in-progress:${currentPhase}`,
+      phase: currentPhase,
+    },
+    _meta: buildCheckpointMeta(state._checkpoint),
+  };
+}
+
+// ─── handleTransitions ──────────────────────────────────────────────────────
+
+export async function handleTransitions(
+  input: TransitionsInput,
+  _stateDir: string,
+): Promise<ToolResult> {
+  const hsm = getHSMDefinition(input.workflowType);
+
+  // Build states list
+  const states = Object.values(hsm.states).map((s) => ({
+    id: s.id,
+    type: s.type,
+    parent: s.parent ?? null,
+    initial: s.initial ?? null,
+  }));
+
+  // Build transitions list, optionally filtered by fromPhase
+  let transitions = hsm.transitions;
+  if (input.fromPhase) {
+    transitions = transitions.filter((t) => t.from === input.fromPhase);
+  }
+
+  const transitionData = transitions.map((t) => ({
+    from: t.from,
+    to: t.to,
+    guardDescription: t.guard?.description ?? null,
+    guardId: t.guard?.id ?? null,
+    isFixCycle: t.isFixCycle ?? false,
+    effects: t.effects ?? [],
+  }));
+
+  return {
+    success: true,
+    data: {
+      workflowType: input.workflowType,
+      states,
+      transitions: transitionData,
+    },
+  };
 }

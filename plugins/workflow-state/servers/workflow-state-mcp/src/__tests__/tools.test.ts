@@ -2,8 +2,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleInit, handleList, handleGet, handleSet } from '../tools.js';
-import { initStateFile, readStateFile } from '../state-store.js';
+import {
+  handleInit,
+  handleList,
+  handleGet,
+  handleSet,
+  handleSummary,
+  handleReconcile,
+  handleNextAction,
+  handleTransitions,
+} from '../tools.js';
+import { initStateFile, readStateFile, writeStateFile } from '../state-store.js';
+import type { WorkflowState } from '../types.js';
 
 let tmpDir: string;
 
@@ -238,6 +248,335 @@ describe('Core Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('RESERVED_FIELD');
+    });
+  });
+});
+
+// ─── Query Tools ─────────────────────────────────────────────────────────────
+
+describe('Query Tools', () => {
+  // ─── ToolSummary ──────────────────────────────────────────────────────────
+
+  describe('ToolSummary_ActiveWorkflow_ReturnsStructuredSummary', () => {
+    it('should return feature, phase, task progress, artifacts, recent events', async () => {
+      // Create a workflow and add some data
+      await handleInit({ featureId: 'summary-test', workflowType: 'feature' }, tmpDir);
+      await handleSet(
+        {
+          featureId: 'summary-test',
+          updates: {
+            'artifacts.design': 'docs/design.md',
+            'tasks[0]': { id: 'task-1', title: 'First task', status: 'complete' },
+            'tasks[1]': { id: 'task-2', title: 'Second task', status: 'pending' },
+          },
+        },
+        tmpDir,
+      );
+
+      const result = await handleSummary({ featureId: 'summary-test' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      expect(result._meta).toBeDefined();
+
+      const data = result.data as Record<string, unknown>;
+      expect(data.featureId).toBe('summary-test');
+      expect(data.workflowType).toBe('feature');
+      expect(data.phase).toBe('ideate');
+
+      // Task progress
+      const taskProgress = data.taskProgress as Record<string, number>;
+      expect(taskProgress.completed).toBe(1);
+      expect(taskProgress.total).toBe(2);
+
+      // Artifacts
+      const artifacts = data.artifacts as Record<string, unknown>;
+      expect(artifacts.design).toBe('docs/design.md');
+
+      // Recent events
+      expect(data.recentEvents).toBeDefined();
+      expect(Array.isArray(data.recentEvents)).toBe(true);
+    });
+  });
+
+  describe('ToolSummary_IncludesRecentEventsAndCircuitBreaker', () => {
+    it('should include last 5 events and circuit breaker state', async () => {
+      await handleInit({ featureId: 'summary-cb', workflowType: 'feature' }, tmpDir);
+
+      // Set design artifact and transition to plan to generate events
+      await handleSet(
+        { featureId: 'summary-cb', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir);
+
+      // Set plan artifact and transition to delegate
+      await handleSet(
+        { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir);
+
+      const result = await handleSummary({ featureId: 'summary-cb' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      // Recent events should be present (last 5)
+      const recentEvents = data.recentEvents as Array<unknown>;
+      expect(recentEvents.length).toBeGreaterThan(0);
+      expect(recentEvents.length).toBeLessThanOrEqual(5);
+
+      // Circuit breaker state for the "implementation" compound
+      const circuitBreaker = data.circuitBreaker as Record<string, unknown>;
+      expect(circuitBreaker).toBeDefined();
+      expect(circuitBreaker.open).toBe(false);
+      expect(circuitBreaker.fixCycleCount).toBe(0);
+    });
+  });
+
+  // ─── ToolReconcile ────────────────────────────────────────────────────────
+
+  describe('ToolReconcile_MatchingWorktrees_ReturnsAllOk', () => {
+    it('should return OK status for worktrees that exist on disk', async () => {
+      await handleInit({ featureId: 'reconcile-ok', workflowType: 'feature' }, tmpDir);
+
+      // Create a real directory to act as a worktree path
+      const worktreePath = path.join(tmpDir, 'worktree-1');
+      await fs.mkdir(worktreePath, { recursive: true });
+
+      // Write worktree with path directly into the state file to bypass Zod stripping
+      const stateFile = path.join(tmpDir, 'reconcile-ok.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.worktrees.wt1 = {
+        branch: 'feature/task-1',
+        taskId: 'task-1',
+        status: 'active',
+        path: worktreePath,
+      };
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'reconcile-ok' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const worktreeResults = data.worktrees as Array<Record<string, unknown>>;
+      expect(worktreeResults).toBeDefined();
+      expect(Array.isArray(worktreeResults)).toBe(true);
+
+      // The worktree with a real path should have OK status
+      const wt1 = worktreeResults.find((w) => w.id === 'wt1');
+      expect(wt1).toBeDefined();
+      expect(wt1?.pathStatus).toBe('OK');
+    });
+  });
+
+  describe('ToolReconcile_MissingWorktree_ReportsMissing', () => {
+    it('should detect and report missing worktrees', async () => {
+      await handleInit({ featureId: 'reconcile-missing', workflowType: 'feature' }, tmpDir);
+
+      // Write worktree with non-existent path directly into the state file
+      const stateFile = path.join(tmpDir, 'reconcile-missing.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.worktrees.wt1 = {
+        branch: 'feature/task-1',
+        taskId: 'task-1',
+        status: 'active',
+        path: '/non/existent/worktree/path',
+      };
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'reconcile-missing' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const worktreeResults = data.worktrees as Array<Record<string, unknown>>;
+      expect(worktreeResults).toBeDefined();
+
+      const wt1 = worktreeResults.find((w) => w.id === 'wt1');
+      expect(wt1).toBeDefined();
+      expect(wt1?.pathStatus).toBe('MISSING');
+    });
+  });
+
+  // ─── ToolNextAction ───────────────────────────────────────────────────────
+
+  describe('ToolNextAction_AutoContinue_ReturnsCorrectAction', () => {
+    it('should return AUTO:plan when in ideate phase with design artifact', async () => {
+      await handleInit({ featureId: 'next-auto', workflowType: 'feature' }, tmpDir);
+
+      // Set the design artifact so the guard for ideate->plan passes
+      await handleSet(
+        { featureId: 'next-auto', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+
+      const result = await handleNextAction({ featureId: 'next-auto' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toBe('AUTO:plan');
+    });
+  });
+
+  describe('ToolNextAction_HumanCheckpoint_ReturnsWait', () => {
+    it('should return WAIT for synthesize phase (human checkpoint)', async () => {
+      await handleInit({ featureId: 'next-wait', workflowType: 'feature' }, tmpDir);
+
+      // Directly write the state at synthesize phase to avoid Zod field-stripping
+      // issues with non-schema fields like 'integration'
+      const stateFile = path.join(tmpDir, 'next-wait.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.phase = 'synthesize';
+      raw._checkpoint.phase = 'synthesize';
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleNextAction({ featureId: 'next-wait' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toMatch(/^WAIT:human-checkpoint/);
+    });
+  });
+
+  describe('ToolNextAction_CircuitOpen_ReturnsBlocked', () => {
+    it('should return blocked when circuit breaker is open', async () => {
+      await handleInit({ featureId: 'next-circuit', workflowType: 'feature' }, tmpDir);
+
+      // Directly write state at integrate phase with 3 fix-cycle events and
+      // integration.passed = false. This bypasses the Zod field-stripping issue
+      // where non-schema fields like 'integration' are lost on readback.
+      const stateFile = path.join(tmpDir, 'next-circuit.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+
+      raw.phase = 'integrate';
+      raw.integration = { passed: false };
+      raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
+      raw._checkpoint.phase = 'integrate';
+
+      // Add events: compound-entry followed by 3 fix-cycle events.
+      // getFixCycleCount in events.ts uses metadata.compoundStateId to match.
+      const baseSeq = raw._eventSequence || 0;
+      const now = new Date().toISOString();
+      raw._events = [
+        {
+          sequence: baseSeq + 1,
+          version: '1.0',
+          timestamp: now,
+          type: 'compound-entry',
+          trigger: 'execute-transition',
+          from: 'plan',
+          to: 'implementation',
+          metadata: { compoundStateId: 'implementation' },
+        },
+        {
+          sequence: baseSeq + 2,
+          version: '1.0',
+          timestamp: now,
+          type: 'fix-cycle',
+          trigger: 'execute-transition',
+          from: 'integrate',
+          to: 'delegate',
+          metadata: { compoundStateId: 'implementation' },
+        },
+        {
+          sequence: baseSeq + 3,
+          version: '1.0',
+          timestamp: now,
+          type: 'fix-cycle',
+          trigger: 'execute-transition',
+          from: 'integrate',
+          to: 'delegate',
+          metadata: { compoundStateId: 'implementation' },
+        },
+        {
+          sequence: baseSeq + 4,
+          version: '1.0',
+          timestamp: now,
+          type: 'fix-cycle',
+          trigger: 'execute-transition',
+          from: 'integrate',
+          to: 'delegate',
+          metadata: { compoundStateId: 'implementation' },
+        },
+      ];
+      raw._eventSequence = baseSeq + 4;
+
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleNextAction({ featureId: 'next-circuit' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toMatch(/^BLOCKED:circuit-open/);
+    });
+  });
+
+  // ─── ToolTransitions ──────────────────────────────────────────────────────
+
+  describe('ToolTransitions_FeatureWorkflow_ReturnsFullGraph', () => {
+    it('should return all states and transitions for a workflow type', async () => {
+      const result = await handleTransitions(
+        { workflowType: 'feature' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      // Should include states
+      const states = data.states as Array<Record<string, unknown>>;
+      expect(states).toBeDefined();
+      expect(states.length).toBeGreaterThan(0);
+
+      // Should include ideate, plan, delegate, integrate, review, synthesize, completed
+      const stateIds = states.map((s) => s.id);
+      expect(stateIds).toContain('ideate');
+      expect(stateIds).toContain('plan');
+      expect(stateIds).toContain('delegate');
+      expect(stateIds).toContain('synthesize');
+      expect(stateIds).toContain('completed');
+
+      // Should include transitions
+      const transitions = data.transitions as Array<Record<string, unknown>>;
+      expect(transitions).toBeDefined();
+      expect(transitions.length).toBeGreaterThan(0);
+
+      // Each transition should have guard description
+      const ideateToPlan = transitions.find(
+        (t) => t.from === 'ideate' && t.to === 'plan',
+      );
+      expect(ideateToPlan).toBeDefined();
+      expect(ideateToPlan?.guardDescription).toBeDefined();
+    });
+  });
+
+  describe('ToolTransitions_FromSpecificPhase_ReturnsFilteredTransitions', () => {
+    it('should return only outbound transitions from specified phase', async () => {
+      const result = await handleTransitions(
+        { workflowType: 'feature', fromPhase: 'integrate' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      const transitions = data.transitions as Array<Record<string, unknown>>;
+      expect(transitions).toBeDefined();
+
+      // integrate has transitions to: review (passed) and delegate (failed)
+      expect(transitions.length).toBeGreaterThanOrEqual(2);
+
+      // All transitions should be from 'integrate'
+      for (const t of transitions) {
+        expect(t.from).toBe('integrate');
+      }
+
+      const toReview = transitions.find((t) => t.to === 'review');
+      expect(toReview).toBeDefined();
+
+      const toDelegate = transitions.find((t) => t.to === 'delegate');
+      expect(toDelegate).toBeDefined();
+      expect(toDelegate?.isFixCycle).toBe(true);
     });
   });
 });
