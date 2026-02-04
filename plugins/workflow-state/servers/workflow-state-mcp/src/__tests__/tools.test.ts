@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleInit, handleList, handleGet, handleSet } from '../tools.js';
+import { handleInit, handleList, handleGet, handleSet, handleCheckpoint } from '../tools.js';
 import { initStateFile, readStateFile } from '../state-store.js';
 
 let tmpDir: string;
@@ -238,6 +238,104 @@ describe('Core Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('RESERVED_FIELD');
+    });
+  });
+
+  // ─── ToolCheckpoint ─────────────────────────────────────────────────────────
+
+  describe('ToolCheckpoint_ExplicitTrigger_ResetsCounterAndLogsEvent', () => {
+    it('should reset operation counter to 0 and log a checkpoint event', async () => {
+      await handleInit({ featureId: 'ckpt-reset', workflowType: 'feature' }, tmpDir);
+
+      // Do some set operations to increment the counter
+      await handleSet(
+        { featureId: 'ckpt-reset', updates: { 'artifacts.design': 'docs/d.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'ckpt-reset', updates: { 'artifacts.plan': 'docs/p.md' } },
+        tmpDir,
+      );
+
+      // Now call checkpoint
+      const result = await handleCheckpoint(
+        { featureId: 'ckpt-reset' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result._meta).toBeDefined();
+      expect(result._meta?.operationsSinceCheckpoint).toBe(0);
+
+      // Verify state on disk
+      const state = await readStateFile(path.join(tmpDir, 'ckpt-reset.state.json'));
+      expect(state._checkpoint.operationsSince).toBe(0);
+
+      // Verify a checkpoint event was logged
+      const checkpointEvents = state._events.filter(
+        (e: { type: string }) => e.type === 'checkpoint',
+      );
+      expect(checkpointEvents.length).toBe(1);
+    });
+  });
+
+  describe('ToolCheckpoint_WithSummary_IncludesInCheckpointState', () => {
+    it('should include the summary in checkpoint state when provided', async () => {
+      await handleInit({ featureId: 'ckpt-summary', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleCheckpoint(
+        { featureId: 'ckpt-summary', summary: 'Completed initial design review' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify summary is persisted in checkpoint state
+      const state = await readStateFile(path.join(tmpDir, 'ckpt-summary.state.json'));
+      expect(state._checkpoint.summary).toBe('Completed initial design review');
+    });
+  });
+
+  describe('ToolCheckpoint_Multiple_EachResetsCounter', () => {
+    it('should reset the counter each time checkpoint is called', async () => {
+      await handleInit({ featureId: 'ckpt-multi', workflowType: 'feature' }, tmpDir);
+
+      // Do operations, checkpoint, do more operations, checkpoint again
+      await handleSet(
+        { featureId: 'ckpt-multi', updates: { 'artifacts.design': 'docs/d1.md' } },
+        tmpDir,
+      );
+
+      const result1 = await handleCheckpoint(
+        { featureId: 'ckpt-multi' },
+        tmpDir,
+      );
+      expect(result1.success).toBe(true);
+      expect(result1._meta?.operationsSinceCheckpoint).toBe(0);
+
+      // Do more operations
+      await handleSet(
+        { featureId: 'ckpt-multi', updates: { 'artifacts.plan': 'docs/p1.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'ckpt-multi', updates: { 'artifacts.design': 'docs/d2.md' } },
+        tmpDir,
+      );
+
+      const result2 = await handleCheckpoint(
+        { featureId: 'ckpt-multi' },
+        tmpDir,
+      );
+      expect(result2.success).toBe(true);
+      expect(result2._meta?.operationsSinceCheckpoint).toBe(0);
+
+      // Verify two checkpoint events on disk
+      const state = await readStateFile(path.join(tmpDir, 'ckpt-multi.state.json'));
+      const checkpointEvents = state._events.filter(
+        (e: { type: string }) => e.type === 'checkpoint',
+      );
+      expect(checkpointEvents.length).toBe(2);
     });
   });
 });
