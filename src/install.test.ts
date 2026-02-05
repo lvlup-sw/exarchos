@@ -109,3 +109,96 @@ describe('buildMcpServer', () => {
     await expect(buildMcpServer(tempDir)).resolves.not.toThrow();
   });
 });
+
+describe('configureMcpServers', () => {
+  let tempDir: string;
+  let configPath: string;
+  let repoRoot: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'mcp-config-test-'));
+    configPath = join(tempDir, '.claude.json');
+    repoRoot = '/test/repo/root';
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should create new config when none exists', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    expect(existsSync(configPath)).toBe(true);
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers).toBeDefined();
+  });
+
+  it('should merge with existing config', async () => {
+    const { configureMcpServers } = await import('./install.js');
+    writeFileSync(configPath, JSON.stringify({ existingKey: 'value' }));
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.existingKey).toBe('value');
+    expect(config.mcpServers).toBeDefined();
+  });
+
+  it('should add jules and workflow-state servers', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.jules).toBeDefined();
+    expect(config.mcpServers.jules.type).toBe('stdio');
+    expect(config.mcpServers['workflow-state']).toBeDefined();
+    expect(config.mcpServers['workflow-state'].type).toBe('stdio');
+  });
+
+  it('should configure jules server with correct command and args', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.jules.command).toBe('node');
+    expect(config.mcpServers.jules.args).toContain(
+      join(repoRoot, 'plugins/jules/servers/jules-mcp/dist/index.js')
+    );
+  });
+
+  it('should configure workflow-state server with correct command and args', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['workflow-state'].command).toBe('node');
+    expect(config.mcpServers['workflow-state'].args).toContain(
+      join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp/dist/index.js')
+    );
+  });
+
+  it('should preserve existing mcpServers when merging', async () => {
+    const { configureMcpServers } = await import('./install.js');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          existingServer: { type: 'stdio', command: 'existing' }
+        }
+      })
+    );
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.existingServer).toBeDefined();
+    expect(config.mcpServers.existingServer.command).toBe('existing');
+    expect(config.mcpServers.jules).toBeDefined();
+    expect(config.mcpServers['workflow-state']).toBeDefined();
+  });
+});
