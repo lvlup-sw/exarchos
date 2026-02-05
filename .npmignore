@@ -1,0 +1,32 @@
+# Source files (dist is built)
+src/
+
+# Tests
+**/*.test.ts
+**/__tests__/
+
+# Development
+.github/
+.vscode/
+coverage/
+*.tsbuildinfo
+
+# Examples (not needed for installer)
+examples/
+
+# Documentation (symlinked after install, not needed in package)
+# Note: skills, commands, rules, docs ARE needed - they get symlinked
+
+# Local/generated files
+*.local.json
+docs/workflow-state/*.state.json
+.worktrees/
+
+# Terraform state and providers (huge binaries)
+azd-templates/infra/.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Nested package node_modules (installed at runtime)
+plugins/**/node_modules/

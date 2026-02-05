@@ -1,0 +1,10 @@
+# Source files
+src/
+
+# Tests
+**/*.test.ts
+**/__tests__/
+
+# Development
+coverage/
+*.tsbuildinfo
