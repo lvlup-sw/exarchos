@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
@@ -71,5 +72,40 @@ describe('Project Configuration', () => {
       const content = readFileSync(installPath, 'utf-8');
       expect(content.startsWith('#!/usr/bin/env node')).toBe(true);
     });
+  });
+});
+
+describe('buildMcpServer', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'mcp-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should throw error for invalid path', async () => {
+    const { buildMcpServer } = await import('./install.js');
+    const invalidPath = '/nonexistent/path/to/mcp';
+
+    await expect(buildMcpServer(invalidPath)).rejects.toThrow('does not exist');
+  });
+
+  it('should run npm install and build in valid directory', async () => {
+    const { buildMcpServer } = await import('./install.js');
+
+    // Create a minimal package.json in temp dir
+    writeFileSync(
+      join(tempDir, 'package.json'),
+      JSON.stringify({
+        name: 'test-mcp',
+        scripts: { build: 'echo "built"' }
+      })
+    );
+
+    // Should not throw
+    await expect(buildMcpServer(tempDir)).resolves.not.toThrow();
   });
 });
