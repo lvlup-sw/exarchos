@@ -400,3 +400,17 @@ describe('uninstall', () => {
     expect(typeof mod.uninstall).toBe('function');
   });
 });
+
+describe('main', () => {
+  it('should be exported as a function', async () => {
+    const mod = await import('./install.js');
+    expect(typeof mod.main).toBe('function');
+  });
+});
+
+describe('printHelp', () => {
+  it('should be exported as a function', async () => {
+    const mod = await import('./install.js');
+    expect(typeof mod.printHelp).toBe('function');
+  });
+});

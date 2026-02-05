@@ -249,5 +249,44 @@ export async function uninstall(): Promise<void> {
   console.log('Uninstall complete!');
 }
 
-// Installer implementation - to be completed in subsequent tasks
-console.log('lvlup-claude installer');
+// CLI help
+export function printHelp(): void {
+  console.log(`
+lvlup-claude - Claude Code configuration installer
+
+Usage:
+  npx github:lvlup-sw/lvlup-claude [options]
+
+Options:
+  --help, -h      Show this help message
+  --uninstall     Remove installed configuration
+
+Examples:
+  npx github:lvlup-sw/lvlup-claude          Install configuration
+  npx github:lvlup-sw/lvlup-claude --uninstall  Remove configuration
+`);
+}
+
+// CLI entry point
+export async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  switch (args.action) {
+    case 'help':
+      printHelp();
+      break;
+    case 'uninstall':
+      await uninstall();
+      break;
+    case 'install':
+    default:
+      await install();
+      break;
+  }
+}
+
+// Run main if this is the entry point
+main().catch((error) => {
+  console.error('Error:', error.message);
+  process.exit(1);
+});
