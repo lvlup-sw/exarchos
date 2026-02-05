@@ -12,9 +12,11 @@ export const STALE_AFTER_MINUTES: number =
 
 /** Increment operation counter, return updated checkpoint state (immutable). */
 export function incrementOperations(checkpoint: CheckpointState): CheckpointState {
+  const now = new Date().toISOString();
   return {
     ...checkpoint,
     operationsSince: checkpoint.operationsSince + 1,
+    lastActivityTimestamp: now,
   };
 }
 
@@ -36,6 +38,7 @@ export function resetCounter(
   return {
     ...checkpoint,
     timestamp: now,
+    lastActivityTimestamp: now,
     phase,
     summary: summary ?? `Phase transition to ${phase}`,
     operationsSince: 0,

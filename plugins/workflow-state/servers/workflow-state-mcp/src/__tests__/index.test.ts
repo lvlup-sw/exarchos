@@ -271,6 +271,62 @@ describe('MCP Server Entry Point', () => {
         }
       }
     });
+
+    it('should fallback to cwd when git command fails', async () => {
+      const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+      // Mock child_process to throw an error (simulating non-git directory)
+      vi.doMock('node:child_process', () => ({
+        execSync: vi.fn(() => {
+          throw new Error('fatal: not a git repository');
+        }),
+      }));
+
+      try {
+        delete process.env.WORKFLOW_STATE_DIR;
+
+        // Re-import to get fresh module with mocked child_process
+        vi.resetModules();
+
+        // Re-mock the SDK modules that were cleared by resetModules
+        vi.doMock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
+          McpServer: vi.fn().mockImplementation(() => ({
+            tool: vi.fn(),
+            connect: vi.fn().mockResolvedValue(undefined),
+          })),
+        }));
+        vi.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+          StdioServerTransport: vi.fn(),
+        }));
+        vi.doMock('../tools.js', () => ({
+          handleInit: vi.fn(),
+          handleList: vi.fn(),
+          handleGet: vi.fn(),
+          handleSet: vi.fn(),
+          handleSummary: vi.fn(),
+          handleReconcile: vi.fn(),
+          handleNextAction: vi.fn(),
+          handleTransitions: vi.fn(),
+          handleCancel: vi.fn(),
+          handleCheckpoint: vi.fn(),
+        }));
+
+        const { resolveStateDir } = await import('../index.js');
+        const result = await resolveStateDir();
+
+        // Should fallback to cwd-based path
+        expect(result).toMatch(/docs[/\\]workflow-state$/);
+        expect(result).toBe(`${process.cwd()}/docs/workflow-state`);
+      } finally {
+        if (originalEnv === undefined) {
+          delete process.env.WORKFLOW_STATE_DIR;
+        } else {
+          process.env.WORKFLOW_STATE_DIR = originalEnv;
+        }
+        vi.doUnmock('node:child_process');
+        vi.resetModules();
+      }
+    });
   });
 
   describe('exports', () => {

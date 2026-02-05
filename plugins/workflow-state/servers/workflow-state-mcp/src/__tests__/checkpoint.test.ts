@@ -58,6 +58,21 @@ describe('checkpoint', () => {
       expect(result.summary).toBe('Delegating tasks');
       expect(result.fixCycleCount).toBe(2);
     });
+
+    it('should update lastActivityTimestamp to current time', () => {
+      const oldTime = '2025-06-01T12:00:00Z';
+      const checkpoint = makeCheckpoint({
+        lastActivityTimestamp: oldTime,
+      });
+
+      const before = new Date().toISOString();
+      const result = incrementOperations(checkpoint);
+      const after = new Date().toISOString();
+
+      expect(result.lastActivityTimestamp).not.toBe(oldTime);
+      expect(result.lastActivityTimestamp >= before).toBe(true);
+      expect(result.lastActivityTimestamp <= after).toBe(true);
+    });
   });
 
   describe('isCheckpointAdvised', () => {
@@ -137,6 +152,21 @@ describe('checkpoint', () => {
       const result = resetCounter(checkpoint, 'review');
 
       expect(result.summary).toContain('review');
+    });
+
+    it('should update lastActivityTimestamp to current time', () => {
+      const oldTime = '2025-06-01T12:00:00Z';
+      const checkpoint = makeCheckpoint({
+        lastActivityTimestamp: oldTime,
+      });
+
+      const before = new Date().toISOString();
+      const result = resetCounter(checkpoint, 'integrate');
+      const after = new Date().toISOString();
+
+      expect(result.lastActivityTimestamp).not.toBe(oldTime);
+      expect(result.lastActivityTimestamp >= before).toBe(true);
+      expect(result.lastActivityTimestamp <= after).toBe(true);
     });
   });
 

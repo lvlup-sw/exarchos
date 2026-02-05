@@ -34,18 +34,6 @@ export async function initStateFile(
 ): Promise<{ stateFile: string; state: WorkflowState }> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
-  // Check if file already exists
-  try {
-    await fs.access(stateFile);
-    throw new StateStoreError(
-      ErrorCode.STATE_ALREADY_EXISTS,
-      `State file already exists: ${stateFile}`,
-    );
-  } catch (err) {
-    if (err instanceof StateStoreError) throw err;
-    // File doesn't exist — proceed
-  }
-
   const now = new Date().toISOString();
   const initialPhase = INITIAL_PHASE[workflowType];
 
@@ -95,8 +83,25 @@ export async function initStateFile(
   // Ensure directory exists
   await fs.mkdir(stateDir, { recursive: true });
 
-  // Write atomically
-  await writeStateFile(stateFile, state);
+  // Write atomically with exclusive flag (fails if file exists)
+  // This avoids TOCTOU race condition — no separate existence check needed
+  try {
+    await fs.writeFile(stateFile, JSON.stringify(state, null, 2), {
+      encoding: 'utf-8',
+      flag: 'wx', // exclusive create - fails with EEXIST if file exists
+    });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new StateStoreError(
+        ErrorCode.STATE_ALREADY_EXISTS,
+        `State file already exists: ${stateFile}`,
+      );
+    }
+    throw new StateStoreError(
+      ErrorCode.FILE_IO_ERROR,
+      `Failed to write state file: ${stateFile} — ${(err as Error).message}`,
+    );
+  }
 
   return { stateFile, state };
 }

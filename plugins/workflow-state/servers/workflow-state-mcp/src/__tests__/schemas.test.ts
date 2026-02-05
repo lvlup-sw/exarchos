@@ -597,6 +597,57 @@ describe('Workflow State Schemas', () => {
     });
   });
 
+  describe('IntegrationSchema — Guard Field Preserved Through Zod Parsing', () => {
+    it('should preserve integration.passed = true through safeParse', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        integration: { passed: true },
+      };
+      const result = FeatureWorkflowStateSchema.safeParse(state);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.integration).toEqual({ passed: true });
+      }
+    });
+
+    it('should preserve integration.passed = false through safeParse', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        integration: { passed: false },
+      };
+      const result = FeatureWorkflowStateSchema.safeParse(state);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.integration).toEqual({ passed: false });
+      }
+    });
+
+    it('should default integration to null when not provided', () => {
+      const state = makeValidFeatureState();
+      const result = FeatureWorkflowStateSchema.safeParse(state);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.integration).toBeNull();
+      }
+    });
+
+    it('should allow integration to be explicitly null', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        integration: null,
+      };
+      const result = FeatureWorkflowStateSchema.safeParse(state);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.integration).toBeNull();
+      }
+    });
+  });
+
   describe('ErrorCode', () => {
     it('should have all expected error codes', () => {
       expect(ErrorCode.STATE_NOT_FOUND).toBe('STATE_NOT_FOUND');

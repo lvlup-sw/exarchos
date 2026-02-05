@@ -159,6 +159,9 @@ const BaseWorkflowStateSchema = z.object({
   worktrees: z.record(z.string(), WorktreeSchema),
   julesSessions: z.record(z.string(), z.unknown()),
   reviews: z.record(z.string(), z.unknown()),
+  integration: z.object({
+    passed: z.boolean(),
+  }).nullable().default(null),
   synthesis: SynthesisSchema,
   _history: z.record(z.string(), z.string()).default({}),
   _events: z.array(EventSchema).default([]),

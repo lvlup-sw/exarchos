@@ -1,7 +1,19 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
 import type { Event } from './types.js';
+
+// ─── Command Execution Helper ─────────────────────────────────────────────────
+
+const COMMAND_TIMEOUT_MS = 30_000;
+
+function runCommand(cmd: string, args: readonly string[], options: CompensationOptions): void {
+  execFileSync(cmd, args, {
+    stdio: 'pipe',
+    cwd: options.stateDir ?? process.cwd(),
+    timeout: COMMAND_TIMEOUT_MS,
+  });
+}
 
 // ─── Compensation Interfaces ─────────────────────────────────────────────────
 
@@ -68,9 +80,7 @@ function createClosePrAction(): CompensationAction {
       }
 
       try {
-        execSync(`gh pr close "${prUrl}" --comment "Cancelled via compensation"`, {
-          stdio: 'pipe',
-        });
+        runCommand('gh', ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'], options);
         return { actionId: 'synthesize:close-pr', status: 'executed', message: `Closed PR: ${prUrl}` };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -106,9 +116,18 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
       }
 
       try {
-        execSync(`git branch -D "${branch}" 2>/dev/null; git push origin --delete "${branch}" 2>/dev/null || true`, {
-          stdio: 'pipe',
-        });
+        // Delete local branch (ignore failure if doesn't exist)
+        try {
+          runCommand('git', ['branch', '-D', branch], options);
+        } catch {
+          // Ignore local branch delete failure
+        }
+        // Delete remote branch (ignore failure if doesn't exist)
+        try {
+          runCommand('git', ['push', 'origin', '--delete', branch], options);
+        } catch {
+          // Ignore remote delete failure
+        }
         return {
           actionId: 'integrate:delete-integration-branch',
           status: 'executed',
@@ -155,9 +174,7 @@ function createCleanupWorktreesAction(): CompensationAction {
         for (const worktree of Object.values(worktrees)) {
           const branch = worktree.branch as string;
           try {
-            execSync(`git worktree remove "${branch}" --force 2>/dev/null || true`, {
-              stdio: 'pipe',
-            });
+            runCommand('git', ['worktree', 'remove', branch, '--force'], options);
           } catch {
             // Worktree may already be removed; continue
           }
@@ -208,10 +225,18 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
 
       try {
         for (const branch of branches) {
-          execSync(
-            `git branch -D "${branch}" 2>/dev/null || true; git push origin --delete "${branch}" 2>/dev/null || true`,
-            { stdio: 'pipe' },
-          );
+          // Delete local branch (ignore failure if doesn't exist)
+          try {
+            runCommand('git', ['branch', '-D', branch], options);
+          } catch {
+            // Ignore local delete failure
+          }
+          // Delete remote branch (ignore failure if doesn't exist)
+          try {
+            runCommand('git', ['push', 'origin', '--delete', branch], options);
+          } catch {
+            // Ignore remote delete failure
+          }
         }
         return {
           actionId: 'delegate:delete-feature-branches',
