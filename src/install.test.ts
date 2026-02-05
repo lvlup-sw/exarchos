@@ -146,10 +146,21 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should add jules and workflow-state servers', async () => {
+  it('should only add workflow-state server by default (no jules)', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.jules).toBeUndefined();
+    expect(config.mcpServers['workflow-state']).toBeDefined();
+    expect(config.mcpServers['workflow-state'].type).toBe('stdio');
+  });
+
+  it('should add jules and workflow-state servers when withJules is true', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot, { withJules: true });
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers.jules).toBeDefined();
@@ -158,10 +169,10 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers['workflow-state'].type).toBe('stdio');
   });
 
-  it('should configure jules server with correct command and args', async () => {
+  it('should configure jules server with correct command and args when withJules is true', async () => {
     const { configureMcpServers } = await import('./install.js');
 
-    await configureMcpServers(configPath, repoRoot);
+    await configureMcpServers(configPath, repoRoot, { withJules: true });
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers.jules.command).toBe('node');
@@ -193,12 +204,22 @@ describe('configureMcpServers', () => {
       })
     );
 
-    await configureMcpServers(configPath, repoRoot);
+    await configureMcpServers(configPath, repoRoot, { withJules: true });
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers.existingServer).toBeDefined();
     expect(config.mcpServers.existingServer.command).toBe('existing');
     expect(config.mcpServers.jules).toBeDefined();
+    expect(config.mcpServers['workflow-state']).toBeDefined();
+  });
+
+  it('should not add jules when withJules is false', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot, { withJules: false });
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.jules).toBeUndefined();
     expect(config.mcpServers['workflow-state']).toBeDefined();
   });
 });
@@ -250,28 +271,39 @@ describe('removeMcpConfig', () => {
 });
 
 describe('parseArgs', () => {
-  it('should return install action when no args', async () => {
+  it('should return install action with withJules false when no args', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs([]);
     expect(result.action).toBe('install');
+    expect(result.withJules).toBe(false);
   });
 
-  it('should return uninstall action when --uninstall flag', async () => {
+  it('should return uninstall action with withJules false when --uninstall flag', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['--uninstall']);
     expect(result.action).toBe('uninstall');
+    expect(result.withJules).toBe(false);
   });
 
-  it('should return help action when --help flag', async () => {
+  it('should return help action with withJules false when --help flag', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['--help']);
     expect(result.action).toBe('help');
+    expect(result.withJules).toBe(false);
   });
 
-  it('should return help action when -h flag', async () => {
+  it('should return help action with withJules false when -h flag', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['-h']);
     expect(result.action).toBe('help');
+    expect(result.withJules).toBe(false);
+  });
+
+  it('should return withJules true when --with-jules flag', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--with-jules']);
+    expect(result.action).toBe('install');
+    expect(result.withJules).toBe(true);
   });
 });
 

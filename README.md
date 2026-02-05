@@ -2,11 +2,20 @@
 
 Shared configuration for Claude Code: TDD-enforced workflow orchestration with Jules integration.
 
-## Quick Start
+## Installation
 
 ```bash
-git clone <repo-url> ~/Documents/code/lvlup-claude
-cd ~/Documents/code/lvlup-claude && ./scripts/install.sh
+npx github:lvlup-sw/lvlup-claude
+```
+
+With Jules integration:
+```bash
+npx github:lvlup-sw/lvlup-claude --with-jules
+```
+
+To uninstall:
+```bash
+npx github:lvlup-sw/lvlup-claude --uninstall
 ```
 
 Done. Commands work in any project immediately.
@@ -46,9 +55,28 @@ Workflows survive context compaction. State saves to `docs/workflow-state/<featu
 | `/checkpoint` | Force save (usually automatic) |
 | `/resume` | Restore from state file |
 
-## Jules Integration
+## Recommended MCP Plugins
+
+Claude Code's official plugin marketplace includes useful integrations.
+These are enabled by default in the installed `settings.json`:
+
+| Plugin | Description |
+|--------|-------------|
+| `github@claude-plugins-official` | GitHub API (PRs, issues, code search) |
+| `typescript-lsp@claude-plugins-official` | TypeScript language server |
+| `pyright-lsp@claude-plugins-official` | Python type checking |
+| `csharp-lsp@claude-plugins-official` | C# language server |
+
+Enable/disable in `~/.claude/settings.json` under `enabledPlugins`.
+
+## Jules Integration (Optional)
 
 Delegate tasks to Google's Jules autonomous coding agent.
+
+Install with Jules support:
+```bash
+npx github:lvlup-sw/lvlup-claude --with-jules
+```
 
 ### Setup
 
@@ -106,12 +134,14 @@ echo '{"permissions":{"allow":["Bash(npm run custom)"]}}' > .claude/settings.jso
 
 ```
 lvlup-claude/
+├── src/                # TypeScript installer source
 ├── commands/           # Slash commands (/ideate, /plan, etc.)
 ├── skills/             # Workflow orchestration patterns
 ├── rules/              # Language-specific TDD + coding standards
-├── plugins/jules/      # Jules MCP server
+├── plugins/
+│   ├── jules/          # Jules MCP server (optional)
+│   └── workflow-state/ # Workflow state MCP server
 ├── scripts/
-│   ├── install.sh          # One-time setup
 │   ├── new-project.sh      # Per-project setup (optional)
 │   └── workflow-state.sh   # State management
 ├── azd-templates/      # Azure Developer CLI templates
@@ -141,7 +171,7 @@ This approach:
 
 ## Troubleshooting
 
-**Commands not available**: Re-run `./scripts/install.sh`
+**Commands not available**: Re-run `npx github:lvlup-sw/lvlup-claude`
 
 **Jules not working**:
 1. Check API key: `echo $JULES_API_KEY`
