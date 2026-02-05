@@ -1,0 +1,30 @@
+{
+  "name": "@lvlup-sw/lvlup-claude",
+  "version": "1.0.0",
+  "description": "CLI installer for lvlup-claude configuration and plugins",
+  "type": "module",
+  "bin": {
+    "lvlup-claude": "./dist/install.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "claude",
+    "cli",
+    "installer"
+  ],
+  "author": "lvlup-sw",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
