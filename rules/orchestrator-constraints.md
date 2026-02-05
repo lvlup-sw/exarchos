@@ -42,19 +42,10 @@ If any trigger fires, stop and run:
 ```
 
 **Verification:**
-Before starting implementation, verify:
-1. Track is "polish" in state file
-2. Phase is "implement"
+Before starting implementation, verify using `mcp__workflow-state__workflow_get`:
+1. Track is "polish" in state file (query: `.track`)
+2. Phase is "implement" (query: `.phase`)
 3. Brief goals are captured
-
-```bash
-# Verify before implementing
-~/.claude/scripts/workflow-state.sh get <state-file> '.track'
-# Must return: "polish"
-
-~/.claude/scripts/workflow-state.sh get <state-file> '.phase'
-# Must return: "implement"
-```
 
 ## Rationale
 

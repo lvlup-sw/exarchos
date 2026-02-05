@@ -11,16 +11,16 @@ Begin brainstorming session for: "$ARGUMENTS"
 This command is the **entry point** of the development workflow:
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           │
-            │                      ▲                                                 │
-            │   ON FAIL ───────────┤                                                 │
-            │   --pr-fixes ────────┴─────────────────────────────────────────────────┘
-            └──────────── ON BLOCKED ────────────────────────────────────────────────┘
+/ideate → /plan → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+           (auto)      ↑         (auto)      (auto)      (auto)     (auto)           │
+                       │                       ▲                                     │
+                       │   ON FAIL ────────────┤                                     │
+                       │   --pr-fixes ─────────┴─────────────────────────────────────┘
+                       └──────────── ON BLOCKED ─────────────────────────────────────┘
 ```
 
 **Confirmation points:**
-- After `/ideate`: User confirms before implementation planning begins
+- After `/plan` (plan-review): User confirms implementation plan before delegation begins
 - After `/synthesize`: User confirms before PR is merged (or requests feedback fixes)
 
 ## Skill Reference
@@ -52,43 +52,31 @@ After user selects approach:
 
 ## State Management
 
-Initialize workflow state at the start:
+Initialize workflow state at the start using `mcp__workflow-state__workflow_init` with the featureId.
 
-```bash
-~/.claude/scripts/workflow-state.sh init <feature-id>
-```
-
-After saving design, update state:
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.design = "<design-path>" | .phase = "plan"'
-```
+After saving design, update state using `mcp__workflow-state__workflow_set`:
+- Set `artifacts.design` to the design path
+- Set `phase` to "plan"
 
 ## Output
 
 Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$DESIGN_PATH`.
 
-## Human Checkpoint
-
-After saving the design document, this is a **human checkpoint** - user confirmation required.
-
-This is one of only TWO human checkpoints in the workflow:
-1. Here (design confirmation)
-2. After `/synthesize` (merge confirmation)
-
 ## Auto-Chain
 
-After saving the design document:
+After saving the design document, **auto-continue to planning** (no user confirmation here):
 
-1. Update state with design path
-2. Output: "Design saved to `$DESIGN_PATH`."
-3. **PAUSE for user input**: "Continue to implementation planning? (yes/no)"
+1. Update state with design path and phase using `mcp__workflow-state__workflow_set`:
+   - Set `artifacts.design` to the design document path
+   - Set `phase` to "plan"
 
-4. **On 'yes'** (yes, y, continue, proceed):
+2. Output: "Design saved. Auto-continuing to implementation planning..."
+
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "plan", args: "$DESIGN_PATH" })
    ```
-   From here, workflow runs autonomously until PR merge confirmation.
 
-5. **On 'no'**: "Workflow paused. Run `/plan $DESIGN_PATH` or `/resume` to continue later."
+This is NOT a human checkpoint. The human checkpoint occurs after plan review (plan-design delta analysis), before delegation.
+
+**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate`

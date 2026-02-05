@@ -111,23 +111,15 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state:
+Initialize workflow state using `mcp__workflow-state__workflow_init` with the featureId.
 
-```bash
-# Generate feature ID from design name
-~/.claude/scripts/workflow-state.sh init <feature-id>
-```
-
-This creates `docs/workflow-state/<feature-id>.state.json`.
+This creates a state file tracked by the MCP server.
 
 ### On Design Save (after Phase 3)
 
-Update state with design artifact:
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
-```
+Update state with design artifact using `mcp__workflow-state__workflow_set`:
+- Set `artifacts.design` to the design path
+- Set `phase` to "plan"
 
 ## Completion Criteria
 
@@ -142,11 +134,9 @@ Update state with design artifact:
 
 After brainstorming completes, **auto-continue to planning** (no user confirmation):
 
-1. Update state with design path and phase:
-   ```bash
-   ~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-     '.artifacts.design = "docs/designs/YYYY-MM-DD-<feature>.md" | .phase = "plan"'
-   ```
+1. Update state with design path and phase using `mcp__workflow-state__workflow_set`:
+   - Set `artifacts.design` to the design path
+   - Set `phase` to "plan"
 
 2. Output: "Design saved. Auto-continuing to implementation planning..."
 
@@ -155,6 +145,6 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
    Skill({ skill: "plan", args: "<design-path>" })
    ```
 
-This is NOT a human checkpoint. The human checkpoint occurs at synthesize (merge confirmation).
+This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
 
-**Workflow continues:** `/ideate` → `/plan` → `/delegate` → `/integrate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
+**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate` → `/integrate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]

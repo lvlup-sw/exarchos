@@ -1,43 +1,77 @@
-# Claude Code Global Configuration
+# lvlup-claude
 
-Shared configuration for Claude Code: TDD-enforced workflow orchestration with Jules integration.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-## Installation
+> SDLC workflow automation for Claude Code with state checkpointing
+
+## Quick Start
 
 ```bash
-npx github:lvlup-sw/lvlup-claude
-```
-
-With Jules integration:
-```bash
-npx github:lvlup-sw/lvlup-claude --with-jules
-```
-
-To uninstall:
-```bash
-npx github:lvlup-sw/lvlup-claude --uninstall
+npx -y github:lvlup-sw/lvlup-claude
 ```
 
 Done. Commands work in any project immediately.
 
-## The Workflow
+## Why lvlup-claude?
+
+Claude Code sessions lose context during long tasks. Context compaction discards your
+workflow state, forcing you to re-explain what you were doing.
+
+lvlup-claude provides **three SDLC workflows** with automatic state checkpointing:
+
+- **Feature** — Design → Plan → Delegate → Integrate → Review → PR
+- **Debug** — Triage → Investigate → Fix → Validate (hotfix or full RCA tracks)
+- **Refactor** — Explore → Brief → Implement → Validate (polish or overhaul tracks)
+
+All workflows auto-resume on session start. Human checkpoints only where they add value.
+
+## Workflows
+
+### Feature Workflow
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↑
-          HUMAN                                                                    HUMAN
+/ideate → /plan → plan-review → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+           (auto)      ↑             ↑         (auto)      (auto)      (auto)     (auto)           ↑
+                       │           HUMAN                     │                                   HUMAN
+                       └── gaps? ──┘                         └── fail? → /delegate --fixes ──┘
 ```
 
-**Two human checkpoints.** Everything else auto-continues.
+**One plan-review checkpoint** (after plan, before delegation). Auto-loops back to `/plan` if gaps found. Everything else auto-continues until merge, with `/review` auto-looping to `/delegate --fixes` on failure.
 
 | Command | Purpose |
 |---------|---------|
 | `/ideate` | Design exploration with trade-offs |
-| `/plan` | TDD task decomposition |
+| `/plan` | TDD task decomposition + spec tracing |
 | `/delegate` | Dispatch to Jules (async) or subagents (sync) |
 | `/integrate` | Merge worktree branches, run combined tests |
 | `/review` | Two-stage: spec compliance → code quality |
 | `/synthesize` | Create PR from integration branch |
+
+### Debug Workflow
+
+```
+/debug → Triage → Investigate → [Fix] → Validate → [CONFIRM] → merge
+                       │
+         ┌─────────────┼─────────────┐
+         │             │             │
+    --hotfix      (default)     --escalate
+    (15 min)     (full RCA)     → /ideate
+```
+
+**Single checkpoint:** Merge confirmation. Supports hotfix (fast) and thorough (RCA) tracks.
+
+### Refactor Workflow
+
+```
+/refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
+                                    │
+                   ┌────────────────┼────────────────┐
+                   │                                 │
+              --polish                          (default)
+           (direct, ≤5 files)               (full delegation)
+```
+
+**Single checkpoint:** Completion/merge. Polish track for small changes, overhaul track for migrations.
 
 ### TDD Iron Law
 
@@ -46,36 +80,50 @@ Every task follows Red-Green-Refactor:
 2. **GREEN**: Minimum code to pass
 3. **REFACTOR**: Clean up, tests stay green
 
-## Context Persistence
+## Key Features
 
-Workflows survive context compaction. State saves to `docs/workflow-state/<feature>.state.json` and auto-resumes on session start.
+- **Context Persistence** — Workflows save to `docs/workflow-state/` and auto-resume on session start
+- **TDD Enforcement** — Every task follows Red-Green-Refactor
+- **Worktree Isolation** — Parallel tasks in separate git worktrees
+- **Human Checkpoints** — Only at plan review and merge confirmation
+- **Three Workflow Types** — Feature, Debug, and Refactor with specialized tracks
 
-| Command | Purpose |
-|---------|---------|
-| `/checkpoint` | Force save (usually automatic) |
-| `/resume` | Restore from state file |
+## What's Included
 
-## Recommended MCP Plugins
+| Type | Count | Examples |
+|------|-------|----------|
+| Commands | 11 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize`, `/debug` |
+| Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
+| Rules | 9 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
+| MCP Plugins | 2 | Jules (optional), workflow-state |
+| Marketplace Plugins | 5 | github, microsoft-docs, typescript-lsp, pyright-lsp, csharp-lsp |
 
-Claude Code's official plugin marketplace includes useful integrations.
-These are enabled by default in the installed `settings.json`:
+## Configuration
 
-| Plugin | Description |
-|--------|-------------|
-| `github@claude-plugins-official` | GitHub API (PRs, issues, code search) |
-| `typescript-lsp@claude-plugins-official` | TypeScript language server |
-| `pyright-lsp@claude-plugins-official` | Python type checking |
-| `csharp-lsp@claude-plugins-official` | C# language server |
+### Discovery Order
 
-Enable/disable in `~/.claude/settings.json` under `enabledPlugins`.
+1. **Project local**: `./.claude/` (highest priority)
+2. **Global**: `~/.claude/` (this repo, via symlinks)
+
+### Project Overrides
+
+```bash
+# Add project-specific rule
+mkdir -p .claude/rules
+cat > .claude/rules/my-rule.md << 'EOF'
+---
+paths: '**/*.ts'
+---
+# My project rule
+EOF
+```
 
 ## Jules Integration (Optional)
 
 Delegate tasks to Google's Jules autonomous coding agent.
 
-Install with Jules support:
 ```bash
-npx github:lvlup-sw/lvlup-claude --with-jules
+npx -y github:lvlup-sw/lvlup-claude --with-jules
 ```
 
 ### Setup
@@ -99,88 +147,25 @@ npx github:lvlup-sw/lvlup-claude --with-jules
 
 Use `/delegate` for workflow integration. Use `jules_*` tools directly for standalone tasks.
 
-## Configuration
-
-### What's Included
-
-| Type | Count | Examples |
-|------|-------|----------|
-| Commands | 9 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize` |
-| Skills | 8 | brainstorming, delegation, spec-review, quality-review |
-| Rules | 4 | TDD + coding standards for TypeScript, C# |
-| Plugins | 1 | Jules MCP integration |
-
-### Discovery Order
-
-1. **Project local**: `./.claude/` (highest priority)
-2. **Global**: `~/.claude/` (this repo, via symlinks)
-
-### Project Overrides
+## Uninstall
 
 ```bash
-# Add project-specific rule
-cat > .claude/rules/my-rule.md << 'EOF'
----
-paths: '**/*.ts'
----
-# My project rule
-EOF
-
-# Override permissions
-echo '{"permissions":{"allow":["Bash(npm run custom)"]}}' > .claude/settings.json
+npx -y github:lvlup-sw/lvlup-claude --uninstall
 ```
-
-## Repository Structure
-
-```
-lvlup-claude/
-├── src/                # TypeScript installer source
-├── commands/           # Slash commands (/ideate, /plan, etc.)
-├── skills/             # Workflow orchestration patterns
-├── rules/              # Language-specific TDD + coding standards
-├── plugins/
-│   ├── jules/          # Jules MCP server (optional)
-│   └── workflow-state/ # Workflow state MCP server
-├── scripts/
-│   ├── new-project.sh      # Per-project setup (optional)
-│   └── workflow-state.sh   # State management
-├── azd-templates/      # Azure Developer CLI templates
-│   └── infra/          # Terraform modules + deployment hooks
-├── renovate-config/    # Renovate dependency automation presets
-├── ci-templates/       # Reusable CI workflow templates
-└── docs/
-    ├── designs/        # Design documents
-    ├── plans/          # Implementation plans
-    └── workflow-state/ # State files (gitignored)
-```
-
-## Plugin Marketplace Installation
-
-As an alternative to the symlink-based install, you can install the Jules plugin via the Claude Code plugin marketplace:
-
-```bash
-# In Claude Code, run:
-/plugin marketplace add lvlup-sw/lvlup-claude
-/plugin install jules@lvlup-claude
-```
-
-This approach:
-- Automatically manages MCP server configuration
-- Supports auto-updates when the marketplace updates
-- Keeps plugin files separate from your config repo
 
 ## Troubleshooting
 
-**Commands not available**: Re-run `npx github:lvlup-sw/lvlup-claude`
+**Commands not available**: Re-run `npx -y github:lvlup-sw/lvlup-claude`
+
+**Missing MCP servers**: Re-run the installer to get newly added servers.
 
 **Jules not working**:
 1. Check API key: `echo $JULES_API_KEY`
 2. Check MCP config: `jq '.mcpServers.jules' ~/.claude.json`
-3. Rebuild MCP server: `cd ~/Documents/code/lvlup-claude/plugins/jules/servers/jules-mcp && npm run build`
-4. Restart Claude Code
+3. Restart Claude Code
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.
 
 ## License
 
-This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.
+Apache-2.0 — see [LICENSE](LICENSE) for details.

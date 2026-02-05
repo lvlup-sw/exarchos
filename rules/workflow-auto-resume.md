@@ -8,11 +8,7 @@ This rule ensures autonomous workflow continuation after context compaction.
 
 ## Session Start Detection
 
-At the START of every session, BEFORE responding to any user request, silently check for active workflows:
-
-```bash
-~/.claude/scripts/workflow-state.sh list 2>/dev/null
-```
+At the START of every session, BEFORE responding to any user request, silently check for active workflows using `mcp__workflow-state__workflow_list`.
 
 If an active (non-completed) workflow exists, auto-restore and continue.
 
@@ -20,27 +16,27 @@ If an active (non-completed) workflow exists, auto-restore and continue.
 
 ### Step 1: Detect Active Workflow
 
-Look for state files in `docs/workflow-state/` with phase != "completed".
+Use `mcp__workflow-state__workflow_list` to find state files with phase != "completed".
 
 ### Step 2: Restore Context
 
-If active workflow found, run:
-```bash
-~/.claude/scripts/workflow-state.sh summary <state-file>
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-```
+If active workflow found, use:
+- `mcp__workflow-state__workflow_summary` with the featureId
+- `mcp__workflow-state__workflow_next_action` with the featureId
 
 Display a brief context restoration message.
 
 ### Step 3: Determine Next Action
 
-The `next-action` command returns one of:
+The `mcp__workflow-state__workflow_next_action` tool returns one of:
 
 #### Feature Workflow Actions
 
 | Response | Meaning | Action |
 |----------|---------|--------|
 | `AUTO:plan:<design-path>` | Auto-continue to plan | Invoke `/plan` |
+| `AUTO:plan:--revise <design-path>` | Plan has gaps, revise | Invoke `/plan --revise` with gap context |
+| `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
 | `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
@@ -99,16 +95,47 @@ ONLY pause for human input at these phases:
 
 | Phase | Checkpoint | Why |
 |-------|------------|-----|
+| `plan-review` | Plan approval | User must approve implementation plan before delegation |
 | `synthesize` (PR created) | Merge confirmation | User must approve merge or provide feedback |
 
 All other phases auto-continue:
 - `ideate` (design saved) → auto-chains to `/plan`
-- `plan` (plan saved) → auto-chains to `/delegate`
+- `plan` (plan saved) → auto-chains to plan-review (delta analysis)
+- `plan-review` (gaps found) → auto-chains to `/plan --revise`
+- `plan-review` (approved) → auto-chains to `/delegate`
 - `delegate` (all tasks complete) → auto-chains to `/integrate`
 - `integrate` (passed) → auto-chains to `/review`
 - `integrate` (failed) → auto-chains to `/delegate --fixes`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
+
+### Plan Review Phase
+
+The `plan-review` phase performs a delta analysis between design and plan:
+
+1. Re-reads the design document
+2. Compares each section against planned tasks
+3. Generates a coverage report with gaps identified
+
+**Auto-loop behavior (like /review → /delegate --fixes):**
+- **Gaps found** → Auto-loops back to `/plan --revise` with gap context
+- **No gaps** → Human checkpoint for final approval
+- **User approves** → Auto-continues to `/delegate`
+
+```
+/plan → plan-review → [gaps?] → /plan --revise (auto-loop)
+              ↓
+         [no gaps]
+              ↓
+       [HUMAN: approve?]
+              ↓
+         /delegate
+```
+
+**User actions at checkpoint (only when no gaps):**
+- **Approve**: Continue to `/delegate`
+- **Request revisions**: Manually re-run `/plan`
+- **Return to design**: Go back to `/ideate` for design clarification
 
 ### Debug Workflow
 

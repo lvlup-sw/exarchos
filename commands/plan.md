@@ -9,11 +9,12 @@ Create implementation plan for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-                        ▲▲▲▲
+/ideate → /plan → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+           ▲▲▲▲       ↑
+                  plan-review
 ```
 
-Auto-invokes `/delegate` after plan is saved.
+After plan is saved, runs plan-review (delta analysis). User confirms at plan-review checkpoint before delegation.
 
 ## Skill Reference
 
@@ -70,21 +71,10 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ## State Management
 
-After saving plan, update state with tasks:
-
-```bash
-# Set plan path
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.plan = "<plan-path>"'
-
-# Populate tasks from plan
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.tasks = [{"id": "001", "title": "...", "status": "pending", "branch": "feature/001-..."}]'
-
-# Update phase
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "delegate"'
-```
+After saving plan, update state with tasks using `mcp__workflow-state__workflow_set`:
+- Set `artifacts.plan` to the plan path
+- Set `tasks` to an array of task objects (id, title, status, branch)
+- Set `phase` to "plan-review"
 
 ## Output
 
@@ -99,13 +89,62 @@ Before planning, check if plan already exists:
 
 ## Auto-Chain
 
-After saving the implementation plan, **auto-continue immediately** (no user confirmation needed):
+After saving the implementation plan, **auto-continue to plan-review**:
 
-1. Update state: `.phase = "delegate"`
-2. Output: "Plan saved to `$PLAN_PATH` with [N] tasks. Auto-continuing to delegation..."
-3. Invoke immediately:
+1. Update state: `.phase = "plan-review"`
+2. Output: "Plan saved to `$PLAN_PATH` with [N] tasks. Running plan-design coverage analysis..."
+3. Run plan-review (delta analysis):
+   - Re-read design document
+   - Compare each design section against planned tasks
+   - Generate coverage report with any gaps identified
+   - Present to user with recommendation
+
+## Plan Review: Auto-Loop on Gaps
+
+Plan-review performs delta analysis and **auto-loops** back to `/plan` if gaps are found (similar to `/review` → `/delegate --fixes`):
+
+```
+/plan → plan-review → [gaps?] → /plan --revise (auto-loop)
+              ↓
+         [no gaps]
+              ↓
+    [HUMAN: approve?] ← checkpoint
+              ↓
+         /delegate
+```
+
+### On Gaps Found (Auto-Loop)
+
+If plan-review finds missing coverage:
+
+1. Update state with gaps using `mcp__workflow-state__workflow_set`:
+   - Set `planReview.gapsFound` to true
+   - Set `planReview.gaps` to an array of gap descriptions
+
+2. Auto-invoke:
+   ```typescript
+   Skill({ skill: "plan", args: "--revise $DESIGN_PATH" })
+   ```
+
+The `--revise` flag provides gap context for targeted plan updates.
+
+### On No Gaps (Human Checkpoint)
+
+If plan-review finds complete coverage:
+
+1. Display coverage report showing:
+   - Design sections covered by tasks
+   - Confirmation that all requirements are planned
+
+2. **PAUSE for user input**: "Plan covers all design requirements. Approve and continue to delegation? (yes/no)"
+
+3. **On approval**, use `mcp__workflow-state__workflow_set`:
+   - Set `planReview.approved` to true
+   - Set `phase` to "delegate"
+
+   Then invoke:
    ```typescript
    Skill({ skill: "delegate", args: "$PLAN_PATH" })
    ```
 
-**No pause for user input** - this is not a human checkpoint.
+From here, workflow runs autonomously until PR merge confirmation.

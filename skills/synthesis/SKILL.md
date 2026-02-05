@@ -170,36 +170,25 @@ If tests fail during synthesis (they passed in integration):
 
 ## State Management
 
-This skill tracks synthesis progress in workflow state.
+This skill tracks synthesis progress in workflow state using `mcp__workflow-state__workflow_get` and `mcp__workflow-state__workflow_set`.
 
 ### Read Integration State
 
 Get integration branch info from state (populated by integration phase):
-
-```bash
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.integration.branch'
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.integration.mergedBranches'
-```
+- Query `integration.branch` for the integration branch name
+- Query `integration.mergedBranches` for list of merged branches
 
 ### On PR Created
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.pr = "https://github.com/org/repo/pull/42" | .synthesis.prUrl = "https://github.com/org/repo/pull/42"'
-```
+Set `artifacts.pr` and `synthesis.prUrl` to the PR URL.
 
 ### On PR Feedback Received
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.synthesis.prFeedback += [{"author": "reviewer", "comment": "Fix the error handling", "file": "src/api.ts", "line": 42, "resolved": false}]'
-```
+Append feedback objects to `synthesis.prFeedback` array.
 
 ### On Merge Complete
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "completed"'
-```
+Set `phase` to "completed".
 
 ## Completion Criteria
 

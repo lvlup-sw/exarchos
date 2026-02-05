@@ -26,66 +26,32 @@ State files are gitignored - they persist locally but are not committed.
 
 ### Initialize State
 
-At the start of `/ideate`:
-
-```bash
-~/.claude/scripts/workflow-state.sh init <feature-id>
-```
-
-This creates a new state file with phase "ideate".
+At the start of `/ideate`, use the `mcp__workflow-state__workflow_init` tool with the feature ID as the `id` parameter. This creates a new state file with phase "ideate".
 
 ### Read State
 
-To restore context:
+To restore context, use the `mcp__workflow-state__workflow_get` tool:
 
-```bash
-# Full state
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json
-
-# Specific field
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.phase'
-
-# Task list
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
-```
+- **Full state**: Call with just the `file` parameter (the state file path)
+- **Specific field**: Call with `file` and `path` parameters (e.g., `path: ".phase"`)
+- **Task list**: Call with `file` and `path: ".tasks"`
 
 ### Update State
 
-Use jq filters to update state:
+Use the `mcp__workflow-state__workflow_set` tool with jq filters:
 
-```bash
-# Update phase
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "delegate"'
-
-# Set artifact path
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.artifacts.design = "docs/designs/2026-01-05-feature.md"'
-
-# Mark task complete
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '(.tasks[] | select(.id == "001")).status = "complete"'
-
-# Add worktree
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'
-```
+- **Update phase**: `filter: '.phase = "delegate"'`
+- **Set artifact path**: `filter: '.artifacts.design = "docs/designs/2026-01-05-feature.md"'`
+- **Mark task complete**: `filter: '(.tasks[] | select(.id == "001")).status = "complete"'`
+- **Add worktree**: `filter: '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'`
 
 ### Get Summary
 
-For context restoration after summarization:
-
-```bash
-~/.claude/scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
-```
-
-This outputs a minimal summary suitable for rebuilding orchestrator context.
+For context restoration after summarization, use the `mcp__workflow-state__workflow_summary` tool with the state file path. This outputs a minimal summary suitable for rebuilding orchestrator context.
 
 ### Reconcile State
 
-Verify state matches git reality:
-
-```bash
-~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
-```
-
-Checks that worktrees and branches referenced in state actually exist.
+To verify state matches git reality, use the `mcp__workflow-state__workflow_reconcile` tool with the state file path. This checks that worktrees and branches referenced in state actually exist.
 
 ## Integration Points
 
@@ -95,7 +61,9 @@ Checks that worktrees and branches referenced in state actually exist.
 |-------|--------------|
 | `/ideate` starts | Create state file |
 | Design saved | Set `artifacts.design`, phase = "plan" |
-| Plan saved | Set `artifacts.plan`, populate tasks, phase = "delegate" |
+| Plan saved | Set `artifacts.plan`, populate tasks, phase = "plan-review" |
+| Plan-review gaps found | Set `planReview.gaps`, auto-loop to plan |
+| Plan-review approved | Set `planReview.approved = true`, phase = "delegate" |
 | Task dispatched | Set task `status = "in_progress"`, `startedAt` |
 | Task complete | Set task `status = "complete"`, `completedAt` |
 | Worktree created | Add to `worktrees` object |
@@ -145,31 +113,26 @@ Key sections:
 - `tasks`: Task list with status
 - `worktrees`: Active git worktrees
 - `julesSessions`: Jules async task tracking
+- `planReview`: Plan-review delta analysis results (`gaps`, `approved`)
 - `reviews`: Review results
 - `synthesis`: Merge/PR state
 
 ## Best Practices
 
 1. **Update often** - State should reflect reality at all times
-2. **Use scripts** - Prefer `workflow-state.sh` over manual JSON editing
+2. **Use MCP tools** - Prefer workflow-state MCP tools over manual JSON editing
 3. **Reconcile on resume** - Always verify state matches git state
 4. **Checkpoint at boundaries** - Save state before likely context exhaustion
 5. **Read state, don't remember** - After summarization, read from state file
 
 ## Example Workflow
 
-```bash
-# Start new workflow
-~/.claude/scripts/workflow-state.sh init user-authentication
+1. **Start new workflow**: Use `mcp__workflow-state__workflow_init` with `id: "user-authentication"`
 
-# After design phase
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/user-authentication.state.json \
-  '.artifacts.design = "docs/designs/2026-01-05-user-auth.md" | .phase = "plan"'
+2. **After design phase**: Use `mcp__workflow-state__workflow_set` with:
+   - `file: "docs/workflow-state/user-authentication.state.json"`
+   - `filter: '.artifacts.design = "docs/designs/2026-01-05-user-auth.md" | .phase = "plan"'`
 
-# Check state
-~/.claude/scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
+3. **Check state**: Use `mcp__workflow-state__workflow_summary` with the state file path
 
-# Resume after context loss
-~/.claude/scripts/workflow-state.sh summary docs/workflow-state/user-authentication.state.json
-# -> Outputs context restoration prompt
-```
+4. **Resume after context loss**: Use `mcp__workflow-state__workflow_summary` with the state file path to get context restoration output

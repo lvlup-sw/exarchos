@@ -54,6 +54,7 @@ export const CheckpointMetaSchema = z.object({
 export const FeaturePhaseSchema = z.enum([
   'ideate',
   'plan',
+  'plan-review',
   'delegate',
   'integrate',
   'review',

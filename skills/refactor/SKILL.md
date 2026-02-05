@@ -96,26 +96,11 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 - Documentation that needs updates
 - Confirm polish is appropriate
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh init refactor-<slug> --refactor
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "polish" | .phase = "explore" | .explore = {
-    "startedAt": "<ISO8601>",
-    "scopeAssessment": {
-      "filesAffected": ["<file1>", "<file2>"],
-      "modulesAffected": ["<module>"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "polish"
-    }
-  }'
-```
+Update state using MCP tools:
+1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__workflow-state__workflow_set` to set track, phase, and explore scope assessment
 
-On completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.explore.completedAt = "<ISO8601>" | .phase = "brief"'
-```
+On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
@@ -129,19 +114,7 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.brief = {
-    "problem": "<what is wrong with current code>",
-    "goals": ["<goal 1>", "<goal 2>"],
-    "approach": "<high-level approach>",
-    "affectedAreas": ["<area 1>", "<area 2>"],
-    "outOfScope": ["<exclusion 1>"],
-    "successCriteria": ["<criterion 1>", "<criterion 2>"],
-    "docsToUpdate": ["<doc path 1>"]
-  } | .phase = "implement"'
-```
+Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "implement".
 
 #### 3. Implement Phase
 
@@ -152,11 +125,7 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-Update state on completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "validate"'
-```
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "validate".
 
 #### 4. Validate Phase
 
@@ -173,15 +142,7 @@ npm run lint  # or equivalent
 npm run typecheck  # if TypeScript
 ```
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation = {
-    "testsPass": true,
-    "goalsVerified": ["<goal 1>", "<goal 2>"],
-    "docsUpdated": false
-  } | .phase = "update-docs"'
-```
+Update state using `mcp__workflow-state__workflow_set` to set `validation` object and `phase` to "update-docs".
 
 #### 5. Update Docs Phase
 
@@ -195,11 +156,7 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 
 If `docsToUpdate` is empty, verify no docs need updating.
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.docsUpdated = true | .artifacts.updatedDocs = ["<doc1>", "<doc2>"] | .phase = "completed"'
-```
+Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
 
 **Human checkpoint:** Confirm refactor complete.
 
@@ -235,44 +192,17 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 - Identify documentation that will need updates
 - Map dependencies and impact
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh init refactor-<slug> --refactor
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" | .phase = "explore" | .explore = {
-    "startedAt": "<ISO8601>",
-    "scopeAssessment": {
-      "filesAffected": ["<file1>", "<file2>", ...],
-      "modulesAffected": ["<module1>", "<module2>"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "overhaul"
-    }
-  }'
-```
+Update state using MCP tools:
+1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__workflow-state__workflow_set` to set track to "overhaul", phase, and explore scope assessment
 
-On completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.explore.completedAt = "<ISO8601>" | .phase = "brief"'
-```
+On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
 Detailed capture of refactor intent (more thorough than polish).
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.brief = {
-    "problem": "<detailed problem statement>",
-    "goals": ["<specific goal 1>", "<specific goal 2>", "<specific goal 3>"],
-    "approach": "<detailed approach with phases/steps>",
-    "affectedAreas": ["<area 1>", "<area 2>", "<area 3>"],
-    "outOfScope": ["<exclusion 1>", "<exclusion 2>"],
-    "successCriteria": ["<criterion 1>", "<criterion 2>", "<criterion 3>"],
-    "docsToUpdate": ["<doc 1>", "<doc 2>"]
-  } | .phase = "plan"'
-```
+Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "plan".
 
 Then auto-invoke plan:
 ```typescript
@@ -293,11 +223,7 @@ The `/plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-Update state on completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.artifacts.plan = "docs/plans/<plan-file>.md" | .phase = "delegate"'
-```
+Update state on completion using `mcp__workflow-state__workflow_set` to set `artifacts.plan` and `phase` to "delegate".
 
 Then auto-invoke delegate:
 ```typescript
@@ -319,11 +245,7 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "integrate"'
-```
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "integrate".
 
 Then auto-invoke integrate:
 ```typescript
@@ -343,11 +265,7 @@ The `/integrate` skill:
 - Runs full test suite
 - Verifies no regressions
 
-Update state on completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "review"'
-```
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "review".
 
 Then auto-invoke review:
 ```typescript
@@ -367,11 +285,7 @@ The `/review` skill:
 - Refactors are high regression risk
 - Verifies structure matches brief goals
 
-Update state on completion:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "update-docs"'
-```
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "update-docs".
 
 #### 7. Update Docs Phase
 
@@ -383,11 +297,7 @@ For overhaul, typically includes:
 - Migration guides if public interfaces changed
 - Updated diagrams
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.docsUpdated = true | .artifacts.updatedDocs = ["<doc1>", "<doc2>"] | .phase = "synthesize"'
-```
+Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
 
 Then auto-invoke synthesize:
 ```typescript
@@ -432,10 +342,7 @@ EOF
 
 ## State Management
 
-Initialize refactor workflow:
-```bash
-~/.claude/scripts/workflow-state.sh init refactor-<slug> --refactor
-```
+Initialize refactor workflow using `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`.
 
 Full state schema:
 ```json
@@ -516,12 +423,7 @@ explore -> brief -> plan -> delegate -> integrate -> review -> update-docs -> sy
 
 ### Polish -> Overhaul
 
-If scope expands beyond polish limits during explore or brief phase:
-
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" | .explore.scopeAssessment.recommendedTrack = "overhaul"'
-```
+If scope expands beyond polish limits during explore or brief phase, use `mcp__workflow-state__workflow_set` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
 **Indicators to switch:**
 - More than 5 files affected
@@ -560,12 +462,12 @@ Task({
 })
 ```
 
-### With workflow-state.sh
+### With Workflow State MCP
 
-Extended to support:
+The workflow-state MCP server supports:
 - `workflowType: "refactor"` field
-- Refactor-specific phases in `next-action` command
-- Refactor context in `summary` output
+- Refactor-specific phases in `mcp__workflow-state__workflow_next_action` output
+- Refactor context in `mcp__workflow-state__workflow_summary` output
 
 ### With workflow-auto-resume.md
 

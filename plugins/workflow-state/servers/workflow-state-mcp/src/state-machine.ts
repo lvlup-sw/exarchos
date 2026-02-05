@@ -285,6 +285,24 @@ const guards = {
     },
   },
 
+  planReviewComplete: {
+    id: 'plan-review-complete',
+    description: 'Plan review must be complete with no gaps',
+    evaluate: (state: Record<string, unknown>) => {
+      const planReview = state.planReview as Record<string, unknown> | undefined;
+      return planReview?.approved === true;
+    },
+  },
+
+  planReviewGapsFound: {
+    id: 'plan-review-gaps-found',
+    description: 'Plan review found coverage gaps',
+    evaluate: (state: Record<string, unknown>) => {
+      const planReview = state.planReview as Record<string, unknown> | undefined;
+      return planReview?.gapsFound === true;
+    },
+  },
+
   always: {
     id: 'always',
     description: 'Always passes',
@@ -298,6 +316,7 @@ function createFeatureHSM(): HSMDefinition {
   const states: Record<string, State> = {
     ideate: { id: 'ideate', type: 'atomic' },
     plan: { id: 'plan', type: 'atomic' },
+    'plan-review': { id: 'plan-review', type: 'atomic' },
     implementation: {
       id: 'implementation',
       type: 'compound',
@@ -317,7 +336,14 @@ function createFeatureHSM(): HSMDefinition {
 
   const transitions: Transition[] = [
     { from: 'ideate', to: 'plan', guard: guards.designArtifactExists },
-    { from: 'plan', to: 'delegate', guard: guards.planArtifactExists },
+    { from: 'plan', to: 'plan-review', guard: guards.planArtifactExists },
+    { from: 'plan-review', to: 'delegate', guard: guards.planReviewComplete },
+    {
+      from: 'plan-review',
+      to: 'plan',
+      guard: guards.planReviewGapsFound,
+      effects: ['log'],
+    },
     { from: 'delegate', to: 'integrate', guard: guards.allTasksComplete },
     { from: 'integrate', to: 'review', guard: guards.integrationPassed },
     {

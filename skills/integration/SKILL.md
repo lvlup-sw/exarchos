@@ -135,33 +135,23 @@ feature/integration-<feature-name>
 
 ## State Management
 
+Use `mcp__workflow-state__workflow_set` for all state updates.
+
 ### On Integration Start
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "in_progress" | .integration.branch = "feature/integration-<name>"'
-```
+Set `integration.status` to "in_progress" and `integration.branch` to the integration branch name.
 
 ### On Branch Merged
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.mergedBranches += ["feature/<task-id>-<name>"]'
-```
+Append the merged branch to `integration.mergedBranches` array.
 
 ### On Integration Pass
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "passed" | .integration.testResults = {"tests": "pass", "typecheck": "pass", "lint": "pass", "build": "pass"}'
-```
+Set `integration.status` to "passed", `integration.passed` to true, and `integration.testResults` with pass/fail for each verification step.
 
 ### On Integration Fail
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "failed" | .integration.failureDetails = "<error details>"'
-```
+Set `integration.status` to "failed", `integration.passed` to false, and `integration.failureDetails` with error details.
 
 ## Completion Criteria
 

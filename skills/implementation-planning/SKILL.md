@@ -12,6 +12,18 @@ Activate this skill when:
 - A design document exists and needs implementation steps
 - User says "plan the implementation" or similar
 - Auto-chained from `/ideate` after design completion
+- Auto-chained from plan-review with `--revise` flag (gaps found)
+
+## Revision Mode (--revise flag)
+
+When invoked with `--revise`, plan-review found gaps in the previous plan. The state file contains `.planReview.gaps` with specific missing items.
+
+**Revision workflow:**
+1. Read gaps from state using `mcp__workflow-state__workflow_get` with query `planReview.gaps`
+2. Re-read design document
+3. Add tasks to address each gap
+4. Update existing plan file (append new tasks)
+5. Clear gaps using `mcp__workflow-state__workflow_set` (set `planReview.gaps` to empty array, `planReview.gapsFound` to false)
 
 ## The Iron Law
 
@@ -226,21 +238,10 @@ This skill updates workflow state with plan details.
 
 ### On Plan Save
 
-Update state with plan artifact and tasks:
-
-```bash
-# Set plan path
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.plan = "docs/plans/YYYY-MM-DD-<feature>.md"'
-
-# Add tasks (repeat for each task)
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "branch": "feature/001-name"}]'
-
-# Update phase to delegate
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "delegate"'
-```
+Update state with plan artifact and tasks using `mcp__workflow-state__workflow_set`:
+- Set `artifacts.plan` to the plan path
+- Set `tasks` to the array of task objects (id, title, status, branch)
+- Set `phase` to "plan-review"
 
 ### Task State Structure
 
@@ -265,11 +266,18 @@ Each task in state should include:
 
 ## Transition
 
-After planning completes, **auto-continue to delegate** (no user confirmation):
+After planning completes, **auto-continue to plan-review** (delta analysis):
 
-1. Update state: `.phase = "delegate"`, populate tasks
-2. Output: "Plan saved with [N] tasks. Auto-continuing to delegation..."
-3. Invoke delegation:
+1. Update state: `.phase = "plan-review"`, populate tasks
+2. Output: "Plan saved with [N] tasks. Running plan-design coverage analysis..."
+3. Run plan-review delta analysis:
+   - Re-read design document
+   - Compare each section against planned tasks
+   - If gaps found: set `.planReview.gaps`, auto-loop back to `/plan --revise`
+   - If no gaps: present to user for approval (human checkpoint)
+   - On approval: set `.planReview.approved = true`, invoke `/delegate`
+
 ```typescript
+// After plan-review passes and user approves:
 Skill({ skill: "delegate", args: "<plan-path>" })
 ```

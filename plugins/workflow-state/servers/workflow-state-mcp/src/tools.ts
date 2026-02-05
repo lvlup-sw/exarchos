@@ -517,7 +517,7 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 // ─── Human Checkpoint Phases ────────────────────────────────────────────────
 
 const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
-  feature: new Set(['synthesize']),
+  feature: new Set(['plan-review', 'synthesize']),
   debug: new Set(['hotfix-validate', 'synthesize']),
   refactor: new Set(['polish-update-docs', 'synthesize']),
 };
@@ -527,7 +527,8 @@ const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
 const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
   feature: {
     ideate: 'AUTO:plan',
-    plan: 'AUTO:delegate',
+    plan: 'AUTO:plan-review',
+    'plan-review': 'AUTO:delegate',
     delegate: 'AUTO:integrate',
     integrate: 'AUTO:review',
     review: 'AUTO:synthesize',

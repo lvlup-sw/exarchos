@@ -273,16 +273,8 @@ Before dispatching ANY implementer:
 
 ### Worktree State Tracking
 
-Track worktrees in the workflow state file:
-
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.worktrees[".worktrees/<task-id>-<name>"] = {
-    "branch": "feature/<task-id>-<name>",
-    "taskId": "<task-id>",
-    "status": "active"
-  }'
-```
+Track worktrees in the workflow state file using `mcp__workflow-state__workflow_set`:
+- Set `worktrees.<worktree-path>` to an object containing branch, taskId, and status
 
 ### Implementer Prompt Requirements
 
@@ -318,44 +310,26 @@ This skill tracks task progress in workflow state for context persistence.
 
 ### Read Tasks from State
 
-Instead of re-parsing plan, read task list from state:
-
-```bash
-~/.claude/scripts/workflow-state.sh get docs/workflow-state/<feature>.state.json '.tasks'
-```
+Instead of re-parsing plan, read task list using `mcp__workflow-state__workflow_get` with query `tasks`.
 
 ### On Task Dispatch
 
-Update task status when dispatched:
+Update task status when dispatched using `mcp__workflow-state__workflow_set`:
+- Update the task's status to "in_progress"
+- Set the task's startedAt timestamp
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "001")).status = "in_progress" | (.tasks[] | select(.id == "001")).startedAt = "2026-01-05T10:00:00Z"'
-```
-
-If creating worktree:
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.worktrees[".worktrees/001-name"] = {"branch": "feature/001-name", "taskId": "001", "status": "active"}'
-```
+If creating worktree, also set the worktree entry with branch, taskId, and status.
 
 ### On Task Complete
 
-Update task status when subagent reports completion:
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "001")).status = "complete" | (.tasks[] | select(.id == "001")).completedAt = "2026-01-05T10:30:00Z"'
-```
+Update task status when subagent reports completion using `mcp__workflow-state__workflow_set`:
+- Update the task's status to "complete"
+- Set the task's completedAt timestamp
 
 ### On All Tasks Complete
 
-Update phase and suggest checkpoint:
-
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "review"'
-```
+Update phase using `mcp__workflow-state__workflow_set`:
+- Set `phase` to "integrate"
 
 ## Fix Mode (--fixes)
 
@@ -371,11 +345,9 @@ Or auto-invoked after review/integration failures.
 
 ### Fix Mode Process
 
-1. **Read failure details** from state file:
-   ```bash
-   ~/.claude/scripts/workflow-state.sh get <state-file> '.integration.failureDetails'
-   ~/.claude/scripts/workflow-state.sh get <state-file> '.reviews'
-   ```
+1. **Read failure details** from state using `mcp__workflow-state__workflow_get`:
+   - Query `integration.failureDetails` for integration failures
+   - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:
    - Parse issue descriptions
