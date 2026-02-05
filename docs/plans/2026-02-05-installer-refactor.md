@@ -406,18 +406,18 @@ Link: `docs/workflow-state/refactor-installer.state.json`
 ## Parallelization Strategy
 
 ### Sequential Chain A (Foundation → Symlinks)
-```
+```text
 001 → 002 → 004 → 005 → 010
                 ↘ 006 → 011
 ```
 
 ### Sequential Chain B (Foundation → MCP)
-```
+```text
 001 → 002 → 004 → 007 → 008 → 009
 ```
 
 ### Sequential Chain C (CLI)
-```
+```text
 001 → 002 → 003 → 012
 ```
 

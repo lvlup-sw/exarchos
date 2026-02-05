@@ -65,23 +65,21 @@ export async function configureMcpServers(configPath: string, repoRoot: string):
   }
 
   // Add jules MCP server
+  const julesApiKey = process.env.JULES_API_KEY;
   config.mcpServers.jules = {
     type: 'stdio',
     command: 'node',
     args: [join(repoRoot, 'plugins/jules/servers/jules-mcp/dist/index.js')],
-    env: {
-      JULES_API_KEY: '${JULES_API_KEY}'
-    }
+    ...(julesApiKey ? { env: { JULES_API_KEY: julesApiKey } } : {})
   };
 
   // Add workflow-state MCP server
+  const workflowStateDir = process.env.WORKFLOW_STATE_DIR;
   config.mcpServers['workflow-state'] = {
     type: 'stdio',
     command: 'node',
     args: [join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp/dist/index.js')],
-    env: {
-      WORKFLOW_STATE_DIR: '${WORKFLOW_STATE_DIR}'
-    }
+    ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
   // Write config
@@ -142,6 +140,8 @@ export function getRepoRoot(): string {
 
 // Symlink utilities
 export async function createSymlink(source: string, target: string): Promise<SymlinkResult> {
+  let backedUp = false;
+
   // Check if target exists
   if (existsSync(target)) {
     const stats = lstatSync(target);
@@ -153,15 +153,19 @@ export async function createSymlink(source: string, target: string): Promise<Sym
     }
 
     // Backup existing directory/file
-    const backupPath = `${target}.backup`;
+    let backupPath = `${target}.backup`;
+    if (existsSync(backupPath)) {
+      backupPath = `${backupPath}.${Date.now()}`;
+    }
     console.log(`  [backup] ${target} -> ${backupPath}`);
     renameSync(target, backupPath);
+    backedUp = true;
   }
 
   // Create symlink
   symlinkSync(source, target);
   console.log(`  [link] ${target}`);
-  return existsSync(`${target}.backup`) ? 'backed_up' : 'created';
+  return backedUp ? 'backed_up' : 'created';
 }
 
 export async function removeSymlink(target: string): Promise<RemoveResult> {
@@ -285,8 +289,10 @@ export async function main(): Promise<void> {
   }
 }
 
-// Run main if this is the entry point
-main().catch((error) => {
-  console.error('Error:', error.message);
-  process.exit(1);
-});
+// Run main only when executed directly
+if (process.argv[1] === __filename) {
+  main().catch((error) => {
+    console.error('Error:', error.message);
+    process.exit(1);
+  });
+}
