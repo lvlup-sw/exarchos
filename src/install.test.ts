@@ -202,3 +202,49 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers['workflow-state']).toBeDefined();
   });
 });
+
+describe('removeMcpConfig', () => {
+  let tempDir: string;
+  let configPath: string;
+  let repoRoot: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'mcp-remove-test-'));
+    configPath = join(tempDir, '.claude.json');
+    repoRoot = '/test/repo/root';
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should remove jules and workflow-state from config', async () => {
+    const { removeMcpConfig, configureMcpServers } = await import('./install.js');
+    await configureMcpServers(configPath, repoRoot);
+
+    await removeMcpConfig(configPath);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers.jules).toBeUndefined();
+    expect(config.mcpServers['workflow-state']).toBeUndefined();
+  });
+
+  it('should preserve other config when removing servers', async () => {
+    writeFileSync(configPath, JSON.stringify({
+      existingKey: 'value',
+      mcpServers: { jules: {}, 'workflow-state': {}, other: {} }
+    }));
+    const { removeMcpConfig } = await import('./install.js');
+
+    await removeMcpConfig(configPath);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.existingKey).toBe('value');
+    expect(config.mcpServers.other).toBeDefined();
+  });
+
+  it('should not throw when config does not exist', async () => {
+    const { removeMcpConfig } = await import('./install.js');
+    await expect(removeMcpConfig('/nonexistent/path')).resolves.not.toThrow();
+  });
+});

@@ -74,5 +74,23 @@ export async function configureMcpServers(configPath: string, repoRoot: string):
   console.log(`  [done] Configured MCP servers in ${configPath}`);
 }
 
+export async function removeMcpConfig(configPath: string): Promise<void> {
+  if (!existsSync(configPath)) {
+    console.log(`  [skip] ${configPath} (not found)`);
+    return;
+  }
+
+  const content = readFileSync(configPath, 'utf-8');
+  const config: ClaudeConfig = JSON.parse(content);
+
+  if (config.mcpServers) {
+    delete config.mcpServers.jules;
+    delete config.mcpServers['workflow-state'];
+  }
+
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  console.log(`  [done] Removed MCP servers from ${configPath}`);
+}
+
 // Installer implementation - to be completed in subsequent tasks
 console.log('lvlup-claude installer');
