@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -246,5 +246,150 @@ describe('removeMcpConfig', () => {
   it('should not throw when config does not exist', async () => {
     const { removeMcpConfig } = await import('./install.js');
     await expect(removeMcpConfig('/nonexistent/path')).resolves.not.toThrow();
+  });
+});
+
+describe('parseArgs', () => {
+  it('should return install action when no args', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs([]);
+    expect(result.action).toBe('install');
+  });
+
+  it('should return uninstall action when --uninstall flag', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--uninstall']);
+    expect(result.action).toBe('uninstall');
+  });
+
+  it('should return help action when --help flag', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--help']);
+    expect(result.action).toBe('help');
+  });
+
+  it('should return help action when -h flag', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['-h']);
+    expect(result.action).toBe('help');
+  });
+});
+
+describe('Path Utilities', () => {
+  describe('getClaudeHome', () => {
+    it('should return ~/.claude path', async () => {
+      const { homedir } = await import('node:os');
+      const { getClaudeHome } = await import('./install.js');
+      const result = getClaudeHome();
+      const expected = join(homedir(), '.claude');
+      expect(result).toBe(expected);
+    });
+  });
+
+  describe('getRepoRoot', () => {
+    it('should return repository root path', async () => {
+      const { getRepoRoot } = await import('./install.js');
+      const result = getRepoRoot();
+      // Should be parent of src directory (where install.ts lives)
+      expect(result).toMatch(/lvlup-claude$/);
+      expect(result).not.toContain('.worktrees');
+    });
+  });
+});
+
+describe('createSymlink', () => {
+  let tempDir: string;
+  let sourceDir: string;
+  let targetPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'symlink-test-'));
+    sourceDir = join(tempDir, 'source');
+    targetPath = join(tempDir, 'target');
+    mkdirSync(sourceDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should create symlink when target does not exist', async () => {
+    const { createSymlink } = await import('./install.js');
+    const result = await createSymlink(sourceDir, targetPath);
+
+    expect(result).toBe('created');
+    expect(lstatSync(targetPath).isSymbolicLink()).toBe(true);
+  });
+
+  it('should skip when target is already a symlink', async () => {
+    const { createSymlink } = await import('./install.js');
+    symlinkSync(sourceDir, targetPath);
+
+    const result = await createSymlink(sourceDir, targetPath);
+    expect(result).toBe('skipped');
+  });
+
+  it('should backup existing directory and create symlink', async () => {
+    const { createSymlink } = await import('./install.js');
+    mkdirSync(targetPath);
+    writeFileSync(join(targetPath, 'file.txt'), 'content');
+
+    const result = await createSymlink(sourceDir, targetPath);
+
+    expect(result).toBe('backed_up');
+    expect(existsSync(`${targetPath}.backup`)).toBe(true);
+    expect(lstatSync(targetPath).isSymbolicLink()).toBe(true);
+  });
+});
+
+describe('removeSymlink', () => {
+  let tempDir: string;
+  let sourceDir: string;
+  let targetPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'symlink-remove-test-'));
+    sourceDir = join(tempDir, 'source');
+    targetPath = join(tempDir, 'target');
+    mkdirSync(sourceDir);
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should remove symlink', async () => {
+    const { removeSymlink } = await import('./install.js');
+    symlinkSync(sourceDir, targetPath);
+
+    const result = await removeSymlink(targetPath);
+
+    expect(result).toBe('removed');
+    expect(existsSync(targetPath)).toBe(false);
+  });
+
+  it('should skip when target is not a symlink', async () => {
+    const { removeSymlink } = await import('./install.js');
+    mkdirSync(targetPath);
+
+    const result = await removeSymlink(targetPath);
+
+    expect(result).toBe('skipped');
+    expect(existsSync(targetPath)).toBe(true);
+  });
+
+  it('should skip when target does not exist', async () => {
+    const { removeSymlink } = await import('./install.js');
+
+    const result = await removeSymlink(targetPath);
+
+    expect(result).toBe('skipped');
+  });
+});
+
+describe('install', () => {
+  it('should be exported as a function', async () => {
+    const mod = await import('./install.js');
+    expect(typeof mod.install).toBe('function');
   });
 });
