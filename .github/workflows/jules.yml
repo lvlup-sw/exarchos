@@ -18,6 +18,7 @@ on:
 
 jobs:
   scan:
+    if: false  # Disabled - remove this line to re-enable
     uses: lvlup-sw/.github/.github/workflows/jules-scan.yml@main
     with:
       scan-type: ${{ inputs.scan-type || 'both' }}
