@@ -4,6 +4,9 @@
   "description": "MCP server for Jules autonomous coding agent integration",
   "type": "module",
   "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",

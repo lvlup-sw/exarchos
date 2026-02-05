@@ -6,6 +6,25 @@
   "bin": {
     "lvlup-claude": "./dist/install.js"
   },
+  "files": [
+    "dist",
+    "commands",
+    "skills",
+    "rules",
+    "docs",
+    "plugins",
+    "azd-templates",
+    "ci-templates",
+    ".claude",
+    ".claude-plugin",
+    ".mcp.json",
+    "CLAUDE.md.template",
+    "AGENTS.md",
+    "!**/node_modules",
+    "!**/.terraform",
+    "!**/*.test.ts",
+    "!**/src"
+  ],
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
