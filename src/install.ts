@@ -223,5 +223,31 @@ export async function install(): Promise<void> {
   console.log('Installation complete!');
 }
 
+// Main uninstall orchestrator
+export async function uninstall(): Promise<void> {
+  const claudeHome = getClaudeHome();
+
+  console.log('lvlup-claude Uninstall');
+  console.log('======================');
+  console.log(`Claude home: ${claudeHome}`);
+  console.log('');
+
+  // Remove symlinks
+  console.log('Removing symlinks...');
+  const dirs = ['skills', 'commands', 'rules', 'scripts'];
+  for (const dir of dirs) {
+    await removeSymlink(join(claudeHome, dir));
+  }
+  await removeSymlink(join(claudeHome, 'settings.json'));
+
+  // Remove MCP config
+  console.log('');
+  console.log('Removing MCP configuration...');
+  await removeMcpConfig(join(homedir(), '.claude.json'));
+
+  console.log('');
+  console.log('Uninstall complete!');
+}
+
 // Installer implementation - to be completed in subsequent tasks
 console.log('lvlup-claude installer');

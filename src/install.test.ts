@@ -393,3 +393,10 @@ describe('install', () => {
     expect(typeof mod.install).toBe('function');
   });
 });
+
+describe('uninstall', () => {
+  it('should be exported as a function', async () => {
+    const mod = await import('./install.js');
+    expect(typeof mod.uninstall).toBe('function');
+  });
+});
