@@ -157,7 +157,6 @@
     "typescript-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
     "csharp-lsp@claude-plugins-official": true,
-    "microsoft-docs@microsoft-docs-marketplace": true,
     "github@claude-plugins-official": true
   }
 }
