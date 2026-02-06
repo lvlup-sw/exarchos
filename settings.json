@@ -153,6 +153,7 @@
       "Bash(~/.claude/scripts/workflow-state.sh:*)"
     ]
   },
+  "model": "claude-opus-4-6",
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
     "pyright-lsp@claude-plugins-official": true,
