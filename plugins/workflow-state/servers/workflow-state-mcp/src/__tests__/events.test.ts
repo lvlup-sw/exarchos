@@ -130,6 +130,33 @@ describe('Event Log', () => {
   });
 
   describe('getFixCycleCount', () => {
+    it('should count fix-cycle events using compoundStateId metadata key (Bug 6 regression)', () => {
+      // This test uses events matching what executeTransition actually writes:
+      // compound-entry and fix-cycle events with metadata.compoundStateId
+      const events: Event[] = [
+        makeEvent({
+          sequence: 1,
+          type: 'compound-entry',
+          trigger: 'execute-transition',
+          metadata: { compoundStateId: 'implementation' },
+        }),
+        makeEvent({
+          sequence: 2,
+          type: 'fix-cycle',
+          trigger: 'execute-transition',
+          metadata: { compoundStateId: 'implementation' },
+        }),
+        makeEvent({
+          sequence: 3,
+          type: 'fix-cycle',
+          trigger: 'execute-transition',
+          metadata: { compoundStateId: 'implementation' },
+        }),
+      ];
+
+      expect(getFixCycleCount(events, 'implementation')).toBe(2);
+    });
+
     it('GetFixCycleCount_FromEventLog_CorrectCount — Counts fix-cycle events for specific compound', () => {
       const events: Event[] = [
         makeEvent({

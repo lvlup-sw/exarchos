@@ -71,13 +71,21 @@ describe('HSM State Definitions', () => {
       expect(ideateToPlan!.guard).toBeDefined();
       expect(ideateToPlan!.guard!.id).toBe('design-artifact-exists');
 
-      // plan → delegate (enters Implementation compound)
-      const planToDelegate = transitions.find(
-        (t) => t.from === 'plan' && t.to === 'delegate'
+      // plan → plan-review
+      const planToPlanReview = transitions.find(
+        (t) => t.from === 'plan' && t.to === 'plan-review'
       );
-      expect(planToDelegate).toBeDefined();
-      expect(planToDelegate!.guard).toBeDefined();
-      expect(planToDelegate!.guard!.id).toBe('plan-artifact-exists');
+      expect(planToPlanReview).toBeDefined();
+      expect(planToPlanReview!.guard).toBeDefined();
+      expect(planToPlanReview!.guard!.id).toBe('plan-artifact-exists');
+
+      // plan-review → delegate (enters Implementation compound)
+      const planReviewToDelegate = transitions.find(
+        (t) => t.from === 'plan-review' && t.to === 'delegate'
+      );
+      expect(planReviewToDelegate).toBeDefined();
+      expect(planReviewToDelegate!.guard).toBeDefined();
+      expect(planReviewToDelegate!.guard!.id).toBe('plan-review-complete');
 
       // delegate → integrate
       const delegateToIntegrate = transitions.find(
@@ -528,8 +536,8 @@ describe('HSM Transition Algorithm', () => {
     it('ExecuteTransition_CompoundEntry_FiresOnEntryEffects', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'plan',
-        artifacts: { design: 'docs/design.md', plan: 'docs/plan.md', pr: null },
+        phase: 'plan-review',
+        planReview: { approved: true },
         _events: [],
         _history: {},
       };
@@ -600,6 +608,45 @@ describe('HSM Transition Algorithm', () => {
       }
     });
 
+    it('ExecuteTransition_FixCycleEvent_WritesCompoundStateIdMetadata (Bug 6)', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'integrate',
+        integration: { passed: false },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(true);
+      // Fix-cycle event should use compoundStateId key, not compound
+      const fixCycleEvent = result.events.find((e) => e.type === 'fix-cycle');
+      expect(fixCycleEvent).toBeDefined();
+      expect(fixCycleEvent!.metadata).toBeDefined();
+      expect(fixCycleEvent!.metadata!.compoundStateId).toBe('implementation');
+      expect(fixCycleEvent!.metadata!.compound).toBeUndefined();
+    });
+
+    it('ExecuteTransition_CompoundEntry_WritesCompoundStateIdMetadata (Bug 6)', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'plan-review',
+        planReview: { approved: true },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(true);
+      // compound-entry event should include compoundStateId metadata
+      const compoundEntryEvent = result.events.find((e) => e.type === 'compound-entry');
+      expect(compoundEntryEvent).toBeDefined();
+      expect(compoundEntryEvent!.metadata).toBeDefined();
+      expect(compoundEntryEvent!.metadata!.compoundStateId).toBe('implementation');
+    });
+
     it('ExecuteTransition_CircuitBreaker_ReturnsCircuitOpen', () => {
       const hsm = getHSMDefinition('feature');
 
@@ -612,7 +659,7 @@ describe('HSM Transition Algorithm', () => {
         from: 'integrate',
         to: 'delegate',
         trigger: 'test',
-        metadata: { compound: 'implementation' },
+        metadata: { compoundStateId: 'implementation' },
       }));
 
       const state: Record<string, unknown> = {
@@ -628,6 +675,26 @@ describe('HSM Transition Algorithm', () => {
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
     });
   });
+
+    it('ExecuteTransition_GuardThrows_ReturnsGuardFailed (Bug 7)', () => {
+      const hsm = getHSMDefinition('feature');
+      // Corrupt state: tasks is an array-like object (not a real Array)
+      // The allTasksComplete guard calls tasks.every() which is undefined on non-arrays
+      // This triggers: TypeError: tasks.every is not a function
+      const state: Record<string, unknown> = {
+        phase: 'delegate',
+        tasks: { length: 1, 0: { status: 'pending' } },
+        _events: [],
+        _history: {},
+      };
+
+      // Should NOT throw — should return structured error
+      const result = executeTransition(hsm, state, 'integrate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+      expect(result.errorMessage).toContain('Guard');
+    });
 
   describe('getValidTransitions', () => {
     it('returns valid target phases from a given phase', () => {

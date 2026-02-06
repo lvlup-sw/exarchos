@@ -251,6 +251,33 @@ describe('Core Tools', () => {
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('RESERVED_FIELD');
     });
+
+    it('should reject phase in updates — must use phase parameter instead', async () => {
+      await handleInit({ featureId: 'phase-reserved', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleSet(
+        { featureId: 'phase-reserved', updates: { phase: 'plan' } },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('RESERVED_FIELD');
+      expect(result.error?.message).toContain('phase');
+    });
+
+    it('should reject workflowType, featureId, createdAt, version in updates', async () => {
+      await handleInit({ featureId: 'immutable-reserved', workflowType: 'feature' }, tmpDir);
+
+      for (const field of ['workflowType', 'featureId', 'createdAt', 'version']) {
+        const result = await handleSet(
+          { featureId: 'immutable-reserved', updates: { [field]: 'hacked' } },
+          tmpDir,
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('RESERVED_FIELD');
+      }
+    });
   });
 
   // ─── ToolCancel ──────────────────────────────────────────────────────────────
@@ -497,9 +524,14 @@ describe('Query Tools', () => {
       );
       await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir);
 
-      // Set plan artifact and transition to delegate
+      // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir);
+      await handleSet(
+        { featureId: 'summary-cb', updates: { planReview: { approved: true } } },
         tmpDir,
       );
       await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir);
@@ -522,7 +554,25 @@ describe('Query Tools', () => {
     });
   });
 
+  describe('ToolSummary_NonExistentWorkflow_ReturnsNotFound', () => {
+    it('should return STATE_NOT_FOUND for non-existent workflow', async () => {
+      const result = await handleSummary({ featureId: 'does-not-exist' }, tmpDir);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('STATE_NOT_FOUND');
+    });
+  });
+
   // ─── ToolReconcile ────────────────────────────────────────────────────────
+
+  describe('ToolReconcile_NonExistentWorkflow_ReturnsNotFound', () => {
+    it('should return STATE_NOT_FOUND for non-existent workflow', async () => {
+      const result = await handleReconcile({ featureId: 'does-not-exist' }, tmpDir);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('STATE_NOT_FOUND');
+    });
+  });
 
   describe('ToolReconcile_MatchingWorktrees_ReturnsAllOk', () => {
     it('should return OK status for worktrees that exist on disk', async () => {
@@ -587,6 +637,15 @@ describe('Query Tools', () => {
   });
 
   // ─── ToolNextAction ───────────────────────────────────────────────────────
+
+  describe('ToolNextAction_NonExistentWorkflow_ReturnsNotFound', () => {
+    it('should return STATE_NOT_FOUND for non-existent workflow', async () => {
+      const result = await handleNextAction({ featureId: 'does-not-exist' }, tmpDir);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('STATE_NOT_FOUND');
+    });
+  });
 
   describe('ToolNextAction_AutoContinue_ReturnsCorrectAction', () => {
     it('should return AUTO:plan when in ideate phase with design artifact', async () => {
@@ -696,6 +755,88 @@ describe('Query Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data.action).toMatch(/^BLOCKED:circuit-open/);
+    });
+  });
+
+  describe('ToolNextAction_FixCycleGuardPasses_ReturnsAutoFixes', () => {
+    it('should return AUTO:delegate:--fixes when fix-cycle guard passes and circuit is not open', async () => {
+      await handleInit({ featureId: 'next-fixcycle', workflowType: 'feature' }, tmpDir);
+
+      // Write state at integrate phase with integration.passed = false
+      // and a compound-entry event (but NO fix-cycle events, so circuit stays closed)
+      const stateFile = path.join(tmpDir, 'next-fixcycle.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+
+      raw.phase = 'integrate';
+      raw.integration = { passed: false };
+      raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
+      raw._checkpoint.phase = 'integrate';
+
+      const now = new Date().toISOString();
+      raw._events = [
+        {
+          sequence: 1,
+          version: '1.0',
+          timestamp: now,
+          type: 'compound-entry',
+          trigger: 'execute-transition',
+          from: 'plan-review',
+          to: 'implementation',
+          metadata: { compoundStateId: 'implementation' },
+        },
+      ];
+      raw._eventSequence = 1;
+
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleNextAction({ featureId: 'next-fixcycle' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toBe('AUTO:delegate:--fixes');
+      expect(data.target).toBe('delegate');
+    });
+  });
+
+  describe('ToolNextAction_NoGuardsPasses_ReturnsInProgress', () => {
+    it('should return WAIT:in-progress when no outbound guard passes', async () => {
+      await handleInit({ featureId: 'next-wait-prog', workflowType: 'feature' }, tmpDir);
+
+      // Transition to plan phase (requires design artifact)
+      await handleSet(
+        { featureId: 'next-wait-prog', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'next-wait-prog', phase: 'plan' }, tmpDir);
+
+      // Now at plan phase. The only outbound transition is plan → plan-review,
+      // which requires artifacts.plan to exist. We don't set it, so guard fails.
+      const result = await handleNextAction({ featureId: 'next-wait-prog' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toBe('WAIT:in-progress:plan');
+      expect(data.phase).toBe('plan');
+    });
+  });
+
+  describe('ToolNextAction_CompletedPhase_ReturnsDone', () => {
+    it('should return DONE for completed workflow', async () => {
+      await handleInit({ featureId: 'next-done', workflowType: 'feature' }, tmpDir);
+
+      // Write state directly at completed phase
+      const stateFile = path.join(tmpDir, 'next-done.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.phase = 'completed';
+      raw._checkpoint.phase = 'completed';
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleNextAction({ featureId: 'next-done' }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.action).toBe('DONE');
+      expect(data.phase).toBe('completed');
     });
   });
 
@@ -844,6 +985,30 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('brief');
+  });
+});
+
+describe('ToolSet_DeepCopy_OriginalStateUnaffected (Bug 8)', () => {
+  it('should not mutate the original state read from disk when applying updates', async () => {
+    await handleInit({ featureId: 'deep-copy', workflowType: 'feature' }, tmpDir);
+
+    // Set a nested field
+    const result = await handleSet(
+      {
+        featureId: 'deep-copy',
+        updates: { 'artifacts.design': 'docs/design.md' },
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Read the state back from disk to verify it was written correctly
+    const state = await readStateFile(path.join(tmpDir, 'deep-copy.state.json'));
+    expect(state.artifacts.design).toBe('docs/design.md');
+    // The original state's siblings should be intact
+    expect(state.artifacts.plan).toBeNull();
+    expect(state.artifacts.pr).toBeNull();
   });
 });
 
