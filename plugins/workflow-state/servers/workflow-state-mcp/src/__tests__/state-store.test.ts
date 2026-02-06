@@ -245,4 +245,77 @@ describe('State Store', () => {
       }
     });
   });
+
+  describe('ApplyDotPath_ObjectUpdate_DeepMerges', () => {
+    it('should deep-merge when both existing and new values are plain objects', () => {
+      const obj: Record<string, unknown> = {
+        artifacts: { design: null, plan: null, pr: null },
+      };
+      applyDotPath(obj, 'artifacts', { design: 'docs/design.md' });
+      expect(obj.artifacts).toEqual({ design: 'docs/design.md', plan: null, pr: null });
+    });
+
+    it('should deep-merge nested objects preserving siblings', () => {
+      const obj: Record<string, unknown> = {
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+      };
+      applyDotPath(obj, 'synthesis', { prUrl: 'https://github.com/pr/1' });
+      expect((obj.synthesis as Record<string, unknown>).prUrl).toBe('https://github.com/pr/1');
+      expect((obj.synthesis as Record<string, unknown>).mergeOrder).toEqual([]);
+      expect((obj.synthesis as Record<string, unknown>).integrationBranch).toBeNull();
+    });
+
+    it('should replace when new value is not a plain object', () => {
+      const obj: Record<string, unknown> = { name: 'old' };
+      applyDotPath(obj, 'name', 'new');
+      expect(obj.name).toBe('new');
+    });
+
+    it('should replace when existing value is not a plain object', () => {
+      const obj: Record<string, unknown> = { count: 5 };
+      applyDotPath(obj, 'count', { nested: true });
+      expect(obj.count).toEqual({ nested: true });
+    });
+
+    it('should replace arrays, not merge them', () => {
+      const obj: Record<string, unknown> = { tags: ['a', 'b'] };
+      applyDotPath(obj, 'tags', ['c']);
+      expect(obj.tags).toEqual(['c']);
+    });
+
+    it('should still work with dot-path notation for nested values', () => {
+      const obj: Record<string, unknown> = {
+        artifacts: { design: null, plan: null, pr: null },
+      };
+      applyDotPath(obj, 'artifacts.design', 'docs/design.md');
+      expect(obj.artifacts).toEqual({ design: 'docs/design.md', plan: null, pr: null });
+    });
+
+    it('should handle deep-merge with nested objects recursively', () => {
+      const obj: Record<string, unknown> = {
+        explore: {
+          startedAt: '2025-01-15T10:00:00Z',
+          completedAt: null,
+          scopeAssessment: { filesAffected: 5, testCoverage: 'good' },
+        },
+      };
+      applyDotPath(obj, 'explore', { completedAt: '2025-01-15T11:00:00Z' });
+      const explore = obj.explore as Record<string, unknown>;
+      expect(explore.startedAt).toBe('2025-01-15T10:00:00Z');
+      expect(explore.completedAt).toBe('2025-01-15T11:00:00Z');
+      expect(explore.scopeAssessment).toEqual({ filesAffected: 5, testCoverage: 'good' });
+    });
+
+    it('should replace when existing value is null', () => {
+      const obj: Record<string, unknown> = { integration: null };
+      applyDotPath(obj, 'integration', { passed: true });
+      expect(obj.integration).toEqual({ passed: true });
+    });
+  });
 });
