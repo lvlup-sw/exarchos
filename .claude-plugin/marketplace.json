@@ -13,6 +13,12 @@
       "source": "./plugins/jules",
       "description": "Delegate coding tasks to Jules autonomous agent",
       "keywords": ["jules", "autonomous-agent", "delegation", "mcp"]
+    },
+    {
+      "name": "workflow-state",
+      "source": "./plugins/workflow-state",
+      "description": "Workflow state persistence with HSM transitions",
+      "keywords": ["workflow", "state-machine", "mcp"]
     }
   ]
 }

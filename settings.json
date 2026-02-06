@@ -149,8 +149,7 @@
       "Bash(getopts:*)",
       "Bash(declare:*)",
       "Bash(local:*)",
-      "Bash(eval:*)",
-      "Bash(~/.claude/scripts/workflow-state.sh:*)"
+      "Bash(eval:*)"
     ]
   },
   "model": "claude-opus-4-6",

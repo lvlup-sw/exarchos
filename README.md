@@ -92,9 +92,9 @@ Every task follows Red-Green-Refactor:
 
 | Type | Count | Examples |
 |------|-------|----------|
-| Commands | 11 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize`, `/debug` |
+| Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
 | Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
-| Rules | 9 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
+| Rules | 10 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
 | MCP Plugins | 2 | Jules (optional), workflow-state |
 | Marketplace Plugins | 5 | github, microsoft-docs, typescript-lsp, pyright-lsp, csharp-lsp |
 
