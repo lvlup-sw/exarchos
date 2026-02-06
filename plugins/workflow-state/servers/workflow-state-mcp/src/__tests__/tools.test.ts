@@ -497,9 +497,14 @@ describe('Query Tools', () => {
       );
       await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir);
 
-      // Set plan artifact and transition to delegate
+      // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir);
+      await handleSet(
+        { featureId: 'summary-cb', updates: { planReview: { approved: true } } },
         tmpDir,
       );
       await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir);
@@ -844,6 +849,30 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('brief');
+  });
+});
+
+describe('ToolSet_DeepCopy_OriginalStateUnaffected (Bug 8)', () => {
+  it('should not mutate the original state read from disk when applying updates', async () => {
+    await handleInit({ featureId: 'deep-copy', workflowType: 'feature' }, tmpDir);
+
+    // Set a nested field
+    const result = await handleSet(
+      {
+        featureId: 'deep-copy',
+        updates: { 'artifacts.design': 'docs/design.md' },
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Read the state back from disk to verify it was written correctly
+    const state = await readStateFile(path.join(tmpDir, 'deep-copy.state.json'));
+    expect(state.artifacts.design).toBe('docs/design.md');
+    // The original state's siblings should be intact
+    expect(state.artifacts.plan).toBeNull();
+    expect(state.artifacts.pr).toBeNull();
   });
 });
 

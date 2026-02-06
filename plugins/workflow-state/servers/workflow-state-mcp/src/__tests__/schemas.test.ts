@@ -469,10 +469,31 @@ describe('Workflow State Schemas', () => {
       }
     });
 
+    it('should validate debug compound sub-state phase names (Bug 5)', () => {
+      const compoundPhases = [
+        'debug-implement', 'debug-validate', 'debug-review',
+        'hotfix-implement', 'hotfix-validate',
+      ];
+      for (const phase of compoundPhases) {
+        expect(DebugPhaseSchema.safeParse(phase).success, `Expected '${phase}' to be valid`).toBe(true);
+      }
+    });
+
     it('should validate all refactor phases', () => {
       const phases = ['explore', 'brief', 'plan', 'delegate', 'integrate', 'review', 'implement', 'validate', 'update-docs', 'synthesize', 'completed', 'cancelled', 'blocked'];
       for (const phase of phases) {
         expect(RefactorPhaseSchema.safeParse(phase).success).toBe(true);
+      }
+    });
+
+    it('should validate refactor compound sub-state phase names (Bug 5)', () => {
+      const compoundPhases = [
+        'polish-implement', 'polish-validate', 'polish-update-docs',
+        'overhaul-plan', 'overhaul-delegate', 'overhaul-integrate',
+        'overhaul-review', 'overhaul-update-docs',
+      ];
+      for (const phase of compoundPhases) {
+        expect(RefactorPhaseSchema.safeParse(phase).success, `Expected '${phase}' to be valid`).toBe(true);
       }
     });
   });

@@ -157,8 +157,8 @@ export async function handleSet(
     throw err;
   }
 
-  // Work with a mutable copy
-  const mutableState = { ...state } as Record<string, unknown>;
+  // Work with a deep copy to avoid shared reference mutation
+  const mutableState = structuredClone(state) as Record<string, unknown>;
 
   // ─── Phase transition ───────────────────────────────────────────────
   if (input.phase) {
@@ -297,7 +297,7 @@ export async function handleCancel(
     };
   }
 
-  const mutableState = { ...state } as Record<string, unknown>;
+  const mutableState = structuredClone(state) as Record<string, unknown>;
   const currentPhase = state.phase;
   const events = (mutableState._events as WorkflowState['_events']) ?? [];
   const eventSequence = (mutableState._eventSequence as number) ?? 0;
@@ -449,8 +449,8 @@ export async function handleCheckpoint(
     throw err;
   }
 
-  // Work with a mutable copy
-  const mutableState = { ...state } as Record<string, unknown>;
+  // Work with a deep copy to avoid shared reference mutation
+  const mutableState = structuredClone(state) as Record<string, unknown>;
 
   // Reset checkpoint counter with current phase and optional summary
   mutableState._checkpoint = resetCounter(

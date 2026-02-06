@@ -149,9 +149,18 @@ describe('Integration', () => {
       expect(toPlan.success).toBe(true);
       expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
 
-      // plan -> delegate: requires artifacts.plan (schema field -- use handleSet)
+      // plan -> plan-review: requires artifacts.plan (schema field -- use handleSet)
       await handleSet(
         { featureId: 'full-saga', updates: { 'artifacts.plan': 'docs/plan.md' } },
+        stateDir,
+      );
+      const toPlanReview = await transitionFeature('full-saga', 'plan-review');
+      expect(toPlanReview.success).toBe(true);
+      expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
+
+      // plan-review -> delegate: requires planReview.approved = true
+      await handleSet(
+        { featureId: 'full-saga', updates: { planReview: { approved: true } } },
         stateDir,
       );
       const toDelegate = await transitionFeature('full-saga', 'delegate');
@@ -210,13 +219,14 @@ describe('Integration', () => {
       const events = finalState._events as Array<Record<string, unknown>>;
       const transitionEvents = events.filter((e) => e.type === 'transition');
 
-      // Should have transitions: ideate->plan, plan->delegate, delegate->integrate,
-      // integrate->review, review->synthesize, synthesize->completed
-      expect(transitionEvents.length).toBe(6);
+      // Should have transitions: ideate->plan, plan->plan-review, plan-review->delegate,
+      // delegate->integrate, integrate->review, review->synthesize, synthesize->completed
+      expect(transitionEvents.length).toBe(7);
 
       const transitionPairs = transitionEvents.map((e) => `${e.from}->${e.to}`);
       expect(transitionPairs).toContain('ideate->plan');
-      expect(transitionPairs).toContain('plan->delegate');
+      expect(transitionPairs).toContain('plan->plan-review');
+      expect(transitionPairs).toContain('plan-review->delegate');
       expect(transitionPairs).toContain('delegate->integrate');
       expect(transitionPairs).toContain('integrate->review');
       expect(transitionPairs).toContain('review->synthesize');
@@ -234,7 +244,7 @@ describe('Integration', () => {
         stateDir,
       );
 
-      // ideate -> plan -> delegate
+      // ideate -> plan -> plan-review -> delegate
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.design': 'design.md' } },
         stateDir,
@@ -242,6 +252,11 @@ describe('Integration', () => {
       await transitionFeature('fix-cycle', 'plan');
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.plan': 'plan.md' } },
+        stateDir,
+      );
+      await transitionFeature('fix-cycle', 'plan-review');
+      await handleSet(
+        { featureId: 'fix-cycle', updates: { planReview: { approved: true } } },
         stateDir,
       );
       await transitionFeature('fix-cycle', 'delegate');
@@ -284,7 +299,7 @@ describe('Integration', () => {
       // Verify each fix-cycle event references the implementation compound
       for (const evt of fixCycleEvents) {
         const metadata = evt.metadata as Record<string, unknown>;
-        expect(metadata.compound).toBe('implementation');
+        expect(metadata.compoundStateId).toBe('implementation');
       }
 
       // Verify via handleSummary that circuit breaker state is reported
@@ -316,6 +331,11 @@ describe('Integration', () => {
       await transitionFeature('cancel-test', 'plan');
       await handleSet(
         { featureId: 'cancel-test', updates: { 'artifacts.plan': 'plan.md' } },
+        stateDir,
+      );
+      await transitionFeature('cancel-test', 'plan-review');
+      await handleSet(
+        { featureId: 'cancel-test', updates: { planReview: { approved: true } } },
         stateDir,
       );
       await transitionFeature('cancel-test', 'delegate');

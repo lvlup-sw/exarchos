@@ -660,7 +660,7 @@ function countFixCycles(
   return events.filter((e) => {
     if (e.type !== 'fix-cycle') return false;
     const metadata = e.metadata as Record<string, unknown> | undefined;
-    return metadata?.compound === compoundId;
+    return metadata?.compoundStateId === compoundId;
   }).length;
 }
 
@@ -788,7 +788,20 @@ export function executeTransition(
 
   // ─── Step 3: Guard Evaluation ───────────────────────────────────────
   if (transition.guard) {
-    const guardResult = transition.guard.evaluate(state);
+    let guardResult: boolean;
+    try {
+      guardResult = transition.guard.evaluate(state);
+    } catch (err) {
+      return {
+        success: false,
+        idempotent: false,
+        effects: [],
+        events: [],
+        errorCode: 'GUARD_FAILED',
+        errorMessage: `Guard '${transition.guard.id}' threw: ${(err as Error).message}`,
+        guardDescription: transition.guard.description,
+      };
+    }
     if (!guardResult) {
       return {
         success: false,
@@ -894,6 +907,7 @@ export function executeTransition(
         from: currentPhase,
         to: ancestor.id,
         trigger: 'execute-transition',
+        metadata: { compoundStateId: ancestor.id },
       });
     }
   }
@@ -918,7 +932,7 @@ export function executeTransition(
       from: currentPhase,
       to: targetPhase,
       trigger: 'execute-transition',
-      metadata: { compound: parent?.id },
+      metadata: { compoundStateId: parent?.id },
     });
   }
 
