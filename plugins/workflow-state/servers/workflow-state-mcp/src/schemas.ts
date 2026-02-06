@@ -176,7 +176,7 @@ const BaseWorkflowStateSchema = z.object({
     lastActivityTimestamp: '1970-01-01T00:00:00Z',
     staleAfterMinutes: 120,
   }),
-});
+}).passthrough();
 
 // ─── Workflow-Type-Specific State Schemas ───────────────────────────────────
 
