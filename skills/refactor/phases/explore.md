@@ -81,7 +81,7 @@ Significant doc updates → overhaul track indicator.
 
 Update workflow state with assessment using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "explore": {

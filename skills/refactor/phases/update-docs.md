@@ -32,7 +32,7 @@ The `docsToUpdate` field in the brief identifies documents requiring updates. If
 
 Read the brief's `docsToUpdate` field using `mcp__workflow-state__workflow_get`:
 
-```
+```text
 Use mcp__workflow-state__workflow_get with featureId and query: ".brief.docsToUpdate"
 ```
 
@@ -136,7 +136,7 @@ Update when:
 
 Record updated documents using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 # Add each updated document
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "artifacts.updatedDocs": ["docs/architecture/modules.md"] }
@@ -187,7 +187,7 @@ After completing documentation updates:
 3. State updated with `docsUpdated = true`
 4. **Auto-chain to synthesize phase**
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   phase: "synthesize"
 ```

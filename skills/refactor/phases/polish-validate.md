@@ -35,7 +35,7 @@ If tests fail:
 
 Review each goal from the brief and verify completion:
 
-```
+```text
 # Read goals from state using mcp__workflow-state__workflow_get
 Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 ```
@@ -47,7 +47,7 @@ Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 
 Document verified goals in state using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "validation.goalsVerified": ["<goal text>"] }
 ```
@@ -113,7 +113,7 @@ Manual review of key changes:
 
 Use `mcp__workflow-state__workflow_set` with the featureId:
 
-```
+```text
 updates: {
   "validation": {
     "startedAt": "<ISO8601>",
@@ -128,7 +128,7 @@ updates: {
 
 On successful validation:
 
-```
+```text
 # First call: Record results
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
@@ -143,7 +143,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 
 On failed validation:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "validation.testsPass": false,
@@ -209,7 +209,7 @@ On failed validation:
 
 Summarize validation results for the user:
 
-```
+```text
 Validation Results:
 - Tests: All 47 tests pass
 - Goals: 3/3 verified

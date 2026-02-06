@@ -818,7 +818,7 @@ describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
   });
 });
 
-describe('ToolSet_RefactorTransition_ExploreToBreif', () => {
+describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
   it('should transition from explore to brief when scope assessment is set', async () => {
     await handleInit({ featureId: 'refactor-transition', workflowType: 'refactor' }, tmpDir);
 

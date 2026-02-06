@@ -354,7 +354,7 @@ Update workflow state with review results using `mcp__workflow-state__workflow_s
 
 ### On Review Complete
 
-```
+```text
 # Update task review status - for approved
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "approved" }
@@ -374,7 +374,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 
 Update phase for synthesis:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   phase: "synthesize"
 ```

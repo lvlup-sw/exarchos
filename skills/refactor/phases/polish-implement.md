@@ -35,7 +35,7 @@ If any condition is violated, switch to overhaul track.
 
 Before starting implementation, verify using `mcp__workflow-state__workflow_get`:
 
-```
+```text
 # Read state to confirm prerequisites
 Use mcp__workflow-state__workflow_get with featureId and query: ".track"
 # Must return: "polish"
@@ -73,7 +73,7 @@ npm run test:run
 
 Capture baseline in state using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "implement": {
@@ -107,7 +107,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 Log the change using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
@@ -128,7 +128,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 
 After all changes, verify each goal from brief:
 
-```
+```text
 # Read goals
 Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 ```
@@ -186,7 +186,7 @@ echo "Switching to overhaul track recommended."
 1. **Commit current work** - Don't lose progress
 2. **Update state** using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 # First call: Record switch info
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
@@ -206,7 +206,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 
 ### Output to User
 
-```
+```text
 Scope has expanded beyond polish limits.
 Reason: [specific reason]
 
@@ -224,7 +224,7 @@ Current progress has been committed. Continue? (Y/n)
 
 Use `mcp__workflow-state__workflow_set` with the featureId:
 
-```
+```text
 updates: {
   "implement": {
     "startedAt": "<ISO8601>",
@@ -236,7 +236,7 @@ updates: {
 
 ### After Each Change
 
-```
+```text
 updates: {
   "implement.changesLog": [
     {"file": "<path>", "description": "<what changed>", "commitSha": "<short-sha>"}
@@ -248,7 +248,7 @@ Note: For array appends, the MCP tool handles merging with existing array entrie
 
 ### Implementation Complete
 
-```
+```text
 # First call: Update completion info
 updates: {
   "implement.completedAt": "<ISO8601>",
@@ -262,7 +262,7 @@ phase: "validate"
 
 ### Track Switch (if needed)
 
-```
+```text
 # First call: Record switch
 updates: {
   "implement.switchReason": "<reason>",
@@ -285,7 +285,7 @@ Implementation phase exits when:
 - No scope expansion occurred
 - Less than or equal to 5 files changed
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   phase: "validate"
 ```
@@ -298,7 +298,7 @@ Next action: `AUTO:refactor-validate`
 - Track switched to overhaul
 - Current work committed
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "track": "overhaul" }
   phase: "plan"
@@ -319,7 +319,7 @@ Next action: `AUTO:plan:<brief>`
 
 ## Example Implementation Session
 
-```
+```text
 [Phase: implement]
 
 1. Running baseline tests...

@@ -96,7 +96,7 @@ Every task follows Red-Green-Refactor:
 | Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
 | Rules | 10 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
 | MCP Plugins | 2 | Jules (optional), workflow-state |
-| Marketplace Plugins | 5 | github, microsoft-docs, typescript-lsp, pyright-lsp, csharp-lsp |
+| Marketplace Plugins | 2 | jules, workflow-state |
 
 ## Configuration
 

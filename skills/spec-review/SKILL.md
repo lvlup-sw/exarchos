@@ -238,7 +238,7 @@ Update workflow state with review results using `mcp__workflow-state__workflow_s
 
 ### On Review Complete
 
-```
+```text
 # Update task review status - for pass
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.specReview": "pass" }

@@ -56,7 +56,7 @@ The command triggers the refactor skill which:
 
 When invoked, initializes refactor workflow state using `mcp__workflow-state__workflow_init`:
 
-```
+```text
 Use mcp__workflow-state__workflow_init with featureId `refactor-<feature-id>` and workflowType `refactor`.
 ```
 

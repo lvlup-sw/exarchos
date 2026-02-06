@@ -108,7 +108,7 @@ If any answer is "no" -> switch to thorough track.
 
 Use `mcp__workflow-state__workflow_set` to update state:
 
-```
+```text
 # Update track
 Use mcp__workflow-state__workflow_set with featureId:
   updates: { "track": "thorough" }
@@ -176,7 +176,7 @@ git blame -L 50,60 src/auth/login.ts
 
 Update state with investigation progress using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 # Add finding
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {

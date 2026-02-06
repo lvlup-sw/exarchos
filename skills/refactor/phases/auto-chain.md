@@ -15,7 +15,7 @@ All other transitions are automatic.
 
 ## Polish Track Auto-Chain
 
-```
+```text
 explore → brief → implement → validate → update-docs → CHECKPOINT
 ```
 
@@ -34,7 +34,7 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 
 After each phase, use `mcp__workflow-state__workflow_next_action` with the featureId to determine the next action:
 
-```
+```text
 # After explore
 Use mcp__workflow-state__workflow_next_action with the featureId.
 Returns: AUTO:refactor-brief
@@ -80,7 +80,7 @@ Ready to commit changes. Approve to commit, or request modifications.
 
 ## Overhaul Track Auto-Chain
 
-```
+```text
 explore → brief → plan → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
                                         ↑                    │
                                         └─── fixes ──────────┘ (if review fails)
@@ -104,7 +104,7 @@ explore → brief → plan → delegate → integrate → review → update-docs
 
 Use `mcp__workflow-state__workflow_next_action` with the featureId after each phase:
 
-```
+```text
 # After explore
 Returns: AUTO:refactor-brief
 
@@ -162,13 +162,13 @@ Review PR and approve merge, or request changes.
 
 If polish track discovers scope expansion, it switches to overhaul:
 
-```
+```text
 polish:implement → [scope expands] → overhaul:plan
 ```
 
 Auto-chain handles this via MCP tools:
 
-```
+```text
 # When scope expands during implement, use mcp__workflow-state__workflow_set:
 # 1. First call: Set updates
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
@@ -204,7 +204,7 @@ All recoveries are automatic loops until success.
 
 ## State Machine Summary
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        REFACTOR WORKFLOW                         │
 ├─────────────────────────────────────────────────────────────────┤

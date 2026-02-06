@@ -246,7 +246,7 @@ After all tasks complete:
 
 Use `mcp__workflow-state__workflow_set` with the featureId:
 
-```
+```text
 # Set plan artifact path
 Use mcp__workflow-state__workflow_set:
   updates: { "artifacts.plan": "docs/plans/YYYY-MM-DD-<refactor>.md" }

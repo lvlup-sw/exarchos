@@ -42,7 +42,7 @@
 
 After exploration, update state with scope assessment using `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "explore.scopeAssessment": {

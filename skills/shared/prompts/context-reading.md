@@ -8,7 +8,7 @@ You are a subagent with isolated context. Read your own context from files rathe
 
 If given a state file path, read task details using MCP tools:
 
-```
+```text
 # Get your task
 Use mcp__workflow-state__workflow_get with featureId and query: ".tasks[] | select(.id == \"<task-id>\")"
 
@@ -34,7 +34,7 @@ If reviewing, read the diff instead of full files:
 
 If you need design context:
 
-```
+```text
 # Get design path from state
 Use mcp__workflow-state__workflow_get with featureId and query: ".artifacts.design"
 

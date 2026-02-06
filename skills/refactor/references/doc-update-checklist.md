@@ -66,7 +66,7 @@ After updating documentation:
 
 After documentation is updated, use `mcp__workflow-state__workflow_set`:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "validation.docsUpdated": true,
@@ -83,7 +83,7 @@ If `docsToUpdate` is empty, verify this is correct:
 3. Confirm no architectural changes made
 4. Document verification in state:
 
-```
+```text
 Use mcp__workflow-state__workflow_set with featureId:
   updates: {
     "validation.docsUpdated": true,

@@ -105,7 +105,7 @@ See `overhaul-review.md` for detailed criteria.
 
 Use `mcp__workflow-state__workflow_set` with the featureId for state updates:
 
-```
+```text
 # After delegation complete
 Use mcp__workflow-state__workflow_set:
   phase: "integrate"

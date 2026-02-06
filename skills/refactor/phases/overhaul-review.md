@@ -241,7 +241,7 @@ Every goal from the brief must be verified as achieved.
 
 Use `mcp__workflow-state__workflow_set` with the featureId:
 
-```
+```text
 # Record review results
 Use mcp__workflow-state__workflow_set:
   updates: {
@@ -257,14 +257,14 @@ Use mcp__workflow-state__workflow_set:
 
 ### On Approval
 
-```
+```text
 Use mcp__workflow-state__workflow_set:
   phase: "synthesize"
 ```
 
 ### On Needs Fixes
 
-```
+```text
 Use mcp__workflow-state__workflow_set:
   updates: {
     "reviews.overhaul.status": "needs_fixes",

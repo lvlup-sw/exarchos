@@ -317,5 +317,23 @@ describe('State Store', () => {
       applyDotPath(obj, 'integration', { passed: true });
       expect(obj.integration).toEqual({ passed: true });
     });
+
+    it('should recursively merge at multiple nesting levels', () => {
+      const obj: Record<string, unknown> = {
+        explore: {
+          scopeAssessment: { filesAffected: 5, testCoverage: 'good' },
+          startedAt: '2025-01-15T10:00:00Z',
+        },
+      };
+      applyDotPath(obj, 'explore', {
+        scopeAssessment: { testCoverage: 'excellent', riskLevel: 'low' },
+      });
+      const explore = obj.explore as Record<string, unknown>;
+      const scope = explore.scopeAssessment as Record<string, unknown>;
+      expect(scope.filesAffected).toBe(5);         // preserved from original
+      expect(scope.testCoverage).toBe('excellent'); // overwritten by source
+      expect(scope.riskLevel).toBe('low');          // new key from source
+      expect(explore.startedAt).toBe('2025-01-15T10:00:00Z'); // sibling preserved
+    });
   });
 });

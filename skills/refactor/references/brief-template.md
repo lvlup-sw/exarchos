@@ -54,7 +54,7 @@ List documentation files that need updating after refactor.
 
 Use `mcp__workflow-state__workflow_set` with the featureId:
 
-```
+```text
 # First call: Set brief data
 Use mcp__workflow-state__workflow_set:
   updates: {
