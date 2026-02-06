@@ -291,11 +291,24 @@ describe('Cross-Module Boundary Tests', () => {
   it('CircuitBreaker_EndToEnd_StateMachineFixCycleEventsMatchReaderKey', () => {
     const hsm = getHSMDefinition('feature');
 
-    // Simulate: at integrate phase with integration failed
+    // Simulate: at integrate phase with integration failed.
+    // Must include compound-entry for 'implementation' because getFixCycleCount
+    // only counts fix-cycle events AFTER the last compound-entry anchor.
+    const compoundEntry: Event = {
+      sequence: 1,
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      type: 'compound-entry',
+      from: 'plan-review',
+      to: 'implementation',
+      trigger: 'execute-transition',
+      metadata: { compoundStateId: 'implementation' },
+    };
+
     const state: Record<string, unknown> = {
       phase: 'integrate',
       integration: { passed: false },
-      _events: [],
+      _events: [compoundEntry],
       _history: {},
     };
 
@@ -303,9 +316,9 @@ describe('Cross-Module Boundary Tests', () => {
     const result = executeTransition(hsm, state, 'delegate');
     expect(result.success).toBe(true);
 
-    // Build event array from transition result
-    let events: Event[] = [];
-    let seq = 0;
+    // Build event array starting with the compound-entry anchor
+    let events: Event[] = [compoundEntry];
+    let seq = 1;
     for (const te of result.events) {
       const appended = appendEvent(
         events,
