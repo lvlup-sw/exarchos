@@ -768,3 +768,103 @@ describe('Query Tools', () => {
     });
   });
 });
+
+// ─── Integration Tests for Bug Fixes ────────────────────────────────────────
+
+describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
+  it('should preserve dynamic fields through set and get', async () => {
+    await handleInit({ featureId: 'dynamic-test', workflowType: 'refactor' }, tmpDir);
+
+    // Set dynamic fields
+    await handleSet(
+      {
+        featureId: 'dynamic-test',
+        updates: {
+          track: 'polish',
+          'explore.scopeAssessment': { filesAffected: 5, recommendedTrack: 'polish' },
+        },
+      },
+      tmpDir,
+    );
+
+    // Read back via handleGet (no query — full state)
+    const getResult = await handleGet({ featureId: 'dynamic-test' }, tmpDir);
+    expect(getResult.success).toBe(true);
+    const data = getResult.data as Record<string, unknown>;
+    expect(data.track).toBe('polish');
+    expect(data.explore).toBeDefined();
+    const explore = data.explore as Record<string, unknown>;
+    expect(explore.scopeAssessment).toEqual({ filesAffected: 5, recommendedTrack: 'polish' });
+  });
+
+  it('should query dynamic fields via dot-path', async () => {
+    await handleInit({ featureId: 'query-dynamic', workflowType: 'feature' }, tmpDir);
+
+    await handleSet(
+      {
+        featureId: 'query-dynamic',
+        updates: { planReview: { approved: true, gapsFound: false } },
+      },
+      tmpDir,
+    );
+
+    // Query specific dynamic field
+    const result = await handleGet(
+      { featureId: 'query-dynamic', query: 'planReview.approved' },
+      tmpDir,
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toBe(true);
+  });
+});
+
+describe('ToolSet_RefactorTransition_ExploreToBreif', () => {
+  it('should transition from explore to brief when scope assessment is set', async () => {
+    await handleInit({ featureId: 'refactor-transition', workflowType: 'refactor' }, tmpDir);
+
+    // Set the scope assessment (required by guard)
+    await handleSet(
+      {
+        featureId: 'refactor-transition',
+        updates: {
+          explore: {
+            scopeAssessment: { filesAffected: 3, recommendedTrack: 'polish' },
+          },
+        },
+      },
+      tmpDir,
+    );
+
+    // Now transition from explore → brief (guard checks explore.scopeAssessment)
+    const result = await handleSet(
+      { featureId: 'refactor-transition', phase: 'brief' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('brief');
+  });
+});
+
+describe('ToolSet_ArtifactUpdate_PreservesSiblings', () => {
+  it('should preserve plan and pr when setting design via object update', async () => {
+    await handleInit({ featureId: 'artifact-merge', workflowType: 'feature' }, tmpDir);
+
+    // Update artifacts using object (not dot-path)
+    const result = await handleSet(
+      {
+        featureId: 'artifact-merge',
+        updates: { artifacts: { design: 'docs/design.md' } },
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const artifacts = data.artifacts as Record<string, unknown>;
+    expect(artifacts.design).toBe('docs/design.md');
+    expect(artifacts.plan).toBeNull();
+    expect(artifacts.pr).toBeNull();
+  });
+});

@@ -120,7 +120,7 @@ export const WorktreeSchema = z.object({
   branch: z.string(),
   taskId: z.string(),
   status: WorktreeStatusSchema,
-});
+}).passthrough();
 
 // ─── Synthesis Schema ───────────────────────────────────────────────────────
 
