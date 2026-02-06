@@ -6,14 +6,14 @@ You are a subagent with isolated context. Read your own context from files rathe
 
 ## Reading Task Details
 
-If given a state file path, read task details:
+If given a state file path, read task details using MCP tools:
 
-```bash
+```
 # Get your task
-~/.claude/scripts/workflow-state.sh get <state-file> '.tasks[] | select(.id == "<task-id>")'
+Use mcp__workflow-state__workflow_get with featureId and query: ".tasks[] | select(.id == \"<task-id>\")"
 
 # Get plan path
-~/.claude/scripts/workflow-state.sh get <state-file> '.artifacts.plan'
+Use mcp__workflow-state__workflow_get with featureId and query: ".artifacts.plan"
 ```
 
 Then read the specific task section:
@@ -34,12 +34,12 @@ If reviewing, read the diff instead of full files:
 
 If you need design context:
 
-```bash
+```
 # Get design path from state
-~/.claude/scripts/workflow-state.sh get <state-file> '.artifacts.design'
+Use mcp__workflow-state__workflow_get with featureId and query: ".artifacts.design"
 
 # Then read the design file
-cat <design-path>
+Read({ file_path: "<design-path>" })
 ```
 
 ## Best Practices

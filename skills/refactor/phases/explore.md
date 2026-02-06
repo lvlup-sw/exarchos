@@ -69,7 +69,7 @@ Significant doc updates → overhaul track indicator.
 
 | Criterion | Polish | Overhaul |
 |-----------|--------|----------|
-| Files affected | ≤5 | >5 |
+| Files affected | <=5 | >5 |
 | Concerns | 1 | >1 |
 | Cross-module | No | Yes |
 | Test gaps | No | Yes |
@@ -79,21 +79,24 @@ Significant doc updates → overhaul track indicator.
 
 ## Output
 
-Update workflow state with assessment:
+Update workflow state with assessment using `mcp__workflow-state__workflow_set`:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.explore = {
-    "filesAffected": <count>,
-    "filesList": ["<path1>", "<path2>"],
-    "modulesAffected": ["<module1>"],
-    "concerns": ["<concern1>", "<concern2>"],
-    "crossModule": <true|false>,
-    "testCoverage": "<good|gaps|none>",
-    "docsImpacted": ["<doc1>"],
-    "recommendedTrack": "<polish|overhaul>",
-    "completedAt": "<ISO8601>"
-  } | .phase = "brief"'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "explore": {
+      "filesAffected": <count>,
+      "filesList": ["<path1>", "<path2>"],
+      "modulesAffected": ["<module1>"],
+      "concerns": ["<concern1>", "<concern2>"],
+      "crossModule": <true|false>,
+      "testCoverage": "<good|gaps|none>",
+      "docsImpacted": ["<doc1>"],
+      "recommendedTrack": "<polish|overhaul>",
+      "completedAt": "<ISO8601>"
+    }
+  }
+  phase: "brief"
 ```
 
 ## Exit Conditions

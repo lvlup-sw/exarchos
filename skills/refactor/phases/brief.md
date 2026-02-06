@@ -108,18 +108,27 @@ Based on exploration, preparing brief for <polish|overhaul> track.
 
 ## State Update
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.brief = {
-    "problem": "<problem statement>",
-    "goals": ["<goal 1>", "<goal 2>"],
-    "approach": "<approach description>",
-    "affectedAreas": ["<from explore>"],
-    "outOfScope": ["<exclusion 1>"],
-    "successCriteria": ["<criterion 1>"],
-    "docsToUpdate": ["<from explore>"],
-    "capturedAt": "<ISO8601>"
-  } | .phase = "<implement|plan>"'
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```
+# First call: Set brief data
+Use mcp__workflow-state__workflow_set:
+  updates: {
+    "brief": {
+      "problem": "<problem statement>",
+      "goals": ["<goal 1>", "<goal 2>"],
+      "approach": "<approach description>",
+      "affectedAreas": ["<from explore>"],
+      "outOfScope": ["<exclusion 1>"],
+      "successCriteria": ["<criterion 1>"],
+      "docsToUpdate": ["<from explore>"],
+      "capturedAt": "<ISO8601>"
+    }
+  }
+
+# Second call: Transition phase
+Use mcp__workflow-state__workflow_set:
+  phase: "<implement|plan>"
 ```
 
 Phase transitions:

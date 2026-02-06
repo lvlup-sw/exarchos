@@ -239,29 +239,37 @@ Every goal from the brief must be verified as achieved.
 
 ### On Review Complete
 
-```bash
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```
 # Record review results
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.reviews.overhaul = {
-    "status": "approved",
-    "behaviorPreserved": true,
-    "goalsVerified": true,
-    "regressionRisk": "low",
-    "timestamp": "<timestamp>"
-  }'
+Use mcp__workflow-state__workflow_set:
+  updates: {
+    "reviews.overhaul": {
+      "status": "approved",
+      "behaviorPreserved": true,
+      "goalsVerified": true,
+      "regressionRisk": "low",
+      "timestamp": "<timestamp>"
+    }
+  }
 ```
 
 ### On Approval
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "synthesize"'
+```
+Use mcp__workflow-state__workflow_set:
+  phase: "synthesize"
 ```
 
 ### On Needs Fixes
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.reviews.overhaul.status = "needs_fixes" | .reviews.overhaul.issues = [<issue-list>]'
+```
+Use mcp__workflow-state__workflow_set:
+  updates: {
+    "reviews.overhaul.status": "needs_fixes",
+    "reviews.overhaul.issues": ["<issue1>", "<issue2>"]
+  }
 ```
 
 ## Transition

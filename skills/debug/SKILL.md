@@ -99,18 +99,24 @@ Use `@skills/debug/references/triage-questions.md` to gather:
 - Urgency justification
 - Affected area
 
-Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.triage = {
-    "symptom": "<symptom>",
-    "reproduction": "<steps>",
-    "affectedArea": "<area>",
-    "impact": "<impact>"
-  } | .urgency = {
-    "level": "P0",
-    "justification": "<why P0>"
-  } | .track = "hotfix" | .phase = "investigate"'
+Update state using `mcp__workflow-state__workflow_set`:
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "triage": {
+      "symptom": "<symptom>",
+      "reproduction": "<steps>",
+      "affectedArea": "<area>",
+      "impact": "<impact>"
+    },
+    "urgency": {
+      "level": "P0",
+      "justification": "<why P0>"
+    },
+    "track": "hotfix"
+  }
+  phase: "investigate"
 ```
 
 #### 2. Investigate Phase (15 min max)
@@ -118,19 +124,25 @@ Update state:
 Use `@skills/debug/references/investigation-checklist.md`.
 
 **Time-boxed to 15 minutes.** At 15 min checkpoint:
-- Root cause found → Continue to implement
-- Root cause NOT found → Switch to thorough track
+- Root cause found -> Continue to implement
+- Root cause NOT found -> Switch to thorough track
 
-Record findings:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.findings += ["<finding>"]'
+Record findings using `mcp__workflow-state__workflow_set`:
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "investigation.findings": ["<finding>"] }
 ```
 
 When root cause found:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.rootCause = "<root cause>" | .investigation.completedAt = "<ISO8601>" | .phase = "implement"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "investigation.rootCause": "<root cause>",
+    "investigation.completedAt": "<ISO8601>"
+  }
+  phase: "implement"
 ```
 
 #### 3. Implement Phase
@@ -140,9 +152,10 @@ Apply minimal fix directly (no worktree):
 - No new features or refactoring
 - Record fix approach in state
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.artifacts.fixDesign = "<brief fix description>" | .phase = "validate"'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "artifacts.fixDesign": "<brief fix description>" }
+  phase: "validate"
 ```
 
 #### 4. Validate Phase
@@ -153,9 +166,11 @@ npm run test:run -- <affected-test-files>
 ```
 
 If tests pass:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "completed" | .followUp.rcaRequired = true'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "followUp.rcaRequired": true }
+  phase: "completed"
 ```
 
 Create follow-up task for proper RCA:
@@ -203,9 +218,11 @@ Triage → Investigate → RCA → Design → Implement → Review → Synthesiz
 #### 1. Triage Phase
 
 Same as hotfix, but set track to "thorough":
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "thorough" | .phase = "investigate"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "track": "thorough" }
+  phase: "investigate"
 ```
 
 #### 2. Investigate Phase
@@ -224,9 +241,11 @@ Create RCA document using `@skills/debug/references/rca-template.md`.
 Save to: `docs/rca/YYYY-MM-DD-<issue-slug>.md`
 
 Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.artifacts.rca = "docs/rca/YYYY-MM-DD-<issue-slug>.md" | .phase = "design"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "artifacts.rca": "docs/rca/YYYY-MM-DD-<issue-slug>.md" }
+  phase: "design"
 ```
 
 #### 4. Design Phase
@@ -234,9 +253,11 @@ Update state:
 Brief fix approach (NOT a full design document).
 
 2-3 paragraphs max in state file:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.artifacts.fixDesign = "<fix approach description>" | .phase = "implement"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "artifacts.fixDesign": "<fix approach description>" }
+  phase: "implement"
 ```
 
 #### 5. Implement Phase
@@ -253,12 +274,16 @@ cd .worktrees/debug-<issue-slug> && npm install
 ```
 
 Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.worktrees[".worktrees/debug-<issue-slug>"] = {
-    "branch": "feature/debug-<issue-slug>",
-    "status": "active"
-  } | .phase = "review"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "worktrees.\".worktrees/debug-<issue-slug>\"": {
+      "branch": "feature/debug-<issue-slug>",
+      "status": "active"
+    }
+  }
+  phase: "review"
 ```
 
 #### 6. Review Phase
@@ -272,8 +297,10 @@ Verify:
 - [ ] No regressions
 
 Update state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "synthesize"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "synthesize"
 ```
 
 #### 7. Synthesize Phase
@@ -306,24 +333,28 @@ EOF
 
 ## Track Switching
 
-### Hotfix → Thorough
+### Hotfix -> Thorough
 
 If during hotfix investigation root cause is not found in 15 minutes:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "thorough" | .investigation.findings += ["Switched to thorough track: root cause not found in 15 min"]'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "track": "thorough",
+    "investigation.findings": ["Switched to thorough track: root cause not found in 15 min"]
+  }
 ```
 
 Continue investigation without time constraint.
 
-### Thorough → Escalate
+### Thorough -> Escalate
 
 If fix requires architectural changes:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "blocked" | .investigation.findings += ["Escalated: requires architectural changes"]'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "investigation.findings": ["Escalated: requires architectural changes"] }
+  phase: "blocked"
 ```
 
 Output to user:
@@ -350,11 +381,10 @@ triage → investigate → rca → design → implement → review → synthesiz
 
 ## State Management
 
-Initialize debug workflow:
-```bash
-~/.claude/scripts/workflow-state.sh init debug-<issue-slug>
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/debug-<issue-slug>.state.json \
-  '.workflowType = "debug"'
+Initialize debug workflow using `mcp__workflow-state__workflow_init`:
+
+```
+Use mcp__workflow-state__workflow_init with featureId `debug-<issue-slug>` and workflowType `debug`.
 ```
 
 See `@skills/debug/references/state-schema.md` for full schema.
@@ -374,12 +404,12 @@ Debug workflows resume like feature workflows:
 - Uses synthesis skill for PR creation
 - Uses git-worktrees skill for thorough track implementation
 
-### With workflow-state.sh
+### With MCP Workflow State Tools
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases in `next-action` command
-- Debug context in `summary` output
+- Debug-specific phases in `mcp__workflow-state__workflow_next_action` response
+- Debug context in `mcp__workflow-state__workflow_summary` output
 
 ## Completion Criteria
 

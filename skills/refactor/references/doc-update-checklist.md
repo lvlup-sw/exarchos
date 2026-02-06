@@ -64,11 +64,14 @@ After updating documentation:
 
 ## State Update
 
-After documentation is updated:
+After documentation is updated, use `mcp__workflow-state__workflow_set`:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.docsUpdated = true | .artifacts.updatedDocs = ["<doc1>", "<doc2>"]'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "validation.docsUpdated": true,
+    "artifacts.updatedDocs": ["<doc1>", "<doc2>"]
+  }
 ```
 
 ## If No Docs Need Updating
@@ -80,9 +83,12 @@ If `docsToUpdate` is empty, verify this is correct:
 3. Confirm no architectural changes made
 4. Document verification in state:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.docsUpdated = true | .artifacts.updatedDocs = []'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "validation.docsUpdated": true,
+    "artifacts.updatedDocs": []
+  }
 ```
 
 ## Common Mistakes

@@ -204,7 +204,7 @@ if (input != null) {
 | Check | Verify |
 |-------|--------|
 | No N+1 queries | Batch operations used |
-| Efficient algorithms | No obvious O(n²) when O(n) works |
+| Efficient algorithms | No obvious O(n^2) when O(n) works |
 | Memory management | No leaks, proper cleanup |
 | Async patterns | Proper await usage |
 
@@ -350,30 +350,33 @@ Task({
 
 ## State Management
 
-Update workflow state with review results.
+Update workflow state with review results using `mcp__workflow-state__workflow_set`.
 
 ### On Review Complete
 
-```bash
-# Update task review status
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "approved"'
+```
+# Update task review status - for approved
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "approved" }
 
 # Or if needs fixes:
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.qualityReview = "needs_fixes"'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "needs_fixes" }
 
 # Add review details
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.reviews["<task-id>"].qualityReview = {"status": "approved", "highPriority": [], "mediumPriority": []}'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "reviews.<task-id>.qualityReview": {"status": "approved", "highPriority": [], "mediumPriority": []}
+  }
 ```
 
 ### On All Reviews Pass
 
 Update phase for synthesis:
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json '.phase = "synthesize"'
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "synthesize"
 ```
 
 ## Completion Criteria

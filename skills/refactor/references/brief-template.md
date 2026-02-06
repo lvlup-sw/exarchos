@@ -52,17 +52,26 @@ List documentation files that need updating after refactor.
 
 ## State Update
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.brief = {
-    "problem": "<problem statement>",
-    "goals": ["<goal 1>", "<goal 2>"],
-    "approach": "<approach description>",
-    "affectedAreas": ["<area 1>", "<area 2>"],
-    "outOfScope": ["<exclusion 1>", "<exclusion 2>"],
-    "successCriteria": ["<criterion 1>", "<criterion 2>"],
-    "docsToUpdate": ["<doc 1>", "<doc 2>"]
-  } | .phase = "implement | plan"'
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```
+# First call: Set brief data
+Use mcp__workflow-state__workflow_set:
+  updates: {
+    "brief": {
+      "problem": "<problem statement>",
+      "goals": ["<goal 1>", "<goal 2>"],
+      "approach": "<approach description>",
+      "affectedAreas": ["<area 1>", "<area 2>"],
+      "outOfScope": ["<exclusion 1>", "<exclusion 2>"],
+      "successCriteria": ["<criterion 1>", "<criterion 2>"],
+      "docsToUpdate": ["<doc 1>", "<doc 2>"]
+    }
+  }
+
+# Second call: Transition phase
+Use mcp__workflow-state__workflow_set:
+  phase: "implement" (polish) or "plan" (overhaul)
 ```
 
 ## Polish vs Overhaul Brief Depth

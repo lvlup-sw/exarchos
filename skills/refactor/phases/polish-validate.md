@@ -35,9 +35,9 @@ If tests fail:
 
 Review each goal from the brief and verify completion:
 
-```bash
-# Read goals from state
-~/.claude/scripts/workflow-state.sh get <state-file> '.brief.goals[]'
+```
+# Read goals from state using mcp__workflow-state__workflow_get
+Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 ```
 
 **For each goal:**
@@ -45,11 +45,14 @@ Review each goal from the brief and verify completion:
 - [ ] Evidence of completion is clear (code change, metric improvement, etc.)
 - [ ] Goal was not partially implemented
 
-Document verified goals in state:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.goalsVerified += ["<goal text>"]'
+Document verified goals in state using `mcp__workflow-state__workflow_set`:
+
 ```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "validation.goalsVerified": ["<goal text>"] }
+```
+
+Note: For array values, subsequent calls can append additional goals.
 
 ### 3. Regression Check
 
@@ -108,32 +111,45 @@ Manual review of key changes:
 
 ### Record Validation Start
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation = {
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```
+updates: {
+  "validation": {
     "startedAt": "<ISO8601>",
     "testsPass": null,
     "goalsVerified": [],
     "docsUpdated": false
-  }'
+  }
+}
 ```
 
 ### Record Validation Results
 
 On successful validation:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.testsPass = true |
-   .validation.completedAt = "<ISO8601>" |
-   .phase = "update-docs"'
+
+```
+# First call: Record results
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "validation.testsPass": true,
+    "validation.completedAt": "<ISO8601>"
+  }
+
+# Second call: Transition phase
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "update-docs"
 ```
 
 On failed validation:
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.testsPass = false |
-   .validation.failureReason = "<reason>" |
-   .phase = "implement"'
+
+```
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "validation.testsPass": false,
+    "validation.failureReason": "<reason>"
+  }
+  phase: "implement"
 ```
 
 ## Pass/Fail Handling
@@ -195,14 +211,14 @@ Summarize validation results for the user:
 
 ```
 Validation Results:
-- Tests: ✓ All 47 tests pass
-- Goals: ✓ 3/3 verified
-  - ✓ Extract validation logic into separate UserValidator class
-  - ✓ Reduce UserService to <200 lines
-  - ✓ Improve test isolation for validation tests
-- Regressions: ✓ None detected
-- Lint/Type: ✓ No new errors
-- Quality: ✓ Spot check passed
+- Tests: All 47 tests pass
+- Goals: 3/3 verified
+  - Extract validation logic into separate UserValidator class
+  - Reduce UserService to <200 lines
+  - Improve test isolation for validation tests
+- Regressions: None detected
+- Lint/Type: No new errors
+- Quality: Spot check passed
 
 Proceeding to update-docs phase...
 ```
