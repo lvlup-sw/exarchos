@@ -251,6 +251,33 @@ describe('Core Tools', () => {
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('RESERVED_FIELD');
     });
+
+    it('should reject phase in updates — must use phase parameter instead', async () => {
+      await handleInit({ featureId: 'phase-reserved', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleSet(
+        { featureId: 'phase-reserved', updates: { phase: 'plan' } },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('RESERVED_FIELD');
+      expect(result.error?.message).toContain('phase');
+    });
+
+    it('should reject workflowType, featureId, createdAt, version in updates', async () => {
+      await handleInit({ featureId: 'immutable-reserved', workflowType: 'feature' }, tmpDir);
+
+      for (const field of ['workflowType', 'featureId', 'createdAt', 'version']) {
+        const result = await handleSet(
+          { featureId: 'immutable-reserved', updates: { [field]: 'hacked' } },
+          tmpDir,
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('RESERVED_FIELD');
+      }
+    });
   });
 
   // ─── ToolCancel ──────────────────────────────────────────────────────────────

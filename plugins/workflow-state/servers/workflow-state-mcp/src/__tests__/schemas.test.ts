@@ -440,8 +440,15 @@ describe('Workflow State Schemas', () => {
       expect(isReservedField('deep.nested._field.value')).toBe(true);
     });
 
-    it('should allow non-underscore-prefixed paths', () => {
-      expect(isReservedField('phase')).toBe(false);
+    it('should identify state-machine-managed fields as reserved', () => {
+      expect(isReservedField('phase')).toBe(true);
+      expect(isReservedField('workflowType')).toBe(true);
+      expect(isReservedField('featureId')).toBe(true);
+      expect(isReservedField('createdAt')).toBe(true);
+      expect(isReservedField('version')).toBe(true);
+    });
+
+    it('should allow user-writable paths', () => {
       expect(isReservedField('artifacts.design')).toBe(false);
       expect(isReservedField('tasks')).toBe(false);
       expect(isReservedField('synthesis.prUrl')).toBe(false);

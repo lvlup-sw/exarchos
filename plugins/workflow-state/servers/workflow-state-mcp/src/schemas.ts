@@ -302,7 +302,17 @@ export const ErrorCode = {
 
 // ─── Reserved Field Validation ──────────────────────────────────────────────
 
+const IMMUTABLE_FIELDS = new Set([
+  'phase',
+  'workflowType',
+  'featureId',
+  'createdAt',
+  'version',
+]);
+
 export function isReservedField(path: string): boolean {
   if (path === '') return false;
+  const topLevel = path.split('.')[0];
+  if (IMMUTABLE_FIELDS.has(topLevel)) return true;
   return path.startsWith('_') || path.split('.').some((part) => part.startsWith('_'));
 }
