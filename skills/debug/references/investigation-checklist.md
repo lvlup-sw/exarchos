@@ -102,17 +102,22 @@ At 15 minutes, ask:
 2. Do I know exactly what code to change?
 3. Am I confident the fix won't break other things?
 
-If any answer is "no" → switch to thorough track.
+If any answer is "no" -> switch to thorough track.
 
 ### Switching to Thorough Track
 
-```bash
-# Update state to switch tracks
-~/.claude/scripts/workflow-state.sh set <state-file> '.track = "thorough"'
+Use `mcp__workflow-state__workflow_set` to update state:
+
+```text
+# Update track
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "track": "thorough" }
 
 # Record investigation findings so far
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.findings += ["Investigated for 15 min, narrowed to auth module but root cause unclear"]'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "investigation.findings": ["Investigated for 15 min, narrowed to auth module but root cause unclear"]
+  }
 ```
 
 ## Investigation Tools
@@ -169,20 +174,26 @@ git blame -L 50,60 src/auth/login.ts
 
 ## Recording Findings
 
-Update state with investigation progress:
+Update state with investigation progress using `mcp__workflow-state__workflow_set`:
 
-```bash
+```text
 # Add finding
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.findings += ["Error occurs in handleLogin when session is null"]'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "investigation.findings": ["Error occurs in handleLogin when session is null"]
+  }
 
 # Record root cause when found
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.rootCause = "Session cookie not being set due to SameSite attribute mismatch"'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "investigation.rootCause": "Session cookie not being set due to SameSite attribute mismatch"
+  }
 
 # Mark investigation complete
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.investigation.completedAt = "2026-01-27T10:30:00Z"'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "investigation.completedAt": "2026-01-27T10:30:00Z"
+  }
 ```
 
 ## Common Bug Patterns

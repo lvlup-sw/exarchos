@@ -46,18 +46,18 @@ The command triggers the refactor skill which:
 
 1. **Explore phase**: Assesses scope (files, concerns, cross-module impact)
 2. **Track selection**:
-   - Polish (≤5 files, single concern) → direct implementation
-   - Overhaul (>5 files or multiple concerns) → full workflow
+   - Polish (<=5 files, single concern) -> direct implementation
+   - Overhaul (>5 files or multiple concerns) -> full workflow
 3. **Brief capture**: Records problem, goals, approach in state
 4. **Execution**: Track-specific implementation
 5. **Validation**: Tests pass, goals met, docs updated
 
 ## State Initialization
 
-When invoked, initializes refactor workflow state:
+When invoked, initializes refactor workflow state using `mcp__workflow-state__workflow_init`:
 
-```bash
-~/.claude/scripts/workflow-state.sh init --refactor <feature-id>
+```text
+Use mcp__workflow-state__workflow_init with featureId `refactor-<feature-id>` and workflowType `refactor`.
 ```
 
 ## See Also

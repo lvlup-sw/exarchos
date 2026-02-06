@@ -21,29 +21,19 @@ Restore workflow context after:
 
 ### Step 1: Locate State File
 
-If no argument provided, list available workflows:
-
-```bash
-~/.claude/scripts/workflow-state.sh list
-```
+If no argument provided, list available workflows using `mcp__workflow-state__workflow_list` (no parameters required).
 
 ### Step 2: Reconcile State
 
-Verify state matches git reality:
-
-```bash
-~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
-```
+Verify state matches git reality using `mcp__workflow-state__workflow_reconcile`:
+- Set `featureId` to the feature identifier
 
 Report any discrepancies (missing worktrees, branches).
 
 ### Step 3: Load Context Summary
 
-Generate minimal context restoration prompt:
-
-```bash
-~/.claude/scripts/workflow-state.sh summary docs/workflow-state/<feature>.state.json
-```
+Generate minimal context restoration prompt using `mcp__workflow-state__workflow_summary`:
+- Set `featureId` to the feature identifier
 
 ### Step 4: Display Context
 
@@ -119,7 +109,7 @@ The resume process is designed to be context-efficient:
 ERROR: State file not found: <path>
 
 Available workflows:
-  <list from ~/.claude/scripts/workflow-state.sh list>
+  <list from mcp__workflow-state__workflow_list>
 ```
 
 ### Reconciliation Issues

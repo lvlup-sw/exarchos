@@ -244,18 +244,25 @@ After all tasks complete:
 
 ### On Plan Completion
 
-```bash
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```text
 # Set plan artifact path
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.plan = "docs/plans/YYYY-MM-DD-<refactor>.md"'
+Use mcp__workflow-state__workflow_set:
+  updates: { "artifacts.plan": "docs/plans/YYYY-MM-DD-<refactor>.md" }
 
-# Add tasks to state (repeat for each task)
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.tasks += [{"id": "001", "title": "Task description", "status": "pending", "working_state_verified": false}]'
+# Add tasks to state (single call with all tasks)
+Use mcp__workflow-state__workflow_set:
+  updates: {
+    "tasks": [
+      {"id": "001", "title": "Task description", "status": "pending", "working_state_verified": false},
+      {"id": "002", "title": "Task 2 description", "status": "pending", "working_state_verified": false}
+    ]
+  }
 
-# Transition to delegate phase
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.phase = "delegate"'
+# Transition to delegate phase (separate call)
+Use mcp__workflow-state__workflow_set:
+  phase: "delegate"
 ```
 
 ### Task State Structure

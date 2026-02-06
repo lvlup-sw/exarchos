@@ -15,7 +15,7 @@ All other transitions are automatic.
 
 ## Polish Track Auto-Chain
 
-```
+```text
 explore → brief → implement → validate → update-docs → CHECKPOINT
 ```
 
@@ -23,37 +23,37 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 
 | From | To | Condition | Auto? |
 |------|-----|-----------|-------|
-| explore | brief | Scope assessed | ✓ Yes |
-| brief | implement | Brief captured | ✓ Yes |
-| implement | validate | Changes complete | ✓ Yes |
-| validate | update-docs | Validation passed | ✓ Yes |
-| update-docs | complete | Docs updated | ✓ Yes |
-| complete | — | Human approves commit | ✗ CHECKPOINT |
+| explore | brief | Scope assessed | Yes |
+| brief | implement | Brief captured | Yes |
+| implement | validate | Changes complete | Yes |
+| validate | update-docs | Validation passed | Yes |
+| update-docs | complete | Docs updated | Yes |
+| complete | — | Human approves commit | CHECKPOINT |
 
 ### Polish Auto-Chain Commands
 
-After each phase, workflow-state.sh returns next action:
+After each phase, use `mcp__workflow-state__workflow_next_action` with the featureId to determine the next action:
 
-```bash
+```text
 # After explore
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-brief
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: AUTO:refactor-brief
 
 # After brief
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-implement
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: AUTO:refactor-implement
 
 # After implement
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-validate
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: AUTO:refactor-validate
 
 # After validate (passed)
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-update-docs
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: AUTO:refactor-update-docs
 
 # After update-docs
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: WAIT:human-checkpoint:polish-complete
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: WAIT:human-checkpoint:polish-complete
 ```
 
 ### Polish Checkpoint
@@ -80,7 +80,7 @@ Ready to commit changes. Approve to commit, or request modifications.
 
 ## Overhaul Track Auto-Chain
 
-```
+```text
 explore → brief → plan → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
                                         ↑                    │
                                         └─── fixes ──────────┘ (if review fails)
@@ -90,54 +90,47 @@ explore → brief → plan → delegate → integrate → review → update-docs
 
 | From | To | Condition | Auto? |
 |------|-----|-----------|-------|
-| explore | brief | Scope assessed | ✓ Yes |
-| brief | plan | Brief captured | ✓ Yes |
-| plan | delegate | Plan created | ✓ Yes |
-| delegate | integrate | All tasks complete | ✓ Yes |
-| integrate | review | Integration passes | ✓ Yes |
-| review (pass) | update-docs | Review approved | ✓ Yes |
-| review (fail) | delegate | Fix tasks dispatched | ✓ Yes (loop) |
-| update-docs | synthesize | Docs updated | ✓ Yes |
-| synthesize | complete | Human approves PR | ✗ CHECKPOINT |
+| explore | brief | Scope assessed | Yes |
+| brief | plan | Brief captured | Yes |
+| plan | delegate | Plan created | Yes |
+| delegate | integrate | All tasks complete | Yes |
+| integrate | review | Integration passes | Yes |
+| review (pass) | update-docs | Review approved | Yes |
+| review (fail) | delegate | Fix tasks dispatched | Yes (loop) |
+| update-docs | synthesize | Docs updated | Yes |
+| synthesize | complete | Human approves PR | CHECKPOINT |
 
 ### Overhaul Auto-Chain Commands
 
-```bash
+Use `mcp__workflow-state__workflow_next_action` with the featureId after each phase:
+
+```text
 # After explore
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-brief
+Returns: AUTO:refactor-brief
 
 # After brief
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-plan
+Returns: AUTO:refactor-plan
 
 # After plan
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-delegate
+Returns: AUTO:refactor-delegate
 
 # After delegate
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-integrate
+Returns: AUTO:refactor-integrate
 
 # After integrate
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-review
+Returns: AUTO:refactor-review
 
 # After review (passed)
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-update-docs
+Returns: AUTO:refactor-update-docs
 
 # After review (failed)
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-delegate:--fixes
+Returns: AUTO:refactor-delegate:--fixes
 
 # After update-docs
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-synthesize
+Returns: AUTO:refactor-synthesize
 
 # After synthesize
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: WAIT:human-checkpoint:overhaul-merge
+Returns: WAIT:human-checkpoint:overhaul-merge
 ```
 
 ### Overhaul Checkpoint
@@ -169,20 +162,24 @@ Review PR and approve merge, or request changes.
 
 If polish track discovers scope expansion, it switches to overhaul:
 
-```
+```text
 polish:implement → [scope expands] → overhaul:plan
 ```
 
-Auto-chain handles this:
+Auto-chain handles this via MCP tools:
 
-```bash
-# When scope expands during implement
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" | .phase = "plan"'
+```text
+# When scope expands during implement, use mcp__workflow-state__workflow_set:
+# 1. First call: Set updates
+updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
+
+# 2. Second call: Transition phase and track
+phase: "plan"
+updates: { "track": "overhaul" }
 
 # Next action returns
-~/.claude/scripts/workflow-state.sh next-action <state-file>
-# Returns: AUTO:refactor-plan
+Use mcp__workflow-state__workflow_next_action with the featureId.
+Returns: AUTO:refactor-plan
 ```
 
 ## Failure Handling
@@ -207,7 +204,7 @@ All recoveries are automatic loops until success.
 
 ## State Machine Summary
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        REFACTOR WORKFLOW                         │
 ├─────────────────────────────────────────────────────────────────┤

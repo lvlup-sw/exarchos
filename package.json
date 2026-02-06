@@ -11,6 +11,7 @@
     "commands",
     "skills",
     "rules",
+    "scripts",
     "docs",
     "plugins",
     "azd-templates",

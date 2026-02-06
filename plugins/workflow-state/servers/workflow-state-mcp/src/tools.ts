@@ -667,16 +667,15 @@ export async function handleReconcile(
     throw err;
   }
 
-  // Read raw JSON to access worktree path fields (not in Zod schema)
-  const rawJson = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
-  const rawWorktrees = (rawJson.worktrees ?? {}) as Record<
+  // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
+  const worktrees = state.worktrees as Record<
     string,
     { branch: string; taskId: string; status: string; path?: string }
   >;
 
   const worktreeResults: Array<Record<string, unknown>> = [];
 
-  for (const [id, wt] of Object.entries(rawWorktrees)) {
+  for (const [id, wt] of Object.entries(worktrees)) {
     let pathStatus: 'OK' | 'MISSING' | 'NO_PATH' = 'NO_PATH';
 
     if (wt.path) {
@@ -732,11 +731,8 @@ export async function handleNextAction(
     throw err;
   }
 
-  // Read raw JSON to evaluate guards against full state including non-schema fields
-  // (e.g., 'integration' is used by guards but not in the Zod schema)
-  const rawState = JSON.parse(
-    await fs.readFile(stateFile, 'utf-8'),
-  ) as Record<string, unknown>;
+  // With .passthrough() on the schema, state now includes all dynamic fields
+  const stateRecord = state as unknown as Record<string, unknown>;
 
   const currentPhase = state.phase;
   const workflowType = state.workflowType;
@@ -778,7 +774,7 @@ export async function handleNextAction(
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
     for (const transition of outboundTransitions) {
-      if (transition.isFixCycle && transition.guard?.evaluate(rawState)) {
+      if (transition.isFixCycle && transition.guard?.evaluate(stateRecord)) {
         // A fix-cycle transition's guard passes, check circuit breaker
         if (cbState.open) {
           return {
@@ -800,7 +796,7 @@ export async function handleNextAction(
   const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
   for (const transition of outboundTransitions) {
-    if (transition.guard?.evaluate(rawState)) {
+    if (transition.guard?.evaluate(stateRecord)) {
       // Guard passes -- determine the action
       if (transition.isFixCycle) {
         return {

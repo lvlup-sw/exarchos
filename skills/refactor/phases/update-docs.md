@@ -30,10 +30,10 @@ The `docsToUpdate` field in the brief identifies documents requiring updates. If
 
 ### Step 1: Review Documentation List
 
-Read the brief's `docsToUpdate` field:
+Read the brief's `docsToUpdate` field using `mcp__workflow-state__workflow_get`:
 
-```bash
-~/.claude/scripts/workflow-state.sh get <state-file> '.brief.docsToUpdate'
+```text
+Use mcp__workflow-state__workflow_get with featureId and query: ".brief.docsToUpdate"
 ```
 
 If the list is empty, proceed to Step 4 (Verification).
@@ -134,20 +134,24 @@ Update when:
 
 ## State Updates
 
-Record updated documents:
+Record updated documents using `mcp__workflow-state__workflow_set`:
 
-```bash
+```text
 # Add each updated document
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.artifacts.updatedDocs += ["docs/architecture/modules.md"]'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "artifacts.updatedDocs": ["docs/architecture/modules.md"] }
 
 # Mark docs updated
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.validation.docsUpdated = true'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "validation.docsUpdated": true }
 
-# Update phase
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "completed"'  # Polish
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "synthesize"' # Overhaul
+# Update phase - Polish track
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "completed"
+
+# Update phase - Overhaul track
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "synthesize"
 ```
 
 ## Exit Conditions
@@ -183,8 +187,9 @@ After completing documentation updates:
 3. State updated with `docsUpdated = true`
 4. **Auto-chain to synthesize phase**
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "synthesize"'
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "synthesize"
 ```
 
 5. Auto-invoke synthesize immediately:

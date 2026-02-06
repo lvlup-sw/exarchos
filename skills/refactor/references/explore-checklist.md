@@ -25,7 +25,7 @@
 ## Track Selection
 
 ### Polish Track Indicators (all must be true)
-- [ ] ≤5 files affected
+- [ ] <=5 files affected
 - [ ] Single concern being addressed
 - [ ] No cross-module changes
 - [ ] Good test coverage exists
@@ -40,14 +40,19 @@
 
 ## Output
 
-After exploration, update state with scope assessment:
+After exploration, update state with scope assessment using `mcp__workflow-state__workflow_set`:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.explore.scopeAssessment = {
-    "filesAffected": ["<list>"],
-    "modulesAffected": ["<list>"],
-    "testCoverage": "good | gaps | none",
-    "recommendedTrack": "polish | overhaul"
-  } | .track = "<selected-track>" | .explore.completedAt = "<ISO8601>" | .phase = "brief"'
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "explore.scopeAssessment": {
+      "filesAffected": ["<list>"],
+      "modulesAffected": ["<list>"],
+      "testCoverage": "good | gaps | none",
+      "recommendedTrack": "polish | overhaul"
+    },
+    "track": "<selected-track>",
+    "explore.completedAt": "<ISO8601>"
+  }
+  phase: "brief"
 ```

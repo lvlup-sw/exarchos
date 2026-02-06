@@ -103,19 +103,24 @@ See `overhaul-review.md` for detailed criteria.
 
 ## State Updates
 
-```bash
+Use `mcp__workflow-state__workflow_set` with the featureId for state updates:
+
+```text
 # After delegation complete
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "integrate"'
+Use mcp__workflow-state__workflow_set:
+  phase: "integrate"
 
 # After integration passes
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "review"'
+Use mcp__workflow-state__workflow_set:
+  phase: "review"
 
 # After review passes
-~/.claude/scripts/workflow-state.sh set <state-file> '.phase = "update-docs"'
+Use mcp__workflow-state__workflow_set:
+  phase: "update-docs"
 
 # After review fails - dispatch fix tasks, loop back
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.reviews.<id>.status = "failed" | .reviews.<id>.findings = ["<issue1>"]'
+Use mcp__workflow-state__workflow_set:
+  updates: { "reviews.<id>.status": "failed", "reviews.<id>.findings": ["<issue1>"] }
 ```
 
 ## Auto-Chain Behavior

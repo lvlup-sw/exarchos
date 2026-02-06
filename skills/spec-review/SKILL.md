@@ -234,22 +234,24 @@ Task({
 
 ## State Management
 
-Update workflow state with review results.
+Update workflow state with review results using `mcp__workflow-state__workflow_set`.
 
 ### On Review Complete
 
-```bash
-# Update task review status
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "pass"'
+```text
+# Update task review status - for pass
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "tasks[id=<task-id>].reviewStatus.specReview": "pass" }
 
 # Or if failed:
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '(.tasks[] | select(.id == "<task-id>")).reviewStatus.specReview = "fail"'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "tasks[id=<task-id>].reviewStatus.specReview": "fail" }
 
 # Add review details
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.reviews["<task-id>"].specReview = {"status": "pass", "issues": []}'
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "reviews.<task-id>.specReview": {"status": "pass", "issues": []}
+  }
 ```
 
 ## Completion Criteria

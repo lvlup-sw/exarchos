@@ -186,6 +186,35 @@ export async function writeStateFile(
 // ─── Apply Dot-Path Update ─────────────────────────────────────────────────
 
 /**
+ * Check if a value is a plain object (not null, not array).
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Deep-merge source into target, returning a new merged object.
+ * Arrays are replaced, not merged.
+ */
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    if (isPlainObject(result[key]) && isPlainObject(source[key])) {
+      result[key] = deepMerge(
+        result[key] as Record<string, unknown>,
+        source[key] as Record<string, unknown>,
+      );
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+/**
  * Parse a dot-path string into segments, handling array bracket notation.
  * Example: "tasks[0].status" -> ["tasks", 0, "status"]
  */
@@ -270,7 +299,16 @@ export function applyDotPath(
     }
     current[lastSegment] = value;
   } else {
-    (current as Record<string, unknown>)[lastSegment] = value;
+    const record = current as Record<string, unknown>;
+    // Deep-merge when both existing and new values are plain objects
+    if (isPlainObject(record[lastSegment]) && isPlainObject(value)) {
+      record[lastSegment] = deepMerge(
+        record[lastSegment] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    } else {
+      record[lastSegment] = value;
+    }
   }
 }
 

@@ -13,6 +13,7 @@ import {
   FeatureWorkflowStateSchema,
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
+  WorkflowStateSchema,
   InitInputSchema,
   ListInputSchema,
   GetInputSchema,
@@ -662,6 +663,57 @@ describe('Workflow State Schemas', () => {
       expect(ErrorCode.ALREADY_CANCELLED).toBe('ALREADY_CANCELLED');
       expect(ErrorCode.COMPENSATION_PARTIAL).toBe('COMPENSATION_PARTIAL');
       expect(ErrorCode.FILE_IO_ERROR).toBe('FILE_IO_ERROR');
+    });
+  });
+
+  describe('WorkflowStateSchema_DynamicFields_PreservedAfterParse', () => {
+    it('should preserve dynamic fields on feature state after parsing', () => {
+      const featureState = {
+        ...makeValidFeatureState(),
+        planReview: { approved: true, gapsFound: false, gaps: [] },
+      };
+      const result = FeatureWorkflowStateSchema.safeParse(featureState);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).planReview).toEqual({
+          approved: true,
+          gapsFound: false,
+          gaps: [],
+        });
+      }
+    });
+
+    it('should preserve dynamic fields on refactor state after parsing', () => {
+      const refactorState = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'explore' as const,
+        track: 'polish',
+        explore: {
+          startedAt: '2025-01-15T10:00:00Z',
+          completedAt: null,
+          scopeAssessment: { filesAffected: 5, recommendedTrack: 'polish' },
+        },
+      };
+      const result = RefactorWorkflowStateSchema.safeParse(refactorState);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        const data = result.data as Record<string, unknown>;
+        expect(data.track).toBe('polish');
+        expect(data.explore).toBeDefined();
+      }
+    });
+
+    it('should preserve dynamic fields through discriminated union parsing', () => {
+      const featureState = {
+        ...makeValidFeatureState(),
+        planReview: { approved: true },
+      };
+      const result = WorkflowStateSchema.safeParse(featureState);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).planReview).toEqual({ approved: true });
+      }
     });
   });
 });

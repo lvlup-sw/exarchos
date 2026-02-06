@@ -100,10 +100,9 @@ After PR is created, this is a **human checkpoint** - user confirmation required
 
 ### Save State
 
-```bash
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/<feature>.state.json \
-  '.artifacts.pr = "[PR_URL]" | .synthesis.prUrl = "[PR_URL]"'
-```
+Update state using `mcp__workflow-state__workflow_set` with the `featureId`:
+- Set `artifacts.pr` to the PR URL
+- Set `synthesis.prUrl` to the PR URL
 
 ## Auto-Chain
 

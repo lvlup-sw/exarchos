@@ -33,17 +33,17 @@ If any condition is violated, switch to overhaul track.
 
 ## Entry Conditions
 
-Before starting implementation, verify:
+Before starting implementation, verify using `mcp__workflow-state__workflow_get`:
 
-```bash
+```text
 # Read state to confirm prerequisites
-~/.claude/scripts/workflow-state.sh get <state-file> '.track'
+Use mcp__workflow-state__workflow_get with featureId and query: ".track"
 # Must return: "polish"
 
-~/.claude/scripts/workflow-state.sh get <state-file> '.phase'
+Use mcp__workflow-state__workflow_get with featureId and query: ".phase"
 # Must return: "implement"
 
-~/.claude/scripts/workflow-state.sh get <state-file> '.brief.goals'
+Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 # Must return: populated array
 ```
 
@@ -71,15 +71,17 @@ npm run test:run
 
 **Gate:** Tests must pass. If tests fail before implementation, stop and investigate. Do not implement on top of a failing test suite.
 
-Capture baseline in state:
+Capture baseline in state using `mcp__workflow-state__workflow_set`:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.implement = {
-    "startedAt": "<ISO8601>",
-    "baselineTestsPass": true,
-    "changesLog": []
-  }'
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "implement": {
+      "startedAt": "<ISO8601>",
+      "baselineTestsPass": true,
+      "changesLog": []
+    }
+  }
 ```
 
 ### Step 2: Make Changes Incrementally
@@ -96,15 +98,20 @@ For each logical change:
 # After each change
 npm run test:run
 
-# Log the change
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.implement.changesLog += [{"file": "<path>", "description": "<what changed>"}]'
-
 # Commit
 git add <files>
 git commit -m "refactor: <description>
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+```
+
+Log the change using `mcp__workflow-state__workflow_set`:
+
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
+  }
 ```
 
 ### Step 3: Test After Each Change
@@ -121,9 +128,9 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 After all changes, verify each goal from brief:
 
-```bash
+```text
 # Read goals
-~/.claude/scripts/workflow-state.sh get <state-file> '.brief.goals'
+Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
 ```
 
 For each goal, confirm it's addressed. If a goal cannot be addressed within polish scope, trigger track switch.
@@ -177,14 +184,20 @@ echo "Switching to overhaul track recommended."
 ### Switch Protocol
 
 1. **Commit current work** - Don't lose progress
-2. **Update state**:
+2. **Update state** using `mcp__workflow-state__workflow_set`:
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" |
-   .implement.switchReason = "<reason for switch>" |
-   .implement.switchedAt = "<ISO8601>" |
-   .phase = "plan"'
+```text
+# First call: Record switch info
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: {
+    "implement.switchReason": "<reason for switch>",
+    "implement.switchedAt": "<ISO8601>"
+  }
+
+# Second call: Change track and phase
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "track": "overhaul" }
+  phase: "plan"
 ```
 
 3. **Create worktree** (if not already in one)
@@ -193,7 +206,7 @@ echo "Switching to overhaul track recommended."
 
 ### Output to User
 
-```
+```text
 Scope has expanded beyond polish limits.
 Reason: [specific reason]
 
@@ -209,44 +222,56 @@ Current progress has been committed. Continue? (Y/n)
 
 ### Implementation Start
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.implement = {
+Use `mcp__workflow-state__workflow_set` with the featureId:
+
+```text
+updates: {
+  "implement": {
     "startedAt": "<ISO8601>",
     "baselineTestsPass": true,
     "changesLog": []
-  }'
+  }
+}
 ```
 
 ### After Each Change
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.implement.changesLog += [{
-    "file": "<path>",
-    "description": "<what changed>",
-    "commitSha": "<short-sha>"
-  }]'
+```text
+updates: {
+  "implement.changesLog": [
+    {"file": "<path>", "description": "<what changed>", "commitSha": "<short-sha>"}
+  ]
+}
 ```
+
+Note: For array appends, the MCP tool handles merging with existing array entries.
 
 ### Implementation Complete
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.implement.completedAt = "<ISO8601>" |
-   .implement.totalFiles = <count> |
-   .implement.totalCommits = <count> |
-   .phase = "validate"'
+```text
+# First call: Update completion info
+updates: {
+  "implement.completedAt": "<ISO8601>",
+  "implement.totalFiles": <count>,
+  "implement.totalCommits": <count>
+}
+
+# Second call: Transition phase
+phase: "validate"
 ```
 
 ### Track Switch (if needed)
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" |
-   .implement.switchReason = "<reason>" |
-   .implement.switchedAt = "<ISO8601>" |
-   .phase = "plan"'
+```text
+# First call: Record switch
+updates: {
+  "implement.switchReason": "<reason>",
+  "implement.switchedAt": "<ISO8601>"
+}
+
+# Second call: Change track and phase
+updates: { "track": "overhaul" }
+phase: "plan"
 ```
 
 ## Exit Conditions
@@ -260,9 +285,9 @@ Implementation phase exits when:
 - No scope expansion occurred
 - Less than or equal to 5 files changed
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.phase = "validate"'
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  phase: "validate"
 ```
 
 Next action: `AUTO:refactor-validate`
@@ -273,9 +298,10 @@ Next action: `AUTO:refactor-validate`
 - Track switched to overhaul
 - Current work committed
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.track = "overhaul" | .phase = "plan"'
+```text
+Use mcp__workflow-state__workflow_set with featureId:
+  updates: { "track": "overhaul" }
+  phase: "plan"
 ```
 
 Next action: `AUTO:plan:<brief>`
@@ -293,7 +319,7 @@ Next action: `AUTO:plan:<brief>`
 
 ## Example Implementation Session
 
-```
+```text
 [Phase: implement]
 
 1. Running baseline tests...
