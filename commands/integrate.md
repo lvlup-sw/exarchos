@@ -87,33 +87,30 @@ Generate integration report with:
 
 ## State Management
 
+Use `mcp__workflow-state__workflow_set` with the `featureId` to update state.
+
 ### On Integration Start
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "in_progress" | .integration.branch = "feature/integration-<name>"'
-```
+Update state:
+- Set `integration.status` to "in_progress"
+- Set `integration.branch` to "feature/integration-<name>"
 
 ### On Branch Merged
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.mergedBranches += ["feature/<task-id>-<name>"]'
-```
+Update state:
+- Append to `integration.mergedBranches` array with "feature/<task-id>-<name>"
 
 ### On Integration Pass
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "passed" | .phase = "review"'
-```
+Update state, then transition phase:
+1. Set `integration.status` to "passed"
+2. Set `phase` to "review"
 
 ### On Integration Fail
 
-```bash
-~/.claude/scripts/workflow-state.sh set <state-file> \
-  '.integration.status = "failed" | .integration.failureDetails = "<details>"'
-```
+Update state:
+- Set `integration.status` to "failed"
+- Set `integration.failureDetails` to the failure details
 
 ## Idempotency
 

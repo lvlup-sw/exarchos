@@ -22,13 +22,9 @@ Use `/checkpoint` when:
 
 ### Step 1: Identify Active Workflow
 
-Find the current state file:
+Find the current state file using `mcp__workflow-state__workflow_list` (no parameters required).
 
-```bash
-~/.claude/scripts/workflow-state.sh list
-```
-
-Or if you know the feature:
+Or if you know the feature, check the state directory:
 
 ```bash
 ls docs/workflow-state/*.state.json
@@ -44,11 +40,8 @@ Update state file with latest progress:
 
 ### Step 3: Reconcile State
 
-Verify state matches reality:
-
-```bash
-~/.claude/scripts/workflow-state.sh reconcile docs/workflow-state/<feature>.state.json
-```
+Verify state matches reality using `mcp__workflow-state__workflow_reconcile`:
+- Set `featureId` to the feature identifier
 
 Fix any discrepancies.
 

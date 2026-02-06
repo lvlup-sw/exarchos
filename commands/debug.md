@@ -65,11 +65,12 @@ Switch from hotfix to thorough track during investigation.
 
 ### Step 1: Initialize State
 
-```bash
-~/.claude/scripts/workflow-state.sh init debug-<issue-slug>
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/debug-<issue-slug>.state.json \
-  '.workflowType = "debug"'
-```
+Initialize workflow state using `mcp__workflow-state__workflow_init`:
+- Set `featureId` to `debug-<issue-slug>`
+- Set `workflowType` to "debug"
+
+Then update the track using `mcp__workflow-state__workflow_set`:
+- Set `track` to "hotfix" or "thorough" based on triage
 
 ### Step 2: Triage
 
