@@ -196,6 +196,27 @@ describe('Core Tools', () => {
       expect(state.phase).toBe('plan');
     });
 
+    it('should apply updates before evaluating phase guards', async () => {
+      await handleInit({ featureId: 'update-order', workflowType: 'feature' }, tmpDir);
+
+      // Provide both updates AND phase in a single call — updates should be
+      // applied first so the guard sees the new state
+      const result = await handleSet(
+        {
+          featureId: 'update-order',
+          updates: { 'artifacts.design': 'docs/design.md' },
+          phase: 'plan',
+        },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+
+      const state = await readStateFile(path.join(tmpDir, 'update-order.state.json'));
+      expect(state.phase).toBe('plan');
+      expect(state.artifacts.design).toBe('docs/design.md');
+    });
+
     it('should return GUARD_FAILED for transition with unsatisfied guard', async () => {
       await handleInit({ featureId: 'guard-test', workflowType: 'feature' }, tmpDir);
 
@@ -222,6 +243,8 @@ describe('Core Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('INVALID_TRANSITION');
+      expect(result.error?.validTargets).toBeDefined();
+      expect(result.error?.validTargets).toContain('plan');
     });
   });
 

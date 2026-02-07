@@ -37,7 +37,7 @@ import * as fs from 'node:fs/promises';
 export interface ToolResult {
   readonly success: boolean;
   readonly data?: unknown;
-  readonly error?: { code: string; message: string };
+  readonly error?: { code: string; message: string; validTargets?: readonly string[] };
   readonly _meta?: CheckpointMeta;
 }
 
@@ -160,7 +160,27 @@ export async function handleSet(
   // Work with a deep copy to avoid shared reference mutation
   const mutableState = structuredClone(state) as Record<string, unknown>;
 
-  // ─── Phase transition ───────────────────────────────────────────────
+  // ─── Field updates (applied first so phase guards see new state) ───
+  if (input.updates) {
+    // Check for reserved fields before applying any updates
+    for (const dotPath of Object.keys(input.updates)) {
+      if (isReservedField(dotPath)) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.RESERVED_FIELD,
+            message: `Cannot update reserved field: ${dotPath}`,
+          },
+        };
+      }
+    }
+
+    for (const [dotPath, value] of Object.entries(input.updates)) {
+      applyDotPath(mutableState, dotPath, value);
+    }
+  }
+
+  // ─── Phase transition (guards evaluate against updated state) ──────
   if (input.phase) {
     const hsm = getHSMDefinition(state.workflowType);
     const result = executeTransition(hsm, mutableState, input.phase);
@@ -172,6 +192,7 @@ export async function handleSet(
         error: {
           code: errorCode,
           message: result.errorMessage ?? `Transition failed to '${input.phase}'`,
+          ...(result.validTargets?.length ? { validTargets: result.validTargets } : {}),
         },
       };
     }
@@ -217,26 +238,6 @@ export async function handleSet(
         mutableState._checkpoint as WorkflowState['_checkpoint'],
         result.newPhase,
       );
-    }
-  }
-
-  // ─── Field updates ──────────────────────────────────────────────────
-  if (input.updates) {
-    // Check for reserved fields before applying any updates
-    for (const dotPath of Object.keys(input.updates)) {
-      if (isReservedField(dotPath)) {
-        return {
-          success: false,
-          error: {
-            code: ErrorCode.RESERVED_FIELD,
-            message: `Cannot update reserved field: ${dotPath}`,
-          },
-        };
-      }
-    }
-
-    for (const [dotPath, value] of Object.entries(input.updates)) {
-      applyDotPath(mutableState, dotPath, value);
     }
   }
 
