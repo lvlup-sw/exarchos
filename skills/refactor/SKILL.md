@@ -114,7 +114,7 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "implement".
+Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "polish-implement".
 
 #### 3. Implement Phase
 
@@ -125,7 +125,7 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "validate".
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "polish-validate".
 
 #### 4. Validate Phase
 
@@ -142,7 +142,7 @@ npm run lint  # or equivalent
 npm run typecheck  # if TypeScript
 ```
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation` object and `phase` to "update-docs".
+Update state using `mcp__workflow-state__workflow_set` to set `validation` object and `phase` to "polish-update-docs".
 
 #### 5. Update Docs Phase
 
@@ -157,6 +157,8 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 If `docsToUpdate` is empty, verify no docs need updating.
 
 Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
+
+> **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
 
 **Human checkpoint:** Confirm refactor complete.
 
@@ -202,7 +204,7 @@ On completion, use `mcp__workflow-state__workflow_set` to set `explore.completed
 
 Detailed capture of refactor intent (more thorough than polish).
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "plan".
+Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "overhaul-plan".
 
 Then auto-invoke plan:
 ```typescript
@@ -223,7 +225,9 @@ The `/plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `artifacts.plan` and `phase` to "delegate".
+Update state on completion using `mcp__workflow-state__workflow_set` to set `artifacts.plan` and `phase` to "overhaul-delegate".
+
+> **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` → `overhaul-delegate`.
 
 Then auto-invoke delegate:
 ```typescript
@@ -245,7 +249,7 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "integrate".
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-integrate".
 
 Then auto-invoke integrate:
 ```typescript
@@ -265,7 +269,7 @@ The `/integrate` skill:
 - Runs full test suite
 - Verifies no regressions
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "review".
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-review".
 
 Then auto-invoke review:
 ```typescript
@@ -285,7 +289,7 @@ The `/review` skill:
 - Refactors are high regression risk
 - Verifies structure matches brief goals
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "update-docs".
+Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-update-docs".
 
 #### 7. Update Docs Phase
 
@@ -351,7 +355,7 @@ Full state schema:
   "featureId": "refactor-<slug>",
   "workflowType": "refactor",
   "track": "polish | overhaul",
-  "phase": "explore | brief | plan | delegate | integrate | review | update-docs | synthesize | completed",
+  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-integrate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
   "explore": {
     "startedAt": "ISO8601",
     "completedAt": "ISO8601 | null",
@@ -391,32 +395,32 @@ Both tracks have ONE human checkpoint: completion/merge confirmation.
 ### Polish Auto-Chain
 
 ```
-explore -> brief -> implement -> validate -> update-docs -> [HUMAN: complete]
-           (auto)   (auto)       (auto)      (auto)
+explore -> brief -> polish-implement -> polish-validate -> polish-update-docs -> completed
+           (auto)   (auto)              (auto)             (auto)                [HUMAN]
 ```
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
 - `AUTO:refactor-implement` after brief
-- `AUTO:refactor-validate` after implement
-- `AUTO:refactor-update-docs` after validate
-- `WAIT:human-checkpoint:polish-complete` after update-docs
+- `AUTO:refactor-validate` after polish-implement
+- `AUTO:refactor-update-docs` after polish-validate
+- `WAIT:human-checkpoint:polish-complete` after polish-update-docs
 
 ### Overhaul Auto-Chain
 
 ```
-explore -> brief -> plan -> delegate -> integrate -> review -> update-docs -> synthesize -> [HUMAN: merge]
-           (auto)   (auto)   (auto)      (auto)       (auto)    (auto)         (auto)
+explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-integrate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+           (auto)   (auto)          (auto)               (auto)                (auto)             (auto)                  (auto)        [HUMAN]
 ```
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
 - `AUTO:plan:<brief>` after brief
-- `AUTO:delegate:<plan>` after plan
-- `AUTO:integrate:<state>` after delegate
-- `AUTO:review:<path>` after integrate
-- `AUTO:refactor-update-docs` after review
-- `AUTO:synthesize:<feature>` after update-docs
+- `AUTO:delegate:<plan>` after overhaul-plan
+- `AUTO:integrate:<state>` after overhaul-delegate
+- `AUTO:review:<path>` after overhaul-integrate
+- `AUTO:refactor-update-docs` after overhaul-review
+- `AUTO:synthesize:<feature>` after overhaul-update-docs
 - `WAIT:human-checkpoint:overhaul-merge` after synthesize
 
 ## Track Switching
@@ -473,15 +477,20 @@ The workflow-state MCP server supports:
 
 Refactor phases map to auto-resume actions:
 
-| Phase | Next Action |
-|-------|-------------|
+| HSM Phase | Next Action |
+|-----------|-------------|
 | `explore` (completed) | `AUTO:refactor-brief` |
 | `brief` (completed, polish) | `AUTO:refactor-implement` |
 | `brief` (completed, overhaul) | `AUTO:plan:<brief>` |
-| `implement` (completed) | `AUTO:refactor-validate` |
-| `validate` (completed) | `AUTO:refactor-update-docs` |
-| `update-docs` (completed, polish) | `WAIT:human-checkpoint:polish-complete` |
-| `update-docs` (completed, overhaul) | `AUTO:synthesize:<feature>` |
+| `polish-implement` (completed) | `AUTO:refactor-validate` |
+| `polish-validate` (completed) | `AUTO:refactor-update-docs` |
+| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-complete` |
+| `overhaul-plan` (completed) | `AUTO:delegate:<plan>` |
+| `overhaul-delegate` (completed) | `AUTO:integrate:<state>` |
+| `overhaul-integrate` (completed) | `AUTO:review:<path>` |
+| `overhaul-review` (completed) | `AUTO:refactor-update-docs` |
+| `overhaul-update-docs` (completed) | `AUTO:synthesize:<feature>` |
+| `synthesize` (completed) | `WAIT:human-checkpoint:overhaul-merge` |
 
 ## Completion Criteria
 

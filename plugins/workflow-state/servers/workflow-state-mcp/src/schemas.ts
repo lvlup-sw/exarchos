@@ -88,24 +88,17 @@ export const DebugPhaseSchema = z.enum([
 export const RefactorPhaseSchema = z.enum([
   'explore',
   'brief',
-  'plan',
-  'delegate',
-  'integrate',
-  'review',
-  'implement',
-  'validate',
-  'update-docs',
-  'synthesize',
-  // Compound sub-state phases (polish track)
+  // Polish track phases
   'polish-implement',
   'polish-validate',
   'polish-update-docs',
-  // Compound sub-state phases (overhaul track)
+  // Overhaul track phases
   'overhaul-plan',
   'overhaul-delegate',
   'overhaul-integrate',
   'overhaul-review',
   'overhaul-update-docs',
+  'synthesize',
   'completed',
   'cancelled',
   'blocked',
