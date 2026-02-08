@@ -59,14 +59,22 @@ export function getMinutesSinceActivity(checkpoint: CheckpointState): number {
   return Math.floor(diffMs / (60 * 1000));
 }
 
-/** Build the _meta response block included in every tool response. */
+/** Build the _meta response block included in every tool response.
+ *  Returns slim shape when no action needed, full shape when checkpoint or staleness attention required. */
 export function buildCheckpointMeta(checkpoint: CheckpointState): CheckpointMeta {
+  const advised = isCheckpointAdvised(checkpoint);
+  const stale = isStale(checkpoint);
+
+  if (!advised && !stale) {
+    return { checkpointAdvised: false };
+  }
+
   return {
-    checkpointAdvised: isCheckpointAdvised(checkpoint),
+    checkpointAdvised: advised,
     operationsSinceCheckpoint: checkpoint.operationsSince,
     lastCheckpointPhase: checkpoint.phase,
     lastCheckpointTimestamp: checkpoint.timestamp,
-    stale: isStale(checkpoint),
+    stale,
     minutesSinceActivity: getMinutesSinceActivity(checkpoint),
   };
 }

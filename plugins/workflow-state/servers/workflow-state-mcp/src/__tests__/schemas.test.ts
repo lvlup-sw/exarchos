@@ -530,7 +530,7 @@ describe('Workflow State Schemas', () => {
   });
 
   describe('CheckpointMetaSchema', () => {
-    it('should parse valid checkpoint meta', () => {
+    it('should parse full checkpoint meta (action needed)', () => {
       const meta = {
         checkpointAdvised: true,
         operationsSinceCheckpoint: 15,
@@ -539,6 +539,12 @@ describe('Workflow State Schemas', () => {
         stale: false,
         minutesSinceActivity: 5,
       };
+      const result = CheckpointMetaSchema.safeParse(meta);
+      expect(result.success).toBe(true);
+    });
+
+    it('should parse slim checkpoint meta (no action needed)', () => {
+      const meta = { checkpointAdvised: false };
       const result = CheckpointMetaSchema.safeParse(meta);
       expect(result.success).toBe(true);
     });

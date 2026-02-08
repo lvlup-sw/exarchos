@@ -241,7 +241,7 @@ describe('checkpoint', () => {
   });
 
   describe('buildCheckpointMeta', () => {
-    it('BuildCheckpointMeta_AllFields_PopulatedCorrectly', () => {
+    it('BuildCheckpointMeta_NoActionNeeded_ReturnsSlim', () => {
       const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       const checkpoint = makeCheckpoint({
         timestamp: '2025-06-01T12:00:00Z',
@@ -253,13 +253,29 @@ describe('checkpoint', () => {
 
       const meta = buildCheckpointMeta(checkpoint);
 
-      expect(meta.checkpointAdvised).toBe(false);
-      expect(meta.operationsSinceCheckpoint).toBe(10);
-      expect(meta.lastCheckpointPhase).toBe('delegate');
-      expect(meta.lastCheckpointTimestamp).toBe('2025-06-01T12:00:00Z');
-      expect(meta.stale).toBe(false);
-      expect(meta.minutesSinceActivity).toBeGreaterThanOrEqual(4);
-      expect(meta.minutesSinceActivity).toBeLessThanOrEqual(6);
+      // Slim shape: only checkpointAdvised when no action needed
+      expect(meta).toEqual({ checkpointAdvised: false });
+    });
+
+    it('BuildCheckpointMeta_Advised_ReturnsFullShape', () => {
+      const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const checkpoint = makeCheckpoint({
+        timestamp: '2025-06-01T12:00:00Z',
+        phase: 'delegate',
+        operationsSince: 20,
+        lastActivityTimestamp: recentTime,
+        staleAfterMinutes: 120,
+      });
+
+      const meta = buildCheckpointMeta(checkpoint);
+
+      // Full shape: all fields present when action needed
+      expect(meta.checkpointAdvised).toBe(true);
+      expect(meta).toHaveProperty('operationsSinceCheckpoint', 20);
+      expect(meta).toHaveProperty('lastCheckpointPhase', 'delegate');
+      expect(meta).toHaveProperty('lastCheckpointTimestamp', '2025-06-01T12:00:00Z');
+      expect(meta).toHaveProperty('stale', false);
+      expect(meta).toHaveProperty('minutesSinceActivity');
     });
 
     it('should report checkpointAdvised when at threshold', () => {

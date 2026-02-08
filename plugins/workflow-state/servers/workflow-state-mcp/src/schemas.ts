@@ -40,14 +40,21 @@ export const CheckpointStateSchema = z.object({
   staleAfterMinutes: z.number().int().positive().default(120),
 });
 
-export const CheckpointMetaSchema = z.object({
-  checkpointAdvised: z.boolean(),
-  operationsSinceCheckpoint: z.number().int().min(0),
-  lastCheckpointPhase: z.string(),
-  lastCheckpointTimestamp: z.string().datetime(),
-  stale: z.boolean(),
-  minutesSinceActivity: z.number().min(0),
-});
+export const CheckpointMetaSchema = z.union([
+  // Slim: no action needed
+  z.object({
+    checkpointAdvised: z.literal(false),
+  }),
+  // Full: action needed (checkpointAdvised or stale)
+  z.object({
+    checkpointAdvised: z.boolean(),
+    operationsSinceCheckpoint: z.number().int().min(0),
+    lastCheckpointPhase: z.string(),
+    lastCheckpointTimestamp: z.string().datetime(),
+    stale: z.boolean(),
+    minutesSinceActivity: z.number().min(0),
+  }),
+]);
 
 // ─── Phase Schemas ──────────────────────────────────────────────────────────
 

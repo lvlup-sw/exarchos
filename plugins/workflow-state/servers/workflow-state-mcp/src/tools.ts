@@ -24,6 +24,7 @@ import {
   buildCheckpointMeta,
   incrementOperations,
   resetCounter,
+  isStale,
 } from './checkpoint.js';
 import { appendEvent, getRecentEvents } from './events.js';
 import { getHSMDefinition, executeTransition, getValidTransitions } from './state-machine.js';
@@ -85,7 +86,7 @@ export async function handleList(
     workflowType: entry.state.workflowType,
     phase: entry.state.phase,
     stateFile: entry.stateFile,
-    _meta: buildCheckpointMeta(entry.state._checkpoint),
+    stale: isStale(entry.state._checkpoint),
   }));
 
   return {
@@ -648,7 +649,6 @@ export async function handleSummary(
       recentEvents,
       ...(circuitBreaker && { circuitBreaker }),
     },
-    _meta: buildCheckpointMeta(state._checkpoint),
   };
 }
 

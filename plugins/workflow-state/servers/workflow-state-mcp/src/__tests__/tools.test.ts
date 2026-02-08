@@ -39,8 +39,7 @@ describe('Core Tools', () => {
 
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
-      expect(result._meta).toBeDefined();
-      expect(result._meta?.checkpointAdvised).toBe(false);
+      expect(result._meta).toEqual({ checkpointAdvised: false });
 
       // Verify state was created on disk
       const state = await readStateFile(path.join(tmpDir, 'my-feature.state.json'));
@@ -94,14 +93,11 @@ describe('Core Tools', () => {
       const data = result.data as Array<Record<string, unknown>>;
       expect(data).toHaveLength(2);
 
-      // Each entry should have checkpoint meta (staleness info)
+      // Each entry should have staleness info (no _meta block)
       for (const entry of data) {
         expect(entry.featureId).toBeDefined();
-        expect(entry._meta).toBeDefined();
-        const meta = entry._meta as Record<string, unknown>;
-        expect(meta.stale).toBeDefined();
-        expect(meta.minutesSinceActivity).toBeDefined();
-        expect(meta.checkpointAdvised).toBeDefined();
+        expect(entry.stale).toBeDefined();
+        expect(entry._meta).toBeUndefined();
       }
     });
   });
@@ -452,8 +448,8 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result._meta).toBeDefined();
-      expect(result._meta?.operationsSinceCheckpoint).toBe(0);
+      // After reset, _meta is slim (no action needed)
+      expect(result._meta).toEqual({ checkpointAdvised: false });
 
       // Verify state on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-reset.state.json'));
@@ -499,7 +495,7 @@ describe('Core Tools', () => {
         tmpDir,
       );
       expect(result1.success).toBe(true);
-      expect(result1._meta?.operationsSinceCheckpoint).toBe(0);
+      expect(result1._meta).toEqual({ checkpointAdvised: false });
 
       // Do more operations
       await handleSet(
@@ -516,7 +512,7 @@ describe('Core Tools', () => {
         tmpDir,
       );
       expect(result2.success).toBe(true);
-      expect(result2._meta?.operationsSinceCheckpoint).toBe(0);
+      expect(result2._meta).toEqual({ checkpointAdvised: false });
 
       // Verify two checkpoint events on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-multi.state.json'));
@@ -552,7 +548,7 @@ describe('Query Tools', () => {
       const result = await handleSummary({ featureId: 'summary-test' }, tmpDir);
 
       expect(result.success).toBe(true);
-      expect(result._meta).toBeDefined();
+      expect(result._meta).toBeUndefined();
 
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('summary-test');
