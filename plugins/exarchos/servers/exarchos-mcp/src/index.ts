@@ -21,6 +21,12 @@ import {
   handleEventAppend,
   handleEventQuery,
 } from './event-store/tools.js';
+import {
+  handleViewWorkflowStatus,
+  handleViewTeamStatus,
+  handleViewTasks,
+  handleViewPipeline,
+} from './views/tools.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -224,36 +230,56 @@ export function createServer(stateDir: string): McpServer {
     },
   );
 
-  // ─── Stub Tools (15) ───────────────────────────────────────────────
+  // ─── View Tools (4) ────────────────────────────────────────────────
 
-  // Views
+  // ─── exarchos_view_pipeline ─────────────────────────────────────────
   server.tool(
     'exarchos_view_pipeline',
-    'Get CQRS pipeline view',
+    'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',
     {},
-    async () => stubResult(),
+    async (args) => {
+      const result = await handleViewPipeline(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_view_tasks ────────────────────────────────────────────
   server.tool(
     'exarchos_view_tasks',
-    'Get CQRS tasks view',
-    { workflowId: z.string().optional() },
-    async () => stubResult(),
+    'Get CQRS task detail view with optional filtering by workflowId and task properties',
+    {
+      workflowId: z.string().optional(),
+      filter: z.record(z.string(), z.unknown()).optional(),
+    },
+    async (args) => {
+      const result = await handleViewTasks(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_view_workflow_status ──────────────────────────────────
   server.tool(
     'exarchos_view_workflow_status',
-    'Get CQRS workflow status view',
+    'Get CQRS workflow status view with phase, task counts, and feature metadata',
     { workflowId: z.string().optional() },
-    async () => stubResult(),
+    async (args) => {
+      const result = await handleViewWorkflowStatus(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_view_team_status ─────────────────────────────────────
   server.tool(
     'exarchos_view_team_status',
-    'Get CQRS team status view',
-    {},
-    async () => stubResult(),
+    'Get CQRS team status view with teammate composition and current task assignments',
+    { workflowId: z.string().optional() },
+    async (args) => {
+      const result = await handleViewTeamStatus(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
+
+  // ─── Stub Tools (11) ─────────────────────────────────────────────
 
   // Team
   server.tool(
