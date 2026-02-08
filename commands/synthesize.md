@@ -100,7 +100,7 @@ After PR is created, this is a **human checkpoint** - user confirmation required
 
 ### Save State
 
-Update state using `mcp__workflow-state__workflow_set` with the `featureId`:
+Update state using `mcp__exarchos__exarchos_workflow_set` with the `featureId`:
 - Set `artifacts.pr` to the PR URL
 - Set `synthesis.prUrl` to the PR URL
 

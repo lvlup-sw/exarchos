@@ -273,7 +273,7 @@ Before dispatching ANY implementer:
 
 ### Worktree State Tracking
 
-Track worktrees in the workflow state file using `mcp__workflow-state__workflow_set`:
+Track worktrees in the workflow state file using `mcp__exarchos__exarchos_workflow_set`:
 - Set `worktrees.<worktree-path>` to an object containing branch, taskId, and status
 
 ### Implementer Prompt Requirements
@@ -310,11 +310,11 @@ This skill tracks task progress in workflow state for context persistence.
 
 ### Read Tasks from State
 
-Instead of re-parsing plan, read task list using `mcp__workflow-state__workflow_get` with query `tasks`.
+Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow_get` with query `tasks`.
 
 ### On Task Dispatch
 
-Update task status when dispatched using `mcp__workflow-state__workflow_set`:
+Update task status when dispatched using `mcp__exarchos__exarchos_workflow_set`:
 - Update the task's status to "in_progress"
 - Set the task's startedAt timestamp
 
@@ -322,13 +322,13 @@ If creating worktree, also set the worktree entry with branch, taskId, and statu
 
 ### On Task Complete
 
-Update task status when subagent reports completion using `mcp__workflow-state__workflow_set`:
+Update task status when subagent reports completion using `mcp__exarchos__exarchos_workflow_set`:
 - Update the task's status to "complete"
 - Set the task's completedAt timestamp
 
 ### On All Tasks Complete
 
-Update phase using `mcp__workflow-state__workflow_set`:
+Update phase using `mcp__exarchos__exarchos_workflow_set`:
 - Set `phase` to "integrate"
 
 ## Fix Mode (--fixes)
@@ -345,7 +345,7 @@ Or auto-invoked after review/integration failures.
 
 ### Fix Mode Process
 
-1. **Read failure details** from state using `mcp__workflow-state__workflow_get`:
+1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow_get`:
    - Query `integration.failureDetails` for integration failures
    - Query `reviews` for review failures
 

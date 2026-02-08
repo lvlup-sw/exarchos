@@ -19,11 +19,11 @@ Activate this skill when:
 When invoked with `--revise`, plan-review found gaps in the previous plan. The state file contains `.planReview.gaps` with specific missing items.
 
 **Revision workflow:**
-1. Read gaps from state using `mcp__workflow-state__workflow_get` with query `planReview.gaps`
+1. Read gaps from state using `mcp__exarchos__exarchos_workflow_get` with query `planReview.gaps`
 2. Re-read design document
 3. Add tasks to address each gap
 4. Update existing plan file (append new tasks)
-5. Clear gaps using `mcp__workflow-state__workflow_set` (set `planReview.gaps` to empty array, `planReview.gapsFound` to false)
+5. Clear gaps using `mcp__exarchos__exarchos_workflow_set` (set `planReview.gaps` to empty array, `planReview.gapsFound` to false)
 
 ## The Iron Law
 
@@ -238,7 +238,7 @@ This skill updates workflow state with plan details.
 
 ### On Plan Save
 
-Update state with plan artifact and tasks using `mcp__workflow-state__workflow_set`:
+Update state with plan artifact and tasks using `mcp__exarchos__exarchos_workflow_set`:
 - Set `artifacts.plan` to the plan path
 - Set `tasks` to the array of task objects (id, title, status, branch)
 - Set `phase` to "plan-review"

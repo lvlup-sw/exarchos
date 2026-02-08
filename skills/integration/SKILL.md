@@ -135,7 +135,7 @@ feature/integration-<feature-name>
 
 ## State Management
 
-Use `mcp__workflow-state__workflow_set` for all state updates.
+Use `mcp__exarchos__exarchos_workflow_set` for all state updates.
 
 ### On Integration Start
 

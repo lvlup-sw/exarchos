@@ -40,10 +40,10 @@
 
 ## Output
 
-After exploration, update state with scope assessment using `mcp__workflow-state__workflow_set`:
+After exploration, update state with scope assessment using `mcp__exarchos__exarchos_workflow_set`:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "explore.scopeAssessment": {
       "filesAffected": ["<list>"],

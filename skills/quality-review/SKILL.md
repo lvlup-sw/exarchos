@@ -350,21 +350,21 @@ Task({
 
 ## State Management
 
-Update workflow state with review results using `mcp__workflow-state__workflow_set`.
+Update workflow state with review results using `mcp__exarchos__exarchos_workflow_set`.
 
 ### On Review Complete
 
 ```text
 # Update task review status - for approved
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "approved" }
 
 # Or if needs fixes:
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "needs_fixes" }
 
 # Add review details
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "reviews.<task-id>.qualityReview": {"status": "approved", "highPriority": [], "mediumPriority": []}
   }
@@ -375,7 +375,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 Update phase for synthesis:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   phase: "synthesize"
 ```
 

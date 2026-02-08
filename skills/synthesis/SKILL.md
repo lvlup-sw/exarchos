@@ -170,7 +170,7 @@ If tests fail during synthesis (they passed in integration):
 
 ## State Management
 
-This skill tracks synthesis progress in workflow state using `mcp__workflow-state__workflow_get` and `mcp__workflow-state__workflow_set`.
+This skill tracks synthesis progress in workflow state using `mcp__exarchos__exarchos_workflow_get` and `mcp__exarchos__exarchos_workflow_set`.
 
 ### Read Integration State
 

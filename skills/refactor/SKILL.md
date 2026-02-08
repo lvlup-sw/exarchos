@@ -97,10 +97,10 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 - Confirm polish is appropriate
 
 Update state using MCP tools:
-1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__workflow-state__workflow_set` to set track, phase, and explore scope assessment
+1. Use `mcp__exarchos__exarchos_workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__exarchos__exarchos_workflow_set` to set track, phase, and explore scope assessment
 
-On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
+On completion, use `mcp__exarchos__exarchos_workflow_set` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
@@ -114,7 +114,7 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "polish-implement".
+Update state using `mcp__exarchos__exarchos_workflow_set` to set the `brief` object and `phase` to "polish-implement".
 
 #### 3. Implement Phase
 
@@ -125,7 +125,7 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "polish-validate".
+Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "polish-validate".
 
 #### 4. Validate Phase
 
@@ -142,7 +142,7 @@ npm run lint  # or equivalent
 npm run typecheck  # if TypeScript
 ```
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation` object and `phase` to "polish-update-docs".
+Update state using `mcp__exarchos__exarchos_workflow_set` to set `validation` object and `phase` to "polish-update-docs".
 
 #### 5. Update Docs Phase
 
@@ -156,7 +156,7 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 
 If `docsToUpdate` is empty, verify no docs need updating.
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
+Update state using `mcp__exarchos__exarchos_workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
 
 > **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
 
@@ -195,16 +195,16 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 - Map dependencies and impact
 
 Update state using MCP tools:
-1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__workflow-state__workflow_set` to set track to "overhaul", phase, and explore scope assessment
+1. Use `mcp__exarchos__exarchos_workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__exarchos__exarchos_workflow_set` to set track to "overhaul", phase, and explore scope assessment
 
-On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
+On completion, use `mcp__exarchos__exarchos_workflow_set` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
 Detailed capture of refactor intent (more thorough than polish).
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "overhaul-plan".
+Update state using `mcp__exarchos__exarchos_workflow_set` to set the `brief` object and `phase` to "overhaul-plan".
 
 Then auto-invoke plan:
 ```typescript
@@ -225,7 +225,7 @@ The `/plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `artifacts.plan` and `phase` to "overhaul-delegate".
+Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `artifacts.plan` and `phase` to "overhaul-delegate".
 
 > **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` → `overhaul-delegate`.
 
@@ -249,7 +249,7 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-integrate".
+Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-integrate".
 
 Then auto-invoke integrate:
 ```typescript
@@ -269,7 +269,7 @@ The `/integrate` skill:
 - Runs full test suite
 - Verifies no regressions
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-review".
+Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-review".
 
 Then auto-invoke review:
 ```typescript
@@ -289,7 +289,7 @@ The `/review` skill:
 - Refactors are high regression risk
 - Verifies structure matches brief goals
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-update-docs".
+Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-update-docs".
 
 #### 7. Update Docs Phase
 
@@ -301,7 +301,7 @@ For overhaul, typically includes:
 - Migration guides if public interfaces changed
 - Updated diagrams
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
+Update state using `mcp__exarchos__exarchos_workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
 
 Then auto-invoke synthesize:
 ```typescript
@@ -346,7 +346,7 @@ EOF
 
 ## State Management
 
-Initialize refactor workflow using `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`.
+Initialize refactor workflow using `mcp__exarchos__exarchos_workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`.
 
 Full state schema:
 ```json
@@ -427,7 +427,7 @@ explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-integrate -> 
 
 ### Polish -> Overhaul
 
-If scope expands beyond polish limits during explore or brief phase, use `mcp__workflow-state__workflow_set` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
+If scope expands beyond polish limits during explore or brief phase, use `mcp__exarchos__exarchos_workflow_set` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
 **Indicators to switch:**
 - More than 5 files affected
@@ -470,8 +470,8 @@ Task({
 
 The workflow-state MCP server supports:
 - `workflowType: "refactor"` field
-- Refactor-specific phases in `mcp__workflow-state__workflow_next_action` output
-- Refactor context in `mcp__workflow-state__workflow_summary` output
+- Refactor-specific phases in `mcp__exarchos__exarchos_workflow_next_action` output
+- Refactor context in `mcp__exarchos__exarchos_workflow_summary` output
 
 ### With workflow-auto-resume.md
 

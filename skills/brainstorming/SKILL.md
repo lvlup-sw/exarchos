@@ -111,13 +111,13 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `mcp__workflow-state__workflow_init` with the featureId.
+Initialize workflow state using `mcp__exarchos__exarchos_workflow_init` with the featureId.
 
 This creates a state file tracked by the MCP server.
 
 ### On Design Save (after Phase 3)
 
-Update state with design artifact using `mcp__workflow-state__workflow_set`:
+Update state with design artifact using `mcp__exarchos__exarchos_workflow_set`:
 - Set `artifacts.design` to the design path
 - Set `phase` to "plan"
 
@@ -134,7 +134,7 @@ Update state with design artifact using `mcp__workflow-state__workflow_set`:
 
 After brainstorming completes, **auto-continue to planning** (no user confirmation):
 
-1. Update state with design path and phase using `mcp__workflow-state__workflow_set`:
+1. Update state with design path and phase using `mcp__exarchos__exarchos_workflow_set`:
    - Set `artifacts.design` to the design path
    - Set `phase` to "plan"
 

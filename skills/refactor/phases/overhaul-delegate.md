@@ -103,23 +103,23 @@ See `overhaul-review.md` for detailed criteria.
 
 ## State Updates
 
-Use `mcp__workflow-state__workflow_set` with the featureId for state updates:
+Use `mcp__exarchos__exarchos_workflow_set` with the featureId for state updates:
 
 ```text
 # After delegation complete
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow_set:
   phase: "integrate"
 
 # After integration passes
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow_set:
   phase: "review"
 
 # After review passes
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow_set:
   phase: "update-docs"
 
 # After review fails - dispatch fix tasks, loop back
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow_set:
   updates: { "reviews.<id>.status": "failed", "reviews.<id>.findings": ["<issue1>"] }
 ```
 
