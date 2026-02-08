@@ -14,7 +14,6 @@ export type Action = 'install' | 'uninstall' | 'help';
 
 export interface ParsedArgs {
   action: Action;
-  withJules: boolean;
 }
 
 export type SymlinkResult = 'created' | 'skipped' | 'backed_up';
@@ -54,8 +53,7 @@ export async function buildMcpServer(serverPath: string): Promise<void> {
 
 export async function configureMcpServers(
   configPath: string,
-  repoRoot: string,
-  options: { withJules: boolean } = { withJules: false }
+  repoRoot: string
 ): Promise<void> {
   // Read existing config or create empty object
   let config: ClaudeConfig = {};
@@ -67,17 +65,6 @@ export async function configureMcpServers(
   // Ensure mcpServers object exists
   if (!config.mcpServers) {
     config.mcpServers = {};
-  }
-
-  // Add jules MCP server only if requested
-  if (options.withJules) {
-    const julesApiKey = process.env.JULES_API_KEY;
-    config.mcpServers.jules = {
-      type: 'stdio',
-      command: 'node',
-      args: [join(repoRoot, 'plugins/jules/servers/jules-mcp/dist/index.js')],
-      ...(julesApiKey ? { env: { JULES_API_KEY: julesApiKey } } : {})
-    };
   }
 
   // Add workflow-state MCP server (always required for workflow orchestration)
@@ -104,7 +91,6 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
   const config: ClaudeConfig = JSON.parse(content);
 
   if (config.mcpServers) {
-    delete config.mcpServers.jules;
     delete config.mcpServers['workflow-state'];
   }
 
@@ -115,15 +101,12 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
 // CLI argument parsing
 export function parseArgs(args: string[]): ParsedArgs {
   if (args.includes('--help') || args.includes('-h')) {
-    return { action: 'help', withJules: false };
+    return { action: 'help' };
   }
   if (args.includes('--uninstall')) {
-    return { action: 'uninstall', withJules: false };
+    return { action: 'uninstall' };
   }
-  return {
-    action: 'install',
-    withJules: args.includes('--with-jules')
-  };
+  return { action: 'install' };
 }
 
 // Path utilities
@@ -199,7 +182,7 @@ export async function removeSymlink(target: string): Promise<RemoveResult> {
 }
 
 // Main install orchestrator
-export async function install(options: { withJules: boolean } = { withJules: false }): Promise<void> {
+export async function install(): Promise<void> {
   const claudeHome = getClaudeHome();
   const repoRoot = getRepoRoot();
 
@@ -225,23 +208,15 @@ export async function install(options: { withJules: boolean } = { withJules: fal
   // Build MCP servers
   console.log('');
   console.log('Building MCP servers...');
-  if (options.withJules) {
-    await buildMcpServer(join(repoRoot, 'plugins/jules/servers/jules-mcp'));
-  }
   await buildMcpServer(join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp'));
 
   // Configure MCP servers
   console.log('');
   console.log('Configuring MCP servers...');
-  await configureMcpServers(join(homedir(), '.claude.json'), repoRoot, { withJules: options.withJules });
+  await configureMcpServers(join(homedir(), '.claude.json'), repoRoot);
 
   console.log('');
   console.log('Installation complete!');
-  if (options.withJules) {
-    console.log('  Jules: enabled (set JULES_API_KEY to use)');
-  } else {
-    console.log('  Jules: disabled (use --with-jules to enable)');
-  }
 }
 
 // Main uninstall orchestrator
@@ -281,12 +256,10 @@ Usage:
 Options:
   --help, -h      Show this help message
   --uninstall     Remove installed configuration
-  --with-jules    Include Jules MCP server (requires JULES_API_KEY)
 
 Examples:
-  npx github:lvlup-sw/lvlup-claude               Install configuration
-  npx github:lvlup-sw/lvlup-claude --with-jules  Install with Jules integration
-  npx github:lvlup-sw/lvlup-claude --uninstall   Remove configuration
+  npx github:lvlup-sw/lvlup-claude              Install configuration
+  npx github:lvlup-sw/lvlup-claude --uninstall  Remove configuration
 `);
 }
 
@@ -303,7 +276,7 @@ export async function main(): Promise<void> {
       break;
     case 'install':
     default:
-      await install({ withJules: args.withJules });
+      await install();
       break;
   }
 }

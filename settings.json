@@ -154,10 +154,9 @@
   },
   "model": "claude-opus-4-6",
   "enabledPlugins": {
-    "typescript-lsp@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "csharp-lsp@claude-plugins-official": true,
     "github@claude-plugins-official": true,
+    "serena@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
     "microsoft-docs@microsoft-docs-marketplace": true
   }
 }
