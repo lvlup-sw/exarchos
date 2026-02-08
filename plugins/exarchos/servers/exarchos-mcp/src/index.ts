@@ -27,6 +27,18 @@ import {
   handleViewTasks,
   handleViewPipeline,
 } from './views/tools.js';
+import {
+  handleTeamSpawn,
+  handleTeamMessage,
+  handleTeamBroadcast,
+  handleTeamShutdown,
+  handleTeamStatus,
+} from './team/tools.js';
+import {
+  handleTaskClaim,
+  handleTaskComplete,
+  handleTaskFail,
+} from './tasks/tools.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -279,64 +291,129 @@ export function createServer(stateDir: string): McpServer {
     },
   );
 
-  // ─── Stub Tools (11) ─────────────────────────────────────────────
+  // ─── Team Tools (5) ──────────────────────────────────────────────
 
-  // Team
+  // ─── exarchos_team_spawn ──────────────────────────────────────────
   server.tool(
     'exarchos_team_spawn',
-    'Spawn a new team member agent',
-    { role: z.string(), config: z.record(z.string(), z.unknown()).optional() },
-    async () => stubResult(),
+    'Spawn a new team member agent with a role assignment',
+    {
+      name: z.string().min(1),
+      role: z.string().min(1),
+      taskId: z.string().min(1),
+      taskTitle: z.string().min(1),
+      streamId: z.string().min(1),
+      worktreePath: z.string().optional(),
+    },
+    async (args) => {
+      const result = await handleTeamSpawn(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_team_message ────────────────────────────────────────
   server.tool(
     'exarchos_team_message',
-    'Send a message to a team member',
-    { agentId: z.string(), message: z.string() },
-    async () => stubResult(),
+    'Send a direct message to a team member',
+    {
+      from: z.string().min(1),
+      to: z.string().min(1),
+      content: z.string().min(1),
+      streamId: z.string().min(1),
+      messageType: z.string().optional(),
+    },
+    async (args) => {
+      const result = await handleTeamMessage(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_team_broadcast ──────────────────────────────────────
   server.tool(
     'exarchos_team_broadcast',
     'Broadcast a message to all team members',
-    { message: z.string() },
-    async () => stubResult(),
+    {
+      from: z.string().min(1),
+      content: z.string().min(1),
+      streamId: z.string().min(1),
+    },
+    async (args) => {
+      const result = await handleTeamBroadcast(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_team_shutdown ───────────────────────────────────────
   server.tool(
     'exarchos_team_shutdown',
     'Shutdown a team member agent',
-    { agentId: z.string() },
-    async () => stubResult(),
+    {
+      name: z.string().min(1),
+      streamId: z.string().min(1),
+    },
+    async (args) => {
+      const result = await handleTeamShutdown(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_team_status ─────────────────────────────────────────
   server.tool(
     'exarchos_team_status',
-    'Get status of all team members',
+    'Get status of all team members with health information',
     {},
-    async () => stubResult(),
+    async (args) => {
+      const result = await handleTeamStatus(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
-  // Tasks
+  // ─── Task Tools (3) ──────────────────────────────────────────────
+
+  // ─── exarchos_task_claim ──────────────────────────────────────────
   server.tool(
     'exarchos_task_claim',
-    'Claim a task for execution',
-    { taskId: z.string() },
-    async () => stubResult(),
+    'Claim a task for execution by an agent',
+    {
+      taskId: z.string().min(1),
+      agentId: z.string().min(1),
+      streamId: z.string().min(1),
+    },
+    async (args) => {
+      const result = await handleTaskClaim(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_task_complete ───────────────────────────────────────
   server.tool(
     'exarchos_task_complete',
-    'Mark a task as complete',
-    { taskId: z.string(), result: z.record(z.string(), z.unknown()).optional() },
-    async () => stubResult(),
+    'Mark a task as complete with optional artifacts',
+    {
+      taskId: z.string().min(1),
+      result: z.record(z.string(), z.unknown()).optional(),
+      streamId: z.string().min(1),
+    },
+    async (args) => {
+      const result = await handleTaskComplete(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_task_fail ───────────────────────────────────────────
   server.tool(
     'exarchos_task_fail',
-    'Mark a task as failed',
-    { taskId: z.string(), error: z.string() },
-    async () => stubResult(),
+    'Mark a task as failed with error details and optional diagnostics',
+    {
+      taskId: z.string().min(1),
+      error: z.string().min(1),
+      diagnostics: z.record(z.string(), z.unknown()).optional(),
+      streamId: z.string().min(1),
+    },
+    async (args) => {
+      const result = await handleTaskFail(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
   // Stack

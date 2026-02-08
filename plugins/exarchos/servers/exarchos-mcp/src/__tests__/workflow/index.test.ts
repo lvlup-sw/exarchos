@@ -259,14 +259,6 @@ describe('MCP Server Entry Point', () => {
       createServer('/tmp/test-state-dir');
 
       const stubTools = [
-        'exarchos_team_spawn',
-        'exarchos_team_message',
-        'exarchos_team_broadcast',
-        'exarchos_team_shutdown',
-        'exarchos_team_status',
-        'exarchos_task_claim',
-        'exarchos_task_complete',
-        'exarchos_task_fail',
         'exarchos_stack_status',
         'exarchos_stack_place',
         'exarchos_sync_now',
@@ -283,6 +275,28 @@ describe('MCP Server Entry Point', () => {
         expect(parsed.success).toBe(false);
         expect(parsed.error.code).toBe('NOT_IMPLEMENTED');
         expect(parsed.error.message).toBe('Coming soon');
+      }
+    });
+
+    it('should register implemented team and task tools', async () => {
+      createServer('/tmp/test-state-dir');
+
+      const implementedTools = [
+        'exarchos_team_spawn',
+        'exarchos_team_message',
+        'exarchos_team_broadcast',
+        'exarchos_team_shutdown',
+        'exarchos_team_status',
+        'exarchos_task_claim',
+        'exarchos_task_complete',
+        'exarchos_task_fail',
+      ];
+
+      for (const toolName of implementedTools) {
+        expect(toolRegistrations.has(toolName)).toBe(true);
+        const reg = toolRegistrations.get(toolName)!;
+        expect(reg.handler).toBeDefined();
+        expect(typeof reg.handler).toBe('function');
       }
     });
   });
