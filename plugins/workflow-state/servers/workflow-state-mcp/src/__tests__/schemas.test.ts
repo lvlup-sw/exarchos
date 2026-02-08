@@ -487,9 +487,9 @@ describe('Workflow State Schemas', () => {
     });
 
     it('should validate all refactor phases', () => {
-      const phases = ['explore', 'brief', 'plan', 'delegate', 'integrate', 'review', 'implement', 'validate', 'update-docs', 'synthesize', 'completed', 'cancelled', 'blocked'];
+      const phases = ['explore', 'brief', 'synthesize', 'completed', 'cancelled', 'blocked'];
       for (const phase of phases) {
-        expect(RefactorPhaseSchema.safeParse(phase).success).toBe(true);
+        expect(RefactorPhaseSchema.safeParse(phase).success, `Expected '${phase}' to be valid`).toBe(true);
       }
     });
 

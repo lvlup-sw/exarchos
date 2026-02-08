@@ -70,7 +70,7 @@ export function createServer(stateDir: string): McpServer {
   // ─── workflow_get ──────────────────────────────────────────────────
   server.tool(
     'workflow_get',
-    'Get workflow state or query a specific field via dot-path',
+    'Query a field via dot-path (e.g. query:"phase") or get full state if no query',
     {
       featureId: featureIdParam,
       query: z.string().optional(),
@@ -84,7 +84,7 @@ export function createServer(stateDir: string): McpServer {
   // ─── workflow_set ──────────────────────────────────────────────────
   server.tool(
     'workflow_set',
-    'Update workflow fields and/or transition phase via HSM',
+    'Update fields and/or transition phase. Returns {phase, updatedAt}',
     {
       featureId: featureIdParam,
       updates: z.record(z.string(), z.unknown()).optional(),
@@ -138,10 +138,10 @@ export function createServer(stateDir: string): McpServer {
   // ─── workflow_transitions ──────────────────────────────────────────
   server.tool(
     'workflow_transitions',
-    'Get available state machine transitions. Requires workflowType (feature|debug|refactor), NOT featureId. Use fromPhase to filter transitions from a specific phase.',
+    'Get available state machine transitions for a workflow type',
     {
-      workflowType: workflowTypeParam.describe('Required: workflow type (feature, debug, or refactor)'),
-      fromPhase: z.string().optional().describe('Optional: filter transitions originating from this phase'),
+      workflowType: workflowTypeParam,
+      fromPhase: z.string().optional(),
     },
     async (args) => {
       const result = await handleTransitions(args, stateDir);

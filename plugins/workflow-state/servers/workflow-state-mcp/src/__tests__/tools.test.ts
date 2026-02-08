@@ -48,11 +48,15 @@ describe('Core Tools', () => {
       expect(state.workflowType).toBe('feature');
       expect(state.phase).toBe('ideate');
 
-      // Verify data in result contains the state
+      // Verify slim response contains identity fields
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('my-feature');
       expect(data.workflowType).toBe('feature');
       expect(data.phase).toBe('ideate');
+
+      // Slim response should NOT include heavy fields
+      expect(data.tasks).toBeUndefined();
+      expect(data._events).toBeUndefined();
     });
   });
 
@@ -215,6 +219,40 @@ describe('Core Tools', () => {
       const state = await readStateFile(path.join(tmpDir, 'update-order.state.json'));
       expect(state.phase).toBe('plan');
       expect(state.artifacts.design).toBe('docs/design.md');
+    });
+
+    it('should apply dynamic field updates before evaluating guards (planReview.approved)', async () => {
+      await handleInit({ featureId: 'dynamic-guard', workflowType: 'feature' }, tmpDir);
+
+      // Advance to plan-review
+      await handleSet(
+        { featureId: 'dynamic-guard', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'dynamic-guard', phase: 'plan' }, tmpDir);
+      await handleSet(
+        { featureId: 'dynamic-guard', updates: { 'artifacts.plan': 'plan.md' } },
+        tmpDir,
+      );
+      await handleSet({ featureId: 'dynamic-guard', phase: 'plan-review' }, tmpDir);
+
+      // Combined update + transition: set planReview.approved AND transition to delegate
+      const result = await handleSet(
+        {
+          featureId: 'dynamic-guard',
+          updates: { planReview: { approved: true } },
+          phase: 'delegate',
+        },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.phase).toBe('delegate');
+
+      // Verify on disk
+      const state = await readStateFile(path.join(tmpDir, 'dynamic-guard.state.json'));
+      expect(state.phase).toBe('delegate');
     });
 
     it('should return GUARD_FAILED for transition with unsatisfied guard', async () => {
@@ -1009,6 +1047,33 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('brief');
   });
+
+  it('should transition from explore to brief in a single combined call', async () => {
+    await handleInit({ featureId: 'refactor-combined', workflowType: 'refactor' }, tmpDir);
+
+    // Set scope assessment AND transition in one call — guard should see updated state
+    const result = await handleSet(
+      {
+        featureId: 'refactor-combined',
+        updates: {
+          track: 'polish',
+          'explore.startedAt': '2026-02-08T00:00:00.000Z',
+          'explore.completedAt': '2026-02-08T00:05:00.000Z',
+          'explore.scopeAssessment': { filesAffected: ['a.ts'], recommendedTrack: 'polish' },
+        },
+        phase: 'brief',
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('brief');
+
+    // Verify on disk
+    const state = await readStateFile(path.join(tmpDir, 'refactor-combined.state.json'));
+    expect(state.phase).toBe('brief');
+  });
 });
 
 describe('ToolSet_DeepCopy_OriginalStateUnaffected (Bug 8)', () => {
@@ -1049,10 +1114,105 @@ describe('ToolSet_ArtifactUpdate_PreservesSiblings', () => {
     );
 
     expect(result.success).toBe(true);
+
+    // Verify via disk read (handleSet returns slim response, not full state)
+    const state = await readStateFile(path.join(tmpDir, 'artifact-merge.state.json'));
+    expect(state.artifacts.design).toBe('docs/design.md');
+    expect(state.artifacts.plan).toBeNull();
+    expect(state.artifacts.pr).toBeNull();
+  });
+});
+
+// ─── Slim Response Tests ──────────────────────────────────────────────────────
+
+describe('ToolSet_SlimResponse_ReturnsMinimalPayload', () => {
+  it('should return only phase and updatedAt, not full state', async () => {
+    await handleInit({ featureId: 'slim-set', workflowType: 'feature' }, tmpDir);
+
+    const result = await handleSet(
+      { featureId: 'slim-set', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    const artifacts = data.artifacts as Record<string, unknown>;
-    expect(artifacts.design).toBe('docs/design.md');
-    expect(artifacts.plan).toBeNull();
-    expect(artifacts.pr).toBeNull();
+
+    // Slim response should include phase and updatedAt
+    expect(data.phase).toBe('ideate');
+    expect(data.updatedAt).toBeDefined();
+    expect(typeof data.updatedAt).toBe('string');
+
+    // Should NOT include full state fields
+    expect(data.tasks).toBeUndefined();
+    expect(data.worktrees).toBeUndefined();
+    expect(data._events).toBeUndefined();
+    expect(data._checkpoint).toBeUndefined();
+    expect(data.synthesis).toBeUndefined();
+    expect(data.artifacts).toBeUndefined();
+  });
+
+  it('should return updated phase after transition', async () => {
+    await handleInit({ featureId: 'slim-transition', workflowType: 'feature' }, tmpDir);
+
+    const result = await handleSet(
+      {
+        featureId: 'slim-transition',
+        updates: { 'artifacts.design': 'docs/design.md' },
+        phase: 'plan',
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+  });
+});
+
+describe('ToolInit_SlimResponse_ReturnsMinimalPayload', () => {
+  it('should return only featureId, workflowType, and phase, not full state', async () => {
+    const result = await handleInit(
+      { featureId: 'slim-init', workflowType: 'feature' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+
+    // Slim response should include identity fields
+    expect(data.featureId).toBe('slim-init');
+    expect(data.workflowType).toBe('feature');
+    expect(data.phase).toBe('ideate');
+
+    // Should NOT include full state fields
+    expect(data.tasks).toBeUndefined();
+    expect(data.worktrees).toBeUndefined();
+    expect(data._events).toBeUndefined();
+    expect(data._checkpoint).toBeUndefined();
+    expect(data.synthesis).toBeUndefined();
+  });
+});
+
+describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
+  it('should return only phase, not full state', async () => {
+    await handleInit({ featureId: 'slim-ckpt', workflowType: 'feature' }, tmpDir);
+
+    const result = await handleCheckpoint(
+      { featureId: 'slim-ckpt', summary: 'Test checkpoint' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+
+    // Slim response should include phase
+    expect(data.phase).toBe('ideate');
+
+    // Should NOT include full state fields
+    expect(data.tasks).toBeUndefined();
+    expect(data.worktrees).toBeUndefined();
+    expect(data._events).toBeUndefined();
+    expect(data.synthesis).toBeUndefined();
+    expect(data.artifacts).toBeUndefined();
   });
 });

@@ -6,6 +6,7 @@ import {
   handleCancel,
   handleCheckpoint,
 } from '../tools.js';
+import { readStateFile } from '../state-store.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -50,12 +51,12 @@ describe('Idempotency', () => {
       expect(firstTransition.success).toBe(true);
 
       // Verify phase is now 'plan'
-      const stateAfterFirst = firstTransition.data as Record<string, unknown>;
-      expect(stateAfterFirst.phase).toBe('plan');
+      const firstData = firstTransition.data as Record<string, unknown>;
+      expect(firstData.phase).toBe('plan');
 
-      // Count transition events after first transition
-      const eventsAfterFirst = stateAfterFirst._events as Array<Record<string, unknown>>;
-      const transitionEventsAfterFirst = eventsAfterFirst.filter(
+      // Count transition events after first transition (read from disk)
+      const stateAfterFirst = await readStateFile(path.join(stateDir, 'idem-phase.state.json'));
+      const transitionEventsAfterFirst = stateAfterFirst._events.filter(
         (e) => e.type === 'transition' && e.from === 'ideate' && e.to === 'plan',
       );
       expect(transitionEventsAfterFirst.length).toBe(1);
@@ -67,12 +68,12 @@ describe('Idempotency', () => {
       );
       expect(secondTransition.success).toBe(true);
 
-      // Assert: event log should NOT contain a duplicate transition event
-      const stateAfterSecond = secondTransition.data as Record<string, unknown>;
-      expect(stateAfterSecond.phase).toBe('plan');
+      // Assert: event log should NOT contain a duplicate transition event (read from disk)
+      const secondData = secondTransition.data as Record<string, unknown>;
+      expect(secondData.phase).toBe('plan');
 
-      const eventsAfterSecond = stateAfterSecond._events as Array<Record<string, unknown>>;
-      const transitionEventsAfterSecond = eventsAfterSecond.filter(
+      const stateAfterSecond = await readStateFile(path.join(stateDir, 'idem-phase.state.json'));
+      const transitionEventsAfterSecond = stateAfterSecond._events.filter(
         (e) => e.type === 'transition' && e.from === 'ideate' && e.to === 'plan',
       );
       expect(transitionEventsAfterSecond.length).toBe(1);
@@ -110,19 +111,16 @@ describe('Idempotency', () => {
       );
       expect(secondSet.success).toBe(true);
 
-      // Assert: both calls succeeded
+      // Assert: both calls succeeded and slim response is consistent
       const firstData = firstSet.data as Record<string, unknown>;
       const secondData = secondSet.data as Record<string, unknown>;
 
-      // The artifacts.design field should be identical
-      const firstArtifacts = firstData.artifacts as Record<string, unknown>;
-      const secondArtifacts = secondData.artifacts as Record<string, unknown>;
-      expect(secondArtifacts.design).toBe('docs/design.md');
-      expect(secondArtifacts.design).toBe(firstArtifacts.design);
-
       // The phase should remain unchanged
       expect(secondData.phase).toBe(firstData.phase);
-      expect(secondData.featureId).toBe(firstData.featureId);
+
+      // Verify the field value is persisted correctly (read from disk)
+      const state = await readStateFile(path.join(stateDir, 'idem-field.state.json'));
+      expect(state.artifacts.design).toBe('docs/design.md');
     });
   });
 

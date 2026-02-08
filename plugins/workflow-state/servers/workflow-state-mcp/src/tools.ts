@@ -51,7 +51,11 @@ export async function handleInit(
     const { state } = await initStateFile(stateDir, input.featureId, input.workflowType);
     return {
       success: true,
-      data: state,
+      data: {
+        featureId: state.featureId,
+        workflowType: state.workflowType,
+        phase: state.phase,
+      },
       _meta: buildCheckpointMeta(state._checkpoint),
     };
   } catch (err) {
@@ -258,7 +262,10 @@ export async function handleSet(
 
   return {
     success: true,
-    data: mutableState,
+    data: {
+      phase: mutableState.phase as string,
+      updatedAt: mutableState.updatedAt as string,
+    },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
@@ -483,7 +490,9 @@ export async function handleCheckpoint(
 
   return {
     success: true,
-    data: mutableState,
+    data: {
+      phase: (mutableState._checkpoint as Record<string, unknown>).phase as string,
+    },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
