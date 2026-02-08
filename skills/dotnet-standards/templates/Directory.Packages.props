@@ -47,8 +47,8 @@
     <!-- ===================================================================== -->
     <!-- Resilience                                                            -->
     <!-- ===================================================================== -->
-    <PackageVersion Include="Polly" Version="8.6.0" />
-    <PackageVersion Include="Polly.Core" Version="8.6.0" />
+    <PackageVersion Include="Polly" Version="8.6.5" />
+    <PackageVersion Include="Polly.Core" Version="8.6.5" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
 
     <!-- ===================================================================== -->
