@@ -259,8 +259,6 @@ describe('MCP Server Entry Point', () => {
       createServer('/tmp/test-state-dir');
 
       const stubTools = [
-        'exarchos_event_append',
-        'exarchos_event_query',
         'exarchos_view_pipeline',
         'exarchos_view_tasks',
         'exarchos_view_workflow_status',

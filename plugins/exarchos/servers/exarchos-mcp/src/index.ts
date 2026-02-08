@@ -17,6 +17,10 @@ import {
   handleCheckpoint,
 } from './workflow/tools.js';
 import type { ToolResult } from './workflow/tools.js';
+import {
+  handleEventAppend,
+  handleEventQuery,
+} from './event-store/tools.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -189,22 +193,38 @@ export function createServer(stateDir: string): McpServer {
     },
   );
 
-  // ─── Stub Tools (17) ───────────────────────────────────────────────
+  // ─── Event Store Tools (2) ──────────────────────────────────────────
 
-  // Event Store
+  // ─── exarchos_event_append ────────────────────────────────────────
   server.tool(
     'exarchos_event_append',
-    'Append an event to the event store',
-    { stream: z.string(), event: z.record(z.string(), z.unknown()) },
-    async () => stubResult(),
+    'Append an event to the event store with optional optimistic concurrency',
+    {
+      stream: z.string().min(1),
+      event: z.record(z.string(), z.unknown()),
+      expectedSequence: z.number().int().optional(),
+    },
+    async (args) => {
+      const result = await handleEventAppend(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_event_query ─────────────────────────────────────────
   server.tool(
     'exarchos_event_query',
-    'Query events from the event store',
-    { stream: z.string().optional(), filter: z.record(z.string(), z.unknown()).optional() },
-    async () => stubResult(),
+    'Query events from the event store with optional filters (type, sinceSequence, since, until)',
+    {
+      stream: z.string().min(1),
+      filter: z.record(z.string(), z.unknown()).optional(),
+    },
+    async (args) => {
+      const result = await handleEventQuery(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
+
+  // ─── Stub Tools (15) ───────────────────────────────────────────────
 
   // Views
   server.tool(
