@@ -423,3 +423,15 @@ After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 This is NOT a human checkpoint - workflow continues autonomously.
 State is saved, enabling recovery after context compaction.
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit events during delegation:
+
+1. **At delegation start:** Call `exarchos_event_append` with event type `workflow.started` (if not already emitted for this workflow)
+2. **After team composition:** Call `exarchos_event_append` with event type `team.formed` including teammates array
+3. **For each task dispatch:** Use `exarchos_team_spawn` instead of raw Task-tool dispatch when team coordinator is active
+4. **For each task assignment:** Call `exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
+5. **Monitor progress:** Use `exarchos_view_workflow_status` to check task completion status
+6. **On task completion:** Call `exarchos_stack_place` with position, taskId, and branch for progressive stacking
+7. **On all tasks complete:** Call `exarchos_event_append` with event type `phase.transitioned` from delegate to next phase

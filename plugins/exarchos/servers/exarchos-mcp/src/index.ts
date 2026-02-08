@@ -39,6 +39,10 @@ import {
   handleTaskComplete,
   handleTaskFail,
 } from './tasks/tools.js';
+import {
+  handleStackStatus,
+  handleStackPlace,
+} from './stack/tools.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -416,19 +420,36 @@ export function createServer(stateDir: string): McpServer {
     },
   );
 
-  // Stack
+  // ─── Stack Tools (2) ──────────────────────────────────────────────
+
+  // ─── exarchos_stack_status ──────────────────────────────────────────
   server.tool(
     'exarchos_stack_status',
-    'Get current stack status',
-    {},
-    async () => stubResult(),
+    'Get current stack positions from stack.position-filled events',
+    {
+      streamId: z.string().optional(),
+    },
+    async (args) => {
+      const result = await handleStackStatus(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
+  // ─── exarchos_stack_place ───────────────────────────────────────────
   server.tool(
     'exarchos_stack_place',
-    'Place an item on the stack',
-    { item: z.record(z.string(), z.unknown()) },
-    async () => stubResult(),
+    'Place an item on the stack by emitting a stack.position-filled event',
+    {
+      streamId: z.string().min(1),
+      position: z.number().int(),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      prUrl: z.string().optional(),
+    },
+    async (args) => {
+      const result = await handleStackPlace(args, stateDir);
+      return formatResult(result as ToolResult);
+    },
   );
 
   // Sync

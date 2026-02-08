@@ -27,6 +27,12 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn(),
 }));
 
+// Mock stack tool handlers
+vi.mock('../../stack/tools.js', () => ({
+  handleStackStatus: vi.fn().mockResolvedValue({ success: true, data: [] }),
+  handleStackPlace: vi.fn().mockResolvedValue({ success: true, data: {} }),
+}));
+
 // Mock all tool handlers so we don't need real state files
 vi.mock('../../workflow/tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' } }),
@@ -259,8 +265,6 @@ describe('MCP Server Entry Point', () => {
       createServer('/tmp/test-state-dir');
 
       const stubTools = [
-        'exarchos_stack_status',
-        'exarchos_stack_place',
         'exarchos_sync_now',
       ];
 
@@ -290,6 +294,8 @@ describe('MCP Server Entry Point', () => {
         'exarchos_task_claim',
         'exarchos_task_complete',
         'exarchos_task_fail',
+        'exarchos_stack_status',
+        'exarchos_stack_place',
       ];
 
       for (const toolName of implementedTools) {
@@ -356,6 +362,10 @@ describe('MCP Server Entry Point', () => {
           handleTransitions: vi.fn(),
           handleCancel: vi.fn(),
           handleCheckpoint: vi.fn(),
+        }));
+        vi.doMock('../../stack/tools.js', () => ({
+          handleStackStatus: vi.fn(),
+          handleStackPlace: vi.fn(),
         }));
 
         const { resolveStateDir } = await import('../../index.js');

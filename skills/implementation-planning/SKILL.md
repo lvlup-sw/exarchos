@@ -281,3 +281,9 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
 // After plan-review passes and user approves:
 Skill({ skill: "delegate", args: "<plan-path>" })
 ```
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available:
+
+1. **On plan completion:** Call `exarchos_event_append` with event type `phase.transitioned` from plan to plan-review

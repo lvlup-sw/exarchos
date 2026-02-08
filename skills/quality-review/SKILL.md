@@ -417,3 +417,16 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit gate events during review:
+
+1. **Read CI status:** Use `gh pr checks` to get CI gate results
+2. **For each CI check:** Call `exarchos_event_append` with event type `gate.executed` including:
+   - `gateName`: The CI check name
+   - `layer`: "per-pr" or "per-stack"
+   - `passed`: boolean
+   - `duration`: milliseconds (if available)
+3. **Read unified status:** Use `exarchos_view_tasks` for combined task + gate view
+4. **When all per-PR gates pass:** Apply `stack-ready` label to the PR

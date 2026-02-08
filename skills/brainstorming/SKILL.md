@@ -148,3 +148,9 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
 
 **Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate` → `/integrate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available:
+
+1. **At workflow start:** Call `exarchos_event_append` with event type `workflow.started` including featureId and workflowType

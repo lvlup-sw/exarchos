@@ -273,3 +273,11 @@ Options:
 - **'yes'**: Merge PR, update state to "completed"
 - **'feedback'**: Auto-continue to `/delegate --pr-fixes` to address comments, then return here
 - **'no'**: Pause workflow, can resume later with `/resume`
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available and Graphite is configured:
+
+1. **For merge queue enqueue:** Call `exarchos_event_append` with event type `stack.enqueued` including PR numbers
+2. **Monitor merge status:** Check merge queue progress via `gh pr status`
+3. **On successful merge:** Call `exarchos_event_append` with event type `phase.transitioned` to mark workflow complete
