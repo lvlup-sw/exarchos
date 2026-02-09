@@ -246,6 +246,88 @@ describe('State Store', () => {
     });
   });
 
+  describe('ApplyDotPath_PredicateSelector_FindsByField', () => {
+    it('should update an array element matched by id field', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: 'task-1', status: 'pending' },
+          { id: 'task-2', status: 'pending' },
+          { id: 'task-3', status: 'pending' },
+        ],
+      };
+
+      applyDotPath(obj, 'tasks[id=task-2]', { id: 'task-2', status: 'complete' });
+
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks[1].status).toBe('complete');
+    });
+
+    it('should deep-merge when updating with predicate selector', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: 'task-1', title: 'First', status: 'pending', branch: 'feat/1' },
+        ],
+      };
+
+      applyDotPath(obj, 'tasks[id=task-1]', { status: 'complete', completedAt: '2026-01-01' });
+
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks[0].status).toBe('complete');
+      expect(tasks[0].completedAt).toBe('2026-01-01');
+      expect(tasks[0].title).toBe('First');
+      expect(tasks[0].branch).toBe('feat/1');
+    });
+
+    it('should support nested field access after predicate selector', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: 'task-1', status: 'pending' },
+          { id: 'task-2', status: 'pending' },
+        ],
+      };
+
+      applyDotPath(obj, 'tasks[id=task-2].status', 'complete');
+
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks[1].status).toBe('complete');
+      expect(tasks[0].status).toBe('pending');
+    });
+
+    it('should throw INVALID_INPUT when no element matches predicate', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: 'task-1', status: 'pending' },
+        ],
+      };
+
+      expect(() => applyDotPath(obj, 'tasks[id=nonexistent]', { status: 'complete' }))
+        .toThrow(ErrorCode.INVALID_INPUT);
+    });
+
+    it('should throw INVALID_INPUT when predicate target is not an array', () => {
+      const obj: Record<string, unknown> = {
+        tasks: 'not-an-array',
+      };
+
+      expect(() => applyDotPath(obj, 'tasks[id=task-1]', { status: 'complete' }))
+        .toThrow(ErrorCode.INVALID_INPUT);
+    });
+
+    it('should support predicate selectors with non-id fields', () => {
+      const obj: Record<string, unknown> = {
+        items: [
+          { name: 'alpha', value: 1 },
+          { name: 'beta', value: 2 },
+        ],
+      };
+
+      applyDotPath(obj, 'items[name=beta].value', 42);
+
+      const items = obj.items as Array<Record<string, unknown>>;
+      expect(items[1].value).toBe(42);
+    });
+  });
+
   describe('ApplyDotPath_ObjectUpdate_DeepMerges', () => {
     it('should deep-merge when both existing and new values are plain objects', () => {
       const obj: Record<string, unknown> = {

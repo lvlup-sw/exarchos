@@ -511,14 +511,26 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   for (const segment of segments) {
     if (current === null || current === undefined) return undefined;
 
-    // Handle array bracket notation: "tasks[0]"
-    const bracketMatch = segment.match(/^([^[]+)\[(\d+)\]$/);
-    if (bracketMatch) {
-      current = (current as Record<string, unknown>)[bracketMatch[1]];
+    // Handle predicate selector: "tasks[id=task-1]"
+    const predicateMatch = segment.match(/^([^[]+)\[([^=]+)=([^\]]+)\]$/);
+    if (predicateMatch) {
+      current = (current as Record<string, unknown>)[predicateMatch[1]];
       if (!Array.isArray(current)) return undefined;
-      current = current[parseInt(bracketMatch[2], 10)];
+      const field = predicateMatch[2];
+      const value = predicateMatch[3];
+      current = current.find(
+        (el) => typeof el === 'object' && el !== null && !Array.isArray(el) && String((el as Record<string, unknown>)[field]) === value,
+      );
     } else {
-      current = (current as Record<string, unknown>)[segment];
+      // Handle numeric array bracket notation: "tasks[0]"
+      const bracketMatch = segment.match(/^([^[]+)\[(\d+)\]$/);
+      if (bracketMatch) {
+        current = (current as Record<string, unknown>)[bracketMatch[1]];
+        if (!Array.isArray(current)) return undefined;
+        current = current[parseInt(bracketMatch[2], 10)];
+      } else {
+        current = (current as Record<string, unknown>)[segment];
+      }
     }
   }
 

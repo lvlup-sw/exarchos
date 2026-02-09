@@ -215,26 +215,53 @@ function deepMerge(
 }
 
 /**
- * Parse a dot-path string into segments, handling array bracket notation.
- * Example: "tasks[0].status" -> ["tasks", 0, "status"]
+ * A predicate selector that matches an array element by field value.
+ * Example: tasks[id=task-1] → { arrayKey: "tasks", field: "id", value: "task-1" }
  */
-function parsePath(dotPath: string): Array<string | number> {
-  const segments: Array<string | number> = [];
+interface PredicateSelector {
+  arrayKey: string;
+  field: string;
+  value: string;
+}
+
+type PathSegment = string | number | PredicateSelector;
+
+function isPredicateSelector(segment: PathSegment): segment is PredicateSelector {
+  return typeof segment === 'object' && 'arrayKey' in segment;
+}
+
+/**
+ * Parse a dot-path string into segments, handling array bracket notation.
+ * Supports numeric indices: "tasks[0].status" -> ["tasks", 0, "status"]
+ * Supports predicate selectors: "tasks[id=X].status" -> [PredicateSelector, "status"]
+ */
+function parsePath(dotPath: string): Array<PathSegment> {
+  const segments: Array<PathSegment> = [];
   const parts = dotPath.split('.');
 
   for (const part of parts) {
-    // Check for array bracket notation: "tasks[0]"
-    const bracketMatch = part.match(/^([^[]+)\[(\d+)\]$/);
-    if (bracketMatch) {
-      segments.push(bracketMatch[1]);
-      segments.push(parseInt(bracketMatch[2], 10));
+    // Check for predicate selector: "tasks[id=task-1]"
+    const predicateMatch = part.match(/^([^[]+)\[([^=]+)=([^\]]+)\]$/);
+    if (predicateMatch) {
+      segments.push({
+        arrayKey: predicateMatch[1],
+        field: predicateMatch[2],
+        value: predicateMatch[3],
+      });
     } else {
-      // Check for standalone bracket: "[0]"
-      const standaloneBracket = part.match(/^\[(\d+)\]$/);
-      if (standaloneBracket) {
-        segments.push(parseInt(standaloneBracket[1], 10));
+      // Check for numeric array bracket notation: "tasks[0]"
+      const bracketMatch = part.match(/^([^[]+)\[(\d+)\]$/);
+      if (bracketMatch) {
+        segments.push(bracketMatch[1]);
+        segments.push(parseInt(bracketMatch[2], 10));
       } else {
-        segments.push(part);
+        // Check for standalone bracket: "[0]"
+        const standaloneBracket = part.match(/^\[(\d+)\]$/);
+        if (standaloneBracket) {
+          segments.push(parseInt(standaloneBracket[1], 10));
+        } else {
+          segments.push(part);
+        }
       }
     }
   }
@@ -264,7 +291,27 @@ export function applyDotPath(
     const segment = segments[i];
     const nextSegment = segments[i + 1];
 
-    if (typeof segment === 'number') {
+    if (isPredicateSelector(segment)) {
+      // Predicate selector: resolve array element by field match
+      const record = current as Record<string, unknown>;
+      const arr = record[segment.arrayKey];
+      if (!Array.isArray(arr)) {
+        throw new StateStoreError(
+          ErrorCode.INVALID_INPUT,
+          `Expected array at '${segment.arrayKey}' for predicate selector in path ${dotPath}`,
+        );
+      }
+      const idx = arr.findIndex(
+        (el) => isPlainObject(el) && String(el[segment.field]) === segment.value,
+      );
+      if (idx === -1) {
+        throw new StateStoreError(
+          ErrorCode.INVALID_INPUT,
+          `No element with ${segment.field}=${segment.value} in '${segment.arrayKey}' for path ${dotPath}`,
+        );
+      }
+      current = arr[idx];
+    } else if (typeof segment === 'number') {
       // Array index access
       if (!Array.isArray(current)) {
         throw new StateStoreError(
@@ -290,7 +337,35 @@ export function applyDotPath(
 
   // Set the final value
   const lastSegment = segments[segments.length - 1];
-  if (typeof lastSegment === 'number') {
+  if (isPredicateSelector(lastSegment)) {
+    // Predicate selector as final segment: find and update/merge the matched element
+    const record = current as Record<string, unknown>;
+    const arr = record[lastSegment.arrayKey];
+    if (!Array.isArray(arr)) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `Expected array at '${lastSegment.arrayKey}' for predicate selector in path ${dotPath}`,
+      );
+    }
+    const idx = arr.findIndex(
+      (el) => isPlainObject(el) && String(el[lastSegment.field]) === lastSegment.value,
+    );
+    if (idx === -1) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `No element with ${lastSegment.field}=${lastSegment.value} in '${lastSegment.arrayKey}' for path ${dotPath}`,
+      );
+    }
+    // Deep-merge when both existing and new values are plain objects
+    if (isPlainObject(arr[idx]) && isPlainObject(value)) {
+      arr[idx] = deepMerge(
+        arr[idx] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    } else {
+      arr[idx] = value;
+    }
+  } else if (typeof lastSegment === 'number') {
     if (!Array.isArray(current)) {
       throw new StateStoreError(
         ErrorCode.INVALID_INPUT,

@@ -629,6 +629,63 @@ describe('Integration', () => {
     });
   });
 
+  // ─── 7b. PredicateSelector_SetAndGet_UpdatesArrayByField ─────────────────
+
+  describe('PredicateSelector_SetAndGet_UpdatesArrayByField', () => {
+    it('should update a task by id using predicate selector and query it back', async () => {
+      await handleInit(
+        { featureId: 'predicate-test', workflowType: 'feature' },
+        stateDir,
+      );
+
+      // Add tasks using numeric indices
+      await handleSet(
+        {
+          featureId: 'predicate-test',
+          updates: {
+            'tasks[0]': { id: 'task-1', title: 'First', status: 'pending', branch: 'feat/1' },
+            'tasks[1]': { id: 'task-2', title: 'Second', status: 'pending', branch: 'feat/2' },
+            'tasks[2]': { id: 'task-3', title: 'Third', status: 'pending', branch: 'feat/3' },
+          },
+        },
+        stateDir,
+      );
+
+      // Update task-2 using predicate selector
+      await handleSet(
+        {
+          featureId: 'predicate-test',
+          updates: {
+            'tasks[id=task-2]': { status: 'complete', completedAt: '2026-02-08T22:00:00Z' },
+          },
+        },
+        stateDir,
+      );
+
+      // Verify via handleGet with predicate selector query
+      const result = await handleGet(
+        { featureId: 'predicate-test', query: 'tasks[id=task-2].status' },
+        stateDir,
+      );
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('complete');
+
+      // Verify other tasks unchanged
+      const task1 = await handleGet(
+        { featureId: 'predicate-test', query: 'tasks[id=task-1].status' },
+        stateDir,
+      );
+      expect(task1.data).toBe('pending');
+
+      // Verify deep-merge preserved existing fields
+      const task2Title = await handleGet(
+        { featureId: 'predicate-test', query: 'tasks[id=task-2].title' },
+        stateDir,
+      );
+      expect(task2Title.data).toBe('Second');
+    });
+  });
+
   // ─── 8. Compatibility_McpCreatedState_CoreFieldsReadableByBash ───────────
 
   describe('Compatibility_McpCreatedState_CoreFieldsReadableByBash', () => {
