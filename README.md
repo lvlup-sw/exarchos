@@ -16,7 +16,7 @@ Done. Commands work in any project immediately.
 
 Claude Code sessions lose context during long tasks. Context compaction discards your workflow state, forcing you to re-explain what you were doing. And subagents report back to the orchestrator but cannot collaborate, coordinate, or challenge each other.
 
-Exarchos solves both problems. Named after the Byzantine Exarch — a provincial governor who commanded local forces autonomously while maintaining communication with Constantinople — Exarchos governs local Claude Code agent teams with event-sourced state that survives any context disruption.
+Exarchos solves both problems by coordinating local Claude Code agent teams with event-sourced state that survives any context disruption.
 
 **Three SDLC workflows** with automatic state checkpointing:
 
@@ -32,7 +32,7 @@ Exarchos is a unified MCP server combining workflow state management, event sour
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Claude Code Lead                          │
+│                    Claude Code Lead                         │
 │         Orchestrator — /ideate, /plan, /delegate, etc.      │
 └────────────────────────────┬────────────────────────────────┘
                              │
@@ -155,35 +155,6 @@ paths: '**/*.ts'
 EOF
 ```
 
-## Jules Integration (Optional)
-
-Delegate tasks to Google's Jules autonomous coding agent.
-
-```bash
-npx -y github:lvlup-sw/exarchos --with-jules
-```
-
-### Setup
-
-1. Get API key: [jules.google/settings](https://jules.google/settings)
-2. Export: `echo 'export JULES_API_KEY="your-key"' >> ~/.zshrc && source ~/.zshrc`
-3. Connect repos: [jules.google](https://jules.google)
-
-### Tools
-
-| Tool | Purpose |
-|------|---------|
-| `jules_create_task` | Delegate coding task |
-| `jules_check_status` | Check progress |
-| `jules_approve_plan` | Approve execution plan |
-| `jules_send_feedback` | Send instructions |
-| `jules_list_sources` | List connected repos |
-| `jules_get_conversation` | Get session history |
-| `jules_get_pending_question` | Check if awaiting input |
-| `jules_cancel` | Cancel task |
-
-Use `/delegate` for workflow integration. Use `jules_*` tools directly for standalone tasks.
-
 ## Uninstall
 
 ```bash
@@ -195,11 +166,6 @@ npx -y github:lvlup-sw/exarchos --uninstall
 **Commands not available**: Re-run `npx -y github:lvlup-sw/exarchos`
 
 **Missing MCP servers**: Re-run the installer to get newly added servers.
-
-**Jules not working**:
-1. Check API key: `echo $JULES_API_KEY`
-2. Check MCP config: `jq '.mcpServers.jules' ~/.claude.json`
-3. Restart Claude Code
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.
 
