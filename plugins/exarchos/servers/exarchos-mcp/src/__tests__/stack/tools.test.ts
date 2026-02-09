@@ -191,4 +191,77 @@ describe('handleStackPlace', () => {
     expect(positions[1].position).toBe(2);
     expect(positions[2].position).toBe(3);
   });
+
+  it('negative position returns INVALID_INPUT', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: -1, taskId: 't1' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('position must be a non-negative integer');
+  });
+
+  it('float position returns INVALID_INPUT', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: 1.5, taskId: 't1' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('position must be a non-negative integer');
+  });
+
+  it('NaN position returns INVALID_INPUT', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: NaN, taskId: 't1' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('position must be a non-negative integer');
+  });
+
+  it('without optional branch and prUrl includes only required fields', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: 0, taskId: 't1' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    const events = await store.query('wf-001', { type: 'stack.position-filled' });
+    expect(events).toHaveLength(1);
+    expect(events[0].data).toEqual({ position: 0, taskId: 't1' });
+    expect(events[0].data).not.toHaveProperty('branch');
+    expect(events[0].data).not.toHaveProperty('prUrl');
+  });
+
+  it('when store.append() throws returns PLACE_FAILED', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: 1, taskId: 't1' },
+      '/nonexistent/path/that/does/not/exist',
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PLACE_FAILED');
+    expect(result.error?.message).toBeDefined();
+  });
+});
+
+describe('handleStackStatus error path', () => {
+  it('when store.query() throws returns STATUS_FAILED', async () => {
+    // Use an invalid stream ID (uppercase chars) to trigger validateStreamId error
+    const result = await handleStackStatus(
+      { streamId: 'INVALID_STREAM_ID!!' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATUS_FAILED');
+    expect(result.error?.message).toBeDefined();
+  });
 });
