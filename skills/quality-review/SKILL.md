@@ -422,7 +422,7 @@ This is NOT a human checkpoint - workflow continues autonomously.
 
 When Exarchos MCP tools are available, emit gate events during review:
 
-1. **Read CI status:** Use `gh pr checks` to get CI gate results
+1. **Read CI status:** Use `mcp__plugin_github_github__pull_request_read` with `method: "get_status"` to get CI gate results
 2. **For each CI check:** Call `exarchos_event_append` with event type `gate.executed` including:
    - `gateName`: The CI check name
    - `layer`: "per-pr" or "per-stack"

@@ -305,28 +305,22 @@ Use mcp__exarchos__exarchos_workflow_set with featureId:
 
 #### 7. Synthesize Phase
 
-Create PR with RCA reference:
+Create PR via Graphite MCP:
 
-```bash
-gh pr create --title "fix: <issue summary>" --body "$(cat <<'EOF'
-## Summary
+```
+# Stage and create branch with fix commit
+mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
 
-[Brief description of the fix]
+# Submit to create the PR
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
+```
 
-## Root Cause Analysis
-
-See: [docs/rca/YYYY-MM-DD-<issue-slug>.md](link)
-
-## Changes
-
-- [change 1]
-- [change 2]
-
-## Test Plan
-
-- [test approach]
-EOF
-)"
+Then update the PR description using GitHub MCP:
+```
+mcp__plugin_github_github__update_pull_request({
+  owner, repo, pullNumber,
+  body: "## Summary\n[Brief description]\n\n## Root Cause Analysis\nSee: docs/rca/YYYY-MM-DD-<issue-slug>.md\n\n## Changes\n- [change 1]\n\n## Test Plan\n- [test approach]"
+})
 ```
 
 **Human checkpoint:** Confirm merge.

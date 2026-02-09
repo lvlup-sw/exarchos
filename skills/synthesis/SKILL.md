@@ -238,10 +238,10 @@ If the user receives PR review comments:
    Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
    ```
 
-2. Delegate reads PR comments via:
-   ```bash
-   gh pr view [PR_NUMBER] --comments
-   gh api repos/{owner}/{repo}/pulls/{number}/comments
+2. Delegate reads PR comments via GitHub MCP:
+   ```
+   mcp__plugin_github_github__pull_request_read({ method: "get_review_comments", owner, repo, pullNumber })
+   mcp__plugin_github_github__pull_request_read({ method: "get_comments", owner, repo, pullNumber })
    ```
 
 3. Creates fix tasks from review comments

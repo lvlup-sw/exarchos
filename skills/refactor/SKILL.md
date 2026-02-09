@@ -316,30 +316,19 @@ Invoke `/synthesize` skill with explicit Skill tool call:
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-The `/synthesize` skill creates the PR:
+The `/synthesize` skill creates the PR via Graphite MCP:
 
-```bash
-gh pr create --title "refactor: <summary>" --body "$(cat <<'EOF'
-## Summary
+```
+# Submit the stack to create PRs
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
+```
 
-[Brief description of the refactor and why it was needed]
-
-## Changes
-
-- [Key structural change 1]
-- [Key structural change 2]
-
-## Documentation Updated
-
-- [doc1.md] - Updated for X
-- [doc2.md] - Updated for Y
-
-## Test Plan
-
-- All existing tests pass
-- [Any new tests added]
-EOF
-)"
+Then update the PR description using GitHub MCP:
+```
+mcp__plugin_github_github__update_pull_request({
+  owner, repo, pullNumber,
+  body: "## Summary\n[Brief description of the refactor]\n\n## Changes\n- [Key structural change 1]\n\n## Documentation Updated\n- [doc1.md] - Updated for X\n\n## Test Plan\n- All existing tests pass"
+})
 ```
 
 **Human checkpoint:** Confirm merge.
