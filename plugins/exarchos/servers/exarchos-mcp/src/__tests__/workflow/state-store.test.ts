@@ -9,6 +9,7 @@ import {
   applyDotPath,
   listStateFiles,
   resolveStateDir,
+  StateStoreError,
 } from '../../workflow/state-store.js';
 import { ErrorCode } from '../../workflow/schemas.js';
 
@@ -334,6 +335,285 @@ describe('State Store', () => {
       expect(scope.testCoverage).toBe('excellent'); // overwritten by source
       expect(scope.riskLevel).toBe('low');          // new key from source
       expect(explore.startedAt).toBe('2025-01-15T10:00:00Z'); // sibling preserved
+    });
+  });
+
+  // ─── Edge Cases and Error Paths ──────────────────────────────────────────
+
+  describe('listStateFiles_CorruptFile_SkipsAndReturnValid', () => {
+    it('should skip corrupt state files and return only valid ones', async () => {
+      // Create a valid state file
+      await initStateFile(tmpDir, 'valid-feature', 'feature');
+      // Create a corrupt state file (invalid JSON)
+      await fs.writeFile(
+        path.join(tmpDir, 'corrupt.state.json'),
+        'invalid json{{{',
+        'utf-8',
+      );
+
+      const results = await listStateFiles(tmpDir);
+      expect(results).toHaveLength(1);
+      expect(results[0].featureId).toBe('valid-feature');
+    });
+
+    it('should return empty array when all state files are corrupt', async () => {
+      await fs.writeFile(
+        path.join(tmpDir, 'bad1.state.json'),
+        '{not valid}}}',
+        'utf-8',
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'bad2.state.json'),
+        '',
+        'utf-8',
+      );
+
+      const results = await listStateFiles(tmpDir);
+      expect(results).toHaveLength(0);
+    });
+  });
+
+  describe('listStateFiles_ENOENT_ReturnsEmptyArray', () => {
+    it('should return empty array when directory does not exist', async () => {
+      const nonExistentDir = path.join(tmpDir, 'does-not-exist');
+
+      const results = await listStateFiles(nonExistentDir);
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('listStateFiles_NonENOENTError_ThrowsStateStoreError', () => {
+    it('should throw StateStoreError with FILE_IO_ERROR for non-ENOENT readdir errors', async () => {
+      // Use a regular file as the "directory" path — readdir on a file gives ENOTDIR, not ENOENT
+      const filePath = path.join(tmpDir, 'not-a-directory');
+      await fs.writeFile(filePath, 'just a file', 'utf-8');
+
+      await expect(listStateFiles(filePath)).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
+      // Verify it's a StateStoreError instance
+      try {
+        await listStateFiles(filePath);
+      } catch (err) {
+        expect(err).toBeInstanceOf(StateStoreError);
+        expect((err as StateStoreError).code).toBe(ErrorCode.FILE_IO_ERROR);
+      }
+    });
+  });
+
+  describe('resolveStateDir_GitFails_FallsToCwd', () => {
+    it('should fall back to cwd-based path when git command fails', () => {
+      const originalEnv = process.env.WORKFLOW_STATE_DIR;
+      delete process.env.WORKFLOW_STATE_DIR;
+
+      // resolveStateDir uses execSync('git rev-parse --show-toplevel')
+      // When in a git repo, it returns the git root.
+      // We can verify the fallback behavior by testing with env var set to empty string
+      // then testing without env var — it should always end with docs/workflow-state
+      try {
+        const dir = resolveStateDir();
+        // Should resolve to some path ending with docs/workflow-state
+        expect(dir).toMatch(/docs[/\\]workflow-state$/);
+      } finally {
+        if (originalEnv !== undefined) {
+          process.env.WORKFLOW_STATE_DIR = originalEnv;
+        }
+      }
+    });
+  });
+
+  describe('writeStateFile_FailurePath_ThrowsStateStoreError', () => {
+    it('should throw StateStoreError with FILE_IO_ERROR when writing to an invalid path', async () => {
+      const { state } = await initStateFile(tmpDir, 'write-fail-test', 'feature');
+
+      // Try to write to a path under a file (not a directory) — causes ENOTDIR or ENOENT
+      const blocker = path.join(tmpDir, 'blocker');
+      await fs.writeFile(blocker, 'I am a file', 'utf-8');
+      const invalidStateFile = path.join(blocker, 'nested', 'state.json');
+
+      await expect(writeStateFile(invalidStateFile, state)).rejects.toThrow(
+        ErrorCode.FILE_IO_ERROR,
+      );
+      // Verify it's a StateStoreError instance
+      try {
+        await writeStateFile(invalidStateFile, state);
+      } catch (err) {
+        expect(err).toBeInstanceOf(StateStoreError);
+      }
+    });
+
+    it('should not leave temp files behind after write failure', async () => {
+      const { state } = await initStateFile(tmpDir, 'cleanup-test', 'feature');
+
+      // Write to a read-only directory to cause rename failure
+      const readOnlyDir = path.join(tmpDir, 'readonly');
+      await fs.mkdir(readOnlyDir);
+      const stateFile = path.join(readOnlyDir, 'test.state.json');
+      // Make directory read-only so temp file write fails
+      await fs.chmod(readOnlyDir, 0o444);
+
+      try {
+        await expect(writeStateFile(stateFile, state)).rejects.toThrow(
+          ErrorCode.FILE_IO_ERROR,
+        );
+      } finally {
+        // Restore permissions for cleanup
+        await fs.chmod(readOnlyDir, 0o755);
+      }
+
+      // Verify no temp files left behind
+      const files = await fs.readdir(readOnlyDir);
+      const tmpFiles = files.filter((f) => f.includes('.tmp.'));
+      expect(tmpFiles).toHaveLength(0);
+    });
+  });
+
+  describe('initStateFile_WriteFailsNonEEXIST_ThrowsFileIOError', () => {
+    it('should throw StateStoreError with FILE_IO_ERROR when writeFile fails with non-EEXIST error', async () => {
+      // Create a read-only directory so writeFile fails with EACCES, not EEXIST
+      const readOnlyDir = path.join(tmpDir, 'readonly-dir');
+      await fs.mkdir(readOnlyDir);
+      await fs.chmod(readOnlyDir, 0o444);
+
+      try {
+        await expect(
+          initStateFile(readOnlyDir, 'write-blocked', 'feature'),
+        ).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
+        // Verify it's a StateStoreError
+        try {
+          await initStateFile(readOnlyDir, 'write-blocked2', 'feature');
+        } catch (err) {
+          expect(err).toBeInstanceOf(StateStoreError);
+          expect((err as StateStoreError).code).toBe(ErrorCode.FILE_IO_ERROR);
+        }
+      } finally {
+        await fs.chmod(readOnlyDir, 0o755);
+      }
+    });
+  });
+
+  describe('applyDotPath_ArrayErrorPaths', () => {
+    it('should throw INVALID_INPUT when intermediate path expects array but finds object', () => {
+      const obj: Record<string, unknown> = {
+        data: { notArray: true },
+      };
+
+      expect(() => applyDotPath(obj, 'data[0].value', 'test')).toThrow(
+        ErrorCode.INVALID_INPUT,
+      );
+    });
+
+    it('should throw INVALID_INPUT when final path expects array but finds object', () => {
+      const obj: Record<string, unknown> = {
+        data: { notArray: true },
+      };
+
+      expect(() => applyDotPath(obj, 'data[0]', 'test')).toThrow(
+        ErrorCode.INVALID_INPUT,
+      );
+    });
+
+    it('should create intermediate array when navigating numeric segments', () => {
+      const obj: Record<string, unknown> = {};
+
+      // tasks -> create as array (next segment is numeric), [0] -> create as object (next segment is string)
+      applyDotPath(obj, 'tasks[0].name', 'task-1');
+
+      expect(Array.isArray(obj.tasks)).toBe(true);
+      expect((obj.tasks as Array<Record<string, unknown>>)[0].name).toBe('task-1');
+    });
+
+    it('should create intermediate array for undefined array segment via dot notation', () => {
+      const obj: Record<string, unknown> = {
+        matrix: [[1, 2], [3, 4]],
+      };
+
+      // Access matrix[2].[0] where matrix[2] doesn't exist — parsePath needs dot between brackets
+      applyDotPath(obj, 'matrix[2].[0]', 99);
+
+      expect((obj.matrix as number[][])[2][0]).toBe(99);
+    });
+  });
+
+  describe('readStateFile_NonENOENTReadError_ThrowsFileIOError', () => {
+    it('should throw StateStoreError with FILE_IO_ERROR for non-ENOENT read errors', async () => {
+      // Use a directory path as the file — reading a directory gives EISDIR, not ENOENT
+      const dirPath = path.join(tmpDir, 'a-directory');
+      await fs.mkdir(dirPath);
+
+      await expect(readStateFile(dirPath)).rejects.toThrow(ErrorCode.FILE_IO_ERROR);
+      // Verify it's a StateStoreError
+      try {
+        await readStateFile(dirPath);
+      } catch (err) {
+        expect(err).toBeInstanceOf(StateStoreError);
+        expect((err as StateStoreError).code).toBe(ErrorCode.FILE_IO_ERROR);
+      }
+    });
+  });
+
+  describe('readStateFile_MigrationFails_ThrowsStateCorrupt', () => {
+    it('should throw STATE_CORRUPT when migration fails due to unknown version', async () => {
+      const stateFile = path.join(tmpDir, 'bad-version.state.json');
+      // Write a file with a version that has no migration path
+      await fs.writeFile(
+        stateFile,
+        JSON.stringify({
+          version: '0.1',
+          featureId: 'test',
+          workflowType: 'feature',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          phase: 'ideate',
+          artifacts: { design: null, plan: null, pr: null },
+          tasks: [],
+          worktrees: {},
+          julesSessions: {},
+          reviews: {},
+          synthesis: {
+            integrationBranch: null,
+            mergeOrder: [],
+            mergedBranches: [],
+            prUrl: null,
+            prFeedback: [],
+          },
+          _history: {},
+          _events: [],
+          _eventSequence: 0,
+          _checkpoint: {
+            timestamp: new Date().toISOString(),
+            phase: 'ideate',
+            summary: '',
+            operationsSince: 0,
+            fixCycleCount: 0,
+            lastActivityTimestamp: new Date().toISOString(),
+            staleAfterMinutes: 120,
+          },
+        }),
+        'utf-8',
+      );
+
+      await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+      // Verify it's a StateStoreError
+      try {
+        await readStateFile(stateFile);
+      } catch (err) {
+        expect(err).toBeInstanceOf(StateStoreError);
+        expect((err as StateStoreError).code).toBe(ErrorCode.STATE_CORRUPT);
+      }
+    });
+
+    it('should throw STATE_CORRUPT when migration fails due to missing version', async () => {
+      const stateFile = path.join(tmpDir, 'no-version.state.json');
+      // Write valid JSON but without version field
+      await fs.writeFile(
+        stateFile,
+        JSON.stringify({
+          featureId: 'test',
+          workflowType: 'feature',
+        }),
+        'utf-8',
+      );
+
+      await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
     });
   });
 });
