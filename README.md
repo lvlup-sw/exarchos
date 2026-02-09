@@ -1,51 +1,88 @@
-# lvlup-claude
+# Exarchos
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-> SDLC workflow automation for Claude Code with state checkpointing
+> Local agent governance for Claude Code — event-sourced SDLC workflows with team coordination
 
 ## Quick Start
 
 ```bash
-npx -y github:lvlup-sw/lvlup-claude
+npx -y github:lvlup-sw/exarchos
 ```
 
 Done. Commands work in any project immediately.
 
-## Why lvlup-claude?
+## Why Exarchos?
 
-Claude Code sessions lose context during long tasks. Context compaction discards your
-workflow state, forcing you to re-explain what you were doing.
+Claude Code sessions lose context during long tasks. Context compaction discards your workflow state, forcing you to re-explain what you were doing. And subagents report back to the orchestrator but cannot collaborate, coordinate, or challenge each other.
 
-lvlup-claude provides **three SDLC workflows** with automatic state checkpointing:
+Exarchos solves both problems. Named after the Byzantine Exarch — a provincial governor who commanded local forces autonomously while maintaining communication with Constantinople — Exarchos governs local Claude Code agent teams with event-sourced state that survives any context disruption.
 
-- **Feature** — Design → Plan → Delegate → Integrate → Review → PR
+**Three SDLC workflows** with automatic state checkpointing:
+
+- **Feature** — Design → Plan → Delegate → Review → Merge (via stacked PRs)
 - **Debug** — Triage → Investigate → Fix → Validate (hotfix or full RCA tracks)
 - **Refactor** — Explore → Brief → Implement → Validate (polish or overhaul tracks)
 
-All workflows auto-resume on session start. Human checkpoints only where they add value.
+All workflows auto-resume on session start. Human checkpoints only at plan approval and merge confirmation.
+
+## Architecture
+
+Exarchos is a unified MCP server combining workflow state management, event sourcing, CQRS views, and team coordination.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Claude Code Lead                          │
+│         Orchestrator — /ideate, /plan, /delegate, etc.      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                    ┌────────┴────────┐
+                    │  Exarchos MCP   │
+                    │                 │
+                    │  Event Store    │  Append-only JSONL
+                    │  CQRS Views     │  Materialized read models
+                    │  Team Coord     │  Spawn/message/shutdown
+                    │  Workflow HSM   │  State machine transitions
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+         Teammate 1    Teammate 2    Teammate N
+         (worktree)    (worktree)    (worktree)
+```
+
+### MCP Tools
+
+| Category | Tools | Purpose |
+|----------|-------|---------|
+| **Workflow** | `workflow_init`, `workflow_set`, `workflow_get`, `workflow_summary`, `workflow_next_action` | HSM state transitions, phase tracking |
+| **Events** | `event_append`, `event_query` | Append-only event log, temporal queries |
+| **Views** | `view_workflow_status`, `view_team_status`, `view_tasks`, `view_pipeline` | CQRS materialized read models |
+| **Teams** | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status` | Agent team lifecycle |
+| **Tasks** | `task_claim`, `task_complete`, `task_fail` | Shared task ledger |
+| **Stack** | `stack_status`, `stack_place` | Progressive Graphite stacking |
+| **Sync** | `sync_now` | Remote event projection |
 
 ## Workflows
 
 ### Feature Workflow
 
 ```
-/ideate → /plan → plan-review → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-           (auto)      ↑             ↑         (auto)      (auto)      (auto)     (auto)           ↑
-                       │           HUMAN                     │                                   HUMAN
-                       └── gaps? ──┘                         └── fail? → /delegate --fixes ──┘
+/ideate → /plan → plan-review → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
+           (auto)      ↑             ↑         (auto)     (auto)     (auto)           ↑
+                       │           HUMAN                                             HUMAN
+                       └── gaps? ──┘
 ```
 
-**One plan-review checkpoint** (after plan, before delegation). Auto-loops back to `/plan` if gaps found. Everything else auto-continues until merge, with `/review` auto-looping to `/delegate --fixes` on failure.
+Tasks execute concurrently via agent teams. Completed work is progressively stacked as PRs via Graphite. Review validates per-PR gates and stack coherence.
 
 | Command | Purpose |
 |---------|---------|
 | `/ideate` | Design exploration with trade-offs |
-| `/plan` | TDD task decomposition + spec tracing |
-| `/delegate` | Dispatch to Jules (async) or subagents (sync) |
-| `/integrate` | Merge worktree branches, run combined tests |
+| `/plan` | TDD task decomposition + stack ordering |
+| `/delegate` | Spawn agent teams, progressive PR stacking |
 | `/review` | Two-stage: spec compliance → code quality |
-| `/synthesize` | Create PR from integration branch |
+| `/synthesize` | Enqueue stack in merge queue |
 
 ### Debug Workflow
 
@@ -82,21 +119,21 @@ Every task follows Red-Green-Refactor:
 
 ## Key Features
 
-- **Context Persistence** — Workflows save to `docs/workflow-state/` and auto-resume on session start
-- **TDD Enforcement** — Every task follows Red-Green-Refactor
-- **Worktree Isolation** — Parallel tasks in separate git worktrees
-- **Human Checkpoints** — Only at plan review and merge confirmation
-- **Three Workflow Types** — Feature, Debug, and Refactor with specialized tracks
+- **Event-Sourced State** — Append-only event log with CQRS materialized views for workflow observability
+- **Agent Teams** — Concurrent teammates with independent context, coordinated through shared event stream
+- **Progressive Stacking** — PRs created incrementally as tasks complete via Graphite
+- **Context Persistence** — Workflows auto-resume on session start via `workflow_next_action`
+- **TDD Enforcement** — Every task follows Red-Green-Refactor with phase transition events
+- **Worktree Isolation** — Each teammate works in its own git worktree
 
 ## What's Included
 
 | Type | Count | Examples |
 |------|-------|----------|
-| Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
+| Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
 | Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
 | Rules | 10 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
-| MCP Plugins | 2 | Jules (optional), workflow-state |
-| Marketplace Plugins | 2 | jules, workflow-state |
+| MCP Servers | 2 | Exarchos (required), Jules (optional) |
 
 ## Configuration
 
@@ -123,7 +160,7 @@ EOF
 Delegate tasks to Google's Jules autonomous coding agent.
 
 ```bash
-npx -y github:lvlup-sw/lvlup-claude --with-jules
+npx -y github:lvlup-sw/exarchos --with-jules
 ```
 
 ### Setup
@@ -150,12 +187,12 @@ Use `/delegate` for workflow integration. Use `jules_*` tools directly for stand
 ## Uninstall
 
 ```bash
-npx -y github:lvlup-sw/lvlup-claude --uninstall
+npx -y github:lvlup-sw/exarchos --uninstall
 ```
 
 ## Troubleshooting
 
-**Commands not available**: Re-run `npx -y github:lvlup-sw/lvlup-claude`
+**Commands not available**: Re-run `npx -y github:lvlup-sw/exarchos`
 
 **Missing MCP servers**: Re-run the installer to get newly added servers.
 

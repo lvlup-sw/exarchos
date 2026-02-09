@@ -15,7 +15,7 @@ describe('Project Configuration', () => {
 
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.bin).toBeDefined();
-      expect(pkg.bin['lvlup-claude']).toBe('./dist/install.js');
+      expect(pkg.bin['exarchos']).toBe('./dist/install.js');
     });
 
     it('should be type module', () => {
@@ -31,7 +31,7 @@ describe('Project Configuration', () => {
 
     it('should have correct name and version', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
-      expect(pkg.name).toBe('@lvlup-sw/lvlup-claude');
+      expect(pkg.name).toBe('@lvlup-sw/exarchos');
       expect(pkg.version).toBe('1.0.0');
     });
   });
@@ -289,7 +289,7 @@ describe('Path Utilities', () => {
       const { getRepoRoot } = await import('./install.js');
       const result = getRepoRoot();
       // Should be parent of src directory (where install.ts lives)
-      expect(result).toMatch(/lvlup-claude$/);
+      expect(result).toMatch(/lvlup-claude|exarchos$/);
       expect(result).not.toContain('.worktrees');
     });
   });

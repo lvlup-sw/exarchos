@@ -1,10 +1,10 @@
 {
-  "name": "@lvlup-sw/lvlup-claude",
+  "name": "@lvlup-sw/exarchos",
   "version": "1.0.0",
-  "description": "CLI installer for lvlup-claude configuration and plugins",
+  "description": "CLI installer for Exarchos SDLC workflow automation",
   "type": "module",
   "bin": {
-    "lvlup-claude": "./dist/install.js"
+    "exarchos": "./dist/install.js"
   },
   "files": [
     "dist",

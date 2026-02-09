@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-lvlup-claude is a CLI installer that provides SDLC workflow automation for Claude Code. It installs commands, skills, rules, and MCP plugins to `~/.claude/` via symlinks, giving Claude Code persistent workflows that survive context compaction.
+Exarchos is local agent governance for Claude Code. It provides event-sourced SDLC workflows with agent team coordination, installing commands, skills, rules, and MCP plugins to `~/.claude/` via symlinks. Workflows survive context compaction through persistent state and auto-resume on session start.
 
 ## Build & Test Commands
 
@@ -15,8 +15,8 @@ npm run test:run       # vitest single run
 npm run test           # vitest watch mode
 npm run typecheck      # tsc --noEmit
 
-# Workflow-state MCP server
-cd plugins/workflow-state/servers/workflow-state-mcp
+# Exarchos MCP server (unified: workflow state + events + teams)
+cd plugins/exarchos/servers/exarchos-mcp
 npm run build          # tsc
 npm run test:run       # vitest single run
 npm run test:coverage  # vitest with coverage
@@ -53,18 +53,18 @@ Most of this repo is structured Markdown, not executable code:
 - **Skills** (`skills/*/SKILL.md`) — Reusable workflow modules with templates in `references/` subdirectories. Skills define multi-step processes (brainstorming, delegation, review, etc.).
 - **Rules** (`rules/*.md`) — Behavioral constraints applied globally. Some use `paths` frontmatter to scope to specific file patterns.
 
-### MCP Plugins
+### MCP Servers
 
 Two self-contained TypeScript MCP servers, each with their own `package.json`, `tsconfig.json`, and test suite:
 
-- **workflow-state** (`plugins/workflow-state/servers/workflow-state-mcp/`) — Hierarchical state machine with event sourcing, saga compensation, and circuit breaker. Persists workflow state to `docs/workflow-state/*.json`. This is the core persistence mechanism.
+- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `docs/workflow-state/`. This is the core persistence and coordination mechanism.
 - **jules** (`plugins/jules/servers/jules-mcp/`) — Optional integration with Google Jules autonomous coding agent. Requires `JULES_API_KEY`.
 
 Both use `@modelcontextprotocol/sdk` + `zod`, communicate over stdio, and are registered in `~/.claude.json` by the installer.
 
 ### Three Workflow Types
 
-**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/integrate` → `/review` → `/synthesize`
+**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/review` → `/synthesize`
 **Debug:** `/debug` → triage → investigate → fix → validate (hotfix or thorough tracks)
 **Refactor:** `/refactor` → explore → brief → implement → validate (polish or overhaul tracks)
 
@@ -72,7 +72,7 @@ Human checkpoints only at plan-review approval and merge confirmation. Everythin
 
 ### Orchestrator Pattern
 
-The main Claude Code session coordinates but does not write implementation code (exception: polish-track refactors). All code changes go through subagents dispatched to git worktrees. This preserves context window for coordination.
+The main Claude Code session coordinates but does not write implementation code (exception: polish-track refactors). All code changes go through agent teammates dispatched to git worktrees. This preserves context window for coordination.
 
 ## Key Conventions
 

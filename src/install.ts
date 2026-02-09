@@ -198,7 +198,7 @@ export async function install(): Promise<void> {
   const claudeHome = getClaudeHome();
   const repoRoot = getRepoRoot();
 
-  console.log('lvlup-claude Installation');
+  console.log('Exarchos Installation');
   console.log('=========================');
   console.log(`Repo: ${repoRoot}`);
   console.log(`Claude home: ${claudeHome}`);
@@ -235,7 +235,7 @@ export async function install(): Promise<void> {
 export async function uninstall(): Promise<void> {
   const claudeHome = getClaudeHome();
 
-  console.log('lvlup-claude Uninstall');
+  console.log('Exarchos Uninstall');
   console.log('======================');
   console.log(`Claude home: ${claudeHome}`);
   console.log('');
@@ -260,18 +260,18 @@ export async function uninstall(): Promise<void> {
 // CLI help
 export function printHelp(): void {
   console.log(`
-lvlup-claude - Claude Code configuration installer
+Exarchos - SDLC workflow automation for Claude Code
 
 Usage:
-  npx github:lvlup-sw/lvlup-claude [options]
+  npx github:lvlup-sw/exarchos [options]
 
 Options:
   --help, -h      Show this help message
   --uninstall     Remove installed configuration
 
 Examples:
-  npx github:lvlup-sw/lvlup-claude              Install configuration
-  npx github:lvlup-sw/lvlup-claude --uninstall  Remove configuration
+  npx github:lvlup-sw/exarchos              Install configuration
+  npx github:lvlup-sw/exarchos --uninstall  Remove configuration
 `);
 }
 

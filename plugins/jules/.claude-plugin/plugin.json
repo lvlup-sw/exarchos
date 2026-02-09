@@ -5,7 +5,7 @@
   "author": {
     "name": "lvlup-sw"
   },
-  "repository": "https://github.com/lvlup-sw/lvlup-claude",
+  "repository": "https://github.com/lvlup-sw/exarchos",
   "keywords": ["jules", "autonomous-agent", "delegation"],
   "commands": "./commands",
   "mcpServers": "./mcp-servers.json"

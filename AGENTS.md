@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project Overview
-lvlup-claude provides Claude Code customizations, skills, and configuration for the lvlup-sw organization. It contains workflow automation skills, hooks, and AI agent prompt templates.
+Exarchos provides SDLC workflow automation for Claude Code. It contains workflow automation skills, commands, rules, and MCP plugins for the lvlup-sw organization.
 
 ## Tech Stack
 - Language: TypeScript, Bash, Markdown

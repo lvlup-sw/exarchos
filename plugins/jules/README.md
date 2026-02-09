@@ -55,7 +55,7 @@ When you use a Jules tool, Claude Code:
 
 ### Global vs Plugin Commands
 
-If you're using the global lvlup-claude, prefer the **global workflow commands**:
+If you're using Exarchos globally, prefer the **global workflow commands**:
 
 | Command | Description |
 |---------|-------------|

@@ -3,7 +3,7 @@
   "description": "Exarchos - Unified agentic SDLC orchestration with workflow state, event sourcing, CQRS views, and team coordination",
   "version": "1.0.0",
   "author": { "name": "lvlup-sw" },
-  "repository": "https://github.com/lvlup-sw/lvlup-claude",
+  "repository": "https://github.com/lvlup-sw/exarchos",
   "keywords": ["workflow", "state-machine", "mcp", "sdlc", "events", "cqrs"],
   "mcpServers": "../mcp-servers.json"
 }
