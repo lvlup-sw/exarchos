@@ -15,7 +15,7 @@ const INITIAL_PHASE: Record<WorkflowType, string> = {
 
 // ─── State Store Error ─────────────────────────────────────────────────────
 
-class StateStoreError extends Error {
+export class StateStoreError extends Error {
   constructor(
     public readonly code: string,
     message: string,

@@ -73,7 +73,7 @@ describe('Package scaffold', () => {
       const raw = readFileSync(pluginJsonPath, 'utf-8');
       const plugin = JSON.parse(raw);
 
-      expect(plugin.mcpServers).toBe('./mcp-servers.json');
+      expect(plugin.mcpServers).toBe('../mcp-servers.json');
     });
   });
 

@@ -5,5 +5,5 @@
   "author": { "name": "lvlup-sw" },
   "repository": "https://github.com/lvlup-sw/lvlup-claude",
   "keywords": ["workflow", "state-machine", "mcp", "sdlc", "events", "cqrs"],
-  "mcpServers": "./mcp-servers.json"
+  "mcpServers": "../mcp-servers.json"
 }

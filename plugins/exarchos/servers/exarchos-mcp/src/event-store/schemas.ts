@@ -31,7 +31,7 @@ export type EventType = typeof EventTypes[number];
 export const WorkflowEventBase = z.object({
   streamId: z.string().min(1),
   sequence: z.number().int().positive(),
-  timestamp: z.string().default(() => new Date().toISOString()),
+  timestamp: z.string().datetime().default(() => new Date().toISOString()),
   type: z.enum(EventTypes),
   correlationId: z.string().optional(),
   causationId: z.string().optional(),

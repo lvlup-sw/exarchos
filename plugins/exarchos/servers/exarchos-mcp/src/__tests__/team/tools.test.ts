@@ -53,6 +53,36 @@ describe('handleTeamSpawn', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('empty name returns INVALID_INPUT', async () => {
+    const result = await handleTeamSpawn(
+      { name: '', role: 'implementer', taskId: 't1', taskTitle: 'Task', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('name');
+  });
+
+  it('empty taskId returns INVALID_INPUT', async () => {
+    const result = await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: '  ', taskTitle: 'Task', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('taskId');
+  });
+
+  it('empty streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: 'Task', streamId: '' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('streamId');
+  });
+
   it('invalid role returns error', async () => {
     const result = await handleTeamSpawn(
       {

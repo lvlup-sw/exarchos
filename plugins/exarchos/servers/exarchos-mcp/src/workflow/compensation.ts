@@ -1,15 +1,16 @@
-import { execFileSync } from 'child_process';
+import { execFile as execFileCb } from 'child_process';
+import { promisify } from 'util';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
 import type { Event } from './types.js';
 
 // ─── Command Execution Helper ─────────────────────────────────────────────────
 
+const execFileAsync = promisify(execFileCb);
 const COMMAND_TIMEOUT_MS = 30_000;
 
-function runCommand(cmd: string, args: readonly string[], options: CompensationOptions): void {
-  execFileSync(cmd, args, {
-    stdio: 'pipe',
+async function runCommand(cmd: string, args: readonly string[], options: CompensationOptions): Promise<void> {
+  await execFileAsync(cmd, [...args], {
     cwd: options.stateDir ?? process.cwd(),
     timeout: COMMAND_TIMEOUT_MS,
   });
@@ -80,7 +81,7 @@ function createClosePrAction(): CompensationAction {
       }
 
       try {
-        runCommand('gh', ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'], options);
+        await runCommand('gh', ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'], options);
         return { actionId: 'synthesize:close-pr', status: 'executed', message: `Closed PR: ${prUrl}` };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -118,13 +119,13 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
       try {
         // Delete local branch (ignore failure if doesn't exist)
         try {
-          runCommand('git', ['branch', '-D', branch], options);
+          await runCommand('git', ['branch', '-D', branch], options);
         } catch {
           // Ignore local branch delete failure
         }
         // Delete remote branch (ignore failure if doesn't exist)
         try {
-          runCommand('git', ['push', 'origin', '--delete', branch], options);
+          await runCommand('git', ['push', 'origin', '--delete', branch], options);
         } catch {
           // Ignore remote delete failure
         }
@@ -174,7 +175,7 @@ function createCleanupWorktreesAction(): CompensationAction {
         for (const worktree of Object.values(worktrees)) {
           const worktreePath = worktree.path as string;
           try {
-            runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
+            await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
           } catch {
             // Worktree may already be removed; continue
           }
@@ -227,13 +228,13 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
         for (const branch of branches) {
           // Delete local branch (ignore failure if doesn't exist)
           try {
-            runCommand('git', ['branch', '-D', branch], options);
+            await runCommand('git', ['branch', '-D', branch], options);
           } catch {
             // Ignore local delete failure
           }
           // Delete remote branch (ignore failure if doesn't exist)
           try {
-            runCommand('git', ['push', 'origin', '--delete', branch], options);
+            await runCommand('git', ['push', 'origin', '--delete', branch], options);
           } catch {
             // Ignore remote delete failure
           }

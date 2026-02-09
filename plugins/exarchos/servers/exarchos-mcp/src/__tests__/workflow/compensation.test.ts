@@ -10,12 +10,12 @@ import { executeCompensation } from '../../workflow/compensation.js';
 
 // Mock child_process so no real shell commands run
 vi.mock('child_process', () => ({
-  execFileSync: vi.fn(),
+  execFile: vi.fn(),
 }));
 
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
 
-const mockedExecFileSync = vi.mocked(execFileSync);
+const mockedExecFile = vi.mocked(execFile);
 
 // Helper to create a minimal workflow state for testing
 function makeState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -59,8 +59,17 @@ function makeEvents(count: number): Event[] {
 describe('Compensation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // By default, execFileSync succeeds (returns empty buffer)
-    mockedExecFileSync.mockReturnValue(Buffer.from(''));
+    // By default, execFile succeeds (calls callback with no error)
+    mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
+      if (typeof _opts === 'function') {
+        // When called as execFile(cmd, args, cb)
+        (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      } else if (typeof cb === 'function') {
+        // When called as execFile(cmd, args, opts, cb)
+        (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      }
+      return undefined as never;
+    });
   });
 
   describe('ExecuteCompensation_AllPhases_RunsReverseOrder', () => {
@@ -120,7 +129,7 @@ describe('Compensation', () => {
       }
 
       // No shell commands should have been executed
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      expect(mockedExecFile).not.toHaveBeenCalled();
 
       // Overall should still succeed
       expect(result.success).toBe(true);
@@ -133,11 +142,14 @@ describe('Compensation', () => {
       const events = makeEvents(2);
 
       // Make the close-pr command fail, but let other commands succeed
-      mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-        if (cmd === 'gh' && args?.includes('close')) {
-          throw new Error('gh: command failed');
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        if (cmd === 'gh' && Array.isArray(args) && args.includes('close')) {
+          (callback as (err: Error) => void)(new Error('gh: command failed'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
         }
-        return Buffer.from('');
+        return undefined as never;
       });
 
       const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
@@ -171,7 +183,7 @@ describe('Compensation', () => {
       }
 
       // No shell commands should have been executed
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      expect(mockedExecFile).not.toHaveBeenCalled();
 
       // Should still be considered successful
       expect(result.success).toBe(true);
@@ -203,14 +215,14 @@ describe('Compensation', () => {
 
       await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Verify execFileSync was called with arguments as separate array elements
+      // Verify execFile was called with arguments as separate array elements
       // This ensures the malicious string is treated as a literal, not interpreted
-      const calls = mockedExecFileSync.mock.calls;
+      const calls = mockedExecFile.mock.calls;
 
       // Find calls that include the malicious branch
       const callsWithMaliciousBranch = calls.filter((call) => {
         const args = call[1] as string[] | undefined;
-        return args?.some((arg) => arg === maliciousBranch);
+        return args?.some((arg: string) => arg === maliciousBranch);
       });
 
       // At least one call should have the malicious branch as a literal argument
@@ -221,7 +233,7 @@ describe('Compensation', () => {
         const args = call[1] as string[];
         // The malicious string should be an exact match to one argument
         // (not embedded in a larger string with shell operators)
-        const branchArg = args.find((arg) => arg.includes(maliciousBranch));
+        const branchArg = args.find((arg: string) => arg.includes(maliciousBranch));
         expect(branchArg).toBe(maliciousBranch);
       }
     });
@@ -245,8 +257,8 @@ describe('Compensation', () => {
       // Run from integrate phase so the integration branch deletion action executes
       await executeCompensation(state, 'integrate', events, 1, { dryRun: false, stateDir });
 
-      // Verify execFileSync was called with the correct cwd
-      const calls = mockedExecFileSync.mock.calls;
+      // Verify execFile was called with the correct cwd
+      const calls = mockedExecFile.mock.calls;
       expect(calls.length).toBeGreaterThan(0);
 
       for (const call of calls) {
@@ -273,8 +285,8 @@ describe('Compensation', () => {
       // Run from integrate phase so the integration branch deletion action executes
       await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
 
-      // Verify execFileSync was called with a timeout
-      const calls = mockedExecFileSync.mock.calls;
+      // Verify execFile was called with a timeout
+      const calls = mockedExecFile.mock.calls;
       expect(calls.length).toBeGreaterThan(0);
 
       for (const call of calls) {

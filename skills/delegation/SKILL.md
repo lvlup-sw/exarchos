@@ -430,7 +430,7 @@ When Exarchos MCP tools are available, emit events during delegation:
 
 1. **At delegation start:** Call `mcp__exarchos__exarchos_event_append` with event type `workflow.started` (if not already emitted for this workflow)
 2. **After team composition:** Call `mcp__exarchos__exarchos_event_append` with event type `team.formed` including teammates array
-3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` instead of raw Task-tool dispatch when team coordinator is active
+3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
 4. **For each task assignment:** Call `mcp__exarchos__exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
 5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status
 6. **On task completion:** Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch for progressive stacking

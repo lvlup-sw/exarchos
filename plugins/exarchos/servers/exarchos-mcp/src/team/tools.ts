@@ -52,6 +52,19 @@ export async function handleTeamSpawn(
   },
   stateDir: string,
 ): Promise<ToolResult> {
+  // Guard clauses: validate required string arguments
+  for (const field of ['name', 'taskId', 'taskTitle', 'streamId'] as const) {
+    if (!args[field] || typeof args[field] !== 'string' || args[field].trim() === '') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `Field "${field}" is required and must be a non-empty string`,
+        },
+      };
+    }
+  }
+
   const role = ROLES[args.role];
   if (!role) {
     return {

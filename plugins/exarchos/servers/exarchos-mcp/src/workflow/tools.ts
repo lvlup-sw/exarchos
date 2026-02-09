@@ -19,6 +19,7 @@ import {
   writeStateFile,
   applyDotPath,
   listStateFiles,
+  StateStoreError,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -60,7 +61,7 @@ export async function handleInit(
       _meta: buildCheckpointMeta(state._checkpoint),
     };
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_ALREADY_EXISTS)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_ALREADY_EXISTS) {
       return {
         success: false,
         error: {
@@ -107,7 +108,7 @@ export async function handleGet(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -150,7 +151,7 @@ export async function handleSet(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -283,7 +284,7 @@ export async function handleCancel(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -458,7 +459,7 @@ export async function handleCheckpoint(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -612,7 +613,7 @@ export async function handleSummary(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -678,7 +679,7 @@ export async function handleReconcile(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
@@ -742,7 +743,7 @@ export async function handleNextAction(
   try {
     state = await readStateFile(stateFile);
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
       return {
         success: false,
         error: {
