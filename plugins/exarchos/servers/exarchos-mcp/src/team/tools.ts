@@ -142,6 +142,16 @@ export async function handleTeamMessage(
     };
   }
 
+  if (!args.streamId || typeof args.streamId !== 'string' || args.streamId.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'streamId is required',
+      },
+    };
+  }
+
   const coordinator = getCoordinator(stateDir);
 
   try {
@@ -189,6 +199,16 @@ export async function handleTeamBroadcast(
     };
   }
 
+  if (!args.streamId || typeof args.streamId !== 'string' || args.streamId.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'streamId is required',
+      },
+    };
+  }
+
   const coordinator = getCoordinator(stateDir);
 
   try {
@@ -221,6 +241,16 @@ export async function handleTeamShutdown(
       error: {
         code: 'INVALID_INPUT',
         message: 'Field "name" is required and must be a non-empty string',
+      },
+    };
+  }
+
+  if (!args.streamId || typeof args.streamId !== 'string' || args.streamId.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'streamId is required',
       },
     };
   }

@@ -187,6 +187,26 @@ describe('handleTeamMessage', () => {
     expect(result.error?.message).toContain('content');
   });
 
+  it('empty streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamMessage(
+      { from: 'agent-1', to: 'agent-2', content: 'Hello', streamId: '' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
+  });
+
+  it('whitespace-only streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamMessage(
+      { from: 'agent-1', to: 'agent-2', content: 'Hello', streamId: '   ' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
+  });
+
   it('message to unknown target returns error', async () => {
     const result = await handleTeamMessage(
       { from: 'agent-1', to: 'unknown', content: 'Hello', streamId: 'wf-001' },
@@ -228,6 +248,26 @@ describe('handleTeamBroadcast', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('content');
+  });
+
+  it('empty streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamBroadcast(
+      { from: 'orchestrator', content: 'All tasks paused', streamId: '' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
+  });
+
+  it('whitespace-only streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamBroadcast(
+      { from: 'orchestrator', content: 'All tasks paused', streamId: '   ' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
   });
 
   it('broadcasts to all teammates', async () => {
@@ -277,6 +317,26 @@ describe('handleTeamShutdown', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('name');
+  });
+
+  it('empty streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamShutdown(
+      { name: 'agent-1', streamId: '' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
+  });
+
+  it('whitespace-only streamId returns INVALID_INPUT', async () => {
+    const result = await handleTeamShutdown(
+      { name: 'agent-1', streamId: '   ' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('streamId is required');
   });
 
   it('unknown name returns error', async () => {

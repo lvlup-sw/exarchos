@@ -124,6 +124,17 @@ describe('handleTaskComplete', () => {
     );
   });
 
+  it('empty taskId returns INVALID_INPUT', async () => {
+    const result = await handleTaskComplete(
+      { taskId: '', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('taskId is required');
+  });
+
   it('missing streamId returns error', async () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: '' },
@@ -210,6 +221,17 @@ describe('handleTaskFail', () => {
         error: 'Unknown error',
       }),
     );
+  });
+
+  it('empty taskId returns INVALID_INPUT', async () => {
+    const result = await handleTaskFail(
+      { taskId: '', error: 'some error', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toBe('taskId is required');
   });
 
   it('missing error returns error', async () => {
