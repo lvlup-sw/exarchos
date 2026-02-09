@@ -4,9 +4,9 @@ Proactively use the installed MCP servers. Don't fall back to generic approaches
 
 ## Available MCP Servers
 
-### Workflow State (`mcp__workflow-state__*`)
+### Exarchos (`mcp__exarchos__*`)
 
-Persistent state machine for workflow orchestration. **Always use for workflow tracking.**
+Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.**
 
 | Tool | When to Use |
 |------|-------------|
@@ -105,7 +105,7 @@ Official Microsoft/Azure documentation. **Use for any Microsoft technology quest
 
 When deciding which tool to use:
 
-1. **Workflow tracking** — Always use workflow-state MCP for state, never manual JSON files
+1. **Workflow tracking** — Always use Exarchos MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
 3. **GitHub operations** — Use GitHub MCP for all PR/issue operations (`create_pull_request`, `merge_pull_request`, `pull_request_read`, `issue_read`); reserve `gh` CLI only for niche operations not covered by MCP
 4. **Stacked PRs** — Use Graphite MCP for stack management, PR submission, and merge queue

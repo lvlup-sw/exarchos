@@ -236,8 +236,6 @@ For frontend code (React, Vue, HTML/CSS, etc.), verify distinctive design:
 - Flat #f5f5f5 or pure white/black backgrounds
 - Animation without purpose
 
-**Reference:** See `skills/frontend-design/SKILL.md` for full aesthetics guidelines.
-
 ## Priority Levels
 
 | Priority | Action | Examples |
