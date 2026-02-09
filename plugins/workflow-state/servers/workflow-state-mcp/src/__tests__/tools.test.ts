@@ -1195,6 +1195,40 @@ describe('Query Tools', () => {
   });
 });
 
+// ─── Repair Deferred Marking Tests ──────────────────────────────────────────
+
+describe('handleReconcile_PartialRepairButStillInvalid_DoesNotMarkRepaired', () => {
+  it('should NOT mark issues as repaired when re-validation fails after repair attempt', async () => {
+    await handleInit({ featureId: 'repair-partial', workflowType: 'feature' }, tmpDir);
+
+    // Corrupt both a repairable field (_events) AND an unrepairable field (phase).
+    // The repair logic will fix _events (non-array → []) but phase = "BOGUS_PHASE"
+    // is not handled by any repair branch. After repair, re-validation should fail
+    // because phase is still invalid.
+    const stateFile = path.join(tmpDir, 'repair-partial.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw._events = 'corrupt';           // Repairable: repair sets to []
+    raw.phase = 'BOGUS_PHASE';         // NOT repairable: no repair branch handles phase
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleReconcile({ featureId: 'repair-partial', repair: true }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+
+    // Re-validation should fail because phase is still invalid
+    expect(data.valid).toBe(false);
+
+    // repaired should be false because the state couldn't be fully repaired
+    expect(data.repaired).toBe(false);
+
+    // No issues should be marked as repaired since re-validation failed
+    const issues = data.issues as Array<Record<string, unknown>>;
+    const repairedIssues = issues.filter((i) => i.repaired === true);
+    expect(repairedIssues).toHaveLength(0);
+  });
+});
+
 // ─── Integration Tests for Bug Fixes ────────────────────────────────────────
 
 describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {

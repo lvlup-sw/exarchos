@@ -794,17 +794,20 @@ export async function handleReconcile(
   // Step 5: Repair mode
   let repaired = false;
   if (input.repair && issues.length > 0) {
+    const attemptedRepairs = new Set<string>();
+    let repairAttempted = false;
+
     // Apply repairs for common corruption patterns
     if (!Array.isArray(rawState._events)) {
       rawState._events = [];
-      markIssueRepaired(issues, '_events');
-      repaired = true;
+      attemptedRepairs.add('_events');
+      repairAttempted = true;
     }
 
     if (rawState._eventSequence === undefined || rawState._eventSequence === null) {
       rawState._eventSequence = 0;
-      markIssueRepaired(issues, '_eventSequence');
-      repaired = true;
+      attemptedRepairs.add('_eventSequence');
+      repairAttempted = true;
     } else if (typeof rawState._eventSequence === 'string') {
       const parsed = Number(rawState._eventSequence);
       if (!isNaN(parsed) && parsed >= 0) {
@@ -812,12 +815,12 @@ export async function handleReconcile(
       } else {
         rawState._eventSequence = 0;
       }
-      markIssueRepaired(issues, '_eventSequence');
-      repaired = true;
+      attemptedRepairs.add('_eventSequence');
+      repairAttempted = true;
     } else if (typeof rawState._eventSequence === 'number' && rawState._eventSequence < 0) {
       rawState._eventSequence = 0;
-      markIssueRepaired(issues, '_eventSequence');
-      repaired = true;
+      attemptedRepairs.add('_eventSequence');
+      repairAttempted = true;
     }
 
     if (rawState._checkpoint === undefined || rawState._checkpoint === null || typeof rawState._checkpoint !== 'object') {
@@ -831,14 +834,14 @@ export async function handleReconcile(
         lastActivityTimestamp: now,
         staleAfterMinutes: 120,
       };
-      markIssueRepaired(issues, '_checkpoint');
-      repaired = true;
+      attemptedRepairs.add('_checkpoint');
+      repairAttempted = true;
     }
 
     if (rawState._history === undefined || rawState._history === null || typeof rawState._history !== 'object' || Array.isArray(rawState._history)) {
       rawState._history = {};
-      markIssueRepaired(issues, '_history');
-      repaired = true;
+      attemptedRepairs.add('_history');
+      repairAttempted = true;
     }
 
     // Repair invalid task statuses
@@ -850,22 +853,25 @@ export async function handleReconcile(
         if (task && typeof task === 'object') {
           if (task.status !== undefined && !validStatuses.has(task.status as string)) {
             task.status = 'pending';
-            markIssueRepaired(issues, `tasks.${i}.status`);
-            repaired = true;
+            attemptedRepairs.add(`tasks.${i}.status`);
+            repairAttempted = true;
           }
         }
       }
     }
 
-    // After repair: re-validate and write if valid
-    if (repaired) {
+    // After repair: re-validate and write if valid, then mark issues as repaired
+    if (repairAttempted) {
       const revalidation = WorkflowStateSchema.safeParse(rawState);
       if (revalidation.success) {
-        // Write repaired state to disk atomically
-        const tmpPath = `${stateFile}.tmp.${process.pid}`;
-        await fs.writeFile(tmpPath, JSON.stringify(revalidation.data, null, 2), 'utf-8');
-        await fs.rename(tmpPath, stateFile);
+        await writeStateFileUnsafe(stateFile, revalidation.data);
+        // Only mark issues as repaired after successful re-validation and write
+        for (const pathPrefix of attemptedRepairs) {
+          markIssueRepaired(issues, pathPrefix);
+        }
+        repaired = true;
       }
+      // If re-validation fails, repaired stays false and no issues are marked
     }
   }
 
