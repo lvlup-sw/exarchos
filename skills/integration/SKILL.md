@@ -37,30 +37,38 @@ The integrator subagent:
 
 ## Integration Process
 
-### Step 1: Prepare Integration Branch
+### Step 1: Prepare Integration Base
 
 ```bash
 # Ensure main is current
 git checkout main
 git pull origin main
 
-# Create integration branch
-git checkout -b feature/integration-<feature-name>
+# Sync Graphite state
+mcp__graphite__run_gt_cmd({ args: ["sync"], cwd: "<repo-root>" })
 ```
 
-### Step 2: Merge Branches (Dependency Order)
+### Step 2: Merge Branches as Graphite Stack (Dependency Order)
 
-For each branch from state file `.synthesis.mergeOrder`:
+For each branch from state file `.synthesis.mergeOrder`, merge into the current branch and create a Graphite stack entry:
 
 ```bash
-# Merge with no fast-forward to preserve history
-git merge --no-ff feature/<task-id>-<name> -m "Merge feature/<task-id>-<name>"
+# Merge the task branch into current
+git merge --no-ff feature/<task-id>-<name>
+
+# Create a Graphite stack entry for this merge
+mcp__graphite__run_gt_cmd({
+  args: ["create", "-m", "feat: <task-title>"],
+  cwd: "<repo-root>"
+})
 
 # Run tests after each merge to catch issues early
 npm run test:run
 
 # If tests fail, stop and report which merge broke
 ```
+
+This produces a Graphite stack: `main <- task-001 <- task-002 <- task-003`, with each branch containing the cumulative merges up to that point.
 
 ### Step 3: Full Verification
 

@@ -433,5 +433,14 @@ When Exarchos MCP tools are available, emit events during delegation:
 3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
 4. **For each task assignment:** Call `mcp__exarchos__exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
 5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status
-6. **On task completion:** Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch for progressive stacking
+6. **On task completion — progressive stacking:**
+   - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record the stack position
+   - Use `mcp__graphite__run_gt_cmd` to create the stacked branch:
+     ```
+     mcp__graphite__run_gt_cmd({ args: ["create", "-m", "<task-title>"], cwd: "<worktree-path>" })
+     ```
+   - Submit the stack to create/update PRs:
+     ```
+     mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<worktree-path>" })
+     ```
 7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase

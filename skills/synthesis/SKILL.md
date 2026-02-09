@@ -89,42 +89,25 @@ npm run build
 
 If these fail, return to integration phase to resolve.
 
-### Step 5: Create Pull Request
+### Step 5: Submit Stacked PRs via Graphite
 
-```bash
-# Push integration branch
-git push -u origin feature/integration-<feature-name>
+The integration phase created a Graphite stack (one branch per task merge). Submit the entire stack to create stacked PRs:
 
-# Create PR using gh CLI
-gh pr create \
-  --title "Feature: <Feature Name>" \
-  --body "$(cat <<'EOF'
-## Summary
-[1-3 bullet points describing the feature]
-
-## Changes
-- Task 001: [Description]
-- Task 002: [Description]
-- Task 003: [Description]
-
-## Test Plan
-- [ ] All unit tests pass
-- [ ] Integration tests pass
-- [ ] Manual verification of [specific behaviors]
-
-## Design Reference
-- Design: `docs/designs/YYYY-MM-DD-<feature>.md`
-- Plan: `docs/plans/YYYY-MM-DD-<feature>.md`
-
----
-Generated with Claude Code Orchestration Workflow
-EOF
-)"
+```
+mcp__graphite__run_gt_cmd({
+  args: ["submit", "--no-interactive"],
+  cwd: "<repo-root>",
+  why: "Submit stacked PRs for all integrated task branches"
+})
 ```
 
-### Step 6: Cleanup Worktrees
+This creates one PR per stack entry, each targeting the branch below it. The bottom PR targets `main`.
 
-After PR is created (or after merge):
+After submission, use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to get the PR URLs for each stack entry.
+
+### Step 6: Cleanup Worktrees and Branches
+
+After PRs are merged:
 
 ```bash
 # Remove each worktree
@@ -132,14 +115,20 @@ git worktree remove .worktrees/001-types
 git worktree remove .worktrees/002-api
 git worktree remove .worktrees/003-tests
 
-# Delete feature branches (after PR merge)
-git branch -d feature/001-types
-git branch -d feature/002-api
-git branch -d feature/003-tests
-
 # Prune stale refs
 git worktree prune
 ```
+
+Use Graphite to clean up merged branches:
+```
+mcp__graphite__run_gt_cmd({
+  args: ["sync"],
+  cwd: "<repo-root>",
+  why: "Pull latest trunk changes and clean up merged branches"
+})
+```
+
+`gt sync` pulls the latest trunk, rebases any remaining open stacks, and prompts to delete merged/stale branches.
 
 ## Handling Failures
 
@@ -256,16 +245,16 @@ If the user receives PR review comments:
    ```
 
 3. Creates fix tasks from review comments
-4. After fixes, push to integration branch
+4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive"]`
 5. Return to merge confirmation
 
 ## Transition
 
-After PR created, this is a **human checkpoint**:
+After stacked PRs submitted, this is a **human checkpoint**:
 
-1. Update state with PR URL
-2. Output: "PR created: [URL]. Waiting for review/CI."
-3. **PAUSE for user input**: "Merge PR? (yes/no/feedback)"
+1. Update state with PR URLs (from `gt log --short`)
+2. Output: "Stacked PRs submitted: [URLs]. Waiting for review/CI."
+3. **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
 This is one of only TWO human checkpoints in the workflow.
 
@@ -276,8 +265,8 @@ Options:
 
 ## Exarchos Integration
 
-When Exarchos MCP tools are available and Graphite is configured:
+When Exarchos MCP tools are available:
 
-1. **For merge queue enqueue:** Call `exarchos_event_append` with event type `stack.enqueued` including PR numbers
-2. **Monitor merge status:** Check merge queue progress via `gh pr status`
-3. **On successful merge:** Call `exarchos_event_append` with event type `phase.transitioned` to mark workflow complete
+1. **After stack submission:** Call `mcp__exarchos__exarchos_event_append` with event type `stack.enqueued` including PR numbers from `gt log --short`
+2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
+3. **On successful merge:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` to mark workflow complete
