@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import {
@@ -89,6 +89,16 @@ describe('handleViewWorkflowStatus', () => {
     expect(data.featureId).toBe('');
     expect(data.tasksTotal).toBe(0);
   });
+
+  it('should return VIEW_ERROR when an internal error occurs', async () => {
+    // Use an invalid streamId (uppercase) to trigger validateStreamId error in EventStore.query
+    const result = await handleViewWorkflowStatus({ workflowId: '../INVALID' }, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toContain('Invalid streamId');
+  });
 });
 
 describe('handleViewTeamStatus', () => {
@@ -103,6 +113,16 @@ describe('handleViewTeamStatus', () => {
     expect(teammates).toHaveLength(2);
     expect(teammates[0].name).toBe('agent-1');
     expect(teammates[0].role).toBe('coder');
+  });
+
+  it('should return VIEW_ERROR when an internal error occurs', async () => {
+    // Use an invalid streamId (uppercase) to trigger validateStreamId error in EventStore.query
+    const result = await handleViewTeamStatus({ workflowId: '../INVALID' }, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toContain('Invalid streamId');
   });
 });
 
@@ -135,6 +155,43 @@ describe('handleViewTasks', () => {
     expect(data).toHaveLength(1);
     expect(data[0].taskId).toBe('t1');
   });
+
+  it('should return VIEW_ERROR when an internal error occurs', async () => {
+    // Use an invalid streamId (uppercase) to trigger validateStreamId error in EventStore.query
+    const result = await handleViewTasks({ workflowId: '../INVALID' }, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toContain('Invalid streamId');
+  });
+
+  it('should return all tasks when filter is an empty object', async () => {
+    await populateWorkflow('wf-001');
+
+    const result = await handleViewTasks(
+      { workflowId: 'wf-001', filter: {} },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    // Empty filter object matches all tasks (every key passes vacuously)
+    expect(data).toHaveLength(2);
+  });
+
+  it('should return empty array when filter matches no tasks', async () => {
+    await populateWorkflow('wf-001');
+
+    const result = await handleViewTasks(
+      { workflowId: 'wf-001', filter: { status: 'nonexistent' } },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(0);
+  });
 });
 
 describe('handleViewPipeline', () => {
@@ -164,5 +221,29 @@ describe('handleViewPipeline', () => {
     expect(wf2).toBeDefined();
     expect(wf1!.taskCount).toBe(2);
     expect(wf2!.taskCount).toBe(1);
+  });
+
+  it('should return empty workflows array when no event streams exist', async () => {
+    // tempDir is empty — no .events.jsonl files
+    const result = await handleViewPipeline({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(0);
+  });
+
+  it('should return VIEW_ERROR when a discovered stream has an invalid ID', async () => {
+    // Create a .events.jsonl file with an uppercase name so discoverStreams
+    // returns the ID, but EventStore.query rejects it via validateStreamId
+    const invalidFile = path.join(tempDir, 'UPPERCASE.events.jsonl');
+    await writeFile(invalidFile, '');
+
+    const result = await handleViewPipeline({}, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toContain('Invalid streamId');
   });
 });
