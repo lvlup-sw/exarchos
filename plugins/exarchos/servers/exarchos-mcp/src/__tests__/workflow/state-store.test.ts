@@ -420,6 +420,22 @@ describe('State Store', () => {
     });
   });
 
+  describe('writeStateFile_WritetimeValidation_RejectsInvalidState', () => {
+    it('should reject state with invalid worktree (neither taskId nor tasks)', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-test', 'feature');
+      const mutated = structuredClone(state) as Record<string, unknown>;
+      (mutated.worktrees as Record<string, unknown>)['bad-wt'] = {
+        branch: 'feat/bad',
+        status: 'active',
+        // Missing both taskId and tasks
+      };
+
+      await expect(
+        writeStateFile(stateFile, mutated as typeof state),
+      ).rejects.toThrow(ErrorCode.INVALID_INPUT);
+    });
+  });
+
   describe('writeStateFile_FailurePath_ThrowsStateStoreError', () => {
     it('should throw StateStoreError with FILE_IO_ERROR when writing to an invalid path', async () => {
       const { state } = await initStateFile(tmpDir, 'write-fail-test', 'feature');

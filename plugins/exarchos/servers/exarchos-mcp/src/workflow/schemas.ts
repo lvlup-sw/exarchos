@@ -132,9 +132,13 @@ export const WorktreeStatusSchema = z.enum(['active', 'merged', 'removed']);
 
 export const WorktreeSchema = z.object({
   branch: z.string(),
-  taskId: z.string(),
+  taskId: z.string().optional(),
+  tasks: z.array(z.string()).optional(),
   status: WorktreeStatusSchema,
-}).passthrough();
+}).passthrough().refine(
+  (wt) => wt.taskId !== undefined || (wt.tasks !== undefined && wt.tasks.length > 0),
+  { message: 'Either taskId or tasks (non-empty) must be provided' },
+);
 
 // ─── Synthesis Schema ───────────────────────────────────────────────────────
 
