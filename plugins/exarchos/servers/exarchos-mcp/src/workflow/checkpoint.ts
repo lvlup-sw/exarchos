@@ -58,8 +58,9 @@ export function isStale(checkpoint: CheckpointState): boolean {
 /** Get minutes since last activity (rounded down). */
 export function getMinutesSinceActivity(checkpoint: CheckpointState): number {
   const lastActivity = new Date(checkpoint.lastActivityTimestamp).getTime();
+  if (Number.isNaN(lastActivity)) return 0;
   const now = Date.now();
-  const diffMs = now - lastActivity;
+  const diffMs = Math.max(0, now - lastActivity);
   return Math.floor(diffMs / (60 * 1000));
 }
 

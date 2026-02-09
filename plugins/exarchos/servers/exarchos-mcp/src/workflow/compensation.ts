@@ -173,7 +173,8 @@ function createCleanupWorktreesAction(): CompensationAction {
 
       try {
         for (const worktree of Object.values(worktrees)) {
-          const worktreePath = worktree.path as string;
+          const worktreePath = worktree.path as string | undefined;
+          if (!worktreePath) continue;
           try {
             await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
           } catch {

@@ -463,7 +463,7 @@ describe('Workflow State Schemas', () => {
 
   describe('Phase Schemas', () => {
     it('should validate all feature phases', () => {
-      const phases = ['ideate', 'plan', 'delegate', 'integrate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'];
+      const phases = ['ideate', 'plan', 'plan-review', 'delegate', 'integrate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'];
       for (const phase of phases) {
         expect(FeaturePhaseSchema.safeParse(phase).success).toBe(true);
       }

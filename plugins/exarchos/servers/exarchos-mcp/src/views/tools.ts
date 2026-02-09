@@ -144,7 +144,7 @@ export async function handleViewTasks(
     if (args.filter) {
       tasks = tasks.filter((task) => {
         for (const [key, value] of Object.entries(args.filter!)) {
-          if ((task as Record<string, unknown>)[key] !== value) {
+          if ((task as unknown as Record<string, unknown>)[key] !== value) {
             return false;
           }
         }

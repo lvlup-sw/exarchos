@@ -51,6 +51,10 @@ export function determineComposition(
     return [];
   }
 
+  if (config.maxTeammates < 1) {
+    throw new Error(`maxTeammates must be >= 1, got ${config.maxTeammates}`);
+  }
+
   const assignments: TeammateAssignment[] = [];
 
   // First pass: assign primary roles for each task

@@ -8,36 +8,36 @@ export const UNIFIED_TASK_VIEW = 'unified-task';
 // ─── Unified Task Entry ────────────────────────────────────────────────────
 
 export interface UnifiedTask {
-  taskId: string;
-  title: string;
-  streamId: string;
-  branch?: string;
-  worktree?: string;
-  assignee?: string;
-  status: 'assigned' | 'claimed' | 'in-progress' | 'completed' | 'failed';
-  tddPhase?: string;
-  error?: string;
+  readonly taskId: string;
+  readonly title: string;
+  readonly streamId: string;
+  readonly branch?: string;
+  readonly worktree?: string;
+  readonly assignee?: string;
+  readonly status: 'assigned' | 'claimed' | 'in-progress' | 'completed' | 'failed';
+  readonly tddPhase?: string;
+  readonly error?: string;
 }
 
 // ─── View State ────────────────────────────────────────────────────────────
 
 export interface UnifiedTaskViewState {
-  tasks: UnifiedTask[];
+  readonly tasks: readonly UnifiedTask[];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function findTaskIndex(tasks: UnifiedTask[], taskId: string): number {
+function findTaskIndex(tasks: readonly UnifiedTask[], taskId: string): number {
   return tasks.findIndex((t) => t.taskId === taskId);
 }
 
 function updateTask(
-  tasks: UnifiedTask[],
+  tasks: readonly UnifiedTask[],
   taskId: string,
   updater: (task: UnifiedTask) => UnifiedTask,
 ): UnifiedTask[] {
   const idx = findTaskIndex(tasks, taskId);
-  if (idx === -1) return tasks;
+  if (idx === -1) return [...tasks];
   const updated = [...tasks];
   updated[idx] = updater(updated[idx]);
   return updated;

@@ -48,27 +48,27 @@ git pull origin main
 mcp__graphite__run_gt_cmd({ args: ["sync"], cwd: "<repo-root>" })
 ```
 
-### Step 2: Merge Branches as Graphite Stack (Dependency Order)
+### Step 2: Build Graphite Stack from Task Branches (Dependency Order)
 
-For each branch from state file `.synthesis.mergeOrder`, merge into the current branch and create a Graphite stack entry:
+For each branch from state file `.synthesis.mergeOrder`, track it as a Graphite stack entry:
 
 ```bash
-# Merge the task branch into current
-git merge --no-ff feature/<task-id>-<name>
+# Check out the task branch
+git checkout feature/<task-id>-<name>
 
-# Create a Graphite stack entry for this merge
+# Track it in Graphite with its parent (main for first, previous task branch for subsequent)
 mcp__graphite__run_gt_cmd({
-  args: ["create", "-m", "feat: <task-title>"],
+  args: ["track", "--parent", "<parent-branch>"],
   cwd: "<repo-root>"
 })
 
-# Run tests after each merge to catch issues early
+# Run tests to verify the branch works with its dependencies
 npm run test:run
 
-# If tests fail, stop and report which merge broke
+# If tests fail, stop and report which branch broke
 ```
 
-This produces a Graphite stack: `main <- task-001 <- task-002 <- task-003`, with each branch containing the cumulative merges up to that point.
+This produces a Graphite stack: `main <- task-001 <- task-002 <- task-003`, with each branch tracked as a stacked PR.
 
 ### Step 3: Full Verification
 

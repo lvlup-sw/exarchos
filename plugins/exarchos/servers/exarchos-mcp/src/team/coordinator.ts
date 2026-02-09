@@ -125,7 +125,7 @@ export class TeamCoordinator {
     });
   }
 
-  async shutdown(name: string, streamId: string): Promise<void> {
+  async shutdown(name: string, _streamId?: string): Promise<void> {
     if (!this.teammates.has(name)) {
       throw new Error(`Teammate '${name}' not found`);
     }
@@ -133,7 +133,7 @@ export class TeamCoordinator {
     this.teammates.delete(name);
   }
 
-  async shutdownAll(streamId: string): Promise<void> {
+  async shutdownAll(_streamId?: string): Promise<void> {
     this.teammates.clear();
   }
 

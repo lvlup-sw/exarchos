@@ -13,15 +13,15 @@ export interface ViewProjection<T> {
 // ─── View State Entry ──────────────────────────────────────────────────────
 
 interface ViewState<T = unknown> {
-  view: T;
-  highWaterMark: number;
+  readonly view: T;
+  readonly highWaterMark: number;
 }
 
 // ─── Materializer Options ──────────────────────────────────────────────────
 
 export interface MaterializerOptions {
-  snapshotStore?: SnapshotStore;
-  snapshotInterval?: number;
+  readonly snapshotStore?: SnapshotStore;
+  readonly snapshotInterval?: number;
 }
 
 // ─── Default Snapshot Interval ─────────────────────────────────────────────

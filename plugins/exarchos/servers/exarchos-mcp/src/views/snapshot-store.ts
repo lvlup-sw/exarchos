@@ -4,9 +4,9 @@ import * as path from 'node:path';
 // ─── Snapshot Data ─────────────────────────────────────────────────────────
 
 export interface SnapshotData<T = unknown> {
-  view: T;
-  highWaterMark: number;
-  savedAt: string;
+  readonly view: T;
+  readonly highWaterMark: number;
+  readonly savedAt: string;
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────
