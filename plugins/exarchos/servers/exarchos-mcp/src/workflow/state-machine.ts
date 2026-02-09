@@ -443,9 +443,10 @@ function createDebugHSM(): HSMDefinition {
     { from: 'design', to: 'debug-implement', guard: guards.fixDesignComplete },
     {
       from: 'debug-implement',
-      to: 'debug-review',
+      to: 'debug-validate',
       guard: guards.implementationComplete,
     },
+    { from: 'debug-validate', to: 'debug-review', guard: guards.validationPassed },
     { from: 'debug-review', to: 'synthesize', guard: guards.reviewPassed },
 
     // Hotfix track flow

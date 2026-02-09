@@ -98,6 +98,37 @@ export async function handleTeamMessage(
   },
   stateDir: string,
 ): Promise<ToolResult> {
+  // Guard clauses: validate required string arguments
+  if (!args.from || typeof args.from !== 'string' || args.from.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "from" is required and must be a non-empty string',
+      },
+    };
+  }
+
+  if (!args.to || typeof args.to !== 'string' || args.to.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "to" is required and must be a non-empty string',
+      },
+    };
+  }
+
+  if (!args.content || typeof args.content !== 'string' || args.content.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "content" is required and must be a non-empty string',
+      },
+    };
+  }
+
   const coordinator = getCoordinator(stateDir);
 
   try {
@@ -124,6 +155,27 @@ export async function handleTeamBroadcast(
   },
   stateDir: string,
 ): Promise<ToolResult> {
+  // Guard clauses: validate required string arguments
+  if (!args.from || typeof args.from !== 'string' || args.from.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "from" is required and must be a non-empty string',
+      },
+    };
+  }
+
+  if (!args.content || typeof args.content !== 'string' || args.content.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "content" is required and must be a non-empty string',
+      },
+    };
+  }
+
   const coordinator = getCoordinator(stateDir);
 
   try {
@@ -149,6 +201,17 @@ export async function handleTeamShutdown(
   },
   stateDir: string,
 ): Promise<ToolResult> {
+  // Guard clauses: validate required string arguments
+  if (!args.name || typeof args.name !== 'string' || args.name.trim() === '') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Field "name" is required and must be a non-empty string',
+      },
+    };
+  }
+
   const coordinator = getCoordinator(stateDir);
 
   try {

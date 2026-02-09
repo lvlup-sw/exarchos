@@ -1,5 +1,5 @@
 import { EventStore, SequenceConflictError } from './store.js';
-import type { WorkflowEvent } from './schemas.js';
+import type { WorkflowEvent, EventType } from './schemas.js';
 
 // ─── Tool Result Type ───────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ export async function handleEventAppend(
     };
   }
 
-  const eventType = args.event?.type as string | undefined;
+  const eventType = args.event?.type as EventType | undefined;
   if (!eventType) {
     return {
       success: false,

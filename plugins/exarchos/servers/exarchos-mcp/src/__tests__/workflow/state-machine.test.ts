@@ -223,10 +223,17 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // debug-implement → debug-review
+      // debug-implement → debug-validate
       expect(
         transitions.find(
-          (t) => t.from === 'debug-implement' && t.to === 'debug-review'
+          (t) => t.from === 'debug-implement' && t.to === 'debug-validate'
+        )
+      ).toBeDefined();
+
+      // debug-validate → debug-review
+      expect(
+        transitions.find(
+          (t) => t.from === 'debug-validate' && t.to === 'debug-review'
         )
       ).toBeDefined();
 
@@ -674,7 +681,6 @@ describe('HSM Transition Algorithm', () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('CIRCUIT_OPEN');
     });
-  });
 
     it('ExecuteTransition_GuardThrows_ReturnsGuardFailed (Bug 7)', () => {
       const hsm = getHSMDefinition('feature');
@@ -695,6 +701,7 @@ describe('HSM Transition Algorithm', () => {
       expect(result.errorCode).toBe('GUARD_FAILED');
       expect(result.errorMessage).toContain('Guard');
     });
+  });
 
   describe('getValidTransitions', () => {
     it('returns valid target phases from a given phase', () => {

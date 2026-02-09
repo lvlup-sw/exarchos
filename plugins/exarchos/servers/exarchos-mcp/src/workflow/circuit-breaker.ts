@@ -31,12 +31,28 @@ export function checkCircuitBreaker(
   const fixCycleCount = getFixCycleCount(events, compoundStateId);
   const isOpen = fixCycleCount >= effectiveMax;
 
+  // Derive lastTrippedAt from the most recent fix-cycle event for this compound,
+  // keeping the circuit breaker deterministic and replayable from events alone.
+  let lastTrippedAt: string | undefined;
+  if (isOpen) {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const evt = events[i];
+      if (
+        evt.type === 'fix-cycle' &&
+        evt.metadata?.compoundStateId === compoundStateId
+      ) {
+        lastTrippedAt = evt.timestamp;
+        break;
+      }
+    }
+  }
+
   return {
     fixCycleCount,
     maxFixCycles: effectiveMax,
     open: isOpen,
     compoundStateId,
-    ...(isOpen && { lastTrippedAt: new Date().toISOString() }),
+    ...(lastTrippedAt !== undefined && { lastTrippedAt }),
   };
 }
 

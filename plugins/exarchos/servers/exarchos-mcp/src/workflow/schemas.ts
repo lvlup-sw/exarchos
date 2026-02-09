@@ -76,9 +76,6 @@ export const DebugPhaseSchema = z.enum([
   'investigate',
   'rca',
   'design',
-  'implement',
-  'validate',
-  'review',
   'synthesize',
   // Compound sub-state phases (thorough track)
   'debug-implement',

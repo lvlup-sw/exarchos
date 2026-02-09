@@ -46,31 +46,35 @@ describe('Circuit Breaker', () => {
           type: 'compound-entry',
           trigger: 'enter-delegate',
           metadata: { compoundStateId: 'delegate' },
+          timestamp: '2025-01-15T10:00:00.000Z',
         }),
         makeEvent({
           sequence: 2,
           type: 'fix-cycle',
           trigger: 'fix-1',
           metadata: { compoundStateId: 'delegate' },
+          timestamp: '2025-01-15T10:01:00.000Z',
         }),
         makeEvent({
           sequence: 3,
           type: 'fix-cycle',
           trigger: 'fix-2',
           metadata: { compoundStateId: 'delegate' },
+          timestamp: '2025-01-15T10:02:00.000Z',
         }),
         makeEvent({
           sequence: 4,
           type: 'fix-cycle',
           trigger: 'fix-3',
           metadata: { compoundStateId: 'delegate' },
+          timestamp: '2025-01-15T10:03:00.000Z',
         }),
       ];
 
       const state = checkCircuitBreaker(events, 'delegate', 3);
       expect(state.open).toBe(true);
       expect(state.fixCycleCount).toBe(3);
-      expect(state.lastTrippedAt).toBeDefined();
+      expect(state.lastTrippedAt).toBe('2025-01-15T10:03:00.000Z');
     });
 
     it('CheckCircuitBreaker_DerivedFromEventLog_CorrectCount — Count matches event log', () => {
@@ -262,7 +266,7 @@ describe('Circuit Breaker', () => {
       expect(getResult.compoundStateId).toBe(checkResult.compoundStateId);
     });
 
-    it('should include lastTrippedAt when circuit is open', () => {
+    it('should derive lastTrippedAt from the last fix-cycle event timestamp', () => {
       const events: Event[] = [
         makeEvent({
           sequence: 1,
@@ -288,7 +292,7 @@ describe('Circuit Breaker', () => {
 
       const state = getCircuitBreakerState(events, 'delegate', 2);
       expect(state.open).toBe(true);
-      expect(state.lastTrippedAt).toBeDefined();
+      expect(state.lastTrippedAt).toBe('2025-01-15T10:02:00.000Z');
     });
   });
 });

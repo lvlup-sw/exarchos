@@ -9,6 +9,18 @@ export interface SnapshotData<T = unknown> {
   savedAt: string;
 }
 
+// ─── Validation ──────────────────────────────────────────────────────────
+
+const SAFE_ID_PATTERN = /^[a-z0-9-]+$/;
+
+function assertSafeId(value: string, label: string): void {
+  if (!SAFE_ID_PATTERN.test(value)) {
+    throw new Error(
+      `Invalid ${label}: "${value}" — must match ${SAFE_ID_PATTERN}`,
+    );
+  }
+}
+
 // ─── Snapshot Store ────────────────────────────────────────────────────────
 
 export class SnapshotStore {
@@ -16,9 +28,26 @@ export class SnapshotStore {
 
   /**
    * Get the file path for a snapshot.
+   * Validates streamId and viewName against a safe pattern and asserts
+   * the resolved path stays inside stateDir to prevent path traversal.
    */
   private getSnapshotPath(streamId: string, viewName: string): string {
-    return path.join(this.stateDir, `${streamId}.${viewName}.snapshot.json`);
+    assertSafeId(streamId, 'streamId');
+    assertSafeId(viewName, 'viewName');
+
+    const resolved = path.resolve(
+      this.stateDir,
+      `${streamId}.${viewName}.snapshot.json`,
+    );
+    const normalizedBase = path.resolve(this.stateDir);
+
+    if (!resolved.startsWith(normalizedBase + path.sep) && resolved !== normalizedBase) {
+      throw new Error(
+        `Path traversal detected: resolved path "${resolved}" escapes stateDir "${normalizedBase}"`,
+      );
+    }
+
+    return resolved;
   }
 
   /**

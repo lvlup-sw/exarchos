@@ -1,12 +1,38 @@
 import { z } from 'zod';
 
+// ─── Event Type Discriminated Union ─────────────────────────────────────────
+
+export const EventTypes = [
+  'workflow.started',
+  'team.formed',
+  'phase.transitioned',
+  'task.assigned',
+  'task.claimed',
+  'task.progressed',
+  'test.result',
+  'task.completed',
+  'task.failed',
+  'agent.message',
+  'agent.handoff',
+  'gate.executed',
+  'gate.self-corrected',
+  'stack.position-filled',
+  'stack.restacked',
+  'stack.enqueued',
+  'context.assembled',
+  'task.routed',
+  'remediation.started',
+] as const;
+
+export type EventType = typeof EventTypes[number];
+
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
   streamId: z.string().min(1),
   sequence: z.number().int().positive(),
   timestamp: z.string().default(() => new Date().toISOString()),
-  type: z.string().min(1),
+  type: z.enum(EventTypes),
   correlationId: z.string().optional(),
   causationId: z.string().optional(),
   agentId: z.string().optional(),
@@ -145,32 +171,6 @@ export const RemediationStartedData = z.object({
   failedGates: z.array(z.string()),
   strategy: z.string(),
 });
-
-// ─── Event Type Discriminated Union ─────────────────────────────────────────
-
-export const EventTypes = [
-  'workflow.started',
-  'team.formed',
-  'phase.transitioned',
-  'task.assigned',
-  'task.claimed',
-  'task.progressed',
-  'test.result',
-  'task.completed',
-  'task.failed',
-  'agent.message',
-  'agent.handoff',
-  'gate.executed',
-  'gate.self-corrected',
-  'stack.position-filled',
-  'stack.restacked',
-  'stack.enqueued',
-  'context.assembled',
-  'task.routed',
-  'remediation.started',
-] as const;
-
-export type EventType = typeof EventTypes[number];
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 

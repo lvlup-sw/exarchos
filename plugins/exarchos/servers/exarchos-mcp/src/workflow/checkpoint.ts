@@ -2,11 +2,15 @@ import type { CheckpointState, CheckpointMeta } from './types.js';
 
 // ─── Configurable Constants ────────────────────────────────────────────────
 
-export const CHECKPOINT_OPERATION_THRESHOLD: number =
-  parseInt(process.env.CHECKPOINT_OPERATION_THRESHOLD || '', 10) || 20;
+export const CHECKPOINT_OPERATION_THRESHOLD: number = Math.max(
+  1,
+  parseInt(process.env.CHECKPOINT_OPERATION_THRESHOLD || '', 10) || 20,
+);
 
-export const STALE_AFTER_MINUTES: number =
-  parseInt(process.env.STALE_AFTER_MINUTES || '', 10) || 120;
+export const STALE_AFTER_MINUTES: number = Math.max(
+  1,
+  parseInt(process.env.STALE_AFTER_MINUTES || '', 10) || 120,
+);
 
 // ─── Checkpoint Functions ──────────────────────────────────────────────────
 

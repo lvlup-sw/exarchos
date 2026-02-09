@@ -40,6 +40,13 @@ export async function handleTaskClaim(
     };
   }
 
+  if (!args.agentId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'agentId is required' },
+    };
+  }
+
   if (!args.streamId) {
     return {
       success: false,

@@ -470,7 +470,7 @@ describe('Workflow State Schemas', () => {
     });
 
     it('should validate all debug phases', () => {
-      const phases = ['triage', 'investigate', 'rca', 'design', 'implement', 'validate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'];
+      const phases = ['triage', 'investigate', 'rca', 'design', 'synthesize', 'completed', 'cancelled', 'blocked'];
       for (const phase of phases) {
         expect(DebugPhaseSchema.safeParse(phase).success).toBe(true);
       }

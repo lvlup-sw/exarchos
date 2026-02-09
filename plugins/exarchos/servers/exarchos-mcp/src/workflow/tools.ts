@@ -335,6 +335,18 @@ export async function handleCancel(
     };
   }
 
+  // Check if compensation had failures
+  if (!compensationResult.success) {
+    const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.COMPENSATION_PARTIAL,
+        message: `Compensation partially failed: ${failedActions.map((a) => a.message).join('; ')}`,
+      },
+    };
+  }
+
   // Transition to cancelled via HSM
   const hsm = getHSMDefinition(state.workflowType);
   const transitionResult = executeTransition(hsm, mutableState, 'cancelled');
@@ -550,6 +562,7 @@ const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
     rca: 'AUTO:debug-design',
     design: 'AUTO:debug-implement',
     'debug-implement': 'AUTO:debug-validate',
+    'debug-validate': 'AUTO:debug-review',
     'debug-review': 'AUTO:debug-synthesize',
     'hotfix-implement': 'AUTO:debug-validate',
   },
@@ -784,7 +797,20 @@ export async function handleNextAction(
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
     for (const transition of outboundTransitions) {
-      if (transition.isFixCycle && transition.guard?.evaluate(stateRecord)) {
+      let guardResult = false;
+      try {
+        guardResult = (transition.isFixCycle ?? false) && (transition.guard?.evaluate(stateRecord) ?? false);
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.GUARD_FAILED,
+            message: `Guard evaluation threw for transition ${transition.from} → ${transition.to}: ${err instanceof Error ? err.message : String(err)}`,
+          },
+          _meta: buildCheckpointMeta(state._checkpoint),
+        };
+      }
+      if (guardResult) {
         // A fix-cycle transition's guard passes, check circuit breaker
         if (cbState.open) {
           return {
@@ -806,7 +832,20 @@ export async function handleNextAction(
   const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
   for (const transition of outboundTransitions) {
-    if (transition.guard?.evaluate(stateRecord)) {
+    let guardResult = false;
+    try {
+      guardResult = transition.guard?.evaluate(stateRecord) ?? false;
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.GUARD_FAILED,
+          message: `Guard evaluation threw for transition ${transition.from} → ${transition.to}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        _meta: buildCheckpointMeta(state._checkpoint),
+      };
+    }
+    if (guardResult) {
       // Guard passes -- determine the action
       if (transition.isFixCycle) {
         return {

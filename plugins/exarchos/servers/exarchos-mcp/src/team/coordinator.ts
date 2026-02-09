@@ -148,6 +148,8 @@ export class TeamCoordinator {
 
       if (elapsed > staleThreshold) {
         info.status = 'stale';
+      } else {
+        info.status = 'active';
       }
       result.push({ ...info });
     }
@@ -159,6 +161,7 @@ export class TeamCoordinator {
     const info = this.teammates.get(name);
     if (info) {
       info.lastActivityAt = new Date().toISOString();
+      info.status = 'active';
     }
   }
 

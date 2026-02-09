@@ -102,6 +102,13 @@ export async function handleStackPlace(
     };
   }
 
+  if (!Number.isInteger(args.position) || args.position < 0) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'position must be a non-negative integer' },
+    };
+  }
+
   const store = getStore(stateDir);
 
   const data: Record<string, unknown> = {

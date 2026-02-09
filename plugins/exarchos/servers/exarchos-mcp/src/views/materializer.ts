@@ -99,7 +99,9 @@ export class ViewMaterializer {
       if (maxSequence - lastSnapHwm >= this.snapshotInterval) {
         this.lastSnapshotHwm.set(stateKey, maxSequence);
         // Fire and forget - snapshot is async but we don't block materialization
-        void this.snapshotStore.save(streamId, viewName, currentView, maxSequence);
+        this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
+          console.error(`Failed to save snapshot: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
     }
 

@@ -38,11 +38,11 @@ describe('handleEventAppend', () => {
 
   it('should increment sequence on multiple appends', async () => {
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.one' } },
+      { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
     );
     const result = await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.two' } },
+      { stream: 'my-workflow', event: { type: 'team.formed' } },
       tempDir,
     );
 
@@ -52,7 +52,7 @@ describe('handleEventAppend', () => {
 
   it('should return error for missing stream', async () => {
     const result = await handleEventAppend(
-      { stream: '', event: { type: 'test' } },
+      { stream: '', event: { type: 'task.assigned' } },
       tempDir,
     );
 
@@ -72,7 +72,7 @@ describe('handleEventAppend', () => {
 
   it('should support optimistic concurrency via expectedSequence', async () => {
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.one' } },
+      { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
     );
 
@@ -80,7 +80,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
-        event: { type: 'event.two' },
+        event: { type: 'team.formed' },
         expectedSequence: 1,
       },
       tempDir,
@@ -91,11 +91,11 @@ describe('handleEventAppend', () => {
 
   it('should return conflict error for stale expectedSequence', async () => {
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.one' } },
+      { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.two' } },
+      { stream: 'my-workflow', event: { type: 'team.formed' } },
       tempDir,
     );
 
@@ -103,7 +103,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
-        event: { type: 'event.three' },
+        event: { type: 'phase.transitioned' },
         expectedSequence: 1,
       },
       tempDir,
@@ -118,11 +118,11 @@ describe('handleEventAppend', () => {
 describe('handleEventQuery', () => {
   it('should return all events for a stream', async () => {
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.one' } },
+      { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.two' } },
+      { stream: 'my-workflow', event: { type: 'team.formed' } },
       tempDir,
     );
 
@@ -155,15 +155,15 @@ describe('handleEventQuery', () => {
 
   it('should filter by sinceSequence', async () => {
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.one' } },
+      { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.two' } },
+      { stream: 'my-workflow', event: { type: 'team.formed' } },
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'event.three' } },
+      { stream: 'my-workflow', event: { type: 'phase.transitioned' } },
       tempDir,
     );
 
