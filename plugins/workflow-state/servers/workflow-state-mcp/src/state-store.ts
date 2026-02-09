@@ -159,9 +159,10 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
   return result.data;
 }
 
-// ─── Write State File Atomically ───────────────────────────────────────────
+// ─── Write State File Atomically (Unsafe — No Validation) ────────────────
+// Used ONLY for rollback of previously-validated state.
 
-export async function writeStateFile(
+export async function writeStateFileUnsafe(
   stateFile: string,
   state: WorkflowState,
 ): Promise<void> {
@@ -181,6 +182,25 @@ export async function writeStateFile(
       `Failed to write state file: ${stateFile} — ${(err as Error).message}`,
     );
   }
+}
+
+// ─── Write State File with Schema Validation ─────────────────────────────
+
+export async function writeStateFile(
+  stateFile: string,
+  state: WorkflowState,
+): Promise<void> {
+  const result = WorkflowStateSchema.safeParse(state);
+  if (!result.success) {
+    const fieldPaths = result.error.issues
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .join('; ');
+    throw new StateStoreError(
+      ErrorCode.STATE_CORRUPT,
+      `Write-time validation failed: ${fieldPaths}`,
+    );
+  }
+  await writeStateFileUnsafe(stateFile, state);
 }
 
 // ─── Apply Dot-Path Update ─────────────────────────────────────────────────

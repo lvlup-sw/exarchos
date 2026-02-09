@@ -6,11 +6,13 @@ import {
   initStateFile,
   readStateFile,
   writeStateFile,
+  writeStateFileUnsafe,
   applyDotPath,
   listStateFiles,
   resolveStateDir,
 } from '../state-store.js';
 import { ErrorCode } from '../schemas.js';
+import type { WorkflowState } from '../types.js';
 
 let tmpDir: string;
 
@@ -416,6 +418,77 @@ describe('State Store', () => {
       expect(scope.testCoverage).toBe('excellent'); // overwritten by source
       expect(scope.riskLevel).toBe('low');          // new key from source
       expect(explore.startedAt).toBe('2025-01-15T10:00:00Z'); // sibling preserved
+    });
+  });
+
+  describe('WriteStateFile_Validation', () => {
+    // Task 1 tests
+
+    it('should throw STATE_CORRUPT for invalid phase enum', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-phase', 'feature');
+      const invalidState = { ...state, phase: 'nonexistent' } as unknown as WorkflowState;
+
+      await expect(writeStateFile(stateFile, invalidState)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+    });
+
+    it('should include field path in error message for invalid state', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-path', 'feature');
+      const invalidState = { ...state, phase: 'nonexistent' } as unknown as WorkflowState;
+
+      await expect(writeStateFile(stateFile, invalidState)).rejects.toThrow(/phase/);
+    });
+
+    it('should write valid state to disk successfully', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-ok', 'feature');
+      const updatedState = { ...state, updatedAt: new Date().toISOString() };
+
+      await writeStateFile(stateFile, updatedState);
+
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.updatedAt).toBe(updatedState.updatedAt);
+    });
+
+    // Task 2 tests
+
+    it('should throw STATE_CORRUPT when required field artifacts is missing', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-missing', 'feature');
+      const { artifacts, ...stateWithoutArtifacts } = state;
+      const invalidState = stateWithoutArtifacts as unknown as WorkflowState;
+
+      await expect(writeStateFile(stateFile, invalidState)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+    });
+
+    it('should throw STATE_CORRUPT when _eventSequence is wrong type', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'validate-type', 'feature');
+      const invalidState = { ...state, _eventSequence: 'not-a-number' } as unknown as WorkflowState;
+
+      await expect(writeStateFile(stateFile, invalidState)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+    });
+
+    it('should not write file to disk when state is invalid', async () => {
+      const newFile = path.join(tmpDir, 'never-written.state.json');
+      const { state } = await initStateFile(tmpDir, 'validate-nowrite', 'feature');
+      const invalidState = { ...state, phase: 'nonexistent' } as unknown as WorkflowState;
+
+      await expect(writeStateFile(newFile, invalidState)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+
+      // Verify file was NOT created
+      await expect(fs.access(newFile)).rejects.toThrow();
+    });
+  });
+
+  describe('WriteStateFileUnsafe', () => {
+    it('should be exported and write without validation', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'unsafe-test', 'feature');
+
+      // writeStateFileUnsafe should write even invalid state (used for rollback)
+      const updatedState = { ...state, updatedAt: new Date().toISOString() };
+      await writeStateFileUnsafe(stateFile, updatedState);
+
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.updatedAt).toBe(updatedState.updatedAt);
     });
   });
 });
