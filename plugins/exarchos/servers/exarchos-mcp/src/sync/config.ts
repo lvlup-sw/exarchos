@@ -25,33 +25,17 @@ export function loadSyncConfig(stateDir: string): SyncConfig {
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
     fileConfig = JSON.parse(content) as Partial<SyncConfig>;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`Failed to load config from ${configPath}:`, err);
-    }
+  } catch {
+    // No config file — use defaults
   }
 
-  // Default remote config values
-  const remoteDefaults = {
-    apiBaseUrl: 'http://localhost:5000',
-    exarchosId: 'default',
-    timeoutMs: 5000,
-  };
-
-  // Merge file config over defaults, normalizing remote with defaults
+  // Merge file config over defaults
   const config: SyncConfig = {
     mode: fileConfig.mode ?? defaults.mode,
     syncIntervalMs: fileConfig.syncIntervalMs ?? defaults.syncIntervalMs,
     batchSize: fileConfig.batchSize ?? defaults.batchSize,
     maxRetries: fileConfig.maxRetries ?? defaults.maxRetries,
-    remote: fileConfig.remote?.apiToken
-      ? {
-          apiToken: fileConfig.remote.apiToken,
-          apiBaseUrl: fileConfig.remote.apiBaseUrl ?? remoteDefaults.apiBaseUrl,
-          exarchosId: fileConfig.remote.exarchosId ?? remoteDefaults.exarchosId,
-          timeoutMs: fileConfig.remote.timeoutMs ?? remoteDefaults.timeoutMs,
-        }
-      : undefined,
+    remote: fileConfig.remote,
   };
 
   // Fall back to environment variables for remote config if not in file
