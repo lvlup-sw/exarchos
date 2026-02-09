@@ -4,7 +4,7 @@ import {
   executeTransition,
   getValidTransitions,
 } from '../../workflow/state-machine.js';
-import type { HSMDefinition } from '../../workflow/state-machine.js';
+import type { HSMDefinition, State, Transition } from '../../workflow/state-machine.js';
 
 // ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
 
@@ -1925,5 +1925,112 @@ describe('Missing _events and _history defaults', () => {
 
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('plan');
+  });
+});
+
+// ─── Task: Leaf-state onEntry/onExit effect coverage ──────────────────────────
+
+describe('Leaf-state onEntry/onExit effects', () => {
+  // Build a minimal custom HSM where leaf (atomic) states have onEntry/onExit effects.
+  // This exercises the code paths at lines 843-844 (currentState.onExit) and
+  // 876-877 (targetState.onEntry) in state-machine.ts, which are not reached
+  // by the built-in HSM definitions (only compound states have effects there).
+
+  function createTestHSM(): HSMDefinition {
+    const states: Record<string, State> = {
+      alpha: {
+        id: 'alpha',
+        type: 'atomic',
+        onExit: ['log'],
+      },
+      beta: {
+        id: 'beta',
+        type: 'atomic',
+        onEntry: ['checkpoint'],
+      },
+      done: {
+        id: 'done',
+        type: 'final',
+      },
+      cancelled: {
+        id: 'cancelled',
+        type: 'final',
+      },
+    };
+
+    const transitions: Transition[] = [
+      { from: 'alpha', to: 'beta' },
+      { from: 'beta', to: 'done' },
+    ];
+
+    return { id: 'test-leaf-effects', states, transitions };
+  }
+
+  it('collects onExit effect from the current leaf state during transition', () => {
+    const hsm = createTestHSM();
+    const state: Record<string, unknown> = {
+      phase: 'alpha',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'beta');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('beta');
+    // Should include the onExit effect from the alpha leaf state
+    expect(result.effects).toContain('log');
+  });
+
+  it('collects onEntry effect from the target leaf state during transition', () => {
+    const hsm = createTestHSM();
+    const state: Record<string, unknown> = {
+      phase: 'alpha',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'beta');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('beta');
+    // Should include the onEntry effect from the beta leaf state
+    expect(result.effects).toContain('checkpoint');
+  });
+
+  it('collects both onExit and onEntry leaf effects in a single transition', () => {
+    const hsm = createTestHSM();
+    const state: Record<string, unknown> = {
+      phase: 'alpha',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'beta');
+
+    expect(result.success).toBe(true);
+    // Both leaf-state exit (log) and entry (checkpoint) effects should be present
+    expect(result.effects).toContain('log');
+    expect(result.effects).toContain('checkpoint');
+    // Exit effects come before entry effects
+    const logIdx = result.effects.indexOf('log');
+    const checkpointIdx = result.effects.indexOf('checkpoint');
+    expect(logIdx).toBeLessThan(checkpointIdx);
+  });
+
+  it('collects onExit effect from leaf state on cancel transition', () => {
+    const hsm = createTestHSM();
+    const state: Record<string, unknown> = {
+      phase: 'alpha',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'cancelled');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('cancelled');
+    // Should include the onExit effect from the alpha leaf state via cancel path
+    expect(result.effects).toContain('log');
   });
 });

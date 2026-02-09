@@ -695,13 +695,11 @@ describe('Compensation', () => {
       // Override Array.prototype.filter to return an array with a throwing iterator
       // only for the specific call in deleteFeatureBranches
       const originalFilter = Array.prototype.filter;
-      let filterCallCount = 0;
 
       // We need to intercept the specific filter call that creates the branches array.
       // The code does: tasks.map(t => t.branch).filter(b => !!b)
       // The filter is called on the mapped array.
       vi.spyOn(Array.prototype, 'filter').mockImplementation(function (this: unknown[], ...args: unknown[]) {
-        filterCallCount++;
         const result = originalFilter.apply(this, args as Parameters<typeof originalFilter>);
 
         // The deleteFeatureBranches filter happens on the mapped branches array
@@ -743,19 +741,22 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
-
-      // Restore the original filter
-      vi.restoreAllMocks();
-      // Re-establish the execFile mock since restoreAllMocks clears it
-      mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
-        if (typeof _opts === 'function') {
-          (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
-        } else if (typeof cb === 'function') {
-          (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
-        }
-        return undefined as never;
-      });
+      let result: Awaited<ReturnType<typeof executeCompensation>>;
+      try {
+        result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+      } finally {
+        // Guarantee restore even if the test throws, preventing mock leakage
+        vi.restoreAllMocks();
+        // Re-establish the execFile mock since restoreAllMocks clears it
+        mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
+          if (typeof _opts === 'function') {
+            (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+          } else if (typeof cb === 'function') {
+            (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+          }
+          return undefined as never;
+        });
+      }
 
       const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
       expect(deleteAction).toBeDefined();
