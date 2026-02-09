@@ -58,7 +58,6 @@ function makeValidFeatureState() {
     },
     tasks: [],
     worktrees: {},
-    julesSessions: {},
     reviews: {},
     synthesis: {
       integrationBranch: null,

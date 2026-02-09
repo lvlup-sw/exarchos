@@ -133,7 +133,7 @@ Every task follows Red-Green-Refactor:
 | Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
 | Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
 | Rules | 10 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
-| MCP Servers | 2 | Exarchos (required), Jules (optional) |
+| MCP Servers | 1 | Exarchos |
 
 ## Configuration
 

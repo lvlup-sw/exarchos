@@ -112,7 +112,6 @@ Key sections:
 - `artifacts`: Paths to design, plan, PR
 - `tasks`: Task list with status
 - `worktrees`: Active git worktrees
-- `julesSessions`: Jules async task tracking
 - `planReview`: Plan-review delta analysis results (`gaps`, `approved`)
 - `reviews`: Review results
 - `synthesis`: Merge/PR state

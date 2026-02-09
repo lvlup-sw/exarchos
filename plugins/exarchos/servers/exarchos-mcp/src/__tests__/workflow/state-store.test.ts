@@ -36,7 +36,6 @@ describe('State Store', () => {
       expect(state.artifacts).toEqual({ design: null, plan: null, pr: null });
       expect(state.tasks).toEqual([]);
       expect(state.worktrees).toEqual({});
-      expect(state.julesSessions).toEqual({});
       expect(state.reviews).toEqual({});
       expect(state.synthesis).toEqual({
         integrationBranch: null,
@@ -582,7 +581,6 @@ describe('State Store', () => {
           artifacts: { design: null, plan: null, pr: null },
           tasks: [],
           worktrees: {},
-          julesSessions: {},
           reviews: {},
           synthesis: {
             integrationBranch: null,

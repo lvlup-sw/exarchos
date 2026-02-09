@@ -464,7 +464,6 @@ describe('Integration', () => {
         artifacts: { design: null, plan: null, pr: null },
         tasks: [],
         worktrees: {},
-        julesSessions: {},
         reviews: {},
         synthesis: {
           integrationBranch: null,
@@ -586,7 +585,6 @@ describe('Integration', () => {
         worktrees: {
           wt1: { branch: 'feat/task-1', taskId: 'task-1', status: 'active' },
         },
-        julesSessions: {},
         reviews: {},
         synthesis: {
           integrationBranch: null,
@@ -665,10 +663,6 @@ describe('Integration', () => {
       // Worktrees
       expect(typeof rawJson.worktrees).toBe('object');
       expect(rawJson.worktrees).not.toBeNull();
-
-      // Jules sessions
-      expect(typeof rawJson.julesSessions).toBe('object');
-      expect(rawJson.julesSessions).not.toBeNull();
 
       // Reviews
       expect(typeof rawJson.reviews).toBe('object');

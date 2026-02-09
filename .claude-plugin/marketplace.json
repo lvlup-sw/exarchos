@@ -13,12 +13,6 @@
       "source": "./plugins/exarchos",
       "description": "Unified MCP server: workflow state, event store, CQRS views, team coordination",
       "keywords": ["workflow", "state-machine", "events", "cqrs", "teams", "mcp"]
-    },
-    {
-      "name": "jules",
-      "source": "./plugins/jules",
-      "description": "Delegate coding tasks to Jules autonomous agent",
-      "keywords": ["jules", "autonomous-agent", "delegation", "mcp"]
     }
   ]
 }

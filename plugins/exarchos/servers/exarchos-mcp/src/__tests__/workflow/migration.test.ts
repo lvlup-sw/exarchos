@@ -13,7 +13,6 @@ function makeV1_0State() {
     artifacts: { design: null, plan: null, pr: null },
     tasks: [],
     worktrees: {},
-    julesSessions: {},
     reviews: {},
     synthesis: {
       integrationBranch: null,

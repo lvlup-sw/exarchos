@@ -1,9 +1,0 @@
-{
-  "jules": {
-    "command": "npx",
-    "args": ["tsx", "${CLAUDE_PLUGIN_ROOT}/servers/jules-mcp/src/index.ts"],
-    "env": {
-      "JULES_API_KEY": "${JULES_API_KEY}"
-    }
-  }
-}
