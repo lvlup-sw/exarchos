@@ -146,25 +146,25 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should add workflow-state server', async () => {
+  it('should add exarchos and graphite servers', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['workflow-state']).toBeDefined();
-    expect(config.mcpServers['workflow-state'].type).toBe('stdio');
+    expect(config.mcpServers['exarchos']).toBeDefined();
+    expect(config.mcpServers['exarchos'].type).toBe('stdio');
   });
 
-  it('should configure workflow-state server with correct command and args', async () => {
+  it('should configure exarchos server with correct command and args', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['workflow-state'].command).toBe('node');
-    expect(config.mcpServers['workflow-state'].args).toContain(
-      join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp/dist/index.js')
+    expect(config.mcpServers['exarchos'].command).toBe('node');
+    expect(config.mcpServers['exarchos'].args).toContain(
+      join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/index.js')
     );
   });
 
@@ -196,7 +196,7 @@ describe('configureMcpServers', () => {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers.existingServer).toBeDefined();
     expect(config.mcpServers.existingServer.command).toBe('existing');
-    expect(config.mcpServers['workflow-state']).toBeDefined();
+    expect(config.mcpServers['exarchos']).toBeDefined();
     expect(config.mcpServers['graphite']).toBeDefined();
   });
 });
@@ -216,21 +216,21 @@ describe('removeMcpConfig', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should remove workflow-state and graphite from config', async () => {
+  it('should remove exarchos and graphite from config', async () => {
     const { removeMcpConfig, configureMcpServers } = await import('./install.js');
     await configureMcpServers(configPath, repoRoot);
 
     await removeMcpConfig(configPath);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['workflow-state']).toBeUndefined();
+    expect(config.mcpServers['exarchos']).toBeUndefined();
     expect(config.mcpServers['graphite']).toBeUndefined();
   });
 
   it('should preserve other config when removing servers', async () => {
     writeFileSync(configPath, JSON.stringify({
       existingKey: 'value',
-      mcpServers: { 'workflow-state': {}, graphite: {}, other: {} }
+      mcpServers: { 'exarchos': {}, graphite: {}, other: {} }
     }));
     const { removeMcpConfig } = await import('./install.js');
 
