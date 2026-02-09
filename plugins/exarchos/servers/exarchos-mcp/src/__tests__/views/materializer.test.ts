@@ -157,6 +157,91 @@ describe('ViewMaterializer', () => {
       expect(viewB2.count).toBe(1);
     });
   });
+
+  describe('hasProjection', () => {
+    it('should return true for a registered projection', () => {
+      materializer.register('counter', counterProjection);
+
+      expect(materializer.hasProjection('counter')).toBe(true);
+    });
+
+    it('should return false for an unregistered projection', () => {
+      expect(materializer.hasProjection('nonexistent')).toBe(false);
+    });
+  });
+
+  describe('getProjection', () => {
+    it('should return the projection for a registered view', () => {
+      materializer.register('counter', counterProjection);
+
+      const projection = materializer.getProjection<CounterView>('counter');
+
+      expect(projection).toBeDefined();
+      expect(projection!.init).toBeTypeOf('function');
+      expect(projection!.apply).toBeTypeOf('function');
+      expect(projection!.init()).toEqual({ count: 0, lastType: '' });
+    });
+
+    it('should return undefined for an unregistered view', () => {
+      const projection = materializer.getProjection('nonexistent');
+
+      expect(projection).toBeUndefined();
+    });
+  });
+
+  describe('getState', () => {
+    it('should return cached state after materialization', () => {
+      materializer.register('counter', counterProjection);
+
+      const events = [
+        makeEvent(1, 'workflow.started'),
+        makeEvent(2, 'task.assigned'),
+        makeEvent(3, 'task.completed'),
+      ];
+
+      materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+
+      expect(state).toBeDefined();
+      expect(state!.view.count).toBe(3);
+      expect(state!.view.lastType).toBe('task.completed');
+      expect(state!.highWaterMark).toBe(3);
+    });
+
+    it('should return undefined before any materialization', () => {
+      materializer.register('counter', counterProjection);
+
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+
+      expect(state).toBeUndefined();
+    });
+  });
+
+  describe('loadState', () => {
+    it('should manually load state that affects subsequent materialization', () => {
+      materializer.register('counter', counterProjection);
+
+      // Pre-load state as if 100 events had been processed
+      materializer.loadState<CounterView>(
+        'test-stream',
+        'counter',
+        { count: 100, lastType: 'preloaded' },
+        50,
+      );
+
+      // Materialize with events 51-55 (only these should be processed)
+      const events = Array.from({ length: 55 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      // Should have 100 (preloaded) + 5 (events 51-55) = 105
+      expect(view.count).toBe(105);
+      expect(view.lastType).toBe('event.55');
+    });
+  });
 });
 
 // ─── A10: View Snapshot Mechanism ──────────────────────────────────────────
@@ -293,6 +378,43 @@ describe('ViewMaterializer with Snapshots', () => {
 
       // Should rebuild from scratch: 10 events processed
       expect(view.count).toBe(10);
+    });
+  });
+
+  describe('NoSnapshotStore_SkipsSnapshotting', () => {
+    it('should process 100+ events without error when no snapshotStore is configured', () => {
+      const materializer = new ViewMaterializer();
+      materializer.register('counter', counterProjection);
+
+      const events = Array.from({ length: 110 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      expect(view.count).toBe(110);
+      expect(view.lastType).toBe('event.110');
+    });
+  });
+
+  describe('SnapshotIntervalNotCrossed_NoSnapshotCreated', () => {
+    it('should not create a snapshot when event count is below the interval', async () => {
+      const snapshotStore = new SnapshotStore(tempDir);
+      const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
+      materializer.register('counter', counterProjection);
+
+      // Process only 10 events (below the 50-event snapshot interval)
+      const events = Array.from({ length: 10 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      // Allow async operations to settle
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');
+      expect(snapshot).toBeUndefined();
     });
   });
 });
