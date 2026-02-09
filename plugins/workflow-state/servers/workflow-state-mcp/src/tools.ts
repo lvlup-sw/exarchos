@@ -17,6 +17,7 @@ import {
   initStateFile,
   readStateFile,
   writeStateFile,
+  writeStateFileUnsafe,
   applyDotPath,
   listStateFiles,
 } from './state-store.js';
@@ -306,6 +307,9 @@ export async function handleCancel(
     };
   }
 
+  // Snapshot for rollback in case write-time validation fails
+  const snapshot = structuredClone(state);
+
   const mutableState = structuredClone(state) as Record<string, unknown>;
   const currentPhase = state.phase;
   const events = (mutableState._events as WorkflowState['_events']) ?? [];
@@ -349,79 +353,94 @@ export async function handleCancel(
     };
   }
 
-  // Apply phase change
-  mutableState.phase = 'cancelled';
+  try {
+    // Apply phase change
+    mutableState.phase = 'cancelled';
 
-  // Build up events: start with existing events + compensation events
-  let updatedEvents = [...events, ...compensationResult.events];
-  let updatedSequence = eventSequence + compensationResult.events.length;
+    // Build up events: start with existing events + compensation events
+    let updatedEvents = [...events, ...compensationResult.events];
+    let updatedSequence = eventSequence + compensationResult.events.length;
 
-  // Append transition events from HSM
-  for (const transitionEvent of transitionResult.events) {
-    const appended = appendEvent(
+    // Append transition events from HSM
+    for (const transitionEvent of transitionResult.events) {
+      const appended = appendEvent(
+        updatedEvents,
+        updatedSequence,
+        transitionEvent.type as WorkflowState['_events'][number]['type'],
+        transitionEvent.trigger,
+        {
+          from: transitionEvent.from,
+          to: transitionEvent.to,
+          metadata: transitionEvent.metadata,
+        },
+      );
+      updatedEvents = appended.events;
+      updatedSequence = appended.eventSequence;
+    }
+
+    // Append cancel event with reason metadata
+    const cancelMetadata: Record<string, unknown> = {};
+    if (input.reason) {
+      cancelMetadata.reason = input.reason;
+    }
+    cancelMetadata.compensationActions = compensationResult.actions.length;
+    cancelMetadata.compensationSuccess = compensationResult.success;
+
+    const cancelAppended = appendEvent(
       updatedEvents,
       updatedSequence,
-      transitionEvent.type as WorkflowState['_events'][number]['type'],
-      transitionEvent.trigger,
+      'cancel',
+      'user-cancel',
       {
-        from: transitionEvent.from,
-        to: transitionEvent.to,
-        metadata: transitionEvent.metadata,
+        from: currentPhase,
+        to: 'cancelled',
+        metadata: cancelMetadata,
       },
     );
-    updatedEvents = appended.events;
-    updatedSequence = appended.eventSequence;
-  }
+    updatedEvents = cancelAppended.events;
+    updatedSequence = cancelAppended.eventSequence;
 
-  // Append cancel event with reason metadata
-  const cancelMetadata: Record<string, unknown> = {};
-  if (input.reason) {
-    cancelMetadata.reason = input.reason;
-  }
-  cancelMetadata.compensationActions = compensationResult.actions.length;
-  cancelMetadata.compensationSuccess = compensationResult.success;
+    mutableState._events = updatedEvents;
+    mutableState._eventSequence = updatedSequence;
 
-  const cancelAppended = appendEvent(
-    updatedEvents,
-    updatedSequence,
-    'cancel',
-    'user-cancel',
-    {
-      from: currentPhase,
-      to: 'cancelled',
-      metadata: cancelMetadata,
-    },
-  );
-  updatedEvents = cancelAppended.events;
-  updatedSequence = cancelAppended.eventSequence;
-
-  mutableState._events = updatedEvents;
-  mutableState._eventSequence = updatedSequence;
-
-  // Apply history updates from transition
-  if (transitionResult.historyUpdates) {
-    const history = { ...(mutableState._history as Record<string, string>) };
-    for (const [key, value] of Object.entries(transitionResult.historyUpdates)) {
-      history[key] = value;
+    // Apply history updates from transition
+    if (transitionResult.historyUpdates) {
+      const history = { ...(mutableState._history as Record<string, string>) };
+      for (const [key, value] of Object.entries(transitionResult.historyUpdates)) {
+        history[key] = value;
+      }
+      mutableState._history = history;
     }
-    mutableState._history = history;
+
+    // Reset checkpoint counter
+    mutableState._checkpoint = resetCounter(
+      mutableState._checkpoint as WorkflowState['_checkpoint'],
+      'cancelled',
+      'Workflow cancelled',
+    );
+
+    // Update timestamp
+    mutableState.updatedAt = new Date().toISOString();
+
+    const checkpoint = mutableState._checkpoint as Record<string, unknown>;
+    checkpoint.lastActivityTimestamp = new Date().toISOString();
+
+    // Write updated state
+    await writeStateFile(stateFile, mutableState as WorkflowState);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(ErrorCode.STATE_CORRUPT)) {
+      // Rollback to pre-mutation snapshot
+      await writeStateFileUnsafe(stateFile, snapshot);
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_CORRUPT,
+          message: `Cancel produced invalid state, rolled back to previous state. ${error.message}`,
+        },
+      };
+    }
+    throw error;
   }
-
-  // Reset checkpoint counter
-  mutableState._checkpoint = resetCounter(
-    mutableState._checkpoint as WorkflowState['_checkpoint'],
-    'cancelled',
-    'Workflow cancelled',
-  );
-
-  // Update timestamp
-  mutableState.updatedAt = new Date().toISOString();
-
-  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
-  checkpoint.lastActivityTimestamp = new Date().toISOString();
-
-  // Write updated state
-  await writeStateFile(stateFile, mutableState as WorkflowState);
 
   return {
     success: true,
