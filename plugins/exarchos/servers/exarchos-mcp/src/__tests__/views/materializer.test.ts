@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -157,6 +157,152 @@ describe('ViewMaterializer', () => {
       expect(viewB2.count).toBe(1);
     });
   });
+
+  describe('hasProjection', () => {
+    it('should return true for a registered projection', () => {
+      materializer.register('counter', counterProjection);
+      expect(materializer.hasProjection('counter')).toBe(true);
+    });
+
+    it('should return false for an unregistered projection', () => {
+      expect(materializer.hasProjection('nonexistent')).toBe(false);
+    });
+
+    it('should return false after checking a name that was never registered', () => {
+      materializer.register('counter', counterProjection);
+      expect(materializer.hasProjection('other')).toBe(false);
+    });
+  });
+
+  describe('getProjection', () => {
+    it('should return the projection for a registered view name', () => {
+      materializer.register('counter', counterProjection);
+      const projection = materializer.getProjection<CounterView>('counter');
+      expect(projection).toBeDefined();
+      expect(projection).toBe(counterProjection);
+    });
+
+    it('should return undefined for an unregistered view name', () => {
+      const projection = materializer.getProjection<CounterView>('nonexistent');
+      expect(projection).toBeUndefined();
+    });
+
+    it('should return the correct projection when multiple are registered', () => {
+      interface OtherView { value: string }
+      const otherProjection: ViewProjection<OtherView> = {
+        init: () => ({ value: '' }),
+        apply: (view, event) => ({ value: event.type }),
+      };
+
+      materializer.register('counter', counterProjection);
+      materializer.register('other', otherProjection);
+
+      expect(materializer.getProjection('counter')).toBe(counterProjection);
+      expect(materializer.getProjection('other')).toBe(otherProjection);
+    });
+  });
+
+  describe('getState', () => {
+    it('should return undefined when no state has been materialized', () => {
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+      expect(state).toBeUndefined();
+    });
+
+    it('should return the cached view state after materialization', () => {
+      materializer.register('counter', counterProjection);
+      const events = [makeEvent(1, 'event.one'), makeEvent(2, 'event.two')];
+      materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+      expect(state).toBeDefined();
+      expect(state!.view.count).toBe(2);
+      expect(state!.view.lastType).toBe('event.two');
+      expect(state!.highWaterMark).toBe(2);
+    });
+
+    it('should return undefined for a different stream that has not been materialized', () => {
+      materializer.register('counter', counterProjection);
+      materializer.materialize<CounterView>('stream-a', 'counter', [makeEvent(1, 'a')]);
+
+      const state = materializer.getState<CounterView>('stream-b', 'counter');
+      expect(state).toBeUndefined();
+    });
+  });
+
+  describe('loadState', () => {
+    it('should load pre-existing state that can be retrieved with getState', () => {
+      const preloaded: CounterView = { count: 100, lastType: 'preloaded' };
+      materializer.loadState('test-stream', 'counter', preloaded, 100);
+
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+      expect(state).toBeDefined();
+      expect(state!.view.count).toBe(100);
+      expect(state!.view.lastType).toBe('preloaded');
+      expect(state!.highWaterMark).toBe(100);
+    });
+
+    it('should allow materialize to continue from loaded state', () => {
+      materializer.register('counter', counterProjection);
+      const preloaded: CounterView = { count: 50, lastType: 'event.50' };
+      materializer.loadState('test-stream', 'counter', preloaded, 50);
+
+      // Feed events 1-55; only 51-55 should be processed incrementally
+      const events = Array.from({ length: 55 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      expect(view.count).toBe(55); // 50 preloaded + 5 new
+      expect(view.lastType).toBe('event.55');
+    });
+
+    it('should overwrite previously loaded state', () => {
+      materializer.loadState('test-stream', 'counter', { count: 10, lastType: 'a' }, 10);
+      materializer.loadState('test-stream', 'counter', { count: 20, lastType: 'b' }, 20);
+
+      const state = materializer.getState<CounterView>('test-stream', 'counter');
+      expect(state!.view.count).toBe(20);
+      expect(state!.highWaterMark).toBe(20);
+    });
+  });
+
+  describe('materialize_WithoutSnapshotStore', () => {
+    it('should work correctly without a snapshot store configured', () => {
+      // Default materializer has no snapshot store
+      materializer.register('counter', counterProjection);
+
+      const events = Array.from({ length: 100 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      // Should not throw even though we exceed the default snapshot interval
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+      expect(view.count).toBe(100);
+      expect(view.lastType).toBe('event.100');
+    });
+  });
+
+  describe('materialize_SnapshotIntervalNotCrossed', () => {
+    it('should not create a snapshot when interval has not been crossed', async () => {
+      const snapshotStore = new SnapshotStore(tmpdir());
+      const saveSpy = vi.spyOn(snapshotStore, 'save');
+
+      const mat = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
+      mat.register('counter', counterProjection);
+
+      // Process only 10 events — well below the 50-event interval
+      const events = Array.from({ length: 10 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      mat.materialize<CounterView>('test-stream', 'counter', events);
+
+      // save should NOT have been called since we're below the interval
+      expect(saveSpy).not.toHaveBeenCalled();
+
+      saveSpy.mockRestore();
+    });
+  });
 });
 
 // ─── A10: View Snapshot Mechanism ──────────────────────────────────────────
@@ -293,6 +439,43 @@ describe('ViewMaterializer with Snapshots', () => {
 
       // Should rebuild from scratch: 10 events processed
       expect(view.count).toBe(10);
+    });
+  });
+
+  describe('NoSnapshotStore_SkipsSnapshotting', () => {
+    it('should process 100+ events without error when no snapshotStore is configured', () => {
+      const materializer = new ViewMaterializer();
+      materializer.register('counter', counterProjection);
+
+      const events = Array.from({ length: 110 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      expect(view.count).toBe(110);
+      expect(view.lastType).toBe('event.110');
+    });
+  });
+
+  describe('SnapshotIntervalNotCrossed_NoSnapshotCreated', () => {
+    it('should not create a snapshot when event count is below the interval', async () => {
+      const snapshotStore = new SnapshotStore(tempDir);
+      const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
+      materializer.register('counter', counterProjection);
+
+      // Process only 10 events (below the 50-event snapshot interval)
+      const events = Array.from({ length: 10 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      // Allow async operations to settle
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');
+      expect(snapshot).toBeUndefined();
     });
   });
 });

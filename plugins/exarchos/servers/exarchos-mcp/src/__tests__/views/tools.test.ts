@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import {
@@ -89,6 +90,31 @@ describe('handleViewWorkflowStatus', () => {
     expect(data.featureId).toBe('');
     expect(data.tasksTotal).toBe(0);
   });
+
+  it('should use default streamId when workflowId is omitted', async () => {
+    await store.append('default', {
+      type: 'workflow.started',
+      data: { featureId: 'default-feature', workflowType: 'feature' },
+    });
+
+    const result = await handleViewWorkflowStatus({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.featureId).toBe('default-feature');
+  });
+
+  it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
+    const result = await handleViewWorkflowStatus(
+      { workflowId: 'INVALID/ID' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toBeTruthy();
+  });
 });
 
 describe('handleViewTeamStatus', () => {
@@ -103,6 +129,37 @@ describe('handleViewTeamStatus', () => {
     expect(teammates).toHaveLength(2);
     expect(teammates[0].name).toBe('agent-1');
     expect(teammates[0].role).toBe('coder');
+  });
+
+  it('should use default streamId when workflowId is omitted', async () => {
+    await store.append('default', {
+      type: 'team.formed',
+      data: {
+        teammates: [
+          { name: 'default-agent', role: 'coder' },
+        ],
+      },
+    });
+
+    const result = await handleViewTeamStatus({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const teammates = data.teammates as Array<{ name: string; role: string }>;
+    expect(teammates).toHaveLength(1);
+    expect(teammates[0].name).toBe('default-agent');
+  });
+
+  it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
+    const result = await handleViewTeamStatus(
+      { workflowId: 'INVALID/ID' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toBeTruthy();
   });
 });
 
@@ -135,6 +192,58 @@ describe('handleViewTasks', () => {
     expect(data).toHaveLength(1);
     expect(data[0].taskId).toBe('t1');
   });
+
+  it('should return all tasks when filter is empty object', async () => {
+    await populateWorkflow('wf-001');
+
+    const result = await handleViewTasks(
+      { workflowId: 'wf-001', filter: {} },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(2);
+  });
+
+  it('should return empty array when filter matches nothing', async () => {
+    await populateWorkflow('wf-001');
+
+    const result = await handleViewTasks(
+      { workflowId: 'wf-001', filter: { status: 'nonexistent-status' } },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(0);
+  });
+
+  it('should use default streamId when workflowId is omitted', async () => {
+    await store.append('default', {
+      type: 'task.assigned',
+      data: { taskId: 'dt1', title: 'Default task', branch: 'feat/default' },
+    });
+
+    const result = await handleViewTasks({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(1);
+    expect(data[0].taskId).toBe('dt1');
+  });
+
+  it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
+    const result = await handleViewTasks(
+      { workflowId: 'INVALID/ID' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toBeTruthy();
+  });
 });
 
 describe('handleViewPipeline', () => {
@@ -164,5 +273,30 @@ describe('handleViewPipeline', () => {
     expect(wf2).toBeDefined();
     expect(wf1!.taskCount).toBe(2);
     expect(wf2!.taskCount).toBe(1);
+  });
+
+  it('should return empty workflows array when no event streams exist', async () => {
+    const result = await handleViewPipeline({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(0);
+  });
+
+  it('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
+    // Create an events file with uppercase characters in the name,
+    // which will cause assertSafeId to throw in SnapshotStore
+    await fs.writeFile(
+      path.join(tempDir, 'INVALID_STREAM.events.jsonl'),
+      JSON.stringify({ type: 'workflow.started', sequence: 1, streamId: 'INVALID_STREAM', timestamp: new Date().toISOString(), data: {} }) + '\n',
+    );
+
+    const result = await handleViewPipeline({}, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VIEW_ERROR');
+    expect(result.error!.message).toBeTruthy();
   });
 });
