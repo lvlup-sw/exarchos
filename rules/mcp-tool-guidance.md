@@ -15,7 +15,7 @@ Persistent state machine for workflow orchestration. **Always use for workflow t
 | `workflow_set` | Updating phase, recording artifacts, marking tasks complete |
 | `workflow_summary` | Quick context restoration after session restart |
 | `workflow_next_action` | Determining what to auto-continue after phase completion |
-| `workflow_reconcile` | Verifying state matches git reality on resume |
+| `workflow_reconcile` | Verifying state matches git reality on resume; with `repair: true`, auto-fixes common corruption (missing `_events`, invalid `_eventSequence`, null `_checkpoint`, bad task statuses) |
 | `workflow_checkpoint` | Saving progress before likely context exhaustion |
 | `workflow_cancel` | Cleaning up abandoned workflows |
 | `workflow_transitions` | Checking valid phase transitions |
