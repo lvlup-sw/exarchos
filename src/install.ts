@@ -76,6 +76,13 @@ export async function configureMcpServers(
     ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
+  // Add Graphite MCP server (stacked PRs and merge queue)
+  config.mcpServers['graphite'] = {
+    type: 'stdio',
+    command: 'gt',
+    args: ['mcp']
+  };
+
   // Write config
   writeFileSync(configPath, JSON.stringify(config, null, 2));
   console.log(`  [done] Configured MCP servers in ${configPath}`);
@@ -92,6 +99,7 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
 
   if (config.mcpServers) {
     delete config.mcpServers['workflow-state'];
+    delete config.mcpServers['graphite'];
   }
 
   writeFileSync(configPath, JSON.stringify(config, null, 2));

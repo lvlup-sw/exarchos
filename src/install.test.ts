@@ -146,7 +146,7 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should only add workflow-state server', async () => {
+  it('should add workflow-state server', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
@@ -168,6 +168,18 @@ describe('configureMcpServers', () => {
     );
   });
 
+  it('should add graphite server', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['graphite']).toBeDefined();
+    expect(config.mcpServers['graphite'].type).toBe('stdio');
+    expect(config.mcpServers['graphite'].command).toBe('gt');
+    expect(config.mcpServers['graphite'].args).toEqual(['mcp']);
+  });
+
   it('should preserve existing mcpServers when merging', async () => {
     const { configureMcpServers } = await import('./install.js');
     writeFileSync(
@@ -185,6 +197,7 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers.existingServer).toBeDefined();
     expect(config.mcpServers.existingServer.command).toBe('existing');
     expect(config.mcpServers['workflow-state']).toBeDefined();
+    expect(config.mcpServers['graphite']).toBeDefined();
   });
 });
 
@@ -203,7 +216,7 @@ describe('removeMcpConfig', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should remove workflow-state from config', async () => {
+  it('should remove workflow-state and graphite from config', async () => {
     const { removeMcpConfig, configureMcpServers } = await import('./install.js');
     await configureMcpServers(configPath, repoRoot);
 
@@ -211,12 +224,13 @@ describe('removeMcpConfig', () => {
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['workflow-state']).toBeUndefined();
+    expect(config.mcpServers['graphite']).toBeUndefined();
   });
 
   it('should preserve other config when removing servers', async () => {
     writeFileSync(configPath, JSON.stringify({
       existingKey: 'value',
-      mcpServers: { 'workflow-state': {}, other: {} }
+      mcpServers: { 'workflow-state': {}, graphite: {}, other: {} }
     }));
     const { removeMcpConfig } = await import('./install.js');
 

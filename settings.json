@@ -12,6 +12,7 @@
       "WebSearch",
       "WebFetch",
       "mcp__*",
+      "Bash(gt:*)",
       "Bash(gh:*)",
       "Bash(git:*)",
       "Bash(npm:*)",

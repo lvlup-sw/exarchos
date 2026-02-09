@@ -69,6 +69,14 @@ Up-to-date library documentation. **Use instead of web search for library/framew
 
 **Proactive use:** When writing code that uses external libraries, query Context7 for current API docs rather than relying on training data which may be outdated.
 
+### Graphite (`graphite`)
+
+Stacked PR management and merge queue. **Use for all PR stacking and submission.**
+
+The Graphite MCP exposes the `gt` CLI's stacking functionality to agents. Use it for creating stacked PRs, restacking, and enqueuing merges.
+
+**Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/delegate` with multiple tasks), use Graphite MCP tools for stack management rather than raw git commands.
+
 ### Microsoft Docs (`mcp__plugin_microsoft-docs_microsoft-learn__*`)
 
 Official Microsoft/Azure documentation. **Use for any Microsoft technology questions.**
@@ -88,8 +96,9 @@ When deciding which tool to use:
 1. **Workflow tracking** — Always use workflow-state MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
 3. **GitHub operations** — Use GitHub MCP for structured data; fall back to `gh` CLI only for operations not covered by MCP tools
-4. **Library docs** — Use Context7 before web search for library documentation
-5. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
+4. **Stacked PRs** — Use Graphite MCP for stack management, PR submission, and merge queue
+5. **Library docs** — Use Context7 before web search for library documentation
+6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
 
 ## Anti-Patterns
 
