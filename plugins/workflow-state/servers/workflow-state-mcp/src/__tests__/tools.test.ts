@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,6 +15,7 @@ import {
   handleCheckpoint,
 } from '../tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../state-store.js';
+import * as stateStore from '../state-store.js';
 import type { WorkflowState } from '../types.js';
 
 let tmpDir: string;
@@ -1210,5 +1211,58 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
     expect(data._events).toBeUndefined();
     expect(data.synthesis).toBeUndefined();
     expect(data.artifacts).toBeUndefined();
+  });
+});
+
+// ─── Cancel Rollback Tests ──────────────────────────────────────────────────
+
+describe('ToolCancel_ValidationFailure_RollsBackToPreviousState', () => {
+  it('should rollback to pre-cancel state when writeStateFile throws STATE_CORRUPT', async () => {
+    // Arrange: create workflow and advance to plan phase
+    await handleInit({ featureId: 'cancel-rb', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'cancel-rb', updates: { 'artifacts.design': 'docs/d.md' }, phase: 'plan' },
+      tmpDir,
+    );
+
+    // Read state before cancel attempt
+    const stateBefore = await readStateFile(path.join(tmpDir, 'cancel-rb.state.json'));
+    expect(stateBefore.phase).toBe('plan');
+
+    // Mock writeStateFile to throw STATE_CORRUPT on the next call
+    const writeSpy = vi.spyOn(stateStore, 'writeStateFile').mockRejectedValueOnce(
+      new Error('STATE_CORRUPT: Write-time validation failed: phase: Invalid'),
+    );
+
+    // Act
+    const result = await handleCancel({ featureId: 'cancel-rb' }, tmpDir);
+
+    // Assert: operation reports failure with rollback info
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATE_CORRUPT');
+    expect(result.error?.message).toContain('rolled back');
+
+    // Verify state on disk is restored to pre-cancel state
+    const stateAfter = await readStateFile(path.join(tmpDir, 'cancel-rb.state.json'));
+    expect(stateAfter.phase).toBe('plan'); // Not cancelled
+
+    writeSpy.mockRestore();
+  });
+
+  it('should re-throw non-STATE_CORRUPT errors without rollback', async () => {
+    // Arrange: create workflow
+    await handleInit({ featureId: 'cancel-rethrow', workflowType: 'feature' }, tmpDir);
+
+    // Mock writeStateFile to throw a generic error
+    const writeSpy = vi.spyOn(stateStore, 'writeStateFile').mockRejectedValueOnce(
+      new Error('FILE_IO_ERROR: Disk full'),
+    );
+
+    // Act & Assert: non-STATE_CORRUPT errors should be re-thrown
+    await expect(
+      handleCancel({ featureId: 'cancel-rethrow' }, tmpDir),
+    ).rejects.toThrow('FILE_IO_ERROR: Disk full');
+
+    writeSpy.mockRestore();
   });
 });
