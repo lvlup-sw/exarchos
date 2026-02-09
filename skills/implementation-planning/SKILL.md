@@ -71,6 +71,13 @@ Each task follows this structure:
 
 ### Step 1: Analyze Design Document
 
+#### MCP-Assisted Analysis
+
+- **Verify structure:** `serena__get_symbols_overview` to check existing code matches design assumptions
+- **Check existing types:** `serena__find_symbol` to see if interfaces/types already exist
+- **Impact assessment:** `serena__find_referencing_symbols` for change impact on callers
+- **API verification:** `context7__query-docs` for library docs + `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
+
 Read the design document thoroughly. For each major section, extract:
 - **Problem Statement** → Context (no tasks, but informs scope)
 - **Chosen Approach** → Architectural decisions to implement

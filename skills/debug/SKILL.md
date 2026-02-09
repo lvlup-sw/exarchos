@@ -123,6 +123,14 @@ Use mcp__exarchos__exarchos_workflow_set with featureId:
 
 Use `@skills/debug/references/investigation-checklist.md`.
 
+**MCP-Assisted Investigation:**
+- **Locate function:** `serena__find_symbol` to find the failing code quickly
+- **Trace call chain:** `serena__find_referencing_symbols` for callers
+- **Module structure:** `serena__get_symbols_overview` around the bug area
+- **Regex search:** `serena__search_for_pattern` when symbol name is unknown
+- **Framework behavior:** `context7__query-docs` to verify expected library behavior
+- **Microsoft docs:** `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
+
 **Time-boxed to 15 minutes.** At 15 min checkpoint:
 - Root cause found -> Continue to implement
 - Root cause NOT found -> Switch to thorough track
@@ -229,6 +237,14 @@ Use mcp__exarchos__exarchos_workflow_set with featureId:
 
 Use `@skills/debug/references/investigation-checklist.md`.
 
+**MCP-Assisted Investigation:**
+- **Locate function:** `serena__find_symbol` to find the failing code quickly
+- **Trace call chain:** `serena__find_referencing_symbols` for callers
+- **Module structure:** `serena__get_symbols_overview` around the bug area
+- **Regex search:** `serena__search_for_pattern` when symbol name is unknown
+- **Framework behavior:** `context7__query-docs` to verify expected library behavior
+- **Microsoft docs:** `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
+
 No time limit. Be thorough:
 - Use Task tool with Explore agent for complex investigation
 - Document all findings
@@ -309,7 +325,7 @@ Create PR via Graphite MCP:
 
 ```
 # Stage and create branch with fix commit
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
+mcp__graphite__run_gt_cmd({ args: ["create", "--all", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
 
 # Submit to create the PR
 mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
@@ -441,5 +457,5 @@ When Exarchos MCP tools are available, emit events throughout the debug workflow
 2. **On track selection:** `exarchos_event_append` → `phase.transitioned` with selected track (hotfix/thorough)
 3. **On each phase transition:** `exarchos_event_append` → `phase.transitioned` from→to
 4. **Thorough track stacking:** Handled by `/synthesize` (Graphite stack submission)
-5. **Hotfix track commit:** Single `gt create -m "fix: <description>"` — no multi-branch stacking needed
+5. **Hotfix track commit:** Single `gt create --all -m "fix: <description>"` — no multi-branch stacking needed
 6. **On complete:** `exarchos_event_append` → `phase.transitioned` to "completed"

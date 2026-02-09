@@ -52,6 +52,13 @@ Activate this skill when:
 **Best when:** [Scenario where this option excels]
 ```
 
+**MCP-Assisted Exploration:**
+- **Code structure:** `serena__get_symbols_overview` on relevant modules before reading full files
+- **Find symbols:** `serena__find_symbol` to locate classes/interfaces by name (faster than grep)
+- **Trace callers:** `serena__find_referencing_symbols` to understand API consumers before proposing changes
+- **Library docs:** `context7__resolve-library-id` + `context7__query-docs` for current API docs
+- **Microsoft docs:** `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
+
 **Rules:**
 - Present genuinely different approaches (not variations of same idea)
 - Be honest about trade-offs

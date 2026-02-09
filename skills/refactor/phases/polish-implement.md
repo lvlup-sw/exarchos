@@ -98,11 +98,8 @@ For each logical change:
 # After each change
 npm run test:run
 
-# Commit
-git add <files>
-git commit -m "refactor: <description>
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+# Commit via Graphite (creates branch + commit in one step)
+mcp__graphite__run_gt_cmd({ args: ["create", "--all", "-m", "refactor: <description>"], cwd: "<repo-root>" })
 ```
 
 Log the change using `mcp__exarchos__exarchos_workflow_set`:

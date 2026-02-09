@@ -142,9 +142,8 @@ if [[ -n "$API_FILES_MODIFIED" ]]; then
   # Verify types
   npm run typecheck
 
-  # Stage generated files
-  git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
-  git commit -m "chore: regenerate TypeScript types from OpenAPI" || true
+  # Commit generated files via Graphite
+  mcp__graphite__run_gt_cmd({ args: ["create", "--all", "-m", "chore: regenerate TypeScript types from OpenAPI"], cwd: "$(pwd)" })
 fi
 ```
 
@@ -402,7 +401,7 @@ When Exarchos MCP tools are available, emit events during delegation:
    - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record the stack position
    - Use `mcp__graphite__run_gt_cmd` to create the stacked branch:
      ```
-     mcp__graphite__run_gt_cmd({ args: ["create", "-m", "<task-title>"], cwd: "<worktree-path>" })
+     mcp__graphite__run_gt_cmd({ args: ["create", "--all", "-m", "<task-title>"], cwd: "<worktree-path>" })
      ```
    - Submit the stack to create/update PRs:
      ```

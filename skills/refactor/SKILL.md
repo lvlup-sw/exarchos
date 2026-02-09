@@ -96,6 +96,14 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 - Documentation that needs updates
 - Confirm polish is appropriate
 
+**MCP-Assisted Exploration:**
+- **Module overview:** `serena__get_symbols_overview` on target modules to map structure before reading files
+- **Find types:** `serena__find_symbol` to locate classes/interfaces by name
+- **Impact analysis:** `serena__find_referencing_symbols` to identify all callers before modifying APIs
+- **Pattern search:** `serena__search_for_pattern` when symbol name is unknown
+- **Library docs:** `context7__query-docs` to verify expected library behavior
+- **Microsoft docs:** `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
+
 Update state using MCP tools:
 1. Use `mcp__exarchos__exarchos_workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
 2. Use `mcp__exarchos__exarchos_workflow_set` to set track, phase, and explore scope assessment
@@ -120,14 +128,20 @@ Update state using `mcp__exarchos__exarchos_workflow_set` to set the `brief` obj
 
 **Orchestrator may write code directly** (polish track exception).
 
+**MCP-Assisted Editing:**
+- **Replace symbol:** `serena__replace_symbol_body` to rewrite entire methods/classes
+- **Rename:** `serena__rename_symbol` for cross-file renames with reference updates
+- **Insert code:** `serena__insert_before_symbol` / `serena__insert_after_symbol` for adding new code
+- **Regex replace:** `serena__replace_content` for targeted line-level changes within a method
+
 Constraints:
 - Follow TDD (write/update test first if behavior changes)
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
 When done, commit via Graphite:
-```typescript
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
+```
+mcp__graphite__run_gt_cmd({ args: ["create", "--all", "-m", "refactor: <description>"], cwd: "<repo-root>" })
 ```
 
 Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "polish-validate".
@@ -198,6 +212,14 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 - Assess test coverage of affected areas
 - Identify documentation that will need updates
 - Map dependencies and impact
+
+**MCP-Assisted Exploration:**
+- **Module overview:** `serena__get_symbols_overview` on target modules to map structure before reading files
+- **Find types:** `serena__find_symbol` to locate classes/interfaces by name
+- **Impact analysis:** `serena__find_referencing_symbols` to identify all callers before modifying APIs
+- **Pattern search:** `serena__search_for_pattern` when symbol name is unknown
+- **Library docs:** `context7__query-docs` to verify expected library behavior
+- **Microsoft docs:** `microsoft-learn__microsoft_docs_search` for official Microsoft product/framework/tool documentation
 
 Update state using MCP tools:
 1. Use `mcp__exarchos__exarchos_workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
@@ -528,6 +550,6 @@ When Exarchos MCP tools are available, emit events throughout the refactor workf
 1. **At workflow start (explore):** `exarchos_event_append` → `workflow.started` with workflowType "refactor"
 2. **On track selection:** `exarchos_event_append` → `phase.transitioned` with selected track (polish/overhaul)
 3. **On each phase transition:** `exarchos_event_append` → `phase.transitioned` from→to
-4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
-5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
+4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` via Bash per implementer prompt)
+5. **Polish track commit:** Single `gt create --all -m "refactor: <description>"` — no multi-branch stacking needed
 6. **On complete:** `exarchos_event_append` → `phase.transitioned` to "completed"
