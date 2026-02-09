@@ -43,6 +43,13 @@ import {
   handleStackStatus,
   handleStackPlace,
 } from './stack/tools.js';
+import { loadSyncConfig } from './sync/config.js';
+import { BasileusClient } from './sync/client.js';
+import { Outbox } from './sync/outbox.js';
+import { SyncStateManager } from './sync/sync-state.js';
+import { ConflictResolver } from './sync/conflict.js';
+import { SyncEngine } from './sync/engine.js';
+import { EventStore } from './event-store/store.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -452,12 +459,98 @@ export function createServer(stateDir: string): McpServer {
     },
   );
 
-  // Sync
+  // ─── Sync Tool ────────────────────────────────────────────────────────
+
   server.tool(
     'exarchos_sync_now',
-    'Trigger immediate sync with remote',
-    {},
-    async () => stubResult(),
+    'Trigger immediate bidirectional sync with remote Basileus instance',
+    {
+      stream: z.string().optional(),
+      direction: z.enum(['push', 'pull', 'both']).optional(),
+    },
+    async (args) => {
+      const syncConfig = loadSyncConfig(stateDir);
+
+      if (syncConfig.mode === 'local') {
+        return formatResult({
+          success: false,
+          error: {
+            code: 'LOCAL_MODE',
+            message: 'Sync is disabled in local mode. Configure remote API settings to enable sync.',
+          },
+        });
+      }
+
+      if (!syncConfig.remote) {
+        return formatResult({
+          success: false,
+          error: {
+            code: 'NO_REMOTE_CONFIG',
+            message: 'Remote configuration is missing.',
+          },
+        });
+      }
+
+      try {
+        const client = new BasileusClient(syncConfig.remote);
+        const eventStore = new EventStore(stateDir);
+        const outbox = new Outbox(stateDir);
+        const syncState = new SyncStateManager(stateDir);
+        const conflictResolver = new ConflictResolver();
+        const engine = new SyncEngine(
+          client,
+          eventStore,
+          outbox,
+          conflictResolver,
+          syncState,
+          syncConfig,
+        );
+
+        const direction = args.direction ?? 'both';
+
+        if (args.stream) {
+          // Sync a specific stream
+          const result = await engine.sync(args.stream, direction);
+          return formatResult({
+            success: true,
+            data: {
+              stream: args.stream,
+              direction,
+              ...result,
+            },
+          });
+        }
+
+        // Sync all active streams (find by listing event files)
+        const fs = await import('node:fs/promises');
+        const files = await fs.readdir(stateDir).catch(() => []);
+        const streams = files
+          .filter((f: string) => f.endsWith('.events.jsonl'))
+          .map((f: string) => f.replace('.events.jsonl', ''));
+
+        const results: Record<string, unknown> = {};
+        for (const streamId of streams) {
+          results[streamId] = await engine.sync(streamId, direction);
+        }
+
+        return formatResult({
+          success: true,
+          data: {
+            direction,
+            streams: results,
+            syncedCount: Object.keys(results).length,
+          },
+        });
+      } catch (err) {
+        return formatResult({
+          success: false,
+          error: {
+            code: 'SYNC_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        });
+      }
+    },
   );
 
   return server;

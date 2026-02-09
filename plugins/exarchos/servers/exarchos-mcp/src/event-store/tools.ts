@@ -1,5 +1,7 @@
 import { EventStore, SequenceConflictError } from './store.js';
 import type { WorkflowEvent, EventType } from './schemas.js';
+import { Outbox } from '../sync/outbox.js';
+import { loadSyncConfig } from '../sync/config.js';
 
 // ─── Tool Result Type ───────────────────────────────────────────────────────
 
@@ -66,6 +68,17 @@ export async function handleEventAppend(
         ? { expectedSequence: args.expectedSequence }
         : undefined,
     );
+
+    // Dual-write to outbox if sync mode is not local
+    try {
+      const syncConfig = loadSyncConfig(stateDir);
+      if (syncConfig.mode !== 'local') {
+        const outbox = new Outbox(stateDir);
+        await outbox.addEntry(args.stream, event);
+      }
+    } catch {
+      // Outbox write failure should not fail the primary append
+    }
 
     return { success: true, data: event };
   } catch (err) {

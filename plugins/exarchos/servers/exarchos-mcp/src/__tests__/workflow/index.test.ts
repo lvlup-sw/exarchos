@@ -260,26 +260,19 @@ describe('MCP Server Entry Point', () => {
     });
   });
 
-  describe('stub tools', () => {
-    it('should return NOT_IMPLEMENTED for stub tools', async () => {
+  describe('sync tool', () => {
+    it('should return LOCAL_MODE when no remote config is set', async () => {
       createServer('/tmp/test-state-dir');
 
-      const stubTools = [
-        'exarchos_sync_now',
-      ];
+      const handler = toolRegistrations.get('exarchos_sync_now')!.handler;
+      const result = await handler({});
 
-      for (const toolName of stubTools) {
-        const handler = toolRegistrations.get(toolName)!.handler;
-        const result = await handler({});
+      const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
+      expect(typedResult.isError).toBe(true);
 
-        const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
-        expect(typedResult.isError).toBe(true);
-
-        const parsed = JSON.parse(typedResult.content[0].text);
-        expect(parsed.success).toBe(false);
-        expect(parsed.error.code).toBe('NOT_IMPLEMENTED');
-        expect(parsed.error.message).toBe('Coming soon');
-      }
+      const parsed = JSON.parse(typedResult.content[0].text);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error.code).toBe('LOCAL_MODE');
     });
 
     it('should register implemented team and task tools', async () => {
