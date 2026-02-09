@@ -246,6 +246,7 @@ export const SummaryInputSchema = z.object({
 
 export const ReconcileInputSchema = z.object({
   featureId: FeatureIdSchema,
+  repair: z.boolean().optional().default(false),
 });
 
 export const NextActionInputSchema = z.object({
