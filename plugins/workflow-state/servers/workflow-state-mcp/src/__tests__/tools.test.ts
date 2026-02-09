@@ -694,6 +694,233 @@ describe('Query Tools', () => {
     });
   });
 
+  // ─── ToolReconcile — Validation Checks ────────────────────────────────────
+
+  describe('handleReconcile_ValidState_ReturnsNoIssues', () => {
+    it('should return valid: true, issues: [], repaired: false for a valid state', async () => {
+      await handleInit({ featureId: 'reconcile-valid', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleReconcile({ featureId: 'reconcile-valid', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(true);
+      expect(data.issues).toEqual([]);
+      expect(data.repaired).toBe(false);
+      expect(data.worktrees).toBeDefined();
+      expect(Array.isArray(data.worktrees)).toBe(true);
+    });
+  });
+
+  describe('handleReconcile_InvalidPhaseEnum_ReportsIssue', () => {
+    it('should report an issue when phase has invalid value', async () => {
+      await handleInit({ featureId: 'reconcile-phase', workflowType: 'feature' }, tmpDir);
+
+      // Manually corrupt the phase
+      const stateFile = path.join(tmpDir, 'reconcile-phase.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.phase = 'nonexistent';
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'reconcile-phase', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false);
+      const issues = data.issues as Array<Record<string, unknown>>;
+      expect(issues.length).toBeGreaterThan(0);
+      // At least one issue should reference "phase"
+      const phaseIssue = issues.find((i) => (i.path as string).includes('phase'));
+      expect(phaseIssue).toBeDefined();
+      expect(phaseIssue?.severity).toBe('error');
+      expect(phaseIssue?.repaired).toBe(false);
+    });
+  });
+
+  describe('handleReconcile_MissingRequiredTaskFields_ReportsIssue', () => {
+    it('should report issue when task is missing status field', async () => {
+      await handleInit({ featureId: 'reconcile-task', workflowType: 'feature' }, tmpDir);
+
+      // Manually corrupt a task
+      const stateFile = path.join(tmpDir, 'reconcile-task.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.tasks = [{ id: 'task-1', title: 'Missing status' }]; // no status field
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'reconcile-task', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false);
+      const issues = data.issues as Array<Record<string, unknown>>;
+      expect(issues.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('handleReconcile_InvalidEventSequence_ReportsIssue', () => {
+    it('should report issue when _eventSequence is negative', async () => {
+      await handleInit({ featureId: 'reconcile-seq', workflowType: 'feature' }, tmpDir);
+
+      // Manually corrupt _eventSequence
+      const stateFile = path.join(tmpDir, 'reconcile-seq.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw._eventSequence = -1;
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'reconcile-seq', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false);
+      const issues = data.issues as Array<Record<string, unknown>>;
+      expect(issues.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── ToolReconcile — Repair Mode ──────────────────────────────────────────
+
+  describe('handleReconcile_MissingFields_RepairInjectsDefaults', () => {
+    it('should repair corrupt _events (non-array) when repair: true', async () => {
+      await handleInit({ featureId: 'repair-events', workflowType: 'feature' }, tmpDir);
+
+      // Set _events to a non-array value to cause Zod failure
+      const stateFile = path.join(tmpDir, 'repair-events.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw._events = 'corrupt';
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'repair-events', repair: true }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false); // Was invalid before repair
+      expect(data.repaired).toBe(true);
+
+      const issues = data.issues as Array<Record<string, unknown>>;
+      const eventsIssue = issues.find((i) => (i.path as string).includes('_events'));
+      expect(eventsIssue).toBeDefined();
+      expect(eventsIssue?.repaired).toBe(true);
+    });
+  });
+
+  describe('handleReconcile_InvalidTaskStatus_RepairResetsToPending', () => {
+    it('should reset invalid task status to pending when repair: true', async () => {
+      await handleInit({ featureId: 'repair-task', workflowType: 'feature' }, tmpDir);
+
+      // Write task with invalid status
+      const stateFile = path.join(tmpDir, 'repair-task.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.tasks = [{ id: 'task-1', title: 'Bad status', status: 'bogus' }];
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'repair-task', repair: true }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.repaired).toBe(true);
+
+      // Verify on disk that task status was repaired
+      const repairedRaw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      expect(repairedRaw.tasks[0].status).toBe('pending');
+    });
+  });
+
+  describe('handleReconcile_MultipleIssues_RepairsAll', () => {
+    it('should repair multiple issues in a single pass', async () => {
+      await handleInit({ featureId: 'repair-multi', workflowType: 'feature' }, tmpDir);
+
+      // Corrupt multiple fields with values that cause Zod failures
+      const stateFile = path.join(tmpDir, 'repair-multi.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw._events = 'corrupt';  // Non-array causes Zod failure
+      raw._eventSequence = -1;  // Negative causes Zod failure (min: 0)
+      raw._checkpoint = null;   // null causes Zod failure
+      raw.tasks = [{ id: 'task-1', title: 'Bad', status: 'bogus' }];
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'repair-multi', repair: true }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.repaired).toBe(true);
+
+      const issues = data.issues as Array<Record<string, unknown>>;
+      const repairedIssues = issues.filter((i) => i.repaired === true);
+      expect(repairedIssues.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('handleReconcile_UnparseableJSON_ReportsCorruptFile', () => {
+    it('should return valid: false with JSON parse issue for non-JSON content', async () => {
+      // Write non-JSON content to the state file path
+      const stateFile = path.join(tmpDir, 'corrupt-json.state.json');
+      await fs.writeFile(stateFile, 'this is not valid JSON!!!', 'utf-8');
+
+      const result = await handleReconcile({ featureId: 'corrupt-json', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false);
+      expect(data.repaired).toBe(false);
+
+      const issues = data.issues as Array<Record<string, unknown>>;
+      expect(issues.length).toBe(1);
+      expect(issues[0].message).toContain('invalid JSON');
+      expect(issues[0].severity).toBe('error');
+    });
+  });
+
+  describe('handleReconcile_ReportOnly_DoesNotModifyFile', () => {
+    it('should NOT modify the file on disk when repair: false', async () => {
+      await handleInit({ featureId: 'no-modify', workflowType: 'feature' }, tmpDir);
+
+      // Corrupt state
+      const stateFile = path.join(tmpDir, 'no-modify.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw.tasks = [{ id: 'task-1', title: 'Bad', status: 'bogus' }];
+      raw._eventSequence = -1;
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      // Read raw bytes before reconcile
+      const bytesBefore = await fs.readFile(stateFile, 'utf-8');
+
+      // Reconcile with repair: false (report-only)
+      const result = await handleReconcile({ featureId: 'no-modify', repair: false }, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.valid).toBe(false);
+      expect(data.repaired).toBe(false);
+
+      // Read raw bytes after reconcile — must be identical
+      const bytesAfter = await fs.readFile(stateFile, 'utf-8');
+      expect(bytesAfter).toBe(bytesBefore);
+    });
+  });
+
+  describe('handleReconcile_RepairProducesSchemaValidState', () => {
+    it('should produce a schema-valid state after repair that readStateFile can read', async () => {
+      await handleInit({ featureId: 'repair-valid', workflowType: 'feature' }, tmpDir);
+
+      // Corrupt state with values that cause Zod failures
+      const stateFile = path.join(tmpDir, 'repair-valid.state.json');
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      raw._events = 'not-an-array';
+      raw._eventSequence = -1;
+      raw.tasks = [{ id: 'task-1', title: 'Bad', status: 'bogus' }];
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      // Repair
+      await handleReconcile({ featureId: 'repair-valid', repair: true }, tmpDir);
+
+      // readStateFile should now succeed without throwing
+      const state = await readStateFile(stateFile);
+      expect(state.featureId).toBe('repair-valid');
+      expect(state._events).toEqual([]);
+      expect(state._eventSequence).toBe(0);
+    });
+  });
+
   // ─── ToolNextAction ───────────────────────────────────────────────────────
 
   describe('ToolNextAction_NonExistentWorkflow_ReturnsNotFound', () => {

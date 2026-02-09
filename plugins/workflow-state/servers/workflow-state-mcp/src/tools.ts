@@ -12,7 +12,7 @@ import type {
   CheckpointMeta,
   WorkflowState,
 } from './types.js';
-import { ErrorCode, isReservedField } from './schemas.js';
+import { ErrorCode, WorkflowStateSchema, isReservedField } from './schemas.js';
 import {
   initStateFile,
   readStateFile,
@@ -717,6 +717,15 @@ export async function handleSummary(
   };
 }
 
+// ─── Reconcile Issue Interface ──────────────────────────────────────────────
+
+interface ReconcileIssue {
+  readonly path: string;
+  readonly message: string;
+  readonly severity: 'error' | 'warning';
+  repaired: boolean;
+}
+
 // ─── handleReconcile ────────────────────────────────────────────────────────
 
 export async function handleReconcile(
@@ -725,12 +734,12 @@ export async function handleReconcile(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // Read validated state for metadata and checkpoint
-  let state: WorkflowState;
+  // Step 1: Read raw file content (bypass readStateFile which throws on corrupt state)
+  let rawContent: string;
   try {
-    state = await readStateFile(stateFile);
+    rawContent = await fs.readFile(stateFile, 'utf-8');
   } catch (err) {
-    if (err instanceof Error && err.message.includes(ErrorCode.STATE_NOT_FOUND)) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
       return {
         success: false,
         error: {
@@ -742,8 +751,126 @@ export async function handleReconcile(
     throw err;
   }
 
-  // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
-  const worktrees = state.worktrees as Record<
+  // Step 2: Parse JSON (handle unparseable JSON gracefully)
+  let rawState: Record<string, unknown>;
+  try {
+    rawState = JSON.parse(rawContent) as Record<string, unknown>;
+  } catch {
+    return {
+      success: true,
+      data: {
+        featureId: input.featureId,
+        valid: false,
+        issues: [{
+          path: '',
+          message: 'File contains invalid JSON',
+          severity: 'error' as const,
+          repaired: false,
+        }],
+        repaired: false,
+        worktrees: [],
+      },
+    };
+  }
+
+  // Step 3: Validate with WorkflowStateSchema.safeParse()
+  const parseResult = WorkflowStateSchema.safeParse(rawState);
+
+  // Step 4: Map Zod issues to structured array
+  const issues: ReconcileIssue[] = [];
+  if (!parseResult.success) {
+    for (const zodIssue of parseResult.error.issues) {
+      issues.push({
+        path: zodIssue.path.join('.'),
+        message: zodIssue.message,
+        severity: 'error',
+        repaired: false,
+      });
+    }
+  }
+
+  const valid = parseResult.success;
+
+  // Step 5: Repair mode
+  let repaired = false;
+  if (input.repair && issues.length > 0) {
+    // Apply repairs for common corruption patterns
+    if (!Array.isArray(rawState._events)) {
+      rawState._events = [];
+      markIssueRepaired(issues, '_events');
+      repaired = true;
+    }
+
+    if (rawState._eventSequence === undefined || rawState._eventSequence === null) {
+      rawState._eventSequence = 0;
+      markIssueRepaired(issues, '_eventSequence');
+      repaired = true;
+    } else if (typeof rawState._eventSequence === 'string') {
+      const parsed = Number(rawState._eventSequence);
+      if (!isNaN(parsed) && parsed >= 0) {
+        rawState._eventSequence = parsed;
+      } else {
+        rawState._eventSequence = 0;
+      }
+      markIssueRepaired(issues, '_eventSequence');
+      repaired = true;
+    } else if (typeof rawState._eventSequence === 'number' && rawState._eventSequence < 0) {
+      rawState._eventSequence = 0;
+      markIssueRepaired(issues, '_eventSequence');
+      repaired = true;
+    }
+
+    if (rawState._checkpoint === undefined || rawState._checkpoint === null || typeof rawState._checkpoint !== 'object') {
+      const now = new Date().toISOString();
+      rawState._checkpoint = {
+        timestamp: now,
+        phase: (rawState.phase as string) ?? 'init',
+        summary: 'Repaired by reconcile',
+        operationsSince: 0,
+        fixCycleCount: 0,
+        lastActivityTimestamp: now,
+        staleAfterMinutes: 120,
+      };
+      markIssueRepaired(issues, '_checkpoint');
+      repaired = true;
+    }
+
+    if (rawState._history === undefined || rawState._history === null || typeof rawState._history !== 'object' || Array.isArray(rawState._history)) {
+      rawState._history = {};
+      markIssueRepaired(issues, '_history');
+      repaired = true;
+    }
+
+    // Repair invalid task statuses
+    const tasks = rawState.tasks;
+    if (Array.isArray(tasks)) {
+      const validStatuses = new Set(['pending', 'in_progress', 'complete', 'failed']);
+      for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i] as Record<string, unknown> | undefined;
+        if (task && typeof task === 'object') {
+          if (task.status !== undefined && !validStatuses.has(task.status as string)) {
+            task.status = 'pending';
+            markIssueRepaired(issues, `tasks.${i}.status`);
+            repaired = true;
+          }
+        }
+      }
+    }
+
+    // After repair: re-validate and write if valid
+    if (repaired) {
+      const revalidation = WorkflowStateSchema.safeParse(rawState);
+      if (revalidation.success) {
+        // Write repaired state to disk atomically
+        const tmpPath = `${stateFile}.tmp.${process.pid}`;
+        await fs.writeFile(tmpPath, JSON.stringify(revalidation.data, null, 2), 'utf-8');
+        await fs.rename(tmpPath, stateFile);
+      }
+    }
+  }
+
+  // Step 6: Worktree reconciliation (use raw parsed state or validated state)
+  const worktrees = (rawState.worktrees ?? {}) as Record<
     string,
     { branch: string; taskId: string; status: string; path?: string }
   >;
@@ -751,6 +878,8 @@ export async function handleReconcile(
   const worktreeResults: Array<Record<string, unknown>> = [];
 
   for (const [id, wt] of Object.entries(worktrees)) {
+    if (typeof wt !== 'object' || wt === null) continue;
+
     let pathStatus: 'OK' | 'MISSING' | 'NO_PATH' = 'NO_PATH';
 
     if (wt.path) {
@@ -775,11 +904,24 @@ export async function handleReconcile(
   return {
     success: true,
     data: {
-      featureId: state.featureId,
+      featureId: input.featureId,
+      valid,
+      issues,
+      repaired,
       worktrees: worktreeResults,
     },
-    _meta: buildCheckpointMeta(state._checkpoint),
   };
+}
+
+/**
+ * Mark issues matching a given path prefix as repaired.
+ */
+function markIssueRepaired(issues: ReconcileIssue[], pathPrefix: string): void {
+  for (const issue of issues) {
+    if (issue.path === pathPrefix || issue.path.startsWith(`${pathPrefix}.`)) {
+      issue.repaired = true;
+    }
+  }
 }
 
 // ─── handleNextAction ───────────────────────────────────────────────────────

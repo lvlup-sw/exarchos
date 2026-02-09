@@ -112,12 +112,13 @@ export function createServer(stateDir: string): McpServer {
   // ─── workflow_reconcile ────────────────────────────────────────────
   server.tool(
     'workflow_reconcile',
-    'Verify worktree paths and branches match state file',
+    'Validate state file schema, verify worktree paths, and optionally repair common corruption patterns. Returns structured issues array.',
     {
       featureId: featureIdParam,
+      repair: z.boolean().optional(),
     },
     async (args) => {
-      const result = await handleReconcile(args, stateDir);
+      const result = await handleReconcile({ ...args, repair: args.repair ?? false }, stateDir);
       return formatResult(result);
     },
   );
