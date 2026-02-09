@@ -240,8 +240,7 @@ If the user receives PR review comments:
 
 2. Delegate reads PR comments via GitHub MCP:
    ```
-   mcp__plugin_github_github__pull_request_read({ method: "get_review_comments", owner, repo, pullNumber })
-   mcp__plugin_github_github__pull_request_read({ method: "get_comments", owner, repo, pullNumber })
+   mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber })
    ```
 
 3. Creates fix tasks from review comments

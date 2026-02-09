@@ -107,7 +107,7 @@ When deciding which tool to use:
 
 1. **Workflow tracking** — Always use workflow-state MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
-3. **GitHub operations** — Use GitHub MCP for structured data; fall back to `gh` CLI only for operations not covered by MCP tools
+3. **GitHub operations** — Use GitHub MCP for all PR/issue operations (`create_pull_request`, `merge_pull_request`, `pull_request_read`, `issue_read`); reserve `gh` CLI only for niche operations not covered by MCP
 4. **Stacked PRs** — Use Graphite MCP for stack management, PR submission, and merge queue
 5. **Library docs** — Use Context7 before web search for library documentation
 6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
@@ -118,6 +118,9 @@ When deciding which tool to use:
 |-------|------------|
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
+| Use `gh pr create` | Use GitHub `create_pull_request` |
+| Use `gh pr merge` | Use GitHub `merge_pull_request` |
+| Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` |
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
 | Web search for .NET API reference | Use `microsoft_docs_search` |

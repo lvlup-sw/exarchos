@@ -42,18 +42,17 @@ Follow `@rules/pr-descriptions.md` for concise format.
 
 ```bash
 git push -u origin feature/integration-<feature-name>
+```
 
-gh pr create \
-  --title "<type>: <what>" \
-  --body "$(cat <<'EOF'
-## Summary
-<1-2 sentences: what changed and why>
-
-Tests: X pass | Build: 0 errors
-
-Design: docs/path.md
-EOF
-)"
+```typescript
+mcp__plugin_github_github__create_pull_request({
+  owner: "<owner>",
+  repo: "<repo>",
+  title: "<type>: <what>",
+  body: "## Summary\n<1-2 sentences: what changed and why>\n\nTests: X pass | Build: 0 errors\n\nDesign: docs/path.md",
+  head: "feature/integration-<feature-name>",
+  base: "main"
+})
 ```
 
 ### Step 3: Cleanup (After Merge)
@@ -117,7 +116,14 @@ This is one of only TWO human checkpoints in the workflow.
 4. **On 'yes'** (yes, y, merge):
    ```bash
    git pull origin feature/integration-<feature-name>
-   gh pr merge [PR_NUMBER] --merge
+   ```
+   ```typescript
+   mcp__plugin_github_github__merge_pull_request({
+     owner: "<owner>",
+     repo: "<repo>",
+     pullNumber: <PR_NUMBER>,
+     merge_method: "merge"
+   })
    ```
    Update state: `.phase = "completed"`
 

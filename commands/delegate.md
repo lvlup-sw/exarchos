@@ -116,16 +116,21 @@ When invoked with `--pr-fixes [PR_URL]`:
 
 ### Step 1: Fetch All PR Feedback
 
-```bash
-# Extract owner, repo, PR number from URL
-# Get reviews (includes CHANGES_REQUESTED state)
-gh api repos/{owner}/{repo}/pulls/{number}/reviews
+```typescript
+// Extract owner, repo, PR number from URL
+// Get full PR details including reviews and comments
+mcp__plugin_github_github__pull_request_read({
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 
-# Get line-specific comments (contains severity labels)
-gh api repos/{owner}/{repo}/pulls/{number}/comments
-
-# Get general PR comments (pre-merge check summaries)
-gh api repos/{owner}/{repo}/issues/{number}/comments
+// Get issue-level comments (pre-merge check summaries)
+mcp__plugin_github_github__issue_read({
+  owner: "<owner>",
+  repo: "<repo>",
+  issueNumber: <number>
+})
 ```
 
 ### Step 2: Parse CodeRabbit Feedback
