@@ -296,6 +296,700 @@ describe('Compensation', () => {
     });
   });
 
+  describe('ExecuteCompensation_UnknownPhase_RunsAllActions', () => {
+    it('should run all compensation actions when phase is not in PHASE_ORDER', async () => {
+      const state = makeState({ phase: 'unknown-phase' });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'unknown-phase', events, 1, { dryRun: true });
+
+      // Should have actions from all phase groups since all phases are included
+      expect(result.actions.length).toBeGreaterThan(0);
+
+      // All actions should be dry-run
+      for (const action of result.actions) {
+        expect(action.status).toBe('dry-run');
+      }
+
+      // Should include actions from synthesize, integrate, AND delegate phases
+      // since an unknown phase causes getPhasesInReverseOrder to return ALL phases
+      const actionIds = result.actions.map((a) => a.actionId);
+      const hasSynthesize = actionIds.some((id) => id.startsWith('synthesize:'));
+      const hasIntegrate = actionIds.some((id) => id.startsWith('integrate:'));
+      const hasDelegate = actionIds.some((id) => id.startsWith('delegate:'));
+
+      expect(hasSynthesize).toBe(true);
+      expect(hasIntegrate).toBe(true);
+      expect(hasDelegate).toBe(true);
+
+      // Reverse order: synthesize before integrate before delegate
+      const synthesizeIdx = actionIds.findIndex((id) => id.startsWith('synthesize:'));
+      const integrateIdx = actionIds.findIndex((id) => id.startsWith('integrate:'));
+      const delegateIdx = actionIds.findIndex((id) => id.startsWith('delegate:'));
+
+      expect(synthesizeIdx).toBeLessThan(integrateIdx);
+      expect(integrateIdx).toBeLessThan(delegateIdx);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should run all compensation actions with execution when phase is unknown', async () => {
+      const state = makeState({ phase: 'unknown-phase' });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'unknown-phase', events, 1, { dryRun: false });
+
+      // Should have actions from all phase groups
+      expect(result.actions.length).toBeGreaterThan(0);
+
+      // Should include actions from all three registered phases
+      const actionIds = result.actions.map((a) => a.actionId);
+      expect(actionIds.some((id) => id.startsWith('synthesize:'))).toBe(true);
+      expect(actionIds.some((id) => id.startsWith('integrate:'))).toBe(true);
+      expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
+    });
+  });
+
+  describe('ExecuteCompensation_IdeatePhase_OnlyEarlyActions', () => {
+    it('should only include actions up to ideate phase (no actions since ideate has none)', async () => {
+      // State at ideate phase with no resources created yet
+      const state = makeState({
+        phase: 'ideate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'ideate', events, 1, { dryRun: false });
+
+      // ideate has no registered compensation actions, so result should be empty
+      expect(result.actions.length).toBe(0);
+      expect(result.events.length).toBe(0);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('ClosePrAction_NullPrUrl_ReturnsSkipped', () => {
+    it('should return skipped when prUrl is null but synthesis object exists', async () => {
+      const state = makeState({
+        phase: 'synthesize',
+        synthesis: {
+          integrationBranch: 'integrate/test-feature',
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'synthesize', events, 1, { dryRun: false });
+
+      // Find the close-pr action
+      const closePrAction = result.actions.find((a) => a.actionId === 'synthesize:close-pr');
+      expect(closePrAction).toBeDefined();
+      expect(closePrAction!.status).toBe('skipped');
+      expect(closePrAction!.message).toBe('No PR to close');
+    });
+
+    it('should return skipped when synthesis is undefined', async () => {
+      const state = makeState({
+        phase: 'synthesize',
+        synthesis: undefined,
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'synthesize', events, 1, { dryRun: false });
+
+      const closePrAction = result.actions.find((a) => a.actionId === 'synthesize:close-pr');
+      expect(closePrAction).toBeDefined();
+      expect(closePrAction!.status).toBe('skipped');
+      expect(closePrAction!.message).toBe('No PR to close');
+    });
+  });
+
+  describe('DeleteFeatureBranches_TasksWithMissingBranches_FiltersCorrectly', () => {
+    it('should skip tasks with no branch property and only process those with branches', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'pending' },
+          { id: 'task-2', title: 'Task 2', status: 'complete', branch: undefined },
+          { id: 'task-3', title: 'Task 3', status: 'complete', branch: 'feature/task-3' },
+        ],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      // Should execute (not skip) since at least one task has a branch
+      expect(deleteAction!.status).toBe('executed');
+      expect(deleteAction!.message).toContain('1 feature branch');
+    });
+
+    it('should skip when all tasks lack branch property', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'pending' },
+          { id: 'task-2', title: 'Task 2', status: 'complete', branch: undefined },
+        ],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      expect(deleteAction!.status).toBe('skipped');
+      expect(deleteAction!.message).toBe('No feature branches to delete');
+    });
+  });
+
+  describe('CleanupWorktrees_MissingPath_SkipsWorktree', () => {
+    it('should skip worktrees that have no path and continue processing others', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {
+          'task-1': { branch: 'feature/task-1', taskId: 'task-1', status: 'active' },
+          'task-2': { branch: 'feature/task-2', taskId: 'task-2', status: 'active', path: '/tmp/worktree-2' },
+        },
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanupAction).toBeDefined();
+      expect(cleanupAction!.status).toBe('executed');
+
+      // Only the worktree with a path should have triggered a git command
+      const worktreeRemoveCalls = mockedExecFile.mock.calls.filter((call) => {
+        const args = call[1] as string[] | undefined;
+        return args?.includes('worktree') && args?.includes('remove');
+      });
+
+      // Should only have 1 remove call (for task-2 which has a path)
+      expect(worktreeRemoveCalls.length).toBe(1);
+      const removeArgs = worktreeRemoveCalls[0][1] as string[];
+      expect(removeArgs).toContain('/tmp/worktree-2');
+    });
+  });
+
+  describe('ExecuteCompensation_PlanPhase_OnlyDelegateAndEarlier', () => {
+    it('should not include synthesize or integrate actions when phase is plan', async () => {
+      const state = makeState({ phase: 'plan' });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'plan', events, 1, { dryRun: true });
+
+      const actionIds = result.actions.map((a) => a.actionId);
+
+      // plan is before delegate in PHASE_ORDER, so only ideate and plan phases included
+      // Neither has registered actions, so there should be no actions
+      expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
+      expect(actionIds.every((id) => !id.startsWith('integrate:'))).toBe(true);
+      expect(actionIds.every((id) => !id.startsWith('delegate:'))).toBe(true);
+      expect(result.actions.length).toBe(0);
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('ExecuteCompensation_DelegatePhase_IncludesDelegateActionsOnly', () => {
+    it('should include delegate-phase actions but not integrate or synthesize', async () => {
+      const state = makeState({ phase: 'delegate' });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: true });
+
+      const actionIds = result.actions.map((a) => a.actionId);
+
+      // delegate phase should have delegate actions
+      expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
+
+      // Should NOT have synthesize or integrate actions
+      expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
+      expect(actionIds.every((id) => !id.startsWith('integrate:'))).toBe(true);
+    });
+  });
+
+  describe('DeleteFeatureBranches_DryRun_ListsBranchNames', () => {
+    it('should list branch names in dry-run message', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'complete', branch: 'feature/task-1' },
+          { id: 'task-2', title: 'Task 2', status: 'complete', branch: 'feature/task-2' },
+        ],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: true });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      expect(deleteAction!.status).toBe('dry-run');
+      expect(deleteAction!.message).toContain('feature/task-1');
+      expect(deleteAction!.message).toContain('feature/task-2');
+    });
+  });
+
+  describe('CleanupWorktrees_DryRun_ListsBranchNames', () => {
+    it('should list worktree branch names in dry-run message', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {
+          'task-1': { branch: 'feature/task-1', taskId: 'task-1', status: 'active', path: '/tmp/wt-1' },
+          'task-2': { branch: 'feature/task-2', taskId: 'task-2', status: 'active', path: '/tmp/wt-2' },
+        },
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: true });
+
+      const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanupAction).toBeDefined();
+      expect(cleanupAction!.status).toBe('dry-run');
+      expect(cleanupAction!.message).toContain('feature/task-1');
+      expect(cleanupAction!.message).toContain('feature/task-2');
+    });
+  });
+
+  describe('CleanupWorktrees_OuterCatch_ReturnsFailed', () => {
+    it('should trigger outer catch when worktree property access throws', async () => {
+      // The outer catch (lines 189-196) wraps the entire for-loop body.
+      // Lines 176-177 (worktree.path access and the continue check) are OUTSIDE
+      // the inner try/catch. A throwing getter on .path triggers the outer catch.
+      const poisonedWorktree = {
+        branch: 'feature/poison',
+        taskId: 'task-poison',
+        status: 'active',
+        get path(): string {
+          throw new Error('Poisoned path getter');
+        },
+      };
+
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {
+          'task-poison': poisonedWorktree,
+        },
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanupAction).toBeDefined();
+      expect(cleanupAction!.status).toBe('failed');
+      expect(cleanupAction!.message).toContain('Failed to clean up worktrees');
+      expect(cleanupAction!.message).toContain('Poisoned path getter');
+    });
+
+    it('should handle non-Error thrown values in outer catch via String()', async () => {
+      const poisonedWorktree = {
+        branch: 'feature/poison',
+        taskId: 'task-poison',
+        status: 'active',
+        get path(): string {
+          throw 'non-error-string-thrown'; // eslint-disable-line no-throw-literal
+        },
+      };
+
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {
+          'task-poison': poisonedWorktree,
+        },
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanupAction).toBeDefined();
+      expect(cleanupAction!.status).toBe('failed');
+      expect(cleanupAction!.message).toContain('non-error-string-thrown');
+    });
+  });
+
+  describe('DeleteFeatureBranches_OuterCatch_ViaCorruptedIteration', () => {
+    it('should trigger outer catch when branches array iteration throws unexpectedly', async () => {
+      // The outer catch (lines 248-255) wraps the for-loop for branches.
+      // The for-loop body is: inner try (local delete) + inner try (remote delete).
+      // Everything in the for-loop body is wrapped by inner catches.
+      // However, we can trigger the outer catch by corrupting the branches array
+      // after it's created but before iteration completes.
+      // We achieve this by using a Proxy on the tasks array that produces
+      // a branches array with a corrupted Symbol.iterator.
+
+      // Override Array.prototype.filter to return an array with a throwing iterator
+      // only for the specific call in deleteFeatureBranches
+      const originalFilter = Array.prototype.filter;
+      let filterCallCount = 0;
+
+      // We need to intercept the specific filter call that creates the branches array.
+      // The code does: tasks.map(t => t.branch).filter(b => !!b)
+      // The filter is called on the mapped array.
+      vi.spyOn(Array.prototype, 'filter').mockImplementation(function (this: unknown[], ...args: unknown[]) {
+        filterCallCount++;
+        const result = originalFilter.apply(this, args as Parameters<typeof originalFilter>);
+
+        // The deleteFeatureBranches filter happens on the mapped branches array
+        // Check if this looks like the branches filter (array of strings/undefined)
+        if (result.length > 0 && typeof result[0] === 'string' && result[0].startsWith('feature/outer-catch')) {
+          // Return a proxy that throws during for-of iteration
+          const throwingArray = [...result];
+          const originalIterator = throwingArray[Symbol.iterator].bind(throwingArray);
+          let iterCount = 0;
+          throwingArray[Symbol.iterator] = function* () {
+            const iter = originalIterator();
+            for (const val of { [Symbol.iterator]: () => iter }) {
+              iterCount++;
+              if (iterCount > 0) {
+                throw new Error('Iterator corrupted');
+              }
+              yield val;
+            }
+          };
+          return throwingArray;
+        }
+
+        return result;
+      });
+
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'complete', branch: 'feature/outer-catch-1' },
+        ],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      // Restore the original filter
+      vi.restoreAllMocks();
+      // Re-establish the execFile mock since restoreAllMocks clears it
+      mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
+        if (typeof _opts === 'function') {
+          (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        } else if (typeof cb === 'function') {
+          (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      expect(deleteAction!.status).toBe('failed');
+      expect(deleteAction!.message).toContain('Failed to delete feature branches');
+      expect(deleteAction!.message).toContain('Iterator corrupted');
+    });
+  });
+
+  describe('DeleteIntegrationBranch_RemoteDeleteFailure_StillSucceeds', () => {
+    it('should succeed when remote branch delete fails (inner catch swallows)', async () => {
+      const state = makeState({
+        phase: 'integrate',
+        synthesis: {
+          integrationBranch: 'integrate/test-feature',
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      // Make remote delete (push --delete) fail
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('push') && argList?.includes('--delete')) {
+          (callback as (err: Error) => void)(new Error('remote ref does not exist'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      expect(deleteAction).toBeDefined();
+      // Still succeeds because inner catch swallows remote delete failure
+      expect(deleteAction!.status).toBe('executed');
+      expect(deleteAction!.message).toContain('Deleted integration branch');
+    });
+  });
+
+  describe('CleanupWorktrees_WorktreeRemoveFailure_StillSucceeds', () => {
+    it('should succeed when worktree remove command fails (inner catch swallows)', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {
+          'task-1': { branch: 'feature/task-1', taskId: 'task-1', status: 'active', path: '/tmp/wt-1' },
+        },
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      // Make worktree remove fail
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('worktree') && argList?.includes('remove')) {
+          (callback as (err: Error) => void)(new Error('worktree not found'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+      expect(cleanupAction).toBeDefined();
+      // Still succeeds because inner catch swallows the worktree remove failure
+      expect(cleanupAction!.status).toBe('executed');
+      expect(cleanupAction!.message).toContain('Cleaned up 1 worktree');
+    });
+  });
+
+  describe('DeleteIntegrationBranch_Executed_ReturnsSuccess', () => {
+    it('should successfully delete integration branch when it exists and commands succeed', async () => {
+      const state = makeState({
+        phase: 'integrate',
+        synthesis: {
+          integrationBranch: 'integrate/test-feature',
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      expect(deleteAction).toBeDefined();
+      expect(deleteAction!.status).toBe('executed');
+      expect(deleteAction!.message).toContain('Deleted integration branch: integrate/test-feature');
+
+      // Should have called git branch -D and git push origin --delete
+      const branchDeleteCalls = mockedExecFile.mock.calls.filter((call) => {
+        const args = call[1] as string[] | undefined;
+        return args?.includes('branch') && args?.includes('-D');
+      });
+      const remotePushCalls = mockedExecFile.mock.calls.filter((call) => {
+        const args = call[1] as string[] | undefined;
+        return args?.includes('push') && args?.includes('--delete');
+      });
+
+      expect(branchDeleteCalls.length).toBeGreaterThanOrEqual(1);
+      expect(remotePushCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should still succeed when local branch delete fails but remote succeeds', async () => {
+      const state = makeState({
+        phase: 'integrate',
+        synthesis: {
+          integrationBranch: 'integrate/test-feature',
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [],
+      });
+      const events = makeEvents(1);
+
+      // Make local branch delete fail, but remote succeeds
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('branch') && argList?.includes('-D')) {
+          (callback as (err: Error) => void)(new Error('branch not found'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      expect(deleteAction).toBeDefined();
+      // Still succeeds because inner catch blocks swallow failures
+      expect(deleteAction!.status).toBe('executed');
+    });
+  });
+
+  describe('DeleteFeatureBranches_RemoteDeleteFailure_StillSucceeds', () => {
+    it('should succeed when remote branch push --delete fails (inner catch swallows)', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'complete', branch: 'feature/task-1' },
+        ],
+      });
+      const events = makeEvents(1);
+
+      // Make remote delete fail for all branches
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        const argList = args as string[];
+        if (argList?.includes('push') && argList?.includes('--delete')) {
+          (callback as (err: Error) => void)(new Error('remote ref not found'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      // Still succeeds because inner catch swallows the remote delete failure
+      expect(deleteAction!.status).toBe('executed');
+      expect(deleteAction!.message).toContain('Deleted 1 feature branch');
+    });
+
+    it('should succeed when both local and remote deletes fail for feature branches', async () => {
+      const state = makeState({
+        phase: 'delegate',
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        worktrees: {},
+        tasks: [
+          { id: 'task-1', title: 'Task 1', status: 'complete', branch: 'feature/task-1' },
+          { id: 'task-2', title: 'Task 2', status: 'complete', branch: 'feature/task-2' },
+        ],
+      });
+      const events = makeEvents(1);
+
+      // Make all git commands fail
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        (callback as (err: Error) => void)(new Error('command failed'));
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+      expect(deleteAction).toBeDefined();
+      // Still 'executed' because inner catches swallow individual failures
+      expect(deleteAction!.status).toBe('executed');
+      expect(deleteAction!.message).toContain('Deleted 2 feature branch');
+    });
+  });
+
   describe('ExecuteCompensation_LogsEvents_ForEachAction', () => {
     it('should produce a compensation event for each executed action', async () => {
       const state = makeState({ phase: 'delegate' });
