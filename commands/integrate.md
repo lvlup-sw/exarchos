@@ -87,7 +87,7 @@ Generate integration report with:
 
 ## State Management
 
-Use `mcp__workflow-state__workflow_set` with the `featureId` to update state.
+Use `mcp__exarchos__exarchos_workflow_set` with the `featureId` to update state.
 
 ### On Integration Start
 

@@ -71,7 +71,7 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ## State Management
 
-After saving plan, update state with tasks using `mcp__workflow-state__workflow_set`:
+After saving plan, update state with tasks using `mcp__exarchos__exarchos_workflow_set`:
 - Set `artifacts.plan` to the plan path
 - Set `tasks` to an array of task objects (id, title, status, branch)
 - Set `phase` to "plan-review"
@@ -117,7 +117,7 @@ Plan-review performs delta analysis and **auto-loops** back to `/plan` if gaps a
 
 If plan-review finds missing coverage:
 
-1. Update state with gaps using `mcp__workflow-state__workflow_set`:
+1. Update state with gaps using `mcp__exarchos__exarchos_workflow_set`:
    - Set `planReview.gapsFound` to true
    - Set `planReview.gaps` to an array of gap descriptions
 
@@ -138,7 +138,7 @@ If plan-review finds complete coverage:
 
 2. **PAUSE for user input**: "Plan covers all design requirements. Approve and continue to delegation? (yes/no)"
 
-3. **On approval**, use `mcp__workflow-state__workflow_set`:
+3. **On approval**, use `mcp__exarchos__exarchos_workflow_set`:
    - Set `planReview.approved` to true
    - Set `phase` to "delegate"
 

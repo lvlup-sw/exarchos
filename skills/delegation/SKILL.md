@@ -273,7 +273,7 @@ Before dispatching ANY implementer:
 
 ### Worktree State Tracking
 
-Track worktrees in the workflow state file using `mcp__workflow-state__workflow_set`:
+Track worktrees in the workflow state file using `mcp__exarchos__exarchos_workflow_set`:
 - Set `worktrees.<worktree-path>` to an object containing branch, taskId, and status
 
 ### Implementer Prompt Requirements
@@ -310,11 +310,11 @@ This skill tracks task progress in workflow state for context persistence.
 
 ### Read Tasks from State
 
-Instead of re-parsing plan, read task list using `mcp__workflow-state__workflow_get` with query `tasks`.
+Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow_get` with query `tasks`.
 
 ### On Task Dispatch
 
-Update task status when dispatched using `mcp__workflow-state__workflow_set`:
+Update task status when dispatched using `mcp__exarchos__exarchos_workflow_set`:
 - Update the task's status to "in_progress"
 - Set the task's startedAt timestamp
 
@@ -322,13 +322,13 @@ If creating worktree, also set the worktree entry with branch, taskId, and statu
 
 ### On Task Complete
 
-Update task status when subagent reports completion using `mcp__workflow-state__workflow_set`:
+Update task status when subagent reports completion using `mcp__exarchos__exarchos_workflow_set`:
 - Update the task's status to "complete"
 - Set the task's completedAt timestamp
 
 ### On All Tasks Complete
 
-Update phase using `mcp__workflow-state__workflow_set`:
+Update phase using `mcp__exarchos__exarchos_workflow_set`:
 - Set `phase` to "integrate"
 
 ## Fix Mode (--fixes)
@@ -345,7 +345,7 @@ Or auto-invoked after review/integration failures.
 
 ### Fix Mode Process
 
-1. **Read failure details** from state using `mcp__workflow-state__workflow_get`:
+1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow_get`:
    - Query `integration.failureDetails` for integration failures
    - Query `reviews` for review failures
 
@@ -423,3 +423,24 @@ After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 This is NOT a human checkpoint - workflow continues autonomously.
 State is saved, enabling recovery after context compaction.
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit events during delegation:
+
+1. **At delegation start:** Call `mcp__exarchos__exarchos_event_append` with event type `workflow.started` (if not already emitted for this workflow)
+2. **After team composition:** Call `mcp__exarchos__exarchos_event_append` with event type `team.formed` including teammates array
+3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
+4. **For each task assignment:** Call `mcp__exarchos__exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
+5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status
+6. **On task completion — progressive stacking:**
+   - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record the stack position
+   - Use `mcp__graphite__run_gt_cmd` to create the stacked branch:
+     ```
+     mcp__graphite__run_gt_cmd({ args: ["create", "-m", "<task-title>"], cwd: "<worktree-path>" })
+     ```
+   - Submit the stack to create/update PRs:
+     ```
+     mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<worktree-path>" })
+     ```
+7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase

@@ -8,7 +8,7 @@ This rule ensures autonomous workflow continuation after context compaction.
 
 ## Session Start Detection
 
-At the START of every session, BEFORE responding to any user request, silently check for active workflows using `mcp__workflow-state__workflow_list`.
+At the START of every session, BEFORE responding to any user request, silently check for active workflows using `mcp__exarchos__exarchos_workflow_list`.
 
 If an active (non-completed) workflow exists, auto-restore and continue.
 
@@ -16,19 +16,19 @@ If an active (non-completed) workflow exists, auto-restore and continue.
 
 ### Step 1: Detect Active Workflow
 
-Use `mcp__workflow-state__workflow_list` to find state files with phase != "completed".
+Use `mcp__exarchos__exarchos_workflow_list` to find state files with phase != "completed".
 
 ### Step 2: Restore Context
 
 If active workflow found, use:
-- `mcp__workflow-state__workflow_summary` with the featureId
-- `mcp__workflow-state__workflow_next_action` with the featureId
+- `mcp__exarchos__exarchos_workflow_summary` with the featureId
+- `mcp__exarchos__exarchos_workflow_next_action` with the featureId
 
 Display a brief context restoration message.
 
 ### Step 3: Determine Next Action
 
-The `mcp__workflow-state__workflow_next_action` tool returns one of:
+The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 
 #### Feature Workflow Actions
 

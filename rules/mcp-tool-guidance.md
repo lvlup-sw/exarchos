@@ -69,13 +69,25 @@ Up-to-date library documentation. **Use instead of web search for library/framew
 
 **Proactive use:** When writing code that uses external libraries, query Context7 for current API docs rather than relying on training data which may be outdated.
 
-### Graphite (`graphite`)
+### Graphite (`mcp__graphite__*`)
 
 Stacked PR management and merge queue. **Use for all PR stacking and submission.**
 
-The Graphite MCP exposes the `gt` CLI's stacking functionality to agents. Use it for creating stacked PRs, restacking, and enqueuing merges.
+| Tool | When to Use |
+|------|-------------|
+| `run_gt_cmd` | Execute any `gt` command: `create`, `submit`, `modify`, `restack`, `sync`, `checkout` |
+| `learn_gt` | Learn Graphite stacking workflow and available commands |
 
-**Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/delegate` with multiple tasks), use Graphite MCP tools for stack management rather than raw git commands.
+**Key commands via `run_gt_cmd`:**
+
+| Instead of | Use |
+|------------|-----|
+| `git commit` + `git push` | `gt create -m "message"` then `gt submit --no-interactive` |
+| `gh pr create` | `gt submit --no-interactive` (creates stacked PRs automatically) |
+| Manual rebasing | `gt restack` (rebases all PRs in the stack) |
+| `git checkout <branch>` | `gt checkout` (interactive branch selection) |
+
+**Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/delegate` with multiple tasks), use `mcp__graphite__run_gt_cmd` for stack management rather than raw git commands or `gh pr create`.
 
 ### Microsoft Docs (`mcp__plugin_microsoft-docs_microsoft-learn__*`)
 
@@ -95,7 +107,7 @@ When deciding which tool to use:
 
 1. **Workflow tracking** — Always use workflow-state MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
-3. **GitHub operations** — Use GitHub MCP for structured data; fall back to `gh` CLI only for operations not covered by MCP tools
+3. **GitHub operations** — Use GitHub MCP for all PR/issue operations (`create_pull_request`, `merge_pull_request`, `pull_request_read`, `issue_read`); reserve `gh` CLI only for niche operations not covered by MCP
 4. **Stacked PRs** — Use Graphite MCP for stack management, PR submission, and merge queue
 5. **Library docs** — Use Context7 before web search for library documentation
 6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
@@ -106,7 +118,12 @@ When deciding which tool to use:
 |-------|------------|
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
+| Use `gh pr create` | Use GitHub `create_pull_request` |
+| Use `gh pr merge` | Use GitHub `merge_pull_request` |
+| Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` |
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
 | Web search for .NET API reference | Use `microsoft_docs_search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
+| Use `gh pr create` for stacked PRs | Use `mcp__graphite__run_gt_cmd` with `gt create` + `gt submit` |
+| Use `git commit` + `git push` during delegation | Use `gt create` + `gt submit --no-interactive` for progressive stacking |

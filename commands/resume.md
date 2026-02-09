@@ -21,18 +21,18 @@ Restore workflow context after:
 
 ### Step 1: Locate State File
 
-If no argument provided, list available workflows using `mcp__workflow-state__workflow_list` (no parameters required).
+If no argument provided, list available workflows using `mcp__exarchos__exarchos_workflow_list` (no parameters required).
 
 ### Step 2: Reconcile State
 
-Verify state matches git reality using `mcp__workflow-state__workflow_reconcile`:
+Verify state matches git reality using `mcp__exarchos__exarchos_workflow_reconcile`:
 - Set `featureId` to the feature identifier
 
 Report any discrepancies (missing worktrees, branches).
 
 ### Step 3: Load Context Summary
 
-Generate minimal context restoration prompt using `mcp__workflow-state__workflow_summary`:
+Generate minimal context restoration prompt using `mcp__exarchos__exarchos_workflow_summary`:
 - Set `featureId` to the feature identifier
 
 ### Step 4: Display Context
@@ -109,7 +109,7 @@ The resume process is designed to be context-efficient:
 ERROR: State file not found: <path>
 
 Available workflows:
-  <list from mcp__workflow-state__workflow_list>
+  <list from mcp__exarchos__exarchos_workflow_list>
 ```
 
 ### Reconciliation Issues

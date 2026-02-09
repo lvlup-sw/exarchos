@@ -67,12 +67,15 @@ export async function configureMcpServers(
     config.mcpServers = {};
   }
 
-  // Add workflow-state MCP server (always required for workflow orchestration)
+  // Migration: remove stale workflow-state entry if present
+  delete config.mcpServers['workflow-state'];
+
+  // Add exarchos MCP server (always required for workflow orchestration)
   const workflowStateDir = process.env.WORKFLOW_STATE_DIR;
-  config.mcpServers['workflow-state'] = {
+  config.mcpServers['exarchos'] = {
     type: 'stdio',
     command: 'node',
-    args: [join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp/dist/index.js')],
+    args: [join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/index.js')],
     ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
@@ -100,6 +103,7 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
   if (config.mcpServers) {
     delete config.mcpServers['workflow-state'];
     delete config.mcpServers['graphite'];
+    delete config.mcpServers['exarchos'];
   }
 
   writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -216,7 +220,7 @@ export async function install(): Promise<void> {
   // Build MCP servers
   console.log('');
   console.log('Building MCP servers...');
-  await buildMcpServer(join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp'));
+  await buildMcpServer(join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp'));
 
   // Configure MCP servers
   console.log('');

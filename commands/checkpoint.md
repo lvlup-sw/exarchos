@@ -22,7 +22,7 @@ Use `/checkpoint` when:
 
 ### Step 1: Identify Active Workflow
 
-Find the current state file using `mcp__workflow-state__workflow_list` (no parameters required).
+Find the current state file using `mcp__exarchos__exarchos_workflow_list` (no parameters required).
 
 Or if you know the feature, check the state directory:
 
@@ -40,7 +40,7 @@ Update state file with latest progress:
 
 ### Step 3: Reconcile State
 
-Verify state matches reality using `mcp__workflow-state__workflow_reconcile`:
+Verify state matches reality using `mcp__exarchos__exarchos_workflow_reconcile`:
 - Set `featureId` to the feature identifier
 
 Fix any discrepancies.

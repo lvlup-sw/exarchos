@@ -26,11 +26,11 @@ State files are gitignored - they persist locally but are not committed.
 
 ### Initialize State
 
-At the start of `/ideate`, use the `mcp__workflow-state__workflow_init` tool with the feature ID as the `id` parameter. This creates a new state file with phase "ideate".
+At the start of `/ideate`, use the `mcp__exarchos__exarchos_workflow_init` tool with the feature ID as the `id` parameter. This creates a new state file with phase "ideate".
 
 ### Read State
 
-To restore context, use the `mcp__workflow-state__workflow_get` tool:
+To restore context, use the `mcp__exarchos__exarchos_workflow_get` tool:
 
 - **Full state**: Call with just the `file` parameter (the state file path)
 - **Specific field**: Call with `file` and `path` parameters (e.g., `path: ".phase"`)
@@ -38,7 +38,7 @@ To restore context, use the `mcp__workflow-state__workflow_get` tool:
 
 ### Update State
 
-Use the `mcp__workflow-state__workflow_set` tool with jq filters:
+Use the `mcp__exarchos__exarchos_workflow_set` tool with jq filters:
 
 - **Update phase**: `filter: '.phase = "delegate"'`
 - **Set artifact path**: `filter: '.artifacts.design = "docs/designs/2026-01-05-feature.md"'`
@@ -47,11 +47,11 @@ Use the `mcp__workflow-state__workflow_set` tool with jq filters:
 
 ### Get Summary
 
-For context restoration after summarization, use the `mcp__workflow-state__workflow_summary` tool with the state file path. This outputs a minimal summary suitable for rebuilding orchestrator context.
+For context restoration after summarization, use the `mcp__exarchos__exarchos_workflow_summary` tool with the state file path. This outputs a minimal summary suitable for rebuilding orchestrator context.
 
 ### Reconcile State
 
-To verify state matches git reality, use the `mcp__workflow-state__workflow_reconcile` tool with the state file path. This checks that worktrees and branches referenced in state actually exist.
+To verify state matches git reality, use the `mcp__exarchos__exarchos_workflow_reconcile` tool with the state file path. This checks that worktrees and branches referenced in state actually exist.
 
 ## Integration Points
 
@@ -127,12 +127,12 @@ Key sections:
 
 ## Example Workflow
 
-1. **Start new workflow**: Use `mcp__workflow-state__workflow_init` with `id: "user-authentication"`
+1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow_init` with `id: "user-authentication"`
 
-2. **After design phase**: Use `mcp__workflow-state__workflow_set` with:
+2. **After design phase**: Use `mcp__exarchos__exarchos_workflow_set` with:
    - `file: "docs/workflow-state/user-authentication.state.json"`
    - `filter: '.artifacts.design = "docs/designs/2026-01-05-user-auth.md" | .phase = "plan"'`
 
-3. **Check state**: Use `mcp__workflow-state__workflow_summary` with the state file path
+3. **Check state**: Use `mcp__exarchos__exarchos_workflow_summary` with the state file path
 
-4. **Resume after context loss**: Use `mcp__workflow-state__workflow_summary` with the state file path to get context restoration output
+4. **Resume after context loss**: Use `mcp__exarchos__exarchos_workflow_summary` with the state file path to get context restoration output

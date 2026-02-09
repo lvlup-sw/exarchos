@@ -33,17 +33,17 @@ If any condition is violated, switch to overhaul track.
 
 ## Entry Conditions
 
-Before starting implementation, verify using `mcp__workflow-state__workflow_get`:
+Before starting implementation, verify using `mcp__exarchos__exarchos_workflow_get`:
 
 ```text
 # Read state to confirm prerequisites
-Use mcp__workflow-state__workflow_get with featureId and query: ".track"
+Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".track"
 # Must return: "polish"
 
-Use mcp__workflow-state__workflow_get with featureId and query: ".phase"
+Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".phase"
 # Must return: "implement"
 
-Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
+Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".brief.goals"
 # Must return: populated array
 ```
 
@@ -71,10 +71,10 @@ npm run test:run
 
 **Gate:** Tests must pass. If tests fail before implementation, stop and investigate. Do not implement on top of a failing test suite.
 
-Capture baseline in state using `mcp__workflow-state__workflow_set`:
+Capture baseline in state using `mcp__exarchos__exarchos_workflow_set`:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "implement": {
       "startedAt": "<ISO8601>",
@@ -105,10 +105,10 @@ git commit -m "refactor: <description>
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
 
-Log the change using `mcp__workflow-state__workflow_set`:
+Log the change using `mcp__exarchos__exarchos_workflow_set`:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
   }
@@ -130,7 +130,7 @@ After all changes, verify each goal from brief:
 
 ```text
 # Read goals
-Use mcp__workflow-state__workflow_get with featureId and query: ".brief.goals"
+Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".brief.goals"
 ```
 
 For each goal, confirm it's addressed. If a goal cannot be addressed within polish scope, trigger track switch.
@@ -184,18 +184,18 @@ echo "Switching to overhaul track recommended."
 ### Switch Protocol
 
 1. **Commit current work** - Don't lose progress
-2. **Update state** using `mcp__workflow-state__workflow_set`:
+2. **Update state** using `mcp__exarchos__exarchos_workflow_set`:
 
 ```text
 # First call: Record switch info
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "implement.switchReason": "<reason for switch>",
     "implement.switchedAt": "<ISO8601>"
   }
 
 # Second call: Change track and phase
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "track": "overhaul" }
   phase: "plan"
 ```
@@ -222,7 +222,7 @@ Current progress has been committed. Continue? (Y/n)
 
 ### Implementation Start
 
-Use `mcp__workflow-state__workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow_set` with the featureId:
 
 ```text
 updates: {
@@ -286,7 +286,7 @@ Implementation phase exits when:
 - Less than or equal to 5 files changed
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   phase: "validate"
 ```
 
@@ -299,7 +299,7 @@ Next action: `AUTO:refactor-validate`
 - Current work committed
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "track": "overhaul" }
   phase: "plan"
 ```

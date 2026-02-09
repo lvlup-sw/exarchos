@@ -32,27 +32,27 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 
 ### Polish Auto-Chain Commands
 
-After each phase, use `mcp__workflow-state__workflow_next_action` with the featureId to determine the next action:
+After each phase, use `mcp__exarchos__exarchos_workflow_next_action` with the featureId to determine the next action:
 
 ```text
 # After explore
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: AUTO:refactor-brief
 
 # After brief
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: AUTO:refactor-implement
 
 # After implement
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: AUTO:refactor-validate
 
 # After validate (passed)
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: AUTO:refactor-update-docs
 
 # After update-docs
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: WAIT:human-checkpoint:polish-complete
 ```
 
@@ -102,7 +102,7 @@ explore → brief → plan → delegate → integrate → review → update-docs
 
 ### Overhaul Auto-Chain Commands
 
-Use `mcp__workflow-state__workflow_next_action` with the featureId after each phase:
+Use `mcp__exarchos__exarchos_workflow_next_action` with the featureId after each phase:
 
 ```text
 # After explore
@@ -169,7 +169,7 @@ polish:implement → [scope expands] → overhaul:plan
 Auto-chain handles this via MCP tools:
 
 ```text
-# When scope expands during implement, use mcp__workflow-state__workflow_set:
+# When scope expands during implement, use mcp__exarchos__exarchos_workflow_set:
 # 1. First call: Set updates
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
 
@@ -178,7 +178,7 @@ phase: "plan"
 updates: { "track": "overhaul" }
 
 # Next action returns
-Use mcp__workflow-state__workflow_next_action with the featureId.
+Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
 Returns: AUTO:refactor-plan
 ```
 

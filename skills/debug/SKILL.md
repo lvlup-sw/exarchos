@@ -99,10 +99,10 @@ Use `@skills/debug/references/triage-questions.md` to gather:
 - Urgency justification
 - Affected area
 
-Update state using `mcp__workflow-state__workflow_set`:
+Update state using `mcp__exarchos__exarchos_workflow_set`:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "triage": {
       "symptom": "<symptom>",
@@ -127,17 +127,17 @@ Use `@skills/debug/references/investigation-checklist.md`.
 - Root cause found -> Continue to implement
 - Root cause NOT found -> Switch to thorough track
 
-Record findings using `mcp__workflow-state__workflow_set`:
+Record findings using `mcp__exarchos__exarchos_workflow_set`:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "investigation.findings": ["<finding>"] }
 ```
 
 When root cause found:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "investigation.rootCause": "<root cause>",
     "investigation.completedAt": "<ISO8601>"
@@ -153,7 +153,7 @@ Apply minimal fix directly (no worktree):
 - Record fix approach in state
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "artifacts.fixDesign": "<brief fix description>" }
   phase: "validate"
 ```
@@ -168,7 +168,7 @@ npm run test:run -- <affected-test-files>
 If tests pass:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "followUp.rcaRequired": true }
   phase: "completed"
 ```
@@ -220,7 +220,7 @@ Triage → Investigate → RCA → Design → Implement → Review → Synthesiz
 Same as hotfix, but set track to "thorough":
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "track": "thorough" }
   phase: "investigate"
 ```
@@ -243,7 +243,7 @@ Save to: `docs/rca/YYYY-MM-DD-<issue-slug>.md`
 Update state:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "artifacts.rca": "docs/rca/YYYY-MM-DD-<issue-slug>.md" }
   phase: "design"
 ```
@@ -255,7 +255,7 @@ Brief fix approach (NOT a full design document).
 2-3 paragraphs max in state file:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "artifacts.fixDesign": "<fix approach description>" }
   phase: "implement"
 ```
@@ -276,7 +276,7 @@ cd .worktrees/debug-<issue-slug> && npm install
 Update state:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "worktrees.\".worktrees/debug-<issue-slug>\"": {
       "branch": "feature/debug-<issue-slug>",
@@ -299,34 +299,28 @@ Verify:
 Update state:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   phase: "synthesize"
 ```
 
 #### 7. Synthesize Phase
 
-Create PR with RCA reference:
+Create PR via Graphite MCP:
 
-```bash
-gh pr create --title "fix: <issue summary>" --body "$(cat <<'EOF'
-## Summary
+```
+# Stage and create branch with fix commit
+mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
 
-[Brief description of the fix]
+# Submit to create the PR
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
+```
 
-## Root Cause Analysis
-
-See: [docs/rca/YYYY-MM-DD-<issue-slug>.md](link)
-
-## Changes
-
-- [change 1]
-- [change 2]
-
-## Test Plan
-
-- [test approach]
-EOF
-)"
+Then update the PR description using GitHub MCP:
+```
+mcp__plugin_github_github__update_pull_request({
+  owner, repo, pullNumber,
+  body: "## Summary\n[Brief description]\n\n## Root Cause Analysis\nSee: docs/rca/YYYY-MM-DD-<issue-slug>.md\n\n## Changes\n- [change 1]\n\n## Test Plan\n- [test approach]"
+})
 ```
 
 **Human checkpoint:** Confirm merge.
@@ -338,7 +332,7 @@ EOF
 If during hotfix investigation root cause is not found in 15 minutes:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "track": "thorough",
     "investigation.findings": ["Switched to thorough track: root cause not found in 15 min"]
@@ -352,7 +346,7 @@ Continue investigation without time constraint.
 If fix requires architectural changes:
 
 ```
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "investigation.findings": ["Escalated: requires architectural changes"] }
   phase: "blocked"
 ```
@@ -381,10 +375,10 @@ triage → investigate → rca → design → implement → review → synthesiz
 
 ## State Management
 
-Initialize debug workflow using `mcp__workflow-state__workflow_init`:
+Initialize debug workflow using `mcp__exarchos__exarchos_workflow_init`:
 
 ```
-Use mcp__workflow-state__workflow_init with featureId `debug-<issue-slug>` and workflowType `debug`.
+Use mcp__exarchos__exarchos_workflow_init with featureId `debug-<issue-slug>` and workflowType `debug`.
 ```
 
 See `@skills/debug/references/state-schema.md` for full schema.
@@ -408,8 +402,8 @@ Debug workflows resume like feature workflows:
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases in `mcp__workflow-state__workflow_next_action` response
-- Debug context in `mcp__workflow-state__workflow_summary` output
+- Debug-specific phases in `mcp__exarchos__exarchos_workflow_next_action` response
+- Debug context in `mcp__exarchos__exarchos_workflow_summary` output
 
 ## Completion Criteria
 

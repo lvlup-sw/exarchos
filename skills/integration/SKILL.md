@@ -37,30 +37,38 @@ The integrator subagent:
 
 ## Integration Process
 
-### Step 1: Prepare Integration Branch
+### Step 1: Prepare Integration Base
 
 ```bash
 # Ensure main is current
 git checkout main
 git pull origin main
 
-# Create integration branch
-git checkout -b feature/integration-<feature-name>
+# Sync Graphite state
+mcp__graphite__run_gt_cmd({ args: ["sync"], cwd: "<repo-root>" })
 ```
 
-### Step 2: Merge Branches (Dependency Order)
+### Step 2: Build Graphite Stack from Task Branches (Dependency Order)
 
-For each branch from state file `.synthesis.mergeOrder`:
+For each branch from state file `.synthesis.mergeOrder`, track it as a Graphite stack entry:
 
 ```bash
-# Merge with no fast-forward to preserve history
-git merge --no-ff feature/<task-id>-<name> -m "Merge feature/<task-id>-<name>"
+# Check out the task branch
+git checkout feature/<task-id>-<name>
 
-# Run tests after each merge to catch issues early
+# Track it in Graphite with its parent (main for first, previous task branch for subsequent)
+mcp__graphite__run_gt_cmd({
+  args: ["track", "--parent", "<parent-branch>"],
+  cwd: "<repo-root>"
+})
+
+# Run tests to verify the branch works with its dependencies
 npm run test:run
 
-# If tests fail, stop and report which merge broke
+# If tests fail, stop and report which branch broke
 ```
+
+This produces a Graphite stack: `main <- task-001 <- task-002 <- task-003`, with each branch tracked as a stacked PR.
 
 ### Step 3: Full Verification
 
@@ -135,7 +143,7 @@ feature/integration-<feature-name>
 
 ## State Management
 
-Use `mcp__workflow-state__workflow_set` for all state updates.
+Use `mcp__exarchos__exarchos_workflow_set` for all state updates.
 
 ### On Integration Start
 

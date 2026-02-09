@@ -234,21 +234,21 @@ Task({
 
 ## State Management
 
-Update workflow state with review results using `mcp__workflow-state__workflow_set`.
+Update workflow state with review results using `mcp__exarchos__exarchos_workflow_set`.
 
 ### On Review Complete
 
 ```text
 # Update task review status - for pass
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.specReview": "pass" }
 
 # Or if failed:
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.specReview": "fail" }
 
 # Add review details
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow_set with featureId:
   updates: {
     "reviews.<task-id>.specReview": {"status": "pass", "issues": []}
   }

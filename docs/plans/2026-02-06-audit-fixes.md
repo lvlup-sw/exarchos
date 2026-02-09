@@ -131,19 +131,19 @@ Additionally, `handleGet` (line 103) reads via `readStateFile()` which means `wo
 
 ### Problem
 
-23 files reference `~/.claude/scripts/workflow-state.sh` which doesn't exist. All references need to be migrated to `mcp__workflow-state__workflow_*` MCP tool equivalents.
+23 files reference `~/.claude/scripts/workflow-state.sh` which doesn't exist. All references need to be migrated to `mcp__exarchos__exarchos_workflow_*` MCP tool equivalents.
 
 ### Migration Map
 
 | Bash Command | MCP Tool |
 |-------------|----------|
-| `workflow-state.sh init <id>` | `mcp__workflow-state__workflow_init({ featureId, workflowType })` |
-| `workflow-state.sh set <file> '<jq-expr>'` | `mcp__workflow-state__workflow_set({ featureId, updates: {...} })` |
-| `workflow-state.sh get <file> [query]` | `mcp__workflow-state__workflow_get({ featureId, query })` |
-| `workflow-state.sh summary <file>` | `mcp__workflow-state__workflow_summary({ featureId })` |
-| `workflow-state.sh next-action <file>` | `mcp__workflow-state__workflow_next_action({ featureId })` |
-| `workflow-state.sh list` | `mcp__workflow-state__workflow_list()` |
-| `workflow-state.sh reconcile <file>` | `mcp__workflow-state__workflow_reconcile({ featureId })` |
+| `workflow-state.sh init <id>` | `mcp__exarchos__exarchos_workflow_init({ featureId, workflowType })` |
+| `workflow-state.sh set <file> '<jq-expr>'` | `mcp__exarchos__exarchos_workflow_set({ featureId, updates: {...} })` |
+| `workflow-state.sh get <file> [query]` | `mcp__exarchos__exarchos_workflow_get({ featureId, query })` |
+| `workflow-state.sh summary <file>` | `mcp__exarchos__exarchos_workflow_summary({ featureId })` |
+| `workflow-state.sh next-action <file>` | `mcp__exarchos__exarchos_workflow_next_action({ featureId })` |
+| `workflow-state.sh list` | `mcp__exarchos__exarchos_workflow_list()` |
+| `workflow-state.sh reconcile <file>` | `mcp__exarchos__exarchos_workflow_reconcile({ featureId })` |
 
 ### Files to Migrate
 
@@ -247,4 +247,4 @@ After all tasks complete:
 1. Run `npm run test:run` in workflow-state-mcp — all tests pass
 2. Run `npm run typecheck` in workflow-state-mcp — no errors
 3. Grep for `workflow-state.sh` across entire repo — zero matches
-4. Grep for `mcp__workflow-state__` in skills/commands — verify consistent usage
+4. Grep for `mcp__exarchos__` in skills/commands — verify consistent usage
