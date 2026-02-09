@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,6 +15,7 @@ import {
   handleCheckpoint,
 } from '../tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../state-store.js';
+import * as stateStore from '../state-store.js';
 import type { WorkflowState } from '../types.js';
 
 let tmpDir: string;
@@ -1210,5 +1211,37 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
     expect(data._events).toBeUndefined();
     expect(data.synthesis).toBeUndefined();
     expect(data.artifacts).toBeUndefined();
+  });
+});
+
+// ─── Snapshot Rollback Tests ───────────────────────────────────────────────────
+
+describe('handleCheckpoint_ValidationFailure_RollsBackToPreviousState', () => {
+  it('should rollback on validation failure during checkpoint', async () => {
+    // Arrange
+    await handleInit({ featureId: 'cp-rb', workflowType: 'feature' }, tmpDir);
+
+    // Read state before checkpoint
+    const stateBefore = await readStateFile(path.join(tmpDir, 'cp-rb.state.json'));
+
+    // Mock writeStateFile to throw STATE_CORRUPT on next call
+    const writeSpy = vi.spyOn(stateStore, 'writeStateFile').mockRejectedValueOnce(
+      new Error('STATE_CORRUPT: Write-time validation failed: _checkpoint: Invalid'),
+    );
+
+    // Act
+    const result = await handleCheckpoint({ featureId: 'cp-rb', summary: 'test checkpoint' }, tmpDir);
+
+    // Assert
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATE_CORRUPT');
+    expect(result.error?.message).toContain('rolled back');
+
+    // Verify state on disk is restored (phase unchanged)
+    const stateAfter = await readStateFile(path.join(tmpDir, 'cp-rb.state.json'));
+    expect(stateAfter.phase).toBe(stateBefore.phase);
+    expect(stateAfter._eventSequence).toBe(stateBefore._eventSequence);
+
+    writeSpy.mockRestore();
   });
 });
