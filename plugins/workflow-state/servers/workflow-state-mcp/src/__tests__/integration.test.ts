@@ -10,6 +10,7 @@ import {
   handleCheckpoint,
   handleSummary,
   handleNextAction,
+  handleReconcile,
 } from '../tools.js';
 import { executeTransition, getHSMDefinition } from '../state-machine.js';
 import { appendEvent } from '../events.js';
@@ -739,6 +740,63 @@ describe('Integration', () => {
       expect('mergedBranches' in synthesis).toBe(true);
       expect('prUrl' in synthesis).toBe(true);
       expect('prFeedback' in synthesis).toBe(true);
+    });
+  });
+
+  // ─── 9. Integration_ReconcileRepairsCorruptState_GetSucceeds ────────────
+
+  describe('Integration_ReconcileRepairsCorruptState_GetSucceeds', () => {
+    it('should repair a corrupt state file so handleGet succeeds afterwards', async () => {
+      // Step 1: Initialize a valid workflow
+      const initResult = await handleInit(
+        { featureId: 'reconcile-e2e', workflowType: 'feature' },
+        stateDir,
+      );
+      expect(initResult.success).toBe(true);
+
+      // Step 2: Read raw state and corrupt it
+      const raw = await readRawState('reconcile-e2e');
+
+      // Remove _events (set to non-array), set invalid task status
+      raw._events = 'corrupted';
+      raw._eventSequence = -5;
+      raw.tasks = [
+        { id: 'task-1', title: 'Corrupted task', status: 'nonexistent-status' },
+      ];
+      await writeRawState('reconcile-e2e', raw);
+
+      // Step 3: Reconcile with repair: true
+      const reconcileResult = await handleReconcile(
+        { featureId: 'reconcile-e2e', repair: true },
+        stateDir,
+      );
+      expect(reconcileResult.success).toBe(true);
+      const reconcileData = reconcileResult.data as Record<string, unknown>;
+      expect(reconcileData.valid).toBe(false); // Was invalid before repair
+      expect(reconcileData.repaired).toBe(true);
+
+      // Verify issues were found and marked repaired
+      const issues = reconcileData.issues as Array<Record<string, unknown>>;
+      expect(issues.length).toBeGreaterThan(0);
+      const repairedIssues = issues.filter((i) => i.repaired === true);
+      expect(repairedIssues.length).toBeGreaterThan(0);
+
+      // Step 4: handleGet should now succeed on the repaired state
+      const getResult = await handleGet(
+        { featureId: 'reconcile-e2e' },
+        stateDir,
+      );
+      expect(getResult.success).toBe(true);
+      const state = getResult.data as Record<string, unknown>;
+      expect(state.featureId).toBe('reconcile-e2e');
+      expect(state.workflowType).toBe('feature');
+      expect(state._events).toEqual([]);
+      expect(state._eventSequence).toBe(0);
+
+      // Task status should have been repaired to 'pending'
+      const tasks = state.tasks as Array<Record<string, unknown>>;
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].status).toBe('pending');
     });
   });
 });

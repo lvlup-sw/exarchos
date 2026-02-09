@@ -181,7 +181,7 @@ describe('MCP Server Entry Point', () => {
       await handler({ featureId: 'my-feat' });
 
       expect(handleReconcile).toHaveBeenCalledWith(
-        { featureId: 'my-feat' },
+        { featureId: 'my-feat', repair: false },
         '/tmp/test-state-dir',
       );
     });

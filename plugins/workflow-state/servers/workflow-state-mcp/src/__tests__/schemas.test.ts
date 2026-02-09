@@ -266,6 +266,27 @@ describe('Workflow State Schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('reconcile — accepts featureId with repair: true', () => {
+      const result = ReconcileInputSchema.safeParse({
+        featureId: 'test-feature',
+        repair: true,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.repair).toBe(true);
+      }
+    });
+
+    it('reconcile — defaults repair to false when omitted', () => {
+      const result = ReconcileInputSchema.safeParse({
+        featureId: 'test-feature',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.repair).toBe(false);
+      }
+    });
+
     it('next-action — accepts featureId', () => {
       const result = NextActionInputSchema.safeParse({
         featureId: 'test-feature',
