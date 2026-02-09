@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
+import { TeamCoordinator } from '../../team/coordinator.js';
 import {
   handleTeamSpawn,
   handleTeamMessage,
@@ -83,6 +84,16 @@ describe('handleTeamSpawn', () => {
     expect(result.error?.message).toContain('streamId');
   });
 
+  it('whitespace-only taskTitle returns INVALID_INPUT', async () => {
+    const result = await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: '   ', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('taskTitle');
+  });
+
   it('invalid role returns error', async () => {
     const result = await handleTeamSpawn(
       {
@@ -146,6 +157,36 @@ describe('handleTeamMessage', () => {
     );
   });
 
+  it('whitespace-only from returns INVALID_INPUT', async () => {
+    const result = await handleTeamMessage(
+      { from: '   ', to: 'agent-2', content: 'Hello', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('from');
+  });
+
+  it('whitespace-only to returns INVALID_INPUT', async () => {
+    const result = await handleTeamMessage(
+      { from: 'agent-1', to: '   ', content: 'Hello', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('to');
+  });
+
+  it('whitespace-only content returns INVALID_INPUT', async () => {
+    const result = await handleTeamMessage(
+      { from: 'agent-1', to: 'agent-2', content: '   ', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('content');
+  });
+
   it('message to unknown target returns error', async () => {
     const result = await handleTeamMessage(
       { from: 'agent-1', to: 'unknown', content: 'Hello', streamId: 'wf-001' },
@@ -167,6 +208,26 @@ describe('handleTeamBroadcast', () => {
       { name: 'agent-2', role: 'reviewer', taskId: 't2', taskTitle: 'Task 2', streamId: 'wf-001' },
       tempDir,
     );
+  });
+
+  it('whitespace-only from returns INVALID_INPUT', async () => {
+    const result = await handleTeamBroadcast(
+      { from: '   ', content: 'All tasks paused', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('from');
+  });
+
+  it('whitespace-only content returns INVALID_INPUT', async () => {
+    const result = await handleTeamBroadcast(
+      { from: 'orchestrator', content: '   ', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('content');
   });
 
   it('broadcasts to all teammates', async () => {
@@ -208,6 +269,16 @@ describe('handleTeamShutdown', () => {
     expect(data.activeCount).toBe(0);
   });
 
+  it('whitespace-only name returns INVALID_INPUT', async () => {
+    const result = await handleTeamShutdown(
+      { name: '   ', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('name');
+  });
+
   it('unknown name returns error', async () => {
     const result = await handleTeamShutdown(
       { name: 'unknown', streamId: 'wf-001' },
@@ -220,6 +291,20 @@ describe('handleTeamShutdown', () => {
 });
 
 describe('handleTeamStatus', () => {
+  it('returns STATUS_FAILED when getStatus throws', async () => {
+    const spy = vi.spyOn(TeamCoordinator.prototype, 'getStatus').mockImplementation(() => {
+      throw new Error('Coordinator corrupted');
+    });
+
+    const result = await handleTeamStatus({}, tempDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATUS_FAILED');
+    expect(result.error?.message).toContain('Coordinator corrupted');
+
+    spy.mockRestore();
+  });
+
   it('returns all teammates', async () => {
     await handleTeamSpawn(
       { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: 'Task 1', streamId: 'wf-001' },
