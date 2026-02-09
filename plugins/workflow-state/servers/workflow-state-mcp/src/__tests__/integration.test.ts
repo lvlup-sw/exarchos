@@ -741,4 +741,51 @@ describe('Integration', () => {
       expect('prFeedback' in synthesis).toBe(true);
     });
   });
+
+  // ─── 9. HandleSet_InvalidMutation_RollbackPreservesState (e2e) ────────────
+
+  describe('Integration_HandleSetInvalidMutation_RollbackPreservesState', () => {
+    it('should roll back corrupting handleSet and preserve state from prior valid handleSet', async () => {
+      // Step 1: Init workflow
+      const initResult = await handleInit(
+        { featureId: 'rollback-e2e', workflowType: 'feature' },
+        stateDir,
+      );
+      expect(initResult.success).toBe(true);
+
+      // Step 2: Valid update — set artifacts.design
+      const validResult = await handleSet(
+        { featureId: 'rollback-e2e', updates: { 'artifacts.design': 'docs/design.md' } },
+        stateDir,
+      );
+      expect(validResult.success).toBe(true);
+
+      // Step 3: Corrupting update — set tasks to a string (violates schema)
+      const corruptResult = await handleSet(
+        { featureId: 'rollback-e2e', updates: { tasks: 'not-an-array' } },
+        stateDir,
+      );
+
+      // Step 4: Verify corruption was caught and rolled back
+      expect(corruptResult.success).toBe(false);
+      expect(corruptResult.error).toBeDefined();
+      expect(corruptResult.error?.code).toBe('STATE_CORRUPT');
+
+      // Step 5: Read state back via handleGet and verify it matches post-first-set state
+      const getResult = await handleGet({ featureId: 'rollback-e2e' }, stateDir);
+      expect(getResult.success).toBe(true);
+      const state = getResult.data as Record<string, unknown>;
+
+      // artifacts.design should still be set from the valid update
+      const artifacts = state.artifacts as Record<string, unknown>;
+      expect(artifacts.design).toBe('docs/design.md');
+
+      // tasks should still be an empty array (not a string)
+      expect(Array.isArray(state.tasks)).toBe(true);
+      expect((state.tasks as unknown[]).length).toBe(0);
+
+      // Phase should still be 'ideate' (unchanged)
+      expect(state.phase).toBe('ideate');
+    });
+  });
 });

@@ -163,6 +163,9 @@ export async function handleSet(
     throw err;
   }
 
+  // Save snapshot for rollback before any mutations
+  const snapshot = structuredClone(state);
+
   // Work with a deep copy to avoid shared reference mutation
   const mutableState = structuredClone(state) as Record<string, unknown>;
 
@@ -259,17 +262,31 @@ export async function handleSet(
   const checkpoint = mutableState._checkpoint as Record<string, unknown>;
   checkpoint.lastActivityTimestamp = new Date().toISOString();
 
-  // Write back to disk
-  await writeStateFile(stateFile, mutableState as WorkflowState);
+  try {
+    // Write back to disk
+    await writeStateFile(stateFile, mutableState as WorkflowState);
 
-  return {
-    success: true,
-    data: {
-      phase: mutableState.phase as string,
-      updatedAt: mutableState.updatedAt as string,
-    },
-    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
-  };
+    return {
+      success: true,
+      data: {
+        phase: mutableState.phase as string,
+        updatedAt: mutableState.updatedAt as string,
+      },
+      _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(ErrorCode.STATE_CORRUPT)) {
+      await writeStateFileUnsafe(stateFile, snapshot);
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_CORRUPT,
+          message: `Set produced invalid state, rolled back to previous state. ${error.message}`,
+        },
+      };
+    }
+    throw error;
+  }
 }
 
 // ─── handleCancel ──────────────────────────────────────────────────────────

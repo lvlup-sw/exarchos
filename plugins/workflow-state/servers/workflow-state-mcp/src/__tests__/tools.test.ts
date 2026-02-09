@@ -1245,3 +1245,92 @@ describe('handleCheckpoint_ValidationFailure_RollsBackToPreviousState', () => {
     writeSpy.mockRestore();
   });
 });
+
+describe('ToolSet_SnapshotRollback', () => {
+  describe('handleSet_InvalidMutationProducesCorruptState_RollsBackToPreviousState', () => {
+    it('should roll back to previous state when mutation produces invalid state', async () => {
+      // Init a feature workflow
+      await handleInit({ featureId: 'set-rollback', workflowType: 'feature' }, tmpDir);
+
+      // Do a valid update first
+      const validResult = await handleSet(
+        { featureId: 'set-rollback', updates: { 'artifacts.design': 'docs/design.md' } },
+        tmpDir,
+      );
+      expect(validResult.success).toBe(true);
+
+      // Read the state before corruption attempt to know expected state
+      const stateBefore = await readStateFile(path.join(tmpDir, 'set-rollback.state.json'));
+      expect(stateBefore.artifacts.design).toBe('docs/design.md');
+      expect(Array.isArray(stateBefore.tasks)).toBe(true);
+
+      // Attempt an update that corrupts state: set `tasks` to a string value
+      // This will pass applyDotPath but fail schema validation at writeStateFile
+      const corruptResult = await handleSet(
+        { featureId: 'set-rollback', updates: { tasks: 'not-an-array' } },
+        tmpDir,
+      );
+
+      // Should return failure with STATE_CORRUPT code
+      expect(corruptResult.success).toBe(false);
+      expect(corruptResult.error).toBeDefined();
+      expect(corruptResult.error?.code).toBe('STATE_CORRUPT');
+
+      // Read state from disk and verify it matches the pre-corruption state
+      const stateAfter = await readStateFile(path.join(tmpDir, 'set-rollback.state.json'));
+      expect(stateAfter.artifacts.design).toBe('docs/design.md');
+      expect(Array.isArray(stateAfter.tasks)).toBe(true);
+      expect(stateAfter.tasks).toEqual(stateBefore.tasks);
+    });
+  });
+
+  describe('handleSet_InvalidMutation_ErrorIncludesValidationDetails', () => {
+    it('should include "rolled back" in the error message', async () => {
+      await handleInit({ featureId: 'set-rb-msg', workflowType: 'feature' }, tmpDir);
+
+      // Do a valid update first
+      await handleSet(
+        { featureId: 'set-rb-msg', updates: { 'artifacts.design': 'docs/design.md' } },
+        tmpDir,
+      );
+
+      // Attempt a corrupting update
+      const corruptResult = await handleSet(
+        { featureId: 'set-rb-msg', updates: { tasks: 'not-an-array' } },
+        tmpDir,
+      );
+
+      expect(corruptResult.success).toBe(false);
+      expect(corruptResult.error?.code).toBe('STATE_CORRUPT');
+      expect(corruptResult.error?.message).toContain('rolled back');
+    });
+  });
+
+  describe('handleSet_FileIOError_RethrowsWithoutSwallowing', () => {
+    it('should re-throw non-STATE_CORRUPT errors without catching them', async () => {
+      await handleInit({ featureId: 'set-rethrow', workflowType: 'feature' }, tmpDir);
+
+      // Do a valid update first to ensure state is in a good place
+      await handleSet(
+        { featureId: 'set-rethrow', updates: { 'artifacts.design': 'docs/design.md' } },
+        tmpDir,
+      );
+
+      // Make the directory read-only to cause a write failure (not STATE_CORRUPT)
+      await fs.chmod(tmpDir, 0o444);
+
+      try {
+        // This should throw a FILE_IO_ERROR, not return { success: false }
+        await expect(
+          handleSet(
+            { featureId: 'set-rethrow', updates: { 'artifacts.plan': 'docs/plan.md' } },
+            tmpDir,
+          ),
+        ).rejects.toThrow();
+      } finally {
+        // Restore permissions for cleanup
+        await fs.chmod(tmpDir, 0o755);
+      }
+    });
+  });
+});
