@@ -432,3 +432,14 @@ Extended to support:
 | Exceed 15 min on hotfix investigation | Switch to thorough track |
 | Add features during bug fix | Scope creep - only fix the bug |
 | Skip tests because "it's just a fix" | Fixes need tests to prevent regression |
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit events throughout the debug workflow:
+
+1. **At workflow start (triage):** `exarchos_event_append` → `workflow.started` with workflowType "debug", urgency
+2. **On track selection:** `exarchos_event_append` → `phase.transitioned` with selected track (hotfix/thorough)
+3. **On each phase transition:** `exarchos_event_append` → `phase.transitioned` from→to
+4. **Thorough track stacking:** Handled by `/synthesize` (Graphite stack submission)
+5. **Hotfix track commit:** Single `gt create -m "fix: <description>"` — no multi-branch stacking needed
+6. **On complete:** `exarchos_event_append` → `phase.transitioned` to "completed"
