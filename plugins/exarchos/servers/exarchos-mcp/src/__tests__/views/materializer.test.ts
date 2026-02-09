@@ -441,4 +441,41 @@ describe('ViewMaterializer with Snapshots', () => {
       expect(view.count).toBe(10);
     });
   });
+
+  describe('NoSnapshotStore_SkipsSnapshotting', () => {
+    it('should process 100+ events without error when no snapshotStore is configured', () => {
+      const materializer = new ViewMaterializer();
+      materializer.register('counter', counterProjection);
+
+      const events = Array.from({ length: 110 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      const view = materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      expect(view.count).toBe(110);
+      expect(view.lastType).toBe('event.110');
+    });
+  });
+
+  describe('SnapshotIntervalNotCrossed_NoSnapshotCreated', () => {
+    it('should not create a snapshot when event count is below the interval', async () => {
+      const snapshotStore = new SnapshotStore(tempDir);
+      const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 50 });
+      materializer.register('counter', counterProjection);
+
+      // Process only 10 events (below the 50-event snapshot interval)
+      const events = Array.from({ length: 10 }, (_, i) =>
+        makeEvent(i + 1, `event.${i + 1}`),
+      );
+
+      materializer.materialize<CounterView>('test-stream', 'counter', events);
+
+      // Allow async operations to settle
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');
+      expect(snapshot).toBeUndefined();
+    });
+  });
 });
