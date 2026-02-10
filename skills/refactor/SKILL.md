@@ -324,7 +324,7 @@ Skill({ skill: "synthesize", args: "<feature-name>" })
 The `/synthesize` skill creates the PR via Graphite MCP:
 
 ```typescript
-# Submit the stack to create PRs
+// Submit the stack to create PRs
 mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
 ```
 
