@@ -31,13 +31,27 @@ export function loadSyncConfig(stateDir: string): SyncConfig {
     }
   }
 
-  // Merge file config over defaults
+  // Default remote config values
+  const remoteDefaults = {
+    apiBaseUrl: 'http://localhost:5000',
+    exarchosId: 'default',
+    timeoutMs: 5000,
+  };
+
+  // Merge file config over defaults, normalizing remote with defaults
   const config: SyncConfig = {
     mode: fileConfig.mode ?? defaults.mode,
     syncIntervalMs: fileConfig.syncIntervalMs ?? defaults.syncIntervalMs,
     batchSize: fileConfig.batchSize ?? defaults.batchSize,
     maxRetries: fileConfig.maxRetries ?? defaults.maxRetries,
-    remote: fileConfig.remote,
+    remote: fileConfig.remote
+      ? {
+          apiToken: fileConfig.remote.apiToken,
+          apiBaseUrl: fileConfig.remote.apiBaseUrl ?? remoteDefaults.apiBaseUrl,
+          exarchosId: fileConfig.remote.exarchosId ?? remoteDefaults.exarchosId,
+          timeoutMs: fileConfig.remote.timeoutMs ?? remoteDefaults.timeoutMs,
+        }
+      : undefined,
   };
 
   // Fall back to environment variables for remote config if not in file

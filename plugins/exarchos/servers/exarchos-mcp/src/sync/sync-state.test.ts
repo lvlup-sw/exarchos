@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { SyncStateManager } from '../../sync/sync-state.js';
+import { SyncStateManager } from './sync-state.js';
 
 describe('SyncStateManager', () => {
   let tempDir: string;
@@ -61,6 +61,26 @@ describe('SyncStateManager', () => {
       expect(state.remoteHighWaterMark).toBe(3);
       expect(state.lastSyncAt).toBe('2026-02-08T00:00:00Z');
       expect(state.lastSyncResult).toBe('success');
+    });
+
+    it('should rethrow on non-ENOENT errors (e.g. invalid JSON)', async () => {
+      const filePath = path.join(tempDir, 'corrupt.sync.json');
+      await writeFile(filePath, '<<<not-json>>>', 'utf-8');
+
+      await expect(manager.load('corrupt')).rejects.toThrow();
+    });
+
+    it('should rethrow on permission errors', async () => {
+      const filePath = path.join(tempDir, 'noperm.sync.json');
+      await writeFile(filePath, '{}', 'utf-8');
+      await chmod(filePath, 0o000);
+
+      try {
+        await expect(manager.load('noperm')).rejects.toThrow();
+      } finally {
+        // Restore permissions so afterEach cleanup can remove the file
+        await chmod(filePath, 0o644);
+      }
     });
   });
 
