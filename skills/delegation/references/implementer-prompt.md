@@ -104,13 +104,49 @@ npm run typecheck
 
 This regenerates TypeScript types from the OpenAPI spec. Include generated files in your commit.
 
+## Commit Strategy
+
+### If Graphite CLI (`gt`) is available:
+
+After completing each logical task within your assignment:
+
+1. Stage the relevant files: `git add <files>`
+2. Create a stacked branch: `gt create <task-branch-name> -m "feat: <task summary>"`
+3. Continue to the next task (you are now on a new branch stacked on the previous)
+
+After all tasks are complete:
+4. Submit the full stack: `gt submit --no-interactive --stack`
+
+**IMPORTANT:** When using Graphite, never use `git commit` or `git push`. Always use `gt create` and `gt submit`.
+
+### If Graphite is NOT available:
+
+Use standard git commits:
+
+1. Stage the relevant files: `git add <files>`
+2. Commit: `git commit -m "feat: <task summary>"`
+3. After all tasks: `git push -u origin <branch-name>`
+
+### Detection
+
+Check if Graphite is available and initialized before your first commit:
+
+```bash
+gt --version 2>/dev/null && test -f .git/.graphite_repo_config && echo "GRAPHITE" || echo "GIT"
+```
+
+### Grouping Guidance
+
+Stack branches should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one stack layer. For example, if you implement types + config + tests for a module, that's one `gt create`, not three.
+
 ## Completion
 
 When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Any issues encountered
+4. Commit strategy used (Graphite stack / standard git)
+5. Any issues encountered
 ```
 
 ## Usage Example
@@ -216,4 +252,5 @@ describe('validateEmail', () => {
 2. **No File References** - Don't say "see plan.md" - paste content
 3. **Explicit Paths** - Absolute paths to working directory and files
 4. **TDD Mandatory** - Always include TDD requirements
-5. **Clear Success Criteria** - Checkboxes for completion
+5. **Graphite-Aware** - Include commit strategy section; subagents auto-detect `gt`
+6. **Clear Success Criteria** - Checkboxes for completion
