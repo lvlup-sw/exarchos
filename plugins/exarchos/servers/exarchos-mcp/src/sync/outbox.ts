@@ -4,6 +4,10 @@ import * as crypto from 'node:crypto';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
 
+// ─── Stream ID Validation ────────────────────────────────────────────────────
+
+const SAFE_STREAM_ID = /^[A-Za-z0-9._-]+$/;
+
 // ─── Outbox ──────────────────────────────────────────────────────────────────
 
 export class Outbox {
@@ -12,6 +16,9 @@ export class Outbox {
   // ─── File Path ──────────────────────────────────────────────────────────
 
   private getFilePath(streamId: string): string {
+    if (!SAFE_STREAM_ID.test(streamId)) {
+      throw new Error(`Invalid streamId: ${streamId}`);
+    }
     return path.join(this.stateDir, `${streamId}.outbox.json`);
   }
 
