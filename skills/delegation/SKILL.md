@@ -2,7 +2,7 @@
 
 ## Overview
 
-Dispatch implementation tasks to Jules (async) or Claude Code subagents (sync) with proper context and TDD requirements.
+Dispatch implementation tasks to Claude Code subagents with proper context and TDD requirements.
 
 ## Triggers
 
@@ -12,30 +12,9 @@ Activate this skill when:
 - User wants to parallelize work
 - Tasks are ready for execution
 
-## Delegation Modes
+## Delegation Mode
 
-### Mode 1: Jules (Async PRs)
-
-**Use when:**
-- Task is self-contained
-- Can wait for async completion
-- Want automatic PR creation
-- Delegating to external agent
-
-**Tool:** `jules_create_task` MCP tool
-
-**TDD is auto-injected** by the Jules MCP plugin.
-
-```typescript
-// Example via MCP tool
-jules_create_task({
-  repo: "owner/repo",
-  prompt: "Implement user authentication...",
-  branch: "feature/auth"
-})
-```
-
-### Mode 2: Task Tool (Sync Subagents)
+### Task Tool (Subagents)
 
 **Use when:**
 - Need immediate results
@@ -110,16 +89,7 @@ TodoWrite({
 
 ### Step 4: Dispatch Implementers
 
-**For Jules:**
-```typescript
-jules_create_task({
-  repo: "owner/repo",
-  prompt: "[Task details + TDD auto-injected]",
-  branch: "feature/task-name"
-})
-```
-
-**For Task Tool (parallel):**
+**Parallel dispatch:**
 ```typescript
 // Launch multiple in single message for parallel execution
 Task({
@@ -144,11 +114,6 @@ Task({
 For background tasks:
 ```typescript
 TaskOutput({ task_id: "task-001-id", block: true })
-```
-
-For Jules:
-```typescript
-jules_check_status({ sessionId: "session-id" })
 ```
 
 ### Step 6: Collect Results

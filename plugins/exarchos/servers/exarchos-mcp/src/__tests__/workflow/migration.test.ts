@@ -13,7 +13,6 @@ function makeV1_0State() {
     artifacts: { design: null, plan: null, pr: null },
     tasks: [],
     worktrees: {},
-    julesSessions: {},
     reviews: {},
     synthesis: {
       integrationBranch: null,
@@ -63,6 +62,24 @@ describe('Migration', () => {
       expect(checkpoint.operationsSince).toBe(0);
       expect(checkpoint.fixCycleCount).toBe(0);
       expect(checkpoint.staleAfterMinutes).toBe(120);
+    });
+  });
+
+  describe('MigrateState_V1_0ToV1_1_NormalizesLegacyAssignee', () => {
+    it('should normalize "jules" assignee to "subagent" during migration', () => {
+      const v1_0 = makeV1_0State();
+      v1_0.tasks = [
+        { id: '001', title: 'Task A', status: 'complete', assignee: 'jules' },
+        { id: '002', title: 'Task B', status: 'pending', assignee: 'subagent' },
+        { id: '003', title: 'Task C', status: 'pending', assignee: 'manual' },
+      ] as never;
+
+      const result = migrateState(v1_0) as Record<string, unknown>;
+      const tasks = result.tasks as Array<Record<string, unknown>>;
+
+      expect(tasks[0].assignee).toBe('subagent');
+      expect(tasks[1].assignee).toBe('subagent');
+      expect(tasks[2].assignee).toBe('manual');
     });
   });
 

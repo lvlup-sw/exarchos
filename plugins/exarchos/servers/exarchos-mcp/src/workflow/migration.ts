@@ -10,24 +10,36 @@ const migrations: readonly Migration[] = [
   {
     from: '1.0',
     to: '1.1',
-    migrate: (state) => ({
-      ...state,
-      version: '1.1',
-      _history: state._history ?? {},
-      _events: state._events ?? [],
-      _eventSequence: state._eventSequence ?? 0,
-      _checkpoint: state._checkpoint ?? {
-        timestamp:
-          (state.updatedAt as string) ?? new Date().toISOString(),
-        phase: (state.phase as string) ?? 'unknown',
-        summary: '',
-        operationsSince: 0,
-        fixCycleCount: 0,
-        lastActivityTimestamp:
-          (state.updatedAt as string) ?? new Date().toISOString(),
-        staleAfterMinutes: 120,
-      },
-    }),
+    migrate: (state) => {
+      // Normalize legacy assignee values in tasks
+      const tasks = Array.isArray(state.tasks)
+        ? (state.tasks as Record<string, unknown>[]).map((task) => ({
+            ...task,
+            assignee:
+              task.assignee === 'jules' ? 'subagent' : task.assignee,
+          }))
+        : state.tasks;
+
+      return {
+        ...state,
+        version: '1.1',
+        tasks,
+        _history: state._history ?? {},
+        _events: state._events ?? [],
+        _eventSequence: state._eventSequence ?? 0,
+        _checkpoint: state._checkpoint ?? {
+          timestamp:
+            (state.updatedAt as string) ?? new Date().toISOString(),
+          phase: (state.phase as string) ?? 'unknown',
+          summary: '',
+          operationsSince: 0,
+          fixCycleCount: 0,
+          lastActivityTimestamp:
+            (state.updatedAt as string) ?? new Date().toISOString(),
+          staleAfterMinutes: 120,
+        },
+      };
+    },
   },
 ];
 

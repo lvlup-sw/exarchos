@@ -213,7 +213,6 @@ describe('Cross-Module Boundary Tests', () => {
     expect(state.phase).toBe('ideate');
     expect(state.tasks).toEqual([]);
     expect(state.worktrees).toEqual({});
-    expect(state.julesSessions).toEqual({});
     expect(state.reviews).toEqual({});
     expect(state.synthesis).toBeDefined();
     expect(state._events).toBeDefined();

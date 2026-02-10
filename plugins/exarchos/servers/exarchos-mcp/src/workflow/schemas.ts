@@ -176,7 +176,6 @@ const BaseWorkflowStateSchema = z.object({
   artifacts: ArtifactsSchema,
   tasks: z.array(TaskSchema),
   worktrees: z.record(z.string(), WorktreeSchema),
-  julesSessions: z.record(z.string(), z.unknown()),
   reviews: z.record(z.string(), z.unknown()),
   integration: z.object({
     passed: z.boolean(),

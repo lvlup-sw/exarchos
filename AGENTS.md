@@ -14,7 +14,6 @@ Exarchos provides SDLC workflow automation for Claude Code. It contains workflow
 - `rules/` - Global rules and coding standards
 - `scripts/` - Utility scripts for workflow management
 - `plugins/exarchos/` - Unified MCP server (workflow state, events, CQRS views, team coordination)
-- `plugins/jules/` - Optional Jules autonomous coding agent integration
 
 ## Security Considerations
 - No secrets stored in repository

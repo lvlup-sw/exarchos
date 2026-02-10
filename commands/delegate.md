@@ -1,5 +1,5 @@
 ---
-description: Dispatch tasks to Jules or Claude Code subagents
+description: Dispatch tasks to Claude Code subagents
 ---
 
 # Delegate
@@ -32,18 +32,9 @@ Auto-invokes `/integrate` after tasks complete (or `/synthesize` for `--pr-fixes
 - Git worktrees: `@skills/git-worktrees/SKILL.md`
 - Implementer template: `@skills/delegation/references/implementer-prompt.md`
 
-## Delegation Modes
+## Delegation Mode
 
-### Mode 1: Jules (Async PRs)
-```typescript
-jules_create_task({
-  repo: "owner/repo",
-  prompt: "[Task + TDD auto-injected]",
-  branch: "feature/task-name"
-})
-```
-
-### Mode 2: Task Tool (Sync)
+### Task Tool (Subagents)
 ```typescript
 Task({
   subagent_type: "general-purpose",
@@ -80,7 +71,6 @@ Use TodoWrite to track all delegated tasks.
 - Use `model: "opus"` for coding
 
 ### Step 5: Monitor
-- Jules: `jules_check_status`
 - Task tool: `TaskOutput`
 
 ### Step 6: Schema Sync (Auto)
@@ -291,11 +281,6 @@ Task({ model: "opus", description: "Fix [P1 🔴]: ...", prompt: "..." })
 For Task tool:
 ```typescript
 TaskOutput({ task_id: "[task-id]", block: true })
-```
-
-For Jules:
-```typescript
-jules_check_status({ sessionId: "[session-id]" })
 ```
 
 Update TodoWrite as each fix completes.

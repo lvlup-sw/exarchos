@@ -22,12 +22,6 @@ npm run test:run       # vitest single run
 npm run test:coverage  # vitest with coverage
 npm run dev            # tsx watch mode
 
-# Jules MCP server
-cd plugins/jules/servers/jules-mcp
-npm run build          # tsc
-npm run test:run
-npm run dev
-
 # Run a single test file (any package)
 npx vitest run src/install.test.ts
 npx vitest run src/state-machine.test.ts
@@ -55,12 +49,11 @@ Most of this repo is structured Markdown, not executable code:
 
 ### MCP Servers
 
-Two self-contained TypeScript MCP servers, each with their own `package.json`, `tsconfig.json`, and test suite:
+One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.json`, and test suite:
 
 - **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `docs/workflow-state/`. This is the core persistence and coordination mechanism.
-- **jules** (`plugins/jules/servers/jules-mcp/`) — Optional integration with Google Jules autonomous coding agent. Requires `JULES_API_KEY`.
 
-Both use `@modelcontextprotocol/sdk` + `zod`, communicate over stdio, and are registered in `~/.claude.json` by the installer.
+Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
 ### Three Workflow Types
 

@@ -47,7 +47,6 @@ export async function initStateFile(
     artifacts: { design: null, plan: null, pr: null },
     tasks: [],
     worktrees: {},
-    julesSessions: {},
     reviews: {},
     synthesis: {
       integrationBranch: null,
