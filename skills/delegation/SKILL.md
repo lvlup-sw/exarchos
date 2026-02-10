@@ -404,5 +404,12 @@ When Exarchos MCP tools are available, emit events during delegation:
    The orchestrator should:
    - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record each stack position
    - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
-   - If the subagent used standard git (no Graphite), the orchestrator can restructure into a stack post-hoc
+   - If the subagent used standard git (no Graphite), restructure into a stack post-hoc:
+     ```bash
+     # From the worktree, for each logical commit to convert:
+     gt create -m "feat: <description>"  # Creates a Graphite branch from current HEAD
+     gt submit --no-interactive           # Pushes and creates PR
+     ```
+     Then record each branch: `mcp__exarchos__exarchos_stack_place({ position, taskId, branch })`
+     See also: [Graphite post-hoc stacking docs](https://graphite.dev/docs/stacking-existing-branches)
 7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase
