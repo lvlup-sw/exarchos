@@ -323,13 +323,13 @@ Skill({ skill: "synthesize", args: "<feature-name>" })
 
 The `/synthesize` skill creates the PR via Graphite MCP:
 
-```
+```typescript
 # Submit the stack to create PRs
 mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
 ```
 
 Then update the PR description using GitHub MCP:
-```
+```typescript
 mcp__plugin_github_github__update_pull_request({
   owner, repo, pullNumber,
   body: "## Summary\n[Brief description of the refactor]\n\n## Changes\n- [Key structural change 1]\n\n## Documentation Updated\n- [doc1.md] - Updated for X\n\n## Test Plan\n- All existing tests pass"
