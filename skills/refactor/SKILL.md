@@ -125,6 +125,11 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
+When done, commit via Graphite:
+```typescript
+mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
+```
+
 Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "polish-validate".
 
 #### 4. Validate Phase
@@ -318,13 +323,13 @@ Skill({ skill: "synthesize", args: "<feature-name>" })
 
 The `/synthesize` skill creates the PR via Graphite MCP:
 
-```
-# Submit the stack to create PRs
+```typescript
+// Submit the stack to create PRs
 mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
 ```
 
 Then update the PR description using GitHub MCP:
-```
+```typescript
 mcp__plugin_github_github__update_pull_request({
   owner, repo, pullNumber,
   body: "## Summary\n[Brief description of the refactor]\n\n## Changes\n- [Key structural change 1]\n\n## Documentation Updated\n- [doc1.md] - Updated for X\n\n## Test Plan\n- All existing tests pass"
@@ -515,3 +520,14 @@ Refactor phases map to auto-resume actions:
 | Skip tests because "just moving code" | Refactors need test verification |
 | Create design document for polish | Use brief in state file instead |
 | Work in main for overhaul | Use worktree isolation |
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit events throughout the refactor workflow:
+
+1. **At workflow start (explore):** `exarchos_event_append` → `workflow.started` with workflowType "refactor"
+2. **On track selection:** `exarchos_event_append` → `phase.transitioned` with selected track (polish/overhaul)
+3. **On each phase transition:** `exarchos_event_append` → `phase.transitioned` from→to
+4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
+5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
+6. **On complete:** `exarchos_event_append` → `phase.transitioned` to "completed"
