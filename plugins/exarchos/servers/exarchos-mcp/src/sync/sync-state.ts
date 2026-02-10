@@ -25,7 +25,9 @@ export class SyncStateManager {
       return await fn();
     } finally {
       release();
-      this.locks.delete(streamId);
+      if (this.locks.get(streamId) === next) {
+        this.locks.delete(streamId);
+      }
     }
   }
 
