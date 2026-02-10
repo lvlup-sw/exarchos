@@ -11,7 +11,27 @@ const SAFE_STREAM_ID = /^[A-Za-z0-9._-]+$/;
 // ─── Outbox ──────────────────────────────────────────────────────────────────
 
 export class Outbox {
+  private readonly locks = new Map<string, Promise<void>>();
+
   constructor(private readonly stateDir: string) {}
+
+  // ─── Per-Stream Locking ─────────────────────────────────────────────────
+
+  private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(streamId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((r) => { release = r; });
+    this.locks.set(streamId, next);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      release();
+      if (this.locks.get(streamId) === next) {
+        this.locks.delete(streamId);
+      }
+    }
+  }
 
   // ─── File Path ──────────────────────────────────────────────────────────
 
@@ -28,20 +48,28 @@ export class Outbox {
     streamId: string,
     event: WorkflowEvent,
   ): Promise<OutboxEntry> {
-    const entry: OutboxEntry = {
-      id: crypto.randomUUID(),
-      streamId,
-      event,
-      status: 'pending',
-      attempts: 0,
-      createdAt: new Date().toISOString(),
-    };
+    if (event.streamId !== streamId) {
+      throw new Error(
+        `Event streamId (${event.streamId}) does not match outbox streamId (${streamId})`,
+      );
+    }
 
-    const entries = await this.loadEntries(streamId);
-    entries.push(entry);
-    await this.saveEntries(streamId, entries);
+    return this.withLock(streamId, async () => {
+      const entry: OutboxEntry = {
+        id: crypto.randomUUID(),
+        streamId,
+        event,
+        status: 'pending',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+      };
 
-    return entry;
+      const entries = await this.loadEntries(streamId);
+      entries.push(entry);
+      await this.saveEntries(streamId, entries);
+
+      return entry;
+    });
   }
 
   // ─── Load Entries ───────────────────────────────────────────────────────
@@ -54,14 +82,25 @@ export class Outbox {
         return [];
       }
       return JSON.parse(content) as OutboxEntry[];
-    } catch {
-      return [];
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw err;
     }
   }
 
   // ─── Update Entry ──────────────────────────────────────────────────────
 
   async updateEntry(
+    streamId: string,
+    entryId: string,
+    updates: Partial<OutboxEntry>,
+  ): Promise<void> {
+    await this.withLock(streamId, () => this._updateEntry(streamId, entryId, updates));
+  }
+
+  private async _updateEntry(
     streamId: string,
     entryId: string,
     updates: Partial<OutboxEntry>,
@@ -77,9 +116,11 @@ export class Outbox {
   // ─── Remove Entry ─────────────────────────────────────────────────────
 
   async removeEntry(streamId: string, entryId: string): Promise<void> {
-    const entries = await this.loadEntries(streamId);
-    const filtered = entries.filter((e) => e.id !== entryId);
-    await this.saveEntries(streamId, filtered);
+    await this.withLock(streamId, async () => {
+      const entries = await this.loadEntries(streamId);
+      const filtered = entries.filter((e) => e.id !== entryId);
+      await this.saveEntries(streamId, filtered);
+    });
   }
 
   // ─── Drain (send pending entries) ──────────────────────────────────────
@@ -89,65 +130,67 @@ export class Outbox {
     streamId: string,
     batchSize: number = 50,
   ): Promise<{ sent: number; failed: number }> {
-    const entries = await this.loadEntries(streamId);
-    const pending = entries
-      .filter((e) => e.status === 'pending')
-      .filter((e) => {
-        if (!e.nextRetryAt) return true;
-        return new Date(e.nextRetryAt) <= new Date();
-      })
-      .slice(0, batchSize);
+    return this.withLock(streamId, async () => {
+      const entries = await this.loadEntries(streamId);
+      const pending = entries
+        .filter((e) => e.status === 'pending')
+        .filter((e) => {
+          if (!e.nextRetryAt) return true;
+          return new Date(e.nextRetryAt) <= new Date();
+        })
+        .slice(0, batchSize);
 
-    let sent = 0;
-    let failed = 0;
+      let sent = 0;
+      let failed = 0;
 
-    for (const entry of pending) {
-      try {
-        await client.appendEvents(streamId, [
-          {
-            streamId: entry.event.streamId,
-            sequence: entry.event.sequence,
-            timestamp: entry.event.timestamp,
-            type: entry.event.type,
-            correlationId: entry.event.correlationId,
-            causationId: entry.event.causationId,
-            agentId: entry.event.agentId,
-            agentRole: entry.event.agentRole,
-            source: entry.event.source,
-            schemaVersion: entry.event.schemaVersion,
-            data: entry.event.data,
-          },
-        ]);
+      for (const entry of pending) {
+        try {
+          await client.appendEvents(streamId, [
+            {
+              streamId: entry.event.streamId,
+              sequence: entry.event.sequence,
+              timestamp: entry.event.timestamp,
+              type: entry.event.type,
+              correlationId: entry.event.correlationId,
+              causationId: entry.event.causationId,
+              agentId: entry.event.agentId,
+              agentRole: entry.event.agentRole,
+              source: entry.event.source,
+              schemaVersion: entry.event.schemaVersion,
+              data: entry.event.data,
+            },
+          ]);
 
-        await this.updateEntry(streamId, entry.id, {
-          status: 'confirmed',
-          attempts: entry.attempts + 1,
-          lastAttemptAt: new Date().toISOString(),
-        });
-        sent++;
-      } catch (err) {
-        const attempts = entry.attempts + 1;
-        const maxRetries = 10;
-
-        if (attempts >= maxRetries) {
-          await this.markDeadLetter(
-            streamId,
-            entry.id,
-            err instanceof Error ? err.message : String(err),
-          );
-        } else {
-          await this.updateEntry(streamId, entry.id, {
-            attempts,
+          await this._updateEntry(streamId, entry.id, {
+            status: 'confirmed',
+            attempts: entry.attempts + 1,
             lastAttemptAt: new Date().toISOString(),
-            nextRetryAt: this.calculateNextRetry(attempts),
-            error: err instanceof Error ? err.message : String(err),
           });
-        }
-        failed++;
-      }
-    }
+          sent++;
+        } catch (err) {
+          const attempts = entry.attempts + 1;
+          const maxRetries = 10;
 
-    return { sent, failed };
+          if (attempts >= maxRetries) {
+            await this._updateEntry(streamId, entry.id, {
+              status: 'dead-letter',
+              error: err instanceof Error ? err.message : String(err),
+              lastAttemptAt: new Date().toISOString(),
+            });
+          } else {
+            await this._updateEntry(streamId, entry.id, {
+              attempts,
+              lastAttemptAt: new Date().toISOString(),
+              nextRetryAt: this.calculateNextRetry(attempts),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          failed++;
+        }
+      }
+
+      return { sent, failed };
+    });
   }
 
   // ─── Retry Backoff ─────────────────────────────────────────────────────
@@ -164,11 +207,11 @@ export class Outbox {
     entryId: string,
     error: string,
   ): Promise<void> {
-    await this.updateEntry(streamId, entryId, {
+    await this.withLock(streamId, () => this._updateEntry(streamId, entryId, {
       status: 'dead-letter',
       error,
       lastAttemptAt: new Date().toISOString(),
-    });
+    }));
   }
 
   // ─── Cleanup ───────────────────────────────────────────────────────────
@@ -177,27 +220,29 @@ export class Outbox {
     streamId: string,
     maxAge: number = 86400000,
   ): Promise<number> {
-    const entries = await this.loadEntries(streamId);
-    const now = Date.now();
-    let removed = 0;
+    return this.withLock(streamId, async () => {
+      const entries = await this.loadEntries(streamId);
+      const now = Date.now();
+      let removed = 0;
 
-    const filtered = entries.filter((entry) => {
-      if (entry.status === 'confirmed') {
-        const age = now - new Date(entry.lastAttemptAt || entry.createdAt).getTime();
-        if (age > maxAge) {
-          removed++;
-          return false;
+      const filtered = entries.filter((entry) => {
+        if (entry.status === 'confirmed') {
+          const age = now - new Date(entry.lastAttemptAt || entry.createdAt).getTime();
+          if (age > maxAge) {
+            removed++;
+            return false;
+          }
         }
+        // Preserve dead-letter entries
+        return true;
+      });
+
+      if (removed > 0) {
+        await this.saveEntries(streamId, filtered);
       }
-      // Preserve dead-letter entries
-      return true;
+
+      return removed;
     });
-
-    if (removed > 0) {
-      await this.saveEntries(streamId, filtered);
-    }
-
-    return removed;
   }
 
   // ─── Persistence ───────────────────────────────────────────────────────

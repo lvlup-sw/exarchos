@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { ConflictInfo } from './types.js';
 
@@ -43,7 +44,7 @@ export class ConflictResolver {
       if (!localEvent) continue;
 
       // Same sequence, potentially conflicting
-      if (localEvent.type === remoteEvent.type && JSON.stringify(localEvent.data) === JSON.stringify(remoteEvent.data)) {
+      if (localEvent.type === remoteEvent.type && isDeepStrictEqual(localEvent.data, remoteEvent.data)) {
         // Identical events — no conflict
         continue;
       }
