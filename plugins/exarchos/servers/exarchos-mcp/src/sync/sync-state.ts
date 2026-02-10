@@ -25,6 +25,10 @@ export class SyncStateManager {
       return await fn();
     } finally {
       release();
+      // Clean up if no other operation is queued
+      if (this.locks.get(streamId) === next) {
+        this.locks.delete(streamId);
+      }
     }
   }
 
@@ -54,7 +58,10 @@ export class SyncStateManager {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       return JSON.parse(content) as SyncState;
-    } catch {
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn(`Failed to load sync state for ${streamId}:`, err);
+      }
       return this.defaultState(streamId);
     }
   }
