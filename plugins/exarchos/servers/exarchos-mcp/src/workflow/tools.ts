@@ -694,7 +694,7 @@ export async function handleReconcile(
   // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
   const worktrees = state.worktrees as Record<
     string,
-    { branch: string; taskId: string; status: string; path?: string }
+    { branch: string; taskId?: string; tasks?: string[]; status: string; path?: string }
   >;
 
   const worktreeResults: Array<Record<string, unknown>> = [];
@@ -711,14 +711,17 @@ export async function handleReconcile(
       }
     }
 
-    worktreeResults.push({
+    const result: Record<string, unknown> = {
       id,
       branch: wt.branch,
-      taskId: wt.taskId,
       status: wt.status,
       path: wt.path ?? null,
       pathStatus,
-    });
+    };
+    if (wt.taskId !== undefined) result.taskId = wt.taskId;
+    if (wt.tasks !== undefined) result.tasks = wt.tasks;
+
+    worktreeResults.push(result);
   }
 
   return {

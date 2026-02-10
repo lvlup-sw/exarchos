@@ -585,7 +585,7 @@ describe('Workflow State Schemas', () => {
   });
 
   describe('WorktreeSchema', () => {
-    it('should parse a valid worktree', () => {
+    it('should parse a valid worktree with taskId', () => {
       const wt = {
         branch: 'feature/task-001',
         taskId: 'task-001',
@@ -593,6 +593,46 @@ describe('Workflow State Schemas', () => {
       };
       const result = WorktreeSchema.safeParse(wt);
       expect(result.success).toBe(true);
+    });
+
+    it('should parse a valid worktree with tasks array', () => {
+      const wt = {
+        branch: 'feat/track-a',
+        tasks: ['A01', 'A02', 'A03'],
+        status: 'active',
+      };
+      const result = WorktreeSchema.safeParse(wt);
+      expect(result.success).toBe(true);
+    });
+
+    it('should parse a worktree with both taskId and tasks', () => {
+      const wt = {
+        branch: 'feat/track-a',
+        taskId: 'A01',
+        tasks: ['A01', 'A02'],
+        status: 'active',
+      };
+      const result = WorktreeSchema.safeParse(wt);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject worktree with neither taskId nor tasks', () => {
+      const wt = {
+        branch: 'feat/orphan',
+        status: 'active',
+      };
+      const result = WorktreeSchema.safeParse(wt);
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject worktree with empty tasks array', () => {
+      const wt = {
+        branch: 'feat/empty',
+        tasks: [],
+        status: 'active',
+      };
+      const result = WorktreeSchema.safeParse(wt);
+      expect(result.success).toBe(false);
     });
 
     it('should reject invalid worktree status', () => {
@@ -603,6 +643,20 @@ describe('Workflow State Schemas', () => {
       };
       const result = WorktreeSchema.safeParse(wt);
       expect(result.success).toBe(false);
+    });
+
+    it('should preserve extra fields via passthrough', () => {
+      const wt = {
+        branch: 'feature/task-001',
+        taskId: 'task-001',
+        status: 'active',
+        path: '/tmp/worktree',
+      };
+      const result = WorktreeSchema.safeParse(wt);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data as Record<string, unknown>).path).toBe('/tmp/worktree');
+      }
     });
   });
 

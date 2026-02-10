@@ -165,6 +165,15 @@ export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
 ): Promise<void> {
+  // Validate before writing to catch schema violations at write time (not deferred to read)
+  const validation = WorkflowStateSchema.safeParse(state);
+  if (!validation.success) {
+    throw new StateStoreError(
+      ErrorCode.INVALID_INPUT,
+      `Write-time validation failed: ${validation.error.message}`,
+    );
+  }
+
   const tmpPath = `${stateFile}.tmp.${process.pid}`;
   try {
     await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
