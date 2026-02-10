@@ -126,7 +126,7 @@ Constraints:
 - Stop if scope expands beyond brief
 
 When done, commit via Graphite:
-```
+```typescript
 mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
 ```
 
