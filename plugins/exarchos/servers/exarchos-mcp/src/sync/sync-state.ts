@@ -20,15 +20,12 @@ export class SyncStateManager {
     let release!: () => void;
     const next = new Promise<void>((r) => { release = r; });
     this.locks.set(streamId, next);
-    await prev;
     try {
+      await prev;
       return await fn();
     } finally {
       release();
-      // Clean up if no other operation is queued
-      if (this.locks.get(streamId) === next) {
-        this.locks.delete(streamId);
-      }
+      this.locks.delete(streamId);
     }
   }
 
@@ -59,10 +56,10 @@ export class SyncStateManager {
       const content = await fs.readFile(filePath, 'utf-8');
       return JSON.parse(content) as SyncState;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn(`Failed to load sync state for ${streamId}:`, err);
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return this.defaultState(streamId);
       }
-      return this.defaultState(streamId);
+      throw err;
     }
   }
 
