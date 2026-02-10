@@ -103,9 +103,14 @@ export class BasileusClient {
       if (!response.ok) {
         let responseBody: unknown;
         try {
-          responseBody = await response.json();
+          const text = await response.text();
+          try {
+            responseBody = JSON.parse(text);
+          } catch {
+            responseBody = text;
+          }
         } catch {
-          responseBody = await response.text();
+          responseBody = undefined;
         }
         this.recordFailure();
         throw new BasileusApiError(

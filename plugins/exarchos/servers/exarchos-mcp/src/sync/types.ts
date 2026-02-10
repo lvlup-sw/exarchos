@@ -35,6 +35,7 @@ export interface SyncResult {
   pushed: number;
   pulled: number;
   conflicts: ConflictInfo[];
+  errors: string[];
 }
 
 // ─── Conflict Info ───────────────────────────────────────────────────────────

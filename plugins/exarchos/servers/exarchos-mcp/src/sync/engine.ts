@@ -84,8 +84,9 @@ export class SyncEngine {
       remoteEvents.map((dto) => this.dtoToEvent(dto)),
     );
 
-    // Append remote events to local store
+    // Append remote events to local store, tracking the last successful sequence
     let appended = 0;
+    let maxAppendedSeq = state.remoteHighWaterMark;
     for (const dto of remoteEvents) {
       try {
         const eventType = dto.type as EventType;
@@ -106,14 +107,17 @@ export class SyncEngine {
           schemaVersion: dto.schemaVersion,
         });
         appended++;
+        maxAppendedSeq = Math.max(maxAppendedSeq, dto.sequence);
       } catch {
-        // Skip events that fail to append (e.g. sequence conflicts)
+        // Stop at the first failed append to avoid gaps in the HWM
+        break;
       }
     }
 
-    // Update remote HWM
-    const maxRemoteSeq = Math.max(...remoteSequences);
-    await this.syncState.updateRemoteHWM(streamId, maxRemoteSeq);
+    // Only advance HWM to the last successfully appended event
+    if (maxAppendedSeq > state.remoteHighWaterMark) {
+      await this.syncState.updateRemoteHWM(streamId, maxAppendedSeq);
+    }
 
     return { count: appended, conflicts };
   }
@@ -127,10 +131,12 @@ export class SyncEngine {
     let pushed = 0;
     let pulled = 0;
     const allConflicts: ConflictInfo[] = [];
+    const allErrors: string[] = [];
 
     if (direction === 'push' || direction === 'both') {
       const pushResult = await this.pushEvents(streamId);
       pushed = pushResult.count;
+      allErrors.push(...pushResult.errors);
     }
 
     if (direction === 'pull' || direction === 'both') {
@@ -140,13 +146,13 @@ export class SyncEngine {
     }
 
     // Update sync state
+    const hasIssues = allConflicts.length > 0 || allErrors.length > 0;
     const state = await this.syncState.load(streamId);
     state.lastSyncAt = new Date().toISOString();
-    state.lastSyncResult =
-      allConflicts.length > 0 ? 'partial' : 'success';
+    state.lastSyncResult = hasIssues ? 'partial' : 'success';
     await this.syncState.save(streamId, state);
 
-    return { pushed, pulled, conflicts: allConflicts };
+    return { pushed, pulled, conflicts: allConflicts, errors: allErrors };
   }
 
   // ─── DTO Conversion ────────────────────────────────────────────────────
