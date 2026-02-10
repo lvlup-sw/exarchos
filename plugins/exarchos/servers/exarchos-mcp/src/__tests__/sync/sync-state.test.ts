@@ -17,6 +17,23 @@ describe('SyncStateManager', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  // ─── streamId validation ─────────────────────────────────────────────────
+
+  describe('streamId validation', () => {
+    it('should reject streamId with path traversal characters', async () => {
+      await expect(manager.load('../escape')).rejects.toThrow('Invalid streamId');
+    });
+
+    it('should reject streamId with slashes', async () => {
+      await expect(manager.load('foo/bar')).rejects.toThrow('Invalid streamId');
+    });
+
+    it('should accept valid streamId with dots, dashes, underscores', async () => {
+      const state = await manager.load('valid-stream_id.v2');
+      expect(state.streamId).toBe('valid-stream_id.v2');
+    });
+  });
+
   // ─── load ───────────────────────────────────────────────────────────────
 
   describe('load', () => {

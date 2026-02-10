@@ -2,14 +2,38 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { SyncState } from './types.js';
 
+// ─── Stream ID Validation ────────────────────────────────────────────────────
+
+const SAFE_STREAM_ID = /^[A-Za-z0-9._-]+$/;
+
 // ─── Sync State Manager ─────────────────────────────────────────────────────
 
 export class SyncStateManager {
+  private readonly locks = new Map<string, Promise<void>>();
+
   constructor(private readonly stateDir: string) {}
+
+  // ─── Per-Stream Locking ─────────────────────────────────────────────────
+
+  private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(streamId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((r) => { release = r; });
+    this.locks.set(streamId, next);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
 
   // ─── File Path ──────────────────────────────────────────────────────────
 
   private getFilePath(streamId: string): string {
+    if (!SAFE_STREAM_ID.test(streamId)) {
+      throw new Error(`Invalid streamId: ${streamId}`);
+    }
     return path.join(this.stateDir, `${streamId}.sync.json`);
   }
 
@@ -49,16 +73,20 @@ export class SyncStateManager {
   // ─── Update Local HWM ──────────────────────────────────────────────────
 
   async updateLocalHWM(streamId: string, mark: number): Promise<void> {
-    const state = await this.load(streamId);
-    state.localHighWaterMark = mark;
-    await this.save(streamId, state);
+    await this.withLock(streamId, async () => {
+      const state = await this.load(streamId);
+      state.localHighWaterMark = mark;
+      await this.save(streamId, state);
+    });
   }
 
   // ─── Update Remote HWM ─────────────────────────────────────────────────
 
   async updateRemoteHWM(streamId: string, mark: number): Promise<void> {
-    const state = await this.load(streamId);
-    state.remoteHighWaterMark = mark;
-    await this.save(streamId, state);
+    await this.withLock(streamId, async () => {
+      const state = await this.load(streamId);
+      state.remoteHighWaterMark = mark;
+      await this.save(streamId, state);
+    });
   }
 }

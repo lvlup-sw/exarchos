@@ -25,8 +25,10 @@ export function loadSyncConfig(stateDir: string): SyncConfig {
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
     fileConfig = JSON.parse(content) as Partial<SyncConfig>;
-  } catch {
-    // No config file — use defaults
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(`Failed to load config from ${configPath}:`, err);
+    }
   }
 
   // Merge file config over defaults
