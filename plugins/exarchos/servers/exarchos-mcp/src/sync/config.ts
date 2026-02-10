@@ -44,7 +44,7 @@ export function loadSyncConfig(stateDir: string): SyncConfig {
     syncIntervalMs: fileConfig.syncIntervalMs ?? defaults.syncIntervalMs,
     batchSize: fileConfig.batchSize ?? defaults.batchSize,
     maxRetries: fileConfig.maxRetries ?? defaults.maxRetries,
-    remote: fileConfig.remote
+    remote: fileConfig.remote?.apiToken
       ? {
           apiToken: fileConfig.remote.apiToken,
           apiBaseUrl: fileConfig.remote.apiBaseUrl ?? remoteDefaults.apiBaseUrl,
