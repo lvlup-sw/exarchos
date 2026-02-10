@@ -283,7 +283,7 @@ Update task status when dispatched using `mcp__exarchos__exarchos_workflow_set`:
 - Update the task's status to "in_progress"
 - Set the task's startedAt timestamp
 
-If creating worktree, also set the worktree entry with branch, taskId, and status.
+If creating worktree, also set the worktree entry with branch, status, and either taskId (single task) or tasks (multi-task).
 
 ### On Task Complete
 
@@ -403,6 +403,6 @@ When Exarchos MCP tools are available, emit events during delegation:
    When a multi-task agent completes, it will have created a Graphite stack with one branch per logical review unit.
    The orchestrator should:
    - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record each stack position
-   - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["ls"], cwd: "<worktree-path>" })`
+   - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
    - If the subagent used standard git (no Graphite), the orchestrator can restructure into a stack post-hoc
 7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase

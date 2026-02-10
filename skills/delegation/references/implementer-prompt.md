@@ -129,10 +129,10 @@ Use standard git commits:
 
 ### Detection
 
-Check if `gt` is available before your first commit:
+Check if Graphite is available and initialized before your first commit:
 
 ```bash
-gt --version 2>/dev/null && echo "GRAPHITE" || echo "GIT"
+gt --version 2>/dev/null && test -f .git/.graphite_repo_config && echo "GRAPHITE" || echo "GIT"
 ```
 
 ### Grouping Guidance
