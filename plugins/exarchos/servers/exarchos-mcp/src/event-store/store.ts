@@ -75,6 +75,11 @@ export class EventStore {
     return path.join(this.stateDir, `${streamId}.events.jsonl`);
   }
 
+  private getSeqFilePath(streamId: string): string {
+    validateStreamId(streamId);
+    return path.join(this.stateDir, `${streamId}.seq`);
+  }
+
   async append(
     streamId: string,
     event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
@@ -116,6 +121,17 @@ export class EventStore {
 
       // Append as JSONL
       await fs.appendFile(filePath, JSON.stringify(fullEvent) + '\n', 'utf-8');
+
+      // Write sequence counter atomically (best-effort: JSONL is source of truth)
+      const seqPath = this.getSeqFilePath(streamId);
+      const tmpPath = `${seqPath}.tmp`;
+      try {
+        await fs.writeFile(tmpPath, JSON.stringify({ sequence }), 'utf-8');
+        await fs.rename(tmpPath, seqPath);
+      } catch {
+        // Best-effort: JSONL is source of truth, .seq is just a cache
+        await fs.rm(tmpPath, { force: true }).catch(() => {});
+      }
 
       return fullEvent;
     });
@@ -162,6 +178,20 @@ export class EventStore {
   }
 
   private async initializeSequence(streamId: string): Promise<void> {
+    // Try .seq file first (O(1))
+    const seqPath = this.getSeqFilePath(streamId);
+    try {
+      const content = await fs.readFile(seqPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
+        this.sequenceCounters.set(streamId, parsed.sequence);
+        return;
+      }
+    } catch {
+      // Fall through to line counting
+    }
+
+    // Fallback: count lines in JSONL file (O(n))
     const filePath = this.getEventFilePath(streamId);
     try {
       const content = await fs.readFile(filePath, 'utf-8');

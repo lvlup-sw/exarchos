@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore, SequenceConflictError } from '../../event-store/store.js';
+import { EventStore, SequenceConflictError } from './store.js';
 
 let tempDir: string;
 
@@ -313,5 +313,111 @@ describe('EventStore Optimistic Concurrency', () => {
       expect(conflict.expected).toBe(1);
       expect(conflict.actual).toBe(3);
     }
+  });
+});
+
+// ─── B1: Persist Sequence Counters ──────────────────────────────────────────
+
+describe('EventStore Sequence Persistence', () => {
+  // After append, .seq file exists with correct sequence
+  it('EventStore_Append_WritesSeqFile', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    const content = await fs.readFile(seqPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    expect(parsed.sequence).toBe(1);
+
+    // Append another and verify sequence increments
+    await store.append('my-workflow', { type: 'team.formed' });
+    const content2 = await fs.readFile(seqPath, 'utf-8');
+    const parsed2 = JSON.parse(content2);
+    expect(parsed2.sequence).toBe(2);
+  });
+
+  // New store continues from persisted sequence
+  it('EventStore_NewInstance_ReadsSeqFile', async () => {
+    const store1 = new EventStore(tempDir);
+    await store1.append('my-workflow', { type: 'workflow.started' });
+    await store1.append('my-workflow', { type: 'team.formed' });
+    await store1.append('my-workflow', { type: 'phase.transitioned' });
+
+    // Create a NEW store instance (simulating server restart)
+    const store2 = new EventStore(tempDir);
+    const event = await store2.append('my-workflow', { type: 'task.assigned' });
+
+    // Should continue at 4, reading from .seq file (O(1)) instead of line counting
+    expect(event.sequence).toBe(4);
+
+    // Verify .seq file was read (not line counting) by checking .seq exists
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    const content = await fs.readFile(seqPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    expect(parsed.sequence).toBe(4);
+  });
+
+  // Works when .seq file is deleted
+  it('EventStore_SeqFileMissing_FallsBackToLineCount', async () => {
+    const store1 = new EventStore(tempDir);
+    await store1.append('my-workflow', { type: 'workflow.started' });
+    await store1.append('my-workflow', { type: 'team.formed' });
+
+    // Delete the .seq file to simulate missing file
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    await fs.unlink(seqPath);
+
+    // Create a new store — should fall back to line counting
+    const store2 = new EventStore(tempDir);
+    const event = await store2.append('my-workflow', { type: 'phase.transitioned' });
+
+    // Should still continue from correct sequence by counting JSONL lines
+    expect(event.sequence).toBe(3);
+  });
+
+  // Append succeeds even when .seq write fails
+  it('EventStore_SeqWriteFails_AppendStillSucceeds', async () => {
+    const store = new EventStore(tempDir);
+
+    // First append succeeds normally
+    await store.append('my-workflow', { type: 'workflow.started' });
+
+    // Make the .seq file path a directory so writeFile will fail
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    await fs.rm(seqPath, { force: true });
+    await fs.mkdir(seqPath);
+
+    // Second append should still succeed despite .seq write failure
+    const event = await store.append('my-workflow', { type: 'team.formed' });
+    expect(event.sequence).toBe(2);
+    expect(event.type).toBe('team.formed');
+
+    // Verify the JSONL file has both events (source of truth)
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    expect(lines).toHaveLength(2);
+
+    // Clean up: remove the directory so afterEach can clean up
+    await fs.rm(seqPath, { recursive: true, force: true });
+  });
+
+  // Works when .seq file has garbage
+  it('EventStore_SeqFileCorrupt_FallsBackToLineCount', async () => {
+    const store1 = new EventStore(tempDir);
+    await store1.append('my-workflow', { type: 'workflow.started' });
+    await store1.append('my-workflow', { type: 'team.formed' });
+
+    // Write garbage to the .seq file
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    await fs.writeFile(seqPath, 'not-valid-json!!!', 'utf-8');
+
+    // Create a new store — should fall back to line counting
+    const store2 = new EventStore(tempDir);
+    const event = await store2.append('my-workflow', { type: 'phase.transitioned' });
+
+    // Should still continue from correct sequence by counting JSONL lines
+    expect(event.sequence).toBe(3);
   });
 });
