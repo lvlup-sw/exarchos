@@ -294,7 +294,7 @@ Update task status when subagent reports completion using `mcp__exarchos__exarch
 ### On All Tasks Complete
 
 Update phase using `mcp__exarchos__exarchos_workflow_set`:
-- Set `phase` to "integrate"
+- Set `phase` to "review"
 
 ## Fix Mode (--fixes)
 
@@ -306,12 +306,11 @@ When invoked with `--fixes`, delegation handles review failures instead of initi
 /delegate --fixes docs/plans/YYYY-MM-DD-feature.md
 ```
 
-Or auto-invoked after review/integration failures.
+Or auto-invoked after review failures.
 
 ### Fix Mode Process
 
 1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow_get`:
-   - Query `integration.failureDetails` for integration failures
    - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:
@@ -334,10 +333,10 @@ Or auto-invoked after review/integration failures.
    })
    ```
 
-5. **Re-integrate after fixes**:
-   After all fix tasks complete, auto-invoke integration phase:
+5. **Re-review after fixes**:
+   After all fix tasks complete, auto-invoke review phase:
    ```typescript
-   Skill({ skill: "integrate", args: "<state-file>" })
+   Skill({ skill: "review", args: "<state-file>" })
    ```
 
 ### Fix Task Structure
@@ -355,13 +354,13 @@ Each fix task extracted should include:
 
 ### Transition After Fixes
 
-Unlike normal delegation which goes to review, fix mode goes back to integration:
+Fix mode goes back to review after fixes are applied:
 
 ```
-/delegate --fixes -> [fixes applied] -> /integrate -> /review
+/delegate --fixes -> [fixes applied] -> /review
 ```
 
-This ensures merged code is re-verified after fixes.
+This ensures fixed code is re-verified.
 
 ## Completion Criteria
 

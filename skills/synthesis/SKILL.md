@@ -2,25 +2,24 @@
 
 ## Overview
 
-Final step: Create pull request from the integration branch after integration phase completes.
+Final step: Create pull request after delegation and review phases complete.
 
 **Prerequisites:**
-- Integration phase passed (all branches merged and tested)
-- Integration branch already exists: `feature/integration-<feature-name>`
-- All tests pass on integration branch
+- All delegated tasks complete
+- All tests pass
 - Spec review and quality review passed for all tasks
 
 ## Triggers
 
 Activate this skill when:
 - User runs `/synthesize` command
-- Integration phase has completed successfully
+- Review phase has completed successfully
 - Ready to create final PR
 
-## Simplified Process (Integration Already Complete)
+## Simplified Process
 
-Since the integration phase handles branch merging and testing, synthesis focuses on:
-1. Verifying the integration branch is ready
+Synthesis focuses on:
+1. Verifying the feature branch is ready
 2. Creating the pull request
 3. Handling PR feedback (if any)
 4. Cleanup after merge
@@ -33,15 +32,15 @@ Since the integration phase handles branch merging and testing, synthesis focuse
 ```markdown
 ## Synthesis Readiness
 
-- [ ] Integration phase complete
-- [ ] Integration branch exists and is up to date
-- [ ] All tests pass on integration branch (verified in integration phase)
+- [ ] Review phase complete
+- [ ] Feature branch exists and is up to date
+- [ ] All tests pass
 - [ ] All spec reviews: PASS
 - [ ] All quality reviews: APPROVED
 - [ ] No outstanding fix requests
 ```
 
-If any check fails, return to appropriate phase (likely `/integrate` or `/review`).
+If any check fails, return to appropriate phase (likely `/review`).
 
 ### Step 2: List Active Worktrees (Reference)
 
@@ -49,7 +48,7 @@ If any check fails, return to appropriate phase (likely `/integrate` or `/review
 git worktree list
 ```
 
-This is for reference only - branches were already merged in integration phase:
+This is for reference only - branches were already created during delegation:
 ```markdown
 ## Merged Branches (from Integration)
 
@@ -60,44 +59,41 @@ This is for reference only - branches were already merged in integration phase:
 | .worktrees/003-tests | feature/003-tests | Merged |
 ```
 
-### Step 3: Verify Integration Branch
+### Step 3: Verify Feature Branch
 
-The integration phase already created and populated the integration branch.
+Verify the feature branch is ready for PR creation.
 
 ```bash
-# Checkout integration branch
-git checkout feature/integration-<feature-name>
+# Ensure branch is up to date with remote
+git pull origin HEAD
 
-# Ensure it's up to date with remote
-git pull origin feature/integration-<feature-name>
-
-# Verify branch exists and has all commits
+# Verify branch has all commits
 git log --oneline -10
 ```
 
 ### Step 4: Verify Tests (Quick Confirmation)
 
-Tests already passed in integration phase, but run a quick verification:
+Tests already passed in review phase, but run a quick verification:
 
 ```bash
-# Quick test verification (already passed in integration)
+# Quick test verification (already passed in review)
 npm run test:run
 
 # Verify build still works
 npm run build
 ```
 
-If these fail, return to integration phase to resolve.
+If these fail, return to review phase to resolve.
 
 ### Step 5: Submit Stacked PRs via Graphite
 
-The integration phase created a Graphite stack (one branch per task merge). Submit the entire stack to create stacked PRs:
+The delegation phase created a Graphite stack (one branch per task). Submit the entire stack to create stacked PRs:
 
 ```
 mcp__graphite__run_gt_cmd({
   args: ["submit", "--no-interactive"],
   cwd: "<repo-root>",
-  why: "Submit stacked PRs for all integrated task branches"
+  why: "Submit stacked PRs for all task branches"
 })
 ```
 
@@ -134,28 +130,27 @@ mcp__graphite__run_gt_cmd({
 
 ### Test Failure (Unexpected)
 
-If tests fail during synthesis (they passed in integration):
+If tests fail during synthesis (they passed in review):
 
-1. Return to integration phase to investigate
-2. Re-run `/integrate` to fix and re-test
-3. Return to synthesis after integration passes
+1. Return to review phase to investigate
+2. Re-run `/review` to verify fixes
+3. Return to synthesis after review passes
 
 ### PR Checks Fail
 
 1. Wait for CI feedback
 2. Create fix task for failures
-3. Push fixes to integration branch
+3. Push fixes to feature branch
 4. Re-run synthesis verification
 
 ## Anti-Patterns
 
 | Don't | Do Instead |
 |-------|------------|
-| Skip integration phase | Always run `/integrate` first |
-| Force push integration branch | Use normal push |
+| Skip review phase | Always run `/review` first |
+| Force push feature branch | Use normal push |
 | Delete worktrees before PR approval | Wait for merge confirmation |
-| Create PR with failing tests | Ensure integration phase passes first |
-| Re-merge branches in synthesis | Branches already merged in integration |
+| Create PR with failing tests | Ensure review phase passes first |
 
 ## State Management
 
@@ -163,9 +158,9 @@ This skill tracks synthesis progress in workflow state using `mcp__exarchos__exa
 
 ### Read Integration State
 
-Get integration branch info from state (populated by integration phase):
-- Query `integration.branch` for the integration branch name
-- Query `integration.mergedBranches` for list of merged branches
+Get task branch info from state (populated by delegation phase):
+- Query `tasks` for the list of completed tasks and their branches
+- Query `worktrees` for active worktree information
 
 ### On PR Created
 
@@ -181,7 +176,7 @@ Set `phase` to "completed".
 
 ## Completion Criteria
 
-- [ ] Integration branch verified (created in integration phase)
+- [ ] Feature branch verified
 - [ ] Quick test verification passed
 - [ ] PR created with proper description
 - [ ] PR link provided to user
@@ -219,14 +214,14 @@ Set `phase` to "completed".
 
 ## Direct Commits
 
-Users can make direct edits to the integration branch:
+Users can make direct edits to the feature branch:
 - Edit files in their IDE
-- Commit directly to `feature/integration-<feature-name>`
+- Commit directly to the feature branch
 - Push to remote
 
 **Before merge confirmation**, always sync:
 ```bash
-git pull origin feature/integration-<feature-name>
+git pull origin HEAD
 ```
 
 ## Handling PR Feedback
