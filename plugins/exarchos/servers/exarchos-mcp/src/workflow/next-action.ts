@@ -1,3 +1,5 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type {
   NextActionInput,
   CheckpointMeta,
@@ -11,6 +13,7 @@ import {
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getHSMDefinition } from './state-machine.js';
 import { getCircuitBreakerState } from './circuit-breaker.js';
+import { formatResult } from '../format.js';
 import * as path from 'node:path';
 
 // ─── Tool Result Interface ──────────────────────────────────────────────────
@@ -243,4 +246,15 @@ export async function handleNextAction(
     },
     _meta: buildCheckpointMeta(state._checkpoint),
   };
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerNextActionTool(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_workflow_next_action',
+    'Determine the next auto-continue action based on current phase and guards',
+    { featureId: z.string().min(1).regex(/^[a-z0-9-]+$/) },
+    async (args) => formatResult(await handleNextAction(args, stateDir)),
+  );
 }
