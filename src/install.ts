@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,24 +147,35 @@ export function getRepoRoot(): string {
 export async function createSymlink(source: string, target: string): Promise<SymlinkResult> {
   let backedUp = false;
 
-  // Check if target exists
-  if (existsSync(target)) {
-    const stats = lstatSync(target);
+  // Use lstat to detect any existing file entry (including broken symlinks)
+  let stats;
+  try {
+    stats = lstatSync(target);
+  } catch {
+    // Nothing exists at target path — proceed to create
+  }
 
-    // Skip if already a symlink
+  if (stats) {
     if (stats.isSymbolicLink()) {
-      console.log(`  [skip] ${target} (symlink exists)`);
-      return 'skipped';
+      // Check if symlink already points to the correct source
+      const existingTarget = readlinkSync(target);
+      if (existingTarget === source) {
+        console.log(`  [skip] ${target} (symlink exists)`);
+        return 'skipped';
+      }
+      // Symlink points elsewhere (or is broken) — remove and recreate
+      console.log(`  [relink] ${target} (was → ${existingTarget})`);
+      unlinkSync(target);
+    } else {
+      // Backup existing directory/file
+      let backupPath = `${target}.backup`;
+      if (existsSync(backupPath)) {
+        backupPath = `${backupPath}.${Date.now()}`;
+      }
+      console.log(`  [backup] ${target} -> ${backupPath}`);
+      renameSync(target, backupPath);
+      backedUp = true;
     }
-
-    // Backup existing directory/file
-    let backupPath = `${target}.backup`;
-    if (existsSync(backupPath)) {
-      backupPath = `${backupPath}.${Date.now()}`;
-    }
-    console.log(`  [backup] ${target} -> ${backupPath}`);
-    renameSync(target, backupPath);
-    backedUp = true;
   }
 
   // Create symlink
