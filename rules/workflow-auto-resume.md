@@ -38,7 +38,6 @@ The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 | `AUTO:plan:--revise <design-path>` | Plan has gaps, revise | Invoke `/plan --revise` with gap context |
 | `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
 | `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
-| `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
 | `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
 | `AUTO:synthesize:<feature>` | Auto-continue to synthesize | Invoke `/synthesize` |
 | `AUTO:delegate:--fixes <path>` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
@@ -66,7 +65,6 @@ The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 | `AUTO:refactor-update-docs` | Update documentation | Continue doc updates |
 | `AUTO:refactor-plan` | Overhaul track plan | Invoke `/plan` |
 | `AUTO:refactor-delegate` | Overhaul track delegate | Invoke `/delegate` |
-| `AUTO:refactor-integrate` | Overhaul track integrate | Invoke `/integrate` |
 | `AUTO:refactor-review` | Overhaul track review | Invoke `/review` |
 | `AUTO:refactor-synthesize` | Overhaul track synthesize | Invoke `/synthesize` |
 
@@ -103,9 +101,7 @@ All other phases auto-continue:
 - `plan` (plan saved) → auto-chains to plan-review (delta analysis)
 - `plan-review` (gaps found) → auto-chains to `/plan --revise`
 - `plan-review` (approved) → auto-chains to `/delegate`
-- `delegate` (all tasks complete) → auto-chains to `/integrate`
-- `integrate` (passed) → auto-chains to `/review`
-- `integrate` (failed) → auto-chains to `/delegate --fixes`
+- `delegate` (all tasks complete) → auto-chains to `/review`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
 
@@ -182,9 +178,7 @@ All refactor phases auto-continue:
 - `explore` → auto-chains to `brief`
 - `brief` → auto-chains to `plan`
 - `plan` → auto-chains to `delegate`
-- `delegate` (all tasks complete) → auto-chains to `integrate`
-- `integrate` (passed) → auto-chains to `review`
-- `integrate` (failed) → auto-chains to `delegate --fixes`
+- `delegate` (all tasks complete) → auto-chains to `review`
 - `review` (all passed) → auto-chains to `update-docs`
 - `review` (failed) → auto-chains to `delegate --fixes`
 - `update-docs` → auto-chains to `synthesize`
@@ -216,12 +210,7 @@ Claude: Detecting active workflow...
         [Dispatches remaining 2 tasks]
         [Updates state on completion]
 
-        All 5 tasks complete. Auto-continuing to integration...
-
-        [Invokes /integrate automatically]
-        [Integration passes]
-
-        Auto-continuing to review...
+        All 5 tasks complete. Auto-continuing to review...
 
         [Invokes /review automatically]
 ```

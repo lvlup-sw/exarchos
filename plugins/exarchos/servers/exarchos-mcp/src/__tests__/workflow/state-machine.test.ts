@@ -50,13 +50,12 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['delegate'].type).toBe('atomic');
       expect(hsm.states['delegate'].parent).toBe('implementation');
 
-      expect(hsm.states['integrate']).toBeDefined();
-      expect(hsm.states['integrate'].type).toBe('atomic');
-      expect(hsm.states['integrate'].parent).toBe('implementation');
-
       expect(hsm.states['review']).toBeDefined();
       expect(hsm.states['review'].type).toBe('atomic');
       expect(hsm.states['review'].parent).toBe('implementation');
+
+      // integrate state should NOT exist
+      expect(hsm.states['integrate']).toBeUndefined();
     });
 
     it('FeatureHSM_ValidTransitions_MatchDesignDiagram', () => {
@@ -87,27 +86,16 @@ describe('HSM State Definitions', () => {
       expect(planReviewToDelegate!.guard).toBeDefined();
       expect(planReviewToDelegate!.guard!.id).toBe('plan-review-complete');
 
-      // delegate → integrate
-      const delegateToIntegrate = transitions.find(
-        (t) => t.from === 'delegate' && t.to === 'integrate'
+      // delegate → review (direct, no integrate step)
+      const delegateToReview = transitions.find(
+        (t) => t.from === 'delegate' && t.to === 'review'
       );
-      expect(delegateToIntegrate).toBeDefined();
-      expect(delegateToIntegrate!.guard!.id).toBe('all-tasks-complete');
+      expect(delegateToReview).toBeDefined();
+      expect(delegateToReview!.guard!.id).toBe('all-tasks-complete');
 
-      // integrate → review
-      const integrateToReview = transitions.find(
-        (t) => t.from === 'integrate' && t.to === 'review'
-      );
-      expect(integrateToReview).toBeDefined();
-      expect(integrateToReview!.guard!.id).toBe('integration-passed');
-
-      // integrate → delegate (fix cycle)
-      const integrateToDelegate = transitions.find(
-        (t) => t.from === 'integrate' && t.to === 'delegate'
-      );
-      expect(integrateToDelegate).toBeDefined();
-      expect(integrateToDelegate!.guard!.id).toBe('integration-failed');
-      expect(integrateToDelegate!.isFixCycle).toBe(true);
+      // integrate transitions should NOT exist
+      expect(transitions.find((t) => t.from === 'integrate')).toBeUndefined();
+      expect(transitions.find((t) => t.to === 'integrate')).toBeUndefined();
 
       // review → synthesize (exits Implementation compound)
       const reviewToSynthesize = transitions.find(
@@ -310,17 +298,19 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['overhaul-track'].type).toBe('compound');
       expect(hsm.states['overhaul-track'].maxFixCycles).toBe(3);
 
-      // OverhaulTrack children: plan, delegate, integrate, review, update-docs
+      // OverhaulTrack children: plan, delegate, review, update-docs (no integrate)
       for (const child of [
         'overhaul-plan',
         'overhaul-delegate',
-        'overhaul-integrate',
         'overhaul-review',
         'overhaul-update-docs',
       ]) {
         expect(hsm.states[child]).toBeDefined();
         expect(hsm.states[child].parent).toBe('overhaul-track');
       }
+
+      // overhaul-integrate should NOT exist
+      expect(hsm.states['overhaul-integrate']).toBeUndefined();
 
       // Key transitions
       const transitions = hsm.transitions;
@@ -363,7 +353,7 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // Overhaul track flow
+      // Overhaul track flow (no integrate step)
       expect(
         transitions.find(
           (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-delegate'
@@ -372,13 +362,7 @@ describe('HSM State Definitions', () => {
       expect(
         transitions.find(
           (t) =>
-            t.from === 'overhaul-delegate' && t.to === 'overhaul-integrate'
-        )
-      ).toBeDefined();
-      expect(
-        transitions.find(
-          (t) =>
-            t.from === 'overhaul-integrate' && t.to === 'overhaul-review'
+            t.from === 'overhaul-delegate' && t.to === 'overhaul-review'
         )
       ).toBeDefined();
       expect(
@@ -394,14 +378,11 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // Overhaul fix cycles
-      const integrateToDelegate = transitions.find(
-        (t) =>
-          t.from === 'overhaul-integrate' && t.to === 'overhaul-delegate'
-      );
-      expect(integrateToDelegate).toBeDefined();
-      expect(integrateToDelegate!.isFixCycle).toBe(true);
+      // overhaul-integrate transitions should NOT exist
+      expect(transitions.find((t) => t.from === 'overhaul-integrate')).toBeUndefined();
+      expect(transitions.find((t) => t.to === 'overhaul-integrate')).toBeUndefined();
 
+      // Overhaul fix cycles (only review → delegate, no integrate → delegate)
       const reviewToDelegate = transitions.find(
         (t) => t.from === 'overhaul-review' && t.to === 'overhaul-delegate'
       );
@@ -595,7 +576,6 @@ describe('HSM Transition Algorithm', () => {
         'ideate',
         'plan',
         'delegate',
-        'integrate',
         'review',
         'synthesize',
         'blocked',
@@ -618,8 +598,8 @@ describe('HSM Transition Algorithm', () => {
     it('ExecuteTransition_FixCycleEvent_WritesCompoundStateIdMetadata (Bug 6)', () => {
       const hsm = getHSMDefinition('feature');
       const state: Record<string, unknown> = {
-        phase: 'integrate',
-        integration: { passed: false },
+        phase: 'review',
+        reviews: { spec: { status: 'fail' } },
         _events: [],
         _history: {},
       };
@@ -663,15 +643,15 @@ describe('HSM Transition Algorithm', () => {
         version: '1.0' as const,
         timestamp: new Date().toISOString(),
         type: 'fix-cycle' as const,
-        from: 'integrate',
+        from: 'review',
         to: 'delegate',
         trigger: 'test',
         metadata: { compoundStateId: 'implementation' },
       }));
 
       const state: Record<string, unknown> = {
-        phase: 'integrate',
-        integration: { passed: false },
+        phase: 'review',
+        reviews: { spec: { status: 'fail' } },
         _events: fixCycleEvents,
         _history: {},
       };
@@ -695,7 +675,7 @@ describe('HSM Transition Algorithm', () => {
       };
 
       // Should NOT throw — should return structured error
-      const result = executeTransition(hsm, state, 'integrate');
+      const result = executeTransition(hsm, state, 'review');
 
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe('GUARD_FAILED');
@@ -722,16 +702,11 @@ describe('HSM Transition Algorithm', () => {
     it('returns valid transitions for compound state children', () => {
       const hsm = getHSMDefinition('feature');
 
-      // delegate is inside implementation compound
+      // delegate is inside implementation compound — goes directly to review
       const delegateTargets = getValidTransitions(hsm, 'delegate');
-      expect(delegateTargets).toContain('integrate');
+      expect(delegateTargets).toContain('review');
       expect(delegateTargets).toContain('cancelled');
-
-      // integrate has two transitions: review (passed) and delegate (fix cycle)
-      const integrateTargets = getValidTransitions(hsm, 'integrate');
-      expect(integrateTargets).toContain('review');
-      expect(integrateTargets).toContain('delegate');
-      expect(integrateTargets).toContain('cancelled');
+      expect(delegateTargets).not.toContain('integrate');
 
       // review has two transitions: synthesize (passed) and delegate (fix cycle)
       const reviewTargets = getValidTransitions(hsm, 'review');
@@ -1398,44 +1373,12 @@ describe('Refactor HSM executeTransition', () => {
       expect(result.newPhase).toBe('overhaul-delegate');
     });
 
-    it('completes overhaul-delegate to overhaul-integrate transition', () => {
+    it('completes overhaul-delegate to overhaul-review transition', () => {
       const hsm = getHSMDefinition('refactor');
       const state: Record<string, unknown> = {
         phase: 'overhaul-delegate',
         track: 'overhaul',
         tasks: [{ status: 'complete' }, { status: 'complete' }],
-        _events: [],
-        _history: {},
-      };
-
-      const result = executeTransition(hsm, state, 'overhaul-integrate');
-
-      expect(result.success).toBe(true);
-      expect(result.newPhase).toBe('overhaul-integrate');
-    });
-
-    it('fails overhaul-delegate to overhaul-integrate when tasks incomplete', () => {
-      const hsm = getHSMDefinition('refactor');
-      const state: Record<string, unknown> = {
-        phase: 'overhaul-delegate',
-        track: 'overhaul',
-        tasks: [{ status: 'complete' }, { status: 'pending' }],
-        _events: [],
-        _history: {},
-      };
-
-      const result = executeTransition(hsm, state, 'overhaul-integrate');
-
-      expect(result.success).toBe(false);
-      expect(result.errorCode).toBe('GUARD_FAILED');
-    });
-
-    it('completes overhaul-integrate to overhaul-review on integration pass', () => {
-      const hsm = getHSMDefinition('refactor');
-      const state: Record<string, unknown> = {
-        phase: 'overhaul-integrate',
-        track: 'overhaul',
-        integration: { passed: true },
         _events: [],
         _history: {},
       };
@@ -1446,25 +1389,20 @@ describe('Refactor HSM executeTransition', () => {
       expect(result.newPhase).toBe('overhaul-review');
     });
 
-    it('cycles overhaul-integrate to overhaul-delegate on integration fail (fix cycle)', () => {
+    it('fails overhaul-delegate to overhaul-review when tasks incomplete', () => {
       const hsm = getHSMDefinition('refactor');
       const state: Record<string, unknown> = {
-        phase: 'overhaul-integrate',
+        phase: 'overhaul-delegate',
         track: 'overhaul',
-        integration: { passed: false },
+        tasks: [{ status: 'complete' }, { status: 'pending' }],
         _events: [],
         _history: {},
       };
 
-      const result = executeTransition(hsm, state, 'overhaul-delegate');
+      const result = executeTransition(hsm, state, 'overhaul-review');
 
-      expect(result.success).toBe(true);
-      expect(result.newPhase).toBe('overhaul-delegate');
-      expect(result.effects).toContain('increment-fix-cycle');
-      // Should have fix-cycle event with compoundStateId
-      const fixCycleEvent = result.events.find((e) => e.type === 'fix-cycle');
-      expect(fixCycleEvent).toBeDefined();
-      expect(fixCycleEvent!.metadata!.compoundStateId).toBe('overhaul-track');
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
     });
 
     it('completes overhaul-review to overhaul-update-docs on review pass', () => {
@@ -1554,16 +1492,16 @@ describe('Refactor HSM executeTransition', () => {
         version: '1.0' as const,
         timestamp: new Date().toISOString(),
         type: 'fix-cycle' as const,
-        from: 'overhaul-integrate',
+        from: 'overhaul-review',
         to: 'overhaul-delegate',
         trigger: 'test',
         metadata: { compoundStateId: 'overhaul-track' },
       }));
 
       const state: Record<string, unknown> = {
-        phase: 'overhaul-integrate',
+        phase: 'overhaul-review',
         track: 'overhaul',
-        integration: { passed: false },
+        reviews: { spec: { status: 'fail' } },
         _events: fixCycleEvents,
         _history: {},
       };
@@ -1779,7 +1717,7 @@ describe('Guard edge cases', () => {
       _history: {},
     };
 
-    const result = executeTransition(hsm, state, 'integrate');
+    const result = executeTransition(hsm, state, 'review');
     expect(result.success).toBe(true);
   });
 
@@ -1791,7 +1729,7 @@ describe('Guard edge cases', () => {
       _history: {},
     };
 
-    const result = executeTransition(hsm, state, 'integrate');
+    const result = executeTransition(hsm, state, 'review');
     expect(result.success).toBe(true);
   });
 
@@ -1809,6 +1747,140 @@ describe('Guard edge cases', () => {
 
     const toDelegate = executeTransition(hsm, state, 'delegate');
     expect(toDelegate.success).toBe(false);
+  });
+
+  // ─── Status-based review format (matches what skills actually write) ────
+
+  it('allReviewsPassed accepts status: "approved" format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        quality: { status: 'approved', highPriority: [], mediumPriority: [] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed accepts status: "pass" format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        spec: { status: 'pass', issues: [] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed accepts nested per-task review format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        A1: {
+          specReview: { status: 'pass', issues: [] },
+          qualityReview: { status: 'approved', highPriority: [] },
+        },
+        A2: {
+          specReview: { status: 'pass', issues: [] },
+          qualityReview: { status: 'approved' },
+        },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('anyReviewFailed detects status: "needs_fixes"', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        quality: { status: 'needs_fixes', issues: ['H1: missing field'] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+  });
+
+  it('anyReviewFailed detects status: "fail"', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        spec: { status: 'fail', issues: ['missing tests'] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed fails with nested needs_fixes and reports diagnostic', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        A1: {
+          specReview: { status: 'pass' },
+          qualityReview: { status: 'needs_fixes', issues: ['H1'] },
+        },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+    expect(result.errorMessage).toContain('A1.qualityReview');
+    expect(result.errorMessage).toContain('needs_fixes');
+  });
+
+  // ─── Guard diagnostic reasons ────
+
+  it('allReviewsPassed includes diagnostic reason when reviews missing', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain('state.reviews is missing');
+  });
+
+  it('allReviewsPassed includes diagnostic reason when reviews is empty', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {},
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain('no recognizable review entries');
   });
 
   it('humanUnblocked guard passes when unblocked is true', () => {
@@ -1862,8 +1934,8 @@ describe('Guard edge cases', () => {
     ];
 
     const state: Record<string, unknown> = {
-      phase: 'integrate',
-      integration: { passed: false },
+      phase: 'review',
+      reviews: { spec: { status: 'fail' } },
       _events: mixedEvents,
       _history: {},
     };
@@ -1884,8 +1956,8 @@ describe('Guard edge cases', () => {
     }));
 
     const state: Record<string, unknown> = {
-      phase: 'integrate',
-      integration: { passed: false },
+      phase: 'review',
+      reviews: { spec: { status: 'fail' } },
       _events: events,
       _history: {},
     };
@@ -1902,8 +1974,8 @@ describe('Missing _events and _history defaults', () => {
   it('handles missing _events gracefully (defaults to empty array)', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
-      phase: 'integrate',
-      integration: { passed: false },
+      phase: 'review',
+      reviews: { spec: { status: 'fail' } },
       // No _events or _history
     };
 

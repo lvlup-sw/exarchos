@@ -230,17 +230,18 @@ describe('Cross-Module Boundary Tests', () => {
       // Advance to delegate
       await advanceToDelegate('cb-e2e');
 
-      // Perform 2 fix cycles: delegate → integrate (fail) → delegate
+      // Perform 2 fix cycles: delegate → review (fail) → delegate
       for (let i = 0; i < 2; i++) {
-        // delegate → integrate
-        await handleSet({ featureId: 'cb-e2e', phase: 'integrate' }, stateDir);
+        // delegate → review (all tasks complete — empty array passes)
+        await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir);
 
-        // Set integration as failed via raw (not in Zod schema)
-        const raw = await readRawState('cb-e2e');
-        raw.integration = { passed: false };
-        await writeRawState('cb-e2e', raw);
+        // Set review as failed
+        await handleSet(
+          { featureId: 'cb-e2e', updates: { 'reviews.spec': { status: 'fail' } } },
+          stateDir,
+        );
 
-        // integrate → delegate (fix cycle)
+        // review → delegate (fix cycle) — reviews is in Zod schema, so handleSet works
         const fixResult = await transitionRaw('cb-e2e', 'delegate');
         expect(fixResult.success).toBe(true);
       }
@@ -262,14 +263,18 @@ describe('Cross-Module Boundary Tests', () => {
 
       await advanceToDelegate('cb-open');
 
-      // Perform 3 fix cycles (max for implementation compound)
+      // Perform 3 fix cycles (max for implementation compound): delegate → review (fail) → delegate
       for (let i = 0; i < 3; i++) {
-        await handleSet({ featureId: 'cb-open', phase: 'integrate' }, stateDir);
+        // delegate → review (all tasks complete — empty array passes)
+        await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir);
 
-        const raw = await readRawState('cb-open');
-        raw.integration = { passed: false };
-        await writeRawState('cb-open', raw);
+        // Set review as failed
+        await handleSet(
+          { featureId: 'cb-open', updates: { 'reviews.spec': { status: 'fail' } } },
+          stateDir,
+        );
 
+        // review → delegate (fix cycle)
         const fixResult = await transitionRaw('cb-open', 'delegate');
         expect(fixResult.success).toBe(true);
       }
@@ -290,7 +295,7 @@ describe('Cross-Module Boundary Tests', () => {
   it('CircuitBreaker_EndToEnd_StateMachineFixCycleEventsMatchReaderKey', () => {
     const hsm = getHSMDefinition('feature');
 
-    // Simulate: at integrate phase with integration failed.
+    // Simulate: at review phase with a failed review.
     // Must include compound-entry for 'implementation' because getFixCycleCount
     // only counts fix-cycle events AFTER the last compound-entry anchor.
     const compoundEntry: Event = {
@@ -305,13 +310,13 @@ describe('Cross-Module Boundary Tests', () => {
     };
 
     const state: Record<string, unknown> = {
-      phase: 'integrate',
-      integration: { passed: false },
+      phase: 'review',
+      reviews: { spec: { status: 'fail' } },
       _events: [compoundEntry],
       _history: {},
     };
 
-    // Execute fix-cycle transition: integrate → delegate
+    // Execute fix-cycle transition: review → delegate
     const result = executeTransition(hsm, state, 'delegate');
     expect(result.success).toBe(true);
 

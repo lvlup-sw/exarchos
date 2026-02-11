@@ -9,7 +9,7 @@ Create implementation plan for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → /plan → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
+/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
            ▲▲▲▲       ↑
                   plan-review
 ```

@@ -63,7 +63,6 @@ export const FeaturePhaseSchema = z.enum([
   'plan',
   'plan-review',
   'delegate',
-  'integrate',
   'review',
   'synthesize',
   'completed',
@@ -99,7 +98,6 @@ export const RefactorPhaseSchema = z.enum([
   // Overhaul track phases
   'overhaul-plan',
   'overhaul-delegate',
-  'overhaul-integrate',
   'overhaul-review',
   'overhaul-update-docs',
   'synthesize',

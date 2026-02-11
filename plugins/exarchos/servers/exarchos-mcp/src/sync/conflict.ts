@@ -9,7 +9,6 @@ const PHASE_ORDER = [
   'plan',
   'plan-review',
   'delegate',
-  'integrate',
   'review',
   'synthesize',
   'completed',

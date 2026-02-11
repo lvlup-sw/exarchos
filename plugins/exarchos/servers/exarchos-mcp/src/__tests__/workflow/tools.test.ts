@@ -746,16 +746,15 @@ describe('Query Tools', () => {
     it('should return blocked when circuit breaker is open', async () => {
       await handleInit({ featureId: 'next-circuit', workflowType: 'feature' }, tmpDir);
 
-      // Directly write state at integrate phase with 3 fix-cycle events and
-      // integration.passed = false. This bypasses the Zod field-stripping issue
-      // where non-schema fields like 'integration' are lost on readback.
+      // Directly write state at review phase with 3 fix-cycle events and
+      // a failed review. This bypasses the Zod field-stripping issue.
       const stateFile = path.join(tmpDir, 'next-circuit.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
-      raw.phase = 'integrate';
-      raw.integration = { passed: false };
+      raw.phase = 'review';
+      raw.reviews = { spec: { status: 'fail' } };
       raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
-      raw._checkpoint.phase = 'integrate';
+      raw._checkpoint.phase = 'review';
 
       // Add events: compound-entry followed by 3 fix-cycle events.
       // getFixCycleCount in events.ts uses metadata.compoundStateId to match.
@@ -778,7 +777,7 @@ describe('Query Tools', () => {
           timestamp: now,
           type: 'fix-cycle',
           trigger: 'execute-transition',
-          from: 'integrate',
+          from: 'review',
           to: 'delegate',
           metadata: { compoundStateId: 'implementation' },
         },
@@ -788,7 +787,7 @@ describe('Query Tools', () => {
           timestamp: now,
           type: 'fix-cycle',
           trigger: 'execute-transition',
-          from: 'integrate',
+          from: 'review',
           to: 'delegate',
           metadata: { compoundStateId: 'implementation' },
         },
@@ -798,7 +797,7 @@ describe('Query Tools', () => {
           timestamp: now,
           type: 'fix-cycle',
           trigger: 'execute-transition',
-          from: 'integrate',
+          from: 'review',
           to: 'delegate',
           metadata: { compoundStateId: 'implementation' },
         },
@@ -819,15 +818,15 @@ describe('Query Tools', () => {
     it('should return AUTO:delegate:--fixes when fix-cycle guard passes and circuit is not open', async () => {
       await handleInit({ featureId: 'next-fixcycle', workflowType: 'feature' }, tmpDir);
 
-      // Write state at integrate phase with integration.passed = false
+      // Write state at review phase with a failed review
       // and a compound-entry event (but NO fix-cycle events, so circuit stays closed)
       const stateFile = path.join(tmpDir, 'next-fixcycle.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
-      raw.phase = 'integrate';
-      raw.integration = { passed: false };
+      raw.phase = 'review';
+      raw.reviews = { spec: { status: 'fail' } };
       raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
-      raw._checkpoint.phase = 'integrate';
+      raw._checkpoint.phase = 'review';
 
       const now = new Date().toISOString();
       raw._events = [
@@ -914,7 +913,7 @@ describe('Query Tools', () => {
       expect(states).toBeDefined();
       expect(states.length).toBeGreaterThan(0);
 
-      // Should include ideate, plan, delegate, integrate, review, synthesize, completed
+      // Should include ideate, plan, delegate, review, synthesize, completed
       const stateIds = states.map((s) => s.id);
       expect(stateIds).toContain('ideate');
       expect(stateIds).toContain('plan');
@@ -939,7 +938,7 @@ describe('Query Tools', () => {
   describe('ToolTransitions_FromSpecificPhase_ReturnsFilteredTransitions', () => {
     it('should return only outbound transitions from specified phase', async () => {
       const result = await handleTransitions(
-        { workflowType: 'feature', fromPhase: 'integrate' },
+        { workflowType: 'feature', fromPhase: 'delegate' },
         tmpDir,
       );
 
@@ -949,20 +948,16 @@ describe('Query Tools', () => {
       const transitions = data.transitions as Array<Record<string, unknown>>;
       expect(transitions).toBeDefined();
 
-      // integrate has transitions to: review (passed) and delegate (failed)
-      expect(transitions.length).toBeGreaterThanOrEqual(2);
+      // delegate has one transition: to review (all tasks complete)
+      expect(transitions.length).toBeGreaterThanOrEqual(1);
 
-      // All transitions should be from 'integrate'
+      // All transitions should be from 'delegate'
       for (const t of transitions) {
-        expect(t.from).toBe('integrate');
+        expect(t.from).toBe('delegate');
       }
 
       const toReview = transitions.find((t) => t.to === 'review');
       expect(toReview).toBeDefined();
-
-      const toDelegate = transitions.find((t) => t.to === 'delegate');
-      expect(toDelegate).toBeDefined();
-      expect(toDelegate?.isFixCycle).toBe(true);
     });
   });
 });

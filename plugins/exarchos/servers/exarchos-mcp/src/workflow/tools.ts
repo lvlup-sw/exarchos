@@ -553,8 +553,7 @@ const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
     ideate: 'AUTO:plan',
     plan: 'AUTO:plan-review',
     'plan-review': 'AUTO:delegate',
-    delegate: 'AUTO:integrate',
-    integrate: 'AUTO:review',
+    delegate: 'AUTO:review',
     review: 'AUTO:synthesize',
   },
   debug: {
@@ -573,8 +572,7 @@ const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
     'polish-implement': 'AUTO:refactor-validate',
     'polish-validate': 'AUTO:refactor-update-docs',
     'overhaul-plan': 'AUTO:refactor-delegate',
-    'overhaul-delegate': 'AUTO:refactor-integrate',
-    'overhaul-integrate': 'AUTO:refactor-review',
+    'overhaul-delegate': 'AUTO:refactor-review',
     'overhaul-review': 'AUTO:refactor-update-docs',
     'overhaul-update-docs': 'AUTO:refactor-synthesize',
   },
@@ -801,9 +799,12 @@ export async function handleNextAction(
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
     for (const transition of outboundTransitions) {
-      let guardResult = false;
+      let guardPassed = false;
       try {
-        guardResult = (transition.isFixCycle ?? false) && (transition.guard?.evaluate(stateRecord) ?? false);
+        if (transition.isFixCycle && transition.guard) {
+          const raw = transition.guard.evaluate(stateRecord);
+          guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
+        }
       } catch (err) {
         return {
           success: false,
@@ -814,7 +815,7 @@ export async function handleNextAction(
           _meta: buildCheckpointMeta(state._checkpoint),
         };
       }
-      if (guardResult) {
+      if (guardPassed) {
         // A fix-cycle transition's guard passes, check circuit breaker
         if (cbState.open) {
           return {
@@ -836,9 +837,12 @@ export async function handleNextAction(
   const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
   for (const transition of outboundTransitions) {
-    let guardResult = false;
+    let guardPassed = false;
     try {
-      guardResult = transition.guard?.evaluate(stateRecord) ?? false;
+      if (transition.guard) {
+        const raw = transition.guard.evaluate(stateRecord);
+        guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
+      }
     } catch (err) {
       return {
         success: false,
@@ -849,7 +853,7 @@ export async function handleNextAction(
         _meta: buildCheckpointMeta(state._checkpoint),
       };
     }
-    if (guardResult) {
+    if (guardPassed) {
       // Guard passes -- determine the action
       if (transition.isFixCycle) {
         return {

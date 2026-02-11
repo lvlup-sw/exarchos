@@ -34,22 +34,22 @@ The subagent:
 
 ### Context-Efficient Input
 
-Instead of per-worktree diffs, receive the integrated diff:
+Instead of reading full files, receive the stack diff:
 
 ```bash
-# Generate diff for review (integrated branch vs main)
-git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
+# Generate diff for review (Graphite stack vs main)
+gt diff main > /tmp/stack-diff.patch
 
-# Alternative: use review-diff script with integration branch
-~/.claude/scripts/review-diff.sh feature/integration-<feature> main
+# Alternative: use GitHub MCP to get PR diff
+# mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber, method: "get_diff" })
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
 
-### Review Scope: Integrated Changes
+### Review Scope: Combined Changes
 
-After the integration phase passes, quality review examines:
-- The **complete integrated diff** (main...feature/integration-branch)
+After delegation completes, quality review examines:
+- The **complete stack diff** (all task branches vs main)
 - All changes across all tasks in one view
 - The full picture of combined code quality
 
@@ -94,6 +94,11 @@ This enables catching:
 | Repeated business rules | 2+ locations | HIGH |
 | Copy-pasted tests | 3+ similar tests | LOW |
 | Magic literals | Same value 3+ times | MEDIUM |
+
+**Detection approach (prefer MCP tools):**
+- Use `mcp__plugin_serena_serena__search_for_pattern` to find duplicate code blocks
+- Use `mcp__plugin_serena_serena__find_referencing_symbols` to trace dependency usage
+- Use `mcp__plugin_serena_serena__get_symbols_overview` to understand module structure before deep-reading
 
 **Detection checklist:**
 - [ ] Search for identical multi-line blocks (5+ lines duplicated)

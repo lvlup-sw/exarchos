@@ -176,12 +176,11 @@ Rigorous path for architectural changes, migrations, and multi-file restructurin
 ### Phases
 
 ```
-Explore -> Brief -> Plan -> Delegate -> Integrate -> Review -> Update Docs -> Synthesize
-   |         |        |         |           |           |            |             |
-   |         |        |         |           |           |            |             +-- PR creation
-   |         |        |         |           |           |            +-- Update architecture docs
-   |         |        |         |           |           +-- Quality review (emphasized)
-   |         |        |         |           +-- Merge worktrees, run tests
+Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
+   |         |        |         |          |            |             |
+   |         |        |         |          |            |             +-- PR creation
+   |         |        |         |          |            +-- Update architecture docs
+   |         |        |         |          +-- Quality review (emphasized)
    |         |        |         +-- TDD implementation in worktrees
    |         |        +-- Extract tasks from brief
    |         +-- Detailed goals, approach, affected areas
@@ -254,26 +253,6 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-integrate".
-
-Then auto-invoke integrate:
-```typescript
-Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
-```
-
-#### 5. Integrate Phase
-
-Invoke `/integrate` skill to merge worktrees and run tests:
-
-```typescript
-Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
-```
-
-The `/integrate` skill:
-- Merges all task branches
-- Runs full test suite
-- Verifies no regressions
-
 Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-review".
 
 Then auto-invoke review:
@@ -281,7 +260,7 @@ Then auto-invoke review:
 Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
 ```
 
-#### 6. Review Phase
+#### 5. Review Phase
 
 Invoke `/review` skill with emphasis on quality:
 
@@ -296,7 +275,7 @@ The `/review` skill:
 
 Update state on completion using `mcp__exarchos__exarchos_workflow_set` to set `phase` to "overhaul-update-docs".
 
-#### 7. Update Docs Phase
+#### 6. Update Docs Phase
 
 **Mandatory** - documentation must reflect new architecture.
 
@@ -313,7 +292,7 @@ Then auto-invoke synthesize:
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-#### 8. Synthesize Phase
+#### 7. Synthesize Phase
 
 Invoke `/synthesize` skill with explicit Skill tool call:
 
@@ -349,7 +328,7 @@ Full state schema:
   "featureId": "refactor-<slug>",
   "workflowType": "refactor",
   "track": "polish | overhaul",
-  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-integrate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
+  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
   "explore": {
     "startedAt": "ISO8601",
     "completedAt": "ISO8601 | null",
@@ -403,16 +382,15 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 ### Overhaul Auto-Chain
 
 ```
-explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-integrate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
-           (auto)   (auto)          (auto)               (auto)                (auto)             (auto)                  (auto)        [HUMAN]
+explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+           (auto)   (auto)          (auto)               (auto)             (auto)                  (auto)        [HUMAN]
 ```
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
 - `AUTO:plan:<brief>` after brief
 - `AUTO:delegate:<plan>` after overhaul-plan
-- `AUTO:integrate:<state>` after overhaul-delegate
-- `AUTO:review:<path>` after overhaul-integrate
+- `AUTO:review:<path>` after overhaul-delegate
 - `AUTO:refactor-update-docs` after overhaul-review
 - `AUTO:synthesize:<feature>` after overhaul-update-docs
 - `WAIT:human-checkpoint:overhaul-merge` after synthesize
@@ -446,7 +424,6 @@ Output to user:
 |-------|------------|-------|
 | `/plan` | `Skill({ skill: "plan", args: "--refactor <state-file>" })` | Task extraction from brief |
 | `/delegate` | `Skill({ skill: "delegate", args: "<state-file>" })` | Subagent dispatch for TDD |
-| `/integrate` | `Skill({ skill: "integrate", args: "<state-file>" })` | Worktree merge and test |
 | `/review` | `Skill({ skill: "review", args: "<state-file>" })` | Quality review |
 | `/synthesize` | `Skill({ skill: "synthesize", args: "<feature>" })` | PR creation |
 
@@ -480,8 +457,7 @@ Refactor phases map to auto-resume actions:
 | `polish-validate` (completed) | `AUTO:refactor-update-docs` |
 | `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-complete` |
 | `overhaul-plan` (completed) | `AUTO:delegate:<plan>` |
-| `overhaul-delegate` (completed) | `AUTO:integrate:<state>` |
-| `overhaul-integrate` (completed) | `AUTO:review:<path>` |
+| `overhaul-delegate` (completed) | `AUTO:review:<path>` |
 | `overhaul-review` (completed) | `AUTO:refactor-update-docs` |
 | `overhaul-update-docs` (completed) | `AUTO:synthesize:<feature>` |
 | `synthesize` (completed) | `WAIT:human-checkpoint:overhaul-merge` |
@@ -504,7 +480,6 @@ Refactor phases map to auto-resume actions:
 - [ ] Detailed brief captured
 - [ ] Plan created
 - [ ] All tasks delegated and complete
-- [ ] Integration passed
 - [ ] Quality review passed
 - [ ] Documentation updated
 - [ ] PR merged

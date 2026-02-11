@@ -167,23 +167,10 @@ describe('Integration', () => {
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
-      // delegate -> integrate: requires all tasks complete (empty array passes -- use handleSet)
-      const toIntegrate = await transitionFeature('full-saga', 'integrate');
-      expect(toIntegrate.success).toBe(true);
-      expect((toIntegrate.data as Record<string, unknown>).phase).toBe('integrate');
-
-      // integrate -> review: requires integration.passed = true
-      // NOTE: `integration` is NOT in the Zod schema, so handleSet's readStateFile
-      // strips it. We use transitionRaw which reads raw JSON to preserve the field.
-      const raw = await readRawState('full-saga');
-      raw.integration = { passed: true };
-      await writeRawState('full-saga', raw);
-      const toReviewResult = await transitionRaw('full-saga', 'review');
-      expect(toReviewResult.success).toBe(true);
-
-      // Verify phase via handleGet
-      const reviewState = await handleGet({ featureId: 'full-saga' }, stateDir);
-      expect((reviewState.data as Record<string, unknown>).phase).toBe('review');
+      // delegate -> review: requires all tasks complete (empty array passes -- use handleSet)
+      const toReview = await transitionFeature('full-saga', 'review');
+      expect(toReview.success).toBe(true);
+      expect((toReview.data as Record<string, unknown>).phase).toBe('review');
 
       // review -> synthesize: requires all reviews passed (reviews is z.record -- schema field)
       await handleSet(
@@ -220,15 +207,14 @@ describe('Integration', () => {
       const transitionEvents = events.filter((e) => e.type === 'transition');
 
       // Should have transitions: ideate->plan, plan->plan-review, plan-review->delegate,
-      // delegate->integrate, integrate->review, review->synthesize, synthesize->completed
-      expect(transitionEvents.length).toBe(7);
+      // delegate->review, review->synthesize, synthesize->completed
+      expect(transitionEvents.length).toBe(6);
 
       const transitionPairs = transitionEvents.map((e) => `${e.from}->${e.to}`);
       expect(transitionPairs).toContain('ideate->plan');
       expect(transitionPairs).toContain('plan->plan-review');
       expect(transitionPairs).toContain('plan-review->delegate');
-      expect(transitionPairs).toContain('delegate->integrate');
-      expect(transitionPairs).toContain('integrate->review');
+      expect(transitionPairs).toContain('delegate->review');
       expect(transitionPairs).toContain('review->synthesize');
       expect(transitionPairs).toContain('synthesize->completed');
     });
@@ -236,7 +222,7 @@ describe('Integration', () => {
 
   // ─── 2. FixCycle_DelegateIntegrateFail_CircuitBreakerTrips ────────────────
 
-  describe('FixCycle_DelegateIntegrateFail_CircuitBreakerTrips', () => {
+  describe('FixCycle_DelegateReviewFail_CircuitBreakerTrips', () => {
     it('should trip circuit breaker after max fix cycles', async () => {
       // Init and advance to delegate
       await handleInit(
@@ -261,29 +247,30 @@ describe('Integration', () => {
       );
       await transitionFeature('fix-cycle', 'delegate');
 
-      // Perform fix cycles: delegate -> integrate (fail) -> delegate
+      // Perform fix cycles: delegate -> review (fail) -> delegate
       // Circuit breaker max is 3 for implementation compound
       for (let i = 0; i < 3; i++) {
-        // delegate -> integrate (all tasks complete = empty array, use handleSet)
-        await transitionFeature('fix-cycle', 'integrate');
+        // delegate -> review (all tasks complete = empty array, use handleSet)
+        await transitionFeature('fix-cycle', 'review');
 
-        // Set integration as failed and transition back to delegate via raw
-        // (integration is not in Zod schema so handleSet strips it)
-        const raw = await readRawState('fix-cycle');
-        raw.integration = { passed: false };
-        await writeRawState('fix-cycle', raw);
+        // Set review as failed
+        await handleSet(
+          { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
+          stateDir,
+        );
 
         const fixResult = await transitionRaw('fix-cycle', 'delegate');
         expect(fixResult.success).toBe(true);
       }
 
       // Now at delegate again, try another cycle -- should be blocked by circuit breaker
-      await transitionFeature('fix-cycle', 'integrate');
+      await transitionFeature('fix-cycle', 'review');
 
-      // Set integration as failed
-      const raw = await readRawState('fix-cycle');
-      raw.integration = { passed: false };
-      await writeRawState('fix-cycle', raw);
+      // Set review as failed
+      await handleSet(
+        { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
+        stateDir,
+      );
 
       // This should fail with CIRCUIT_OPEN
       const blockedResult = await transitionRaw('fix-cycle', 'delegate');

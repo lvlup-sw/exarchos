@@ -462,7 +462,7 @@ describe('Workflow State Schemas', () => {
 
   describe('Phase Schemas', () => {
     it('should validate all feature phases', () => {
-      const phases = ['ideate', 'plan', 'plan-review', 'delegate', 'integrate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'];
+      const phases = ['ideate', 'plan', 'plan-review', 'delegate', 'review', 'synthesize', 'completed', 'cancelled', 'blocked'];
       for (const phase of phases) {
         expect(FeaturePhaseSchema.safeParse(phase).success).toBe(true);
       }
@@ -495,7 +495,7 @@ describe('Workflow State Schemas', () => {
     it('should validate refactor compound sub-state phase names (Bug 5)', () => {
       const compoundPhases = [
         'polish-implement', 'polish-validate', 'polish-update-docs',
-        'overhaul-plan', 'overhaul-delegate', 'overhaul-integrate',
+        'overhaul-plan', 'overhaul-delegate',
         'overhaul-review', 'overhaul-update-docs',
       ];
       for (const phase of compoundPhases) {
