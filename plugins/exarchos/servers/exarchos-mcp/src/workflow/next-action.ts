@@ -153,9 +153,10 @@ export async function handleNextAction(
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
     for (const transition of outboundTransitions) {
-      let guardPassed = false;
+      if (!transition.isFixCycle) continue;
+      let guardPassed = !transition.guard;
       try {
-        if (transition.isFixCycle && transition.guard) {
+        if (transition.guard) {
           const raw = transition.guard.evaluate(stateRecord);
           guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
         }
@@ -191,7 +192,7 @@ export async function handleNextAction(
   const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
   for (const transition of outboundTransitions) {
-    let guardPassed = false;
+    let guardPassed = !transition.guard;
     try {
       if (transition.guard) {
         const raw = transition.guard.evaluate(stateRecord);

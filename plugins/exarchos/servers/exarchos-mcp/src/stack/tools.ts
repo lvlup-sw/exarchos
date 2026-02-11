@@ -3,15 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
-import { formatResult } from '../format.js';
-
-// ─── Tool Result Type ──────────────────────────────────────────────────────
-
-interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: { code: string; message: string };
-}
+import { formatResult, type ToolResult } from '../format.js';
 
 // ─── Shared Store Cache ────────────────────────────────────────────────────
 
@@ -160,7 +152,7 @@ export function registerStackTools(server: McpServer, stateDir: string): void {
     'Place an item on the stack by emitting a stack.position-filled event',
     {
       streamId: z.string().min(1),
-      position: z.number().int(),
+      position: z.number().int().nonnegative(),
       taskId: z.string().min(1),
       branch: z.string().optional(),
       prUrl: z.string().optional(),

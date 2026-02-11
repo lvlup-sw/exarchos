@@ -37,7 +37,7 @@ git log --oneline -5  # Confirm all task commits present
 Follow `@rules/pr-descriptions.md` for concise format.
 
 **Always use Graphite** to submit stacked PRs:
-```
+```typescript
 mcp__graphite__run_gt_cmd({
   args: ["submit", "--no-interactive", "--stack"],
   cwd: "<repo-root>"
