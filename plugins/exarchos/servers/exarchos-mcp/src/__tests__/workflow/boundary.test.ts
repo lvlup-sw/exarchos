@@ -215,10 +215,15 @@ describe('Cross-Module Boundary Tests', () => {
     expect(state.worktrees).toEqual({});
     expect(state.reviews).toEqual({});
     expect(state.synthesis).toBeDefined();
-    expect(state._events).toBeDefined();
-    expect(state._eventSequence).toBeDefined();
+    // Internal fields are stripped from no-query responses
+    expect(state._events).toBeUndefined();
+    expect(state._eventSequence).toBeUndefined();
+    expect(state._history).toBeUndefined();
+    // _checkpoint remains (not in INTERNAL_FIELDS)
     expect(state._checkpoint).toBeDefined();
-    expect(state._history).toBeDefined();
+    // Event summary is available in _meta
+    const meta = result._meta as Record<string, unknown>;
+    expect(typeof meta.eventCount).toBe('number');
   });
 
   // ─── Test 5: Circuit breaker end-to-end with real events ──────────────────

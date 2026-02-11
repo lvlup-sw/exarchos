@@ -203,7 +203,9 @@ describe('Integration', () => {
       expect(finalState.phase).toBe('completed');
 
       // Verify event log contains transition events for each phase change
-      const events = finalState._events as Array<Record<string, unknown>>;
+      const eventsResult = await handleGet({ featureId: 'full-saga', query: '_events' }, stateDir);
+      expect(eventsResult.success).toBe(true);
+      const events = eventsResult.data as Array<Record<string, unknown>>;
       const transitionEvents = events.filter((e) => e.type === 'transition');
 
       // Should have transitions: ideate->plan, plan->plan-review, plan-review->delegate,
@@ -372,7 +374,9 @@ describe('Integration', () => {
       const finalState = getResult.data as Record<string, unknown>;
       expect(finalState.phase).toBe('cancelled');
 
-      const events = finalState._events as Array<Record<string, unknown>>;
+      const eventsResult = await handleGet({ featureId: 'cancel-test', query: '_events' }, stateDir);
+      expect(eventsResult.success).toBe(true);
+      const events = eventsResult.data as Array<Record<string, unknown>>;
       const compensationEvents = events.filter((e) => e.type === 'compensation');
       expect(compensationEvents.length).toBeGreaterThan(0);
 
@@ -470,16 +474,26 @@ describe('Integration', () => {
 
       const state = result.data as Record<string, unknown>;
       expect(state.version).toBe('1.1');
-      expect(state._events).toBeDefined();
-      expect(Array.isArray(state._events)).toBe(true);
-      expect(state._eventSequence).toBeDefined();
+      // Internal fields are stripped from no-query responses
+      expect(state._events).toBeUndefined();
+      expect(state._eventSequence).toBeUndefined();
+      expect(state._history).toBeUndefined();
+      // _checkpoint remains (not in INTERNAL_FIELDS)
       expect(state._checkpoint).toBeDefined();
-      expect(state._history).toBeDefined();
 
       // Verify checkpoint has expected shape
       const checkpoint = state._checkpoint as Record<string, unknown>;
       expect(checkpoint.phase).toBeDefined();
       expect(checkpoint.operationsSince).toBe(0);
+
+      // Verify migrated internal fields are accessible via explicit query
+      const eventsResult = await handleGet({ featureId: 'migrated-feature', query: '_events' }, stateDir);
+      expect(eventsResult.success).toBe(true);
+      expect(Array.isArray(eventsResult.data)).toBe(true);
+
+      const seqResult = await handleGet({ featureId: 'migrated-feature', query: '_eventSequence' }, stateDir);
+      expect(seqResult.success).toBe(true);
+      expect(seqResult.data).toBeDefined();
     });
   });
 
@@ -522,12 +536,11 @@ describe('Integration', () => {
         stateDir,
       );
 
-      // Read final state
-      const result = await handleGet({ featureId: 'seq-test' }, stateDir);
+      // Read events via explicit query
+      const result = await handleGet({ featureId: 'seq-test', query: '_events' }, stateDir);
       expect(result.success).toBe(true);
 
-      const state = result.data as Record<string, unknown>;
-      const events = state._events as Array<{ sequence: number }>;
+      const events = result.data as Array<{ sequence: number }>;
 
       expect(events.length).toBeGreaterThan(0);
 
@@ -593,10 +606,17 @@ describe('Integration', () => {
 
       // Verify migration occurred
       expect(state.version).toBe('1.1');
-      expect(state._events).toBeDefined();
-      expect(state._eventSequence).toBeDefined();
+      // Internal fields are stripped from no-query responses
+      expect(state._events).toBeUndefined();
+      expect(state._eventSequence).toBeUndefined();
+      expect(state._history).toBeUndefined();
+      // _checkpoint remains (not in INTERNAL_FIELDS)
       expect(state._checkpoint).toBeDefined();
-      expect(state._history).toBeDefined();
+
+      // Verify migrated internal fields accessible via explicit query
+      const eventsResult = await handleGet({ featureId: 'bash-created', query: '_events' }, stateDir);
+      expect(eventsResult.success).toBe(true);
+      expect(Array.isArray(eventsResult.data)).toBe(true);
 
       // Verify original data preserved
       expect(state.featureId).toBe('bash-created');
