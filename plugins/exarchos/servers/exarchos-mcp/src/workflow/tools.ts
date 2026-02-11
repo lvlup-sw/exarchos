@@ -6,7 +6,6 @@ import type {
   GetInput,
   SetInput,
   CheckpointInput,
-  CheckpointMeta,
   WorkflowState,
 } from './types.js';
 import { ErrorCode, isReservedField } from './schemas.js';
@@ -26,22 +25,13 @@ import {
 } from './checkpoint.js';
 import { appendEvent } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
-import { formatResult } from '../format.js';
+import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
 // Re-export from dedicated modules for backward compatibility
 export { handleNextAction } from './next-action.js';
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
-
-// ─── Tool Result Interface ──────────────────────────────────────────────────
-
-export interface ToolResult {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { code: string; message: string; validTargets?: readonly string[] };
-  readonly _meta?: CheckpointMeta;
-}
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 

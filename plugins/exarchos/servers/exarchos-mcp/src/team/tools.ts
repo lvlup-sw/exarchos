@@ -5,15 +5,7 @@ import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
 import { TeamCoordinator } from './coordinator.js';
 import { ROLES } from './roles.js';
-import { formatResult } from '../format.js';
-
-// ─── Tool Result Type ──────────────────────────────────────────────────────
-
-interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: { code: string; message: string };
-}
+import { formatResult, type ToolResult } from '../format.js';
 
 // ─── Shared Coordinator + Store Cache ──────────────────────────────────────
 
