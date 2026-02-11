@@ -9,14 +9,14 @@ Delegate tasks for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲▲▲▲▲▲▲▲                                            │
-                                    │                                                │
-                      ON FAIL ──────┤                                                │
-                      --pr-fixes ───┴────────────────────────────────────────────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                                 ▲▲▲▲▲▲▲▲                                │
+                                    │                                    │
+                      ON FAIL ──────┤                                    │
+                      --pr-fixes ───┴────────────────────────────────────┘
 ```
 
-Auto-invokes `/integrate` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
+Auto-invokes `/review` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
 
 ## Invocation Modes
 
@@ -74,10 +74,7 @@ Use TodoWrite to track all delegated tasks.
 - Task tool: `TaskOutput`
 
 ### Step 6: Schema Sync (Auto)
-After all tasks complete, auto-detect if API files were modified:
-```bash
-git diff --name-only origin/main...HEAD | grep -E "(Endpoints|Models|Dtos).*\.cs$"
-```
+After all tasks complete, auto-detect if API files were modified using Serena `search_for_pattern` or GitHub MCP tools to check for changes to API-related files (Endpoints, Models, Dtos).
 
 If matches found, run `npm run sync:schemas` and commit generated files.
 
@@ -287,16 +284,10 @@ Update TodoWrite as each fix completes.
 
 ### Step 9: Push and Report
 
-After all fixes complete:
+After all fixes complete, use Graphite to commit and push:
 ```bash
-git add -A && git commit -m "fix: address PR review feedback
-
-Fixes:
-- P1 Critical: [count] issues
-- P2 Human: [count] items
-- P3 Major: [count] issues
-- P4 Minor: [count] issues"
-git push origin [branch]
+gt modify -m "fix: address PR review feedback"
+gt submit --no-interactive
 ```
 
 Report to user:
@@ -337,11 +328,11 @@ After all delegated tasks complete, **auto-continue immediately** (no user confi
 
 ### For normal delegation and --fixes mode:
 
-1. Update state: `.phase = "integrate"` and mark all tasks complete
-2. Output: "All [N] tasks complete. Auto-continuing to integration..."
+1. Update state: `.phase = "review"` and mark all tasks complete
+2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "integrate", args: "$STATE_FILE" })
+   Skill({ skill: "review", args: "$STATE_FILE" })
    ```
 
 ### For --pr-fixes mode:
