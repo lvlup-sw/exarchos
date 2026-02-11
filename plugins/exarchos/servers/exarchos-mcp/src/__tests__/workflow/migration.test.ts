@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { migrateState, CURRENT_VERSION } from '../../workflow/migration.js';
 
-// Helper: minimal v1.0 state (no _history, _events, _eventSequence, _checkpoint)
+// Helper: minimal v1.0 state (no _history, _checkpoint)
 function makeV1_0State() {
   return {
     version: '1.0',
@@ -30,8 +30,6 @@ function makeV1_1State() {
     ...makeV1_0State(),
     version: '1.1',
     _history: {},
-    _events: [],
-    _eventSequence: 0,
     _checkpoint: {
       timestamp: '2025-01-15T10:30:00Z',
       phase: 'ideate',
@@ -46,14 +44,15 @@ function makeV1_1State() {
 
 describe('Migration', () => {
   describe('MigrateState_V1_0ToV1_1_AddsInternalFields', () => {
-    it('should add _history, _events, _eventSequence, _checkpoint when migrating from v1.0', () => {
+    it('should add _history and _checkpoint when migrating from v1.0', () => {
       const v1_0 = makeV1_0State();
       const result = migrateState(v1_0) as Record<string, unknown>;
 
       expect(result.version).toBe('1.1');
       expect(result._history).toEqual({});
-      expect(result._events).toEqual([]);
-      expect(result._eventSequence).toBe(0);
+      // _events and _eventSequence removed — events now in external JSONL store
+      expect(result._events).toBeUndefined();
+      expect(result._eventSequence).toBeUndefined();
       expect(result._checkpoint).toBeDefined();
 
       const checkpoint = result._checkpoint as Record<string, unknown>;
@@ -117,10 +116,8 @@ describe('Migration', () => {
 
       // After chain migration, should be at CURRENT_VERSION
       expect(result.version).toBe(CURRENT_VERSION);
-      // All v1.1 fields should be present
+      // All v1.1 fields should be present (except removed _events/_eventSequence)
       expect(result._history).toBeDefined();
-      expect(result._events).toBeDefined();
-      expect(result._eventSequence).toBeDefined();
       expect(result._checkpoint).toBeDefined();
     });
   });

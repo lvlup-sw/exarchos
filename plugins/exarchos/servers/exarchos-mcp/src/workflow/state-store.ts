@@ -56,8 +56,6 @@ export async function initStateFile(
       prFeedback: [],
     },
     _history: {},
-    _events: [],
-    _eventSequence: 0,
     _checkpoint: {
       timestamp: now,
       phase: initialPhase,

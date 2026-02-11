@@ -12,9 +12,9 @@ import {
   StateStoreError,
 } from './state-store.js';
 import { buildCheckpointMeta } from './checkpoint.js';
-import { getRecentEvents, getRecentEventsFromStore } from './events.js';
+import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
-import { getCircuitBreakerState, checkCircuitBreakerFromStore } from './circuit-breaker.js';
+import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
@@ -79,34 +79,21 @@ export async function handleSummary(
   const tasks = state.tasks ?? [];
   const completedTasks = tasks.filter((t) => t.status === 'complete').length;
 
-  // Recent events (last 5) — prefer external store when available
-  // Both paths return normalized { type, timestamp } shape
-  let recentEvents: Array<{ type: string; timestamp: string }>;
-  if (eventStore) {
-    recentEvents = await getRecentEventsFromStore(eventStore, input.featureId, 5);
-  } else {
-    recentEvents = getRecentEvents(state._events, 5).map(e => ({
-      type: e.type,
-      timestamp: e.timestamp,
-    }));
-  }
+  // Recent events (last 5) from external event store
+  const recentEvents = eventStore
+    ? await getRecentEventsFromStore(eventStore, input.featureId, 5)
+    : [];
 
   // Circuit breaker state for the relevant compound
   const compound = findCompoundForPhase(state.workflowType, state.phase);
   let circuitBreaker: Record<string, unknown> | undefined;
-  if (compound) {
-    const cbState = eventStore
-      ? await checkCircuitBreakerFromStore(
-          eventStore,
-          input.featureId,
-          compound.compoundId,
-          compound.maxFixCycles,
-        )
-      : getCircuitBreakerState(
-          state._events,
-          compound.compoundId,
-          compound.maxFixCycles,
-        );
+  if (compound && eventStore) {
+    const cbState = await checkCircuitBreakerFromStore(
+      eventStore,
+      input.featureId,
+      compound.compoundId,
+      compound.maxFixCycles,
+    );
     circuitBreaker = {
       compoundId: cbState.compoundStateId,
       fixCycleCount: cbState.fixCycleCount,
