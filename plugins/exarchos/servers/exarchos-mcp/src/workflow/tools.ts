@@ -38,10 +38,10 @@ export { handleSummary, handleReconcile, handleTransitions } from './query.js';
 
 const FAST_PATH_FIELDS = new Set(['phase', 'featureId', 'workflowType', 'track', 'version']);
 
-async function readFieldFast(stateFile: string, field: string): Promise<unknown> {
+async function readFieldFast(stateFile: string, field: string): Promise<{ value: unknown; checkpoint: unknown }> {
   const raw = await fs.readFile(stateFile, 'utf-8');
   const parsed = JSON.parse(raw);
-  return parsed[field];
+  return { value: parsed[field], checkpoint: parsed._checkpoint };
 }
 
 // ─── Internal Field Stripping ────────────────────────────────────────────────
@@ -128,8 +128,15 @@ export async function handleGet(
   // Fast path for simple top-level scalar queries — skips Zod validation
   if (input.query && FAST_PATH_FIELDS.has(input.query)) {
     try {
-      const value = await readFieldFast(stateFile, input.query);
-      return { success: true, data: value };
+      const { value, checkpoint } = await readFieldFast(stateFile, input.query);
+      if (value === undefined || checkpoint == null) {
+        throw new Error('FAST_PATH_MISS');
+      }
+      return {
+        success: true,
+        data: value,
+        _meta: buildCheckpointMeta(checkpoint as WorkflowState['_checkpoint']),
+      };
     } catch {
       // Fall through to full validation path (handles STATE_NOT_FOUND etc.)
     }
