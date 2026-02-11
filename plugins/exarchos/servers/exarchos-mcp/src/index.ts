@@ -4,10 +4,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import * as path from 'node:path';
 import { stubResult } from './format.js';
-import { registerWorkflowTools } from './workflow/tools.js';
-import { registerNextActionTool } from './workflow/next-action.js';
-import { registerCancelTool } from './workflow/cancel.js';
-import { registerQueryTools } from './workflow/query.js';
+import { registerWorkflowTools, configureWorkflowEventStore } from './workflow/tools.js';
+import { registerNextActionTool, configureNextActionEventStore } from './workflow/next-action.js';
+import { registerCancelTool, configureCancelEventStore } from './workflow/cancel.js';
+import { registerQueryTools, configureQueryEventStore } from './workflow/query.js';
 import { registerEventTools } from './event-store/tools.js';
 import { EventStore } from './event-store/store.js';
 import { registerViewTools } from './views/tools.js';
@@ -26,11 +26,17 @@ export function createServer(stateDir: string): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   const eventStore = new EventStore(stateDir);
 
+  // Configure module-level EventStore instances before registration
+  configureWorkflowEventStore(eventStore);
+  configureNextActionEventStore(eventStore);
+  configureCancelEventStore(eventStore);
+  configureQueryEventStore(eventStore);
+
   // Register all tool modules
-  registerWorkflowTools(server, stateDir, eventStore);
-  registerNextActionTool(server, stateDir, eventStore);
-  registerCancelTool(server, stateDir, eventStore);
-  registerQueryTools(server, stateDir, eventStore);
+  registerWorkflowTools(server, stateDir);
+  registerNextActionTool(server, stateDir);
+  registerCancelTool(server, stateDir);
+  registerQueryTools(server, stateDir);
   registerEventTools(server, stateDir);
   registerViewTools(server, stateDir);
   registerTeamTools(server, stateDir);

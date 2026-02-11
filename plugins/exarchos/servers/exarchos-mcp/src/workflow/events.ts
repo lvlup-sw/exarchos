@@ -140,6 +140,7 @@ export function mapInternalToExternalType(internalType: string): string {
     'guard-failed': 'workflow.guard-failed',
     'checkpoint': 'workflow.checkpoint',
     'compound-entry': 'workflow.compound-entry',
+    'cancel': 'workflow.cancel',
   };
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }
@@ -179,6 +180,7 @@ export async function getRecentEventsFromStore(
   streamId: string,
   count: number,
 ): Promise<Array<{ type: string; timestamp: string }>> {
+  if (count <= 0) return [];
   const allEvents = await eventStore.query(streamId);
   const recent = allEvents.slice(-count);
   return recent.map(e => ({ type: e.type, timestamp: e.timestamp }));

@@ -20,6 +20,15 @@ import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 
+// ─── Module-Level EventStore Configuration ──────────────────────────────────
+
+let moduleEventStore: EventStore | null = null;
+
+/** Configure the EventStore instance used by query handlers. */
+export function configureQueryEventStore(store: EventStore): void {
+  moduleEventStore = store;
+}
+
 // ─── Compound State Lookup ──────────────────────────────────────────────────
 
 /**
@@ -46,8 +55,8 @@ function findCompoundForPhase(
 export async function handleSummary(
   input: SummaryInput,
   stateDir: string,
-  eventStore?: EventStore,
 ): Promise<ToolResult> {
+  const eventStore = moduleEventStore;
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -71,11 +80,15 @@ export async function handleSummary(
   const completedTasks = tasks.filter((t) => t.status === 'complete').length;
 
   // Recent events (last 5) — prefer external store when available
+  // Both paths return normalized { type, timestamp } shape
   let recentEvents: Array<{ type: string; timestamp: string }>;
   if (eventStore) {
     recentEvents = await getRecentEventsFromStore(eventStore, input.featureId, 5);
   } else {
-    recentEvents = getRecentEvents(state._events, 5);
+    recentEvents = getRecentEvents(state._events, 5).map(e => ({
+      type: e.type,
+      timestamp: e.timestamp,
+    }));
   }
 
   // Circuit breaker state for the relevant compound
@@ -232,12 +245,12 @@ export async function handleTransitions(
 
 const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
-export function registerQueryTools(server: McpServer, stateDir: string, eventStore?: EventStore): void {
+export function registerQueryTools(server: McpServer, stateDir: string): void {
   server.tool(
     'exarchos_workflow_summary',
     'Get structured summary of workflow progress, events, and circuit breaker status',
     { featureId: featureIdParam },
-    async (args) => formatResult(await handleSummary(args, stateDir, eventStore)),
+    async (args) => formatResult(await handleSummary(args, stateDir)),
   );
 
   server.tool(

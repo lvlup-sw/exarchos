@@ -13,6 +13,7 @@ import {
   handleTransitions,
   handleCancel,
   handleCheckpoint,
+  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
@@ -1745,6 +1746,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 describe('External Event Store Bridge', () => {
   it('handleSet_PhaseTransition_AppendsToExternalStore: after transition, JSONL file has event', async () => {
     const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
 
     // Create a feature workflow at ideate
     await handleInit({ featureId: 'bridge-test', workflowType: 'feature' }, tmpDir);
@@ -1753,14 +1755,12 @@ describe('External Event Store Bridge', () => {
     await handleSet(
       { featureId: 'bridge-test', updates: { 'artifacts.design': 'docs/test.md' } },
       tmpDir,
-      eventStore,
     );
 
     // Transition from ideate to plan
     const result = await handleSet(
       { featureId: 'bridge-test', phase: 'plan' },
       tmpDir,
-      eventStore,
     );
     expect(result.success).toBe(true);
 
@@ -1778,13 +1778,13 @@ describe('External Event Store Bridge', () => {
 
   it('handleCheckpoint_AppendsToExternalStore: after checkpoint, JSONL file has event', async () => {
     const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
 
     await handleInit({ featureId: 'cp-bridge', workflowType: 'feature' }, tmpDir);
 
     const result = await handleCheckpoint(
       { featureId: 'cp-bridge', summary: 'test checkpoint' },
       tmpDir,
-      eventStore,
     );
     expect(result.success).toBe(true);
 

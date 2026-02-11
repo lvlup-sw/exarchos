@@ -16,6 +16,15 @@ import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
+// ─── Module-Level EventStore Configuration ──────────────────────────────────
+
+let moduleEventStore: EventStore | null = null;
+
+/** Configure the EventStore instance used by next-action handlers. */
+export function configureNextActionEventStore(store: EventStore): void {
+  moduleEventStore = store;
+}
+
 // ─── Human Checkpoint Phases ────────────────────────────────────────────────
 
 export const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
@@ -81,8 +90,8 @@ export function findCompoundForPhase(
 export async function handleNextAction(
   input: NextActionInput,
   stateDir: string,
-  eventStore?: EventStore,
 ): Promise<ToolResult> {
+  const eventStore = moduleEventStore;
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -249,11 +258,11 @@ export async function handleNextAction(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerNextActionTool(server: McpServer, stateDir: string, eventStore?: EventStore): void {
+export function registerNextActionTool(server: McpServer, stateDir: string): void {
   server.tool(
     'exarchos_workflow_next_action',
     'Determine the next auto-continue action based on current phase and guards',
     { featureId: z.string().min(1).regex(/^[a-z0-9-]+$/) },
-    async (args) => formatResult(await handleNextAction(args, stateDir, eventStore)),
+    async (args) => formatResult(await handleNextAction(args, stateDir)),
   );
 }

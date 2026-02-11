@@ -27,6 +27,7 @@ export const EventTypes = [
   'workflow.guard-failed',
   'workflow.checkpoint',
   'workflow.compound-entry',
+  'workflow.cancel',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
