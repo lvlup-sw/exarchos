@@ -23,22 +23,36 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 ### GitHub (`mcp__plugin_github_github__*`)
 
-GitHub platform integration. **Prefer over `gh` CLI when structured data is needed.**
+GitHub platform integration. **Always use GitHub MCP tools for ALL GitHub operations. NEVER use `gh` CLI when an MCP equivalent exists.**
 
 | Tool | When to Use |
 |------|-------------|
 | `get_file_contents` | Reading files from remote repos or other branches |
 | `search_code` | Finding code patterns across repositories |
 | `search_issues` | Checking for existing issues before creating new ones |
-| `list_pull_requests` / `search_pull_requests` | Finding related PRs |
-| `pull_request_read` | Reading PR details, diffs, review status |
+| `list_pull_requests` / `search_pull_requests` | Finding related PRs, checking PR status |
+| `pull_request_read` | Reading PR details, diffs, review comments, status checks, files changed |
 | `issue_read` / `issue_write` | Reading/managing issues |
 | `list_commits` / `get_commit` | Examining commit history |
 | `list_branches` / `create_branch` | Branch management |
 | `add_issue_comment` | Commenting on issues |
 | `pull_request_review_write` | Submitting PR reviews |
+| `merge_pull_request` | Merging pull requests |
+| `update_pull_request` | Updating PR title, body, or state |
 
-**Proactive use:** When the user mentions a PR number, issue, or GitHub URL, use these tools to fetch context rather than asking the user to paste content.
+**Key methods for `pull_request_read`:**
+
+| Method | Instead of |
+|--------|-----------|
+| `get` | `gh pr view` |
+| `get_diff` | `gh pr diff` |
+| `get_status` | `gh pr checks` |
+| `get_files` | `gh pr view --json files` |
+| `get_review_comments` | `gh api repos/.../pulls/.../comments` |
+| `get_reviews` | `gh pr view --json reviews` |
+| `get_comments` | `gh pr view --json comments` |
+
+**Proactive use:** When the user mentions a PR number, issue, or GitHub URL, use these tools to fetch context rather than asking the user to paste content. When checking PR merge status, review comments, or CI status, always use `pull_request_read` with the appropriate method.
 
 ### Serena (`mcp__plugin_serena_serena__*`)
 
@@ -106,7 +120,7 @@ When deciding which tool to use:
 
 1. **Workflow tracking** — Always use Exarchos MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
-3. **GitHub operations** — Use GitHub MCP for PR reading (`pull_request_read`), issue operations (`issue_read`, `issue_write`), and merging (`merge_pull_request`); reserve `gh` CLI only for niche operations not covered by MCP
+3. **GitHub operations** — **Always use GitHub MCP tools** for ALL GitHub operations: PR reading/listing/searching (`pull_request_read`, `list_pull_requests`, `search_pull_requests`), issue operations (`issue_read`, `issue_write`, `search_issues`), commit history (`list_commits`, `get_commit`), and merging (`merge_pull_request`). NEVER use `gh pr view`, `gh pr list`, `gh pr checks`, `gh api`, or any `gh` subcommand when an MCP tool covers the operation
 4. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
 5. **Library docs** — Use Context7 before web search for library documentation
 6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
@@ -118,8 +132,15 @@ When deciding which tool to use:
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
 | Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive` for ALL PR creation |
+| Use `gh pr view` | Use GitHub `pull_request_read` with method `get` |
+| Use `gh pr list` | Use GitHub `list_pull_requests` or `search_pull_requests` |
+| Use `gh pr diff` | Use GitHub `pull_request_read` with method `get_diff` |
+| Use `gh pr checks` | Use GitHub `pull_request_read` with method `get_status` |
 | Use `gh pr merge` | Use GitHub `merge_pull_request` |
-| Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` |
+| Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` with method `get_review_comments` |
+| Use `gh api` for any GitHub data | Use the corresponding GitHub MCP tool |
+| Use `gh issue view` or `gh issue list` | Use GitHub `issue_read` or `list_issues` / `search_issues` |
+| Use `gh pr view --json` for structured data | Use GitHub MCP tools which return structured data natively |
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
