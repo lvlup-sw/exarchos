@@ -26,12 +26,23 @@ import {
 import { appendEvent, getRecentEvents } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 // Re-export from dedicated modules for backward compatibility
 export { handleNextAction } from './next-action.js';
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
+
+// ─── Fast-Path Query Fields ──────────────────────────────────────────────────
+
+const FAST_PATH_FIELDS = new Set(['phase', 'featureId', 'workflowType', 'track', 'version']);
+
+async function readFieldFast(stateFile: string, field: string): Promise<unknown> {
+  const raw = await fs.readFile(stateFile, 'utf-8');
+  const parsed = JSON.parse(raw);
+  return parsed[field];
+}
 
 // ─── Internal Field Stripping ────────────────────────────────────────────────
 
@@ -113,6 +124,16 @@ export async function handleGet(
   stateDir: string,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+
+  // Fast path for simple top-level scalar queries — skips Zod validation
+  if (input.query && FAST_PATH_FIELDS.has(input.query)) {
+    try {
+      const value = await readFieldFast(stateFile, input.query);
+      return { success: true, data: value };
+    } catch {
+      // Fall through to full validation path (handles STATE_NOT_FOUND etc.)
+    }
+  }
 
   let state: WorkflowState;
   try {

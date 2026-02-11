@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -242,6 +242,75 @@ describe('Core Tools', () => {
       expect(Array.isArray(result.data)).toBe(true);
       const events = result.data as Array<Record<string, unknown>>;
       expect(events.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ─── Fast-Path Query Tests ─────────────────────────────────────────────────
+
+  describe('handleGet_FastPath_Phase_ReturnsCorrectValue', () => {
+    it('should return the phase value via fast path without full Zod validation', async () => {
+      await handleInit({ featureId: 'fast-phase', workflowType: 'feature' }, tmpDir);
+
+      // Spy on readStateFile to verify fast path skips it
+      const stateStoreMod = await import('../../workflow/state-store.js');
+      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
+
+      const result = await handleGet(
+        { featureId: 'fast-phase', query: 'phase' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('ideate');
+      // Fast path should NOT call readStateFile
+      expect(readSpy).not.toHaveBeenCalled();
+
+      readSpy.mockRestore();
+    });
+  });
+
+  describe('handleGet_FastPath_FeatureId_ReturnsCorrectValue', () => {
+    it('should return the featureId value via fast path', async () => {
+      await handleInit({ featureId: 'fast-fid', workflowType: 'feature' }, tmpDir);
+
+      const stateStoreMod = await import('../../workflow/state-store.js');
+      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
+
+      const result = await handleGet(
+        { featureId: 'fast-fid', query: 'featureId' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('fast-fid');
+      expect(readSpy).not.toHaveBeenCalled();
+
+      readSpy.mockRestore();
+    });
+  });
+
+  describe('handleGet_ComplexQuery_UsesFullValidation', () => {
+    it('should use full validation for complex dot-path queries', async () => {
+      await handleInit({ featureId: 'fast-complex', workflowType: 'feature' }, tmpDir);
+      await handleSet(
+        { featureId: 'fast-complex', updates: { 'tasks[0]': { id: 't1', title: 'Task 1', status: 'pending' } } },
+        tmpDir,
+      );
+
+      const stateStoreMod = await import('../../workflow/state-store.js');
+      const readSpy = vi.spyOn(stateStoreMod, 'readStateFile');
+
+      const result = await handleGet(
+        { featureId: 'fast-complex', query: 'tasks[0].status' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('pending');
+      // Complex query should use full readStateFile validation
+      expect(readSpy).toHaveBeenCalled();
+
+      readSpy.mockRestore();
     });
   });
 
