@@ -89,7 +89,6 @@ Select track based on scope assessment.
 - Brief (detailed goals and approach)
 - Plan (extract tasks via `/plan`)
 - Delegate (TDD in worktrees via `/delegate`)
-- Integrate (merge worktrees via `/integrate`)
 - Review (quality review via `/review`)
 - Update docs
 - Synthesize (PR via `/synthesize`)
@@ -127,8 +126,8 @@ explore → brief → implement → validate → update-docs → [HUMAN: complet
 
 **Overhaul:**
 ```
-explore → brief → plan → delegate → integrate → review → update-docs → synthesize → [HUMAN: merge]
-          (auto)  (auto)  (auto)     (auto)      (auto)   (auto)        (auto)
+explore → brief → plan → delegate → review → update-docs → synthesize → [HUMAN: merge]
+          (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
 ```
 
 ## Resume Support

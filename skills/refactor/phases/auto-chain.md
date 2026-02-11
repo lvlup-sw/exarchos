@@ -81,7 +81,7 @@ Ready to commit changes. Approve to commit, or request modifications.
 ## Overhaul Track Auto-Chain
 
 ```text
-explore → brief → plan → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
+explore → brief → plan → delegate → review → update-docs → synthesize → CHECKPOINT
                                         ↑                    │
                                         └─── fixes ──────────┘ (if review fails)
 ```
@@ -93,8 +93,7 @@ explore → brief → plan → delegate → integrate → review → update-docs
 | explore | brief | Scope assessed | Yes |
 | brief | plan | Brief captured | Yes |
 | plan | delegate | Plan created | Yes |
-| delegate | integrate | All tasks complete | Yes |
-| integrate | review | Integration passes | Yes |
+| delegate | review | All tasks complete | Yes |
 | review (pass) | update-docs | Review approved | Yes |
 | review (fail) | delegate | Fix tasks dispatched | Yes (loop) |
 | update-docs | synthesize | Docs updated | Yes |
@@ -115,9 +114,6 @@ Returns: AUTO:refactor-plan
 Returns: AUTO:refactor-delegate
 
 # After delegate
-Returns: AUTO:refactor-integrate
-
-# After integrate
 Returns: AUTO:refactor-review
 
 # After review (passed)
@@ -196,7 +192,6 @@ Returns: AUTO:refactor-plan
 
 | Failure | Recovery |
 |---------|----------|
-| Integration fails | Fix and re-integrate |
 | Review fails | Delegate fixes, re-review |
 | Synthesize fails | Fix PR issues, re-synthesize |
 
@@ -216,8 +211,6 @@ All recoveries are automatic loops until success.
 │                           │                          ▣ COMPLETE  │
 │                           │                                      │
 │                           └─→ [overhaul] ─→ plan ─→ delegate     │
-│                                                          ↓       │
-│                                                      integrate   │
 │                                                          ↓       │
 │                                                      review ───┐ │
 │                                                          ↓     │ │
@@ -250,7 +243,6 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 | AUTO:refactor-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
 | AUTO:refactor-delegate | `Skill({ skill: "delegate", args: "<state-file>" })` |
 | AUTO:refactor-delegate:--fixes | `Skill({ skill: "delegate", args: "--fixes <state-file>" })` |
-| AUTO:refactor-integrate | `Skill({ skill: "integrate", args: "<state-file>" })` |
 | AUTO:refactor-review | `Skill({ skill: "review", args: "<state-file>" })` |
 | AUTO:refactor-synthesize | `Skill({ skill: "synthesize", args: "<feature-name>" })` |
 
@@ -264,9 +256,6 @@ Skill({ skill: "plan", args: "--refactor docs/workflow-state/refactor-auth.state
 Skill({ skill: "delegate", args: "docs/workflow-state/refactor-auth.state.json" })
 
 // After all tasks complete (invoked by /delegate skill)
-Skill({ skill: "integrate", args: "docs/workflow-state/refactor-auth.state.json" })
-
-// After integration passes (invoked by /integrate skill)
 Skill({ skill: "review", args: "docs/workflow-state/refactor-auth.state.json" })
 
 // After review passes, update-docs runs inline, then:

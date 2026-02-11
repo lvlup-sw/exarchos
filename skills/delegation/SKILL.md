@@ -306,7 +306,6 @@ Or auto-invoked after review failures.
 ### Fix Mode Process
 
 1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow_get`:
-   - Query `integration.failureDetails` for integration failures
    - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:
@@ -350,13 +349,13 @@ Each fix task extracted should include:
 
 ### Transition After Fixes
 
-Unlike normal delegation which goes to review, fix mode goes back to review:
+Fix mode goes back to review after fixes are applied:
 
 ```
 /delegate --fixes -> [fixes applied] -> /review
 ```
 
-This ensures fixed code is re-verified after fixes.
+This ensures fixed code is re-verified.
 
 ## Completion Criteria
 
