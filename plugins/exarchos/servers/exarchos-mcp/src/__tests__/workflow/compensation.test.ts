@@ -75,7 +75,7 @@ describe('Compensation', () => {
   describe('ExecuteCompensation_AllPhases_RunsReverseOrder', () => {
     it('should run compensation actions in reverse phase order from current phase', async () => {
       // When current phase is "synthesize", actions should run:
-      // synthesize (close-pr) -> integrate (delete-integration-branch) -> delegate (cleanup)
+      // synthesize (close-pr) -> delegate (delete-integration-branch, cleanup, delete-branches)
       const state = makeState({ phase: 'synthesize' });
       const events = makeEvents(3);
 
@@ -84,20 +84,16 @@ describe('Compensation', () => {
       // Extract the phases from the action results in order
       const actionIds = result.actions.map((a) => a.actionId);
 
-      // synthesize actions should come before integrate actions,
-      // which should come before delegate actions (reverse order)
+      // synthesize actions should come before delegate actions (reverse phase order)
       const synthesizeIdx = actionIds.findIndex((id) => id.startsWith('synthesize:'));
-      const integrateIdx = actionIds.findIndex((id) => id.startsWith('integrate:'));
       const delegateIdx = actionIds.findIndex((id) => id.startsWith('delegate:'));
 
-      // All three phase groups should be present
+      // Both phase groups should be present
       expect(synthesizeIdx).toBeGreaterThanOrEqual(0);
-      expect(integrateIdx).toBeGreaterThanOrEqual(0);
       expect(delegateIdx).toBeGreaterThanOrEqual(0);
 
-      // Reverse order: synthesize before integrate before delegate
-      expect(synthesizeIdx).toBeLessThan(integrateIdx);
-      expect(integrateIdx).toBeLessThan(delegateIdx);
+      // Reverse order: synthesize before delegate
+      expect(synthesizeIdx).toBeLessThan(delegateIdx);
     });
   });
 
@@ -240,7 +236,7 @@ describe('Compensation', () => {
 
     it('should use cwd from options.stateDir when provided', async () => {
       const state = makeState({
-        phase: 'integrate',
+        phase: 'delegate',
         synthesis: {
           integrationBranch: 'integrate/test',
           mergeOrder: [],
@@ -254,8 +250,8 @@ describe('Compensation', () => {
       const events = makeEvents(1);
       const stateDir = '/custom/state/dir';
 
-      // Run from integrate phase so the integration branch deletion action executes
-      await executeCompensation(state, 'integrate', events, 1, { dryRun: false, stateDir });
+      // Run from delegate phase so the integration branch deletion action executes
+      await executeCompensation(state, 'delegate', events, 1, { dryRun: false, stateDir });
 
       // Verify execFile was called with the correct cwd
       const calls = mockedExecFile.mock.calls;
@@ -269,7 +265,7 @@ describe('Compensation', () => {
 
     it('should include timeout option in command execution', async () => {
       const state = makeState({
-        phase: 'integrate',
+        phase: 'delegate',
         synthesis: {
           integrationBranch: 'integrate/test',
           mergeOrder: [],
@@ -282,8 +278,8 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      // Run from integrate phase so the integration branch deletion action executes
-      await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+      // Run from delegate phase so the integration branch deletion action executes
+      await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
       // Verify execFile was called with a timeout
       const calls = mockedExecFile.mock.calls;
@@ -311,24 +307,20 @@ describe('Compensation', () => {
         expect(action.status).toBe('dry-run');
       }
 
-      // Should include actions from synthesize, integrate, AND delegate phases
+      // Should include actions from synthesize AND delegate phases
       // since an unknown phase causes getPhasesInReverseOrder to return ALL phases
       const actionIds = result.actions.map((a) => a.actionId);
       const hasSynthesize = actionIds.some((id) => id.startsWith('synthesize:'));
-      const hasIntegrate = actionIds.some((id) => id.startsWith('integrate:'));
       const hasDelegate = actionIds.some((id) => id.startsWith('delegate:'));
 
       expect(hasSynthesize).toBe(true);
-      expect(hasIntegrate).toBe(true);
       expect(hasDelegate).toBe(true);
 
-      // Reverse order: synthesize before integrate before delegate
+      // Reverse order: synthesize before delegate
       const synthesizeIdx = actionIds.findIndex((id) => id.startsWith('synthesize:'));
-      const integrateIdx = actionIds.findIndex((id) => id.startsWith('integrate:'));
       const delegateIdx = actionIds.findIndex((id) => id.startsWith('delegate:'));
 
-      expect(synthesizeIdx).toBeLessThan(integrateIdx);
-      expect(integrateIdx).toBeLessThan(delegateIdx);
+      expect(synthesizeIdx).toBeLessThan(delegateIdx);
 
       expect(result.success).toBe(true);
     });
@@ -342,10 +334,9 @@ describe('Compensation', () => {
       // Should have actions from all phase groups
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // Should include actions from all three registered phases
+      // Should include actions from both registered phases (synthesize and delegate)
       const actionIds = result.actions.map((a) => a.actionId);
       expect(actionIds.some((id) => id.startsWith('synthesize:'))).toBe(true);
-      expect(actionIds.some((id) => id.startsWith('integrate:'))).toBe(true);
       expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
     });
   });
@@ -514,7 +505,7 @@ describe('Compensation', () => {
   });
 
   describe('ExecuteCompensation_PlanPhase_OnlyDelegateAndEarlier', () => {
-    it('should not include synthesize or integrate actions when phase is plan', async () => {
+    it('should not include synthesize or delegate actions when phase is plan', async () => {
       const state = makeState({ phase: 'plan' });
       const events = makeEvents(1);
 
@@ -525,7 +516,6 @@ describe('Compensation', () => {
       // plan is before delegate in PHASE_ORDER, so only ideate and plan phases included
       // Neither has registered actions, so there should be no actions
       expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
-      expect(actionIds.every((id) => !id.startsWith('integrate:'))).toBe(true);
       expect(actionIds.every((id) => !id.startsWith('delegate:'))).toBe(true);
       expect(result.actions.length).toBe(0);
       expect(result.success).toBe(true);
@@ -533,7 +523,7 @@ describe('Compensation', () => {
   });
 
   describe('ExecuteCompensation_DelegatePhase_IncludesDelegateActionsOnly', () => {
-    it('should include delegate-phase actions but not integrate or synthesize', async () => {
+    it('should include delegate-phase actions but not synthesize', async () => {
       const state = makeState({ phase: 'delegate' });
       const events = makeEvents(1);
 
@@ -544,9 +534,8 @@ describe('Compensation', () => {
       // delegate phase should have delegate actions
       expect(actionIds.some((id) => id.startsWith('delegate:'))).toBe(true);
 
-      // Should NOT have synthesize or integrate actions
+      // Should NOT have synthesize actions
       expect(actionIds.every((id) => !id.startsWith('synthesize:'))).toBe(true);
-      expect(actionIds.every((id) => !id.startsWith('integrate:'))).toBe(true);
     });
   });
 
@@ -769,7 +758,7 @@ describe('Compensation', () => {
   describe('DeleteIntegrationBranch_RemoteDeleteFailure_StillSucceeds', () => {
     it('should succeed when remote branch delete fails (inner catch swallows)', async () => {
       const state = makeState({
-        phase: 'integrate',
+        phase: 'delegate',
         synthesis: {
           integrationBranch: 'integrate/test-feature',
           mergeOrder: [],
@@ -794,9 +783,9 @@ describe('Compensation', () => {
         return undefined as never;
       });
 
-      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
       // Still succeeds because inner catch swallows remote delete failure
       expect(deleteAction!.status).toBe('executed');
@@ -847,7 +836,7 @@ describe('Compensation', () => {
   describe('DeleteIntegrationBranch_Executed_ReturnsSuccess', () => {
     it('should successfully delete integration branch when it exists and commands succeed', async () => {
       const state = makeState({
-        phase: 'integrate',
+        phase: 'delegate',
         synthesis: {
           integrationBranch: 'integrate/test-feature',
           mergeOrder: [],
@@ -860,9 +849,9 @@ describe('Compensation', () => {
       });
       const events = makeEvents(1);
 
-      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
       expect(deleteAction!.status).toBe('executed');
       expect(deleteAction!.message).toContain('Deleted integration branch: integrate/test-feature');
@@ -883,7 +872,7 @@ describe('Compensation', () => {
 
     it('should still succeed when local branch delete fails but remote succeeds', async () => {
       const state = makeState({
-        phase: 'integrate',
+        phase: 'delegate',
         synthesis: {
           integrationBranch: 'integrate/test-feature',
           mergeOrder: [],
@@ -908,9 +897,9 @@ describe('Compensation', () => {
         return undefined as never;
       });
 
-      const result = await executeCompensation(state, 'integrate', events, 1, { dryRun: false });
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      const deleteAction = result.actions.find((a) => a.actionId === 'integrate:delete-integration-branch');
+      const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-integration-branch');
       expect(deleteAction).toBeDefined();
       // Still succeeds because inner catch blocks swallow failures
       expect(deleteAction!.status).toBe('executed');

@@ -138,24 +138,6 @@ const guards = {
     },
   },
 
-  integrationPassed: {
-    id: 'integration-passed',
-    description: 'Integration tests must have passed',
-    evaluate: (state: Record<string, unknown>) => {
-      const integration = state.integration as Record<string, unknown> | undefined;
-      return integration != null && integration.passed === true;
-    },
-  },
-
-  integrationFailed: {
-    id: 'integration-failed',
-    description: 'Integration tests must have failed',
-    evaluate: (state: Record<string, unknown>) => {
-      const integration = state.integration as Record<string, unknown> | undefined;
-      return integration != null && integration.passed === false;
-    },
-  },
-
   allReviewsPassed: {
     id: 'all-reviews-passed',
     description: 'All reviews must have passed',
@@ -423,7 +405,6 @@ function createFeatureHSM(): HSMDefinition {
       onExit: ['log'],
     },
     delegate: { id: 'delegate', type: 'atomic', parent: 'implementation' },
-    integrate: { id: 'integrate', type: 'atomic', parent: 'implementation' },
     review: { id: 'review', type: 'atomic', parent: 'implementation' },
     synthesize: { id: 'synthesize', type: 'atomic' },
     completed: { id: 'completed', type: 'final' },
@@ -441,15 +422,7 @@ function createFeatureHSM(): HSMDefinition {
       guard: guards.planReviewGapsFound,
       effects: ['log'],
     },
-    { from: 'delegate', to: 'integrate', guard: guards.allTasksComplete },
-    { from: 'integrate', to: 'review', guard: guards.integrationPassed },
-    {
-      from: 'integrate',
-      to: 'delegate',
-      guard: guards.integrationFailed,
-      isFixCycle: true,
-      effects: ['increment-fix-cycle'],
-    },
+    { from: 'delegate', to: 'review', guard: guards.allTasksComplete },
     { from: 'review', to: 'synthesize', guard: guards.allReviewsPassed },
     {
       from: 'review',
@@ -611,11 +584,6 @@ function createRefactorHSM(): HSMDefinition {
       type: 'atomic',
       parent: 'overhaul-track',
     },
-    'overhaul-integrate': {
-      id: 'overhaul-integrate',
-      type: 'atomic',
-      parent: 'overhaul-track',
-    },
     'overhaul-review': {
       id: 'overhaul-review',
       type: 'atomic',
@@ -665,20 +633,8 @@ function createRefactorHSM(): HSMDefinition {
     },
     {
       from: 'overhaul-delegate',
-      to: 'overhaul-integrate',
-      guard: guards.allTasksComplete,
-    },
-    {
-      from: 'overhaul-integrate',
       to: 'overhaul-review',
-      guard: guards.integrationPassed,
-    },
-    {
-      from: 'overhaul-integrate',
-      to: 'overhaul-delegate',
-      guard: guards.integrationFailed,
-      isFixCycle: true,
-      effects: ['increment-fix-cycle'],
+      guard: guards.allTasksComplete,
     },
     {
       from: 'overhaul-review',

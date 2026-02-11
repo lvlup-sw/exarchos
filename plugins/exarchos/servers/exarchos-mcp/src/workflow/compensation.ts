@@ -52,7 +52,6 @@ const PHASE_ORDER: readonly string[] = [
   'ideate',
   'plan',
   'delegate',
-  'integrate',
   'review',
   'synthesize',
 ];
@@ -93,8 +92,8 @@ function createClosePrAction(): CompensationAction {
 
 function createDeleteIntegrationBranchAction(): CompensationAction {
   return {
-    id: 'integrate:delete-integration-branch',
-    phase: 'integrate',
+    id: 'delegate:delete-integration-branch',
+    phase: 'delegate',
     description: 'Delete the integration branch if it exists',
     async execute(state, options) {
       const synthesis = state.synthesis as Record<string, unknown> | undefined;
@@ -102,7 +101,7 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
 
       if (!branch) {
         return {
-          actionId: 'integrate:delete-integration-branch',
+          actionId: 'delegate:delete-integration-branch',
           status: 'skipped',
           message: 'No integration branch to delete',
         };
@@ -110,7 +109,7 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
 
       if (options.dryRun) {
         return {
-          actionId: 'integrate:delete-integration-branch',
+          actionId: 'delegate:delete-integration-branch',
           status: 'dry-run',
           message: `Would delete branch: ${branch}`,
         };
@@ -130,14 +129,14 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
           // Ignore remote delete failure
         }
         return {
-          actionId: 'integrate:delete-integration-branch',
+          actionId: 'delegate:delete-integration-branch',
           status: 'executed',
           message: `Deleted integration branch: ${branch}`,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return {
-          actionId: 'integrate:delete-integration-branch',
+          actionId: 'delegate:delete-integration-branch',
           status: 'failed',
           message: `Failed to delete integration branch: ${msg}`,
         };
