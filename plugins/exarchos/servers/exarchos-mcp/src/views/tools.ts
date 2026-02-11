@@ -40,25 +40,44 @@ function createMaterializer(stateDir: string): ViewMaterializer {
 }
 
 // ─── Singleton Cache for ViewMaterializer and EventStore ──────────────────
+//
+// Design rationale: Module-level mutable state is appropriate here because
+// the MCP server is single-threaded, processing one tool request at a time
+// over stdio. There is no concurrent access, so no synchronization is needed.
+// The cache avoids recreating EventStore and ViewMaterializer on every query,
+// which would discard the materializer's high-water marks and force full
+// event replay. Cache entries are only invalidated when stateDir changes,
+// ensuring both instances remain valid for the active working directory.
 
 let cachedMaterializer: ViewMaterializer | null = null;
 let cachedEventStore: EventStore | null = null;
 let cachedStateDir: string | null = null;
 
-function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
+/** @internal Exported for testing only */
+export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   if (cachedMaterializer && cachedStateDir === stateDir) {
     return cachedMaterializer;
+  }
+  // Only invalidate EventStore when stateDir actually changes
+  if (cachedStateDir !== null && cachedStateDir !== stateDir) {
+    cachedEventStore = null;
   }
   cachedMaterializer = createMaterializer(stateDir);
   cachedStateDir = stateDir;
   return cachedMaterializer;
 }
 
-function getOrCreateEventStore(stateDir: string): EventStore {
+/** @internal Exported for testing only */
+export function getOrCreateEventStore(stateDir: string): EventStore {
   if (cachedEventStore && cachedStateDir === stateDir) {
     return cachedEventStore;
   }
+  // Only invalidate materializer when stateDir actually changes
+  if (cachedStateDir !== null && cachedStateDir !== stateDir) {
+    cachedMaterializer = null;
+  }
   cachedEventStore = new EventStore(stateDir);
+  cachedStateDir = stateDir;
   return cachedEventStore;
 }
 
