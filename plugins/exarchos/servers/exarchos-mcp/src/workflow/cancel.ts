@@ -1,3 +1,5 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type {
   CancelInput,
   CheckpointMeta,
@@ -16,6 +18,7 @@ import {
 import { appendEvent } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { executeCompensation } from './compensation.js';
+import { formatResult } from '../format.js';
 import * as path from 'node:path';
 
 // ─── Tool Result Interface ──────────────────────────────────────────────────
@@ -200,4 +203,19 @@ export async function handleCancel(
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerCancelTool(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_workflow_cancel',
+    'Cancel a workflow with saga compensation and cleanup',
+    {
+      featureId: z.string().min(1).regex(/^[a-z0-9-]+$/),
+      reason: z.string().optional(),
+      dryRun: z.boolean().optional(),
+    },
+    async (args) => formatResult(await handleCancel(args, stateDir)),
+  );
 }
