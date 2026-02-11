@@ -21,9 +21,10 @@ export type RemoveResult = 'removed' | 'skipped';
 
 interface McpServerConfig {
   type: string;
-  command: string;
-  args: string[];
+  command?: string;
+  args?: string[];
   env?: Record<string, string>;
+  url?: string;
 }
 
 interface ClaudeConfig {
@@ -86,6 +87,12 @@ export async function configureMcpServers(
     args: ['mcp']
   };
 
+  // Add Microsoft Learn MCP server (official Microsoft documentation)
+  config.mcpServers['microsoft-learn'] = {
+    type: 'http',
+    url: 'https://learn.microsoft.com/api/mcp'
+  };
+
   // Write config
   writeFileSync(configPath, JSON.stringify(config, null, 2));
   console.log(`  [done] Configured MCP servers in ${configPath}`);
@@ -104,6 +111,7 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
     delete config.mcpServers['workflow-state'];
     delete config.mcpServers['graphite'];
     delete config.mcpServers['exarchos'];
+    delete config.mcpServers['microsoft-learn'];
   }
 
   writeFileSync(configPath, JSON.stringify(config, null, 2));

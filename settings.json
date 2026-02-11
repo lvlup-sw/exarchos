@@ -157,7 +157,6 @@
   "enabledPlugins": {
     "github@claude-plugins-official": true,
     "serena@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "microsoft-docs@microsoft-docs-marketplace": true
+    "context7@claude-plugins-official": true
   }
 }

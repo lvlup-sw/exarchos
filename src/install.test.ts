@@ -146,7 +146,7 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should add exarchos and graphite servers', async () => {
+  it('should add exarchos, graphite, and microsoft-learn servers', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
@@ -154,6 +154,8 @@ describe('configureMcpServers', () => {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['exarchos']).toBeDefined();
     expect(config.mcpServers['exarchos'].type).toBe('stdio');
+    expect(config.mcpServers['microsoft-learn']).toBeDefined();
+    expect(config.mcpServers['microsoft-learn'].type).toBe('http');
   });
 
   it('should configure exarchos server with correct command and args', async () => {
@@ -180,6 +182,15 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers['graphite'].args).toEqual(['mcp']);
   });
 
+  it('should add microsoft-learn server with correct url', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['microsoft-learn'].url).toBe('https://learn.microsoft.com/api/mcp');
+  });
+
   it('should preserve existing mcpServers when merging', async () => {
     const { configureMcpServers } = await import('./install.js');
     writeFileSync(
@@ -198,6 +209,7 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers.existingServer.command).toBe('existing');
     expect(config.mcpServers['exarchos']).toBeDefined();
     expect(config.mcpServers['graphite']).toBeDefined();
+    expect(config.mcpServers['microsoft-learn']).toBeDefined();
   });
 });
 
@@ -216,7 +228,7 @@ describe('removeMcpConfig', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should remove exarchos and graphite from config', async () => {
+  it('should remove exarchos, graphite, and microsoft-learn from config', async () => {
     const { removeMcpConfig, configureMcpServers } = await import('./install.js');
     await configureMcpServers(configPath, repoRoot);
 
@@ -225,6 +237,7 @@ describe('removeMcpConfig', () => {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['exarchos']).toBeUndefined();
     expect(config.mcpServers['graphite']).toBeUndefined();
+    expect(config.mcpServers['microsoft-learn']).toBeUndefined();
   });
 
   it('should preserve other config when removing servers', async () => {

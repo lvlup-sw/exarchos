@@ -89,15 +89,15 @@ Stacked PR management and merge queue. **Use for all PR stacking and submission.
 
 **Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/delegate` with multiple tasks), use `mcp__graphite__run_gt_cmd` for stack management rather than raw git commands or `gh pr create`.
 
-### Microsoft Docs (`mcp__plugin_microsoft-docs_microsoft-learn__*`)
+### Microsoft Learn (`mcp__microsoft-learn__*`)
 
-Official Microsoft/Azure documentation. **Use for any Microsoft technology questions.**
+Official Microsoft/Azure documentation via remote HTTP MCP. **Use for any Microsoft technology questions.**
 
 | Tool | When to Use |
 |------|-------------|
-| `microsoft_docs_search` | Quick overview of Azure/.NET/M365 topics |
-| `microsoft_code_sample_search` | Finding working code examples for Microsoft SDKs |
-| `microsoft_docs_fetch` | Deep-reading full docs when search excerpts aren't enough |
+| `search` | Quick overview of Azure/.NET/M365 topics |
+| `get-code-samples` | Finding working code examples for Microsoft SDKs |
+| `get-document` | Deep-reading full docs when search excerpts aren't enough |
 
 **Proactive use:** When working with .NET, Azure, or any Microsoft SDK, search docs to verify API usage rather than guessing from training data.
 
@@ -123,7 +123,7 @@ When deciding which tool to use:
 | Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` |
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
-| Web search for .NET API reference | Use `microsoft_docs_search` |
+| Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Use `gh pr create` for stacked PRs | Use `mcp__graphite__run_gt_cmd` with `gt create` + `gt submit` |
 | Use `git commit` + `git push` during delegation | Use `gt create` + `gt submit --no-interactive` for progressive stacking |
