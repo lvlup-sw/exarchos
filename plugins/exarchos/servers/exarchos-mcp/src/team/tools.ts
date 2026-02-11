@@ -1,8 +1,11 @@
 // ─── Team MCP Tool Handlers ─────────────────────────────────────────────────
 
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
 import { TeamCoordinator } from './coordinator.js';
 import { ROLES } from './roles.js';
+import { formatResult } from '../format.js';
 
 // ─── Tool Result Type ──────────────────────────────────────────────────────
 
@@ -291,4 +294,63 @@ export async function handleTeamStatus(
       },
     };
   }
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerTeamTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_team_spawn',
+    'Spawn a new team member agent with a role assignment',
+    {
+      name: z.string().min(1),
+      role: z.string().min(1),
+      taskId: z.string().min(1),
+      taskTitle: z.string().min(1),
+      streamId: z.string().min(1),
+      worktreePath: z.string().optional(),
+    },
+    async (args) => formatResult(await handleTeamSpawn(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_team_message',
+    'Send a direct message to a team member',
+    {
+      from: z.string().min(1),
+      to: z.string().min(1),
+      content: z.string().min(1),
+      streamId: z.string().min(1),
+      messageType: z.string().optional(),
+    },
+    async (args) => formatResult(await handleTeamMessage(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_team_broadcast',
+    'Broadcast a message to all team members',
+    {
+      from: z.string().min(1),
+      content: z.string().min(1),
+      streamId: z.string().min(1),
+    },
+    async (args) => formatResult(await handleTeamBroadcast(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_team_shutdown',
+    'Shutdown a team member agent',
+    {
+      name: z.string().min(1),
+      streamId: z.string().min(1),
+    },
+    async (args) => formatResult(await handleTeamShutdown(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_team_status',
+    'Get status of all team members with health information',
+    {},
+    async (args) => formatResult(await handleTeamStatus(args, stateDir)),
+  );
 }
