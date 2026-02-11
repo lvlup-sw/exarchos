@@ -54,8 +54,7 @@ export const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
     'hotfix-implement': 'AUTO:debug-validate',
   },
   refactor: {
-    explore: 'AUTO:refactor-explore',
-    brief: 'AUTO:refactor-brief',
+    explore: 'AUTO:refactor-brief',
     'polish-implement': 'AUTO:refactor-validate',
     'polish-validate': 'AUTO:refactor-update-docs',
     'overhaul-plan': 'AUTO:refactor-delegate',

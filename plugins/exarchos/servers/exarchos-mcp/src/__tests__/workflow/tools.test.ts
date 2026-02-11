@@ -1207,3 +1207,228 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
     expect(data.artifacts).toBeUndefined();
   });
 });
+
+// ─── Refactor Next-Action Tests ──────────────────────────────────────────────
+
+describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
+  it('explore_GuardPasses_ReturnsAutoRefactorBrief', async () => {
+    await handleInit({ featureId: 'refactor-na-explore', workflowType: 'refactor' }, tmpDir);
+
+    // Set explore.scopeAssessment so the explore->brief guard passes
+    await handleSet(
+      {
+        featureId: 'refactor-na-explore',
+        updates: {
+          'explore.scopeAssessment': {
+            filesAffected: ['a.ts'],
+            modulesAffected: ['mod'],
+            testCoverage: 'good',
+            recommendedTrack: 'polish',
+          },
+          'explore.completedAt': new Date().toISOString(),
+        },
+      },
+      tmpDir,
+    );
+
+    const result = await handleNextAction({ featureId: 'refactor-na-explore' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-brief');
+  });
+
+  it('brief_PolishGuardPasses_ReturnsAutoPolishImplement', async () => {
+    await handleInit({ featureId: 'refactor-na-brief-polish', workflowType: 'refactor' }, tmpDir);
+
+    // Transition explore -> brief
+    await handleSet(
+      {
+        featureId: 'refactor-na-brief-polish',
+        updates: {
+          'explore.scopeAssessment': {
+            filesAffected: ['a.ts'],
+            modulesAffected: ['mod'],
+            testCoverage: 'good',
+            recommendedTrack: 'polish',
+          },
+        },
+      },
+      tmpDir,
+    );
+    await handleSet(
+      { featureId: 'refactor-na-brief-polish', phase: 'brief' },
+      tmpDir,
+    );
+
+    // Set track and brief data so polishTrackSelected guard passes
+    await handleSet(
+      {
+        featureId: 'refactor-na-brief-polish',
+        updates: {
+          track: 'polish',
+          brief: {
+            problem: 'test',
+            goals: ['g1'],
+            approach: 'a',
+            affectedAreas: ['a.ts'],
+            outOfScope: [],
+            successCriteria: ['s1'],
+            docsToUpdate: [],
+          },
+        },
+      },
+      tmpDir,
+    );
+
+    const result = await handleNextAction({ featureId: 'refactor-na-brief-polish' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    // Fallback produces AUTO:polish-implement (transition.to)
+    expect(data.action).toBe('AUTO:polish-implement');
+  });
+
+  it('brief_OverhaulGuardPasses_ReturnsAutoOverhaulPlan', async () => {
+    await handleInit({ featureId: 'refactor-na-brief-overhaul', workflowType: 'refactor' }, tmpDir);
+
+    // Transition explore -> brief
+    await handleSet(
+      {
+        featureId: 'refactor-na-brief-overhaul',
+        updates: {
+          'explore.scopeAssessment': {
+            filesAffected: ['a.ts'],
+            modulesAffected: ['mod'],
+            testCoverage: 'good',
+            recommendedTrack: 'overhaul',
+          },
+        },
+      },
+      tmpDir,
+    );
+    await handleSet(
+      { featureId: 'refactor-na-brief-overhaul', phase: 'brief' },
+      tmpDir,
+    );
+
+    // Set track to overhaul so overhaulTrackSelected guard passes
+    await handleSet(
+      {
+        featureId: 'refactor-na-brief-overhaul',
+        updates: {
+          track: 'overhaul',
+          brief: {
+            problem: 'test',
+            goals: ['g1'],
+            approach: 'a',
+            affectedAreas: ['a.ts'],
+            outOfScope: [],
+            successCriteria: ['s1'],
+            docsToUpdate: [],
+          },
+        },
+      },
+      tmpDir,
+    );
+
+    const result = await handleNextAction({ featureId: 'refactor-na-brief-overhaul' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    // Fallback produces AUTO:overhaul-plan (transition.to)
+    expect(data.action).toBe('AUTO:overhaul-plan');
+  });
+
+  it('polishImplement_GuardPasses_ReturnsAutoRefactorValidate', async () => {
+    await handleInit({ featureId: 'refactor-na-polish-impl', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to polish-implement via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-polish-impl.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'polish-implement';
+    raw.track = 'polish';
+    raw._checkpoint.phase = 'polish-implement';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    // implementationComplete guard always returns true, so next_action should proceed
+    const result = await handleNextAction({ featureId: 'refactor-na-polish-impl' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-validate');
+  });
+
+  it('polishUpdateDocs_HumanCheckpoint_ReturnsWait', async () => {
+    await handleInit({ featureId: 'refactor-na-polish-docs', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to polish-update-docs via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-polish-docs.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'polish-update-docs';
+    raw.track = 'polish';
+    raw._checkpoint.phase = 'polish-update-docs';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-polish-docs' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('WAIT:human-checkpoint:polish-update-docs');
+  });
+
+  it('overhaulPlan_GuardPasses_ReturnsAutoRefactorDelegate', async () => {
+    await handleInit({ featureId: 'refactor-na-overhaul-plan', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to overhaul-plan via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-overhaul-plan.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'overhaul-plan';
+    raw.track = 'overhaul';
+    raw.artifacts = { design: null, plan: 'plan.md', pr: null };
+    raw._checkpoint.phase = 'overhaul-plan';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-overhaul-plan' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-delegate');
+  });
+
+  it('overhaulUpdateDocs_GuardPasses_ReturnsAutoRefactorSynthesize', async () => {
+    await handleInit({ featureId: 'refactor-na-overhaul-docs', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to overhaul-update-docs via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-overhaul-docs.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'overhaul-update-docs';
+    raw.track = 'overhaul';
+    raw.validation = { docsUpdated: true };
+    raw._checkpoint.phase = 'overhaul-update-docs';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-overhaul-docs' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-synthesize');
+  });
+
+  it('synthesize_HumanCheckpoint_ReturnsWait', async () => {
+    await handleInit({ featureId: 'refactor-na-synth', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to synthesize via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-synth.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'synthesize';
+    raw._checkpoint.phase = 'synthesize';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-synth' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('WAIT:human-checkpoint:synthesize');
+  });
+});
