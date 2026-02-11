@@ -32,26 +32,19 @@ Follow the synthesis skill: `@skills/synthesis/SKILL.md`
 git log --oneline -5  # Confirm all task commits present
 ```
 
-### Step 2: Create PR
+### Step 2: Submit Stacked PRs
 
 Follow `@rules/pr-descriptions.md` for concise format.
 
-Use Graphite to submit or create the PR directly:
-```bash
-gt submit --no-interactive
-```
-
-Or via GitHub MCP:
+**Always use Graphite** to submit stacked PRs:
 ```typescript
-mcp__plugin_github_github__create_pull_request({
-  owner: "<owner>",
-  repo: "<repo>",
-  title: "<type>: <what>",
-  body: "## Summary\n<1-2 sentences: what changed and why>\n\nTests: X pass | Build: 0 errors\n\nDesign: docs/path.md",
-  head: "<feature-branch>",
-  base: "main"
+mcp__graphite__run_gt_cmd({
+  args: ["submit", "--no-interactive", "--stack"],
+  cwd: "<repo-root>"
 })
 ```
+
+**NEVER use `gh pr create` or `mcp__plugin_github_github__create_pull_request`** — these create non-stacked PRs that bypass Graphite's stack management.
 
 ### Step 3: Cleanup (After Merge)
 ```bash
@@ -75,14 +68,14 @@ PR: [URL]
 Tests: X pass | Build: 0 errors
 ```
 
-## Direct Commits
+## Direct Edits
 
-You can make direct edits to the feature branch at any time:
+You can make direct edits to stack branches at any time:
 - Edit files in your IDE
-- Commit directly to the feature branch
-- Push to remote
+- Stage and commit via Graphite: `gt modify -m "fix: <description>"`
+- Resubmit the stack: `gt submit --no-interactive`
 
-The workflow will sync before merge confirmation.
+**NEVER use `git commit` or `git push`** — always use `gt modify` and `gt submit` to keep the stack consistent.
 
 ## Idempotency
 

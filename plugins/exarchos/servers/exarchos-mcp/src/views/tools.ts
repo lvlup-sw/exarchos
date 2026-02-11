@@ -1,6 +1,9 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
+import { formatResult } from '../format.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -199,4 +202,39 @@ export async function handleViewPipeline(
       },
     };
   }
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerViewTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_view_pipeline',
+    'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',
+    {},
+    async (args) => formatResult(await handleViewPipeline(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_view_tasks',
+    'Get CQRS task detail view with optional filtering by workflowId and task properties',
+    {
+      workflowId: z.string().optional(),
+      filter: z.record(z.string(), z.unknown()).optional(),
+    },
+    async (args) => formatResult(await handleViewTasks(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_view_workflow_status',
+    'Get CQRS workflow status view with phase, task counts, and feature metadata',
+    { workflowId: z.string().optional() },
+    async (args) => formatResult(await handleViewWorkflowStatus(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_view_team_status',
+    'Get CQRS team status view with teammate composition and current task assignments',
+    { workflowId: z.string().optional() },
+    async (args) => formatResult(await handleViewTeamStatus(args, stateDir)),
+  );
 }

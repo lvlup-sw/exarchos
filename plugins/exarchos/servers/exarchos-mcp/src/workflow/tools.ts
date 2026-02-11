@@ -1,13 +1,10 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type {
   InitInput,
   ListInput,
   GetInput,
   SetInput,
-  SummaryInput,
-  ReconcileInput,
-  NextActionInput,
-  TransitionsInput,
-  CancelInput,
   CheckpointInput,
   CheckpointMeta,
   WorkflowState,
@@ -27,12 +24,15 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { appendEvent, getRecentEvents } from './events.js';
-import { getHSMDefinition, executeTransition, getValidTransitions } from './state-machine.js';
-import { getCircuitBreakerState } from './circuit-breaker.js';
-import { executeCompensation } from './compensation.js';
+import { appendEvent } from './events.js';
+import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { formatResult } from '../format.js';
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
+
+// Re-export from dedicated modules for backward compatibility
+export { handleNextAction } from './next-action.js';
+export { handleCancel } from './cancel.js';
+export { handleSummary, handleReconcile, handleTransitions } from './query.js';
 
 // ─── Tool Result Interface ──────────────────────────────────────────────────
 
@@ -272,181 +272,6 @@ export async function handleSet(
   };
 }
 
-// ─── handleCancel ──────────────────────────────────────────────────────────
-
-export async function handleCancel(
-  input: CancelInput,
-  stateDir: string,
-): Promise<ToolResult> {
-  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
-
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
-  }
-
-  // Check if already cancelled
-  if (state.phase === 'cancelled') {
-    return {
-      success: false,
-      error: {
-        code: ErrorCode.ALREADY_CANCELLED,
-        message: `Workflow '${input.featureId}' is already cancelled`,
-      },
-    };
-  }
-
-  const mutableState = structuredClone(state) as Record<string, unknown>;
-  const currentPhase = state.phase;
-  const events = (mutableState._events as WorkflowState['_events']) ?? [];
-  const eventSequence = (mutableState._eventSequence as number) ?? 0;
-  const dryRun = input.dryRun ?? false;
-
-  // Execute compensation actions
-  const compensationResult = await executeCompensation(
-    mutableState,
-    currentPhase,
-    events,
-    eventSequence,
-    { dryRun, stateDir },
-  );
-
-  // If dry run, return what would happen without modifying state
-  if (dryRun) {
-    return {
-      success: true,
-      data: {
-        dryRun: true,
-        actions: compensationResult.actions,
-        currentPhase,
-        wouldTransitionTo: 'cancelled',
-      },
-      _meta: buildCheckpointMeta(state._checkpoint),
-    };
-  }
-
-  // Check if compensation had failures
-  if (!compensationResult.success) {
-    const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
-    return {
-      success: false,
-      error: {
-        code: ErrorCode.COMPENSATION_PARTIAL,
-        message: `Compensation partially failed: ${failedActions.map((a) => a.message).join('; ')}`,
-      },
-    };
-  }
-
-  // Transition to cancelled via HSM
-  const hsm = getHSMDefinition(state.workflowType);
-  const transitionResult = executeTransition(hsm, mutableState, 'cancelled');
-
-  if (!transitionResult.success) {
-    return {
-      success: false,
-      error: {
-        code: transitionResult.errorCode ?? ErrorCode.INVALID_TRANSITION,
-        message: transitionResult.errorMessage ?? 'Failed to transition to cancelled',
-      },
-    };
-  }
-
-  // Apply phase change
-  mutableState.phase = 'cancelled';
-
-  // Build up events: start with existing events + compensation events
-  let updatedEvents = [...events, ...compensationResult.events];
-  let updatedSequence = eventSequence + compensationResult.events.length;
-
-  // Append transition events from HSM
-  for (const transitionEvent of transitionResult.events) {
-    const appended = appendEvent(
-      updatedEvents,
-      updatedSequence,
-      transitionEvent.type as WorkflowState['_events'][number]['type'],
-      transitionEvent.trigger,
-      {
-        from: transitionEvent.from,
-        to: transitionEvent.to,
-        metadata: transitionEvent.metadata,
-      },
-    );
-    updatedEvents = appended.events;
-    updatedSequence = appended.eventSequence;
-  }
-
-  // Append cancel event with reason metadata
-  const cancelMetadata: Record<string, unknown> = {};
-  if (input.reason) {
-    cancelMetadata.reason = input.reason;
-  }
-  cancelMetadata.compensationActions = compensationResult.actions.length;
-  cancelMetadata.compensationSuccess = compensationResult.success;
-
-  const cancelAppended = appendEvent(
-    updatedEvents,
-    updatedSequence,
-    'cancel',
-    'user-cancel',
-    {
-      from: currentPhase,
-      to: 'cancelled',
-      metadata: cancelMetadata,
-    },
-  );
-  updatedEvents = cancelAppended.events;
-  updatedSequence = cancelAppended.eventSequence;
-
-  mutableState._events = updatedEvents;
-  mutableState._eventSequence = updatedSequence;
-
-  // Apply history updates from transition
-  if (transitionResult.historyUpdates) {
-    const history = { ...(mutableState._history as Record<string, string>) };
-    for (const [key, value] of Object.entries(transitionResult.historyUpdates)) {
-      history[key] = value;
-    }
-    mutableState._history = history;
-  }
-
-  // Reset checkpoint counter
-  mutableState._checkpoint = resetCounter(
-    mutableState._checkpoint as WorkflowState['_checkpoint'],
-    'cancelled',
-    'Workflow cancelled',
-  );
-
-  // Update timestamp
-  mutableState.updatedAt = new Date().toISOString();
-
-  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
-  checkpoint.lastActivityTimestamp = new Date().toISOString();
-
-  // Write updated state
-  await writeStateFile(stateFile, mutableState as WorkflowState);
-
-  return {
-    success: true,
-    data: {
-      phase: 'cancelled',
-      actions: compensationResult.actions,
-      previousPhase: currentPhase,
-    },
-    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
-  };
-}
-
 // ─── handleCheckpoint ──────────────────────────────────────────────────────
 
 export async function handleCheckpoint(
@@ -538,399 +363,50 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   return current;
 }
 
-// ─── Human Checkpoint Phases ────────────────────────────────────────────────
+// ─── Shared Schema Components ───────────────────────────────────────────────
 
-const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
-  feature: new Set(['plan-review', 'synthesize']),
-  debug: new Set(['hotfix-validate', 'synthesize']),
-  refactor: new Set(['polish-update-docs', 'synthesize']),
-};
+const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
+const workflowTypeParam = z.enum(['feature', 'debug', 'refactor']);
 
-// ─── Phase-to-Action Mapping ────────────────────────────────────────────────
+// ─── Registration Function ──────────────────────────────────────────────────
 
-const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
-  feature: {
-    ideate: 'AUTO:plan',
-    plan: 'AUTO:plan-review',
-    'plan-review': 'AUTO:delegate',
-    delegate: 'AUTO:review',
-    review: 'AUTO:synthesize',
-  },
-  debug: {
-    triage: 'AUTO:debug-investigate',
-    investigate: 'AUTO:debug-rca',
-    rca: 'AUTO:debug-design',
-    design: 'AUTO:debug-implement',
-    'debug-implement': 'AUTO:debug-validate',
-    'debug-validate': 'AUTO:debug-review',
-    'debug-review': 'AUTO:debug-synthesize',
-    'hotfix-implement': 'AUTO:debug-validate',
-  },
-  refactor: {
-    explore: 'AUTO:refactor-explore',
-    brief: 'AUTO:refactor-brief',
-    'polish-implement': 'AUTO:refactor-validate',
-    'polish-validate': 'AUTO:refactor-update-docs',
-    'overhaul-plan': 'AUTO:refactor-delegate',
-    'overhaul-delegate': 'AUTO:refactor-review',
-    'overhaul-review': 'AUTO:refactor-update-docs',
-    'overhaul-update-docs': 'AUTO:refactor-synthesize',
-  },
-};
+export function registerWorkflowTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_workflow_init',
+    'Initialize a new workflow state file for a feature/debug/refactor workflow',
+    { featureId: featureIdParam, workflowType: workflowTypeParam },
+    async (args) => formatResult(await handleInit(args, stateDir)),
+  );
 
-// ─── Compound State Lookup ──────────────────────────────────────────────────
+  server.tool(
+    'exarchos_workflow_list',
+    'List all active workflow state files with staleness information',
+    {},
+    async (args) => formatResult(await handleList(args, stateDir)),
+  );
 
-/**
- * Find the compound state that contains the given phase, if any.
- * Returns { compoundId, maxFixCycles } or undefined.
- */
-function findCompoundForPhase(
-  workflowType: string,
-  phase: string,
-): { compoundId: string; maxFixCycles: number } | undefined {
-  const hsm = getHSMDefinition(workflowType);
-  const state = hsm.states[phase];
-  if (!state?.parent) return undefined;
-  const parent = hsm.states[state.parent];
-  if (!parent || parent.type !== 'compound') return undefined;
-  return {
-    compoundId: parent.id,
-    maxFixCycles: parent.maxFixCycles ?? 3,
-  };
-}
+  server.tool(
+    'exarchos_workflow_get',
+    'Query a field via dot-path (e.g. query:"phase") or get full state if no query',
+    { featureId: featureIdParam, query: z.string().optional() },
+    async (args) => formatResult(await handleGet(args, stateDir)),
+  );
 
-// ─── handleSummary ──────────────────────────────────────────────────────────
-
-export async function handleSummary(
-  input: SummaryInput,
-  stateDir: string,
-): Promise<ToolResult> {
-  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
-
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
-  }
-
-  // Task progress
-  const tasks = state.tasks ?? [];
-  const completedTasks = tasks.filter((t) => t.status === 'complete').length;
-
-  // Recent events (last 5)
-  const recentEvents = getRecentEvents(state._events, 5);
-
-  // Circuit breaker state for the relevant compound
-  const compound = findCompoundForPhase(state.workflowType, state.phase);
-  let circuitBreaker: Record<string, unknown> | undefined;
-  if (compound) {
-    const cbState = getCircuitBreakerState(
-      state._events,
-      compound.compoundId,
-      compound.maxFixCycles,
-    );
-    circuitBreaker = {
-      compoundId: cbState.compoundStateId,
-      fixCycleCount: cbState.fixCycleCount,
-      maxFixCycles: cbState.maxFixCycles,
-      open: cbState.open,
-    };
-  }
-
-  return {
-    success: true,
-    data: {
-      featureId: state.featureId,
-      workflowType: state.workflowType,
-      phase: state.phase,
-      taskProgress: {
-        completed: completedTasks,
-        total: tasks.length,
-      },
-      artifacts: state.artifacts,
-      recentEvents,
-      ...(circuitBreaker && { circuitBreaker }),
+  server.tool(
+    'exarchos_workflow_set',
+    'Update fields and/or transition phase. Returns {phase, updatedAt}',
+    {
+      featureId: featureIdParam,
+      updates: z.record(z.string(), z.unknown()).optional(),
+      phase: z.string().optional(),
     },
-  };
-}
+    async (args) => formatResult(await handleSet(args, stateDir)),
+  );
 
-// ─── handleReconcile ────────────────────────────────────────────────────────
-
-export async function handleReconcile(
-  input: ReconcileInput,
-  stateDir: string,
-): Promise<ToolResult> {
-  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
-
-  // Read validated state for metadata and checkpoint
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
-  }
-
-  // With .passthrough() on WorktreeSchema, path field is preserved through Zod parsing
-  const worktrees = state.worktrees as Record<
-    string,
-    { branch: string; taskId?: string; tasks?: string[]; status: string; path?: string }
-  >;
-
-  const worktreeResults: Array<Record<string, unknown>> = [];
-
-  for (const [id, wt] of Object.entries(worktrees)) {
-    let pathStatus: 'OK' | 'MISSING' | 'NO_PATH' = 'NO_PATH';
-
-    if (wt.path) {
-      try {
-        await fs.access(wt.path);
-        pathStatus = 'OK';
-      } catch {
-        pathStatus = 'MISSING';
-      }
-    }
-
-    const result: Record<string, unknown> = {
-      id,
-      branch: wt.branch,
-      status: wt.status,
-      path: wt.path ?? null,
-      pathStatus,
-    };
-    if (wt.taskId !== undefined) result.taskId = wt.taskId;
-    if (wt.tasks !== undefined) result.tasks = wt.tasks;
-
-    worktreeResults.push(result);
-  }
-
-  return {
-    success: true,
-    data: {
-      featureId: state.featureId,
-      worktrees: worktreeResults,
-    },
-    _meta: buildCheckpointMeta(state._checkpoint),
-  };
-}
-
-// ─── handleNextAction ───────────────────────────────────────────────────────
-
-export async function handleNextAction(
-  input: NextActionInput,
-  stateDir: string,
-): Promise<ToolResult> {
-  const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
-
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
-  }
-
-  // With .passthrough() on the schema, state now includes all dynamic fields
-  const stateRecord = state as unknown as Record<string, unknown>;
-
-  const currentPhase = state.phase;
-  const workflowType = state.workflowType;
-
-  // Check if completed
-  const hsm = getHSMDefinition(workflowType);
-  const currentState = hsm.states[currentPhase];
-  if (currentState?.type === 'final') {
-    return {
-      success: true,
-      data: { action: 'DONE', phase: currentPhase },
-      _meta: buildCheckpointMeta(state._checkpoint),
-    };
-  }
-
-  // Check human checkpoint phases
-  const humanCheckpoints = HUMAN_CHECKPOINT_PHASES[workflowType];
-  if (humanCheckpoints?.has(currentPhase)) {
-    return {
-      success: true,
-      data: {
-        action: `WAIT:human-checkpoint:${currentPhase}`,
-        phase: currentPhase,
-      },
-      _meta: buildCheckpointMeta(state._checkpoint),
-    };
-  }
-
-  // Check circuit breaker for fix-cycle transitions
-  const compound = findCompoundForPhase(workflowType, currentPhase);
-  if (compound) {
-    const cbState = getCircuitBreakerState(
-      state._events,
-      compound.compoundId,
-      compound.maxFixCycles,
-    );
-
-    // Check if any outbound transition is a fix-cycle that would be attempted
-    const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
-
-    for (const transition of outboundTransitions) {
-      let guardPassed = false;
-      try {
-        if (transition.isFixCycle && transition.guard) {
-          const raw = transition.guard.evaluate(stateRecord);
-          guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
-        }
-      } catch (err) {
-        return {
-          success: false,
-          error: {
-            code: ErrorCode.GUARD_FAILED,
-            message: `Guard evaluation threw for transition ${transition.from} → ${transition.to}: ${err instanceof Error ? err.message : String(err)}`,
-          },
-          _meta: buildCheckpointMeta(state._checkpoint),
-        };
-      }
-      if (guardPassed) {
-        // A fix-cycle transition's guard passes, check circuit breaker
-        if (cbState.open) {
-          return {
-            success: true,
-            data: {
-              action: `BLOCKED:circuit-open:${compound.compoundId}`,
-              phase: currentPhase,
-              fixCycleCount: cbState.fixCycleCount,
-              maxFixCycles: cbState.maxFixCycles,
-            },
-            _meta: buildCheckpointMeta(state._checkpoint),
-          };
-        }
-      }
-    }
-  }
-
-  // Evaluate guards to find first valid transition
-  const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
-
-  for (const transition of outboundTransitions) {
-    let guardPassed = false;
-    try {
-      if (transition.guard) {
-        const raw = transition.guard.evaluate(stateRecord);
-        guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
-      }
-    } catch (err) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.GUARD_FAILED,
-          message: `Guard evaluation threw for transition ${transition.from} → ${transition.to}: ${err instanceof Error ? err.message : String(err)}`,
-        },
-        _meta: buildCheckpointMeta(state._checkpoint),
-      };
-    }
-    if (guardPassed) {
-      // Guard passes -- determine the action
-      if (transition.isFixCycle) {
-        return {
-          success: true,
-          data: {
-            action: 'AUTO:delegate:--fixes',
-            phase: currentPhase,
-            target: transition.to,
-          },
-          _meta: buildCheckpointMeta(state._checkpoint),
-        };
-      }
-
-      // Use the phase-to-action map, or derive from the target
-      const actionMap = PHASE_ACTION_MAP[workflowType];
-      const action = actionMap?.[currentPhase] ?? `AUTO:${transition.to}`;
-
-      return {
-        success: true,
-        data: {
-          action,
-          phase: currentPhase,
-          target: transition.to,
-        },
-        _meta: buildCheckpointMeta(state._checkpoint),
-      };
-    }
-  }
-
-  // No guard passes -- still in progress
-  return {
-    success: true,
-    data: {
-      action: `WAIT:in-progress:${currentPhase}`,
-      phase: currentPhase,
-    },
-    _meta: buildCheckpointMeta(state._checkpoint),
-  };
-}
-
-// ─── handleTransitions ──────────────────────────────────────────────────────
-
-export async function handleTransitions(
-  input: TransitionsInput,
-  _stateDir: string,
-): Promise<ToolResult> {
-  const hsm = getHSMDefinition(input.workflowType);
-
-  // Build states list
-  const states = Object.values(hsm.states).map((s) => ({
-    id: s.id,
-    type: s.type,
-    parent: s.parent ?? null,
-    initial: s.initial ?? null,
-  }));
-
-  // Build transitions list, optionally filtered by fromPhase
-  let transitions = hsm.transitions;
-  if (input.fromPhase) {
-    transitions = transitions.filter((t) => t.from === input.fromPhase);
-  }
-
-  const transitionData = transitions.map((t) => ({
-    from: t.from,
-    to: t.to,
-    guardDescription: t.guard?.description ?? null,
-    guardId: t.guard?.id ?? null,
-    isFixCycle: t.isFixCycle ?? false,
-    effects: t.effects ?? [],
-  }));
-
-  return {
-    success: true,
-    data: {
-      workflowType: input.workflowType,
-      states,
-      transitions: transitionData,
-    },
-  };
+  server.tool(
+    'exarchos_workflow_checkpoint',
+    'Create an explicit checkpoint, resetting the operation counter',
+    { featureId: featureIdParam, summary: z.string().optional() },
+    async (args) => formatResult(await handleCheckpoint(args, stateDir)),
+  );
 }
