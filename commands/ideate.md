@@ -11,12 +11,12 @@ Begin brainstorming session for: "$ARGUMENTS"
 This command is the **entry point** of the development workflow:
 
 ```
-/ideate → /plan → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-           (auto)      ↑         (auto)      (auto)      (auto)     (auto)           │
-                       │                       ▲                                     │
-                       │   ON FAIL ────────────┤                                     │
-                       │   --pr-fixes ─────────┴─────────────────────────────────────┘
-                       └──────────── ON BLOCKED ─────────────────────────────────────┘
+/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
+  ▲▲▲▲     (auto)      ↑         (auto)    (auto)     (auto)           │
+                        │                     ▲                         │
+                        │   ON FAIL ──────────┤                         │
+                        │   --pr-fixes ───────┴─────────────────────────┘
+                        └──────────── ON BLOCKED ───────────────────────┘
 ```
 
 **Confirmation points:**
