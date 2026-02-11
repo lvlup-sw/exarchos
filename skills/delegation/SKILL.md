@@ -147,10 +147,13 @@ npm run sync:schemas
 # Verify types
 npm run typecheck
 
-# Stage generated files
+# Stage and commit via Graphite
 git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
-git commit -m "chore: regenerate TypeScript types from OpenAPI" || true
+gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
+gt submit --no-interactive
 ```
+
+**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
 **Skill Reference:** `@skills/sync-schemas/SKILL.md`
 

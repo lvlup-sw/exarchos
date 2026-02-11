@@ -98,12 +98,17 @@ For each logical change:
 # After each change
 npm run test:run
 
-# Commit
+# Commit via Graphite
 git add <files>
-git commit -m "refactor: <description>
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+gt create refactor/<brief-name> -m "refactor: <description>"
 ```
+
+After all changes are complete:
+```bash
+gt submit --no-interactive --stack
+```
+
+**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
 Log the change using `mcp__exarchos__exarchos_workflow_set`:
 

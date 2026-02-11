@@ -158,10 +158,13 @@ If CI fails on schema-check, run `/sync-schemas` locally and commit the results.
 # After editing PatientEndpoints.cs
 /sync-schemas
 
-# Verify and commit
+# Verify and commit via Graphite
 git add shared/ apps/ares-elite-web/src/api/generated/
-git commit -m "chore: regenerate TypeScript types from OpenAPI"
+gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
+gt submit --no-interactive
 ```
+
+**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
 ### In Worktree
 ```bash

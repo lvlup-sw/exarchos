@@ -61,6 +61,9 @@ reviews:
         - "**/*.spec.ts"
 
   auto_review:
+    drafts: true
+    base_branches:
+      - ".*"
     ignore_usernames:
       - "renovate[bot]"
 

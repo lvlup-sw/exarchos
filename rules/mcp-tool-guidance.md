@@ -32,7 +32,6 @@ GitHub platform integration. **Prefer over `gh` CLI when structured data is need
 | `search_issues` | Checking for existing issues before creating new ones |
 | `list_pull_requests` / `search_pull_requests` | Finding related PRs |
 | `pull_request_read` | Reading PR details, diffs, review status |
-| `create_pull_request` | Creating PRs with structured metadata |
 | `issue_read` / `issue_write` | Reading/managing issues |
 | `list_commits` / `get_commit` | Examining commit history |
 | `list_branches` / `create_branch` | Branch management |
@@ -107,8 +106,8 @@ When deciding which tool to use:
 
 1. **Workflow tracking** — Always use Exarchos MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
-3. **GitHub operations** — Use GitHub MCP for all PR/issue operations (`create_pull_request`, `merge_pull_request`, `pull_request_read`, `issue_read`); reserve `gh` CLI only for niche operations not covered by MCP
-4. **Stacked PRs** — Use Graphite MCP for stack management, PR submission, and merge queue
+3. **GitHub operations** — Use GitHub MCP for PR reading (`pull_request_read`), issue operations (`issue_read`, `issue_write`), and merging (`merge_pull_request`); reserve `gh` CLI only for niche operations not covered by MCP
+4. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
 5. **Library docs** — Use Context7 before web search for library documentation
 6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
 
@@ -118,15 +117,14 @@ When deciding which tool to use:
 |-------|------------|
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
-| Use `gh pr create` | Use GitHub `create_pull_request` |
+| Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive` for ALL PR creation |
 | Use `gh pr merge` | Use GitHub `merge_pull_request` |
 | Use `gh api repos/.../pulls/.../comments` | Use GitHub `pull_request_read` |
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
-| Use `gh pr create` for stacked PRs | Use `mcp__graphite__run_gt_cmd` with `gt create` + `gt submit` |
-| Use `git commit` + `git push` during delegation | Use `gt create` + `gt submit --no-interactive` for progressive stacking |
+| Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive` |
 | Use grep/rg to search code patterns | Use Serena `search_for_pattern` for regex search |
 | Use sed/awk for code replacement | Use Serena `replace_content` or `replace_symbol_body` |
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
