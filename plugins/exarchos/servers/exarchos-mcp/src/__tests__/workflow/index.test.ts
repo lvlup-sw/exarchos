@@ -33,6 +33,11 @@ vi.mock('../../stack/tools.js', () => ({
   handleStackPlace: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
+// Mock next-action handler (now in its own module)
+vi.mock('../../workflow/next-action.js', () => ({
+  handleNextAction: vi.fn().mockResolvedValue({ success: true, data: { action: 'DONE' } }),
+}));
+
 // Mock all tool handlers so we don't need real state files
 vi.mock('../../workflow/tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' } }),
@@ -56,11 +61,11 @@ import {
   handleSet,
   handleSummary,
   handleReconcile,
-  handleNextAction,
   handleTransitions,
   handleCancel,
   handleCheckpoint,
 } from '../../workflow/tools.js';
+import { handleNextAction } from '../../workflow/next-action.js';
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -362,6 +367,9 @@ describe('MCP Server Entry Point', () => {
           handleTransitions: vi.fn(),
           handleCancel: vi.fn(),
           handleCheckpoint: vi.fn(),
+        }));
+        vi.doMock('../../workflow/next-action.js', () => ({
+          handleNextAction: vi.fn(),
         }));
         vi.doMock('../../stack/tools.js', () => ({
           handleStackStatus: vi.fn(),
