@@ -7,7 +7,7 @@ Quality review with refactor-specific criteria for behavior preservation, regres
 ## Entry Conditions
 
 - Track is `overhaul`
-- Integration phase passed
+- Delegation phase complete
 - All tasks complete
 - Ready for review
 
