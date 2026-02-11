@@ -101,13 +101,15 @@ flowchart TB
 | Zone | Component | Responsibilities |
 |------|-----------|-----------------|
 | Developer Workstation | Claude Code Lead | Orchestrator — runs /ideate, /plan, /delegate, /review, /synthesize |
-| | Exarchos MCP | Team Coordinator (spawn/message/shutdown teammates), Event Store (local JSONL + outbox), Task Router (local vs. remote dispatch), View Materializer (merged CQRS views) |
+| | Exarchos MCP (unified) | Workflow HSM (state machine transitions + guards), Team Coordinator (spawn/message/shutdown teammates), Event Store (local JSONL + outbox), Task Router (local vs. remote dispatch), View Materializer (merged CQRS views). Single server exposes 27 MCP tools. |
 | | Teammates | Parallel implementation and review agents, each with independent context |
 | | Worktrees | Isolated git worktrees per task branch |
 | | Graphite MCP | Stack management, PR submission, merge queue integration |
 | Basileus Backend | AgentHost | Workflow Registry (all active workflows), Agentic Coder Sagas, Cross-Session Coordinator (dependency resolution, resource allocation) |
 | | Marten Event Store | Unified stream per workflow (local + remote events), CQRS Projections (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView) |
 | | ControlPlane + Containers | Container per coding task — cloned repo, dev tooling, MCP tools, autonomous plan-code-test-review loop, emits CodingEvents |
+
+> **Note:** The original design envisioned separate `workflow-state-mcp` and `exarchos-mcp` servers. These have been unified into a single `exarchos-mcp` server that handles both HSM state transitions and event sourcing/team coordination. See [section 13](#13-skill-integration) for the updated skill mapping.
 
 ### Tiered Orchestration Model
 
@@ -160,62 +162,131 @@ Exarchos is a TypeScript MCP server that exposes tools for team coordination, ev
 plugins/exarchos/
   servers/exarchos-mcp/
     src/
-      index.ts              # MCP server entry point
-      tools.ts              # Tool definitions and handlers
-      events/
-        schema.ts           # Event type definitions (Zod)
-        store.ts            # Local event store (JSONL file-based)
-        projector.ts        # Local -> remote projection
-        subscriber.ts       # Remote -> local subscription
+      index.ts                    # MCP server entry point, per-module registration
+      format.ts                   # Shared tool result formatting helpers
+      workflow/
+        state-machine.ts          # Types/interfaces, transition algorithm, HSM registry
+        guards.ts                 # Guard definitions (26 guards), Guard/GuardResult types
+        hsm-definitions.ts        # createFeatureHSM(), createDebugHSM(), createRefactorHSM()
+        tools.ts                  # CRUD operations (init, list, get, set, checkpoint)
+        next-action.ts            # Auto-continue logic, phase-to-action mapping
+        cancel.ts                 # Saga compensation and workflow cancellation
+        query.ts                  # Summary, reconcile, and transitions handlers
+        types.ts                  # Shared workflow type definitions
+        schemas.ts                # Workflow state Zod schemas
+        state-store.ts            # File-based state persistence
+        events.ts                 # Workflow event emission helpers
+        checkpoint.ts             # Checkpoint creation logic
+        circuit-breaker.ts        # Fix-cycle circuit breaker
+        compensation.ts           # Saga compensation steps
+        migration.ts              # State file migration support
+      event-store/
+        schemas.ts                # Event type definitions (Zod)
+        store.ts                  # Local event store (JSONL file-based)
+        tools.ts                  # event_append, event_query tools
       views/
-        materializer.ts     # Event -> view projection engine
-        workflow-status.ts  # Workflow progress view
-        team-status.ts      # Team composition view
-        task-detail.ts      # Per-task detail view
+        materializer.ts           # Event -> view projection engine
+        pipeline-view.ts          # Pipeline aggregation view
+        workflow-status-view.ts   # Workflow progress view
+        team-status-view.ts       # Team composition view
+        task-detail-view.ts       # Per-task detail view
+        unified-task-view.ts      # Backend-agnostic task view
+        snapshot-store.ts         # View snapshot persistence
+        tools.ts                  # view_pipeline, view_tasks, view_workflow_status, view_team_status tools
       team/
-        coordinator.ts      # Spawn, message, shutdown lifecycle
-        roles.ts            # Role definitions + spawn prompts
-        composition.ts      # Team sizing strategy
+        coordinator.ts            # Spawn, message, shutdown lifecycle
+        roles.ts                  # Role definitions + spawn prompts
+        composition.ts            # Team sizing strategy
+        tools.ts                  # team_spawn, team_message, team_broadcast, team_shutdown, team_status tools
+      tasks/
+        tools.ts                  # task_claim, task_complete, task_fail tools
+      stack/
+        tools.ts                  # stack_status, stack_place tools
       sync/
-        engine.ts           # Bidirectional sync orchestration
-        outbox.ts           # At-least-once delivery outbox
-        conflict.ts         # Conflict resolution strategies
-      remote/
-        client.ts           # Basileus HTTP client
-        auth.ts             # Token management
-        mapping.ts          # Local event <-> Marten EventMessage mapping
-      __tests__/            # Co-located Vitest tests
+        config.ts                 # Sync configuration
+        outbox.ts                 # At-least-once delivery outbox
+        conflict.ts               # Conflict resolution strategies
+        sync-state.ts             # Sync state tracking
+        types.ts                  # Sync type definitions
+      __tests__/                  # Co-located Vitest test suites
     package.json
     tsconfig.json
     vitest.config.ts
   agents/
-    implementer.md          # Subagent definition for implementers
-    reviewer.md             # Subagent definition for reviewers
-    integrator.md           # Subagent definition for integrators
+    implementer.md                # Subagent definition for implementers
+    reviewer.md                   # Subagent definition for reviewers
+    integrator.md                 # Subagent definition for integrators
 ```
 
-### MCP Tools (16 Tools)
+> **Note:** The server uses a per-module tool registration pattern. Each module directory exports a `registerXTools(server, stateDir)` function (e.g., `registerWorkflowTools`, `registerQueryTools`, `registerEventTools`). The entry point (`index.ts`) imports and invokes all registration functions, keeping the server bootstrap minimal (~85 lines).
 
-All teammates and the lead access these tools via the shared MCP server instance:
+### MCP Tools (27 Tools)
 
-| Tool | Purpose | Access |
-|------|---------|--------|
-| `exarchos_team_spawn` | Create teammate with role, worktree, and spawn prompt | Lead only |
-| `exarchos_team_message` | Send message to specific teammate | Any agent |
-| `exarchos_team_broadcast` | Send message to all teammates | Lead only |
-| `exarchos_team_shutdown` | Request teammate shutdown | Lead only |
-| `exarchos_team_status` | Get team composition and status | Any agent |
-| `exarchos_event_append` | Append event to workflow stream | Any agent |
-| `exarchos_event_query` | Query events by stream, type, or time range | Any agent |
-| `exarchos_view_progress` | Read workflow progress view | Any agent |
-| `exarchos_view_team` | Read team composition view | Any agent |
-| `exarchos_view_tasks` | Read task status view (with optional filters) | Any agent |
-| `exarchos_task_claim` | Claim a task from the shared ledger | Teammates |
-| `exarchos_task_complete` | Mark task complete with artifacts | Teammates |
-| `exarchos_task_fail` | Report task failure with diagnostics | Teammates |
-| `exarchos_stack_status` | Read current stack state (positions, PRs, CI status) | Any agent |
-| `exarchos_stack_place` | Place completed task work at designated stack position | Lead only |
-| `exarchos_sync_now` | Trigger immediate sync with Basileus | Lead only |
+All teammates and the lead access these tools via the shared MCP server instance. The unified server combines workflow state management (HSM transitions), event sourcing, CQRS views, team coordination, and task management into a single tool surface.
+
+#### Workflow Tools (10)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_workflow_init` | Initialize a new workflow state file | Lead only | `workflow/tools.ts` |
+| `exarchos_workflow_list` | List all active workflow state files with staleness info | Any agent | `workflow/tools.ts` |
+| `exarchos_workflow_get` | Query state via dot-path or get full state | Any agent | `workflow/tools.ts` |
+| `exarchos_workflow_set` | Update fields and/or transition phase (HSM-validated) | Lead only | `workflow/tools.ts` |
+| `exarchos_workflow_checkpoint` | Create explicit checkpoint, reset operation counter | Lead only | `workflow/tools.ts` |
+| `exarchos_workflow_summary` | Get structured summary of progress, events, circuit breaker | Any agent | `workflow/query.ts` |
+| `exarchos_workflow_reconcile` | Verify worktree paths/branches match state; optional repair | Lead only | `workflow/query.ts` |
+| `exarchos_workflow_transitions` | Get available HSM transitions for a workflow type | Any agent | `workflow/query.ts` |
+| `exarchos_workflow_next_action` | Determine next auto-continue action based on phase and guards | Lead only | `workflow/next-action.ts` |
+| `exarchos_workflow_cancel` | Cancel workflow with saga compensation and cleanup | Lead only | `workflow/cancel.ts` |
+
+#### Event Tools (2)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_event_append` | Append event to workflow stream with optimistic concurrency | Any agent | `event-store/tools.ts` |
+| `exarchos_event_query` | Query events by stream, type, or time range | Any agent | `event-store/tools.ts` |
+
+#### View Tools (4)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_view_pipeline` | Read pipeline view aggregating all workflows | Any agent | `views/tools.ts` |
+| `exarchos_view_tasks` | Read task detail view (with optional filters) | Any agent | `views/tools.ts` |
+| `exarchos_view_workflow_status` | Read workflow status with phase and task counts | Any agent | `views/tools.ts` |
+| `exarchos_view_team_status` | Read team status with teammate composition | Any agent | `views/tools.ts` |
+
+#### Team Tools (5)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_team_spawn` | Create teammate with role, worktree, and spawn prompt | Lead only | `team/tools.ts` |
+| `exarchos_team_message` | Send message to specific teammate | Any agent | `team/tools.ts` |
+| `exarchos_team_broadcast` | Send message to all teammates | Lead only | `team/tools.ts` |
+| `exarchos_team_shutdown` | Request teammate shutdown | Lead only | `team/tools.ts` |
+| `exarchos_team_status` | Get team composition and health status | Any agent | `team/tools.ts` |
+
+#### Task Tools (3)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_task_claim` | Claim a task from the shared ledger | Teammates | `tasks/tools.ts` |
+| `exarchos_task_complete` | Mark task complete with artifacts | Teammates | `tasks/tools.ts` |
+| `exarchos_task_fail` | Report task failure with diagnostics | Teammates | `tasks/tools.ts` |
+
+#### Stack Tools (2)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_stack_status` | Read current stack state (positions, PRs, CI status) | Any agent | `stack/tools.ts` |
+| `exarchos_stack_place` | Place completed task work at designated stack position | Lead only | `stack/tools.ts` |
+
+#### Sync Tools (1)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_sync_now` | Trigger immediate sync with Basileus (stub) | Lead only | `index.ts` |
+
+> **Note:** `exarchos_sync_now` is currently a stub returning `NOT_IMPLEMENTED`. Remote sync will be implemented in Phase 4.
 
 > **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the Graphite stack at its designated position.
 
@@ -800,18 +871,20 @@ type StackEnqueued = WorkflowEvent & {
 
 ### Event Taxonomy Summary
 
-| Category | Events | Primary Emitter |
-|----------|--------|-----------------|
-| Workflow-level | `WorkflowStarted`, `TeamFormed`, `PhaseTransitioned`, `TaskAssigned` | Lead orchestrator |
-| Task-level | `TaskClaimed`, `TaskProgressed`, `TestResult`, `TaskCompleted`, `TaskFailed` | Teammates / Agentic Coder |
-| Inter-agent | `AgentMessage`, `AgentHandoff` | Any agent |
-| Routing | `TaskRouted` | Exarchos Task Router |
-| Remote execution | `ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed` | Basileus |
-| Cross-tier coordination | `DependencyBlocked`, `DependencyResolved` | Either tier |
-| Context assembly | `ContextAssembled` | Agentic Coder |
-| Quality gates | `GateExecuted`, `GateSelfCorrected` | Agentic Coder / CI pipeline |
-| Remediation | `RemediationStarted`, `RemediationAttempted`, `RemediationExhausted` | Basileus |
-| Stack | `StackPositionFilled`, `StackRestacked`, `StackEnqueued` | Lead orchestrator / Agentic Coder |
+| Category | Events | Primary Emitter | Implementation Status |
+|----------|--------|-----------------|----------------------|
+| Workflow-level | `WorkflowStarted`, `TeamFormed`, `PhaseTransitioned`, `TaskAssigned` | Lead orchestrator | Implemented |
+| Task-level | `TaskClaimed`, `TaskProgressed`, `TestResult`, `TaskCompleted`, `TaskFailed` | Teammates / Agentic Coder | Implemented |
+| Inter-agent | `AgentMessage`, `AgentHandoff` | Any agent | Implemented |
+| Routing | `TaskRouted` | Exarchos Task Router | Implemented |
+| Remote execution | `ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed` | Basileus | Deferred (Phase 4-5) |
+| Cross-tier coordination | `DependencyBlocked`, `DependencyResolved` | Either tier | Deferred (Phase 5) |
+| Context assembly | `ContextAssembled` | Agentic Coder | Implemented |
+| Quality gates | `GateExecuted`, `GateSelfCorrected` | Agentic Coder / CI pipeline | Implemented |
+| Remediation | `RemediationStarted`, `RemediationAttempted`, `RemediationExhausted` | Basileus | Partial (`RemediationStarted` implemented; `RemediationAttempted`, `RemediationExhausted` deferred to Phase 4-5) |
+| Stack | `StackPositionFilled`, `StackRestacked`, `StackEnqueued` | Lead orchestrator / Agentic Coder | Implemented |
+
+> **Implementation note:** 19 of 28 event types are implemented with Zod schemas and JSONL persistence in the local event store. Deferred events are remote-only types that will be added when Basileus integration (Phases 4-5) is implemented. The local event store uses dot-notation for type names (e.g., `workflow.started`) while this ADR uses PascalCase — the mapping is 1:1.
 
 ### Event Projection: Local to Remote
 
@@ -1628,15 +1701,20 @@ Since Exarchos runs behind NAT, Basileus uses a **polling model**: it queues com
 
 ## 13. Skill Integration
 
-Exarchos composes with the existing workflow-state-mcp server. The two servers have complementary concerns:
+All concerns are handled by the unified `exarchos-mcp` server (the originally-envisioned separate `workflow-state-mcp` server was consolidated into `exarchos-mcp` during implementation):
 
-| Concern | Server | Tools |
-|---------|--------|-------|
-| HSM state transitions | workflow-state-mcp | `workflow_init`, `workflow_set`, `workflow_get` |
-| Event log, sync, views | exarchos-mcp | `exarchos_event_*`, `exarchos_view_*` |
-| Teammate lifecycle | exarchos-mcp | `exarchos_team_*`, `exarchos_task_*` |
-| Next action determination | workflow-state-mcp | `workflow_next_action` |
-| Sync with Basileus | exarchos-mcp | `exarchos_sync_now` |
+| Concern | Tools | Module |
+|---------|-------|--------|
+| HSM state transitions | `exarchos_workflow_init`, `exarchos_workflow_set`, `exarchos_workflow_get` | `workflow/tools.ts` |
+| Auto-continue logic | `exarchos_workflow_next_action` | `workflow/next-action.ts` |
+| Query and diagnostics | `exarchos_workflow_summary`, `exarchos_workflow_reconcile`, `exarchos_workflow_transitions` | `workflow/query.ts` |
+| Cancellation | `exarchos_workflow_cancel` | `workflow/cancel.ts` |
+| Event log | `exarchos_event_append`, `exarchos_event_query` | `event-store/tools.ts` |
+| CQRS views | `exarchos_view_pipeline`, `exarchos_view_tasks`, `exarchos_view_workflow_status`, `exarchos_view_team_status` | `views/tools.ts` |
+| Teammate lifecycle | `exarchos_team_spawn`, `exarchos_team_message`, `exarchos_team_broadcast`, `exarchos_team_shutdown`, `exarchos_team_status` | `team/tools.ts` |
+| Task management | `exarchos_task_claim`, `exarchos_task_complete`, `exarchos_task_fail` | `tasks/tools.ts` |
+| Stack management | `exarchos_stack_status`, `exarchos_stack_place` | `stack/tools.ts` |
+| Sync with Basileus | `exarchos_sync_now` (stub) | `index.ts` |
 
 ### Skill Mapping
 
@@ -1776,6 +1854,20 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 - 2-feature concurrent pipeline with mixed local/remote tasks, verify interleaved execution
 - Verify PipelineView shows both features accurately with correct task counts and phases
 - Verify event stream contains interleaved events from both backends with correct `source` tags
+
+---
+
+## Implementation Status
+
+| Phase | Status | Summary |
+|-------|--------|---------|
+| Phase 1: Foundation | **Complete** | Unified exarchos-mcp server with 27 MCP tools, local JSONL event store (19 event types), Zod schemas, HSM state machine with 26 guards across feature/debug/refactor workflows |
+| Phase 2: Team Coordinator | **Complete** | Team spawn/message/broadcast/shutdown/status lifecycle, task claim/complete/fail, role definitions and composition strategy |
+| Phase 3: Materialized Views | **Complete** | CQRS views (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView), view materialization from event sequences, snapshot persistence |
+| Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery, event schema mapping, `sync_now` implementation, Task Router score-based routing |
+| Phase 5: Bidirectional Sync | **Planned** | Remote event polling, conflict resolution, cross-session coordination, dual-write mode, Agentic Coder container dispatching |
+
+> **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool exists as a stub. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
 
 ---
 
