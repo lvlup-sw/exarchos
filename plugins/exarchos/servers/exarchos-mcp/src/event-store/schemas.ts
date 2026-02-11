@@ -22,6 +22,11 @@ export const EventTypes = [
   'context.assembled',
   'task.routed',
   'remediation.started',
+  'workflow.transition',
+  'workflow.fix-cycle',
+  'workflow.guard-failed',
+  'workflow.checkpoint',
+  'workflow.compound-entry',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -172,6 +177,39 @@ export const RemediationStartedData = z.object({
   strategy: z.string(),
 });
 
+// ─── Workflow Internal Event Data ─────────────────────────────────────────
+
+export const WorkflowTransitionData = z.object({
+  from: z.string(),
+  to: z.string(),
+  trigger: z.string(),
+  featureId: z.string(),
+});
+
+export const WorkflowFixCycleData = z.object({
+  compoundStateId: z.string(),
+  count: z.number().int(),
+  featureId: z.string(),
+});
+
+export const WorkflowGuardFailedData = z.object({
+  guard: z.string(),
+  from: z.string(),
+  to: z.string(),
+  featureId: z.string(),
+});
+
+export const WorkflowCheckpointData = z.object({
+  counter: z.number().int(),
+  phase: z.string(),
+  featureId: z.string(),
+});
+
+export const WorkflowCompoundEntryData = z.object({
+  compoundStateId: z.string(),
+  featureId: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -194,3 +232,8 @@ export type StackEnqueued = z.infer<typeof StackEnqueuedData>;
 export type ContextAssembled = z.infer<typeof ContextAssembledData>;
 export type TaskRouted = z.infer<typeof TaskRoutedData>;
 export type RemediationStarted = z.infer<typeof RemediationStartedData>;
+export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
+export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
+export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
+export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
+export type WorkflowCompoundEntry = z.infer<typeof WorkflowCompoundEntryData>;
