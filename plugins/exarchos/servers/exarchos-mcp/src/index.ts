@@ -9,14 +9,12 @@ import {
   handleList,
   handleGet,
   handleSet,
-  handleSummary,
-  handleReconcile,
-  handleNextAction,
-  handleTransitions,
-  handleCancel,
   handleCheckpoint,
 } from './workflow/tools.js';
 import type { ToolResult } from './workflow/tools.js';
+import { handleNextAction } from './workflow/next-action.js';
+import { handleCancel } from './workflow/cancel.js';
+import { handleSummary, handleReconcile, handleTransitions } from './workflow/query.js';
 import {
   handleEventAppend,
   handleEventQuery,
