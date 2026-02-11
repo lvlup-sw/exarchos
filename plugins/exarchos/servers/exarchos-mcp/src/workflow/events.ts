@@ -1,4 +1,6 @@
 import type { Event, EventType } from './types.js';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 /** Default event log cap — configurable via EVENT_LOG_MAX env var */
 export const EVENT_LOG_MAX = (() => {
@@ -124,4 +126,60 @@ export function getPhaseDuration(events: readonly Event[], phase: string): numbe
   if (entryTimestamp === null) return null;
 
   return new Date(exitTimestamp).getTime() - new Date(entryTimestamp).getTime();
+}
+
+// ─── Internal-to-External Event Type Mapping ──────────────────────────────
+
+/**
+ * Map internal event types (used in _events) to external event types (used in JSONL store).
+ */
+export function mapInternalToExternalType(internalType: string): string {
+  const typeMap: Record<string, string> = {
+    'transition': 'workflow.transition',
+    'fix-cycle': 'workflow.fix-cycle',
+    'guard-failed': 'workflow.guard-failed',
+    'checkpoint': 'workflow.checkpoint',
+    'compound-entry': 'workflow.compound-entry',
+  };
+  return typeMap[internalType] ?? `workflow.${internalType}`;
+}
+
+// ─── Async Store-Based Event Consumers ────────────────────────────────────
+
+/**
+ * Get count of fix-cycle events from the external event store for a compound state
+ * since the last compound-entry for that compound.
+ */
+export async function getFixCycleCountFromStore(
+  eventStore: EventStore,
+  streamId: string,
+  compoundStateId: string,
+): Promise<number> {
+  const fixCycleEvents = await eventStore.query(streamId, { type: 'workflow.fix-cycle' });
+  const compoundEntries = await eventStore.query(streamId, { type: 'workflow.compound-entry' });
+
+  // Find the last compound-entry for this compound
+  const lastEntry = compoundEntries
+    .filter(e => (e.data as Record<string, unknown>)?.compoundStateId === compoundStateId)
+    .pop();
+
+  if (!lastEntry) return 0;
+
+  return fixCycleEvents.filter(e =>
+    e.sequence > lastEntry.sequence &&
+    (e.data as Record<string, unknown>)?.compoundStateId === compoundStateId
+  ).length;
+}
+
+/**
+ * Get the N most recent events from the external event store.
+ */
+export async function getRecentEventsFromStore(
+  eventStore: EventStore,
+  streamId: string,
+  count: number,
+): Promise<Array<{ type: string; timestamp: string }>> {
+  const allEvents = await eventStore.query(streamId);
+  const recent = allEvents.slice(-count);
+  return recent.map(e => ({ type: e.type, timestamp: e.timestamp }));
 }

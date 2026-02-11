@@ -14,9 +14,10 @@ import {
   buildCheckpointMeta,
   resetCounter,
 } from './checkpoint.js';
-import { appendEvent } from './events.js';
+import { appendEvent, mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { executeCompensation } from './compensation.js';
+import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
@@ -25,6 +26,7 @@ import * as path from 'node:path';
 export async function handleCancel(
   input: CancelInput,
   stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -159,6 +161,33 @@ export async function handleCancel(
   mutableState._events = updatedEvents;
   mutableState._eventSequence = updatedSequence;
 
+  // Emit to external event store (alongside embedded _events for backward compat)
+  if (eventStore) {
+    for (const transitionEvent of transitionResult.events) {
+      await eventStore.append(input.featureId, {
+        type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+        data: {
+          from: transitionEvent.from,
+          to: transitionEvent.to,
+          trigger: transitionEvent.trigger,
+          featureId: input.featureId,
+          ...(transitionEvent.metadata ?? {}),
+        },
+      });
+    }
+    // Emit cancel event
+    await eventStore.append(input.featureId, {
+      type: 'workflow.transition' as import('../event-store/schemas.js').EventType,
+      data: {
+        from: currentPhase,
+        to: 'cancelled',
+        trigger: 'user-cancel',
+        featureId: input.featureId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      },
+    });
+  }
+
   // Apply history updates from transition
   if (transitionResult.historyUpdates) {
     const history = { ...(mutableState._history as Record<string, string>) };
@@ -197,7 +226,7 @@ export async function handleCancel(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerCancelTool(server: McpServer, stateDir: string): void {
+export function registerCancelTool(server: McpServer, stateDir: string, eventStore?: EventStore): void {
   server.tool(
     'exarchos_workflow_cancel',
     'Cancel a workflow with saga compensation and cleanup',
@@ -206,6 +235,6 @@ export function registerCancelTool(server: McpServer, stateDir: string): void {
       reason: z.string().optional(),
       dryRun: z.boolean().optional(),
     },
-    async (args) => formatResult(await handleCancel(args, stateDir)),
+    async (args) => formatResult(await handleCancel(args, stateDir, eventStore)),
   );
 }

@@ -12,9 +12,10 @@ import {
   StateStoreError,
 } from './state-store.js';
 import { buildCheckpointMeta } from './checkpoint.js';
-import { getRecentEvents } from './events.js';
+import { getRecentEvents, getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
-import { getCircuitBreakerState } from './circuit-breaker.js';
+import { getCircuitBreakerState, checkCircuitBreakerFromStore } from './circuit-breaker.js';
+import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
@@ -45,6 +46,7 @@ function findCompoundForPhase(
 export async function handleSummary(
   input: SummaryInput,
   stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -68,18 +70,30 @@ export async function handleSummary(
   const tasks = state.tasks ?? [];
   const completedTasks = tasks.filter((t) => t.status === 'complete').length;
 
-  // Recent events (last 5)
-  const recentEvents = getRecentEvents(state._events, 5);
+  // Recent events (last 5) — prefer external store when available
+  let recentEvents: Array<{ type: string; timestamp: string }>;
+  if (eventStore) {
+    recentEvents = await getRecentEventsFromStore(eventStore, input.featureId, 5);
+  } else {
+    recentEvents = getRecentEvents(state._events, 5);
+  }
 
   // Circuit breaker state for the relevant compound
   const compound = findCompoundForPhase(state.workflowType, state.phase);
   let circuitBreaker: Record<string, unknown> | undefined;
   if (compound) {
-    const cbState = getCircuitBreakerState(
-      state._events,
-      compound.compoundId,
-      compound.maxFixCycles,
-    );
+    const cbState = eventStore
+      ? await checkCircuitBreakerFromStore(
+          eventStore,
+          input.featureId,
+          compound.compoundId,
+          compound.maxFixCycles,
+        )
+      : getCircuitBreakerState(
+          state._events,
+          compound.compoundId,
+          compound.maxFixCycles,
+        );
     circuitBreaker = {
       compoundId: cbState.compoundStateId,
       fixCycleCount: cbState.fixCycleCount,
@@ -218,12 +232,12 @@ export async function handleTransitions(
 
 const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
-export function registerQueryTools(server: McpServer, stateDir: string): void {
+export function registerQueryTools(server: McpServer, stateDir: string, eventStore?: EventStore): void {
   server.tool(
     'exarchos_workflow_summary',
     'Get structured summary of workflow progress, events, and circuit breaker status',
     { featureId: featureIdParam },
-    async (args) => formatResult(await handleSummary(args, stateDir)),
+    async (args) => formatResult(await handleSummary(args, stateDir, eventStore)),
   );
 
   server.tool(

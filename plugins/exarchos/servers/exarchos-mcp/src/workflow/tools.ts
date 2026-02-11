@@ -23,10 +23,11 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { appendEvent, getRecentEvents } from './events.js';
+import { appendEvent, getRecentEvents, mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
+import { EventStore } from '../event-store/store.js';
 import * as path from 'node:path';
 
 // Re-export from dedicated modules for backward compatibility
@@ -186,6 +187,7 @@ export async function handleGet(
 export async function handleSet(
   input: SetInput,
   stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -272,6 +274,22 @@ export async function handleSet(
       mutableState._events = events;
       mutableState._eventSequence = eventSequence;
 
+      // Emit to external event store (alongside embedded _events for backward compat)
+      if (eventStore) {
+        for (const transitionEvent of result.events) {
+          await eventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          });
+        }
+      }
+
       // Apply history updates
       if (result.historyUpdates) {
         const history = { ...(mutableState._history as Record<string, string>) };
@@ -319,6 +337,7 @@ export async function handleSet(
 export async function handleCheckpoint(
   input: CheckpointInput,
   stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -358,6 +377,18 @@ export async function handleCheckpoint(
   );
   mutableState._events = appended.events;
   mutableState._eventSequence = appended.eventSequence;
+
+  // Emit to external event store (alongside embedded _events for backward compat)
+  if (eventStore) {
+    await eventStore.append(input.featureId, {
+      type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
+      data: {
+        counter: appended.eventSequence,
+        phase: state.phase,
+        featureId: input.featureId,
+      },
+    });
+  }
 
   // Update lastActivityTimestamp
   const checkpoint = mutableState._checkpoint as Record<string, unknown>;
@@ -412,7 +443,7 @@ const workflowTypeParam = z.enum(['feature', 'debug', 'refactor']);
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerWorkflowTools(server: McpServer, stateDir: string): void {
+export function registerWorkflowTools(server: McpServer, stateDir: string, eventStore?: EventStore): void {
   server.tool(
     'exarchos_workflow_init',
     'Initialize a new workflow state file for a feature/debug/refactor workflow',
@@ -442,13 +473,13 @@ export function registerWorkflowTools(server: McpServer, stateDir: string): void
       updates: z.record(z.string(), z.unknown()).optional(),
       phase: z.string().optional(),
     },
-    async (args) => formatResult(await handleSet(args, stateDir)),
+    async (args) => formatResult(await handleSet(args, stateDir, eventStore)),
   );
 
   server.tool(
     'exarchos_workflow_checkpoint',
     'Create an explicit checkpoint, resetting the operation counter',
     { featureId: featureIdParam, summary: z.string().optional() },
-    async (args) => formatResult(await handleCheckpoint(args, stateDir)),
+    async (args) => formatResult(await handleCheckpoint(args, stateDir, eventStore)),
   );
 }
