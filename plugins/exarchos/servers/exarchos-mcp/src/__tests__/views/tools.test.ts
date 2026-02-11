@@ -9,6 +9,7 @@ import {
   handleViewTeamStatus,
   handleViewTasks,
   handleViewPipeline,
+  resetMaterializerCache,
 } from '../../views/tools.js';
 
 let tempDir: string;
@@ -17,9 +18,11 @@ let store: EventStore;
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'view-tools-test-'));
   store = new EventStore(tempDir);
+  resetMaterializerCache();
 });
 
 afterEach(async () => {
+  resetMaterializerCache();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -298,5 +301,53 @@ describe('handleViewPipeline', () => {
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('VIEW_ERROR');
     expect(result.error!.message).toBeTruthy();
+  });
+});
+
+// ─── B2: Singleton ViewMaterializer Cache ──────────────────────────────────
+
+describe('ViewMaterializer Singleton Cache', () => {
+  it('ViewMaterializer_Singleton_ReusedAcrossQueries: second call sees updated data via high-water mark', async () => {
+    await populateWorkflow('wf-singleton');
+
+    // First query
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    expect(result1.success).toBe(true);
+    const data1 = result1.data as Record<string, unknown>;
+    expect(data1.tasksCompleted).toBe(1);
+
+    // Append more events to the same stream (second task completed)
+    await store.append('wf-singleton', {
+      type: 'task.claimed',
+      data: { taskId: 't2', agentId: 'agent-2', claimedAt: '2025-06-15T11:00:00Z' },
+    });
+    await store.append('wf-singleton', {
+      type: 'task.completed',
+      data: { taskId: 't2', artifacts: ['signup.ts'], duration: 45 },
+    });
+
+    // Second query — uses cached materializer, but high-water mark should process new events
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    expect(result2.success).toBe(true);
+    const data2 = result2.data as Record<string, unknown>;
+    // Should see updated data: 2 tasks completed now
+    expect(data2.tasksCompleted).toBe(2);
+  });
+
+  it('resetMaterializerCache_CreatesNewInstance: after reset, fresh state is used', async () => {
+    await populateWorkflow('wf-reset');
+
+    // First query to populate cache
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    expect(result1.success).toBe(true);
+
+    // Reset the cache
+    resetMaterializerCache();
+
+    // Query again — should still work with fresh instances
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    expect(result2.success).toBe(true);
+    const data2 = result2.data as Record<string, unknown>;
+    expect(data2.featureId).toBe('auth-feature');
   });
 });

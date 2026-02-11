@@ -39,6 +39,36 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   return materializer;
 }
 
+// ─── Singleton Cache for ViewMaterializer and EventStore ──────────────────
+
+let cachedMaterializer: ViewMaterializer | null = null;
+let cachedEventStore: EventStore | null = null;
+let cachedStateDir: string | null = null;
+
+function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
+  if (cachedMaterializer && cachedStateDir === stateDir) {
+    return cachedMaterializer;
+  }
+  cachedMaterializer = createMaterializer(stateDir);
+  cachedStateDir = stateDir;
+  return cachedMaterializer;
+}
+
+function getOrCreateEventStore(stateDir: string): EventStore {
+  if (cachedEventStore && cachedStateDir === stateDir) {
+    return cachedEventStore;
+  }
+  cachedEventStore = new EventStore(stateDir);
+  return cachedEventStore;
+}
+
+/** For testing: reset the singleton cache */
+export function resetMaterializerCache(): void {
+  cachedMaterializer = null;
+  cachedEventStore = null;
+  cachedStateDir = null;
+}
+
 // ─── Helper: discover all event stream files ───────────────────────────────
 
 async function discoverStreams(stateDir: string): Promise<string[]> {
@@ -59,8 +89,8 @@ export async function handleViewWorkflowStatus(
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const store = new EventStore(stateDir);
-    const materializer = createMaterializer(stateDir);
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
     await materializer.loadFromSnapshot(streamId, WORKFLOW_STATUS_VIEW);
@@ -90,8 +120,8 @@ export async function handleViewTeamStatus(
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const store = new EventStore(stateDir);
-    const materializer = createMaterializer(stateDir);
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
     await materializer.loadFromSnapshot(streamId, TEAM_STATUS_VIEW);
@@ -121,8 +151,8 @@ export async function handleViewTasks(
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const store = new EventStore(stateDir);
-    const materializer = createMaterializer(stateDir);
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
     await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);
@@ -166,8 +196,8 @@ export async function handleViewPipeline(
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const store = new EventStore(stateDir);
-    const materializer = createMaterializer(stateDir);
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
 
     // Discover all streams and materialize pipeline view for each
     const streamIds = await discoverStreams(stateDir);
