@@ -70,7 +70,8 @@ if (!existsSync(source)) {
 **Proposed Solution:**
 ```typescript
 try {
-  execSync('which gt', { stdio: 'pipe' });
+  // POSIX: `command -v gt`; Windows: `where gt`
+  execSync('command -v gt', { stdio: 'pipe' });
 } catch {
   console.warn('  [warn] `gt` not found in PATH. Graphite MCP server may not work.');
   console.warn('  Install: https://graphite.dev/docs/installing-the-cli');
@@ -147,7 +148,7 @@ try { /* install */ } finally { unlinkSync(lockPath); }
 Defer all implementation to a future refactor. This ADR documents the findings and priorities for when installation hardening is undertaken.
 
 **Recommended implementation order:**
-1. Atomic JSON writes (#1) + Source validation (#3) — quick wins, high impact
+1. Atomic JSON writes (#1) + Source validation (#3) — quick wins, high-impact
 2. Rollback on partial failure (#2) — most impactful safety improvement
 3. Graphite availability check (#4) — improves first-run experience
 4. Backup consolidation (#5) + Lock file (#7) — cleanup

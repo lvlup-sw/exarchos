@@ -9,7 +9,7 @@ Brief: `docs/workflow-state/refactor-optimization-sweep.state.json` (`.brief`)
 
 ## Summary
 - Total tasks: 11
-- Parallel groups: 3 (A, B run in parallel; C depends on both)
+- Parallel groups: 3 (A, B, and C all run in parallel)
 - Estimated test count: ~35 new/modified tests
 - Brief coverage: 8 of 8 goals covered
 
@@ -418,7 +418,7 @@ Each item should include: problem, proposed solution, effort estimate, priority.
 
 ### Parallel Groups
 
-```
+```text
 Group A (Token)                Group B (Event + Perf)           Group C (Docs)
 ┌─────────────────┐           ┌─────────────────────┐          ┌──────────┐
 │ A1: ToolResult   │           │ B1: Persist .seq     │          │ C1: ADR  │
