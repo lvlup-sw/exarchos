@@ -1811,6 +1811,140 @@ describe('Guard edge cases', () => {
     expect(toDelegate.success).toBe(false);
   });
 
+  // ─── Status-based review format (matches what skills actually write) ────
+
+  it('allReviewsPassed accepts status: "approved" format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        quality: { status: 'approved', highPriority: [], mediumPriority: [] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed accepts status: "pass" format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        spec: { status: 'pass', issues: [] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed accepts nested per-task review format', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        A1: {
+          specReview: { status: 'pass', issues: [] },
+          qualityReview: { status: 'approved', highPriority: [] },
+        },
+        A2: {
+          specReview: { status: 'pass', issues: [] },
+          qualityReview: { status: 'approved' },
+        },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(true);
+  });
+
+  it('anyReviewFailed detects status: "needs_fixes"', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        quality: { status: 'needs_fixes', issues: ['H1: missing field'] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+  });
+
+  it('anyReviewFailed detects status: "fail"', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        spec: { status: 'fail', issues: ['missing tests'] },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+  });
+
+  it('allReviewsPassed fails with nested needs_fixes and reports diagnostic', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {
+        A1: {
+          specReview: { status: 'pass' },
+          qualityReview: { status: 'needs_fixes', issues: ['H1'] },
+        },
+      },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+    expect(result.errorMessage).toContain('A1.qualityReview');
+    expect(result.errorMessage).toContain('needs_fixes');
+  });
+
+  // ─── Guard diagnostic reasons ────
+
+  it('allReviewsPassed includes diagnostic reason when reviews missing', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain('state.reviews is missing');
+  });
+
+  it('allReviewsPassed includes diagnostic reason when reviews is empty', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'review',
+      reviews: {},
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain('no recognizable review entries');
+  });
+
   it('humanUnblocked guard passes when unblocked is true', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {

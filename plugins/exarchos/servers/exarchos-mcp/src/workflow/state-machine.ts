@@ -2,9 +2,11 @@
 
 export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 
+export type GuardResult = boolean | { readonly passed: false; readonly reason: string };
+
 export interface Guard {
   readonly id: string;
-  readonly evaluate: (state: Record<string, unknown>) => boolean;
+  readonly evaluate: (state: Record<string, unknown>) => GuardResult;
   readonly description: string;
 }
 
@@ -68,6 +70,45 @@ function hasArtifact(field: string): Guard {
   };
 }
 
+const PASSED_STATUSES = new Set(['pass', 'passed', 'approved']);
+const FAILED_STATUSES = new Set(['fail', 'failed', 'needs_fixes']);
+
+/**
+ * Collects all `status` field values from a reviews object, handling both flat
+ * and nested shapes:
+ *   - flat:   reviews.overhaul = { status: "approved", ... }
+ *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+ * Also supports the legacy `passed: boolean` shape for backward compatibility.
+ */
+function collectReviewStatuses(
+  reviews: Record<string, unknown>,
+): Array<{ path: string; status: string }> {
+  const results: Array<{ path: string; status: string }> = [];
+  for (const [key, value] of Object.entries(reviews)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const entry = value as Record<string, unknown>;
+    if (typeof entry.status === 'string') {
+      // Flat review: { status: "approved", ... }
+      results.push({ path: key, status: entry.status });
+    } else if (typeof entry.passed === 'boolean') {
+      // Legacy: { passed: true/false }
+      results.push({ path: key, status: entry.passed ? 'passed' : 'failed' });
+    } else {
+      // Nested: { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+      for (const [subKey, subValue] of Object.entries(entry)) {
+        if (typeof subValue !== 'object' || subValue === null) continue;
+        const sub = subValue as Record<string, unknown>;
+        if (typeof sub.status === 'string') {
+          results.push({ path: `${key}.${subKey}`, status: sub.status });
+        } else if (typeof sub.passed === 'boolean') {
+          results.push({ path: `${key}.${subKey}`, status: sub.passed ? 'passed' : 'failed' });
+        }
+      }
+    }
+  }
+  return results;
+}
+
 const guards = {
   designArtifactExists: {
     id: 'design-artifact-exists',
@@ -118,22 +159,57 @@ const guards = {
   allReviewsPassed: {
     id: 'all-reviews-passed',
     description: 'All reviews must have passed',
-    evaluate: (state: Record<string, unknown>) => {
-      const reviews = state.reviews as Record<string, { passed: boolean }> | undefined;
-      if (!reviews) return false;
-      const entries = Object.values(reviews);
-      if (entries.length === 0) return false;
-      return entries.every((r) => r.passed === true);
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const reviews = state.reviews as Record<string, unknown> | undefined;
+      if (!reviews) {
+        return {
+          passed: false,
+          reason:
+            'state.reviews is missing — set reviews.{name} with status: "pass" or "approved"',
+        };
+      }
+      const statuses = collectReviewStatuses(reviews);
+      if (statuses.length === 0) {
+        return {
+          passed: false,
+          reason:
+            'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
+        };
+      }
+      const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
+      if (notPassed.length > 0) {
+        return {
+          passed: false,
+          reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+        };
+      }
+      return true;
     },
   },
 
   anyReviewFailed: {
     id: 'any-review-failed',
     description: 'At least one review must have failed',
-    evaluate: (state: Record<string, unknown>) => {
-      const reviews = state.reviews as Record<string, { passed: boolean }> | undefined;
-      if (!reviews) return false;
-      return Object.values(reviews).some((r) => r.passed === false);
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const reviews = state.reviews as Record<string, unknown> | undefined;
+      if (!reviews) {
+        return {
+          passed: false,
+          reason: 'state.reviews is missing — cannot determine if any review failed',
+        };
+      }
+      const statuses = collectReviewStatuses(reviews);
+      if (statuses.length === 0) {
+        return { passed: false, reason: 'state.reviews has no recognizable review entries' };
+      }
+      const hasFailed = statuses.some((s) => FAILED_STATUSES.has(s.status));
+      if (!hasFailed) {
+        return {
+          passed: false,
+          reason: `No failed reviews found: ${statuses.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+        };
+      }
+      return true;
     },
   },
 
@@ -226,10 +302,31 @@ const guards = {
   reviewPassed: {
     id: 'review-passed',
     description: 'Review must have passed',
-    evaluate: (state: Record<string, unknown>) => {
-      const reviews = state.reviews as Record<string, { passed: boolean }> | undefined;
-      if (!reviews) return false;
-      return Object.values(reviews).every((r) => r.passed === true);
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const reviews = state.reviews as Record<string, unknown> | undefined;
+      if (!reviews) {
+        return {
+          passed: false,
+          reason:
+            'state.reviews is missing — set reviews.{name} with status: "pass" or "approved"',
+        };
+      }
+      const statuses = collectReviewStatuses(reviews);
+      if (statuses.length === 0) {
+        return {
+          passed: false,
+          reason:
+            'state.reviews has no recognizable review entries — each review needs a status field',
+        };
+      }
+      const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
+      if (notPassed.length > 0) {
+        return {
+          passed: false,
+          reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+        };
+      }
+      return true;
     },
   },
 
@@ -789,9 +886,9 @@ export function executeTransition(
 
   // ─── Step 3: Guard Evaluation ───────────────────────────────────────
   if (transition.guard) {
-    let guardResult: boolean;
+    let rawResult: GuardResult;
     try {
-      guardResult = transition.guard.evaluate(state);
+      rawResult = transition.guard.evaluate(state);
     } catch (err) {
       return {
         success: false,
@@ -803,14 +900,19 @@ export function executeTransition(
         guardDescription: transition.guard.description,
       };
     }
-    if (!guardResult) {
+    const guardPassed = typeof rawResult === 'boolean' ? rawResult : rawResult.passed;
+    const guardReason =
+      typeof rawResult === 'object' && 'reason' in rawResult ? rawResult.reason : undefined;
+    if (!guardPassed) {
       return {
         success: false,
         idempotent: false,
         effects: [],
         events: [],
         errorCode: 'GUARD_FAILED',
-        errorMessage: `Guard '${transition.guard.id}' failed: ${transition.guard.description}`,
+        errorMessage: guardReason
+          ? `Guard '${transition.guard.id}' failed: ${guardReason}`
+          : `Guard '${transition.guard.id}' failed: ${transition.guard.description}`,
         guardDescription: transition.guard.description,
       };
     }

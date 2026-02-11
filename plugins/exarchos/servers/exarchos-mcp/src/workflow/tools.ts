@@ -801,9 +801,12 @@ export async function handleNextAction(
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
     for (const transition of outboundTransitions) {
-      let guardResult = false;
+      let guardPassed = false;
       try {
-        guardResult = (transition.isFixCycle ?? false) && (transition.guard?.evaluate(stateRecord) ?? false);
+        if (transition.isFixCycle && transition.guard) {
+          const raw = transition.guard.evaluate(stateRecord);
+          guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
+        }
       } catch (err) {
         return {
           success: false,
@@ -814,7 +817,7 @@ export async function handleNextAction(
           _meta: buildCheckpointMeta(state._checkpoint),
         };
       }
-      if (guardResult) {
+      if (guardPassed) {
         // A fix-cycle transition's guard passes, check circuit breaker
         if (cbState.open) {
           return {
@@ -836,9 +839,12 @@ export async function handleNextAction(
   const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);
 
   for (const transition of outboundTransitions) {
-    let guardResult = false;
+    let guardPassed = false;
     try {
-      guardResult = transition.guard?.evaluate(stateRecord) ?? false;
+      if (transition.guard) {
+        const raw = transition.guard.evaluate(stateRecord);
+        guardPassed = typeof raw === 'boolean' ? raw : raw.passed;
+      }
     } catch (err) {
       return {
         success: false,
@@ -849,7 +855,7 @@ export async function handleNextAction(
         _meta: buildCheckpointMeta(state._checkpoint),
       };
     }
-    if (guardResult) {
+    if (guardPassed) {
       // Guard passes -- determine the action
       if (transition.isFixCycle) {
         return {
