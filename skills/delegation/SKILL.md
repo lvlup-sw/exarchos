@@ -126,29 +126,10 @@ When tasks complete:
 
 ### Step 7: Schema Sync (Auto-Detection)
 
-After all tasks complete, check if any modified API files that require schema regeneration:
+After all tasks complete, check if any modified API files that require schema regeneration.
 
-```bash
-# Check for API file modifications across all task branches
-API_FILES_MODIFIED=$(git diff --name-only origin/main...HEAD | grep -E "(Endpoints|Models|Requests|Responses|Dtos).*\.cs$" || true)
+**Detection:** Use GitHub MCP `pull_request_read` or Serena `mcp__plugin_serena_serena__search_for_pattern` to detect modified API files matching these patterns:
 
-if [[ -n "$API_FILES_MODIFIED" ]]; then
-  echo "API files modified - running schema sync..."
-  echo "$API_FILES_MODIFIED"
-
-  # Run schema sync from monorepo root
-  npm run sync:schemas
-
-  # Verify types
-  npm run typecheck
-
-  # Stage generated files
-  git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
-  git commit -m "chore: regenerate TypeScript types from OpenAPI" || true
-fi
-```
-
-**API File Patterns:**
 | Pattern | Triggers Sync |
 |---------|---------------|
 | `*Endpoints.cs` | Yes |
@@ -156,6 +137,20 @@ fi
 | `Requests/*.cs` | Yes |
 | `Responses/*.cs` | Yes |
 | `Dtos/*.cs` | Yes |
+
+If API files were modified, run schema sync:
+
+```bash
+# Run schema sync from monorepo root
+npm run sync:schemas
+
+# Verify types
+npm run typecheck
+
+# Stage generated files
+git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
+git commit -m "chore: regenerate TypeScript types from OpenAPI" || true
+```
 
 **Skill Reference:** `@skills/sync-schemas/SKILL.md`
 
@@ -294,7 +289,7 @@ Update task status when subagent reports completion using `mcp__exarchos__exarch
 ### On All Tasks Complete
 
 Update phase using `mcp__exarchos__exarchos_workflow_set`:
-- Set `phase` to "integrate"
+- Set `phase` to "review"
 
 ## Fix Mode (--fixes)
 
@@ -306,7 +301,7 @@ When invoked with `--fixes`, delegation handles review failures instead of initi
 /delegate --fixes docs/plans/YYYY-MM-DD-feature.md
 ```
 
-Or auto-invoked after review/integration failures.
+Or auto-invoked after review failures.
 
 ### Fix Mode Process
 
@@ -334,10 +329,10 @@ Or auto-invoked after review/integration failures.
    })
    ```
 
-5. **Re-integrate after fixes**:
-   After all fix tasks complete, auto-invoke integration phase:
+5. **Re-review after fixes**:
+   After all fix tasks complete, auto-invoke review phase:
    ```typescript
-   Skill({ skill: "integrate", args: "<state-file>" })
+   Skill({ skill: "review", args: "<state-file>" })
    ```
 
 ### Fix Task Structure
@@ -355,13 +350,13 @@ Each fix task extracted should include:
 
 ### Transition After Fixes
 
-Unlike normal delegation which goes to review, fix mode goes back to integration:
+Unlike normal delegation which goes to review, fix mode goes back to review:
 
 ```
-/delegate --fixes -> [fixes applied] -> /integrate -> /review
+/delegate --fixes -> [fixes applied] -> /review
 ```
 
-This ensures merged code is re-verified after fixes.
+This ensures fixed code is re-verified after fixes.
 
 ## Completion Criteria
 
@@ -404,12 +399,4 @@ When Exarchos MCP tools are available, emit events during delegation:
    The orchestrator should:
    - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record each stack position
    - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
-   - If the subagent used standard git (no Graphite), restructure into a stack post-hoc:
-     ```bash
-     # From the worktree, for each logical commit to convert:
-     gt create -m "feat: <description>"  # Creates a Graphite branch from current HEAD
-     gt submit --no-interactive           # Pushes and creates PR
-     ```
-     Then record each branch: `mcp__exarchos__exarchos_stack_place({ position, taskId, branch })`
-     See also: [Graphite post-hoc stacking docs](https://graphite.dev/docs/stacking-existing-branches)
 7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase
