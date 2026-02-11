@@ -4,7 +4,7 @@ The orchestrator (main Claude Code session) MUST NOT:
 
 1. **Write implementation code** — All code changes via subagents
 2. **Fix review findings directly** — Dispatch fixer subagents
-3. **Run integration tests inline** — Dispatch integration subagent
+3. **Run tests inline** — Tests run in subagent worktrees or during review
 4. **Work in main project root** — All implementation in worktrees
 
 The orchestrator SHOULD:
