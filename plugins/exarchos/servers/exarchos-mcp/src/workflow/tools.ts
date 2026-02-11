@@ -1,3 +1,5 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type {
   InitInput,
   ListInput,
@@ -24,6 +26,7 @@ import {
 } from './checkpoint.js';
 import { appendEvent } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { formatResult } from '../format.js';
 import * as path from 'node:path';
 
 // Re-export from dedicated modules for backward compatibility
@@ -358,4 +361,52 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   }
 
   return current;
+}
+
+// ─── Shared Schema Components ───────────────────────────────────────────────
+
+const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
+const workflowTypeParam = z.enum(['feature', 'debug', 'refactor']);
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerWorkflowTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_workflow_init',
+    'Initialize a new workflow state file for a feature/debug/refactor workflow',
+    { featureId: featureIdParam, workflowType: workflowTypeParam },
+    async (args) => formatResult(await handleInit(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_list',
+    'List all active workflow state files with staleness information',
+    {},
+    async (args) => formatResult(await handleList(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_get',
+    'Query a field via dot-path (e.g. query:"phase") or get full state if no query',
+    { featureId: featureIdParam, query: z.string().optional() },
+    async (args) => formatResult(await handleGet(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_set',
+    'Update fields and/or transition phase. Returns {phase, updatedAt}',
+    {
+      featureId: featureIdParam,
+      updates: z.record(z.string(), z.unknown()).optional(),
+      phase: z.string().optional(),
+    },
+    async (args) => formatResult(await handleSet(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_checkpoint',
+    'Create an explicit checkpoint, resetting the operation counter',
+    { featureId: featureIdParam, summary: z.string().optional() },
+    async (args) => formatResult(await handleCheckpoint(args, stateDir)),
+  );
 }

@@ -1,3 +1,5 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import type {
   SummaryInput,
   ReconcileInput,
@@ -14,6 +16,7 @@ import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEvents } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
 import { getCircuitBreakerState } from './circuit-breaker.js';
+import { formatResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 
@@ -219,4 +222,34 @@ export async function handleTransitions(
       transitions: transitionData,
     },
   };
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
+
+export function registerQueryTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_workflow_summary',
+    'Get structured summary of workflow progress, events, and circuit breaker status',
+    { featureId: featureIdParam },
+    async (args) => formatResult(await handleSummary(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_reconcile',
+    'Verify worktree paths and branches match state file',
+    { featureId: featureIdParam },
+    async (args) => formatResult(await handleReconcile(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_workflow_transitions',
+    'Get available state machine transitions for a workflow type',
+    {
+      workflowType: z.enum(['feature', 'debug', 'refactor']),
+      fromPhase: z.string().optional(),
+    },
+    async (args) => formatResult(await handleTransitions(args, stateDir)),
+  );
 }

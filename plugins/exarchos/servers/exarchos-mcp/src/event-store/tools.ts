@@ -1,5 +1,8 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { WorkflowEvent, EventType } from './schemas.js';
+import { formatResult } from '../format.js';
 
 // ─── Tool Result Type ───────────────────────────────────────────────────────
 
@@ -127,4 +130,29 @@ export async function handleEventQuery(
       },
     };
   }
+}
+
+// ─── Registration Function ──────────────────────────────────────────────────
+
+export function registerEventTools(server: McpServer, stateDir: string): void {
+  server.tool(
+    'exarchos_event_append',
+    'Append an event to the event store with optional optimistic concurrency',
+    {
+      stream: z.string().min(1),
+      event: z.record(z.string(), z.unknown()),
+      expectedSequence: z.number().int().optional(),
+    },
+    async (args) => formatResult(await handleEventAppend(args, stateDir)),
+  );
+
+  server.tool(
+    'exarchos_event_query',
+    'Query events from the event store with optional filters (type, sinceSequence, since, until)',
+    {
+      stream: z.string().min(1),
+      filter: z.record(z.string(), z.unknown()).optional(),
+    },
+    async (args) => formatResult(await handleEventQuery(args, stateDir)),
+  );
 }
