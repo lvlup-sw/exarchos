@@ -43,6 +43,13 @@ vi.mock('../../workflow/cancel.js', () => ({
   handleCancel: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
+// Mock query handlers (now in their own module)
+vi.mock('../../workflow/query.js', () => ({
+  handleSummary: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  handleReconcile: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  handleTransitions: vi.fn().mockResolvedValue({ success: true, data: {} }),
+}));
+
 // Mock all tool handlers so we don't need real state files
 vi.mock('../../workflow/tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' } }),
@@ -64,13 +71,11 @@ import {
   handleList,
   handleGet,
   handleSet,
-  handleSummary,
-  handleReconcile,
-  handleTransitions,
   handleCheckpoint,
 } from '../../workflow/tools.js';
 import { handleNextAction } from '../../workflow/next-action.js';
 import { handleCancel } from '../../workflow/cancel.js';
+import { handleSummary, handleReconcile, handleTransitions } from '../../workflow/query.js';
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -378,6 +383,11 @@ describe('MCP Server Entry Point', () => {
         }));
         vi.doMock('../../workflow/cancel.js', () => ({
           handleCancel: vi.fn(),
+        }));
+        vi.doMock('../../workflow/query.js', () => ({
+          handleSummary: vi.fn(),
+          handleReconcile: vi.fn(),
+          handleTransitions: vi.fn(),
         }));
         vi.doMock('../../stack/tools.js', () => ({
           handleStackStatus: vi.fn(),
