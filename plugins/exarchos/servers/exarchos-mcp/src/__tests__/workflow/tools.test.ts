@@ -1415,6 +1415,61 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
     expect(data.action).toBe('AUTO:refactor-synthesize');
   });
 
+  it('polishValidate_GuardPasses_ReturnsAutoRefactorUpdateDocs', async () => {
+    await handleInit({ featureId: 'refactor-na-polish-val', workflowType: 'refactor' }, tmpDir);
+
+    // Advance to polish-validate via direct state manipulation
+    const stateFile = path.join(tmpDir, 'refactor-na-polish-val.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'polish-validate';
+    raw.track = 'polish';
+    raw.validation = { testsPass: true };
+    raw._checkpoint.phase = 'polish-validate';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-polish-val' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-update-docs');
+  });
+
+  it('overhaulDelegate_GuardPasses_ReturnsAutoRefactorReview', async () => {
+    await handleInit({ featureId: 'refactor-na-oh-del', workflowType: 'refactor' }, tmpDir);
+
+    const stateFile = path.join(tmpDir, 'refactor-na-oh-del.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'overhaul-delegate';
+    raw.track = 'overhaul';
+    raw.tasks = [{ id: '1', title: 'Task 1', status: 'complete' }];
+    raw._checkpoint.phase = 'overhaul-delegate';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-oh-del' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-review');
+  });
+
+  it('overhaulReview_GuardPasses_ReturnsAutoRefactorUpdateDocs', async () => {
+    await handleInit({ featureId: 'refactor-na-oh-rev', workflowType: 'refactor' }, tmpDir);
+
+    const stateFile = path.join(tmpDir, 'refactor-na-oh-rev.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'overhaul-review';
+    raw.track = 'overhaul';
+    raw.reviews = { spec: { status: 'approved' } };
+    raw._checkpoint.phase = 'overhaul-review';
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleNextAction({ featureId: 'refactor-na-oh-rev' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.action).toBe('AUTO:refactor-update-docs');
+  });
+
   it('synthesize_HumanCheckpoint_ReturnsWait', async () => {
     await handleInit({ featureId: 'refactor-na-synth', workflowType: 'refactor' }, tmpDir);
 

@@ -193,11 +193,12 @@ triage → investigate → hotfix-implement → hotfix-validate → completed
 ### Thorough Track
 
 ```text
-triage → investigate → rca → design → debug-implement → debug-review → synthesize → completed
-   │          │         │       │            │                │              │          │
-   │          │         │       │            │                │              │          └─ Merge
-   │          │         │       │            │                │              └─ Create PR
-   │          │         │       │            │                └─ Spec review
+triage → investigate → rca → design → debug-implement → debug-validate → debug-review → synthesize → completed
+   │          │         │       │            │                 │              │              │          │
+   │          │         │       │            │                 │              │              │          └─ Merge
+   │          │         │       │            │                 │              │              └─ Create PR
+   │          │         │       │            │                 │              └─ Spec review
+   │          │         │       │            │                 └─ Run validation
    │          │         │       │            └─ TDD implementation
    │          │         │       └─ Brief fix approach
    │          │         └─ Full RCA document
