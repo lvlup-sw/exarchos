@@ -51,9 +51,25 @@ Most of this repo is structured Markdown, not executable code:
 
 One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.json`, and test suite:
 
-- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `docs/workflow-state/`. This is the core persistence and coordination mechanism.
+- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `docs/workflow-state/`. Exposes 27 MCP tools via a per-module registration pattern.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
+
+**Key modules** (each exports a `registerXTools(server, stateDir)` function):
+
+- `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
+- `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
+- `workflow/hsm-definitions.ts` — HSM definitions for feature/debug/refactor workflows
+- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint)
+- `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping
+- `workflow/cancel.ts` — Saga compensation and workflow cancellation
+- `workflow/query.ts` — Summary, reconcile, and transitions handlers
+- `event-store/` — Zod event schemas (19 types), JSONL store, append/query tools
+- `views/` — CQRS materializer, 5 view types (pipeline, tasks, workflow status, team status, task detail)
+- `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
+- `tasks/` — Task claim/complete/fail tools
+- `stack/` — Stack status/place tools
+- `format.ts` — Shared tool result formatting helpers
 
 ### Three Workflow Types
 
