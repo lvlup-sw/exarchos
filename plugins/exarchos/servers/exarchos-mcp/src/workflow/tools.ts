@@ -23,7 +23,7 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { appendEvent } from './events.js';
+import { appendEvent, getRecentEvents } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
@@ -32,6 +32,26 @@ import * as path from 'node:path';
 export { handleNextAction } from './next-action.js';
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
+
+// ─── Internal Field Stripping ────────────────────────────────────────────────
+
+const INTERNAL_FIELDS = ['_events', '_eventSequence', '_history'] as const;
+
+function stripInternalFields(state: Record<string, unknown>): Record<string, unknown> {
+  const stripped = { ...state };
+  for (const field of INTERNAL_FIELDS) {
+    delete stripped[field];
+  }
+  return stripped;
+}
+
+function buildEventSummary(state: WorkflowState): { eventCount: number; recentEvents: Array<{ type: string; timestamp: string }> } {
+  const recent = getRecentEvents(state._events, 3);
+  return {
+    eventCount: state._events.length,
+    recentEvents: recent.map(e => ({ type: e.type, timestamp: e.timestamp })),
+  };
+}
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
@@ -113,10 +133,14 @@ export async function handleGet(
   const meta = buildCheckpointMeta(state._checkpoint);
 
   if (!input.query) {
+    const strippedState = stripInternalFields(state as unknown as Record<string, unknown>);
     return {
       success: true,
-      data: state,
-      _meta: meta,
+      data: strippedState,
+      _meta: {
+        ...meta,
+        ...buildEventSummary(state),
+      },
     };
   }
 

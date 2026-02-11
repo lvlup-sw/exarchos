@@ -153,6 +153,98 @@ describe('Core Tools', () => {
     });
   });
 
+  describe('handleGet_NoQuery_ExcludesInternalFields', () => {
+    it('should not include _events, _eventSequence, or _history in response data', async () => {
+      await handleInit({ featureId: 'strip-test', workflowType: 'feature' }, tmpDir);
+
+      // Do a set to generate some events
+      await handleSet(
+        { featureId: 'strip-test', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+
+      const result = await handleGet(
+        { featureId: 'strip-test' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      // Core fields should still be present
+      expect(data.featureId).toBe('strip-test');
+      expect(data.phase).toBe('ideate');
+
+      // Internal fields should be stripped
+      expect(data._events).toBeUndefined();
+      expect(data._eventSequence).toBeUndefined();
+      expect(data._history).toBeUndefined();
+    });
+  });
+
+  describe('handleGet_NoQuery_IncludesMetaEventSummary', () => {
+    it('should include eventCount and recentEvents in _meta', async () => {
+      await handleInit({ featureId: 'meta-summary', workflowType: 'feature' }, tmpDir);
+
+      // Set design artifact and transition to plan to generate events
+      await handleSet(
+        { featureId: 'meta-summary', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'meta-summary', phase: 'plan' },
+        tmpDir,
+      );
+
+      const result = await handleGet(
+        { featureId: 'meta-summary' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      const meta = result._meta as Record<string, unknown>;
+      expect(meta).toBeDefined();
+      expect(typeof meta.eventCount).toBe('number');
+      expect(meta.eventCount).toBeGreaterThan(0);
+      expect(Array.isArray(meta.recentEvents)).toBe(true);
+
+      const recentEvents = meta.recentEvents as Array<Record<string, unknown>>;
+      expect(recentEvents.length).toBeGreaterThan(0);
+      expect(recentEvents.length).toBeLessThanOrEqual(3);
+      // Each recent event should have type and timestamp
+      for (const event of recentEvents) {
+        expect(typeof event.type).toBe('string');
+        expect(typeof event.timestamp).toBe('string');
+      }
+    });
+  });
+
+  describe('handleGet_QueryEventsExplicitly_StillWorks', () => {
+    it('should return _events when explicitly queried', async () => {
+      await handleInit({ featureId: 'query-events', workflowType: 'feature' }, tmpDir);
+
+      // Generate some events
+      await handleSet(
+        { featureId: 'query-events', updates: { 'artifacts.design': 'design.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'query-events', phase: 'plan' },
+        tmpDir,
+      );
+
+      const result = await handleGet(
+        { featureId: 'query-events', query: '_events' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+      expect(Array.isArray(result.data)).toBe(true);
+      const events = result.data as Array<Record<string, unknown>>;
+      expect(events.length).toBeGreaterThan(0);
+    });
+  });
+
   // ─── ToolSet ────────────────────────────────────────────────────────────────
 
   describe('ToolSet_FieldUpdates_AppliesAndReturns', () => {
