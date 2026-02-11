@@ -17,6 +17,8 @@ import {
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
+import { configureQueryEventStore } from '../../workflow/query.js';
+import { configureNextActionEventStore } from '../../workflow/next-action.js';
 import type { WorkflowState } from '../../workflow/types.js';
 
 let tmpDir: string;
@@ -185,11 +187,11 @@ describe('Core Tools', () => {
     });
   });
 
-  describe('handleGet_NoQuery_IncludesMetaEventSummary', () => {
-    it('should include eventCount and recentEvents in _meta', async () => {
+  describe('handleGet_NoQuery_ReturnsCheckpointMeta', () => {
+    it('should include checkpoint meta but not event summary (events now in external store)', async () => {
       await handleInit({ featureId: 'meta-summary', workflowType: 'feature' }, tmpDir);
 
-      // Set design artifact and transition to plan to generate events
+      // Set design artifact and transition to plan
       await handleSet(
         { featureId: 'meta-summary', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
@@ -207,26 +209,18 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const meta = result._meta as Record<string, unknown>;
       expect(meta).toBeDefined();
-      expect(typeof meta.eventCount).toBe('number');
-      expect(meta.eventCount).toBeGreaterThan(0);
-      expect(Array.isArray(meta.recentEvents)).toBe(true);
-
-      const recentEvents = meta.recentEvents as Array<Record<string, unknown>>;
-      expect(recentEvents.length).toBeGreaterThan(0);
-      expect(recentEvents.length).toBeLessThanOrEqual(3);
-      // Each recent event should have type and timestamp
-      for (const event of recentEvents) {
-        expect(typeof event.type).toBe('string');
-        expect(typeof event.timestamp).toBe('string');
-      }
+      // Event summary is no longer in _meta — events live in external JSONL store.
+      // Use handleSummary for event + circuit breaker information.
+      expect(meta.eventCount).toBeUndefined();
+      expect(meta.recentEvents).toBeUndefined();
     });
   });
 
-  describe('handleGet_QueryEventsExplicitly_StillWorks', () => {
-    it('should return _events when explicitly queried', async () => {
+  describe('handleGet_QueryEventsExplicitly_ReturnsUndefined', () => {
+    it('should return undefined for _events (events now in external JSONL store)', async () => {
       await handleInit({ featureId: 'query-events', workflowType: 'feature' }, tmpDir);
 
-      // Generate some events
+      // Generate some state changes
       await handleSet(
         { featureId: 'query-events', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
@@ -242,9 +236,8 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(Array.isArray(result.data)).toBe(true);
-      const events = result.data as Array<Record<string, unknown>>;
-      expect(events.length).toBeGreaterThan(0);
+      // _events no longer exists in state — events moved to external JSONL store
+      expect(result.data).toBeUndefined();
     });
   });
 
@@ -809,35 +802,40 @@ describe('Query Tools', () => {
 
   describe('ToolSummary_IncludesRecentEventsAndCircuitBreaker', () => {
     it('should include last 5 events and circuit breaker state', async () => {
+      // Configure module-level event store so handleSummary can query external events
+      const eventStore = new EventStore(tmpDir);
+      configureQueryEventStore(eventStore);
+
       await handleInit({ featureId: 'summary-cb', workflowType: 'feature' }, tmpDir);
 
       // Set design artifact and transition to plan to generate events
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir, eventStore);
 
       // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir, eventStore);
       await handleSet(
         { featureId: 'summary-cb', updates: { planReview: { approved: true } } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir, eventStore);
 
-      // Pass an eventStore so handleSummary can query external events
-      const eventStore = new EventStore(tmpDir);
-      const result = await handleSummary({ featureId: 'summary-cb' }, tmpDir, eventStore);
+      const result = await handleSummary({ featureId: 'summary-cb' }, tmpDir);
 
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
 
-      // Recent events — from external event store (may be empty if no events appended to store)
+      // Recent events — from external event store
       const recentEvents = data.recentEvents as Array<unknown>;
       expect(Array.isArray(recentEvents)).toBe(true);
 
@@ -997,6 +995,7 @@ describe('Query Tools', () => {
 
       // Populate external event store with compound-entry + 3 fix-cycle events
       const eventStore = new EventStore(tmpDir);
+      configureNextActionEventStore(eventStore);
       await eventStore.append('next-circuit', {
         type: 'workflow.compound-entry',
         data: { compoundStateId: 'implementation', featureId: 'next-circuit' },
@@ -1008,7 +1007,7 @@ describe('Query Tools', () => {
         });
       }
 
-      const result = await handleNextAction({ featureId: 'next-circuit' }, tmpDir, eventStore);
+      const result = await handleNextAction({ featureId: 'next-circuit' }, tmpDir);
 
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
@@ -1033,12 +1032,13 @@ describe('Query Tools', () => {
 
       // Populate external event store with compound-entry (but NO fix-cycle events, so circuit stays closed)
       const eventStore = new EventStore(tmpDir);
+      configureNextActionEventStore(eventStore);
       await eventStore.append('next-fixcycle', {
         type: 'workflow.compound-entry',
         data: { compoundStateId: 'implementation', featureId: 'next-fixcycle' },
       });
 
-      const result = await handleNextAction({ featureId: 'next-fixcycle' }, tmpDir, eventStore);
+      const result = await handleNextAction({ featureId: 'next-fixcycle' }, tmpDir);
 
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
@@ -1739,6 +1739,7 @@ describe('External Event Store Bridge', () => {
 describe('B5: Event-First Mutation Ordering', () => {
   it('handleSet_EventAppendedBeforeStateMutation: event store receives event for transition', async () => {
     const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
 
     await handleInit({ featureId: 'event-first', workflowType: 'feature' }, tmpDir);
     await handleSet(

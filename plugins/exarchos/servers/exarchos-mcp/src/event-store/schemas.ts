@@ -214,6 +214,36 @@ export const WorkflowCompoundEntryData = z.object({
   featureId: z.string(),
 });
 
+export const WorkflowCompoundExitData = z.object({
+  compoundStateId: z.string(),
+  featureId: z.string(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  trigger: z.string().optional(),
+});
+
+export const WorkflowCancelData = z.object({
+  from: z.string(),
+  to: z.string(),
+  trigger: z.string(),
+  featureId: z.string(),
+  reason: z.string().optional(),
+});
+
+export const WorkflowCompensationData = z.object({
+  featureId: z.string(),
+  actionId: z.string(),
+  status: z.enum(['executed', 'skipped', 'failed', 'dry-run']),
+  message: z.string(),
+});
+
+export const WorkflowCircuitOpenData = z.object({
+  featureId: z.string(),
+  compoundId: z.string(),
+  fixCycleCount: z.number().int().optional(),
+  maxFixCycles: z.number().int().optional(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -241,3 +271,7 @@ export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
 export type WorkflowCompoundEntry = z.infer<typeof WorkflowCompoundEntryData>;
+export type WorkflowCompoundExit = z.infer<typeof WorkflowCompoundExitData>;
+export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
+export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
+export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;

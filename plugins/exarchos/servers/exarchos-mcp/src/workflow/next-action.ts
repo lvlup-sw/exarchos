@@ -140,7 +140,9 @@ export async function handleNextAction(
     };
   }
 
-  // Check circuit breaker for fix-cycle transitions
+  // Check circuit breaker for fix-cycle transitions.
+  // Circuit breaker requires EventStore; always configured via configureNextActionEventStore
+  // in index.ts. Guard retained for test isolation where module-level store may not be set.
   const compound = findCompoundForPhase(workflowType, currentPhase);
   if (compound && eventStore) {
     const cbState = await checkCircuitBreakerFromStore(

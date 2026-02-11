@@ -25,6 +25,10 @@ import {
   WorkflowGuardFailedData,
   WorkflowCheckpointData,
   WorkflowCompoundEntryData,
+  WorkflowCompoundExitData,
+  WorkflowCancelData,
+  WorkflowCompensationData,
+  WorkflowCircuitOpenData,
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
@@ -595,7 +599,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.guard-failed');
     expect(EventTypes).toContain('workflow.checkpoint');
     expect(EventTypes).toContain('workflow.compound-entry');
+    expect(EventTypes).toContain('workflow.compound-exit');
     expect(EventTypes).toContain('workflow.cancel');
+    expect(EventTypes).toContain('workflow.compensation');
+    expect(EventTypes).toContain('workflow.circuit-open');
   });
 
   it('should support type-safe assignment', () => {
@@ -716,5 +723,165 @@ describe('WorkflowCompoundEntryData', () => {
       type: 'workflow.compound-entry',
     });
     expect(event.type).toBe('workflow.compound-entry');
+  });
+});
+
+// ─── B3: Workflow Compound Exit Event Data Schema ────────────────────────────
+
+describe('WorkflowCompoundExitData', () => {
+  it('should parse valid compound exit data with all fields', () => {
+    const data = WorkflowCompoundExitData.parse({
+      compoundStateId: 'thorough-track',
+      featureId: 'my-feature',
+      from: 'thorough-track',
+      to: 'synthesize',
+      trigger: 'execute-transition',
+    });
+    expect(data.compoundStateId).toBe('thorough-track');
+    expect(data.featureId).toBe('my-feature');
+    expect(data.from).toBe('thorough-track');
+    expect(data.to).toBe('synthesize');
+    expect(data.trigger).toBe('execute-transition');
+  });
+
+  it('should allow optional from, to, and trigger fields', () => {
+    const data = WorkflowCompoundExitData.parse({
+      compoundStateId: 'hotfix-track',
+      featureId: 'my-feature',
+    });
+    expect(data.from).toBeUndefined();
+    expect(data.to).toBeUndefined();
+    expect(data.trigger).toBeUndefined();
+  });
+
+  it('should parse event base with workflow.compound-exit type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.compound-exit',
+    });
+    expect(event.type).toBe('workflow.compound-exit');
+  });
+});
+
+// ─── B3: Workflow Cancel Event Data Schema ───────────────────────────────────
+
+describe('WorkflowCancelData', () => {
+  it('should parse valid cancel data with all fields', () => {
+    const data = WorkflowCancelData.parse({
+      from: 'delegate',
+      to: 'cancelled',
+      trigger: 'user-cancel',
+      featureId: 'my-feature',
+      reason: 'Requirements changed',
+    });
+    expect(data.from).toBe('delegate');
+    expect(data.to).toBe('cancelled');
+    expect(data.trigger).toBe('user-cancel');
+    expect(data.featureId).toBe('my-feature');
+    expect(data.reason).toBe('Requirements changed');
+  });
+
+  it('should allow optional reason', () => {
+    const data = WorkflowCancelData.parse({
+      from: 'ideate',
+      to: 'cancelled',
+      trigger: 'user-cancel',
+      featureId: 'my-feature',
+    });
+    expect(data.reason).toBeUndefined();
+  });
+
+  it('should parse event base with workflow.cancel type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.cancel',
+    });
+    expect(event.type).toBe('workflow.cancel');
+  });
+});
+
+// ─── B3: Workflow Compensation Event Data Schema ─────────────────────────────
+
+describe('WorkflowCompensationData', () => {
+  it('should parse valid compensation data with all fields', () => {
+    const data = WorkflowCompensationData.parse({
+      featureId: 'my-feature',
+      actionId: 'synthesize:close-pr',
+      status: 'executed',
+      message: 'Closed PR: https://github.com/org/repo/pull/42',
+    });
+    expect(data.featureId).toBe('my-feature');
+    expect(data.actionId).toBe('synthesize:close-pr');
+    expect(data.status).toBe('executed');
+    expect(data.message).toBe('Closed PR: https://github.com/org/repo/pull/42');
+  });
+
+  it('should accept all valid status values', () => {
+    for (const status of ['executed', 'skipped', 'failed', 'dry-run']) {
+      const data = WorkflowCompensationData.parse({
+        featureId: 'my-feature',
+        actionId: 'test-action',
+        status,
+        message: 'test',
+      });
+      expect(data.status).toBe(status);
+    }
+  });
+
+  it('should reject invalid status values', () => {
+    expect(() =>
+      WorkflowCompensationData.parse({
+        featureId: 'my-feature',
+        actionId: 'test-action',
+        status: 'invalid',
+        message: 'test',
+      }),
+    ).toThrow();
+  });
+
+  it('should parse event base with workflow.compensation type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.compensation',
+    });
+    expect(event.type).toBe('workflow.compensation');
+  });
+});
+
+// ─── B3: Workflow Circuit Open Event Data Schema ─────────────────────────────
+
+describe('WorkflowCircuitOpenData', () => {
+  it('should parse valid circuit open data with all fields', () => {
+    const data = WorkflowCircuitOpenData.parse({
+      featureId: 'my-feature',
+      compoundId: 'feature-delegate-review',
+      fixCycleCount: 3,
+      maxFixCycles: 3,
+    });
+    expect(data.featureId).toBe('my-feature');
+    expect(data.compoundId).toBe('feature-delegate-review');
+    expect(data.fixCycleCount).toBe(3);
+    expect(data.maxFixCycles).toBe(3);
+  });
+
+  it('should allow optional fixCycleCount and maxFixCycles', () => {
+    const data = WorkflowCircuitOpenData.parse({
+      featureId: 'my-feature',
+      compoundId: 'delegate',
+    });
+    expect(data.fixCycleCount).toBeUndefined();
+    expect(data.maxFixCycles).toBeUndefined();
+  });
+
+  it('should parse event base with workflow.circuit-open type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.circuit-open',
+    });
+    expect(event.type).toBe('workflow.circuit-open');
   });
 });

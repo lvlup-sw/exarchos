@@ -131,6 +131,7 @@ export class EventStore {
       } catch {
         // Best-effort: JSONL is source of truth, .seq is just a cache
         await fs.rm(tmpPath, { force: true }).catch(() => {});
+        await fs.rm(seqPath, { force: true }).catch(() => {});
       }
 
       return fullEvent;

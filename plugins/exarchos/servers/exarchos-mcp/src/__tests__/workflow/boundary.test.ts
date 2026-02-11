@@ -7,12 +7,14 @@ import {
   handleGet,
   handleSet,
   handleSummary,
+  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
 import { getFixCycleCount, mapInternalToExternalType } from '../../workflow/events.js';
 import { appendEvent } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
 import { EventStore } from '../../event-store/store.js';
+import { configureQueryEventStore } from '../../workflow/query.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
 
 /**
@@ -237,9 +239,9 @@ describe('Cross-Module Boundary Tests', () => {
     expect(state.synthesis).toBeDefined();
     // _events and _eventSequence removed from schema — events now in external JSONL store
     expect(state._checkpoint).toBeDefined();
-    // Event summary is available in _meta
+    // Event summary no longer in _meta — use handleSummary for event info
     const meta = result._meta as Record<string, unknown>;
-    expect(typeof meta.eventCount).toBe('number');
+    expect(meta).toBeDefined();
   });
 
   // ─── Test 5: Circuit breaker end-to-end with real events ──────────────────
@@ -247,6 +249,8 @@ describe('Cross-Module Boundary Tests', () => {
   describe('HandleSummary_CircuitBreakerState_MatchesRealEvents', () => {
     it('should report correct fixCycleCount from real state-machine events', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+      configureQueryEventStore(eventStore);
       await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir);
 
       // Advance to delegate (pass eventStore so transitions are recorded)
@@ -269,8 +273,8 @@ describe('Cross-Module Boundary Tests', () => {
         expect(fixResult.success).toBe(true);
       }
 
-      // Verify circuit breaker state via handleSummary (pass eventStore)
-      const summaryResult = await handleSummary({ featureId: 'cb-e2e' }, stateDir, eventStore);
+      // Verify circuit breaker state via handleSummary
+      const summaryResult = await handleSummary({ featureId: 'cb-e2e' }, stateDir);
       expect(summaryResult.success).toBe(true);
 
       const data = summaryResult.data as Record<string, unknown>;
@@ -283,6 +287,8 @@ describe('Cross-Module Boundary Tests', () => {
 
     it('should show circuit breaker open after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+      configureQueryEventStore(eventStore);
       await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir);
 
       await advanceToDelegate('cb-open', eventStore);
@@ -304,7 +310,7 @@ describe('Cross-Module Boundary Tests', () => {
         expect(fixResult.success).toBe(true);
       }
 
-      const summaryResult = await handleSummary({ featureId: 'cb-open' }, stateDir, eventStore);
+      const summaryResult = await handleSummary({ featureId: 'cb-open' }, stateDir);
       expect(summaryResult.success).toBe(true);
 
       const data = summaryResult.data as Record<string, unknown>;

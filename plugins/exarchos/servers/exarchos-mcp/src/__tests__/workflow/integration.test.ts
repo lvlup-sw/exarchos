@@ -10,10 +10,13 @@ import {
   handleCheckpoint,
   handleSummary,
   handleNextAction,
+  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
 import { appendEvent, mapInternalToExternalType } from '../../workflow/events.js';
 import { EventStore } from '../../event-store/store.js';
+import { configureQueryEventStore } from '../../workflow/query.js';
+import { configureCancelEventStore } from '../../workflow/cancel.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
 
 describe('Integration', () => {
@@ -151,6 +154,7 @@ describe('Integration', () => {
   describe('FeatureLifecycle_FullSaga_CompletesWithCorrectEvents', () => {
     it('should progress through all phases with correct events', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
 
       // Init
       const initResult = await handleInit(
@@ -252,6 +256,7 @@ describe('Integration', () => {
   describe('FixCycle_DelegateReviewFail_CircuitBreakerTrips', () => {
     it('should trip circuit breaker after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
+      configureQueryEventStore(eventStore);
 
       // Init and advance to delegate
       await handleInit(
@@ -322,7 +327,7 @@ describe('Integration', () => {
       }
 
       // Verify via handleSummary that circuit breaker state is reported
-      const summaryResult = await handleSummary({ featureId: 'fix-cycle' }, stateDir, eventStore);
+      const summaryResult = await handleSummary({ featureId: 'fix-cycle' }, stateDir);
       expect(summaryResult.success).toBe(true);
       const summaryData = summaryResult.data as Record<string, unknown>;
       const circuitBreaker = summaryData.circuitBreaker as Record<string, unknown>;
@@ -338,6 +343,8 @@ describe('Integration', () => {
   describe('Compensation_WorkflowWithSideEffects_CleansUpOnCancel', () => {
     it('should run compensation actions and log events on cancel', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+      configureCancelEventStore(eventStore);
 
       // Init and advance to delegate
       await handleInit(
@@ -411,14 +418,11 @@ describe('Integration', () => {
       const finalState = getResult.data as Record<string, unknown>;
       expect(finalState.phase).toBe('cancelled');
 
-      // Verify cancel transition events exist in external event store
+      // Verify cancel events exist in external event store
+      // The HSM emits 'cancel' events (mapped to 'workflow.cancel'), not 'workflow.transition'
       const allEvents = await eventStore.query('cancel-test');
-      const cancelTransitionEvents = allEvents.filter((e) => {
-        if (e.type !== 'workflow.transition') return false;
-        const data = e.data as Record<string, unknown>;
-        return data.to === 'cancelled';
-      });
-      expect(cancelTransitionEvents.length).toBeGreaterThan(0);
+      const cancelEvents = allEvents.filter((e) => e.type === 'workflow.cancel');
+      expect(cancelEvents.length).toBeGreaterThan(0);
     });
   });
 
@@ -518,14 +522,14 @@ describe('Integration', () => {
       expect(checkpoint.phase).toBeDefined();
       expect(checkpoint.operationsSince).toBe(0);
 
-      // Verify migrated internal fields are accessible via explicit query
+      // _events and _eventSequence removed during migration — events now in external JSONL store
       const eventsResult = await handleGet({ featureId: 'migrated-feature', query: '_events' }, stateDir);
       expect(eventsResult.success).toBe(true);
-      expect(Array.isArray(eventsResult.data)).toBe(true);
+      expect(eventsResult.data).toBeUndefined();
 
       const seqResult = await handleGet({ featureId: 'migrated-feature', query: '_eventSequence' }, stateDir);
       expect(seqResult.success).toBe(true);
-      expect(seqResult.data).toBeDefined();
+      expect(seqResult.data).toBeUndefined();
     });
   });
 
@@ -534,6 +538,7 @@ describe('Integration', () => {
   describe('EventLog_FullWorkflow_SequenceMonotonicallyIncreasing', () => {
     it('should have monotonically increasing sequence numbers', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
 
       await handleInit(
         { featureId: 'seq-test', workflowType: 'feature' },
@@ -548,9 +553,15 @@ describe('Integration', () => {
       );
       await transitionFeature('seq-test', 'plan', eventStore);
 
-      // Set plan artifact and transition to delegate
+      // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'seq-test', updates: { 'artifacts.plan': 'plan.md' } },
+        stateDir,
+        eventStore,
+      );
+      await transitionFeature('seq-test', 'plan-review', eventStore);
+      await handleSet(
+        { featureId: 'seq-test', updates: { planReview: { approved: true } } },
         stateDir,
         eventStore,
       );
@@ -645,10 +656,10 @@ describe('Integration', () => {
       // _events and _eventSequence removed from schema — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
 
-      // Verify migrated internal fields accessible via explicit query
+      // _events removed during migration — events now in external JSONL store
       const eventsResult = await handleGet({ featureId: 'bash-created', query: '_events' }, stateDir);
       expect(eventsResult.success).toBe(true);
-      expect(Array.isArray(eventsResult.data)).toBe(true);
+      expect(eventsResult.data).toBeUndefined();
 
       // Verify original data preserved
       expect(state.featureId).toBe('bash-created');
