@@ -127,3 +127,9 @@ When deciding which tool to use:
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Use `gh pr create` for stacked PRs | Use `mcp__graphite__run_gt_cmd` with `gt create` + `gt submit` |
 | Use `git commit` + `git push` during delegation | Use `gt create` + `gt submit --no-interactive` for progressive stacking |
+| Use grep/rg to search code patterns | Use Serena `search_for_pattern` for regex search |
+| Use sed/awk for code replacement | Use Serena `replace_content` or `replace_symbol_body` |
+| Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
+| Generate diffs with shell commands | Use GitHub `pull_request_read` or Graphite `gt diff` |
+| Manually parse PR comments | Use GitHub `pull_request_read` for structured review data |
+| Skip state reconciliation on resume | Always call `workflow_reconcile` before resuming |
