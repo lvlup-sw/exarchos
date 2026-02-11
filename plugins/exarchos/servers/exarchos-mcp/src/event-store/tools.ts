@@ -1,16 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
-import type { WorkflowEvent, EventType } from './schemas.js';
-import { formatResult } from '../format.js';
-
-// ─── Tool Result Type ───────────────────────────────────────────────────────
-
-interface ToolResult {
-  success: boolean;
-  data?: WorkflowEvent | WorkflowEvent[];
-  error?: { code: string; message: string };
-}
+import type { EventType } from './schemas.js';
+import { formatResult, type ToolResult } from '../format.js';
 
 // ─── Shared Store Instance Cache ────────────────────────────────────────────
 

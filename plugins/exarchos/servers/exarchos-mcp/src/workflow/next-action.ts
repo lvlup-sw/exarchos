@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type {
   NextActionInput,
-  CheckpointMeta,
   WorkflowState,
 } from './types.js';
 import { ErrorCode } from './schemas.js';
@@ -13,17 +12,8 @@ import {
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getHSMDefinition } from './state-machine.js';
 import { getCircuitBreakerState } from './circuit-breaker.js';
-import { formatResult } from '../format.js';
+import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
-
-// ─── Tool Result Interface ──────────────────────────────────────────────────
-
-export interface ToolResult {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { code: string; message: string; validTargets?: readonly string[] };
-  readonly _meta?: CheckpointMeta;
-}
 
 // ─── Human Checkpoint Phases ────────────────────────────────────────────────
 

@@ -3,15 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
-import { formatResult } from '../format.js';
-
-// ─── Tool Result Type ──────────────────────────────────────────────────────
-
-interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: { code: string; message: string };
-}
+import { formatResult, type ToolResult } from '../format.js';
 
 // ─── Shared Store Cache ────────────────────────────────────────────────────
 
