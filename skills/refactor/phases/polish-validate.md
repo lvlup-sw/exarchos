@@ -193,7 +193,7 @@ On successful validation:
 - Automatically proceeds to update documentation
 
 On failed validation:
-- Next action: `AUTO:refactor-implement` (return to fix issues)
+- Next action: `AUTO:polish-implement` (return to fix issues)
 - Does not proceed until validation passes
 
 ## Common Issues

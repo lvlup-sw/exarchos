@@ -34,13 +34,12 @@ The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 
 | Response | Meaning | Action |
 |----------|---------|--------|
-| `AUTO:plan:<design-path>` | Auto-continue to plan | Invoke `/plan` |
-| `AUTO:plan:--revise <design-path>` | Plan has gaps, revise | Invoke `/plan --revise` with gap context |
-| `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
-| `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
-| `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
-| `AUTO:synthesize:<feature>` | Auto-continue to synthesize | Invoke `/synthesize` |
-| `AUTO:delegate:--fixes <path>` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
+| `AUTO:plan` | Auto-continue to plan | Invoke `/plan` |
+| `AUTO:plan-review` | Auto-continue to plan review | Run plan-design delta analysis |
+| `AUTO:delegate` | Auto-continue to delegate | Invoke `/delegate` |
+| `AUTO:review` | Auto-continue to review | Invoke `/review` |
+| `AUTO:synthesize` | Auto-continue to synthesize | Invoke `/synthesize` |
+| `AUTO:delegate:--fixes` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
 
 #### Debug Workflow Actions
 
@@ -58,15 +57,14 @@ The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 
 | Response | Meaning | Action |
 |----------|---------|--------|
-| `AUTO:refactor-explore` | Continue exploration | Resume scope assessment |
-| `AUTO:refactor-brief` | Capture brief | Continue brief phase |
-| `AUTO:refactor-implement` | Polish track implement | Continue direct implementation |
-| `AUTO:refactor-validate` | Polish track validate | Run validation checks |
-| `AUTO:refactor-update-docs` | Update documentation | Continue doc updates |
-| `AUTO:refactor-plan` | Overhaul track plan | Invoke `/plan` |
-| `AUTO:refactor-delegate` | Overhaul track delegate | Invoke `/delegate` |
-| `AUTO:refactor-review` | Overhaul track review | Invoke `/review` |
-| `AUTO:refactor-synthesize` | Overhaul track synthesize | Invoke `/synthesize` |
+| `AUTO:refactor-brief` | Explore complete, proceed to brief | Continue to brief phase |
+| `AUTO:polish-implement` | Brief complete (polish track) | Continue direct implementation |
+| `AUTO:overhaul-plan` | Brief complete (overhaul track) | Invoke `/plan` |
+| `AUTO:refactor-validate` | Polish implement complete | Run validation checks |
+| `AUTO:refactor-update-docs` | Validation passed or overhaul review passed | Continue doc updates |
+| `AUTO:refactor-delegate` | Overhaul plan complete | Invoke `/delegate` |
+| `AUTO:refactor-review` | Overhaul delegate complete | Invoke `/review` |
+| `AUTO:refactor-synthesize` | Overhaul update-docs complete | Invoke `/synthesize` |
 
 #### Wait/Done States
 
@@ -74,6 +72,7 @@ The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
 |----------|---------|--------|
 | `WAIT:human-checkpoint:*` | Human input required | Display status, wait |
 | `WAIT:in-progress:*` | Work in progress | Check task status, continue |
+| `BLOCKED:circuit-open:<compoundId>` | Fix cycle limit reached | Display error, escalate to user |
 | `DONE` | Workflow complete | No action needed |
 
 ### Step 4: Execute Auto-Continue

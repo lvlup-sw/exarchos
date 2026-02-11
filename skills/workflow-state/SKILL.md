@@ -45,6 +45,8 @@ Use the `mcp__exarchos__exarchos_workflow_set` tool with jq filters:
 - **Mark task complete**: `filter: '(.tasks[] | select(.id == "001")).status = "complete"'`
 - **Add worktree**: `filter: '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'`
 
+Worktree status values: `'active' | 'merged' | 'removed'`
+
 ### Get Summary
 
 For context restoration after summarization, use the `mcp__exarchos__exarchos_workflow_summary` tool with the state file path. This outputs a minimal summary suitable for rebuilding orchestrator context.
@@ -106,8 +108,9 @@ On task complete:
 See `docs/schemas/workflow-state.schema.json` for full schema.
 
 Key sections:
-- `version`: Schema version (currently "1.0")
+- `version`: Schema version (currently "1.1")
 - `featureId`: Unique workflow identifier
+- `workflowType`: Required. One of "feature", "debug", or "refactor"
 - `phase`: Current workflow phase
 - `artifacts`: Paths to design, plan, PR
 - `tasks`: Task list with status
