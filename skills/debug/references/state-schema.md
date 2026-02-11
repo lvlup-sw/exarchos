@@ -8,13 +8,13 @@ Debug workflows extend the standard workflow state with additional fields.
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "featureId": "debug-<issue-slug>",
   "workflowType": "debug",
   "createdAt": "ISO8601",
   "updatedAt": "ISO8601",
   "track": "hotfix | thorough",
-  "phase": "triage | investigate | rca | design | implement | validate | review | synthesize | completed",
+  "phase": "triage | investigate | rca | design | debug-implement | debug-validate | debug-review | hotfix-implement | hotfix-validate | synthesize | completed | cancelled | blocked",
 
   "urgency": {
     "level": "P0 | P1 | P2",
@@ -65,7 +65,7 @@ Debug workflows extend the standard workflow state with additional fields.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | string | Schema version, currently "1.0" |
+| `version` | string | Schema version, currently "1.1" |
 | `featureId` | string | Unique identifier, format: `debug-<issue-slug>` |
 | `workflowType` | string | Always "debug" for debug workflows |
 | `createdAt` | ISO8601 | When workflow was created |
@@ -77,8 +77,8 @@ Debug workflows extend the standard workflow state with additional fields.
 
 | Track    | Valid Phases                                                                          |
 |----------|-----------------------------------------------------------------------------------------|
-| Hotfix   | triage → investigate → implement → validate → completed                                 |
-| Thorough | triage → investigate → rca → design → implement → validate → review → synthesize → completed |
+| Hotfix   | triage → investigate → hotfix-implement → hotfix-validate → completed                                 |
+| Thorough | triage → investigate → rca → design → debug-implement → debug-validate → debug-review → synthesize → completed |
 
 Note: Thorough track may skip `rca` and `design` phases if root cause is straightforward.
 
@@ -181,11 +181,11 @@ Note: Thorough track may skip `rca` and `design` phases if root cause is straigh
 ### Hotfix Track
 
 ```text
-triage → investigate → implement → validate → completed
-   │          │            │           │          │
-   │          │            │           │          └─ Human checkpoint: merge
-   │          │            │           └─ Run smoke tests
-   │          │            └─ Apply minimal fix
+triage → investigate → hotfix-implement → hotfix-validate → completed
+   │          │               │                 │                │
+   │          │               │                 │                └─ Human checkpoint: merge
+   │          │               │                 └─ Run smoke tests
+   │          │               └─ Apply minimal fix
    │          └─ Find root cause (15 min max)
    └─ Gather context, select track
 ```
@@ -193,12 +193,12 @@ triage → investigate → implement → validate → completed
 ### Thorough Track
 
 ```text
-triage → investigate → rca → design → implement → review → synthesize → completed
-   │          │         │       │          │          │          │          │
-   │          │         │       │          │          │          │          └─ Merge
-   │          │         │       │          │          │          └─ Create PR
-   │          │         │       │          │          └─ Spec review
-   │          │         │       │          └─ TDD implementation
+triage → investigate → rca → design → debug-implement → debug-review → synthesize → completed
+   │          │         │       │            │                │              │          │
+   │          │         │       │            │                │              │          └─ Merge
+   │          │         │       │            │                │              └─ Create PR
+   │          │         │       │            │                └─ Spec review
+   │          │         │       │            └─ TDD implementation
    │          │         │       └─ Brief fix approach
    │          │         └─ Full RCA document
    │          └─ Systematic investigation
@@ -211,13 +211,13 @@ triage → investigate → rca → design → implement → review → synthesiz
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "featureId": "debug-login-500",
   "workflowType": "debug",
   "createdAt": "2026-01-27T10:00:00Z",
   "updatedAt": "2026-01-27T10:12:00Z",
   "track": "hotfix",
-  "phase": "implement",
+  "phase": "hotfix-implement",
   "urgency": {
     "level": "P0",
     "justification": "Production login broken"
@@ -253,7 +253,7 @@ triage → investigate → rca → design → implement → review → synthesiz
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "featureId": "debug-cart-total-wrong",
   "workflowType": "debug",
   "createdAt": "2026-01-26T14:00:00Z",

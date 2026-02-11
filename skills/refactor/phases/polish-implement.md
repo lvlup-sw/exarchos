@@ -309,7 +309,7 @@ Use mcp__exarchos__exarchos_workflow_set with featureId:
   phase: "plan"
 ```
 
-Next action: `AUTO:plan:<brief>`
+Next action: `AUTO:overhaul-plan`
 
 ## Anti-Patterns
 

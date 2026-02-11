@@ -324,7 +324,7 @@ Initialize refactor workflow using `mcp__exarchos__exarchos_workflow_init` with 
 Full state schema:
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "featureId": "refactor-<slug>",
   "workflowType": "refactor",
   "track": "polish | overhaul",
@@ -374,10 +374,10 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
-- `AUTO:refactor-implement` after brief
+- `AUTO:polish-implement` after brief
 - `AUTO:refactor-validate` after polish-implement
 - `AUTO:refactor-update-docs` after polish-validate
-- `WAIT:human-checkpoint:polish-complete` after polish-update-docs
+- `WAIT:human-checkpoint:polish-update-docs` after polish-update-docs
 
 ### Overhaul Auto-Chain
 
@@ -388,12 +388,12 @@ explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> ove
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
-- `AUTO:plan:<brief>` after brief
-- `AUTO:delegate:<plan>` after overhaul-plan
-- `AUTO:review:<path>` after overhaul-delegate
+- `AUTO:overhaul-plan` after brief
+- `AUTO:refactor-delegate` after overhaul-plan
+- `AUTO:refactor-review` after overhaul-delegate
 - `AUTO:refactor-update-docs` after overhaul-review
-- `AUTO:synthesize:<feature>` after overhaul-update-docs
-- `WAIT:human-checkpoint:overhaul-merge` after synthesize
+- `AUTO:refactor-synthesize` after overhaul-update-docs
+- `WAIT:human-checkpoint:synthesize` after synthesize
 
 ## Track Switching
 
@@ -451,16 +451,16 @@ Refactor phases map to auto-resume actions:
 | HSM Phase | Next Action |
 |-----------|-------------|
 | `explore` (completed) | `AUTO:refactor-brief` |
-| `brief` (completed, polish) | `AUTO:refactor-implement` |
-| `brief` (completed, overhaul) | `AUTO:plan:<brief>` |
+| `brief` (completed, polish) | `AUTO:polish-implement` |
+| `brief` (completed, overhaul) | `AUTO:overhaul-plan` |
 | `polish-implement` (completed) | `AUTO:refactor-validate` |
 | `polish-validate` (completed) | `AUTO:refactor-update-docs` |
-| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-complete` |
-| `overhaul-plan` (completed) | `AUTO:delegate:<plan>` |
-| `overhaul-delegate` (completed) | `AUTO:review:<path>` |
+| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-update-docs` |
+| `overhaul-plan` (completed) | `AUTO:refactor-delegate` |
+| `overhaul-delegate` (completed) | `AUTO:refactor-review` |
 | `overhaul-review` (completed) | `AUTO:refactor-update-docs` |
-| `overhaul-update-docs` (completed) | `AUTO:synthesize:<feature>` |
-| `synthesize` (completed) | `WAIT:human-checkpoint:overhaul-merge` |
+| `overhaul-update-docs` (completed) | `AUTO:refactor-synthesize` |
+| `synthesize` (completed) | `WAIT:human-checkpoint:synthesize` |
 
 ## Completion Criteria
 

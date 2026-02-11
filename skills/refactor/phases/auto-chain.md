@@ -41,7 +41,7 @@ Returns: AUTO:refactor-brief
 
 # After brief
 Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
-Returns: AUTO:refactor-implement
+Returns: AUTO:polish-implement
 
 # After implement
 Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
@@ -53,7 +53,7 @@ Returns: AUTO:refactor-update-docs
 
 # After update-docs
 Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
-Returns: WAIT:human-checkpoint:polish-complete
+Returns: WAIT:human-checkpoint:polish-update-docs
 ```
 
 ### Polish Checkpoint
@@ -108,7 +108,7 @@ Use `mcp__exarchos__exarchos_workflow_next_action` with the featureId after each
 Returns: AUTO:refactor-brief
 
 # After brief
-Returns: AUTO:refactor-plan
+Returns: AUTO:overhaul-plan
 
 # After plan
 Returns: AUTO:refactor-delegate
@@ -126,7 +126,7 @@ Returns: AUTO:refactor-delegate:--fixes
 Returns: AUTO:refactor-synthesize
 
 # After synthesize
-Returns: WAIT:human-checkpoint:overhaul-merge
+Returns: WAIT:human-checkpoint:synthesize
 ```
 
 ### Overhaul Checkpoint
@@ -175,7 +175,7 @@ updates: { "track": "overhaul" }
 
 # Next action returns
 Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
-Returns: AUTO:refactor-plan
+Returns: AUTO:overhaul-plan
 ```
 
 ## Failure Handling
@@ -235,12 +235,11 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 
 | Action | Skill Invocation |
 |--------|------------------|
-| AUTO:refactor-explore | Resume scope assessment (inline) |
 | AUTO:refactor-brief | Continue to brief capture (inline) |
-| AUTO:refactor-implement | Continue to implement phase (inline - orchestrator implements) |
+| AUTO:polish-implement | Continue to implement phase (inline - orchestrator implements) |
 | AUTO:refactor-validate | Continue to validate phase (inline) |
 | AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
-| AUTO:refactor-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
+| AUTO:overhaul-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
 | AUTO:refactor-delegate | `Skill({ skill: "delegate", args: "<state-file>" })` |
 | AUTO:refactor-delegate:--fixes | `Skill({ skill: "delegate", args: "--fixes <state-file>" })` |
 | AUTO:refactor-review | `Skill({ skill: "review", args: "<state-file>" })` |
