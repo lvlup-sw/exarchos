@@ -4,7 +4,6 @@ import type {
   SummaryInput,
   ReconcileInput,
   TransitionsInput,
-  CheckpointMeta,
   WorkflowState,
 } from './types.js';
 import { ErrorCode } from './schemas.js';
@@ -16,18 +15,9 @@ import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEvents } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
 import { getCircuitBreakerState } from './circuit-breaker.js';
-import { formatResult } from '../format.js';
+import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-
-// ─── Tool Result Interface ──────────────────────────────────────────────────
-
-export interface ToolResult {
-  readonly success: boolean;
-  readonly data?: unknown;
-  readonly error?: { code: string; message: string; validTargets?: readonly string[] };
-  readonly _meta?: CheckpointMeta;
-}
 
 // ─── Compound State Lookup ──────────────────────────────────────────────────
 

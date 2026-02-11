@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { formatResult } from '../format.js';
+import { formatResult, type ToolResult } from '../format.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -26,14 +26,6 @@ import {
   PIPELINE_VIEW,
 } from './pipeline-view.js';
 import type { PipelineViewState } from './pipeline-view.js';
-
-// ─── Tool Result Type ──────────────────────────────────────────────────────
-
-interface ToolResult {
-  success: boolean;
-  data?: unknown;
-  error?: { code: string; message: string };
-}
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
