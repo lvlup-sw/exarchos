@@ -12,11 +12,11 @@ import {
   handleSummary,
   handleReconcile,
   handleTransitions,
-  handleCancel,
   handleCheckpoint,
 } from './workflow/tools.js';
 import type { ToolResult } from './workflow/tools.js';
 import { handleNextAction } from './workflow/next-action.js';
+import { handleCancel } from './workflow/cancel.js';
 import {
   handleEventAppend,
   handleEventQuery,
