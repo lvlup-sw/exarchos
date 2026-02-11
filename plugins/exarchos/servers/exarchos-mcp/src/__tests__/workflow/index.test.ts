@@ -33,6 +33,23 @@ vi.mock('../../stack/tools.js', () => ({
   handleStackPlace: vi.fn().mockResolvedValue({ success: true, data: {} }),
 }));
 
+// Mock next-action handler (now in its own module)
+vi.mock('../../workflow/next-action.js', () => ({
+  handleNextAction: vi.fn().mockResolvedValue({ success: true, data: { action: 'DONE' } }),
+}));
+
+// Mock cancel handler (now in its own module)
+vi.mock('../../workflow/cancel.js', () => ({
+  handleCancel: vi.fn().mockResolvedValue({ success: true, data: {} }),
+}));
+
+// Mock query handlers (now in their own module)
+vi.mock('../../workflow/query.js', () => ({
+  handleSummary: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  handleReconcile: vi.fn().mockResolvedValue({ success: true, data: {} }),
+  handleTransitions: vi.fn().mockResolvedValue({ success: true, data: {} }),
+}));
+
 // Mock all tool handlers so we don't need real state files
 vi.mock('../../workflow/tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' } }),
@@ -54,13 +71,11 @@ import {
   handleList,
   handleGet,
   handleSet,
-  handleSummary,
-  handleReconcile,
-  handleNextAction,
-  handleTransitions,
-  handleCancel,
   handleCheckpoint,
 } from '../../workflow/tools.js';
+import { handleNextAction } from '../../workflow/next-action.js';
+import { handleCancel } from '../../workflow/cancel.js';
+import { handleSummary, handleReconcile, handleTransitions } from '../../workflow/query.js';
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -362,6 +377,17 @@ describe('MCP Server Entry Point', () => {
           handleTransitions: vi.fn(),
           handleCancel: vi.fn(),
           handleCheckpoint: vi.fn(),
+        }));
+        vi.doMock('../../workflow/next-action.js', () => ({
+          handleNextAction: vi.fn(),
+        }));
+        vi.doMock('../../workflow/cancel.js', () => ({
+          handleCancel: vi.fn(),
+        }));
+        vi.doMock('../../workflow/query.js', () => ({
+          handleSummary: vi.fn(),
+          handleReconcile: vi.fn(),
+          handleTransitions: vi.fn(),
         }));
         vi.doMock('../../stack/tools.js', () => ({
           handleStackStatus: vi.fn(),
