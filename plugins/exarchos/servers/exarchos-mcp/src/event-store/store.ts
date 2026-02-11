@@ -122,11 +122,16 @@ export class EventStore {
       // Append as JSONL
       await fs.appendFile(filePath, JSON.stringify(fullEvent) + '\n', 'utf-8');
 
-      // Write sequence counter atomically
+      // Write sequence counter atomically (best-effort: JSONL is source of truth)
       const seqPath = this.getSeqFilePath(streamId);
       const tmpPath = `${seqPath}.tmp`;
-      await fs.writeFile(tmpPath, JSON.stringify({ sequence }), 'utf-8');
-      await fs.rename(tmpPath, seqPath);
+      try {
+        await fs.writeFile(tmpPath, JSON.stringify({ sequence }), 'utf-8');
+        await fs.rename(tmpPath, seqPath);
+      } catch {
+        // Best-effort: JSONL is source of truth, .seq is just a cache
+        await fs.rm(tmpPath, { force: true }).catch(() => {});
+      }
 
       return fullEvent;
     });
