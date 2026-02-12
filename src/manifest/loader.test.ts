@@ -266,3 +266,66 @@ describe('Manifest Loader (A2)', () => {
     });
   });
 });
+
+// ─── E5: Real manifest.json tests ────────────────────────────────────────────
+
+describe('Real Manifest File (E5)', () => {
+  const repoRoot = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  const manifestPath = path.join(repoRoot, 'manifest.json');
+  const pkgPath = path.join(repoRoot, 'package.json');
+
+  it('manifest_Exists_IsValidJson', () => {
+    expect(fs.existsSync(manifestPath)).toBe(true);
+    const content = fs.readFileSync(manifestPath, 'utf-8');
+    expect(() => JSON.parse(content)).not.toThrow();
+  });
+
+  it('manifest_ContainsAllCoreComponents', () => {
+    const manifest = loadManifest(manifestPath);
+    const coreIds = manifest.components.core.map((c) => c.id);
+    expect(coreIds).toContain('commands');
+    expect(coreIds).toContain('skills');
+    expect(coreIds).toContain('scripts');
+  });
+
+  it('manifest_ContainsRequiredServers', () => {
+    const manifest = loadManifest(manifestPath);
+    const required = getRequiredComponents(manifest);
+    expect(required.servers).toContain('exarchos');
+    expect(required.servers).toContain('graphite');
+  });
+
+  it('manifest_ContainsAllPlugins', () => {
+    const manifest = loadManifest(manifestPath);
+    const pluginIds = manifest.components.plugins.map((p) => p.id);
+    expect(pluginIds).toContain('github@claude-plugins-official');
+    expect(pluginIds).toContain('serena@claude-plugins-official');
+    expect(pluginIds).toContain('context7@claude-plugins-official');
+  });
+
+  it('manifest_ContainsAllRuleSets', () => {
+    const manifest = loadManifest(manifestPath);
+    const ruleSetIds = manifest.components.ruleSets.map((r) => r.id);
+    expect(ruleSetIds).toContain('typescript');
+    expect(ruleSetIds).toContain('csharp');
+    expect(ruleSetIds).toContain('workflow');
+  });
+
+  it('manifest_RuleSetFiles_AllExist', () => {
+    const manifest = loadManifest(manifestPath);
+    const rulesDir = path.join(repoRoot, 'rules');
+
+    for (const ruleSet of manifest.components.ruleSets) {
+      for (const file of ruleSet.files) {
+        const filePath = path.join(rulesDir, file);
+        expect(fs.existsSync(filePath), `Rule file missing: ${file} (in ruleSet '${ruleSet.id}')`).toBe(true);
+      }
+    }
+  });
+
+  it('manifest_Version_MatchesPackageJson', () => {
+    const manifest = loadManifest(manifestPath);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    expect(manifest.version).toBe(pkg.version);
+  });
+});

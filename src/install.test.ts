@@ -32,7 +32,7 @@ describe('Project Configuration', () => {
     it('should have correct name and version', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
       expect(pkg.name).toBe('@lvlup-sw/exarchos');
-      expect(pkg.version).toBe('1.0.0');
+      expect(pkg.version).toBe('2.0.0');
     });
   });
 

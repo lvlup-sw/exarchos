@@ -1,6 +1,6 @@
 {
   "name": "@lvlup-sw/exarchos",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "CLI installer for Exarchos SDLC workflow automation",
   "type": "module",
   "bin": {
