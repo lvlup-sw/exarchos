@@ -384,6 +384,95 @@ describe('EventStore Query Pagination', () => {
   });
 });
 
+// ─── Streaming Query Optimization ───────────────────────────────────────────
+
+describe('EventStore Streaming Query', () => {
+  it('query_WithSinceSequence_ReturnsOnlyLaterEvents', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 10; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { sinceSequence: 7 });
+    expect(events).toHaveLength(3);
+    expect(events[0].sequence).toBe(8);
+    expect(events[1].sequence).toBe(9);
+    expect(events[2].sequence).toBe(10);
+  });
+
+  it('query_WithSinceSequenceAndLimit_CombinesFilters', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 10; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { sinceSequence: 5, limit: 2 });
+    expect(events).toHaveLength(2);
+    expect(events[0].sequence).toBe(6);
+    expect(events[1].sequence).toBe(7);
+  });
+
+  it('query_WithTypeFilterAndLimit_CombinesCorrectly', async () => {
+    const store = new EventStore(tempDir);
+    // Append mixed types
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+
+    const events = await store.query('my-workflow', { type: 'task.assigned', limit: 2 });
+    expect(events).toHaveLength(2);
+    expect(events.every(e => e.type === 'task.assigned')).toBe(true);
+    expect(events[0].sequence).toBe(2);
+    expect(events[1].sequence).toBe(4);
+  });
+
+  it('query_WithSinceSequenceAndTypeAndLimit_CombinesAllFilters', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+
+    // sinceSequence=3 means events 4,5,6; type=task.assigned filters to 4,6; limit=1 gives only 4
+    const events = await store.query('my-workflow', {
+      sinceSequence: 3,
+      type: 'task.assigned',
+      limit: 1,
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0].sequence).toBe(4);
+    expect(events[0].type).toBe('task.assigned');
+  });
+
+  it('query_WithOffsetAndLimit_InStreamingMode', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 10; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    // offset=3, limit=2 should return events at positions 4 and 5 (sequences 4,5)
+    const events = await store.query('my-workflow', { offset: 3, limit: 2 });
+    expect(events).toHaveLength(2);
+    expect(events[0].sequence).toBe(4);
+    expect(events[1].sequence).toBe(5);
+  });
+
+  it('query_EmptyFile_ReturnsEmpty', async () => {
+    const store = new EventStore(tempDir);
+    // Create an empty JSONL file
+    const filePath = path.join(tempDir, 'empty-stream.events.jsonl');
+    await fs.writeFile(filePath, '', 'utf-8');
+
+    const events = await store.query('empty-stream');
+    expect(events).toEqual([]);
+  });
+});
+
 // ─── B1: Persist Sequence Counters ──────────────────────────────────────────
 
 describe('EventStore Sequence Persistence', () => {
