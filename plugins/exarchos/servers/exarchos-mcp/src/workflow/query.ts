@@ -16,7 +16,7 @@ import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
 import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { formatResult, stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 
@@ -195,13 +195,15 @@ export async function handleTransitions(
 ): Promise<ToolResult> {
   const hsm = getHSMDefinition(input.workflowType);
 
-  // Build states list
-  const states = Object.values(hsm.states).map((s) => ({
-    id: s.id,
-    type: s.type,
-    parent: s.parent ?? null,
-    initial: s.initial ?? null,
-  }));
+  // Build states list (sparse: omit null/empty fields)
+  const states = Object.values(hsm.states).map((s) =>
+    stripNullish({
+      id: s.id,
+      type: s.type,
+      parent: s.parent ?? null,
+      initial: s.initial ?? null,
+    }),
+  );
 
   // Build transitions list, optionally filtered by fromPhase
   let transitions = hsm.transitions;
@@ -209,14 +211,16 @@ export async function handleTransitions(
     transitions = transitions.filter((t) => t.from === input.fromPhase);
   }
 
-  const transitionData = transitions.map((t) => ({
-    from: t.from,
-    to: t.to,
-    guardDescription: t.guard?.description ?? null,
-    guardId: t.guard?.id ?? null,
-    isFixCycle: t.isFixCycle ?? false,
-    effects: t.effects ?? [],
-  }));
+  const transitionData = transitions.map((t) =>
+    stripNullish({
+      from: t.from,
+      to: t.to,
+      guardDescription: t.guard?.description ?? null,
+      guardId: t.guard?.id ?? null,
+      isFixCycle: t.isFixCycle ?? false,
+      effects: t.effects ?? [],
+    }),
+  );
 
   return {
     success: true,

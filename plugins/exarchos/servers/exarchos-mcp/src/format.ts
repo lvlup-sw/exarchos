@@ -28,6 +28,20 @@ export function formatResult(result: ToolResult) {
   };
 }
 
+/**
+ * Strip null, undefined, and empty-array values from a flat object.
+ * Preserves false, 0, and other falsy-but-meaningful values.
+ */
+export function stripNullish(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
 export function stubResult() {
   return formatResult({
     success: false,

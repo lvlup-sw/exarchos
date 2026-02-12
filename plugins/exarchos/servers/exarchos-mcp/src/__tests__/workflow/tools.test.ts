@@ -1158,6 +1158,98 @@ describe('Query Tools', () => {
   });
 });
 
+// ─── handleTransitions Sparse Responses ──────────────────────────────────────
+
+describe('handleTransitions sparse responses', () => {
+  it('handleTransitions_NoEffects_OmitsEffectsField', async () => {
+    // Arrange — get feature transitions, find one with no effects
+    const result = await handleTransitions({ workflowType: 'feature' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    const data = result.data as Record<string, unknown>;
+    const transitions = data.transitions as Array<Record<string, unknown>>;
+
+    // Act — find a transition that should have empty effects (e.g. ideate->plan)
+    const ideateToPlan = transitions.find(
+      (t) => t.from === 'ideate' && t.to === 'plan',
+    );
+
+    // Assert — the transition object should NOT have an `effects` key at all
+    expect(ideateToPlan).toBeDefined();
+    expect('effects' in ideateToPlan!).toBe(false);
+  });
+
+  it('handleTransitions_IsFixCycleFalse_StillPresent', async () => {
+    // Arrange — get feature transitions
+    const result = await handleTransitions({ workflowType: 'feature' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    const data = result.data as Record<string, unknown>;
+    const transitions = data.transitions as Array<Record<string, unknown>>;
+
+    // Act — find a non-fix-cycle transition (most of them)
+    const ideateToPlan = transitions.find(
+      (t) => t.from === 'ideate' && t.to === 'plan',
+    );
+
+    // Assert — isFixCycle: false should still be present (it's a meaningful boolean)
+    expect(ideateToPlan).toBeDefined();
+    expect('isFixCycle' in ideateToPlan!).toBe(true);
+    expect(ideateToPlan!.isFixCycle).toBe(false);
+  });
+
+  it('handleTransitions_WithEffects_KeepsEffectsField', async () => {
+    // Arrange — get feature transitions
+    const result = await handleTransitions({ workflowType: 'feature' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    const data = result.data as Record<string, unknown>;
+    const transitions = data.transitions as Array<Record<string, unknown>>;
+
+    // Act — find the review->delegate fix-cycle transition which has effects
+    const fixCycle = transitions.find(
+      (t) => t.from === 'review' && t.to === 'delegate' && t.isFixCycle === true,
+    );
+
+    // Assert — effects should be present when non-empty
+    expect(fixCycle).toBeDefined();
+    expect('effects' in fixCycle!).toBe(true);
+    expect(fixCycle!.effects).toEqual(['increment-fix-cycle']);
+  });
+
+  it('handleTransitions_NullParent_OmitsParentField', async () => {
+    // Arrange — get feature states, find one with no parent (like ideate)
+    const result = await handleTransitions({ workflowType: 'feature' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    const data = result.data as Record<string, unknown>;
+    const states = data.states as Array<Record<string, unknown>>;
+
+    // Act — find a state that has no parent (top-level atomic states like 'ideate')
+    const ideateState = states.find((s) => s.id === 'ideate');
+
+    // Assert — the state object should NOT have a `parent` key
+    expect(ideateState).toBeDefined();
+    expect('parent' in ideateState!).toBe(false);
+  });
+
+  it('handleTransitions_NullInitial_OmitsInitialField', async () => {
+    // Arrange — get feature states, find an atomic state (no initial sub-state)
+    const result = await handleTransitions({ workflowType: 'feature' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    const data = result.data as Record<string, unknown>;
+    const states = data.states as Array<Record<string, unknown>>;
+
+    // Act — find an atomic state (should not have 'initial')
+    const ideateState = states.find((s) => s.id === 'ideate');
+
+    // Assert — atomic state should NOT have `initial` key
+    expect(ideateState).toBeDefined();
+    expect('initial' in ideateState!).toBe(false);
+  });
+});
+
 // ─── Integration Tests for Bug Fixes ────────────────────────────────────────
 
 describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
@@ -1736,6 +1828,68 @@ describe('External Event Store Bridge', () => {
     expect(events.length).toBe(1);
     expect((events[0].data as Record<string, unknown>)?.phase).toBe('ideate');
     expect((events[0].data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
+  });
+});
+
+// ─── Guaranteed Event Append (Task 9) ──────────────────────────────────────
+
+describe('Guaranteed Event Append', () => {
+  it('handleSet_EventAppendFails_ReturnsError', async () => {
+    // Arrange — create a mock EventStore whose append method throws
+    const eventStore = new EventStore(tmpDir);
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Disk full'),
+    );
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'event-fail', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'event-fail', updates: { 'artifacts.design': 'docs/test.md' } },
+      tmpDir,
+    );
+
+    // Act — attempt a phase transition that triggers event append
+    const result = await handleSet(
+      { featureId: 'event-fail', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert — should return error with EVENT_APPEND_FAILED code
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Disk full');
+
+    // State should NOT have been mutated (event-first guarantee)
+    const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
+    expect(state.phase).toBe('ideate');
+
+    appendSpy.mockRestore();
+  });
+
+  it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
+    // Arrange — create a mock EventStore whose append method throws
+    const eventStore = new EventStore(tmpDir);
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Permission denied'),
+    );
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ckpt-event-fail', workflowType: 'feature' }, tmpDir);
+
+    // Act — attempt a checkpoint that triggers event append
+    const result = await handleCheckpoint(
+      { featureId: 'ckpt-event-fail', summary: 'test' },
+      tmpDir,
+    );
+
+    // Assert — should return error with EVENT_APPEND_FAILED code
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Permission denied');
+
+    appendSpy.mockRestore();
   });
 });
 

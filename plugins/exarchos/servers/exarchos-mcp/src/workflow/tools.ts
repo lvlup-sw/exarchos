@@ -260,7 +260,7 @@ export async function handleSet(
     }
 
     if (!result.idempotent && result.newPhase) {
-      // Event-first: emit to external event store BEFORE mutating state (best-effort)
+      // Event-first: emit to external event store BEFORE mutating state (guaranteed)
       if (moduleEventStore) {
         try {
           for (const transitionEvent of result.events) {
@@ -275,8 +275,14 @@ export async function handleSet(
               },
             });
           }
-        } catch {
-          // External store is supplementary; JSONL append failure must not break workflow
+        } catch (err) {
+          return {
+            success: false,
+            error: {
+              code: ErrorCode.EVENT_APPEND_FAILED,
+              message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          };
         }
       }
 
@@ -359,7 +365,7 @@ export async function handleCheckpoint(
     input.summary,
   );
 
-  // Emit checkpoint event to external store (event-first, best-effort)
+  // Emit checkpoint event to external store (event-first, guaranteed)
   if (moduleEventStore) {
     try {
       await moduleEventStore.append(input.featureId, {
@@ -370,8 +376,14 @@ export async function handleCheckpoint(
           featureId: input.featureId,
         },
       });
-    } catch {
-      // External store is supplementary; JSONL append failure must not break workflow
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
     }
   }
 
