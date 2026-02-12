@@ -395,6 +395,106 @@ describe('handleViewPipeline', () => {
     expect(workflows).toHaveLength(0);
   });
 
+  it('handleViewPipeline_WithLimit_ReturnsLimitedWorkflows', async () => {
+    // Arrange: create 3 event streams
+    await store.append('wf-p1', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-1', workflowType: 'feature' },
+    });
+    await store.append('wf-p2', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-2', workflowType: 'feature' },
+    });
+    await store.append('wf-p3', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-3', workflowType: 'debug' },
+    });
+
+    // Act: query with limit=2
+    const result = await handleViewPipeline({ limit: 2 }, tempDir);
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(2);
+  });
+
+  it('handleViewPipeline_WithOffset_SkipsWorkflows', async () => {
+    // Arrange: create 3 event streams
+    await store.append('wf-p1', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-1', workflowType: 'feature' },
+    });
+    await store.append('wf-p2', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-2', workflowType: 'feature' },
+    });
+    await store.append('wf-p3', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-3', workflowType: 'debug' },
+    });
+
+    // Act: query with offset=1
+    const result = await handleViewPipeline({ offset: 1 }, tempDir);
+
+    // Assert: should skip first, return 2
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(2);
+  });
+
+  it('handleViewPipeline_WithLimitAndOffset_ReturnsSlice', async () => {
+    // Arrange: create 3 event streams
+    await store.append('wf-p1', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-1', workflowType: 'feature' },
+    });
+    await store.append('wf-p2', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-2', workflowType: 'feature' },
+    });
+    await store.append('wf-p3', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-3', workflowType: 'debug' },
+    });
+
+    // Act: query with limit=1, offset=1
+    const result = await handleViewPipeline({ limit: 1, offset: 1 }, tempDir);
+
+    // Assert: should return exactly 1 (the second workflow)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(1);
+  });
+
+  it('handleViewPipeline_NoParams_ReturnsAll', async () => {
+    // Arrange: create 3 event streams
+    await store.append('wf-p1', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-1', workflowType: 'feature' },
+    });
+    await store.append('wf-p2', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-2', workflowType: 'feature' },
+    });
+    await store.append('wf-p3', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-3', workflowType: 'debug' },
+    });
+
+    // Act: query with no params (existing behavior)
+    const result = await handleViewPipeline({}, tempDir);
+
+    // Assert: all 3 returned
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    expect(workflows).toHaveLength(3);
+  });
+
   it('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
     // Create an events file with uppercase characters in the name,
     // which will cause assertSafeId to throw in SnapshotStore

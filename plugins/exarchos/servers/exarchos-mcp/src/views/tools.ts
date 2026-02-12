@@ -224,7 +224,7 @@ export async function handleViewTasks(
 // ─── View Pipeline Handler ─────────────────────────────────────────────────
 
 export async function handleViewPipeline(
-  args: Record<string, unknown>,
+  args: { limit?: number; offset?: number },
   stateDir: string,
 ): Promise<ToolResult> {
   try {
@@ -246,7 +246,12 @@ export async function handleViewPipeline(
       workflows.push(view);
     }
 
-    return { success: true, data: { workflows } };
+    // Apply pagination
+    const start = args.offset ?? 0;
+    const end = args.limit !== undefined ? start + args.limit : undefined;
+    const paginated = workflows.slice(start, end);
+
+    return { success: true, data: { workflows: paginated } };
   } catch (err) {
     return {
       success: false,
@@ -265,7 +270,10 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
   server.tool(
     'exarchos_view_pipeline',
     'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',
-    {},
+    {
+      limit: z.number().int().positive().optional(),
+      offset: z.number().int().nonnegative().optional(),
+    },
     async (args) => formatResult(await handleViewPipeline(args, stateDir)),
   );
 
