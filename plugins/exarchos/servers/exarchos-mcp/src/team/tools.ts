@@ -285,10 +285,8 @@ export async function handleTeamStatus(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerTeamTools(server: McpServer, stateDir: string, eventStore?: EventStore): void {
-  if (eventStore) {
-    moduleEventStore = eventStore;
-  }
+export function registerTeamTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
+  moduleEventStore = eventStore;
   server.tool(
     'exarchos_team_spawn',
     'Spawn a new team member agent with a role assignment',
