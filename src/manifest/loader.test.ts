@@ -15,7 +15,7 @@ import {
   getDefaultSelections,
   getRequiredComponents,
 } from './loader.js';
-import type { WizardSelections } from './loader.js';
+import type { WizardSelections } from '../operations/config.js';
 
 // ─── A1: Type definition tests ───────────────────────────────────────────────
 
@@ -286,6 +286,7 @@ describe('Real Manifest File (E5)', () => {
     expect(coreIds).toContain('commands');
     expect(coreIds).toContain('skills');
     expect(coreIds).toContain('scripts');
+    expect(coreIds).toContain('hooks');
   });
 
   it('manifest_ContainsRequiredServers', () => {

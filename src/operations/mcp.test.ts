@@ -167,7 +167,7 @@ describe('MCP Config Management (C2)', () => {
 
       const entry = generateMcpEntry(server, 'node', claudeHome);
 
-      expect(entry.type).toBe('url');
+      expect(entry.type).toBe('http');
       expect(entry.url).toBe('https://learn.microsoft.com/api/mcp');
       expect(entry.command).toBeUndefined();
       expect(entry.args).toBeUndefined();

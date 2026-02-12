@@ -4,7 +4,8 @@
     "core": [
       { "id": "commands", "source": "commands", "target": "commands", "type": "directory" },
       { "id": "skills", "source": "skills", "target": "skills", "type": "directory" },
-      { "id": "scripts", "source": "scripts", "target": "scripts", "type": "directory" }
+      { "id": "scripts", "source": "scripts", "target": "scripts", "type": "directory" },
+      { "id": "hooks", "source": "hooks.json", "target": "hooks.json", "type": "file" }
     ],
     "mcpServers": [
       {

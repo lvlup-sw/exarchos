@@ -113,7 +113,7 @@ export function generateMcpEntry(
       };
     case 'remote':
       return {
-        type: 'url',
+        type: 'http',
         url: server.url!,
       };
   }
