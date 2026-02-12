@@ -197,16 +197,63 @@ const BaseWorkflowStateSchema = z.object({
 export const FeatureWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('feature'),
   phase: FeaturePhaseSchema,
+  // Guard-dependent fields (set during workflow, absent at init)
+  planReview: z.object({
+    approved: z.boolean().optional(),
+    gapsFound: z.boolean().optional(),
+  }).passthrough().optional(),
+  unblocked: z.boolean().optional(),
 });
 
 export const DebugWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('debug'),
   phase: DebugPhaseSchema,
+  // Guard-dependent fields (set during workflow, absent at init)
+  track: z.enum(['hotfix', 'thorough']).optional(),
+  triage: z.object({
+    symptom: z.string().optional(),
+    severity: z.string().optional(),
+    reproducible: z.boolean().optional(),
+  }).passthrough().optional(),
+  investigation: z.object({
+    rootCause: z.string().optional(),
+    findings: z.array(z.string()).optional(),
+  }).passthrough().optional(),
+  validation: z.object({
+    testsPass: z.boolean().optional(),
+    typecheckPass: z.boolean().optional(),
+  }).passthrough().optional(),
 });
 
 export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('refactor'),
   phase: RefactorPhaseSchema,
+  // Guard-dependent fields (set during workflow, absent at init)
+  track: z.enum(['polish', 'overhaul']).optional(),
+  explore: z.object({
+    startedAt: z.string().optional(),
+    completedAt: z.string().nullable().optional(),
+    scopeAssessment: z.object({
+      filesAffected: z.unknown().optional(),
+      modulesAffected: z.unknown().optional(),
+      testCoverage: z.string().optional(),
+      recommendedTrack: z.string().optional(),
+    }).passthrough().optional(),
+  }).passthrough().optional(),
+  brief: z.object({
+    problem: z.string().optional(),
+    goals: z.array(z.string()).optional(),
+    approach: z.string().optional(),
+    affectedAreas: z.array(z.string()).optional(),
+    outOfScope: z.array(z.string()).optional(),
+    docsToUpdate: z.array(z.string()).optional(),
+    successCriteria: z.array(z.string()).optional(),
+  }).passthrough().optional(),
+  validation: z.object({
+    testsPass: z.boolean().optional(),
+    typecheckPass: z.boolean().optional(),
+    docsUpdated: z.boolean().optional(),
+  }).passthrough().optional(),
 });
 
 // ─── Discriminated Union of All Workflow States ─────────────────────────────

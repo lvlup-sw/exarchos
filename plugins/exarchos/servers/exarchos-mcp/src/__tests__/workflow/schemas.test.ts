@@ -799,4 +799,201 @@ describe('Workflow State Schemas', () => {
       }
     });
   });
+
+  // ─── Guard-Dependent Field Schema Tests ───────────────────────────────────
+
+  describe('RefactorWorkflowStateSchema_GuardDependentFields', () => {
+    it('should include track field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'explore' as const,
+        track: 'polish' as const,
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      // After schema expansion, track should be a typed field (not just passthrough)
+      expect(result.track).toBe('polish');
+    });
+
+    it('should accept overhaul track value', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'brief' as const,
+        track: 'overhaul' as const,
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      expect(result.track).toBe('overhaul');
+    });
+
+    it('should allow track to be absent (optional)', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'explore' as const,
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      expect(result.track).toBeUndefined();
+    });
+
+    it('should include explore field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'explore' as const,
+        explore: {
+          startedAt: '2025-01-15T10:00:00Z',
+          completedAt: '2025-01-15T11:00:00Z',
+          scopeAssessment: {
+            filesAffected: ['src/a.ts', 'src/b.ts'],
+            recommendedTrack: 'polish',
+          },
+        },
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      expect(result.explore).toBeDefined();
+      expect(result.explore?.startedAt).toBe('2025-01-15T10:00:00Z');
+      expect(result.explore?.scopeAssessment?.recommendedTrack).toBe('polish');
+    });
+
+    it('should include brief field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'brief' as const,
+        track: 'polish' as const,
+        brief: {
+          problem: 'Code duplication in state module',
+          goals: ['Extract shared helpers', 'Reduce LOC by 20%'],
+          approach: 'Extract-and-inline refactor',
+        },
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      expect(result.brief).toBeDefined();
+      expect(result.brief?.problem).toBe('Code duplication in state module');
+      expect(result.brief?.goals).toHaveLength(2);
+    });
+
+    it('should include validation field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'refactor' as const,
+        phase: 'polish-validate' as const,
+        track: 'polish' as const,
+        validation: {
+          testsPass: true,
+          typecheckPass: true,
+          docsUpdated: false,
+        },
+      };
+      const result = RefactorWorkflowStateSchema.parse(state);
+      expect(result.validation).toBeDefined();
+      expect(result.validation?.testsPass).toBe(true);
+    });
+  });
+
+  describe('DebugWorkflowStateSchema_GuardDependentFields', () => {
+    it('should include track field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'debug' as const,
+        phase: 'investigate' as const,
+        track: 'hotfix' as const,
+      };
+      const result = DebugWorkflowStateSchema.parse(state);
+      expect(result.track).toBe('hotfix');
+    });
+
+    it('should accept thorough track value', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'debug' as const,
+        phase: 'investigate' as const,
+        track: 'thorough' as const,
+      };
+      const result = DebugWorkflowStateSchema.parse(state);
+      expect(result.track).toBe('thorough');
+    });
+
+    it('should include triage field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'debug' as const,
+        phase: 'triage' as const,
+        triage: {
+          symptom: 'Tests fail on CI',
+          severity: 'high',
+          reproducible: true,
+        },
+      };
+      const result = DebugWorkflowStateSchema.parse(state);
+      expect(result.triage).toBeDefined();
+      expect(result.triage?.symptom).toBe('Tests fail on CI');
+    });
+
+    it('should include investigation field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'debug' as const,
+        phase: 'rca' as const,
+        track: 'thorough' as const,
+        investigation: {
+          rootCause: 'Race condition in async handler',
+          findings: ['Timeout occurs under load'],
+        },
+      };
+      const result = DebugWorkflowStateSchema.parse(state);
+      expect(result.investigation).toBeDefined();
+      expect(result.investigation?.rootCause).toBe('Race condition in async handler');
+    });
+
+    it('should include validation field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        workflowType: 'debug' as const,
+        phase: 'hotfix-validate' as const,
+        track: 'hotfix' as const,
+        validation: {
+          testsPass: true,
+        },
+      };
+      const result = DebugWorkflowStateSchema.parse(state);
+      expect(result.validation).toBeDefined();
+      expect(result.validation?.testsPass).toBe(true);
+    });
+  });
+
+  describe('FeatureWorkflowStateSchema_GuardDependentFields', () => {
+    it('should include planReview field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        phase: 'plan-review' as const,
+        planReview: {
+          approved: true,
+          gapsFound: false,
+        },
+      };
+      const result = FeatureWorkflowStateSchema.parse(state);
+      expect(result.planReview).toBeDefined();
+      expect(result.planReview?.approved).toBe(true);
+      expect(result.planReview?.gapsFound).toBe(false);
+    });
+
+    it('should include unblocked field in typed parse result', () => {
+      const state = {
+        ...makeValidFeatureState(),
+        phase: 'blocked' as const,
+        unblocked: true,
+      };
+      const result = FeatureWorkflowStateSchema.parse(state);
+      expect(result.unblocked).toBe(true);
+    });
+
+    it('should allow planReview and unblocked to be absent', () => {
+      const state = makeValidFeatureState();
+      const result = FeatureWorkflowStateSchema.parse(state);
+      expect(result.planReview).toBeUndefined();
+      expect(result.unblocked).toBeUndefined();
+    });
+  });
 });
