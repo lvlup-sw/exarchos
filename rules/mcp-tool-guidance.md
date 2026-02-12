@@ -138,8 +138,8 @@ Stacked PR management and merge queue. **Use for all PR stacking and submission.
 
 | Instead of | Use |
 |------------|-----|
-| `git commit` + `git push` | `gt create -m "message"` then `gt submit --no-interactive` |
-| `gh pr create` | `gt submit --no-interactive` (creates stacked PRs automatically) |
+| `git commit` + `git push` | `gt create -m "message"` then `gt submit --no-interactive --publish --merge-when-ready` |
+| `gh pr create` | `gt submit --no-interactive --publish --merge-when-ready` (creates stacked PRs automatically) |
 | Manual rebasing | `gt restack` (rebases all PRs in the stack) |
 | `git checkout <branch>` | `gt checkout` (interactive branch selection) |
 
@@ -164,7 +164,7 @@ When deciding which tool to use:
 1. **Workflow tracking** — Always use Exarchos MCP for state, never manual JSON files
 2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
 3. **GitHub operations** — **Always use GitHub MCP tools** for ALL GitHub operations: PR reading/listing/searching (`pull_request_read`, `list_pull_requests`, `search_pull_requests`), issue operations (`issue_read`, `issue_write`, `search_issues`), commit history (`list_commits`, `get_commit`), and merging (`merge_pull_request`). NEVER use `gh pr view`, `gh pr list`, `gh pr checks`, `gh api`, or any `gh` subcommand when an MCP tool covers the operation
-4. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
+4. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive --publish --merge-when-ready`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
 5. **Library docs** — Use Context7 before web search for library documentation
 6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
 
@@ -174,7 +174,7 @@ When deciding which tool to use:
 |-------|------------|
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
-| Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive` for ALL PR creation |
+| Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive --publish --merge-when-ready` for ALL PR creation |
 | Use `gh pr view` | Use GitHub `pull_request_read` with method `get` |
 | Use `gh pr list` | Use GitHub `list_pull_requests` or `search_pull_requests` |
 | Use `gh pr diff` | Use GitHub `pull_request_read` with method `get_diff` |
@@ -188,7 +188,7 @@ When deciding which tool to use:
 | Manually edit workflow state JSON | Use `workflow_set` MCP tool |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
-| Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive` |
+| Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish --merge-when-ready` |
 | Use grep/rg to search code patterns | Use Serena `search_for_pattern` for regex search |
 | Use sed/awk for code replacement | Use Serena `replace_content` or `replace_symbol_body` |
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
