@@ -121,7 +121,7 @@ After completing each logical task within your assignment:
 3. Continue to the next task (you are now on a new branch stacked on the previous)
 
 After all tasks are complete:
-4. Submit the full stack: `gt submit --no-interactive --stack`
+4. Submit the full stack: `gt submit --no-interactive --publish --merge-when-ready --stack`
 
 **IMPORTANT:** When using Graphite, never use `git commit` or `git push`. Always use `gt create` and `gt submit`.
 

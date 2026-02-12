@@ -304,7 +304,7 @@ The `/synthesize` skill creates the PR via Graphite MCP:
 
 ```typescript
 // Submit the stack to create PRs
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
 ```
 
 Then update the PR description using GitHub MCP:

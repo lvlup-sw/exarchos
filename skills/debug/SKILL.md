@@ -312,7 +312,7 @@ Create PR via Graphite MCP:
 mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
 
 # Submit to create the PR
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive"], cwd: "<repo-root>" })
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
 ```
 
 Then update the PR description using GitHub MCP:
