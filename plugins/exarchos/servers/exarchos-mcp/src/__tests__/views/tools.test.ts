@@ -357,6 +357,119 @@ describe('handleViewTasks limit', () => {
   });
 });
 
+// ─── Task 002: handleViewTasks offset and fields projection ────────────────
+
+describe('handleViewTasks offset and fields', () => {
+  it('handleViewTasks_WithOffset_SkipsTasks', async () => {
+    // Arrange: create 3 tasks
+    await store.append('wf-offset', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-offset', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-offset', {
+      type: 'task.assigned',
+      data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
+    });
+
+    // Act: query with offset=1
+    const result = await handleViewTasks(
+      { workflowId: 'wf-offset', offset: 1 },
+      tempDir,
+    );
+
+    // Assert: should skip first, return 2
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(2);
+  });
+
+  it('handleViewTasks_WithFields_ReturnsOnlyRequestedFields', async () => {
+    // Arrange: create a task with multiple fields
+    await store.append('wf-fields', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1', worktree: '/tmp/wt1' },
+    });
+
+    // Act: query with fields=["taskId", "status"]
+    const result = await handleViewTasks(
+      { workflowId: 'wf-fields', fields: ['taskId', 'status'] },
+      tempDir,
+    );
+
+    // Assert: each result should only have taskId and status keys
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(1);
+    const keys = Object.keys(data[0]);
+    expect(keys).toEqual(expect.arrayContaining(['taskId', 'status']));
+    expect(keys).toHaveLength(2);
+    expect(data[0].taskId).toBe('t1');
+    expect(data[0].status).toBe('assigned');
+  });
+
+  it('handleViewTasks_WithFieldsAndFilter_AppliesBoth', async () => {
+    // Arrange: create tasks with different statuses
+    await store.append('wf-ff', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-ff', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-ff', {
+      type: 'task.completed',
+      data: { taskId: 't1', artifacts: ['a.ts'], duration: 30 },
+    });
+
+    // Act: filter for completed, project to taskId + status
+    const result = await handleViewTasks(
+      { workflowId: 'wf-ff', filter: { status: 'completed' }, fields: ['taskId', 'status'] },
+      tempDir,
+    );
+
+    // Assert: only 1 completed task, only requested fields
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(1);
+    expect(data[0].taskId).toBe('t1');
+    expect(data[0].status).toBe('completed');
+    const keys = Object.keys(data[0]);
+    expect(keys).toHaveLength(2);
+  });
+
+  it('handleViewTasks_WithOffsetAndLimit_PaginatesCorrectly', async () => {
+    // Arrange: create 3 tasks
+    await store.append('wf-ol', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-ol', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-ol', {
+      type: 'task.assigned',
+      data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
+    });
+
+    // Act: offset=1, limit=1 — should return exactly the second task
+    const result = await handleViewTasks(
+      { workflowId: 'wf-ol', offset: 1, limit: 1 },
+      tempDir,
+    );
+
+    // Assert: exactly 1 task
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(1);
+  });
+});
+
 describe('handleViewPipeline', () => {
   it('should aggregate pipeline data across workflows', async () => {
     await populateWorkflow('wf-001');

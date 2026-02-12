@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { formatResult, pickFields, type ToolResult } from '../format.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -174,7 +174,13 @@ export async function handleViewTeamStatus(
 // ─── View Tasks Handler ────────────────────────────────────────────────────
 
 export async function handleViewTasks(
-  args: { workflowId?: string; filter?: Record<string, unknown>; limit?: number },
+  args: {
+    workflowId?: string;
+    filter?: Record<string, unknown>;
+    limit?: number;
+    offset?: number;
+    fields?: string[];
+  },
   stateDir: string,
 ): Promise<ToolResult> {
   try {
@@ -204,9 +210,22 @@ export async function handleViewTasks(
       });
     }
 
-    // Apply optional limit (after filter)
+    // Apply optional offset (before limit)
+    if (args.offset !== undefined) {
+      tasks = tasks.slice(args.offset);
+    }
+
+    // Apply optional limit (after filter and offset)
     if (args.limit !== undefined) {
       tasks = tasks.slice(0, args.limit);
+    }
+
+    // Apply optional fields projection
+    if (args.fields) {
+      const projected = tasks.map(
+        (t) => pickFields(t as unknown as Record<string, unknown>, args.fields!) as TaskDetail,
+      );
+      return { success: true, data: projected };
     }
 
     return { success: true, data: tasks };
@@ -279,11 +298,13 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
 
   server.tool(
     'exarchos_view_tasks',
-    'Get CQRS task detail view with optional filtering by workflowId and task properties, and optional limit',
+    'Get CQRS task detail view with optional filtering by workflowId and task properties, pagination, and field projection',
     {
       workflowId: z.string().optional(),
       filter: z.record(z.string(), z.unknown()).optional(),
       limit: z.number().int().positive().optional(),
+      offset: z.number().int().nonnegative().optional(),
+      fields: z.array(z.string()).optional(),
     },
     async (args) => formatResult(await handleViewTasks(args, stateDir)),
   );
