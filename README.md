@@ -17,7 +17,6 @@ The interactive wizard walks you through setup:
 ? MCP servers:            [Exarchos ✓] [Graphite ✓] [Microsoft Learn]
 ? Plugins:                [GitHub] [Serena] [Context7]
 ? Rule sets:              [TypeScript] [C#/.NET] [Workflow]
-? Model:                  Claude Opus 4.6 / Sonnet 4
 ? Proceed with install?   Yes
 ```
 

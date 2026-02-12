@@ -76,13 +76,7 @@ export async function runWizard(
   }));
   const selectedRuleSets = await prompts.multiselect('Rule sets:', ruleSetOptions);
 
-  // Step 5: Model
-  const selectedModel = await prompts.select('Model:', [
-    { label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
-    { label: 'Claude Sonnet 4', value: 'claude-sonnet-4-20250514' },
-  ]);
-
-  // Step 6: Confirmation
+  // Step 5: Confirmation
   await prompts.confirm('Proceed with installation?', true);
 
   // Merge required components with user selections
@@ -102,7 +96,7 @@ export async function runWizard(
       mcpServers,
       plugins,
       ruleSets: selectedRuleSets,
-      model: selectedModel,
+      model: defaults.model,
     },
   };
 }

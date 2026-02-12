@@ -113,13 +113,12 @@ function createTestManifest(): Manifest {
 describe('runWizard', () => {
   it('returns standard mode selections', async () => {
     const manifest = createTestManifest();
-    // Responses: mode, mcpServers, plugins, ruleSets, model, confirm
+    // Responses: mode, mcpServers, plugins, ruleSets, confirm
     const prompts = new MockPromptAdapter([
       'standard',                          // mode
       ['context7'],                         // optional mcpServers
       ['serena'],                           // optional plugins
       ['coding-standards', 'tdd'],          // ruleSets
-      'claude-opus-4-6',                    // model
       true,                                 // confirm
     ]);
 
@@ -138,14 +137,13 @@ describe('runWizard', () => {
       ['context7', 'microsoft-learn'],      // optional mcpServers
       ['serena', 'graphite'],               // optional plugins
       ['coding-standards', 'tdd', 'pr-descriptions'], // ruleSets
-      'claude-sonnet-4-20250514',           // model
       true,                                 // confirm
     ]);
 
     const result = await runWizard(manifest, prompts);
 
     expect(result.mode).toBe('dev');
-    expect(result.selections.model).toBe('claude-sonnet-4-20250514');
+    expect(result.selections.model).toBe('claude-opus-4-6');
   });
 
   it('always includes required servers regardless of selection', async () => {
@@ -156,7 +154,6 @@ describe('runWizard', () => {
       [],                                   // no optional mcpServers selected
       [],                                   // no optional plugins
       [],                                   // no ruleSets
-      'claude-opus-4-6',                    // model
       true,                                 // confirm
     ]);
 
@@ -175,7 +172,6 @@ describe('runWizard', () => {
       [],
       [],
       ['coding-standards', 'pr-descriptions'],
-      'claude-opus-4-6',
       true,
     ]);
 
@@ -186,20 +182,19 @@ describe('runWizard', () => {
     expect(result.selections.ruleSets).not.toContain('tdd');
   });
 
-  it('returns selected model ID', async () => {
+  it('uses manifest default model', async () => {
     const manifest = createTestManifest();
     const prompts = new MockPromptAdapter([
       'standard',
       [],
       [],
       [],
-      'claude-sonnet-4-20250514',
       true,
     ]);
 
     const result = await runWizard(manifest, prompts);
 
-    expect(result.selections.model).toBe('claude-sonnet-4-20250514');
+    expect(result.selections.model).toBe('claude-opus-4-6');
   });
 
   it('uses existing config as defaults', async () => {
@@ -224,7 +219,6 @@ describe('runWizard', () => {
       ['context7'],
       ['serena', 'graphite'],
       ['coding-standards'],
-      'claude-sonnet-4-20250514',
       true,
     ]);
 
