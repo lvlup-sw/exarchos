@@ -74,6 +74,18 @@ describe('handleTaskClaim', () => {
     expect(result.error?.message).toBe('agentId is required');
   });
 
+  it('success returns EventAck with only streamId, sequence, type keys', async () => {
+    const result = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    const keys = Object.keys(result.data as Record<string, unknown>).sort();
+    expect(keys).toEqual(['sequence', 'streamId', 'type']);
+  });
+
   it('store.append() failure returns CLAIM_FAILED error', async () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
@@ -169,6 +181,18 @@ describe('handleTaskComplete', () => {
     expect((events[0].data as Record<string, unknown>).duration).toBeUndefined();
   });
 
+  it('success returns EventAck with only streamId, sequence, type keys', async () => {
+    const result = await handleTaskComplete(
+      { taskId: 't1', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    const keys = Object.keys(result.data as Record<string, unknown>).sort();
+    expect(keys).toEqual(['sequence', 'streamId', 'type']);
+  });
+
   it('store.append() failure returns COMPLETE_FAILED error', async () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
@@ -253,6 +277,18 @@ describe('handleTaskFail', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toBe('streamId is required');
+  });
+
+  it('success returns EventAck with only streamId, sequence, type keys', async () => {
+    const result = await handleTaskFail(
+      { taskId: 't1', error: 'Compilation error', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    const keys = Object.keys(result.data as Record<string, unknown>).sort();
+    expect(keys).toEqual(['sequence', 'streamId', 'type']);
   });
 
   it('store.append() failure returns FAIL_FAILED error', async () => {
