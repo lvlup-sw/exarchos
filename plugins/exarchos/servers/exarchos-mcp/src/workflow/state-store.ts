@@ -83,7 +83,7 @@ export async function initStateFile(
   // Write atomically with exclusive flag (fails if file exists)
   // This avoids TOCTOU race condition — no separate existence check needed
   try {
-    await fs.writeFile(stateFile, JSON.stringify(state, null, 2), {
+    await fs.writeFile(stateFile, JSON.stringify(state), {
       encoding: 'utf-8',
       flag: 'wx', // exclusive create - fails with EEXIST if file exists
     });
@@ -173,7 +173,7 @@ export async function writeStateFile(
 
   const tmpPath = `${stateFile}.tmp.${process.pid}`;
   try {
-    await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+    await fs.writeFile(tmpPath, JSON.stringify(state), 'utf-8');
     await fs.rename(tmpPath, stateFile);
   } catch (err) {
     // Clean up temp file if rename failed

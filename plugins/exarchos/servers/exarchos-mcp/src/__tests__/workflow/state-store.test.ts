@@ -564,6 +564,27 @@ describe('State Store', () => {
     });
   });
 
+  describe('initStateFile_WritesCompactJson', () => {
+    it('should write compact (single-line) JSON to disk', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'compact-init', 'feature');
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      // Compact JSON has no internal newlines — entire file is a single line
+      expect(raw.split('\n').length).toBe(1);
+    });
+  });
+
+  describe('writeStateFile_WritesCompactJson', () => {
+    it('should write compact (single-line) JSON to disk', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'compact-write', 'feature');
+      const updatedState = { ...state, updatedAt: new Date().toISOString() };
+      await writeStateFile(stateFile, updatedState);
+
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      // Compact JSON has no internal newlines — entire file is a single line
+      expect(raw.split('\n').length).toBe(1);
+    });
+  });
+
   describe('readStateFile_MigrationFails_ThrowsStateCorrupt', () => {
     it('should throw STATE_CORRUPT when migration fails due to unknown version', async () => {
       const stateFile = path.join(tmpDir, 'bad-version.state.json');
