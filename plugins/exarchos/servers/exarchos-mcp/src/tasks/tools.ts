@@ -55,6 +55,21 @@ export async function handleTaskClaim(
   const store = getStore(stateDir);
 
   try {
+    // Guard: check if task is already claimed
+    const existingEvents = await store.query(args.streamId, { type: 'task.claimed' });
+    const alreadyClaimed = existingEvents.some(
+      (e) => (e.data as Record<string, unknown>)?.taskId === args.taskId,
+    );
+    if (alreadyClaimed) {
+      return {
+        success: false,
+        error: {
+          code: 'ALREADY_CLAIMED',
+          message: `Task '${args.taskId}' is already claimed`,
+        },
+      };
+    }
+
     const event = await store.append(args.streamId, {
       type: 'task.claimed',
       data: {

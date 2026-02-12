@@ -98,6 +98,54 @@ describe('handleTaskClaim', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CLAIM_FAILED');
   });
+
+  it('already claimed taskId rejects with ALREADY_CLAIMED error', async () => {
+    // First claim succeeds
+    const first = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(first.success).toBe(true);
+
+    // Second claim for the same taskId is rejected
+    const second = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-2', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(second.success).toBe(false);
+    expect(second.error?.code).toBe('ALREADY_CLAIMED');
+    expect(second.error?.message).toContain('t1');
+  });
+
+  it('different taskIds can be claimed independently', async () => {
+    const first = await handleTaskClaim(
+      { taskId: 'task-1', agentId: 'agent-1', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(first.success).toBe(true);
+
+    const second = await handleTaskClaim(
+      { taskId: 'task-2', agentId: 'agent-2', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(second.success).toBe(true);
+  });
+
+  it('same agent re-claiming same taskId rejects with ALREADY_CLAIMED', async () => {
+    const first = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(first.success).toBe(true);
+
+    // Even the same agent cannot re-claim
+    const second = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
+      tempDir,
+    );
+    expect(second.success).toBe(false);
+    expect(second.error?.code).toBe('ALREADY_CLAIMED');
+  });
 });
 
 describe('handleTaskComplete', () => {
