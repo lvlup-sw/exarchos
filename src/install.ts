@@ -317,9 +317,13 @@ async function installStandard(
   );
   for (const server of bundledServers) {
     const bundlePath = join(repoRoot, server.bundlePath!);
-    if (fs.existsSync(bundlePath)) {
-      installBundle(bundlePath, claudeHome);
+    if (!fs.existsSync(bundlePath)) {
+      throw new Error(
+        `MCP server bundle not found: ${bundlePath}\n` +
+        `Run 'npm run build' to generate the bundle before installing.`,
+      );
     }
+    installBundle(bundlePath, claudeHome);
   }
 
   // 4. Generate and write settings.json
@@ -394,11 +398,18 @@ async function installDev(
   // Override bundled servers to point to repo
   for (const server of manifest.components.mcpServers) {
     if (selections.mcpServers.includes(server.id)) {
-      if (server.type === 'bundled' && server.bundlePath) {
+      if (server.type === 'bundled') {
+        const entryPoint = server.devEntryPoint ?? server.bundlePath;
+        if (!entryPoint) {
+          throw new Error(`Bundled MCP server '${server.id}' has no devEntryPoint or bundlePath`);
+        }
         mcpServers[server.id] = {
           type: 'stdio',
           command: runtime,
-          args: ['run', join(repoRoot, server.bundlePath)],
+          args: ['run', join(repoRoot, entryPoint)],
+          env: {
+            WORKFLOW_STATE_DIR: join(claudeHome, 'workflow-state'),
+          },
         };
       } else {
         mcpServers[server.id] = generateMcpEntry(server, runtime, claudeHome);

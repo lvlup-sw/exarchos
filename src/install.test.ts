@@ -472,6 +472,7 @@ describe('Install Orchestrator (E3)', () => {
             id: 'exarchos', name: 'Exarchos',
             description: 'Workflow orchestration',
             required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
+            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
           },
           {
             id: 'graphite', name: 'Graphite',
@@ -571,6 +572,28 @@ describe('Install Orchestrator (E3)', () => {
 
     // Bundle should be installed
     expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(true);
+  });
+
+  it('install_StandardMode_ThrowsOnMissingBundle', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Remove the fake bundle file
+    rmSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await expect(install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    })).rejects.toThrow(/bundle not found/i);
   });
 
   it('install_StandardMode_GeneratesSettings', async () => {
@@ -698,11 +721,12 @@ describe('Install Orchestrator (E3)', () => {
     });
 
     const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
-    // In dev mode, exarchos MCP should point to repo's dist path
+    // In dev mode, exarchos MCP should point to repo's devEntryPoint path
     const exarchosEntry = config.mcpServers['exarchos'];
     expect(exarchosEntry).toBeDefined();
     const argsJoined = exarchosEntry.args.join(' ');
     expect(argsJoined).toContain(fakeRepoRoot);
+    expect(argsJoined).toContain('plugins/exarchos/servers/exarchos-mcp/dist/index.js');
   });
 
   it('install_DevMode_RecordsRepoPath', async () => {

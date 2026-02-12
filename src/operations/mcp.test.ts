@@ -30,7 +30,8 @@ describe('MCP Config Management (C2)', () => {
       description: 'Workflow state management',
       required: true,
       type: 'bundled',
-      bundlePath: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+      bundlePath: 'dist/exarchos-mcp.js',
+      devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
     };
   }
 
@@ -144,6 +145,27 @@ describe('MCP Config Management (C2)', () => {
 
       expect(entry.type).toBe('stdio');
       expect(entry.command).toBe('bun');
+      expect(entry.args).toEqual([
+        'run',
+        path.join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'),
+      ]);
+      expect(entry.env).toEqual({
+        WORKFLOW_STATE_DIR: path.join(claudeHome, 'workflow-state'),
+      });
+    });
+
+    it('generateMcpEntry_BundledServerNoBundlePath_FallsBackToIdBasedName', () => {
+      const server: McpServerComponent = {
+        id: 'exarchos',
+        name: 'Exarchos MCP',
+        description: 'Workflow state management',
+        required: true,
+        type: 'bundled',
+      };
+      const claudeHome = '/home/user/.claude';
+
+      const entry = generateMcpEntry(server, 'bun', claudeHome);
+
       expect(entry.args).toEqual([
         'run',
         path.join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'),

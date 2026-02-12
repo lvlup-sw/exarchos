@@ -51,7 +51,7 @@ Most of this repo is structured Markdown, not executable code:
 
 One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.json`, and test suite:
 
-- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `docs/workflow-state/`. Exposes 26 MCP tools via a per-module registration pattern.
+- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `~/.claude/workflow-state/` (configurable via `WORKFLOW_STATE_DIR` env var). Exposes 26 MCP tools via a per-module registration pattern.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
@@ -98,5 +98,5 @@ The main Claude Code session coordinates but does not write implementation code 
 - `docs/plans/` — TDD implementation plans
 - `docs/adrs/` — Architecture Decision Records
 - `docs/rca/` — Root Cause Analysis documents
-- `docs/workflow-state/` — Workflow state JSON files (gitignored)
+- `docs/workflow-state/` — Legacy workflow state location (gitignored, no longer default)
 - `docs/schemas/` — JSON schemas for state files

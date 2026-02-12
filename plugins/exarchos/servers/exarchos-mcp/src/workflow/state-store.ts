@@ -2,8 +2,8 @@ import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
 import { migrateState, CURRENT_VERSION } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import * as fs from 'node:fs/promises';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
 
@@ -361,15 +361,5 @@ export function resolveStateDir(): string {
   const envDir = process.env.WORKFLOW_STATE_DIR;
   if (envDir) return envDir;
 
-  // Try to find git root
-  try {
-    const gitRoot = execSync('git rev-parse --show-toplevel', {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
-    return path.join(gitRoot, 'docs', 'workflow-state');
-  } catch {
-    // Fallback to cwd-based path
-    return path.join(process.cwd(), 'docs', 'workflow-state');
-  }
+  return path.join(homedir(), '.claude', 'workflow-state');
 }

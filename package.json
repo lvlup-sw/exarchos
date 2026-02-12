@@ -30,7 +30,8 @@
     "!**/src"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && bun run build:mcp",
+    "build:mcp": "bun build plugins/exarchos/servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target bun --minify",
     "prepare": "npm run build",
     "test": "vitest",
     "test:run": "vitest run",

@@ -447,27 +447,18 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should fallback to cwd when git command fails', async () => {
+    it('should fallback to ~/.claude/workflow-state when env var is not set', async () => {
+      const { resolveStateDir } = await import('../../index.js');
+      const { homedir } = await import('node:os');
       const originalEnv = process.env.WORKFLOW_STATE_DIR;
-      vi.doMock('node:child_process', () => ({
-        execSync: vi.fn(() => { throw new Error('fatal: not a git repository'); }),
-      }));
       try {
         delete process.env.WORKFLOW_STATE_DIR;
-        vi.resetModules();
-        vi.doMock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
-          McpServer: vi.fn().mockImplementation(() => ({ tool: vi.fn(), connect: vi.fn().mockResolvedValue(undefined) })),
-        }));
-        vi.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({ StdioServerTransport: vi.fn() }));
-        const { resolveStateDir } = await import('../../index.js');
         const result = await resolveStateDir();
-        expect(result).toMatch(/docs[/\\]workflow-state$/);
-        expect(result).toBe(`${process.cwd()}/docs/workflow-state`);
+        const { join } = await import('node:path');
+        expect(result).toBe(join(homedir(), '.claude', 'workflow-state'));
       } finally {
         if (originalEnv === undefined) { delete process.env.WORKFLOW_STATE_DIR; }
         else { process.env.WORKFLOW_STATE_DIR = originalEnv; }
-        vi.doUnmock('node:child_process');
-        vi.resetModules();
       }
     });
   });

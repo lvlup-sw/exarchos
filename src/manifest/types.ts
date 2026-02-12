@@ -62,6 +62,8 @@ export interface McpServerComponent {
   readonly type: 'bundled' | 'external' | 'remote';
   /** Relative path to bundled server (type = 'bundled'). */
   readonly bundlePath?: string;
+  /** Relative path to the compiled entry point for dev mode (type = 'bundled'). */
+  readonly devEntryPoint?: string;
   /** Executable command to launch the server (type = 'external'). */
   readonly command?: string;
   /** Arguments passed to `command` (type = 'external'). */

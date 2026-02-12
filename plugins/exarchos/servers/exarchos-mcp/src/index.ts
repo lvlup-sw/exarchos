@@ -2,6 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { stubResult } from './format.js';
 import { registerWorkflowTools, configureWorkflowEventStore } from './workflow/tools.js';
@@ -61,13 +62,7 @@ export async function resolveStateDir(): Promise<string> {
     return process.env.WORKFLOW_STATE_DIR;
   }
 
-  try {
-    const { execSync } = await import('node:child_process');
-    const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
-    return path.join(gitRoot, 'docs', 'workflow-state');
-  } catch {
-    return path.join(process.cwd(), 'docs', 'workflow-state');
-  }
+  return path.join(homedir(), '.claude', 'workflow-state');
 }
 
 // ─── Main Entry Point ────────────────────────────────────────────────────────

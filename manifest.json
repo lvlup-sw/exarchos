@@ -14,7 +14,8 @@
         "description": "Workflow orchestration, event sourcing, team coordination",
         "required": true,
         "type": "bundled",
-        "bundlePath": "dist/exarchos-mcp.js"
+        "bundlePath": "dist/exarchos-mcp.js",
+        "devEntryPoint": "plugins/exarchos/servers/exarchos-mcp/dist/index.js"
       },
       {
         "id": "graphite",

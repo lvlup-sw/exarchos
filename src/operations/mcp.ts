@@ -98,11 +98,16 @@ export function generateMcpEntry(
 ): McpServerEntry {
   switch (server.type) {
     case 'bundled': {
-      const bundleFilename = `${server.id}-mcp.js`;
+      const bundleFilename = server.bundlePath
+        ? path.basename(server.bundlePath)
+        : `${server.id}-mcp.js`;
       return {
         type: 'stdio',
         command: runtime,
         args: ['run', path.join(claudeHome, 'mcp-servers', bundleFilename)],
+        env: {
+          WORKFLOW_STATE_DIR: path.join(claudeHome, 'workflow-state'),
+        },
       };
     }
     case 'external':

@@ -1,14 +1,7 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
 
-// Mock child_process at module level to intercept execSync used by resolveStateDir
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(() => {
-    throw new Error('fatal: not a git repository');
-  }),
-}));
-
-// Import AFTER mock is registered so the module picks up the mock
 import { resolveStateDir } from '../../workflow/state-store.js';
 
 describe('resolveStateDir fallback', () => {
@@ -22,14 +15,14 @@ describe('resolveStateDir fallback', () => {
     }
   });
 
-  it('should fall back to cwd-based path when git command fails', () => {
+  it('should fall back to ~/.claude/workflow-state when env var is not set', () => {
     delete process.env.WORKFLOW_STATE_DIR;
 
     const dir = resolveStateDir();
-    expect(dir).toBe(path.join(process.cwd(), 'docs', 'workflow-state'));
+    expect(dir).toBe(path.join(homedir(), '.claude', 'workflow-state'));
   });
 
-  it('should still prefer WORKFLOW_STATE_DIR env var even when git fails', () => {
+  it('should prefer WORKFLOW_STATE_DIR env var', () => {
     process.env.WORKFLOW_STATE_DIR = '/custom/state-dir';
 
     const dir = resolveStateDir();

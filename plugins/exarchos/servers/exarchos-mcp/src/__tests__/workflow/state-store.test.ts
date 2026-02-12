@@ -397,19 +397,14 @@ describe('State Store', () => {
     });
   });
 
-  describe('resolveStateDir_GitFails_FallsToCwd', () => {
-    it('should fall back to cwd-based path when git command fails', () => {
+  describe('resolveStateDir_NoEnv_FallsToClaudeHome', () => {
+    it('should fall back to ~/.claude/workflow-state when env var is not set', () => {
       const originalEnv = process.env.WORKFLOW_STATE_DIR;
       delete process.env.WORKFLOW_STATE_DIR;
 
-      // resolveStateDir uses execSync('git rev-parse --show-toplevel')
-      // When in a git repo, it returns the git root.
-      // We can verify the fallback behavior by testing with env var set to empty string
-      // then testing without env var — it should always end with docs/workflow-state
       try {
         const dir = resolveStateDir();
-        // Should resolve to some path ending with docs/workflow-state
-        expect(dir).toMatch(/docs[/\\]workflow-state$/);
+        expect(dir).toMatch(/\.claude[/\\]workflow-state$/);
       } finally {
         if (originalEnv !== undefined) {
           process.env.WORKFLOW_STATE_DIR = originalEnv;
