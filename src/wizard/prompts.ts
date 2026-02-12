@@ -2,9 +2,15 @@
  * Prompt adapter interface and implementations for the Exarchos installer wizard.
  *
  * Provides an abstract interface over interactive prompts so the wizard
- * can be tested with a mock adapter and run with different prompt
- * libraries (e.g., bun-promptx) at runtime.
+ * can be tested with a mock adapter and run with @inquirer/prompts at runtime.
  */
+
+import {
+  select as inquirerSelect,
+  checkbox as inquirerCheckbox,
+  confirm as inquirerConfirm,
+  input as inquirerInput,
+} from '@inquirer/prompts';
 
 /** A single option in a select prompt. */
 export interface SelectOption<T> {
@@ -38,6 +44,53 @@ export interface PromptAdapter {
   confirm(message: string, defaultValue?: boolean): Promise<boolean>;
   /** Show a free-text input prompt. */
   text(message: string, placeholder?: string): Promise<string>;
+}
+
+/**
+ * Interactive prompt adapter backed by @inquirer/prompts.
+ *
+ * Maps the PromptAdapter interface to @inquirer/prompts API calls,
+ * translating option shapes between the two formats.
+ */
+export class InquirerPromptAdapter implements PromptAdapter {
+  async select<T>(message: string, options: SelectOption<T>[]): Promise<T> {
+    return inquirerSelect<T>({
+      message,
+      choices: options.map((opt) => ({
+        name: opt.label,
+        value: opt.value,
+        description: opt.description,
+        disabled: opt.disabled,
+      })),
+    });
+  }
+
+  async multiselect<T>(message: string, options: MultiselectOption<T>[]): Promise<T[]> {
+    return inquirerCheckbox<T>({
+      message,
+      choices: options.map((opt) => ({
+        name: opt.label,
+        value: opt.value,
+        description: opt.description,
+        disabled: opt.disabled,
+        checked: opt.selected,
+      })),
+    });
+  }
+
+  async confirm(message: string, defaultValue?: boolean): Promise<boolean> {
+    return inquirerConfirm({
+      message,
+      default: defaultValue,
+    });
+  }
+
+  async text(message: string, placeholder?: string): Promise<string> {
+    return inquirerInput({
+      message,
+      default: placeholder,
+    });
+  }
 }
 
 /**
@@ -79,14 +132,10 @@ export class MockPromptAdapter implements PromptAdapter {
 }
 
 /**
- * Create a prompt adapter.
+ * Create an interactive prompt adapter for terminal use.
  *
- * Currently returns a MockPromptAdapter stub. The real prompt library
- * integration (e.g., bun-promptx) will be added when bun dependencies
- * are configured.
- *
- * @returns A prompt adapter instance.
+ * @returns An InquirerPromptAdapter instance.
  */
 export function createPromptAdapter(): PromptAdapter {
-  return new MockPromptAdapter([]);
+  return new InquirerPromptAdapter();
 }
