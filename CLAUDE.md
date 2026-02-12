@@ -65,7 +65,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation
 - `workflow/query.ts` — Summary, reconcile, and transitions handlers
 - `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools
-- `views/` — CQRS materializer (cached singleton per server lifecycle), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack)
+- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
 - `tasks/` — Task claim/complete/fail tools
 - `stack/` — Stack status/place tools
