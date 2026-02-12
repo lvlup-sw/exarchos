@@ -169,31 +169,35 @@ export async function handleCancel(
   mutableState._events = updatedEvents;
   mutableState._eventSequence = updatedSequence;
 
-  // Emit to external event store (alongside embedded _events for backward compat)
+  // Emit to external event store (best-effort — don't block state persistence)
   if (moduleEventStore) {
-    for (const transitionEvent of transitionResult.events) {
+    try {
+      for (const transitionEvent of transitionResult.events) {
+        await moduleEventStore.append(input.featureId, {
+          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+          data: {
+            from: transitionEvent.from,
+            to: transitionEvent.to,
+            trigger: transitionEvent.trigger,
+            featureId: input.featureId,
+            ...(transitionEvent.metadata ?? {}),
+          },
+        });
+      }
+      // Emit cancel event with distinct type and full metadata
       await moduleEventStore.append(input.featureId, {
-        type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
         data: {
-          from: transitionEvent.from,
-          to: transitionEvent.to,
-          trigger: transitionEvent.trigger,
+          from: currentPhase,
+          to: 'cancelled',
+          trigger: 'user-cancel',
           featureId: input.featureId,
-          ...(transitionEvent.metadata ?? {}),
+          ...cancelMetadata,
         },
       });
+    } catch {
+      // External store is supplementary; JSONL append failure must not break cancel
     }
-    // Emit cancel event with distinct type and full metadata
-    await moduleEventStore.append(input.featureId, {
-      type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
-      data: {
-        from: currentPhase,
-        to: 'cancelled',
-        trigger: 'user-cancel',
-        featureId: input.featureId,
-        ...cancelMetadata,
-      },
-    });
   }
 
   // Apply history updates from transition
