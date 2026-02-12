@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,7 @@ import { EventStore } from '../../event-store/store.js';
 import {
   handleStackStatus,
   handleStackPlace,
+  registerStackTools,
 } from '../../stack/tools.js';
 
 let tempDir: string;
@@ -275,5 +276,29 @@ describe('handleStackStatus error path', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATUS_FAILED');
     expect(result.error?.message).toBeDefined();
+  });
+});
+
+// ─── EventStore Consolidation ────────────────────────────────────────────────
+
+describe('registerStackTools', () => {
+  it('should accept eventStore parameter in registration', () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    expect(() => registerStackTools(mockServer, tempDir, store)).not.toThrow();
+    expect(registerStackTools.length).toBe(3);
+  });
+
+  it('should register handlers that use the provided EventStore', async () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerStackTools(mockServer, tempDir, store);
+
+    const result = await handleStackPlace(
+      { streamId: 'wf-consolidation', position: 1, taskId: 't1', branch: 'feature/t1' },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+
+    const events = await store.query('wf-consolidation', { type: 'stack.position-filled' });
+    expect(events).toHaveLength(1);
   });
 });

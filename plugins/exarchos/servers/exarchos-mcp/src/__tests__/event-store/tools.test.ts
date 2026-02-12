@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { handleEventAppend, handleEventQuery } from '../../event-store/tools.js';
+import { EventStore } from '../../event-store/store.js';
+import { handleEventAppend, handleEventQuery, registerEventTools } from '../../event-store/tools.js';
 
 let tempDir: string;
 
@@ -315,5 +316,31 @@ describe('handleEventQuery Pagination', () => {
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(3);
+  });
+});
+
+// ─── EventStore Consolidation ────────────────────────────────────────────────
+
+describe('registerEventTools', () => {
+  it('should accept eventStore parameter in registration', () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    const store = new EventStore(tempDir);
+    expect(() => registerEventTools(mockServer, tempDir, store)).not.toThrow();
+    expect(registerEventTools.length).toBe(3);
+  });
+
+  it('should register handlers that use the provided EventStore', async () => {
+    const store = new EventStore(tempDir);
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerEventTools(mockServer, tempDir, store);
+
+    const result = await handleEventAppend(
+      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test' } } },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+
+    const events = await store.query('wf-consolidation');
+    expect(events).toHaveLength(1);
   });
 });
