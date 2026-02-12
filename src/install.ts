@@ -585,7 +585,10 @@ export async function main(): Promise<void> {
 }
 
 // Run main only when executed directly
-if (process.argv[1] === __filename) {
+// Resolve symlinks for comparison — npx creates bin stub symlinks
+const resolvedArgv = fs.realpathSync(process.argv[1]);
+const resolvedFilename = fs.realpathSync(__filename);
+if (resolvedArgv === resolvedFilename) {
   main().catch((error: Error) => {
     console.error('Error:', error.message);
     process.exit(1);
