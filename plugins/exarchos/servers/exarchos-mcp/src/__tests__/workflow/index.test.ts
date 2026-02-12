@@ -147,7 +147,7 @@ vi.mock('../../event-store/tools.js', async () => {
   return {
     handleEventAppend: mockAppend,
     handleEventQuery: mockQuery,
-    registerEventTools: (server: unknown, stateDir: string) => {
+    registerEventTools: (server: unknown, stateDir: string, _eventStore?: unknown) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_event_append', 'Append an event to the event store with optional optimistic concurrency',
         { stream: z.string().min(1), event: z.record(z.string(), z.unknown()), expectedSequence: z.number().int().optional() },
@@ -199,7 +199,7 @@ vi.mock('../../team/tools.js', async () => {
   return {
     handleTeamSpawn: mockSpawn, handleTeamMessage: mockMessage,
     handleTeamBroadcast: mockBroadcast, handleTeamShutdown: mockShutdown, handleTeamStatus: mockStatus,
-    registerTeamTools: (server: unknown, stateDir: string) => {
+    registerTeamTools: (server: unknown, stateDir: string, _eventStore?: unknown) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_team_spawn', 'Spawn a new team member agent with a role assignment',
         { name: z.string().min(1), role: z.string().min(1), taskId: z.string().min(1), taskTitle: z.string().min(1), streamId: z.string().min(1), worktreePath: z.string().optional() },
@@ -227,7 +227,7 @@ vi.mock('../../tasks/tools.js', async () => {
   const mockFail = vi.fn().mockResolvedValue({ success: true, data: {} });
   return {
     handleTaskClaim: mockClaim, handleTaskComplete: mockComplete, handleTaskFail: mockFail,
-    registerTaskTools: (server: unknown, stateDir: string) => {
+    registerTaskTools: (server: unknown, stateDir: string, _eventStore?: unknown) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_task_claim', 'Claim a task for execution by an agent',
         { taskId: z.string().min(1), agentId: z.string().min(1), streamId: z.string().min(1) },
@@ -249,7 +249,7 @@ vi.mock('../../stack/tools.js', async () => {
   const mockStackPlace = vi.fn().mockResolvedValue({ success: true, data: {} });
   return {
     handleStackStatus: mockStackStatus, handleStackPlace: mockStackPlace,
-    registerStackTools: (server: unknown, stateDir: string) => {
+    registerStackTools: (server: unknown, stateDir: string, _eventStore?: unknown) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_stack_status', 'Get current stack positions from stack.position-filled events',
         { streamId: z.string().optional() },
