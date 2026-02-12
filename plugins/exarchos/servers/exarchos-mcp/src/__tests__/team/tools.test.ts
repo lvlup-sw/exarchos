@@ -10,12 +10,14 @@ import {
   handleTeamBroadcast,
   handleTeamShutdown,
   handleTeamStatus,
+  resetModuleEventStore,
 } from '../../team/tools.js';
 
 let tempDir: string;
 let store: EventStore;
 
 beforeEach(async () => {
+  resetModuleEventStore();
   tempDir = await mkdtemp(path.join(tmpdir(), 'team-tools-test-'));
   store = new EventStore(tempDir);
 });

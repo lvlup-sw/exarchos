@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { handleEventAppend, handleEventQuery } from '../../event-store/tools.js';
+import { EventStore } from '../../event-store/store.js';
+import { handleEventAppend, handleEventQuery, registerEventTools, resetModuleEventStore } from '../../event-store/tools.js';
 
 let tempDir: string;
 
 beforeEach(async () => {
+  resetModuleEventStore();
   tempDir = await mkdtemp(path.join(tmpdir(), 'event-tools-test-'));
 });
 
@@ -315,5 +317,52 @@ describe('handleEventQuery Pagination', () => {
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(3);
+  });
+});
+
+// ─── EventStore Consolidation ────────────────────────────────────────────────
+
+describe('registerEventTools', () => {
+  it('should accept eventStore parameter in registration', () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    const store = new EventStore(tempDir);
+    expect(() => registerEventTools(mockServer, tempDir, store)).not.toThrow();
+    expect(registerEventTools.length).toBe(3);
+  });
+
+  it('should register handlers that use the provided EventStore', async () => {
+    const store = new EventStore(tempDir);
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerEventTools(mockServer, tempDir, store);
+
+    const result = await handleEventAppend(
+      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test' } } },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+
+    const events = await store.query('wf-consolidation');
+    expect(events).toHaveLength(1);
+  });
+
+  it('getStore should cache singleton when moduleEventStore is null', async () => {
+    // Without registration, the first call to a handler should cache a new EventStore
+    // and subsequent calls should reuse it (no orphan instances)
+    const result1 = await handleEventAppend(
+      { stream: 'wf-cache-test', event: { type: 'workflow.started', data: { featureId: 'cache1' } } },
+      tempDir,
+    );
+    expect(result1.success).toBe(true);
+
+    const result2 = await handleEventAppend(
+      { stream: 'wf-cache-test', event: { type: 'team.formed', data: {} } },
+      tempDir,
+    );
+    expect(result2.success).toBe(true);
+
+    // Both events should be visible via query (same store instance)
+    const queryResult = await handleEventQuery({ stream: 'wf-cache-test' }, tempDir);
+    expect(queryResult.success).toBe(true);
+    expect(queryResult.data).toHaveLength(2);
   });
 });

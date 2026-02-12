@@ -49,6 +49,10 @@ function createMaterializer(stateDir: string): ViewMaterializer {
 // event replay. Cache entries are only invalidated when stateDir changes,
 // ensuring both instances remain valid for the active working directory.
 
+// ─── Module-Level EventStore (injected via registerViewTools) ────────────────
+
+let moduleEventStore: EventStore | null = null;
+
 let cachedMaterializer: ViewMaterializer | null = null;
 let cachedEventStore: EventStore | null = null;
 let cachedStateDir: string | null = null;
@@ -69,6 +73,9 @@ export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
 
 /** @internal Exported for testing only */
 export function getOrCreateEventStore(stateDir: string): EventStore {
+  if (moduleEventStore) {
+    return moduleEventStore;
+  }
   if (cachedEventStore && cachedStateDir === stateDir) {
     return cachedEventStore;
   }
@@ -86,6 +93,7 @@ export function resetMaterializerCache(): void {
   cachedMaterializer = null;
   cachedEventStore = null;
   cachedStateDir = null;
+  moduleEventStore = null;
 }
 
 // ─── Helper: discover all event stream files ───────────────────────────────
@@ -252,7 +260,8 @@ export async function handleViewPipeline(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerViewTools(server: McpServer, stateDir: string): void {
+export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
+  moduleEventStore = eventStore;
   server.tool(
     'exarchos_view_pipeline',
     'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',

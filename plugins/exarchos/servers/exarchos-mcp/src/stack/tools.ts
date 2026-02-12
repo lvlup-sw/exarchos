@@ -5,17 +5,20 @@ import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
-// ─── Shared Store Cache ────────────────────────────────────────────────────
+// ─── Module-Level EventStore (injected via registerStackTools) ───────────────
 
-const storeCache = new Map<string, EventStore>();
+let moduleEventStore: EventStore | null = null;
 
 function getStore(stateDir: string): EventStore {
-  let store = storeCache.get(stateDir);
-  if (!store) {
-    store = new EventStore(stateDir);
-    storeCache.set(stateDir, store);
+  if (!moduleEventStore) {
+    moduleEventStore = new EventStore(stateDir);
   }
-  return store;
+  return moduleEventStore;
+}
+
+/** For testing: reset the module-level EventStore */
+export function resetModuleEventStore(): void {
+  moduleEventStore = null;
 }
 
 // ─── Stack Position Type ───────────────────────────────────────────────────
@@ -139,7 +142,8 @@ export async function handleStackPlace(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerStackTools(server: McpServer, stateDir: string): void {
+export function registerStackTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
+  moduleEventStore = eventStore;
   server.tool(
     'exarchos_stack_status',
     'Get current stack positions from stack.position-filled events',

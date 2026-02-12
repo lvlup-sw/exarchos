@@ -4,18 +4,21 @@ import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
-// ─── Shared Store Instance Cache ────────────────────────────────────────────
+// ─── Module-Level EventStore (injected via registerEventTools) ───────────────
 
-const storeCache = new Map<string, EventStore>();
+let moduleEventStore: EventStore | null = null;
 
 /** Returns a cached EventStore instance for the given state directory, creating one if needed. */
 function getStore(stateDir: string): EventStore {
-  let store = storeCache.get(stateDir);
-  if (!store) {
-    store = new EventStore(stateDir);
-    storeCache.set(stateDir, store);
+  if (!moduleEventStore) {
+    moduleEventStore = new EventStore(stateDir);
   }
-  return store;
+  return moduleEventStore;
+}
+
+/** For testing: reset the module-level EventStore */
+export function resetModuleEventStore(): void {
+  moduleEventStore = null;
 }
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
@@ -134,7 +137,8 @@ export async function handleEventQuery(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerEventTools(server: McpServer, stateDir: string): void {
+export function registerEventTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
+  moduleEventStore = eventStore;
   server.tool(
     'exarchos_event_append',
     'Append an event to the event store with optional optimistic concurrency',
