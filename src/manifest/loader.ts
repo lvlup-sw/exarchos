@@ -11,23 +11,7 @@ import type {
   ManifestComponents,
   ManifestDefaults,
 } from './types.js';
-
-/**
- * User selections from the installation wizard.
- *
- * Captures which optional components the user chose to install
- * and their preferred model.
- */
-export interface WizardSelections {
-  /** IDs of selected MCP servers (excludes required servers). */
-  readonly mcpServers: string[];
-  /** IDs of selected plugins. */
-  readonly plugins: string[];
-  /** IDs of selected rule sets. */
-  readonly ruleSets: string[];
-  /** Selected Claude model identifier. */
-  readonly model: string;
-}
+import type { WizardSelections } from '../operations/config.js';
 
 /**
  * Load and validate a manifest file from disk.
