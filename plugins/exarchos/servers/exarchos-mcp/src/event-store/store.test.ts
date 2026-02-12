@@ -489,3 +489,85 @@ describe('EventStore Sequence Persistence', () => {
     expect(event.sequence).toBe(3);
   });
 });
+
+// ─── Archive: Event Log Archival ─────────────────────────────────────────────
+
+describe('EventStore Archive', () => {
+  it('archive_CompressesJsonlToGz', async () => {
+    const { gunzip } = await import('node:zlib');
+    const { promisify } = await import('node:util');
+    const gunzipAsync = promisify(gunzip);
+
+    const store = new EventStore(tempDir);
+
+    // Append several events
+    await store.append('my-workflow', { type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z' });
+    await store.append('my-workflow', { type: 'team.formed', timestamp: '2025-01-01T00:01:00.000Z' });
+    await store.append('my-workflow', { type: 'phase.transitioned', timestamp: '2025-01-01T00:02:00.000Z' });
+
+    // Capture original content before archiving
+    const jsonlPath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const originalContent = await fs.readFile(jsonlPath, 'utf-8');
+
+    // Archive
+    await store.archive('my-workflow');
+
+    // Verify .gz file exists
+    const gzPath = path.join(tempDir, 'my-workflow.events.jsonl.gz');
+    await expect(fs.access(gzPath)).resolves.toBeUndefined();
+
+    // Decompress and verify content matches original JSONL
+    const compressed = await fs.readFile(gzPath);
+    const decompressed = await gunzipAsync(compressed);
+    expect(decompressed.toString('utf-8')).toBe(originalContent);
+  });
+
+  it('archive_RemovesOriginalJsonl', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'team.formed' });
+
+    await store.archive('my-workflow');
+
+    // Original JSONL should be gone
+    const jsonlPath = path.join(tempDir, 'my-workflow.events.jsonl');
+    await expect(fs.access(jsonlPath)).rejects.toThrow();
+  });
+
+  it('archive_RemovesSeqFile', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+
+    // Verify .seq exists before archive
+    const seqPath = path.join(tempDir, 'my-workflow.seq');
+    await expect(fs.access(seqPath)).resolves.toBeUndefined();
+
+    await store.archive('my-workflow');
+
+    // .seq file should be gone
+    await expect(fs.access(seqPath)).rejects.toThrow();
+  });
+
+  it('archive_NonexistentStream_NoError', async () => {
+    const store = new EventStore(tempDir);
+
+    // Should NOT throw for a stream that doesn't exist
+    await expect(store.archive('nonexistent')).resolves.toBeUndefined();
+  });
+
+  it('archive_AlreadyArchived_Idempotent', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+
+    // Archive twice
+    await store.archive('my-workflow');
+    await expect(store.archive('my-workflow')).resolves.toBeUndefined();
+
+    // .gz should still exist from first archive
+    const gzPath = path.join(tempDir, 'my-workflow.events.jsonl.gz');
+    await expect(fs.access(gzPath)).resolves.toBeUndefined();
+  });
+});
