@@ -10,7 +10,15 @@ let moduleEventStore: EventStore | null = null;
 
 /** Returns a cached EventStore instance for the given state directory, creating one if needed. */
 function getStore(stateDir: string): EventStore {
-  return moduleEventStore ?? new EventStore(stateDir);
+  if (!moduleEventStore) {
+    moduleEventStore = new EventStore(stateDir);
+  }
+  return moduleEventStore;
+}
+
+/** For testing: reset the module-level EventStore */
+export function resetModuleEventStore(): void {
+  moduleEventStore = null;
 }
 
 // ─── Event Append Handler ───────────────────────────────────────────────────

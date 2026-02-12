@@ -7,12 +7,14 @@ import {
   handleStackStatus,
   handleStackPlace,
   registerStackTools,
+  resetModuleEventStore,
 } from '../../stack/tools.js';
 
 let tempDir: string;
 let store: EventStore;
 
 beforeEach(async () => {
+  resetModuleEventStore();
   tempDir = await mkdtemp(path.join(tmpdir(), 'stack-tools-test-'));
   store = new EventStore(tempDir);
 });
@@ -300,5 +302,27 @@ describe('registerStackTools', () => {
 
     const events = await store.query('wf-consolidation', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
+  });
+
+  it('getStore should cache singleton when moduleEventStore is null', async () => {
+    // Without registration, the first handler call should cache a new EventStore
+    // and subsequent calls should reuse it (no orphan instances)
+    const result1 = await handleStackPlace(
+      { streamId: 'wf-cache-test', position: 1, taskId: 't1', branch: 'feat/t1' },
+      tempDir,
+    );
+    expect(result1.success).toBe(true);
+
+    const result2 = await handleStackPlace(
+      { streamId: 'wf-cache-test', position: 2, taskId: 't2', branch: 'feat/t2' },
+      tempDir,
+    );
+    expect(result2.success).toBe(true);
+
+    // Both events should be visible via status (same store instance)
+    const status = await handleStackStatus({ streamId: 'wf-cache-test' }, tempDir);
+    expect(status.success).toBe(true);
+    const positions = status.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(2);
   });
 });

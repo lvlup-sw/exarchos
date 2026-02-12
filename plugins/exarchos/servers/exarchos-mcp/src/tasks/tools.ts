@@ -10,7 +10,15 @@ import { formatResult, toEventAck, type ToolResult } from '../format.js';
 let moduleEventStore: EventStore | null = null;
 
 function getStore(stateDir: string): EventStore {
-  return moduleEventStore ?? new EventStore(stateDir);
+  if (!moduleEventStore) {
+    moduleEventStore = new EventStore(stateDir);
+  }
+  return moduleEventStore;
+}
+
+/** For testing: reset the module-level EventStore */
+export function resetModuleEventStore(): void {
+  moduleEventStore = null;
 }
 
 // ─── handleTaskClaim ──────────────────────────────────────────────────────

@@ -8,12 +8,14 @@ import {
   handleTaskComplete,
   handleTaskFail,
   registerTaskTools,
+  resetModuleEventStore,
 } from '../../tasks/tools.js';
 
 let tempDir: string;
 let store: EventStore;
 
 beforeEach(async () => {
+  resetModuleEventStore();
   tempDir = await mkdtemp(path.join(tmpdir(), 'task-tools-test-'));
   store = new EventStore(tempDir);
 });

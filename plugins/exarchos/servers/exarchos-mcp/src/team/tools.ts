@@ -13,7 +13,16 @@ let moduleEventStore: EventStore | null = null;
 const coordinatorCache = new Map<string, TeamCoordinator>();
 
 function getStore(stateDir: string): EventStore {
-  return moduleEventStore ?? new EventStore(stateDir);
+  if (!moduleEventStore) {
+    moduleEventStore = new EventStore(stateDir);
+  }
+  return moduleEventStore;
+}
+
+/** For testing: reset the module-level EventStore and coordinator cache */
+export function resetModuleEventStore(): void {
+  moduleEventStore = null;
+  coordinatorCache.clear();
 }
 
 function getCoordinator(stateDir: string): TeamCoordinator {

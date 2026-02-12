@@ -38,7 +38,7 @@ export function createServer(stateDir: string): McpServer {
   registerCancelTool(server, stateDir);
   registerQueryTools(server, stateDir);
   registerEventTools(server, stateDir, eventStore);
-  registerViewTools(server, stateDir);
+  registerViewTools(server, stateDir, eventStore);
   registerTeamTools(server, stateDir, eventStore);
   registerTaskTools(server, stateDir, eventStore);
   registerStackTools(server, stateDir, eventStore);

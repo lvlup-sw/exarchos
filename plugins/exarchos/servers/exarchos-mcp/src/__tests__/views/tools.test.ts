@@ -494,3 +494,34 @@ describe('ViewMaterializer Singleton Cache', () => {
     expect(materializer2).not.toBe(materializer1);
   });
 });
+
+// ─── EventStore Consolidation: 3-arg registration ───────────────────────────
+
+describe('registerViewTools', () => {
+  it('should accept eventStore parameter in registration', async () => {
+    const { registerViewTools } = await import('../../views/tools.js');
+    const { vi: viMock } = await import('vitest');
+    const mockServer = { tool: viMock.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    expect(() => registerViewTools(mockServer, tempDir, store)).not.toThrow();
+    expect(registerViewTools.length).toBe(3);
+  });
+
+  it('should use the injected EventStore for view materialization', async () => {
+    const { registerViewTools } = await import('../../views/tools.js');
+    const { vi: viMock } = await import('vitest');
+    const mockServer = { tool: viMock.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerViewTools(mockServer, tempDir, store);
+
+    // Populate via the injected store
+    await store.append('wf-view-test', {
+      type: 'workflow.started',
+      data: { featureId: 'view-consolidation', workflowType: 'feature' },
+    });
+
+    // The handler should see data from the injected store
+    const result = await handleViewWorkflowStatus({ workflowId: 'wf-view-test' }, tempDir);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.featureId).toBe('view-consolidation');
+  });
+});

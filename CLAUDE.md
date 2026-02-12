@@ -55,7 +55,7 @@ One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
-**Key modules** (each exports a `registerXTools(server, stateDir)` function):
+**Key modules** (each exports a `registerXTools(server, stateDir, eventStore)` function — workflow modules use a `configureXEventStore(eventStore)` + 2-arg registration pattern instead):
 
 - `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
 - `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
