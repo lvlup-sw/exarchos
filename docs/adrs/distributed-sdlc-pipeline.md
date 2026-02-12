@@ -230,7 +230,7 @@ All teammates and the lead access these tools via the shared MCP server instance
 |------|---------|--------|--------|
 | `exarchos_workflow_init` | Initialize a new workflow state file | Lead only | `workflow/tools.ts` |
 | `exarchos_workflow_list` | List all active workflow state files with staleness info | Any agent | `workflow/tools.ts` |
-| `exarchos_workflow_get` | Query state via dot-path or get full state | Any agent | `workflow/tools.ts` |
+| `exarchos_workflow_get` | Query state via dot-path, field projection, or get full state | Any agent | `workflow/tools.ts` |
 | `exarchos_workflow_set` | Update fields and/or transition phase (HSM-validated) | Lead only | `workflow/tools.ts` |
 | `exarchos_workflow_checkpoint` | Create explicit checkpoint, reset operation counter | Lead only | `workflow/tools.ts` |
 | `exarchos_workflow_summary` | Get structured summary of progress, events, circuit breaker | Any agent | `workflow/query.ts` |
@@ -244,7 +244,7 @@ All teammates and the lead access these tools via the shared MCP server instance
 | Tool | Purpose | Access | Module |
 |------|---------|--------|--------|
 | `exarchos_event_append` | Append event to workflow stream with optimistic concurrency | Any agent | `event-store/tools.ts` |
-| `exarchos_event_query` | Query events by stream, type, or time range | Any agent | `event-store/tools.ts` |
+| `exarchos_event_query` | Query events by stream, type, or time range with pagination (limit/offset) | Any agent | `event-store/tools.ts` |
 
 #### View Tools (4)
 
@@ -1866,6 +1866,7 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 | Phase 3: Materialized Views | **Complete** | CQRS views (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView), view materialization from event sequences, snapshot persistence |
 | Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery, event schema mapping, `sync_now` implementation, Task Router score-based routing |
 | Phase 5: Bidirectional Sync | **Planned** | Remote event polling, conflict resolution, cross-session coordination, dual-write mode, Agentic Coder container dispatching |
+| Optimization Sweep | **Complete** | EventStore consolidation, pagination, EventAck responses, guaranteed event-first ordering, field projection, compact JSON, event log archival |
 
 > **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool exists as a stub. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
 

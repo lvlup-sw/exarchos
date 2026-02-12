@@ -55,21 +55,21 @@ One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
-**Key modules** (each exports a `registerXTools(server, stateDir)` function):
+**Key modules** (each exports a `registerXTools(server, stateDir, eventStore)` function):
 
 - `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
 - `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
 - `workflow/hsm-definitions.ts` — HSM definitions for feature/debug/refactor workflows
-- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint). Emits transition events to external JSONL store. Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
+- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint). Emits transition events to external JSONL store with guaranteed event-first ordering. Supports field projection on `get` queries. Triggers event log archival on terminal phase transitions. Fast-path for simple queries (phase, featureId) skips full Zod validation.
 - `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation
 - `workflow/query.ts` — Summary, reconcile, and transitions handlers
-- `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools
+- `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization and gzip archival, append/query tools with pagination (limit/offset) and EventAck responses
 - `views/` — CQRS materializer (cached singleton per server lifecycle), 5 view types (pipeline, tasks, workflow status, team status, task detail)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
 - `tasks/` — Task claim/complete/fail tools
 - `stack/` — Stack status/place tools
-- `format.ts` — Canonical `ToolResult` interface (all modules import from here) and shared formatting helpers
+- `format.ts` — Canonical `ToolResult` interface, `EventAck` type, `toEventAck()` helper, and sparse response utilities (all modules import from here)
 
 ### Three Workflow Types
 
