@@ -51,3 +51,16 @@ export function stubResult() {
     error: { code: 'NOT_IMPLEMENTED', message: 'Coming soon' },
   });
 }
+
+// ─── Field Projection ──────────────────────────────────────────────────────
+
+/** Picks only the specified fields from an object, returning a partial copy. */
+export function pickFields<T extends Record<string, unknown>>(obj: T, fields: string[]): Partial<T> {
+  const result: Partial<T> = {};
+  for (const field of fields) {
+    if (field in obj) {
+      (result as Record<string, unknown>)[field] = obj[field];
+    }
+  }
+  return result;
+}
