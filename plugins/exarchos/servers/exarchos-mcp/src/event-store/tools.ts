@@ -89,6 +89,8 @@ export async function handleEventQuery(
   args: {
     stream?: string;
     filter?: Record<string, unknown>;
+    limit?: number;
+    offset?: number;
   },
   stateDir: string,
 ): Promise<ToolResult> {
@@ -101,12 +103,15 @@ export async function handleEventQuery(
 
   const store = getStore(stateDir);
 
-  const filters = args.filter
+  const hasFilterFields = args.filter || args.limit !== undefined || args.offset !== undefined;
+  const filters = hasFilterFields
     ? {
-        type: args.filter.type as string | undefined,
-        sinceSequence: args.filter.sinceSequence as number | undefined,
-        since: args.filter.since as string | undefined,
-        until: args.filter.until as string | undefined,
+        type: args.filter?.type as string | undefined,
+        sinceSequence: args.filter?.sinceSequence as number | undefined,
+        since: args.filter?.since as string | undefined,
+        until: args.filter?.until as string | undefined,
+        limit: args.limit,
+        offset: args.offset,
       }
     : undefined;
 
@@ -140,10 +145,12 @@ export function registerEventTools(server: McpServer, stateDir: string): void {
 
   server.tool(
     'exarchos_event_query',
-    'Query events from the event store with optional filters (type, sinceSequence, since, until)',
+    'Query events from the event store with optional filters (type, sinceSequence, since, until) and pagination (limit, offset)',
     {
       stream: z.string().min(1),
       filter: z.record(z.string(), z.unknown()).optional(),
+      limit: z.number().int().positive().optional(),
+      offset: z.number().int().nonnegative().optional(),
     },
     async (args) => formatResult(await handleEventQuery(args, stateDir)),
   );

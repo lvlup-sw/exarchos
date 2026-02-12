@@ -188,3 +188,55 @@ describe('handleEventQuery', () => {
     expect(result.error).toBeDefined();
   });
 });
+
+// ─── handleEventQuery Pagination ─────────────────────────────────────────────
+
+describe('handleEventQuery Pagination', () => {
+  it('handleEventQuery_WithLimit_PassesToStore', async () => {
+    for (let i = 0; i < 5; i++) {
+      await handleEventAppend(
+        { stream: 'my-workflow', event: { type: 'task.assigned' } },
+        tempDir,
+      );
+    }
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', limit: 2 },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+  });
+
+  it('handleEventQuery_WithOffset_PassesToStore', async () => {
+    for (let i = 0; i < 5; i++) {
+      await handleEventAppend(
+        { stream: 'my-workflow', event: { type: 'task.assigned' } },
+        tempDir,
+      );
+    }
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', offset: 3 },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+  });
+
+  it('handleEventQuery_WithLimitAndOffset_Combined', async () => {
+    for (let i = 0; i < 10; i++) {
+      await handleEventAppend(
+        { stream: 'my-workflow', event: { type: 'task.assigned' } },
+        tempDir,
+      );
+    }
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', limit: 3, offset: 2 },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(3);
+  });
+});
