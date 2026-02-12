@@ -38,6 +38,7 @@ export interface QueryFilters {
 
 const SAFE_STREAM_ID_PATTERN = /^[a-z0-9-]+$/;
 
+/** Validates that a stream ID matches the safe pattern (lowercase alphanumeric and hyphens). */
 function validateStreamId(streamId: string): void {
   if (!SAFE_STREAM_ID_PATTERN.test(streamId)) {
     throw new Error(
@@ -48,6 +49,10 @@ function validateStreamId(streamId: string): void {
 
 // ─── Pagination Helper ──────────────────────────────────────────────────────
 
+/**
+ * Applies offset/limit pagination to an array of items.
+ * Called after filtering; values are pre-validated by Zod schemas at the tool boundary.
+ */
 function applyPagination<T>(items: T[], offset?: number, limit?: number): T[] {
   const start = offset ?? 0;
   const end = limit !== undefined ? start + limit : undefined;

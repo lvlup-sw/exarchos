@@ -8,6 +8,7 @@ import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
 const storeCache = new Map<string, EventStore>();
 
+/** Returns a cached EventStore instance for the given state directory, creating one if needed. */
 function getStore(stateDir: string): EventStore {
   let store = storeCache.get(stateDir);
   if (!store) {
@@ -19,6 +20,7 @@ function getStore(stateDir: string): EventStore {
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
 
+/** Handles the event_append tool: validates input, appends an event to the store, and returns an EventAck. */
 export async function handleEventAppend(
   args: {
     stream: string;
@@ -85,6 +87,7 @@ export async function handleEventAppend(
 
 // ─── Event Query Handler ────────────────────────────────────────────────────
 
+/** Handles the event_query tool: validates input, queries events with optional filters and pagination. */
 export async function handleEventQuery(
   args: {
     stream?: string;

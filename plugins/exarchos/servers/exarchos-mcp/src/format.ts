@@ -15,12 +15,14 @@ export interface EventAck {
   readonly type: string;
 }
 
+/** Extracts a minimal acknowledgement (streamId, sequence, type) from a full event to reduce response payload size. */
 export function toEventAck(event: { streamId: string; sequence: number; type: string }): EventAck {
   return { streamId: event.streamId, sequence: event.sequence, type: event.type };
 }
 
 // ─── Result Formatting ──────────────────────────────────────────────────────
 
+/** Converts a ToolResult into the MCP content format expected by the SDK. */
 export function formatResult(result: ToolResult) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(result) }],
@@ -42,6 +44,7 @@ export function stripNullish(obj: Record<string, unknown>): Record<string, unkno
   return result;
 }
 
+/** Returns a NOT_IMPLEMENTED error result for placeholder tool registrations. */
 export function stubResult() {
   return formatResult({
     success: false,
