@@ -1822,3 +1822,100 @@ describe('Store-Based Event Consumers', () => {
     expect(recent[2].type).toBe('task.completed');
   });
 });
+
+// ─── Task 6: handleGet fields projection ─────────────────────────────────────
+
+describe('handleGet fields projection', () => {
+  it('handleGet_WithFields_ReturnsSingleField', async () => {
+    // Arrange
+    await handleInit({ featureId: 'fields-single', workflowType: 'feature' }, tmpDir);
+
+    // Act
+    const result = await handleGet(
+      { featureId: 'fields-single', fields: ['phase'] },
+      tmpDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(Object.keys(data)).toEqual(['phase']);
+    expect(data.phase).toBe('ideate');
+  });
+
+  it('handleGet_WithFields_ReturnsMultipleFields', async () => {
+    // Arrange
+    await handleInit({ featureId: 'fields-multi', workflowType: 'feature' }, tmpDir);
+
+    // Act
+    const result = await handleGet(
+      { featureId: 'fields-multi', fields: ['phase', 'featureId', 'workflowType'] },
+      tmpDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(Object.keys(data).sort()).toEqual(['featureId', 'phase', 'workflowType']);
+    expect(data.phase).toBe('ideate');
+    expect(data.featureId).toBe('fields-multi');
+    expect(data.workflowType).toBe('feature');
+  });
+
+  it('handleGet_WithFields_DotPathFieldsWork', async () => {
+    // Arrange
+    await handleInit({ featureId: 'fields-dot', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'fields-dot', updates: { 'artifacts.design': 'my-design.md' } },
+      tmpDir,
+    );
+
+    // Act
+    const result = await handleGet(
+      { featureId: 'fields-dot', fields: ['artifacts.design'] },
+      tmpDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['artifacts.design']).toBe('my-design.md');
+    expect(Object.keys(data)).toEqual(['artifacts.design']);
+  });
+
+  it('handleGet_WithFields_NonexistentFieldOmitted', async () => {
+    // Arrange
+    await handleInit({ featureId: 'fields-missing', workflowType: 'feature' }, tmpDir);
+
+    // Act
+    const result = await handleGet(
+      { featureId: 'fields-missing', fields: ['phase', 'nonexistent'] },
+      tmpDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(Object.keys(data)).toEqual(['phase']);
+    expect(data.phase).toBe('ideate');
+  });
+
+  it('handleGet_WithFields_InternalFieldsExcluded', async () => {
+    // Arrange
+    await handleInit({ featureId: 'fields-internal', workflowType: 'feature' }, tmpDir);
+
+    // Act
+    const result = await handleGet(
+      { featureId: 'fields-internal', fields: ['phase', '_history', '_events'] },
+      tmpDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(Object.keys(data)).toEqual(['phase']);
+    expect(data.phase).toBe('ideate');
+    expect(data._history).toBeUndefined();
+    expect(data._events).toBeUndefined();
+  });
+});

@@ -166,7 +166,7 @@ export async function handleViewTeamStatus(
 // ─── View Tasks Handler ────────────────────────────────────────────────────
 
 export async function handleViewTasks(
-  args: { workflowId?: string; filter?: Record<string, unknown> },
+  args: { workflowId?: string; filter?: Record<string, unknown>; limit?: number },
   stateDir: string,
 ): Promise<ToolResult> {
   try {
@@ -194,6 +194,11 @@ export async function handleViewTasks(
         }
         return true;
       });
+    }
+
+    // Apply optional limit (after filter)
+    if (args.limit !== undefined) {
+      tasks = tasks.slice(0, args.limit);
     }
 
     return { success: true, data: tasks };
@@ -257,10 +262,11 @@ export function registerViewTools(server: McpServer, stateDir: string): void {
 
   server.tool(
     'exarchos_view_tasks',
-    'Get CQRS task detail view with optional filtering by workflowId and task properties',
+    'Get CQRS task detail view with optional filtering by workflowId and task properties, and optional limit',
     {
       workflowId: z.string().optional(),
       filter: z.record(z.string(), z.unknown()).optional(),
+      limit: z.number().int().positive().optional(),
     },
     async (args) => formatResult(await handleViewTasks(args, stateDir)),
   );
