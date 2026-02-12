@@ -1,0 +1,30 @@
+name: Auto Update PR Branches
+on:
+  push:
+    branches: [main]
+
+jobs:
+  update-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pulls = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              base: 'main'
+            });
+            for (const pr of pulls.data) {
+              try {
+                await github.rest.pulls.updateBranch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number
+                });
+                console.log(`Updated PR #${pr.number}`);
+              } catch (e) {
+                console.log(`Skipped PR #${pr.number}: ${e.message}`);
+              }
+            }
