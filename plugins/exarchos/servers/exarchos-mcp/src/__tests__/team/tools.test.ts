@@ -385,4 +385,56 @@ describe('handleTeamStatus', () => {
     expect(data.activeCount).toBe(2);
     expect(data.staleCount).toBe(0);
   });
+
+  it('summary=true returns counts only without teammates array', async () => {
+    await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: 'Task 1', streamId: 'wf-001' },
+      tempDir,
+    );
+    await handleTeamSpawn(
+      { name: 'agent-2', role: 'reviewer', taskId: 't2', taskTitle: 'Task 2', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    const result = await handleTeamStatus({ summary: true }, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.activeCount).toBe(2);
+    expect(data.staleCount).toBe(0);
+    expect(data).not.toHaveProperty('teammates');
+  });
+
+  it('summary=false returns full teammates array', async () => {
+    await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: 'Task 1', streamId: 'wf-001' },
+      tempDir,
+    );
+    await handleTeamSpawn(
+      { name: 'agent-2', role: 'reviewer', taskId: 't2', taskTitle: 'Task 2', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    const result = await handleTeamStatus({ summary: false }, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { teammates: unknown[]; activeCount: number; staleCount: number };
+    expect(data.teammates).toHaveLength(2);
+    expect(data.activeCount).toBe(2);
+    expect(data.staleCount).toBe(0);
+  });
+
+  it('default (no summary param) returns full teammates array', async () => {
+    await handleTeamSpawn(
+      { name: 'agent-1', role: 'implementer', taskId: 't1', taskTitle: 'Task 1', streamId: 'wf-001' },
+      tempDir,
+    );
+
+    const result = await handleTeamStatus({}, tempDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { teammates: unknown[]; activeCount: number };
+    expect(data.teammates).toHaveLength(1);
+    expect(data).toHaveProperty('teammates');
+  });
 });
