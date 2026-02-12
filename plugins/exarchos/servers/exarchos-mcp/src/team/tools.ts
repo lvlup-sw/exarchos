@@ -273,13 +273,16 @@ export async function handleTeamShutdown(
 // ─── handleTeamStatus ─────────────────────────────────────────────────────
 
 export async function handleTeamStatus(
-  args: Record<string, unknown>,
+  args: { summary?: boolean },
   stateDir: string,
 ): Promise<ToolResult> {
   const coordinator = getCoordinator(stateDir);
 
   try {
     const status = coordinator.getStatus();
+    if (args.summary) {
+      return { success: true, data: { activeCount: status.activeCount, staleCount: status.staleCount } };
+    }
     return { success: true, data: status };
   } catch (err) {
     return {
@@ -347,7 +350,9 @@ export function registerTeamTools(server: McpServer, stateDir: string, eventStor
   server.tool(
     'exarchos_team_status',
     'Get status of all team members with health information',
-    {},
+    {
+      summary: z.boolean().optional().describe('When true, returns only activeCount and staleCount without full teammate details'),
+    },
     async (args) => formatResult(await handleTeamStatus(args, stateDir)),
   );
 }
