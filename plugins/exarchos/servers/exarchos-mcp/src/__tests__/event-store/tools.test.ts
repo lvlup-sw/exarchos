@@ -89,6 +89,83 @@ describe('handleEventAppend', () => {
     expect(result.data!.sequence).toBe(2);
   });
 
+  it('should return an EventAck with only streamId, sequence, type keys', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test-feature' },
+          correlationId: 'corr-1',
+          agentId: 'agent-1',
+        },
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+
+    // Ack should contain ONLY these three keys
+    const keys = Object.keys(result.data as Record<string, unknown>).sort();
+    expect(keys).toEqual(['sequence', 'streamId', 'type']);
+
+    // Must NOT contain full event fields
+    const data = result.data as Record<string, unknown>;
+    expect(data).not.toHaveProperty('correlationId');
+    expect(data).not.toHaveProperty('causationId');
+    expect(data).not.toHaveProperty('agentId');
+    expect(data).not.toHaveProperty('data');
+    expect(data).not.toHaveProperty('agentRole');
+    expect(data).not.toHaveProperty('source');
+    expect(data).not.toHaveProperty('timestamp');
+    expect(data).not.toHaveProperty('schemaVersion');
+  });
+
+  it('should return ack with correct streamId, sequence, and type values', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: { type: 'workflow.started' },
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    const ack = result.data as { streamId: string; sequence: number; type: string };
+    expect(ack.streamId).toBe('my-workflow');
+    expect(ack.sequence).toBe(1);
+    expect(ack.type).toBe('workflow.started');
+  });
+
+  it('should still persist full event to JSONL despite returning ack', async () => {
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test-feature' },
+          correlationId: 'corr-1',
+          agentId: 'agent-1',
+        },
+      },
+      tempDir,
+    );
+
+    // Query the store to verify the full event is persisted
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    expect(queryResult.success).toBe(true);
+
+    const events = queryResult.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0].streamId).toBe('my-workflow');
+    expect(events[0].sequence).toBe(1);
+    expect(events[0].type).toBe('workflow.started');
+    expect(events[0].data).toEqual({ featureId: 'test-feature' });
+    expect(events[0].correlationId).toBe('corr-1');
+    expect(events[0].agentId).toBe('agent-1');
+  });
+
   it('should return conflict error for stale expectedSequence', async () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
