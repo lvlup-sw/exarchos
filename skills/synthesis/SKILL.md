@@ -67,7 +67,7 @@ Submit the entire stack to create stacked PRs:
 
 ```
 mcp__graphite__run_gt_cmd({
-  args: ["submit", "--no-interactive"],
+  args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"],
   cwd: "<repo-root>",
   why: "Submit stacked PRs for all task branches"
 })
@@ -196,7 +196,7 @@ If the user receives PR review comments:
    ```
 
 3. Creates fix tasks from review comments
-4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive"]`
+4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive", "--publish", "--merge-when-ready"]`
 5. Return to merge confirmation
 
 ## Transition

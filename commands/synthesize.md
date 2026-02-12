@@ -39,7 +39,7 @@ Follow `@rules/pr-descriptions.md` for concise format.
 **Always use Graphite** to submit stacked PRs:
 ```typescript
 mcp__graphite__run_gt_cmd({
-  args: ["submit", "--no-interactive", "--stack"],
+  args: ["submit", "--no-interactive", "--publish", "--merge-when-ready", "--stack"],
   cwd: "<repo-root>"
 })
 ```

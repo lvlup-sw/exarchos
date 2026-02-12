@@ -161,7 +161,7 @@ If CI fails on schema-check, run `/sync-schemas` locally and commit the results.
 # Verify and commit via Graphite
 git add shared/ apps/ares-elite-web/src/api/generated/
 gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
-gt submit --no-interactive
+gt submit --no-interactive --publish --merge-when-ready
 ```
 
 **NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.

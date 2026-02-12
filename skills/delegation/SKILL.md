@@ -150,7 +150,7 @@ npm run typecheck
 # Stage and commit via Graphite
 git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
 gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
-gt submit --no-interactive
+gt submit --no-interactive --publish --merge-when-ready
 ```
 
 **NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
