@@ -6,20 +6,63 @@ Proactively use the installed MCP servers. Don't fall back to generic approaches
 
 ### Exarchos (`mcp__exarchos__*`)
 
-Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.**
+Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 26 tools across 6 modules.
+
+#### Workflow Tools
 
 | Tool | When to Use |
 |------|-------------|
 | `workflow_init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
-| `workflow_get` | Restoring context, checking phase, reading task details |
-| `workflow_set` | Updating phase, recording artifacts, marking tasks complete |
+| `workflow_get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
+| `workflow_set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
 | `workflow_summary` | Quick context restoration after session restart |
 | `workflow_next_action` | Determining what to auto-continue after phase completion |
-| `workflow_reconcile` | Verifying state matches git reality on resume; with `repair: true`, auto-fixes common corruption (missing `_events`, invalid `_eventSequence`, null `_checkpoint`, bad task statuses) |
+| `workflow_reconcile` | Verifying state matches git reality on resume. Verification only — reports discrepancies but does not auto-fix |
 | `workflow_checkpoint` | Saving progress before likely context exhaustion |
-| `workflow_cancel` | Cleaning up abandoned workflows |
-| `workflow_transitions` | Checking valid phase transitions |
+| `workflow_cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
+| `workflow_transitions` | Checking valid phase transitions for a `workflowType`. Use `fromPhase` to filter |
 | `workflow_list` | Finding active workflows at session start |
+
+#### Event Store Tools
+
+| Tool | When to Use |
+|------|-------------|
+| `event_append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
+| `event_query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
+
+#### View Tools (CQRS)
+
+| Tool | When to Use |
+|------|-------------|
+| `view_pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
+| `view_tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
+| `view_workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
+| `view_team_status` | Teammate composition and task assignments. Use `workflowId` to scope |
+
+#### Team Tools
+
+| Tool | When to Use |
+|------|-------------|
+| `team_spawn` | Register a new agent with role assignment. Always pair with Task tool for subprocess |
+| `team_message` | Send a direct message to a specific teammate |
+| `team_broadcast` | Broadcast a message to all active teammates |
+| `team_shutdown` | Shut down a teammate agent. Emits shutdown event |
+| `team_status` | Get health status of all teammates. Use `summary: true` for counts-only response during orchestration |
+
+#### Task Tools
+
+| Tool | When to Use |
+|------|-------------|
+| `task_claim` | Claim a task for execution. Returns `ALREADY_CLAIMED` if previously claimed — handle gracefully |
+| `task_complete` | Mark a task complete with optional `result` (artifacts, duration) |
+| `task_fail` | Mark a task failed with `error` message and optional `diagnostics` |
+
+#### Stack Tools
+
+| Tool | When to Use |
+|------|-------------|
+| `stack_status` | Get current stack positions from events. Use `streamId` to scope |
+| `stack_place` | Record a stack position with `position`, `taskId`, `branch`, optional `prUrl` |
 
 ### GitHub (`mcp__plugin_github_github__*`)
 

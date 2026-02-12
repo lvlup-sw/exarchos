@@ -273,7 +273,7 @@ This skill tracks task progress in workflow state for context persistence.
 
 ### Read Tasks from State
 
-Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow_get` with query `tasks`.
+Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow_get` with `query: "tasks"`. For status checks during monitoring, use `fields: ["tasks"]` to reduce response size.
 
 ### On Task Dispatch
 
@@ -394,7 +394,7 @@ When Exarchos MCP tools are available, emit events during delegation:
 2. **After team composition:** Call `mcp__exarchos__exarchos_event_append` with event type `team.formed` including teammates array
 3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
 4. **For each task assignment:** Call `mcp__exarchos__exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
-5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status
+5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status. For lightweight checks, use `mcp__exarchos__exarchos_workflow_get` with `fields: ["tasks"]`
 6. **On task completion — Graphite stacking:**
    Subagents handle stacking directly using `gt create` (per implementer prompt template).
    When a multi-task agent completes, it will have created a Graphite stack with one branch per logical review unit.
@@ -402,3 +402,9 @@ When Exarchos MCP tools are available, emit events during delegation:
    - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record each stack position
    - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
 7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase
+
+### Claim Guard
+
+`task_claim` prevents double-claims. If an agent receives an `ALREADY_CLAIMED` error, it means another agent already claimed that task. The orchestrator should:
+- Skip the task (it's being handled)
+- Check task status via `mcp__exarchos__exarchos_view_tasks` with `filter: { "taskId": "<id>" }` before re-dispatching
