@@ -431,5 +431,5 @@ When Exarchos MCP tools are available, emit gate events during review:
    - `layer`: "per-pr" or "per-stack"
    - `passed`: boolean
    - `duration`: milliseconds (if available)
-3. **Read unified status:** Use `exarchos_view_tasks` for combined task + gate view
+3. **Read unified status:** Use `exarchos_view_tasks` with `fields: ["taskId", "status", "title"]` and `limit: 20` for combined task + gate view with minimal token cost
 4. **When all per-PR gates pass:** Apply `stack-ready` label to the PR
