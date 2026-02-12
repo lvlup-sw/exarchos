@@ -1,10 +1,24 @@
 #!/usr/bin/env node
 
 import { execSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { loadManifest } from './manifest/loader.js';
+import type { Manifest, McpServerComponent } from './manifest/types.js';
+import { readConfig, writeConfig } from './operations/config.js';
+import type { ExarchosConfig, WizardSelections } from './operations/config.js';
+import { copyDirectory, smartCopyDirectory } from './operations/copy.js';
+import { createSymlink as symlinkCreate, removeSymlink as symlinkRemove } from './operations/symlink.js';
+import { readMcpConfig, writeMcpConfig, mergeMcpServers, removeMcpServers, generateMcpEntry } from './operations/mcp.js';
+import { generateSettings } from './operations/settings.js';
+import { installBundle } from './operations/bundle.js';
+import { detectV1Install, migrateV1 } from './operations/migration.js';
+import { detectRuntime } from './wizard/prerequisites.js';
+import { runWizard, runNonInteractive } from './wizard/wizard.js';
+import type { PromptAdapter } from './wizard/prompts.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,8 +28,12 @@ export type Action = 'install' | 'uninstall' | 'help';
 
 export interface ParsedArgs {
   action: Action;
+  mode?: 'standard' | 'dev';
+  nonInteractive?: boolean;
+  configPath?: string;
 }
 
+// Legacy types (kept for backward compatibility with existing tests)
 export type SymlinkResult = 'created' | 'skipped' | 'backed_up';
 export type RemoveResult = 'removed' | 'skipped';
 
@@ -32,8 +50,10 @@ interface ClaudeConfig {
   [key: string]: unknown;
 }
 
+// ─── Legacy functions (kept for backward compatibility) ─────────────────────
+
 export async function buildMcpServer(serverPath: string): Promise<void> {
-  if (!existsSync(serverPath)) {
+  if (!fs.existsSync(serverPath)) {
     throw new Error(`MCP server path does not exist: ${serverPath}`);
   }
 
@@ -56,22 +76,18 @@ export async function configureMcpServers(
   configPath: string,
   repoRoot: string
 ): Promise<void> {
-  // Read existing config or create empty object
   let config: ClaudeConfig = {};
-  if (existsSync(configPath)) {
-    const content = readFileSync(configPath, 'utf-8');
+  if (fs.existsSync(configPath)) {
+    const content = fs.readFileSync(configPath, 'utf-8');
     config = JSON.parse(content);
   }
 
-  // Ensure mcpServers object exists
   if (!config.mcpServers) {
     config.mcpServers = {};
   }
 
-  // Migration: remove stale workflow-state entry if present
   delete config.mcpServers['workflow-state'];
 
-  // Add exarchos MCP server (always required for workflow orchestration)
   const workflowStateDir = process.env.WORKFLOW_STATE_DIR;
   config.mcpServers['exarchos'] = {
     type: 'stdio',
@@ -80,31 +96,28 @@ export async function configureMcpServers(
     ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
-  // Add Graphite MCP server (stacked PRs and merge queue)
   config.mcpServers['graphite'] = {
     type: 'stdio',
     command: 'gt',
     args: ['mcp']
   };
 
-  // Add Microsoft Learn MCP server (official Microsoft documentation)
   config.mcpServers['microsoft-learn'] = {
     type: 'http',
     url: 'https://learn.microsoft.com/api/mcp'
   };
 
-  // Write config
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   console.log(`  [done] Configured MCP servers in ${configPath}`);
 }
 
 export async function removeMcpConfig(configPath: string): Promise<void> {
-  if (!existsSync(configPath)) {
+  if (!fs.existsSync(configPath)) {
     console.log(`  [skip] ${configPath} (not found)`);
     return;
   }
 
-  const content = readFileSync(configPath, 'utf-8');
+  const content = fs.readFileSync(configPath, 'utf-8');
   const config: ClaudeConfig = JSON.parse(content);
 
   if (config.mcpServers) {
@@ -114,11 +127,12 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
     delete config.mcpServers['microsoft-learn'];
   }
 
-  writeFileSync(configPath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
   console.log(`  [done] Removed MCP servers from ${configPath}`);
 }
 
-// CLI argument parsing
+// ─── CLI argument parsing ───────────────────────────────────────────────────
+
 export function parseArgs(args: string[]): ParsedArgs {
   if (args.includes('--help') || args.includes('-h')) {
     return { action: 'help' };
@@ -126,22 +140,35 @@ export function parseArgs(args: string[]): ParsedArgs {
   if (args.includes('--uninstall')) {
     return { action: 'uninstall' };
   }
-  return { action: 'install' };
+
+  const result: ParsedArgs = { action: 'install' };
+
+  if (args.includes('--dev')) {
+    result.mode = 'dev';
+  }
+
+  if (args.includes('--yes')) {
+    result.nonInteractive = true;
+  }
+
+  const configIdx = args.indexOf('--config');
+  if (configIdx !== -1 && configIdx + 1 < args.length) {
+    result.configPath = args[configIdx + 1];
+  }
+
+  return result;
 }
 
-// Path utilities
+// ─── Path utilities ─────────────────────────────────────────────────────────
+
 export function getClaudeHome(): string {
   return join(homedir(), '.claude');
 }
 
 export function getRepoRoot(): string {
-  // When running from dist/install.js or src/install.ts, go up one level
-  // If we're in a worktree, resolve to the actual repo root
   let root = dirname(__dirname);
 
-  // If running from a worktree, resolve to the main repo
   if (root.includes('.worktrees')) {
-    // Extract the base path before .worktrees
     const worktreeMatch = root.match(/^(.+)\/\.worktrees\//);
     if (worktreeMatch) {
       root = worktreeMatch[1];
@@ -151,132 +178,357 @@ export function getRepoRoot(): string {
   return root;
 }
 
-// Symlink utilities
-export async function createSymlink(source: string, target: string): Promise<SymlinkResult> {
-  let backedUp = false;
+// ─── Legacy symlink utilities (kept for backward compatibility) ──────────────
 
-  // Use lstat to detect any existing file entry (including broken symlinks)
-  let stats;
+const legacyCreateSymlink = async (source: string, target: string): Promise<SymlinkResult> => {
+  let backedUp = false;
+  let stats: fs.Stats | undefined;
   try {
-    stats = lstatSync(target);
+    stats = fs.lstatSync(target);
   } catch {
-    // Nothing exists at target path — proceed to create
+    // Nothing exists
   }
 
   if (stats) {
     if (stats.isSymbolicLink()) {
-      // Check if symlink already points to the correct source
-      const existingTarget = readlinkSync(target);
+      const existingTarget = fs.readlinkSync(target);
       if (existingTarget === source) {
         console.log(`  [skip] ${target} (symlink exists)`);
         return 'skipped';
       }
-      // Symlink points elsewhere (or is broken) — remove and recreate
-      console.log(`  [relink] ${target} (was → ${existingTarget})`);
-      unlinkSync(target);
+      console.log(`  [relink] ${target} (was -> ${existingTarget})`);
+      fs.unlinkSync(target);
     } else {
-      // Backup existing directory/file
       let backupPath = `${target}.backup`;
-      if (existsSync(backupPath)) {
+      if (fs.existsSync(backupPath)) {
         backupPath = `${backupPath}.${Date.now()}`;
       }
       console.log(`  [backup] ${target} -> ${backupPath}`);
-      renameSync(target, backupPath);
+      fs.renameSync(target, backupPath);
       backedUp = true;
     }
   }
 
-  // Create symlink
-  symlinkSync(source, target);
+  fs.symlinkSync(source, target);
   console.log(`  [link] ${target}`);
   return backedUp ? 'backed_up' : 'created';
-}
+};
 
-export async function removeSymlink(target: string): Promise<RemoveResult> {
-  // Check if target exists
-  if (!existsSync(target)) {
+const legacyRemoveSymlink = async (target: string): Promise<RemoveResult> => {
+  if (!fs.existsSync(target)) {
     console.log(`  [skip] ${target} (not found)`);
     return 'skipped';
   }
 
-  const stats = lstatSync(target);
-
-  // Only remove if it's a symlink
+  const stats = fs.lstatSync(target);
   if (!stats.isSymbolicLink()) {
     console.log(`  [skip] ${target} (not a symlink)`);
     return 'skipped';
   }
 
-  unlinkSync(target);
+  fs.unlinkSync(target);
   console.log(`  [removed] ${target}`);
   return 'removed';
+};
+
+export { legacyCreateSymlink as createSymlink, legacyRemoveSymlink as removeSymlink };
+
+// ─── Install dependencies interface ────────────────────────────────────────
+
+export interface InstallDeps {
+  claudeHome: string;
+  repoRoot: string;
+  manifestPath: string;
+  claudeConfigPath: string;
+  prompts: PromptAdapter;
+  args: ParsedArgs;
 }
 
-// Main install orchestrator
-export async function install(): Promise<void> {
-  const claudeHome = getClaudeHome();
-  const repoRoot = getRepoRoot();
+export interface UninstallDeps {
+  claudeHome: string;
+  claudeConfigPath: string;
+}
 
-  console.log('Exarchos Installation');
-  console.log('=========================');
-  console.log(`Repo: ${repoRoot}`);
-  console.log(`Claude home: ${claudeHome}`);
-  console.log('');
+// ─── Install sub-functions ────────────────────────────────────────────────
+
+/**
+ * Get the list of rule files to install based on selected rule sets.
+ */
+function getSelectedRuleFiles(
+  manifest: Manifest,
+  selectedRuleSets: readonly string[],
+): string[] {
+  const files: string[] = [];
+  for (const ruleSet of manifest.components.ruleSets) {
+    if (selectedRuleSets.includes(ruleSet.id)) {
+      files.push(...ruleSet.files);
+    }
+  }
+  return files;
+}
+
+/**
+ * Standard mode installation: copy files to ~/.claude/.
+ */
+async function installStandard(
+  manifest: Manifest,
+  selections: WizardSelections,
+  claudeHome: string,
+  repoRoot: string,
+  claudeConfigPath: string,
+  existingConfig: ExarchosConfig | null,
+): Promise<void> {
+  const existingHashes = existingConfig?.hashes ?? {};
+  const allHashes: Record<string, string> = {};
+
+  // 1. Copy core component directories
+  for (const core of manifest.components.core) {
+    const source = join(repoRoot, core.source);
+    const target = join(claudeHome, core.target);
+    const result = smartCopyDirectory(source, target, existingHashes);
+    Object.assign(allHashes, result.hashes);
+  }
+
+  // 2. Copy selected rule files
+  const selectedRuleFiles = getSelectedRuleFiles(manifest, selections.ruleSets);
+  const rulesSource = join(repoRoot, 'rules');
+  const rulesTarget = join(claudeHome, 'rules');
+  fs.mkdirSync(rulesTarget, { recursive: true });
+
+  // Copy only selected rule files
+  for (const fileName of selectedRuleFiles) {
+    const srcPath = join(rulesSource, fileName);
+    const tgtPath = join(rulesTarget, fileName);
+    if (fs.existsSync(srcPath)) {
+      const content = fs.readFileSync(srcPath);
+      fs.mkdirSync(dirname(tgtPath), { recursive: true });
+      fs.writeFileSync(tgtPath, content);
+    }
+  }
+
+  // 3. Install MCP bundles
+  const bundledServers = manifest.components.mcpServers.filter(
+    (s) => s.type === 'bundled' && s.bundlePath,
+  );
+  for (const server of bundledServers) {
+    const bundlePath = join(repoRoot, server.bundlePath!);
+    if (fs.existsSync(bundlePath)) {
+      installBundle(bundlePath, claudeHome);
+    }
+  }
+
+  // 4. Generate and write settings.json
+  const settings = generateSettings(selections);
+  const settingsPath = join(claudeHome, 'settings.json');
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+
+  // 5. Merge MCP config
+  let runtime: string;
+  try {
+    runtime = detectRuntime();
+  } catch {
+    runtime = 'node';
+  }
+  const selectedServers = manifest.components.mcpServers.filter(
+    (s) => selections.mcpServers.includes(s.id),
+  );
+  const mcpConfig = readMcpConfig(claudeConfigPath);
+  const mergedConfig = mergeMcpServers(mcpConfig, selectedServers, runtime, claudeHome);
+  writeMcpConfig(claudeConfigPath, mergedConfig);
+
+  // 6. Write exarchos config
+  const config: ExarchosConfig = {
+    version: manifest.version,
+    installedAt: new Date().toISOString(),
+    mode: 'standard',
+    selections,
+    hashes: allHashes,
+  };
+  writeConfig(join(claudeHome, 'exarchos.json'), config);
+}
+
+/**
+ * Dev mode installation: create symlinks to repo.
+ */
+async function installDev(
+  manifest: Manifest,
+  selections: WizardSelections,
+  claudeHome: string,
+  repoRoot: string,
+  claudeConfigPath: string,
+): Promise<void> {
+  // 1. Create symlinks for core directories
+  for (const core of manifest.components.core) {
+    const source = join(repoRoot, core.source);
+    const target = join(claudeHome, core.target);
+    symlinkCreate(source, target);
+  }
+
+  // 2. Symlink rules directory
+  const rulesSource = join(repoRoot, 'rules');
+  const rulesTarget = join(claudeHome, 'rules');
+  symlinkCreate(rulesSource, rulesTarget);
+
+  // 3. Generate and write settings.json
+  const settings = generateSettings(selections);
+  const settingsPath = join(claudeHome, 'settings.json');
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+
+  // 4. Configure MCP servers pointing to repo
+  let runtime: string;
+  try {
+    runtime = detectRuntime();
+  } catch {
+    runtime = 'node';
+  }
+
+  // For dev mode, create custom entries that point to the repo
+  const mcpConfig = readMcpConfig(claudeConfigPath);
+  const mcpServers = { ...mcpConfig.mcpServers ?? {} };
+
+  // Override bundled servers to point to repo
+  for (const server of manifest.components.mcpServers) {
+    if (selections.mcpServers.includes(server.id)) {
+      if (server.type === 'bundled' && server.bundlePath) {
+        mcpServers[server.id] = {
+          type: 'stdio',
+          command: runtime,
+          args: ['run', join(repoRoot, server.bundlePath)],
+        };
+      } else {
+        mcpServers[server.id] = generateMcpEntry(server, runtime, claudeHome);
+      }
+    }
+  }
+
+  writeMcpConfig(claudeConfigPath, { ...mcpConfig, mcpServers });
+
+  // 5. Write exarchos config
+  const config: ExarchosConfig = {
+    version: manifest.version,
+    installedAt: new Date().toISOString(),
+    mode: 'dev',
+    repoPath: repoRoot,
+    selections,
+    hashes: {},
+  };
+  writeConfig(join(claudeHome, 'exarchos.json'), config);
+}
+
+// ─── New Install Orchestrator ───────────────────────────────────────────────
+
+export async function install(deps: InstallDeps): Promise<void> {
+  const { claudeHome, repoRoot, manifestPath, claudeConfigPath, prompts, args } = deps;
 
   // Ensure ~/.claude exists
-  if (!existsSync(claudeHome)) {
-    mkdirSync(claudeHome, { recursive: true });
+  fs.mkdirSync(claudeHome, { recursive: true });
+
+  // 1. Load manifest
+  const manifest = loadManifest(manifestPath);
+
+  // 2. Detect v1 installation and migrate if needed
+  const v1Detection = detectV1Install(claudeHome);
+  if (v1Detection.isV1) {
+    migrateV1(claudeHome);
   }
 
-  // Create symlinks
-  console.log('Creating symlinks...');
-  const dirs = ['skills', 'commands', 'rules', 'scripts'];
-  for (const dir of dirs) {
-    await createSymlink(join(repoRoot, dir), join(claudeHome, dir));
+  // 3. Read existing config
+  const existingConfig = readConfig(join(claudeHome, 'exarchos.json'));
+
+  // 4. Get wizard selections
+  let mode: 'standard' | 'dev';
+  let selections: WizardSelections;
+
+  if (args.nonInteractive) {
+    const wizardResult = runNonInteractive(manifest, {
+      useDefaults: true,
+      existingConfig: existingConfig ?? undefined,
+    });
+    mode = args.mode ?? wizardResult.mode;
+    selections = wizardResult.selections;
+  } else {
+    const wizardResult = await runWizard(
+      manifest,
+      prompts,
+      existingConfig ?? undefined,
+    );
+    mode = wizardResult.mode;
+    selections = wizardResult.selections;
   }
-  await createSymlink(join(repoRoot, 'settings.json'), join(claudeHome, 'settings.json'));
 
-  // Build MCP servers
-  console.log('');
-  console.log('Building MCP servers...');
-  await buildMcpServer(join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp'));
-
-  // Configure MCP servers
-  console.log('');
-  console.log('Configuring MCP servers...');
-  await configureMcpServers(join(homedir(), '.claude.json'), repoRoot);
-
-  console.log('');
-  console.log('Installation complete!');
+  // 5. Execute installation based on mode
+  if (mode === 'dev') {
+    await installDev(manifest, selections, claudeHome, repoRoot, claudeConfigPath);
+  } else {
+    await installStandard(manifest, selections, claudeHome, repoRoot, claudeConfigPath, existingConfig);
+  }
 }
 
-// Main uninstall orchestrator
-export async function uninstall(): Promise<void> {
-  const claudeHome = getClaudeHome();
+// ─── New Uninstall Orchestrator ─────────────────────────────────────────────
 
-  console.log('Exarchos Uninstall');
-  console.log('======================');
-  console.log(`Claude home: ${claudeHome}`);
-  console.log('');
+export async function uninstall(deps: UninstallDeps): Promise<void> {
+  const { claudeHome, claudeConfigPath } = deps;
 
-  // Remove symlinks
-  console.log('Removing symlinks...');
-  const dirs = ['skills', 'commands', 'rules', 'scripts'];
-  for (const dir of dirs) {
-    await removeSymlink(join(claudeHome, dir));
+  // 1. Read exarchos config (graceful if missing)
+  const config = readConfig(join(claudeHome, 'exarchos.json'));
+  if (!config) {
+    console.log('No Exarchos configuration found. Nothing to uninstall.');
+    return;
   }
-  await removeSymlink(join(claudeHome, 'settings.json'));
 
-  // Remove MCP config
-  console.log('');
-  console.log('Removing MCP configuration...');
-  await removeMcpConfig(join(homedir(), '.claude.json'));
+  // 2. Remove content based on mode
+  const contentDirs = ['commands', 'skills', 'scripts', 'rules'];
 
-  console.log('');
-  console.log('Uninstall complete!');
+  if (config.mode === 'dev') {
+    // Dev mode: remove symlinks
+    for (const dir of contentDirs) {
+      symlinkRemove(join(claudeHome, dir));
+    }
+  } else {
+    // Standard mode: remove copied directories
+    for (const dir of contentDirs) {
+      const dirPath = join(claudeHome, dir);
+      if (fs.existsSync(dirPath)) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    }
+  }
+
+  // 3. Remove settings.json
+  const settingsPath = join(claudeHome, 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    fs.unlinkSync(settingsPath);
+  }
+
+  // 4. Remove MCP server bundle
+  const mcpServersDir = join(claudeHome, 'mcp-servers');
+  if (fs.existsSync(mcpServersDir)) {
+    // Remove known bundle files
+    const bundleFiles = fs.readdirSync(mcpServersDir);
+    for (const file of bundleFiles) {
+      if (file.endsWith('-mcp.js')) {
+        fs.unlinkSync(join(mcpServersDir, file));
+      }
+    }
+  }
+
+  // 5. Remove MCP entries from ~/.claude.json
+  if (fs.existsSync(claudeConfigPath)) {
+    const mcpConfig = readMcpConfig(claudeConfigPath);
+    const serverIds = config.selections.mcpServers;
+    const cleanedConfig = removeMcpServers(mcpConfig, serverIds);
+    writeMcpConfig(claudeConfigPath, cleanedConfig);
+  }
+
+  // 6. Remove exarchos.json
+  const configPath = join(claudeHome, 'exarchos.json');
+  if (fs.existsSync(configPath)) {
+    fs.unlinkSync(configPath);
+  }
 }
 
-// CLI help
+// ─── CLI help ───────────────────────────────────────────────────────────────
+
 export function printHelp(): void {
   console.log(`
 Exarchos - SDLC workflow automation for Claude Code
@@ -287,14 +539,20 @@ Usage:
 Options:
   --help, -h      Show this help message
   --uninstall     Remove installed configuration
+  --dev           Install in dev mode (symlinks)
+  --yes           Non-interactive mode (use defaults)
+  --config <path> Use a config file for selections
 
 Examples:
   npx github:lvlup-sw/exarchos              Install configuration
+  npx github:lvlup-sw/exarchos --dev        Install with symlinks
+  npx github:lvlup-sw/exarchos --yes        Install with defaults
   npx github:lvlup-sw/exarchos --uninstall  Remove configuration
 `);
 }
 
-// CLI entry point
+// ─── CLI entry point ────────────────────────────────────────────────────────
+
 export async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -302,19 +560,33 @@ export async function main(): Promise<void> {
     case 'help':
       printHelp();
       break;
-    case 'uninstall':
-      await uninstall();
+    case 'uninstall': {
+      const claudeHome = getClaudeHome();
+      const claudeConfigPath = join(homedir(), '.claude.json');
+      await uninstall({ claudeHome, claudeConfigPath });
       break;
+    }
     case 'install':
-    default:
-      await install();
+    default: {
+      const { createPromptAdapter } = await import('./wizard/prompts.js');
+      const claudeHome = getClaudeHome();
+      const repoRoot = getRepoRoot();
+      await install({
+        claudeHome,
+        repoRoot,
+        manifestPath: join(repoRoot, 'manifest.json'),
+        claudeConfigPath: join(homedir(), '.claude.json'),
+        prompts: createPromptAdapter(),
+        args,
+      });
       break;
+    }
   }
 }
 
 // Run main only when executed directly
 if (process.argv[1] === __filename) {
-  main().catch((error) => {
+  main().catch((error: Error) => {
     console.error('Error:', error.message);
     process.exit(1);
   });
