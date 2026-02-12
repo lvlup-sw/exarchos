@@ -14,11 +14,21 @@ import {
   buildCheckpointMeta,
   resetCounter,
 } from './checkpoint.js';
-import { appendEvent } from './events.js';
+import { appendEvent, mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { executeCompensation } from './compensation.js';
+import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
+
+// ─── Module-Level EventStore Configuration ──────────────────────────────────
+
+let moduleEventStore: EventStore | null = null;
+
+/** Configure the EventStore instance used by cancel handlers. */
+export function configureCancelEventStore(store: EventStore): void {
+  moduleEventStore = store;
+}
 
 // ─── handleCancel ──────────────────────────────────────────────────────────
 
@@ -158,6 +168,37 @@ export async function handleCancel(
 
   mutableState._events = updatedEvents;
   mutableState._eventSequence = updatedSequence;
+
+  // Emit to external event store (best-effort — don't block state persistence)
+  if (moduleEventStore) {
+    try {
+      for (const transitionEvent of transitionResult.events) {
+        await moduleEventStore.append(input.featureId, {
+          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+          data: {
+            from: transitionEvent.from,
+            to: transitionEvent.to,
+            trigger: transitionEvent.trigger,
+            featureId: input.featureId,
+            ...(transitionEvent.metadata ?? {}),
+          },
+        });
+      }
+      // Emit cancel event with distinct type and full metadata
+      await moduleEventStore.append(input.featureId, {
+        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
+        data: {
+          from: currentPhase,
+          to: 'cancelled',
+          trigger: 'user-cancel',
+          featureId: input.featureId,
+          ...cancelMetadata,
+        },
+      });
+    } catch {
+      // External store is supplementary; JSONL append failure must not break cancel
+    }
+  }
 
   // Apply history updates from transition
   if (transitionResult.historyUpdates) {

@@ -13,8 +13,10 @@ import {
   handleTransitions,
   handleCancel,
   handleCheckpoint,
+  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../workflow/state-store.js';
+import { EventStore } from '../../event-store/store.js';
 import type { WorkflowState } from '../../workflow/types.js';
 
 let tmpDir: string;
@@ -1736,5 +1738,106 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.action).toBe('WAIT:human-checkpoint:synthesize');
+  });
+});
+
+// ─── B4: Bridge Workflow Transitions to External Event Store ───────────────
+
+describe('External Event Store Bridge', () => {
+  it('handleSet_PhaseTransition_AppendsToExternalStore: after transition, JSONL file has event', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a feature workflow at ideate
+    await handleInit({ featureId: 'bridge-test', workflowType: 'feature' }, tmpDir);
+
+    // Set design artifact to satisfy ideate->plan guard
+    await handleSet(
+      { featureId: 'bridge-test', updates: { 'artifacts.design': 'docs/test.md' } },
+      tmpDir,
+    );
+
+    // Transition from ideate to plan
+    const result = await handleSet(
+      { featureId: 'bridge-test', phase: 'plan' },
+      tmpDir,
+    );
+    expect(result.success).toBe(true);
+
+    // Query external event store for workflow.transition events
+    const events = await eventStore.query('bridge-test', { type: 'workflow.transition' });
+    expect(events.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the transition event data
+    const transitionEvent = events.find(e =>
+      (e.data as Record<string, unknown>)?.to === 'plan'
+    );
+    expect(transitionEvent).toBeDefined();
+    expect((transitionEvent!.data as Record<string, unknown>)?.featureId).toBe('bridge-test');
+  });
+
+  it('handleCheckpoint_AppendsToExternalStore: after checkpoint, JSONL file has event', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'cp-bridge', workflowType: 'feature' }, tmpDir);
+
+    const result = await handleCheckpoint(
+      { featureId: 'cp-bridge', summary: 'test checkpoint' },
+      tmpDir,
+    );
+    expect(result.success).toBe(true);
+
+    // Query external event store for workflow.checkpoint events
+    const events = await eventStore.query('cp-bridge', { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    expect((events[0].data as Record<string, unknown>)?.phase).toBe('ideate');
+    expect((events[0].data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
+  });
+});
+
+describe('Store-Based Event Consumers', () => {
+  it('getFixCycleCountFromStore_ReturnsCorrectCount', async () => {
+    const { getFixCycleCountFromStore } = await import('../../workflow/events.js');
+    const eventStore = new EventStore(tmpDir);
+
+    // Append a compound-entry event
+    await eventStore.append('fix-test', {
+      type: 'workflow.compound-entry',
+      data: { compoundStateId: 'feature-delegate-review', featureId: 'fix-test' },
+    });
+
+    // Append fix-cycle events
+    await eventStore.append('fix-test', {
+      type: 'workflow.fix-cycle',
+      data: { compoundStateId: 'feature-delegate-review', count: 1, featureId: 'fix-test' },
+    });
+    await eventStore.append('fix-test', {
+      type: 'workflow.fix-cycle',
+      data: { compoundStateId: 'feature-delegate-review', count: 2, featureId: 'fix-test' },
+    });
+
+    const count = await getFixCycleCountFromStore(
+      eventStore,
+      'fix-test',
+      'feature-delegate-review',
+    );
+    expect(count).toBe(2);
+  });
+
+  it('getRecentEventsFromStore_ReturnsLastN', async () => {
+    const { getRecentEventsFromStore } = await import('../../workflow/events.js');
+    const eventStore = new EventStore(tmpDir);
+
+    await eventStore.append('recent-test', { type: 'workflow.started' });
+    await eventStore.append('recent-test', { type: 'team.formed' });
+    await eventStore.append('recent-test', { type: 'phase.transitioned' });
+    await eventStore.append('recent-test', { type: 'task.assigned' });
+    await eventStore.append('recent-test', { type: 'task.completed' });
+
+    const recent = await getRecentEventsFromStore(eventStore, 'recent-test', 3);
+    expect(recent).toHaveLength(3);
+    expect(recent[0].type).toBe('phase.transitioned');
+    expect(recent[2].type).toBe('task.completed');
   });
 });

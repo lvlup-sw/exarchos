@@ -63,6 +63,7 @@ vi.mock('../../workflow/tools.js', async () => {
     handleSummary: mockHandleSummary,
     handleReconcile: mockHandleReconcile,
     handleTransitions: mockHandleTransitions,
+    configureWorkflowEventStore: vi.fn(),
     registerWorkflowTools: (server: unknown, stateDir: string) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_workflow_init', 'Initialize a new workflow state file for a feature/debug/refactor workflow',
@@ -89,6 +90,7 @@ vi.mock('../../workflow/next-action.js', async () => {
   const { formatResult } = await import('../../format.js');
   return {
     handleNextAction: mockHandleNextAction,
+    configureNextActionEventStore: vi.fn(),
     registerNextActionTool: (server: unknown, stateDir: string) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_workflow_next_action', 'Determine the next auto-continue action based on current phase and guards',
@@ -103,6 +105,7 @@ vi.mock('../../workflow/cancel.js', async () => {
   const { formatResult } = await import('../../format.js');
   return {
     handleCancel: mockHandleCancel,
+    configureCancelEventStore: vi.fn(),
     registerCancelTool: (server: unknown, stateDir: string) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_workflow_cancel', 'Cancel a workflow with saga compensation and cleanup',
@@ -120,6 +123,7 @@ vi.mock('../../workflow/query.js', async () => {
     handleSummary: mockHandleSummary,
     handleReconcile: mockHandleReconcile,
     handleTransitions: mockHandleTransitions,
+    configureQueryEventStore: vi.fn(),
     registerQueryTools: (server: unknown, stateDir: string) => {
       const s = server as { tool: (...args: unknown[]) => void };
       s.tool('exarchos_workflow_summary', 'Get structured summary of workflow progress, events, and circuit breaker status',

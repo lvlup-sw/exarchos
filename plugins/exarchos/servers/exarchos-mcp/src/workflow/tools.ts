@@ -23,11 +23,21 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { appendEvent, getRecentEvents } from './events.js';
+import { appendEvent, getRecentEvents, mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
+import type { EventStore } from '../event-store/store.js';
 import * as path from 'node:path';
+
+// ─── Module-Level EventStore Configuration ──────────────────────────────────
+
+let moduleEventStore: EventStore | null = null;
+
+/** Configure the EventStore instance used by workflow tool handlers. */
+export function configureWorkflowEventStore(store: EventStore): void {
+  moduleEventStore = store;
+}
 
 // Re-export from dedicated modules for backward compatibility
 export { handleNextAction } from './next-action.js';
@@ -272,6 +282,26 @@ export async function handleSet(
       mutableState._events = events;
       mutableState._eventSequence = eventSequence;
 
+      // Emit to external event store (best-effort — don't block state persistence)
+      if (moduleEventStore) {
+        try {
+          for (const transitionEvent of result.events) {
+            await moduleEventStore.append(input.featureId, {
+              type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+              data: {
+                from: transitionEvent.from,
+                to: transitionEvent.to,
+                trigger: transitionEvent.trigger,
+                featureId: input.featureId,
+                ...(transitionEvent.metadata ?? {}),
+              },
+            });
+          }
+        } catch {
+          // External store is supplementary; JSONL append failure must not break workflow
+        }
+      }
+
       // Apply history updates
       if (result.historyUpdates) {
         const history = { ...(mutableState._history as Record<string, string>) };
@@ -358,6 +388,22 @@ export async function handleCheckpoint(
   );
   mutableState._events = appended.events;
   mutableState._eventSequence = appended.eventSequence;
+
+  // Emit to external event store (best-effort — don't block state persistence)
+  if (moduleEventStore) {
+    try {
+      await moduleEventStore.append(input.featureId, {
+        type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
+        data: {
+          counter: appended.eventSequence,
+          phase: state.phase,
+          featureId: input.featureId,
+        },
+      });
+    } catch {
+      // External store is supplementary; JSONL append failure must not break workflow
+    }
+  }
 
   // Update lastActivityTimestamp
   const checkpoint = mutableState._checkpoint as Record<string, unknown>;

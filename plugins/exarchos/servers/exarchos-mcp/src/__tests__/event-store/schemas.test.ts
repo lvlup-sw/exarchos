@@ -548,8 +548,8 @@ describe('RemediationStartedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 24 event types', () => {
-    expect(EventTypes).toHaveLength(24);
+  it('should contain all 25 event types', () => {
+    expect(EventTypes).toHaveLength(25);
   });
 
   it('should include workflow-level types', () => {
@@ -595,6 +595,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.guard-failed');
     expect(EventTypes).toContain('workflow.checkpoint');
     expect(EventTypes).toContain('workflow.compound-entry');
+    expect(EventTypes).toContain('workflow.cancel');
   });
 
   it('should support type-safe assignment', () => {

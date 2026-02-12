@@ -1,5 +1,6 @@
 import type { Event } from './types.js';
-import { getFixCycleCount } from './events.js';
+import type { EventStore } from '../event-store/store.js';
+import { getFixCycleCount, getFixCycleCountFromStore } from './events.js';
 
 export interface CircuitBreakerState {
   readonly fixCycleCount: number;
@@ -66,4 +67,26 @@ export function getCircuitBreakerState(
   maxFixCycles: number,
 ): CircuitBreakerState {
   return checkCircuitBreaker(events, compoundStateId, maxFixCycles);
+}
+
+/**
+ * Check circuit breaker using the external event store.
+ * Async version that reads from JSONL instead of embedded _events.
+ */
+export async function checkCircuitBreakerFromStore(
+  eventStore: EventStore,
+  streamId: string,
+  compoundStateId: string,
+  maxFixCycles: number,
+): Promise<CircuitBreakerState> {
+  const effectiveMax = resolveMaxFixCycles(maxFixCycles);
+  const fixCycleCount = await getFixCycleCountFromStore(eventStore, streamId, compoundStateId);
+  const isOpen = fixCycleCount >= effectiveMax;
+
+  return {
+    fixCycleCount,
+    maxFixCycles: effectiveMax,
+    open: isOpen,
+    compoundStateId,
+  };
 }
