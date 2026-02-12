@@ -320,6 +320,132 @@ describe('handleEventQuery Pagination', () => {
   });
 });
 
+// ─── handleEventQuery Fields Projection ──────────────────────────────────────
+
+describe('handleEventQuery Fields Projection', () => {
+  it('handleEventQuery_WithFields_ReturnsOnlyRequestedFields', async () => {
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test' },
+          correlationId: 'corr-1',
+          agentId: 'agent-1',
+        },
+      },
+      tempDir,
+    );
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', fields: ['type', 'sequence'] },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    const events = result.data as Record<string, unknown>[];
+    expect(events).toHaveLength(1);
+
+    // Only requested fields should be present
+    const keys = Object.keys(events[0]).sort();
+    expect(keys).toEqual(['sequence', 'type']);
+    expect(events[0].type).toBe('workflow.started');
+    expect(events[0].sequence).toBe(1);
+  });
+
+  it('handleEventQuery_WithFieldsTypeTimestamp_ReturnsMinimalEvents', async () => {
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test' },
+          agentId: 'agent-1',
+        },
+      },
+      tempDir,
+    );
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'team.formed',
+          data: { teamId: 'team-1' },
+        },
+      },
+      tempDir,
+    );
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', fields: ['type', 'timestamp'] },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    const events = result.data as Record<string, unknown>[];
+    expect(events).toHaveLength(2);
+
+    for (const event of events) {
+      const keys = Object.keys(event).sort();
+      expect(keys).toEqual(['timestamp', 'type']);
+      expect(event).not.toHaveProperty('sequence');
+      expect(event).not.toHaveProperty('streamId');
+      expect(event).not.toHaveProperty('data');
+      expect(event).not.toHaveProperty('agentId');
+    }
+  });
+
+  it('handleEventQuery_WithoutFields_ReturnsFullEvents', async () => {
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test' },
+          correlationId: 'corr-1',
+        },
+      },
+      tempDir,
+    );
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow' },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    const events = result.data as Record<string, unknown>[];
+    expect(events).toHaveLength(1);
+
+    // Full events should have standard fields
+    expect(events[0]).toHaveProperty('type');
+    expect(events[0]).toHaveProperty('sequence');
+    expect(events[0]).toHaveProperty('streamId');
+    expect(events[0]).toHaveProperty('timestamp');
+    expect(events[0]).toHaveProperty('data');
+    expect(events[0]).toHaveProperty('correlationId');
+  });
+
+  it('handleEventQuery_WithFieldsAndNonexistentField_SkipsMissingFields', async () => {
+    await handleEventAppend(
+      {
+        stream: 'my-workflow',
+        event: { type: 'workflow.started' },
+      },
+      tempDir,
+    );
+
+    const result = await handleEventQuery(
+      { stream: 'my-workflow', fields: ['type', 'nonexistent'] },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+    const events = result.data as Record<string, unknown>[];
+    expect(events).toHaveLength(1);
+
+    // Only 'type' should be present; 'nonexistent' is skipped
+    const keys = Object.keys(events[0]);
+    expect(keys).toEqual(['type']);
+  });
+});
+
 // ─── EventStore Consolidation ────────────────────────────────────────────────
 
 describe('registerEventTools', () => {

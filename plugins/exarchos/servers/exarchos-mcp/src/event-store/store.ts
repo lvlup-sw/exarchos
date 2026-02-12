@@ -1,4 +1,6 @@
 import * as fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import * as path from 'node:path';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
@@ -45,18 +47,6 @@ function validateStreamId(streamId: string): void {
       `Invalid streamId "${streamId}": must match ${SAFE_STREAM_ID_PATTERN} (lowercase alphanumeric and hyphens only)`,
     );
   }
-}
-
-// ─── Pagination Helper ──────────────────────────────────────────────────────
-
-/**
- * Applies offset/limit pagination to an array of items.
- * Called after filtering; values are pre-validated by Zod schemas at the tool boundary.
- */
-function applyPagination<T>(items: T[], offset?: number, limit?: number): T[] {
-  const start = offset ?? 0;
-  const end = limit !== undefined ? start + limit : undefined;
-  return items.slice(start, end);
 }
 
 // ─── Event Store ────────────────────────────────────────────────────────────
@@ -156,37 +146,47 @@ export class EventStore {
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
     const filePath = this.getEventFilePath(streamId);
 
-    let content: string;
+    // Check if file exists
     try {
-      content = await fs.readFile(filePath, 'utf-8');
+      await fs.access(filePath);
     } catch {
       return [];
     }
 
-    const lines = content.trim().split('\n').filter(Boolean);
-    let events: WorkflowEvent[] = lines.map((line) => JSON.parse(line) as WorkflowEvent);
+    const events: WorkflowEvent[] = [];
+    const input = createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = createInterface({ input, crlfDelay: Infinity });
 
-    if (!filters) {
-      return events;
+    let skipped = 0;
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+
+      const event = JSON.parse(line) as WorkflowEvent;
+
+      // Apply filters
+      if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
+      if (filters?.type && event.type !== filters.type) continue;
+      if (filters?.since && event.timestamp < filters.since) continue;
+      if (filters?.until && event.timestamp > filters.until) continue;
+
+      // Apply offset
+      if (skipped < offset) {
+        skipped++;
+        continue;
+      }
+
+      events.push(event);
+
+      // Early termination on limit
+      if (limit !== undefined && events.length >= limit) {
+        rl.close();
+        input.destroy();
+        break;
+      }
     }
-
-    if (filters.type) {
-      events = events.filter((e) => e.type === filters.type);
-    }
-
-    if (filters.sinceSequence !== undefined) {
-      events = events.filter((e) => e.sequence > filters.sinceSequence!);
-    }
-
-    if (filters.since) {
-      events = events.filter((e) => e.timestamp >= filters.since!);
-    }
-
-    if (filters.until) {
-      events = events.filter((e) => e.timestamp <= filters.until!);
-    }
-
-    events = applyPagination(events, filters.offset, filters.limit);
 
     return events;
   }
