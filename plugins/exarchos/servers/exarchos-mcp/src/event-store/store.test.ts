@@ -316,6 +316,74 @@ describe('EventStore Optimistic Concurrency', () => {
   });
 });
 
+// ─── EventStore Query Pagination ─────────────────────────────────────────────
+
+describe('EventStore Query Pagination', () => {
+  it('query_WithLimit_ReturnsLimitedResults', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 10; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { limit: 3 });
+    expect(events).toHaveLength(3);
+  });
+
+  it('query_WithOffset_SkipsEvents', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 5; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { offset: 2 });
+    expect(events).toHaveLength(3);
+    expect(events[0].sequence).toBe(3);
+  });
+
+  it('query_WithLimitAndOffset_ReturnsPaginatedResults', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 10; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { limit: 3, offset: 2 });
+    expect(events).toHaveLength(3);
+    expect(events[0].sequence).toBe(3);
+    expect(events[1].sequence).toBe(4);
+    expect(events[2].sequence).toBe(5);
+  });
+
+  it('query_DefaultLimit_Returns50Events', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 60; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(60);
+  });
+
+  it('query_WithFilters_NoDefaultLimit', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 60; i++) {
+      await store.append('my-workflow', { type: 'workflow.started' });
+    }
+
+    const events = await store.query('my-workflow', { type: 'workflow.started' });
+    expect(events).toHaveLength(60);
+  });
+
+  it('query_LimitExceedsTotal_ReturnsAll', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 3; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { limit: 100 });
+    expect(events).toHaveLength(3);
+  });
+});
+
 // ─── B1: Persist Sequence Counters ──────────────────────────────────────────
 
 describe('EventStore Sequence Persistence', () => {

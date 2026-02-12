@@ -30,6 +30,8 @@ export interface QueryFilters {
   sinceSequence?: number;
   since?: string;
   until?: string;
+  limit?: number;
+  offset?: number;
 }
 
 // ─── Stream ID Validation ────────────────────────────────────────────────────
@@ -42,6 +44,14 @@ function validateStreamId(streamId: string): void {
       `Invalid streamId "${streamId}": must match ${SAFE_STREAM_ID_PATTERN} (lowercase alphanumeric and hyphens only)`,
     );
   }
+}
+
+// ─── Pagination Helper ──────────────────────────────────────────────────────
+
+function applyPagination<T>(items: T[], offset?: number, limit?: number): T[] {
+  const start = offset ?? 0;
+  const end = limit !== undefined ? start + limit : undefined;
+  return items.slice(start, end);
 }
 
 // ─── Event Store ────────────────────────────────────────────────────────────
@@ -170,6 +180,8 @@ export class EventStore {
     if (filters.until) {
       events = events.filter((e) => e.timestamp <= filters.until!);
     }
+
+    events = applyPagination(events, filters.offset, filters.limit);
 
     return events;
   }
