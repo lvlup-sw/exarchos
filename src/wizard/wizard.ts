@@ -10,6 +10,7 @@ import type { ExarchosConfig, WizardSelections } from '../operations/config.js';
 import type { PromptAdapter, MultiselectOption } from './prompts.js';
 import { getDefaultSelections, getRequiredComponents } from '../manifest/loader.js';
 import { readConfig } from '../operations/config.js';
+import { formatHeader } from './display.js';
 
 /** Result produced by the wizard flow. */
 export interface WizardResult {
@@ -23,7 +24,7 @@ export interface WizardResult {
  * Run the interactive wizard flow.
  *
  * Presents a series of prompts to the user for mode selection,
- * component selection, and model choice. Required components are
+ * component selection, and confirmation. Required components are
  * always included in the result regardless of user selection.
  *
  * @param manifest - The validated installation manifest.
@@ -41,33 +42,60 @@ export async function runWizard(
     ? existingConfig.selections
     : getDefaultSelections(manifest);
 
+  // Welcome banner
+  console.log('');
+  console.log(formatHeader('Exarchos', manifest.version));
+  if (existingConfig) {
+    console.log(`  Updating existing installation (${existingConfig.mode} mode)`);
+  }
+  console.log('');
+
   // Step 1: Mode selection
   const mode = await prompts.select<'standard' | 'dev'>('Installation mode:', [
-    { label: 'Standard', value: 'standard', description: 'Copy files to ~/.claude/' },
-    { label: 'Dev', value: 'dev', description: 'Symlink files for development' },
+    { label: 'Standard', value: 'standard', description: 'Copy files to ~/.claude/ — recommended for most users' },
+    { label: 'Dev', value: 'dev', description: 'Symlink to repo for live editing — for Exarchos contributors' },
   ]);
 
   // Step 2: MCP Servers (optional only — required are always included)
+  const requiredServerNames = manifest.components.mcpServers
+    .filter((s) => s.required)
+    .map((s) => s.name);
+  console.log(`\n  Required: ${requiredServerNames.join(', ')} (always installed)`);
+
   const optionalServers = manifest.components.mcpServers.filter((s) => !s.required);
-  const serverOptions: MultiselectOption<string>[] = optionalServers.map((s) => ({
-    label: s.name,
-    value: s.id,
-    description: s.description,
-    selected: defaults.mcpServers.includes(s.id),
-  }));
-  const selectedOptionalServers = await prompts.multiselect('MCP servers:', serverOptions);
+  let selectedOptionalServers: string[] = [];
+  if (optionalServers.length > 0) {
+    const serverOptions: MultiselectOption<string>[] = optionalServers.map((s) => ({
+      label: s.name,
+      value: s.id,
+      description: s.description,
+      selected: defaults.mcpServers.includes(s.id),
+    }));
+    selectedOptionalServers = await prompts.multiselect('Additional MCP servers:', serverOptions);
+  }
 
   // Step 3: Plugins (optional only — required are always included)
+  const requiredPluginNames = manifest.components.plugins
+    .filter((p) => p.required)
+    .map((p) => p.name);
+  if (requiredPluginNames.length > 0) {
+    console.log(`\n  Required: ${requiredPluginNames.join(', ')} (always installed)`);
+  }
+
   const optionalPlugins = manifest.components.plugins.filter((p) => !p.required);
-  const pluginOptions: MultiselectOption<string>[] = optionalPlugins.map((p) => ({
-    label: p.name,
-    value: p.id,
-    description: p.description,
-    selected: defaults.plugins.includes(p.id),
-  }));
-  const selectedOptionalPlugins = await prompts.multiselect('Plugins:', pluginOptions);
+  let selectedOptionalPlugins: string[] = [];
+  if (optionalPlugins.length > 0) {
+    const pluginOptions: MultiselectOption<string>[] = optionalPlugins.map((p) => ({
+      label: p.name,
+      value: p.id,
+      description: p.description,
+      selected: defaults.plugins.includes(p.id),
+    }));
+    selectedOptionalPlugins = await prompts.multiselect('Claude plugins:', pluginOptions);
+  }
 
   // Step 4: Rule sets
+  console.log('\n  Rule sets configure coding standards and workflow behavior.');
   const ruleSetOptions: MultiselectOption<string>[] = manifest.components.ruleSets.map((r) => ({
     label: r.name,
     value: r.id,
@@ -75,6 +103,18 @@ export async function runWizard(
     selected: defaults.ruleSets.includes(r.id),
   }));
   const selectedRuleSets = await prompts.multiselect('Rule sets:', ruleSetOptions);
+
+  // Summary before confirmation
+  const allServers = [...requiredServerNames, ...optionalServers.filter((s) => selectedOptionalServers.includes(s.id)).map((s) => s.name)];
+  const allPlugins = [...requiredPluginNames, ...optionalPlugins.filter((p) => selectedOptionalPlugins.includes(p.id)).map((p) => p.name)];
+  const selectedRuleNames = manifest.components.ruleSets.filter((r) => selectedRuleSets.includes(r.id)).map((r) => r.name);
+
+  console.log('\n  Summary:');
+  console.log(`    Mode:        ${mode}`);
+  console.log(`    MCP servers: ${allServers.join(', ')}`);
+  console.log(`    Plugins:     ${allPlugins.length > 0 ? allPlugins.join(', ') : '(none)'}`);
+  console.log(`    Rule sets:   ${selectedRuleNames.length > 0 ? selectedRuleNames.join(', ') : '(none)'}`);
+  console.log('');
 
   // Step 5: Confirmation
   await prompts.confirm('Proceed with installation?', true);

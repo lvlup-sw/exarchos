@@ -501,13 +501,12 @@ describe('Install Orchestrator (E3)', () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
-    // Mock wizard responses: mode, servers, plugins, ruleSets, model, confirm
+    // Mock wizard responses: mode, servers, plugins, ruleSets, confirm
     const prompts = new MockPromptAdapter([
       'standard',           // mode
       [],                   // optional servers (none)
       ['github@claude-plugins-official'], // plugins
       ['typescript', 'workflow'],         // ruleSets
-      'claude-opus-4-6',   // model
       true,                // confirm
     ]);
 
@@ -531,9 +530,9 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
+      'standard', ['github@claude-plugins-official'],
       ['typescript'], // only typescript selected
-      'claude-opus-4-6', true,
+      true,
     ]);
 
     await install({
@@ -557,8 +556,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -579,8 +578,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -610,8 +609,8 @@ describe('Install Orchestrator (E3)', () => {
     }));
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -635,8 +634,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -661,8 +660,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'dev', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -685,8 +684,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'dev', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -711,8 +710,8 @@ describe('Install Orchestrator (E3)', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     const prompts = new MockPromptAdapter([
-      'dev', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -735,8 +734,8 @@ describe('Install Orchestrator (E3)', () => {
 
     // First install
     const prompts1 = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -750,8 +749,8 @@ describe('Install Orchestrator (E3)', () => {
 
     // Second install (reinstall) — should work without errors
     const prompts2 = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
@@ -777,8 +776,8 @@ describe('Install Orchestrator (E3)', () => {
     symlinkSync(join(fakeRepoRoot, 'commands'), join(claudeHome, 'commands'));
 
     const prompts = new MockPromptAdapter([
-      'standard', [], ['github@claude-plugins-official'],
-      ['typescript'], 'claude-opus-4-6', true,
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
     ]);
 
     await install({
