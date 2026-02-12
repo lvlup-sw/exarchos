@@ -281,12 +281,17 @@ async function installStandard(
   const existingHashes = existingConfig?.hashes ?? {};
   const allHashes: Record<string, string> = {};
 
-  // 1. Copy core component directories
+  // 1. Copy core components (directories and files)
   for (const core of manifest.components.core) {
     const source = join(repoRoot, core.source);
     const target = join(claudeHome, core.target);
-    const result = smartCopyDirectory(source, target, existingHashes);
-    Object.assign(allHashes, result.hashes);
+    if (core.type === 'file') {
+      fs.mkdirSync(dirname(target), { recursive: true });
+      fs.copyFileSync(source, target);
+    } else {
+      const result = smartCopyDirectory(source, target, existingHashes);
+      Object.assign(allHashes, result.hashes);
+    }
   }
 
   // 2. Copy selected rule files
