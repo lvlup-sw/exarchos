@@ -9,6 +9,9 @@ import {
   handleViewTeamStatus,
   handleViewTasks,
   handleViewPipeline,
+  resetMaterializerCache,
+  getOrCreateMaterializer,
+  getOrCreateEventStore,
 } from '../../views/tools.js';
 
 let tempDir: string;
@@ -17,9 +20,11 @@ let store: EventStore;
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'view-tools-test-'));
   store = new EventStore(tempDir);
+  resetMaterializerCache();
 });
 
 afterEach(async () => {
+  resetMaterializerCache();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -298,5 +303,88 @@ describe('handleViewPipeline', () => {
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('VIEW_ERROR');
     expect(result.error!.message).toBeTruthy();
+  });
+});
+
+// ─── B2: Singleton ViewMaterializer Cache ──────────────────────────────────
+
+describe('ViewMaterializer Singleton Cache', () => {
+  it('ViewMaterializer_Singleton_ReusedAcrossQueries: second call sees updated data via high-water mark', async () => {
+    await populateWorkflow('wf-singleton');
+
+    // First query
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    expect(result1.success).toBe(true);
+    const data1 = result1.data as Record<string, unknown>;
+    expect(data1.tasksCompleted).toBe(1);
+
+    // Append more events to the same stream (second task completed)
+    await store.append('wf-singleton', {
+      type: 'task.claimed',
+      data: { taskId: 't2', agentId: 'agent-2', claimedAt: '2025-06-15T11:00:00Z' },
+    });
+    await store.append('wf-singleton', {
+      type: 'task.completed',
+      data: { taskId: 't2', artifacts: ['signup.ts'], duration: 45 },
+    });
+
+    // Second query — uses cached materializer, but high-water mark should process new events
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    expect(result2.success).toBe(true);
+    const data2 = result2.data as Record<string, unknown>;
+    // Should see updated data: 2 tasks completed now
+    expect(data2.tasksCompleted).toBe(2);
+  });
+
+  it('resetMaterializerCache_CreatesNewInstance: after reset, fresh state is used', async () => {
+    await populateWorkflow('wf-reset');
+
+    // First query to populate cache
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    expect(result1.success).toBe(true);
+
+    // Reset the cache
+    resetMaterializerCache();
+
+    // Query again — should still work with fresh instances
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    expect(result2.success).toBe(true);
+    const data2 = result2.data as Record<string, unknown>;
+    expect(data2.featureId).toBe('auth-feature');
+  });
+
+  it('should not invalidate EventStore cache when Materializer is created for the same stateDir', () => {
+    // Bug: getOrCreateMaterializer unconditionally nulls cachedEventStore,
+    // even when stateDir hasn't changed. This forces unnecessary recreation.
+    const eventStore1 = getOrCreateEventStore(tempDir);
+    const _materializer = getOrCreateMaterializer(tempDir);
+    const eventStore2 = getOrCreateEventStore(tempDir);
+
+    // Both EventStore references should be the exact same instance
+    expect(eventStore2).toBe(eventStore1);
+  });
+
+  it('should not invalidate Materializer cache when EventStore is created for the same stateDir', () => {
+    // Symmetric: getOrCreateEventStore should not null cachedMaterializer
+    // when stateDir hasn't changed.
+    const materializer1 = getOrCreateMaterializer(tempDir);
+    const _eventStore = getOrCreateEventStore(tempDir);
+    const materializer2 = getOrCreateMaterializer(tempDir);
+
+    // Both Materializer references should be the exact same instance
+    expect(materializer2).toBe(materializer1);
+  });
+
+  it('should invalidate both caches when stateDir actually changes', () => {
+    const eventStore1 = getOrCreateEventStore(tempDir);
+    const materializer1 = getOrCreateMaterializer(tempDir);
+
+    // Change stateDir — both should be recreated
+    const otherDir = tempDir + '-other';
+    const eventStore2 = getOrCreateEventStore(otherDir);
+    const materializer2 = getOrCreateMaterializer(otherDir);
+
+    expect(eventStore2).not.toBe(eventStore1);
+    expect(materializer2).not.toBe(materializer1);
   });
 });
