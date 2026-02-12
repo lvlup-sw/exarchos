@@ -20,6 +20,11 @@ import {
   ContextAssembledData,
   TaskRoutedData,
   RemediationStartedData,
+  WorkflowTransitionData,
+  WorkflowFixCycleData,
+  WorkflowGuardFailedData,
+  WorkflowCheckpointData,
+  WorkflowCompoundEntryData,
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
@@ -543,8 +548,8 @@ describe('RemediationStartedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 19 event types', () => {
-    expect(EventTypes).toHaveLength(19);
+  it('should contain all 24 event types', () => {
+    expect(EventTypes).toHaveLength(24);
   });
 
   it('should include workflow-level types', () => {
@@ -584,8 +589,131 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('remediation.started');
   });
 
+  it('should include workflow internal event types', () => {
+    expect(EventTypes).toContain('workflow.transition');
+    expect(EventTypes).toContain('workflow.fix-cycle');
+    expect(EventTypes).toContain('workflow.guard-failed');
+    expect(EventTypes).toContain('workflow.checkpoint');
+    expect(EventTypes).toContain('workflow.compound-entry');
+  });
+
   it('should support type-safe assignment', () => {
     const eventType: EventType = 'workflow.started';
     expect(eventType).toBe('workflow.started');
+  });
+});
+
+// ─── B3: Workflow Transition Event Data Schemas ─────────────────────────────
+
+describe('WorkflowTransitionData', () => {
+  it('WorkflowEventBase_WorkflowTransition_ParsesCorrectly', () => {
+    const data = WorkflowTransitionData.parse({
+      from: 'ideate',
+      to: 'plan',
+      trigger: 'design-approved',
+      featureId: 'my-feature',
+    });
+    expect(data.from).toBe('ideate');
+    expect(data.to).toBe('plan');
+    expect(data.trigger).toBe('design-approved');
+    expect(data.featureId).toBe('my-feature');
+  });
+
+  it('should parse event base with workflow.transition type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan', trigger: 'approved', featureId: 'test' },
+    });
+    expect(event.type).toBe('workflow.transition');
+  });
+});
+
+describe('WorkflowFixCycleData', () => {
+  it('WorkflowEventBase_WorkflowFixCycle_ParsesCorrectly', () => {
+    const data = WorkflowFixCycleData.parse({
+      compoundStateId: 'feature-delegate-review',
+      count: 2,
+      featureId: 'my-feature',
+    });
+    expect(data.compoundStateId).toBe('feature-delegate-review');
+    expect(data.count).toBe(2);
+    expect(data.featureId).toBe('my-feature');
+  });
+
+  it('should parse event base with workflow.fix-cycle type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.fix-cycle',
+    });
+    expect(event.type).toBe('workflow.fix-cycle');
+  });
+});
+
+describe('WorkflowGuardFailedData', () => {
+  it('WorkflowEventBase_WorkflowGuardFailed_ParsesCorrectly', () => {
+    const data = WorkflowGuardFailedData.parse({
+      guard: 'allTasksComplete',
+      from: 'delegate',
+      to: 'review',
+      featureId: 'my-feature',
+    });
+    expect(data.guard).toBe('allTasksComplete');
+    expect(data.from).toBe('delegate');
+    expect(data.to).toBe('review');
+    expect(data.featureId).toBe('my-feature');
+  });
+
+  it('should parse event base with workflow.guard-failed type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.guard-failed',
+    });
+    expect(event.type).toBe('workflow.guard-failed');
+  });
+});
+
+describe('WorkflowCheckpointData', () => {
+  it('WorkflowEventBase_WorkflowCheckpoint_ParsesCorrectly', () => {
+    const data = WorkflowCheckpointData.parse({
+      counter: 5,
+      phase: 'delegate',
+      featureId: 'my-feature',
+    });
+    expect(data.counter).toBe(5);
+    expect(data.phase).toBe('delegate');
+    expect(data.featureId).toBe('my-feature');
+  });
+
+  it('should parse event base with workflow.checkpoint type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.checkpoint',
+    });
+    expect(event.type).toBe('workflow.checkpoint');
+  });
+});
+
+describe('WorkflowCompoundEntryData', () => {
+  it('WorkflowEventBase_WorkflowCompoundEntry_ParsesCorrectly', () => {
+    const data = WorkflowCompoundEntryData.parse({
+      compoundStateId: 'feature-delegate-review',
+      featureId: 'my-feature',
+    });
+    expect(data.compoundStateId).toBe('feature-delegate-review');
+    expect(data.featureId).toBe('my-feature');
+  });
+
+  it('should parse event base with workflow.compound-entry type', () => {
+    const event = WorkflowEventBase.parse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'workflow.compound-entry',
+    });
+    expect(event.type).toBe('workflow.compound-entry');
   });
 });
