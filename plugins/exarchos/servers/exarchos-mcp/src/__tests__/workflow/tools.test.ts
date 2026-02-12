@@ -1831,6 +1831,68 @@ describe('External Event Store Bridge', () => {
   });
 });
 
+// ─── Guaranteed Event Append (Task 9) ──────────────────────────────────────
+
+describe('Guaranteed Event Append', () => {
+  it('handleSet_EventAppendFails_ReturnsError', async () => {
+    // Arrange — create a mock EventStore whose append method throws
+    const eventStore = new EventStore(tmpDir);
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Disk full'),
+    );
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'event-fail', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'event-fail', updates: { 'artifacts.design': 'docs/test.md' } },
+      tmpDir,
+    );
+
+    // Act — attempt a phase transition that triggers event append
+    const result = await handleSet(
+      { featureId: 'event-fail', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert — should return error with EVENT_APPEND_FAILED code
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Disk full');
+
+    // State should NOT have been mutated (event-first guarantee)
+    const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
+    expect(state.phase).toBe('ideate');
+
+    appendSpy.mockRestore();
+  });
+
+  it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
+    // Arrange — create a mock EventStore whose append method throws
+    const eventStore = new EventStore(tmpDir);
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Permission denied'),
+    );
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ckpt-event-fail', workflowType: 'feature' }, tmpDir);
+
+    // Act — attempt a checkpoint that triggers event append
+    const result = await handleCheckpoint(
+      { featureId: 'ckpt-event-fail', summary: 'test' },
+      tmpDir,
+    );
+
+    // Assert — should return error with EVENT_APPEND_FAILED code
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Permission denied');
+
+    appendSpy.mockRestore();
+  });
+});
+
 describe('B5: Event-First Mutation Ordering', () => {
   it('handleSet_EventAppendedBeforeStateMutation: event store receives event for transition', async () => {
     const eventStore = new EventStore(tmpDir);

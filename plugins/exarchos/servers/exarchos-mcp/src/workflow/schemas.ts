@@ -296,6 +296,7 @@ export const ErrorCode = {
   ALREADY_CANCELLED: 'ALREADY_CANCELLED',
   COMPENSATION_PARTIAL: 'COMPENSATION_PARTIAL',
   FILE_IO_ERROR: 'FILE_IO_ERROR',
+  EVENT_APPEND_FAILED: 'EVENT_APPEND_FAILED',
 } as const;
 
 // ─── Reserved Field Validation ──────────────────────────────────────────────
