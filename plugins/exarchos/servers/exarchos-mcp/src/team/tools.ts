@@ -7,18 +7,13 @@ import { TeamCoordinator } from './coordinator.js';
 import { ROLES } from './roles.js';
 import { formatResult, type ToolResult } from '../format.js';
 
-// ─── Shared Coordinator + Store Cache ──────────────────────────────────────
+// ─── Module-Level EventStore (injected via registerTeamTools) ────────────────
 
+let moduleEventStore: EventStore | null = null;
 const coordinatorCache = new Map<string, TeamCoordinator>();
-const storeCache = new Map<string, EventStore>();
 
 function getStore(stateDir: string): EventStore {
-  let store = storeCache.get(stateDir);
-  if (!store) {
-    store = new EventStore(stateDir);
-    storeCache.set(stateDir, store);
-  }
-  return store;
+  return moduleEventStore ?? new EventStore(stateDir);
 }
 
 function getCoordinator(stateDir: string): TeamCoordinator {
@@ -290,7 +285,10 @@ export async function handleTeamStatus(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerTeamTools(server: McpServer, stateDir: string): void {
+export function registerTeamTools(server: McpServer, stateDir: string, eventStore?: EventStore): void {
+  if (eventStore) {
+    moduleEventStore = eventStore;
+  }
   server.tool(
     'exarchos_team_spawn',
     'Spawn a new team member agent with a role assignment',

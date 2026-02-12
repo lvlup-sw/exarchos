@@ -37,11 +37,11 @@ export function createServer(stateDir: string): McpServer {
   registerNextActionTool(server, stateDir);
   registerCancelTool(server, stateDir);
   registerQueryTools(server, stateDir);
-  registerEventTools(server, stateDir);
+  registerEventTools(server, stateDir, eventStore);
   registerViewTools(server, stateDir);
-  registerTeamTools(server, stateDir);
-  registerTaskTools(server, stateDir);
-  registerStackTools(server, stateDir);
+  registerTeamTools(server, stateDir, eventStore);
+  registerTaskTools(server, stateDir, eventStore);
+  registerStackTools(server, stateDir, eventStore);
 
   // Stub tools
   server.tool(

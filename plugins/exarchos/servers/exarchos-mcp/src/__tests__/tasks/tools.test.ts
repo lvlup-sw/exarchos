@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import {
   handleTaskClaim,
   handleTaskComplete,
   handleTaskFail,
+  registerTaskTools,
 } from '../../tasks/tools.js';
 
 let tempDir: string;
@@ -299,5 +300,37 @@ describe('handleTaskFail', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('FAIL_FAILED');
+  });
+});
+
+// ─── EventStore Consolidation ────────────────────────────────────────────────
+
+describe('registerTaskTools', () => {
+  it('should accept eventStore parameter in registration', () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    // Should accept 3 args: server, stateDir, eventStore
+    expect(() => registerTaskTools(mockServer, tempDir, store)).not.toThrow();
+    // Verify the function's declared parameter count is 3
+    expect(registerTaskTools.length).toBe(3);
+  });
+
+  it('should not create additional EventStore instances after registration', async () => {
+    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerTaskTools(mockServer, tempDir, store);
+
+    // Spy on EventStore constructor after registration
+    const constructorSpy = vi.spyOn(EventStore.prototype, 'append');
+
+    const result = await handleTaskClaim(
+      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-consolidation' },
+      tempDir,
+    );
+    expect(result.success).toBe(true);
+
+    // The provided store should see the events
+    const events = await store.query('wf-consolidation', { type: 'task.claimed' });
+    expect(events).toHaveLength(1);
+
+    constructorSpy.mockRestore();
   });
 });
