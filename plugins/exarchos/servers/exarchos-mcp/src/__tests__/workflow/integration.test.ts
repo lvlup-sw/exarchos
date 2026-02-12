@@ -220,6 +220,24 @@ describe('Integration', () => {
         stateDir,
         eventStore,
       );
+      // Verify event log BEFORE completed transition (archival compresses JSONL on terminal phase)
+      const preCompletionEvents = await eventStore.query('full-saga');
+      const preTransitionEvents = preCompletionEvents.filter((e) => e.type === 'workflow.transition');
+
+      // Should have 5 transitions so far: ideate->plan, plan->plan-review, plan-review->delegate,
+      // delegate->review, review->synthesize
+      expect(preTransitionEvents.length).toBe(5);
+
+      const preTransitionPairs = preTransitionEvents.map((e) => {
+        const data = e.data as Record<string, unknown>;
+        return `${data.from}->${data.to}`;
+      });
+      expect(preTransitionPairs).toContain('ideate->plan');
+      expect(preTransitionPairs).toContain('plan->plan-review');
+      expect(preTransitionPairs).toContain('plan-review->delegate');
+      expect(preTransitionPairs).toContain('delegate->review');
+      expect(preTransitionPairs).toContain('review->synthesize');
+
       const toCompleted = await transitionFeature('full-saga', 'completed', eventStore);
       expect(toCompleted.success).toBe(true);
       expect((toCompleted.data as Record<string, unknown>).phase).toBe('completed');
@@ -230,24 +248,9 @@ describe('Integration', () => {
       const finalState = getResult.data as Record<string, unknown>;
       expect(finalState.phase).toBe('completed');
 
-      // Verify event log from external JSONL store contains transition events
-      const allEvents = await eventStore.query('full-saga');
-      const transitionEvents = allEvents.filter((e) => e.type === 'workflow.transition');
-
-      // Should have transitions: ideate->plan, plan->plan-review, plan-review->delegate,
-      // delegate->review, review->synthesize, synthesize->completed
-      expect(transitionEvents.length).toBe(6);
-
-      const transitionPairs = transitionEvents.map((e) => {
-        const data = e.data as Record<string, unknown>;
-        return `${data.from}->${data.to}`;
-      });
-      expect(transitionPairs).toContain('ideate->plan');
-      expect(transitionPairs).toContain('plan->plan-review');
-      expect(transitionPairs).toContain('plan-review->delegate');
-      expect(transitionPairs).toContain('delegate->review');
-      expect(transitionPairs).toContain('review->synthesize');
-      expect(transitionPairs).toContain('synthesize->completed');
+      // After completed transition, event log should be archived (JSONL -> .gz)
+      const gzPath = path.join(stateDir, 'full-saga.events.jsonl.gz');
+      await expect(fs.access(gzPath)).resolves.toBeUndefined();
     });
   });
 

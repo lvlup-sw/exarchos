@@ -2073,3 +2073,156 @@ describe('handleGet fields projection', () => {
     expect(data._events).toBeUndefined();
   });
 });
+
+// ─── Archival on Terminal Phase Transition ─────────────────────────────────
+
+describe('ToolSet_ArchivalOnTerminalPhase', () => {
+  it('should call archive on EventStore when transitioning to completed', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a refactor workflow and walk it to polish-update-docs via the polish track
+    await handleInit({ featureId: 'archive-complete', workflowType: 'refactor' }, tmpDir);
+
+    // explore -> brief (needs explore.scopeAssessment)
+    await handleSet(
+      {
+        featureId: 'archive-complete',
+        updates: {
+          track: 'polish',
+          'explore.scopeAssessment': { filesAffected: ['a.ts'], recommendedTrack: 'polish' },
+        },
+        phase: 'brief',
+      },
+      tmpDir,
+    );
+
+    // brief -> polish-implement (needs track === 'polish' and brief.goals)
+    await handleSet(
+      {
+        featureId: 'archive-complete',
+        updates: { 'brief.goals': ['simplify imports'] },
+        phase: 'polish-implement',
+      },
+      tmpDir,
+    );
+
+    // polish-implement -> polish-validate (implementationComplete always true)
+    await handleSet(
+      { featureId: 'archive-complete', phase: 'polish-validate' },
+      tmpDir,
+    );
+
+    // polish-validate -> polish-update-docs (needs validation.testsPass)
+    await handleSet(
+      {
+        featureId: 'archive-complete',
+        updates: { 'validation.testsPass': true },
+        phase: 'polish-update-docs',
+      },
+      tmpDir,
+    );
+
+    // Spy on archive BEFORE the terminal transition
+    const archiveSpy = vi.spyOn(eventStore, 'archive');
+
+    // polish-update-docs -> completed (needs validation.docsUpdated)
+    const result = await handleSet(
+      {
+        featureId: 'archive-complete',
+        updates: { 'validation.docsUpdated': true },
+        phase: 'completed',
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(archiveSpy).toHaveBeenCalledWith('archive-complete');
+
+    archiveSpy.mockRestore();
+  });
+
+  it('should NOT call archive when transitioning to a non-terminal phase', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'archive-nonterminal', workflowType: 'feature' }, tmpDir);
+
+    const archiveSpy = vi.spyOn(eventStore, 'archive');
+
+    // Transition ideate -> plan (non-terminal)
+    await handleSet(
+      {
+        featureId: 'archive-nonterminal',
+        updates: { 'artifacts.design': 'docs/design.md' },
+        phase: 'plan',
+      },
+      tmpDir,
+    );
+
+    expect(archiveSpy).not.toHaveBeenCalled();
+
+    archiveSpy.mockRestore();
+  });
+
+  it('should succeed even when archive throws (best-effort)', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a refactor workflow and walk it to polish-update-docs
+    await handleInit({ featureId: 'archive-fail', workflowType: 'refactor' }, tmpDir);
+
+    await handleSet(
+      {
+        featureId: 'archive-fail',
+        updates: {
+          track: 'polish',
+          'explore.scopeAssessment': { filesAffected: ['a.ts'], recommendedTrack: 'polish' },
+        },
+        phase: 'brief',
+      },
+      tmpDir,
+    );
+
+    await handleSet(
+      {
+        featureId: 'archive-fail',
+        updates: { 'brief.goals': ['cleanup'] },
+        phase: 'polish-implement',
+      },
+      tmpDir,
+    );
+
+    await handleSet(
+      { featureId: 'archive-fail', phase: 'polish-validate' },
+      tmpDir,
+    );
+
+    await handleSet(
+      {
+        featureId: 'archive-fail',
+        updates: { 'validation.testsPass': true },
+        phase: 'polish-update-docs',
+      },
+      tmpDir,
+    );
+
+    // Make archive throw
+    const archiveSpy = vi.spyOn(eventStore, 'archive').mockRejectedValue(new Error('disk full'));
+
+    // Transition to completed should still succeed
+    const result = await handleSet(
+      {
+        featureId: 'archive-fail',
+        updates: { 'validation.docsUpdated': true },
+        phase: 'completed',
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(archiveSpy).toHaveBeenCalledWith('archive-fail');
+
+    archiveSpy.mockRestore();
+  });
+});

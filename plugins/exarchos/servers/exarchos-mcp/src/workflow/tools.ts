@@ -321,6 +321,16 @@ export async function handleSet(
   // Write back to disk
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
+  // Archive event log on terminal phase transitions (best-effort)
+  const terminalPhases = new Set(['completed', 'cancelled']);
+  if (terminalPhases.has(mutableState.phase as string) && moduleEventStore) {
+    try {
+      await moduleEventStore.archive(input.featureId);
+    } catch {
+      // Archival is best-effort; don't fail the transition
+    }
+  }
+
   return {
     success: true,
     data: {
