@@ -67,8 +67,6 @@ function makeValidFeatureState() {
       prFeedback: [],
     },
     _history: {},
-    _events: [],
-    _eventSequence: 0,
     _checkpoint: makeCheckpointState(),
   };
 }
@@ -87,18 +85,16 @@ describe('Workflow State Schemas', () => {
       }
     });
 
-    it('should apply defaults for version, _history, _events, _eventSequence', () => {
+    it('should apply defaults for version and _history', () => {
       const state = makeValidFeatureState();
       // Remove fields that have defaults
-      const { version, _history, _events, _eventSequence, ...rest } = state;
+      const { version, _history, ...rest } = state;
       const result = FeatureWorkflowStateSchema.safeParse(rest);
 
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.version).toBe('1.1');
         expect(result.data._history).toEqual({});
-        expect(result.data._events).toEqual([]);
-        expect(result.data._eventSequence).toBe(0);
       }
     });
 

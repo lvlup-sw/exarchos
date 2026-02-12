@@ -45,8 +45,7 @@ describe('State Store', () => {
         prFeedback: [],
       });
       expect(state._history).toEqual({});
-      expect(state._events).toEqual([]);
-      expect(state._eventSequence).toBe(0);
+      // _events and _eventSequence removed — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
       expect(state._checkpoint.phase).toBe('ideate');
       expect(state._checkpoint.summary).toBe('Workflow initialized');
@@ -590,8 +589,6 @@ describe('State Store', () => {
             prFeedback: [],
           },
           _history: {},
-          _events: [],
-          _eventSequence: 0,
           _checkpoint: {
             timestamp: new Date().toISOString(),
             phase: 'ideate',

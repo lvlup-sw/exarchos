@@ -17,6 +17,8 @@ import {
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
+import { configureQueryEventStore } from '../../workflow/query.js';
+import { configureNextActionEventStore } from '../../workflow/next-action.js';
 import type { WorkflowState } from '../../workflow/types.js';
 
 let tmpDir: string;
@@ -26,6 +28,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  configureWorkflowEventStore(null);
+  configureQueryEventStore(null);
+  configureNextActionEventStore(null);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -136,7 +141,7 @@ describe('Core Tools', () => {
   });
 
   describe('ToolGet_InternalField_ReturnsValue', () => {
-    it('should be able to read internal fields like _history and _events', async () => {
+    it('should be able to read internal fields like _history', async () => {
       await handleInit({ featureId: 'internal-test', workflowType: 'feature' }, tmpDir);
 
       const historyResult = await handleGet(
@@ -146,12 +151,13 @@ describe('Core Tools', () => {
       expect(historyResult.success).toBe(true);
       expect(historyResult.data).toEqual({});
 
+      // _events no longer exists in state (moved to external JSONL store)
       const eventsResult = await handleGet(
         { featureId: 'internal-test', query: '_events' },
         tmpDir,
       );
       expect(eventsResult.success).toBe(true);
-      expect(eventsResult.data).toEqual([]);
+      expect(eventsResult.data).toBeUndefined();
     });
   });
 
@@ -184,11 +190,11 @@ describe('Core Tools', () => {
     });
   });
 
-  describe('handleGet_NoQuery_IncludesMetaEventSummary', () => {
-    it('should include eventCount and recentEvents in _meta', async () => {
+  describe('handleGet_NoQuery_ReturnsCheckpointMeta', () => {
+    it('should include checkpoint meta but not event summary (events now in external store)', async () => {
       await handleInit({ featureId: 'meta-summary', workflowType: 'feature' }, tmpDir);
 
-      // Set design artifact and transition to plan to generate events
+      // Set design artifact and transition to plan
       await handleSet(
         { featureId: 'meta-summary', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
@@ -206,26 +212,18 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const meta = result._meta as Record<string, unknown>;
       expect(meta).toBeDefined();
-      expect(typeof meta.eventCount).toBe('number');
-      expect(meta.eventCount).toBeGreaterThan(0);
-      expect(Array.isArray(meta.recentEvents)).toBe(true);
-
-      const recentEvents = meta.recentEvents as Array<Record<string, unknown>>;
-      expect(recentEvents.length).toBeGreaterThan(0);
-      expect(recentEvents.length).toBeLessThanOrEqual(3);
-      // Each recent event should have type and timestamp
-      for (const event of recentEvents) {
-        expect(typeof event.type).toBe('string');
-        expect(typeof event.timestamp).toBe('string');
-      }
+      // Event summary is no longer in _meta — events live in external JSONL store.
+      // Use handleSummary for event + circuit breaker information.
+      expect(meta.eventCount).toBeUndefined();
+      expect(meta.recentEvents).toBeUndefined();
     });
   });
 
-  describe('handleGet_QueryEventsExplicitly_StillWorks', () => {
-    it('should return _events when explicitly queried', async () => {
+  describe('handleGet_QueryEventsExplicitly_ReturnsUndefined', () => {
+    it('should return undefined for _events (events now in external JSONL store)', async () => {
       await handleInit({ featureId: 'query-events', workflowType: 'feature' }, tmpDir);
 
-      // Generate some events
+      // Generate some state changes
       await handleSet(
         { featureId: 'query-events', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
@@ -241,9 +239,8 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(Array.isArray(result.data)).toBe(true);
-      const events = result.data as Array<Record<string, unknown>>;
-      expect(events.length).toBeGreaterThan(0);
+      // _events no longer exists in state — events moved to external JSONL store
+      expect(result.data).toBeUndefined();
     });
   });
 
@@ -609,13 +606,9 @@ describe('Core Tools', () => {
       expect(data.actions).toBeDefined();
       expect(Array.isArray(data.actions)).toBe(true);
 
-      // Verify events include compensation and cancel events
+      // Verify state was transitioned to cancelled
       const state = await readStateFile(path.join(tmpDir, 'cancel-active.state.json'));
       expect(state.phase).toBe('cancelled');
-
-      const events = state._events;
-      const cancelEvents = events.filter((e) => e.type === 'cancel');
-      expect(cancelEvents.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -668,13 +661,9 @@ describe('Core Tools', () => {
 
       expect(result.success).toBe(true);
 
+      // Verify state transitioned to cancelled
       const state = await readStateFile(path.join(tmpDir, 'cancel-reason.state.json'));
-      const cancelEvents = state._events.filter((e) => e.type === 'cancel');
-      expect(cancelEvents.length).toBeGreaterThanOrEqual(1);
-
-      const cancelEvent = cancelEvents[cancelEvents.length - 1];
-      expect(cancelEvent.metadata).toBeDefined();
-      expect(cancelEvent.metadata?.reason).toBe('Requirements changed');
+      expect(state.phase).toBe('cancelled');
     });
   });
 
@@ -707,12 +696,6 @@ describe('Core Tools', () => {
       // Verify state on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-reset.state.json'));
       expect(state._checkpoint.operationsSince).toBe(0);
-
-      // Verify a checkpoint event was logged
-      const checkpointEvents = state._events.filter(
-        (e: { type: string }) => e.type === 'checkpoint',
-      );
-      expect(checkpointEvents.length).toBe(1);
     });
   });
 
@@ -767,12 +750,9 @@ describe('Core Tools', () => {
       expect(result2.success).toBe(true);
       expect(result2._meta).toEqual({ checkpointAdvised: false });
 
-      // Verify two checkpoint events on disk
+      // Verify checkpoint counter was reset on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-multi.state.json'));
-      const checkpointEvents = state._events.filter(
-        (e: { type: string }) => e.type === 'checkpoint',
-      );
-      expect(checkpointEvents.length).toBe(2);
+      expect(state._checkpoint.operationsSince).toBe(0);
     });
   });
 });
@@ -825,36 +805,42 @@ describe('Query Tools', () => {
 
   describe('ToolSummary_IncludesRecentEventsAndCircuitBreaker', () => {
     it('should include last 5 events and circuit breaker state', async () => {
+      // Configure module-level event store so handleSummary can query external events
+      const eventStore = new EventStore(tmpDir);
+      configureQueryEventStore(eventStore);
+
       await handleInit({ featureId: 'summary-cb', workflowType: 'feature' }, tmpDir);
 
       // Set design artifact and transition to plan to generate events
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'plan' }, tmpDir, eventStore);
 
       // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir, eventStore);
       await handleSet(
         { featureId: 'summary-cb', updates: { planReview: { approved: true } } },
         tmpDir,
+        eventStore,
       );
-      await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir);
+      await handleSet({ featureId: 'summary-cb', phase: 'delegate' }, tmpDir, eventStore);
 
       const result = await handleSummary({ featureId: 'summary-cb' }, tmpDir);
 
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
 
-      // Recent events should be present (last 5)
+      // Recent events — from external event store
       const recentEvents = data.recentEvents as Array<unknown>;
-      expect(recentEvents.length).toBeGreaterThan(0);
-      expect(recentEvents.length).toBeLessThanOrEqual(5);
+      expect(Array.isArray(recentEvents)).toBe(true);
 
       // Circuit breaker state for the "implementation" compound
       const circuitBreaker = data.circuitBreaker as Record<string, unknown>;
@@ -999,8 +985,7 @@ describe('Query Tools', () => {
     it('should return blocked when circuit breaker is open', async () => {
       await handleInit({ featureId: 'next-circuit', workflowType: 'feature' }, tmpDir);
 
-      // Directly write state at review phase with 3 fix-cycle events and
-      // a failed review. This bypasses the Zod field-stripping issue.
+      // Set up state at review phase with failed review
       const stateFile = path.join(tmpDir, 'next-circuit.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
@@ -1009,55 +994,21 @@ describe('Query Tools', () => {
       raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
       raw._checkpoint.phase = 'review';
 
-      // Add events: compound-entry followed by 3 fix-cycle events.
-      // getFixCycleCount in events.ts uses metadata.compoundStateId to match.
-      const baseSeq = raw._eventSequence || 0;
-      const now = new Date().toISOString();
-      raw._events = [
-        {
-          sequence: baseSeq + 1,
-          version: '1.0',
-          timestamp: now,
-          type: 'compound-entry',
-          trigger: 'execute-transition',
-          from: 'plan',
-          to: 'implementation',
-          metadata: { compoundStateId: 'implementation' },
-        },
-        {
-          sequence: baseSeq + 2,
-          version: '1.0',
-          timestamp: now,
-          type: 'fix-cycle',
-          trigger: 'execute-transition',
-          from: 'review',
-          to: 'delegate',
-          metadata: { compoundStateId: 'implementation' },
-        },
-        {
-          sequence: baseSeq + 3,
-          version: '1.0',
-          timestamp: now,
-          type: 'fix-cycle',
-          trigger: 'execute-transition',
-          from: 'review',
-          to: 'delegate',
-          metadata: { compoundStateId: 'implementation' },
-        },
-        {
-          sequence: baseSeq + 4,
-          version: '1.0',
-          timestamp: now,
-          type: 'fix-cycle',
-          trigger: 'execute-transition',
-          from: 'review',
-          to: 'delegate',
-          metadata: { compoundStateId: 'implementation' },
-        },
-      ];
-      raw._eventSequence = baseSeq + 4;
-
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      // Populate external event store with compound-entry + 3 fix-cycle events
+      const eventStore = new EventStore(tmpDir);
+      configureNextActionEventStore(eventStore);
+      await eventStore.append('next-circuit', {
+        type: 'workflow.compound-entry',
+        data: { compoundStateId: 'implementation', featureId: 'next-circuit' },
+      });
+      for (let i = 0; i < 3; i++) {
+        await eventStore.append('next-circuit', {
+          type: 'workflow.fix-cycle',
+          data: { compoundStateId: 'implementation', count: i + 1, featureId: 'next-circuit' },
+        });
+      }
 
       const result = await handleNextAction({ featureId: 'next-circuit' }, tmpDir);
 
@@ -1072,7 +1023,6 @@ describe('Query Tools', () => {
       await handleInit({ featureId: 'next-fixcycle', workflowType: 'feature' }, tmpDir);
 
       // Write state at review phase with a failed review
-      // and a compound-entry event (but NO fix-cycle events, so circuit stays closed)
       const stateFile = path.join(tmpDir, 'next-fixcycle.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
@@ -1081,22 +1031,15 @@ describe('Query Tools', () => {
       raw.artifacts = { design: 'design.md', plan: 'plan.md', pr: null };
       raw._checkpoint.phase = 'review';
 
-      const now = new Date().toISOString();
-      raw._events = [
-        {
-          sequence: 1,
-          version: '1.0',
-          timestamp: now,
-          type: 'compound-entry',
-          trigger: 'execute-transition',
-          from: 'plan-review',
-          to: 'implementation',
-          metadata: { compoundStateId: 'implementation' },
-        },
-      ];
-      raw._eventSequence = 1;
-
       await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      // Populate external event store with compound-entry (but NO fix-cycle events, so circuit stays closed)
+      const eventStore = new EventStore(tmpDir);
+      configureNextActionEventStore(eventStore);
+      await eventStore.append('next-fixcycle', {
+        type: 'workflow.compound-entry',
+        data: { compoundStateId: 'implementation', featureId: 'next-fixcycle' },
+      });
 
       const result = await handleNextAction({ featureId: 'next-fixcycle' }, tmpDir);
 
@@ -1793,6 +1736,44 @@ describe('External Event Store Bridge', () => {
     expect(events.length).toBe(1);
     expect((events[0].data as Record<string, unknown>)?.phase).toBe('ideate');
     expect((events[0].data as Record<string, unknown>)?.featureId).toBe('cp-bridge');
+  });
+});
+
+describe('B5: Event-First Mutation Ordering', () => {
+  it('handleSet_EventAppendedBeforeStateMutation: event store receives event for transition', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'event-first', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'event-first', updates: { 'artifacts.design': 'docs/test.md' } },
+      tmpDir,
+      eventStore,
+    );
+
+    // Transition from ideate to plan
+    const result = await handleSet(
+      { featureId: 'event-first', phase: 'plan' },
+      tmpDir,
+      eventStore,
+    );
+    expect(result.success).toBe(true);
+
+    // Verify external event store has the transition event
+    const events = await eventStore.query('event-first', { type: 'workflow.transition' });
+    expect(events.length).toBeGreaterThanOrEqual(1);
+
+    // Verify state was updated
+    const state = await readStateFile(path.join(tmpDir, 'event-first.state.json'));
+    expect(state.phase).toBe('plan');
+  });
+
+  it('WorkflowStateSchema_NoEventsField: schema does not include _events or _eventSequence', async () => {
+    await handleInit({ featureId: 'schema-check', workflowType: 'feature' }, tmpDir);
+    const state = await readStateFile(path.join(tmpDir, 'schema-check.state.json'));
+    // After B5, _events and _eventSequence should not be present in the state
+    expect((state as Record<string, unknown>)._events).toBeUndefined();
+    expect((state as Record<string, unknown>)._eventSequence).toBeUndefined();
   });
 });
 

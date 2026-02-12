@@ -20,14 +20,15 @@ const migrations: readonly Migration[] = [
           }))
         : state.tasks;
 
+      // Remove deprecated _events and _eventSequence (events now in external JSONL store)
+      const { _events, _eventSequence, ...rest } = state;
+
       return {
-        ...state,
+        ...rest,
         version: '1.1',
         tasks,
-        _history: state._history ?? {},
-        _events: state._events ?? [],
-        _eventSequence: state._eventSequence ?? 0,
-        _checkpoint: state._checkpoint ?? {
+        _history: rest._history ?? {},
+        _checkpoint: rest._checkpoint ?? {
           timestamp:
             (state.updatedAt as string) ?? new Date().toISOString(),
           phase: (state.phase as string) ?? 'unknown',

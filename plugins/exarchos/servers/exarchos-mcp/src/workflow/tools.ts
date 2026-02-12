@@ -23,7 +23,7 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { appendEvent, getRecentEvents, mapInternalToExternalType } from './events.js';
+import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
@@ -35,7 +35,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by workflow tool handlers. */
-export function configureWorkflowEventStore(store: EventStore): void {
+export function configureWorkflowEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 
@@ -64,14 +64,6 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
     delete stripped[field];
   }
   return stripped;
-}
-
-function buildEventSummary(state: WorkflowState): { eventCount: number; recentEvents: Array<{ type: string; timestamp: string }> } {
-  const recent = getRecentEvents(state._events, 3);
-  return {
-    eventCount: state._events.length,
-    recentEvents: recent.map(e => ({ type: e.type, timestamp: e.timestamp })),
-  };
 }
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
@@ -175,10 +167,7 @@ export async function handleGet(
     return {
       success: true,
       data: strippedState,
-      _meta: {
-        ...meta,
-        ...buildEventSummary(state),
-      },
+      _meta: meta,
     };
   }
 
@@ -256,33 +245,7 @@ export async function handleSet(
     }
 
     if (!result.idempotent && result.newPhase) {
-      // Update phase
-      mutableState.phase = result.newPhase;
-
-      // Apply events from the transition
-      let events = mutableState._events as WorkflowState['_events'];
-      let eventSequence = mutableState._eventSequence as number;
-
-      for (const transitionEvent of result.events) {
-        const appended = appendEvent(
-          events,
-          eventSequence,
-          transitionEvent.type as WorkflowState['_events'][number]['type'],
-          transitionEvent.trigger,
-          {
-            from: transitionEvent.from,
-            to: transitionEvent.to,
-            metadata: transitionEvent.metadata,
-          },
-        );
-        events = appended.events;
-        eventSequence = appended.eventSequence;
-      }
-
-      mutableState._events = events;
-      mutableState._eventSequence = eventSequence;
-
-      // Emit to external event store (best-effort — don't block state persistence)
+      // Event-first: emit to external event store BEFORE mutating state (best-effort)
       if (moduleEventStore) {
         try {
           for (const transitionEvent of result.events) {
@@ -301,6 +264,9 @@ export async function handleSet(
           // External store is supplementary; JSONL append failure must not break workflow
         }
       }
+
+      // THEN mutate state
+      mutableState.phase = result.newPhase;
 
       // Apply history updates
       if (result.historyUpdates) {
@@ -378,24 +344,13 @@ export async function handleCheckpoint(
     input.summary,
   );
 
-  // Append checkpoint event to event log
-  const trigger = input.summary ?? 'explicit checkpoint';
-  const appended = appendEvent(
-    mutableState._events as WorkflowState['_events'],
-    mutableState._eventSequence as number,
-    'checkpoint',
-    trigger,
-  );
-  mutableState._events = appended.events;
-  mutableState._eventSequence = appended.eventSequence;
-
-  // Emit to external event store (best-effort — don't block state persistence)
+  // Emit checkpoint event to external store (event-first, best-effort)
   if (moduleEventStore) {
     try {
       await moduleEventStore.append(input.featureId, {
         type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
         data: {
-          counter: appended.eventSequence,
+          counter: 0,
           phase: state.phase,
           featureId: input.featureId,
         },

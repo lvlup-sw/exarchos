@@ -14,7 +14,7 @@ import {
   buildCheckpointMeta,
   resetCounter,
 } from './checkpoint.js';
-import { appendEvent, mapInternalToExternalType } from './events.js';
+import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { executeCompensation } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
@@ -26,7 +26,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by cancel handlers. */
-export function configureCancelEventStore(store: EventStore): void {
+export function configureCancelEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 
@@ -67,16 +67,14 @@ export async function handleCancel(
 
   const mutableState = structuredClone(state) as Record<string, unknown>;
   const currentPhase = state.phase;
-  const events = (mutableState._events as WorkflowState['_events']) ?? [];
-  const eventSequence = (mutableState._eventSequence as number) ?? 0;
   const dryRun = input.dryRun ?? false;
 
-  // Execute compensation actions
+  // Execute compensation actions (pass empty events array — events now in external store)
   const compensationResult = await executeCompensation(
     mutableState,
     currentPhase,
-    events,
-    eventSequence,
+    [],
+    0,
     { dryRun, stateDir },
   );
 
@@ -106,6 +104,21 @@ export async function handleCancel(
     };
   }
 
+  // Bridge compensation events to external event store (best-effort)
+  if (moduleEventStore && compensationResult.events.length > 0) {
+    try {
+      for (const event of compensationResult.events) {
+        const externalType = mapInternalToExternalType(event.type);
+        await moduleEventStore.append(input.featureId, {
+          type: externalType as import('../event-store/schemas.js').EventType,
+          data: { ...event.metadata, featureId: input.featureId },
+        });
+      }
+    } catch {
+      // External store is supplementary; JSONL append failure must not break cancel
+    }
+  }
+
   // Transition to cancelled via HSM
   const hsm = getHSMDefinition(state.workflowType);
   const transitionResult = executeTransition(hsm, mutableState, 'cancelled');
@@ -120,31 +133,7 @@ export async function handleCancel(
     };
   }
 
-  // Apply phase change
-  mutableState.phase = 'cancelled';
-
-  // Build up events: start with existing events + compensation events
-  let updatedEvents = [...events, ...compensationResult.events];
-  let updatedSequence = eventSequence + compensationResult.events.length;
-
-  // Append transition events from HSM
-  for (const transitionEvent of transitionResult.events) {
-    const appended = appendEvent(
-      updatedEvents,
-      updatedSequence,
-      transitionEvent.type as WorkflowState['_events'][number]['type'],
-      transitionEvent.trigger,
-      {
-        from: transitionEvent.from,
-        to: transitionEvent.to,
-        metadata: transitionEvent.metadata,
-      },
-    );
-    updatedEvents = appended.events;
-    updatedSequence = appended.eventSequence;
-  }
-
-  // Append cancel event with reason metadata
+  // Build cancel metadata
   const cancelMetadata: Record<string, unknown> = {};
   if (input.reason) {
     cancelMetadata.reason = input.reason;
@@ -152,24 +141,8 @@ export async function handleCancel(
   cancelMetadata.compensationActions = compensationResult.actions.length;
   cancelMetadata.compensationSuccess = compensationResult.success;
 
-  const cancelAppended = appendEvent(
-    updatedEvents,
-    updatedSequence,
-    'cancel',
-    'user-cancel',
-    {
-      from: currentPhase,
-      to: 'cancelled',
-      metadata: cancelMetadata,
-    },
-  );
-  updatedEvents = cancelAppended.events;
-  updatedSequence = cancelAppended.eventSequence;
+  // Event-first: emit to external event store BEFORE mutating state (best-effort)
 
-  mutableState._events = updatedEvents;
-  mutableState._eventSequence = updatedSequence;
-
-  // Emit to external event store (best-effort — don't block state persistence)
   if (moduleEventStore) {
     try {
       for (const transitionEvent of transitionResult.events) {
@@ -199,6 +172,9 @@ export async function handleCancel(
       // External store is supplementary; JSONL append failure must not break cancel
     }
   }
+
+  // THEN mutate state
+  mutableState.phase = 'cancelled';
 
   // Apply history updates from transition
   if (transitionResult.historyUpdates) {

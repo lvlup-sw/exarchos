@@ -7,11 +7,15 @@ import {
   handleGet,
   handleSet,
   handleSummary,
+  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
-import { getFixCycleCount } from '../../workflow/events.js';
+import { getFixCycleCount, mapInternalToExternalType } from '../../workflow/events.js';
 import { appendEvent } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
+import { EventStore } from '../../event-store/store.js';
+import { configureQueryEventStore } from '../../workflow/query.js';
+import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
 
 /**
  * Cross-module boundary integration tests (Gap 2 from audit).
@@ -49,6 +53,7 @@ describe('Cross-Module Boundary Tests', () => {
   async function transitionRaw(
     featureId: string,
     targetPhase: string,
+    eventStore?: EventStore,
   ): Promise<{ success: boolean; errorCode?: string }> {
     const raw = await readRawState(featureId);
     const hsm = getHSMDefinition(raw.workflowType as string);
@@ -74,6 +79,20 @@ describe('Cross-Module Boundary Tests', () => {
         );
         events = appended.events;
         eventSequence = appended.eventSequence;
+
+        // Also emit to external event store for handleSummary compatibility
+        if (eventStore) {
+          await eventStore.append(featureId, {
+            type: mapInternalToExternalType(te.type) as ExternalEventType,
+            data: {
+              from: te.from,
+              to: te.to,
+              trigger: te.trigger,
+              featureId,
+              ...(te.metadata ?? {}),
+            },
+          });
+        }
       }
 
       raw._events = events;
@@ -100,22 +119,25 @@ describe('Cross-Module Boundary Tests', () => {
   }
 
   /** Advance feature workflow: ideate → plan → plan-review → delegate */
-  async function advanceToDelegate(featureId: string): Promise<void> {
+  async function advanceToDelegate(featureId: string, eventStore?: EventStore): Promise<void> {
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'design.md' } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'plan' }, stateDir);
+    await handleSet({ featureId, phase: 'plan' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'plan.md' } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'plan-review' }, stateDir);
+    await handleSet({ featureId, phase: 'plan-review' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { planReview: { approved: true } } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'delegate' }, stateDir);
+    await handleSet({ featureId, phase: 'delegate' }, stateDir, eventStore);
   }
 
   // ─── Test 1: handleSet → handleGet round-trip ─────────────────────────────
@@ -215,39 +237,39 @@ describe('Cross-Module Boundary Tests', () => {
     expect(state.worktrees).toEqual({});
     expect(state.reviews).toEqual({});
     expect(state.synthesis).toBeDefined();
-    // Internal fields are stripped from no-query responses
-    expect(state._events).toBeUndefined();
-    expect(state._eventSequence).toBeUndefined();
-    expect(state._history).toBeUndefined();
-    // _checkpoint remains (not in INTERNAL_FIELDS)
+    // _events and _eventSequence removed from schema — events now in external JSONL store
     expect(state._checkpoint).toBeDefined();
-    // Event summary is available in _meta
+    // Event summary no longer in _meta — use handleSummary for event info
     const meta = result._meta as Record<string, unknown>;
-    expect(typeof meta.eventCount).toBe('number');
+    expect(meta).toBeDefined();
   });
 
   // ─── Test 5: Circuit breaker end-to-end with real events ──────────────────
 
   describe('HandleSummary_CircuitBreakerState_MatchesRealEvents', () => {
     it('should report correct fixCycleCount from real state-machine events', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+      configureQueryEventStore(eventStore);
       await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir);
 
-      // Advance to delegate
-      await advanceToDelegate('cb-e2e');
+      // Advance to delegate (pass eventStore so transitions are recorded)
+      await advanceToDelegate('cb-e2e', eventStore);
 
       // Perform 2 fix cycles: delegate → review (fail) → delegate
       for (let i = 0; i < 2; i++) {
         // delegate → review (all tasks complete — empty array passes)
-        await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir);
+        await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed
         await handleSet(
           { featureId: 'cb-e2e', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
+          eventStore,
         );
 
         // review → delegate (fix cycle) — reviews is in Zod schema, so handleSet works
-        const fixResult = await transitionRaw('cb-e2e', 'delegate');
+        const fixResult = await transitionRaw('cb-e2e', 'delegate', eventStore);
         expect(fixResult.success).toBe(true);
       }
 
@@ -264,23 +286,27 @@ describe('Cross-Module Boundary Tests', () => {
     });
 
     it('should show circuit breaker open after max fix cycles', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+      configureQueryEventStore(eventStore);
       await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir);
 
-      await advanceToDelegate('cb-open');
+      await advanceToDelegate('cb-open', eventStore);
 
       // Perform 3 fix cycles (max for implementation compound): delegate → review (fail) → delegate
       for (let i = 0; i < 3; i++) {
         // delegate → review (all tasks complete — empty array passes)
-        await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir);
+        await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed
         await handleSet(
           { featureId: 'cb-open', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
+          eventStore,
         );
 
         // review → delegate (fix cycle)
-        const fixResult = await transitionRaw('cb-open', 'delegate');
+        const fixResult = await transitionRaw('cb-open', 'delegate', eventStore);
         expect(fixResult.success).toBe(true);
       }
 

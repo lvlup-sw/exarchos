@@ -11,7 +11,7 @@ import {
 } from './state-store.js';
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getHSMDefinition } from './state-machine.js';
-import { getCircuitBreakerState, checkCircuitBreakerFromStore } from './circuit-breaker.js';
+import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
@@ -21,7 +21,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by next-action handlers. */
-export function configureNextActionEventStore(store: EventStore): void {
+export function configureNextActionEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 
@@ -140,21 +140,17 @@ export async function handleNextAction(
     };
   }
 
-  // Check circuit breaker for fix-cycle transitions
+  // Check circuit breaker for fix-cycle transitions.
+  // Circuit breaker requires EventStore; always configured via configureNextActionEventStore
+  // in index.ts. Guard retained for test isolation where module-level store may not be set.
   const compound = findCompoundForPhase(workflowType, currentPhase);
-  if (compound) {
-    const cbState = eventStore
-      ? await checkCircuitBreakerFromStore(
-          eventStore,
-          input.featureId,
-          compound.compoundId,
-          compound.maxFixCycles,
-        )
-      : getCircuitBreakerState(
-          state._events,
-          compound.compoundId,
-          compound.maxFixCycles,
-        );
+  if (compound && eventStore) {
+    const cbState = await checkCircuitBreakerFromStore(
+      eventStore,
+      input.featureId,
+      compound.compoundId,
+      compound.maxFixCycles,
+    );
 
     // Check if any outbound transition is a fix-cycle that would be attempted
     const outboundTransitions = hsm.transitions.filter((t) => t.from === currentPhase);

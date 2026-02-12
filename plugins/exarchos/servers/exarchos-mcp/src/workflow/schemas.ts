@@ -180,8 +180,7 @@ const BaseWorkflowStateSchema = z.object({
   }).nullable().default(null),
   synthesis: SynthesisSchema,
   _history: z.record(z.string(), z.string()).default({}),
-  _events: z.array(EventSchema).default([]),
-  _eventSequence: z.number().int().min(0).default(0),
+  // _events and _eventSequence removed — events now live in external JSONL store
   _checkpoint: CheckpointStateSchema.default({
     timestamp: '1970-01-01T00:00:00Z',
     phase: 'init',
