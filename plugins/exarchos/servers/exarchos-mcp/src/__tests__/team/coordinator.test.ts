@@ -168,6 +168,58 @@ describe('TeamCoordinator shutdown', () => {
     // The coordinator emits an agent.message or we just verify it's gone
   });
 
+  it('shutdown emits agent.message shutdown event', async () => {
+    await coordinator.shutdown('agent-1', 'stream');
+
+    const events = await eventStore.query('stream', { type: 'agent.message' });
+    const shutdownEvents = events.filter(
+      (e) => (e.data as Record<string, unknown>)?.messageType === 'shutdown',
+    );
+    expect(shutdownEvents).toHaveLength(1);
+    expect(shutdownEvents[0].data).toEqual(
+      expect.objectContaining({
+        from: 'system',
+        to: 'agent-1',
+        content: 'shutdown',
+        messageType: 'shutdown',
+      }),
+    );
+  });
+
+  it('shutdownAll emits event for each teammate', async () => {
+    await coordinator.spawn('agent-3', ROLES.implementer, { taskId: 't3', title: 'Task 3' }, 'stream');
+
+    await coordinator.shutdownAll('stream');
+
+    const status = coordinator.getStatus();
+    expect(status.teammates).toHaveLength(0);
+    expect(status.activeCount).toBe(0);
+
+    const events = await eventStore.query('stream', { type: 'agent.message' });
+    const shutdownEvents = events.filter(
+      (e) => (e.data as Record<string, unknown>)?.messageType === 'shutdown',
+    );
+    expect(shutdownEvents).toHaveLength(3);
+    const targets = shutdownEvents.map(
+      (e) => (e.data as Record<string, unknown>)?.to,
+    );
+    expect(targets).toContain('agent-1');
+    expect(targets).toContain('agent-2');
+    expect(targets).toContain('agent-3');
+  });
+
+  it('shutdown non-existent member throws without emitting event', async () => {
+    await expect(
+      coordinator.shutdown('unknown-agent', 'stream'),
+    ).rejects.toThrow(/not found/i);
+
+    const events = await eventStore.query('stream', { type: 'agent.message' });
+    const shutdownEvents = events.filter(
+      (e) => (e.data as Record<string, unknown>)?.messageType === 'shutdown',
+    );
+    expect(shutdownEvents).toHaveLength(0);
+  });
+
   it('shutdownAll cleans up all teammates', async () => {
     await coordinator.shutdownAll('stream');
 

@@ -125,15 +125,30 @@ export class TeamCoordinator {
     });
   }
 
-  async shutdown(name: string, _streamId?: string): Promise<void> {
+  async shutdown(name: string, streamId?: string): Promise<void> {
     if (!this.teammates.has(name)) {
       throw new Error(`Teammate '${name}' not found`);
+    }
+
+    if (streamId) {
+      await this.eventStore.append(streamId, {
+        type: 'agent.message',
+        data: { from: 'system', to: name, content: 'shutdown', messageType: 'shutdown' },
+      });
     }
 
     this.teammates.delete(name);
   }
 
-  async shutdownAll(_streamId?: string): Promise<void> {
+  async shutdownAll(streamId?: string): Promise<void> {
+    if (streamId) {
+      for (const [name] of this.teammates) {
+        await this.eventStore.append(streamId, {
+          type: 'agent.message',
+          data: { from: 'system', to: name, content: 'shutdown', messageType: 'shutdown' },
+        });
+      }
+    }
     this.teammates.clear();
   }
 
