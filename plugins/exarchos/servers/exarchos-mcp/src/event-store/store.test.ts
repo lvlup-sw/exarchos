@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -569,5 +569,67 @@ describe('EventStore Archive', () => {
     // .gz should still exist from first archive
     const gzPath = path.join(tempDir, 'my-workflow.events.jsonl.gz');
     await expect(fs.access(gzPath)).resolves.toBeUndefined();
+  });
+
+  it('archive_UsesWithLock_SerializesWithAppend', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+
+    // Spy on the private withLock method to verify archive() acquires it
+    const withLockSpy = vi.spyOn(store as unknown as { withLock: (...args: unknown[]) => unknown }, 'withLock');
+
+    await store.archive('my-workflow');
+
+    // archive() should acquire the per-stream lock
+    expect(withLockSpy).toHaveBeenCalledWith('my-workflow', expect.any(Function));
+
+    withLockSpy.mockRestore();
+  });
+
+  it('archive_ConcurrentWithAppend_DoesNotLoseEvents', async () => {
+    const store = new EventStore(tempDir);
+
+    // Append initial events
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'team.formed' });
+
+    // Run archive and append concurrently — the lock should serialize them
+    // so no events are lost
+    const archivePromise = store.archive('my-workflow');
+    const appendPromise = store.append('my-workflow', { type: 'phase.transitioned' });
+
+    // Both should complete without error
+    await Promise.all([archivePromise, appendPromise]);
+
+    // The appended event should survive — either in the new JSONL file
+    // (if append ran after archive) or in the .gz (if append ran before archive)
+    const jsonlPath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const gzPath = path.join(tempDir, 'my-workflow.events.jsonl.gz');
+
+    let totalEvents = 0;
+
+    // Check JSONL file
+    try {
+      const content = await fs.readFile(jsonlPath, 'utf-8');
+      totalEvents += content.trim().split('\n').filter(Boolean).length;
+    } catch {
+      // File might not exist if archive ran last
+    }
+
+    // Check .gz file
+    try {
+      const { gunzip } = await import('node:zlib');
+      const { promisify } = await import('node:util');
+      const gunzipAsync = promisify(gunzip);
+      const compressed = await fs.readFile(gzPath);
+      const decompressed = await gunzipAsync(compressed);
+      totalEvents += decompressed.toString('utf-8').trim().split('\n').filter(Boolean).length;
+    } catch {
+      // .gz might not exist if archive ran but had nothing
+    }
+
+    // All 3 events should be accounted for (none lost)
+    expect(totalEvents).toBe(3);
   });
 });

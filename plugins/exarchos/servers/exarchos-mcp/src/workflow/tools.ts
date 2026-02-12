@@ -326,8 +326,9 @@ export async function handleSet(
   if (terminalPhases.has(mutableState.phase as string) && moduleEventStore) {
     try {
       await moduleEventStore.archive(input.featureId);
-    } catch {
+    } catch (err) {
       // Archival is best-effort; don't fail the transition
+      console.warn(`Event archive failed for ${input.featureId}`, err);
     }
   }
 

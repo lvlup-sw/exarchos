@@ -187,33 +187,35 @@ export class EventStore {
   }
 
   async archive(streamId: string): Promise<void> {
-    const jsonlPath = this.getEventFilePath(streamId);
-    const seqPath = this.getSeqFilePath(streamId);
-    const gzPath = `${jsonlPath}.gz`;
+    await this.withLock(streamId, async () => {
+      const jsonlPath = this.getEventFilePath(streamId);
+      const seqPath = this.getSeqFilePath(streamId);
+      const gzPath = `${jsonlPath}.gz`;
 
-    // Read original JSONL content; if missing, nothing to archive
-    let content: Buffer;
-    try {
-      content = await fs.readFile(jsonlPath);
-    } catch {
-      return; // Nothing to archive (nonexistent or already archived)
-    }
+      // Read original JSONL content; if missing, nothing to archive
+      let content: Buffer;
+      try {
+        content = await fs.readFile(jsonlPath);
+      } catch {
+        return; // Nothing to archive (nonexistent or already archived)
+      }
 
-    // Compress with gzip
-    const { gzip } = await import('node:zlib');
-    const { promisify } = await import('node:util');
-    const gzipAsync = promisify(gzip);
-    const compressed = await gzipAsync(content);
+      // Compress with gzip
+      const { gzip } = await import('node:zlib');
+      const { promisify } = await import('node:util');
+      const gzipAsync = promisify(gzip);
+      const compressed = await gzipAsync(content);
 
-    // Write compressed file
-    await fs.writeFile(gzPath, compressed);
+      // Write compressed file
+      await fs.writeFile(gzPath, compressed);
 
-    // Remove original files
-    await fs.rm(jsonlPath, { force: true });
-    await fs.rm(seqPath, { force: true });
+      // Remove original files
+      await fs.rm(jsonlPath, { force: true });
+      await fs.rm(seqPath, { force: true });
 
-    // Clear sequence counter cache
-    this.sequenceCounters.delete(streamId);
+      // Clear sequence counter cache
+      this.sequenceCounters.delete(streamId);
+    });
   }
 
   async refreshSequence(streamId: string): Promise<void> {

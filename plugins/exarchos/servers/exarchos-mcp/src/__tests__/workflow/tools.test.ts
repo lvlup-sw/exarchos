@@ -2225,4 +2225,71 @@ describe('ToolSet_ArchivalOnTerminalPhase', () => {
 
     archiveSpy.mockRestore();
   });
+
+  it('should log console.warn when archive throws', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a refactor workflow and walk it to polish-update-docs
+    await handleInit({ featureId: 'archive-warn', workflowType: 'refactor' }, tmpDir);
+
+    await handleSet(
+      {
+        featureId: 'archive-warn',
+        updates: {
+          track: 'polish',
+          'explore.scopeAssessment': { filesAffected: ['a.ts'], recommendedTrack: 'polish' },
+        },
+        phase: 'brief',
+      },
+      tmpDir,
+    );
+
+    await handleSet(
+      {
+        featureId: 'archive-warn',
+        updates: { 'brief.goals': ['cleanup'] },
+        phase: 'polish-implement',
+      },
+      tmpDir,
+    );
+
+    await handleSet(
+      { featureId: 'archive-warn', phase: 'polish-validate' },
+      tmpDir,
+    );
+
+    await handleSet(
+      {
+        featureId: 'archive-warn',
+        updates: { 'validation.testsPass': true },
+        phase: 'polish-update-docs',
+      },
+      tmpDir,
+    );
+
+    // Make archive throw
+    const archiveError = new Error('disk full');
+    const archiveSpy = vi.spyOn(eventStore, 'archive').mockRejectedValue(archiveError);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Transition to completed should still succeed
+    const result = await handleSet(
+      {
+        featureId: 'archive-warn',
+        updates: { 'validation.docsUpdated': true },
+        phase: 'completed',
+      },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Event archive failed for archive-warn',
+      archiveError,
+    );
+
+    archiveSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });
