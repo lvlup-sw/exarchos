@@ -50,6 +50,14 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:run
 
+  test-mcp-skip:
+    name: Exarchos MCP Server
+    needs: changes
+    if: ${{ needs.changes.outputs.mcp != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No MCP changes, skipping"
+
   test-mcp:
     name: Exarchos MCP Server
     needs: changes
