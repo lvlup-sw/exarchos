@@ -251,6 +251,112 @@ describe('handleViewTasks', () => {
   });
 });
 
+// ─── Task 7: handleViewTasks limit ──────────────────────────────────────────
+
+describe('handleViewTasks limit', () => {
+  it('handleViewTasks_WithLimit_ReturnsLimitedResults', async () => {
+    // Arrange: create 3 tasks
+    await store.append('wf-limit', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-limit', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-limit', {
+      type: 'task.assigned',
+      data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
+    });
+
+    // Act
+    const result = await handleViewTasks(
+      { workflowId: 'wf-limit', limit: 2 },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(2);
+  });
+
+  it('handleViewTasks_WithFilter_ReturnsOnlyMatching', async () => {
+    // Arrange: create tasks with different statuses
+    await store.append('wf-filter-verify', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-filter-verify', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-filter-verify', {
+      type: 'task.completed',
+      data: { taskId: 't1', artifacts: ['a.ts'], duration: 30 },
+    });
+
+    // Act
+    const result = await handleViewTasks(
+      { workflowId: 'wf-filter-verify', filter: { status: 'completed' } },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(1);
+    expect(data[0].taskId).toBe('t1');
+  });
+
+  it('handleViewTasks_FilterAndLimit_AppliesBoth', async () => {
+    // Arrange: create 4 tasks, complete 3 of them
+    await store.append('wf-both', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+    await store.append('wf-both', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+    await store.append('wf-both', {
+      type: 'task.assigned',
+      data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
+    });
+    await store.append('wf-both', {
+      type: 'task.assigned',
+      data: { taskId: 't4', title: 'Task 4', branch: 'feat/t4' },
+    });
+    await store.append('wf-both', {
+      type: 'task.completed',
+      data: { taskId: 't1', artifacts: [], duration: 10 },
+    });
+    await store.append('wf-both', {
+      type: 'task.completed',
+      data: { taskId: 't2', artifacts: [], duration: 20 },
+    });
+    await store.append('wf-both', {
+      type: 'task.completed',
+      data: { taskId: 't3', artifacts: [], duration: 30 },
+    });
+
+    // Act: filter for completed (3 tasks) then limit to 2
+    const result = await handleViewTasks(
+      { workflowId: 'wf-both', filter: { status: 'completed' }, limit: 2 },
+      tempDir,
+    );
+
+    // Assert: filter applied first (3 completed), then limit caps at 2
+    expect(result.success).toBe(true);
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(2);
+    // All returned should be completed
+    for (const task of data) {
+      expect(task.status).toBe('completed');
+    }
+  });
+});
+
 describe('handleViewPipeline', () => {
   it('should aggregate pipeline data across workflows', async () => {
     await populateWorkflow('wf-001');
