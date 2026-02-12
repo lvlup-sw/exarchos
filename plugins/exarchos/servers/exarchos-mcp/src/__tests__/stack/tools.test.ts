@@ -9,17 +9,20 @@ import {
   registerStackTools,
   resetModuleEventStore,
 } from '../../stack/tools.js';
+import { resetMaterializerCache } from '../../views/tools.js';
 
 let tempDir: string;
 let store: EventStore;
 
 beforeEach(async () => {
   resetModuleEventStore();
+  resetMaterializerCache();
   tempDir = await mkdtemp(path.join(tmpdir(), 'stack-tools-test-'));
   store = new EventStore(tempDir);
 });
 
 afterEach(async () => {
+  resetMaterializerCache();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -278,6 +281,43 @@ describe('handleStackStatus error path', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('STATUS_FAILED');
     expect(result.error?.message).toBeDefined();
+  });
+});
+
+// ─── Task 005: StackView CQRS Rewire ─────────────────────────────────────────
+
+describe('handleStackStatus CQRS rewire', () => {
+  it('handleStackStatus_AfterRewire_ReturnsCorrectPositions', async () => {
+    // Arrange: place positions via store (simulating the event-sourced path)
+    await store.append('wf-rewire', {
+      type: 'stack.position-filled',
+      data: { position: 1, taskId: 't1', branch: 'feature/t1' },
+    });
+    await store.append('wf-rewire', {
+      type: 'stack.position-filled',
+      data: { position: 2, taskId: 't2', branch: 'feature/t2', prUrl: 'https://github.com/pr/2' },
+    });
+
+    // Act
+    const result = await handleStackStatus({ streamId: 'wf-rewire' }, tempDir);
+
+    // Assert: same results as before the rewire
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string; branch?: string; prUrl?: string }>;
+    expect(positions).toHaveLength(2);
+    expect(positions[0]).toEqual(
+      expect.objectContaining({ position: 1, taskId: 't1', branch: 'feature/t1' }),
+    );
+    expect(positions[1]).toEqual(
+      expect.objectContaining({ position: 2, taskId: 't2', branch: 'feature/t2', prUrl: 'https://github.com/pr/2' }),
+    );
+  });
+
+  it('handleStackStatus_NoStreamId_ReturnsEmpty', async () => {
+    const result = await handleStackStatus({}, tempDir);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
   });
 });
 

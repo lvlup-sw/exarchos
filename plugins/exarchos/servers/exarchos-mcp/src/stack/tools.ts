@@ -4,6 +4,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
+import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
+import { STACK_VIEW } from '../views/stack-view.js';
+import type { StackViewState } from '../views/stack-view.js';
 
 // ─── Module-Level EventStore (injected via registerStackTools) ───────────────
 
@@ -21,15 +24,6 @@ export function resetModuleEventStore(): void {
   moduleEventStore = null;
 }
 
-// ─── Stack Position Type ───────────────────────────────────────────────────
-
-interface StackPosition {
-  position: number;
-  taskId: string;
-  branch?: string;
-  prUrl?: string;
-}
-
 // ─── handleStackStatus ─────────────────────────────────────────────────────
 
 export async function handleStackStatus(
@@ -42,27 +36,15 @@ export async function handleStackStatus(
     return { success: true, data: [] };
   }
 
-  const store = getStore(stateDir);
-
   try {
-    const events = await store.query(args.streamId, { type: 'stack.position-filled' });
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
 
-    const positions: StackPosition[] = events.map((event) => {
-      const data = event.data as Record<string, unknown>;
-      const position: StackPosition = {
-        position: data.position as number,
-        taskId: data.taskId as string,
-      };
-      if (data.branch !== undefined) {
-        position.branch = data.branch as string;
-      }
-      if (data.prUrl !== undefined) {
-        position.prUrl = data.prUrl as string;
-      }
-      return position;
-    });
+    await materializer.loadFromSnapshot(args.streamId, STACK_VIEW);
+    const events = await store.query(args.streamId);
+    const view = materializer.materialize<StackViewState>(args.streamId, STACK_VIEW, events);
 
-    return { success: true, data: positions };
+    return { success: true, data: view.positions };
   } catch (err) {
     return {
       success: false,

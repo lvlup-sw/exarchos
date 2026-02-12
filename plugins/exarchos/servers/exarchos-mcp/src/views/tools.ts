@@ -26,6 +26,10 @@ import {
   PIPELINE_VIEW,
 } from './pipeline-view.js';
 import type { PipelineViewState } from './pipeline-view.js';
+import {
+  stackViewProjection,
+  STACK_VIEW,
+} from './stack-view.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -36,6 +40,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(TEAM_STATUS_VIEW, teamStatusProjection);
   materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
   materializer.register(PIPELINE_VIEW, pipelineProjection);
+  materializer.register(STACK_VIEW, stackViewProjection);
   return materializer;
 }
 
