@@ -25,7 +25,7 @@ import * as fs from 'node:fs/promises';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by query handlers. */
-export function configureQueryEventStore(store: EventStore): void {
+export function configureQueryEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 

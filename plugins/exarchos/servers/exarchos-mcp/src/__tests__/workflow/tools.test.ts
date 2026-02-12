@@ -28,6 +28,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  configureWorkflowEventStore(null);
+  configureQueryEventStore(null);
+  configureNextActionEventStore(null);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 

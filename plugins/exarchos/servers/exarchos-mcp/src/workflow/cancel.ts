@@ -26,7 +26,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by cancel handlers. */
-export function configureCancelEventStore(store: EventStore): void {
+export function configureCancelEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 

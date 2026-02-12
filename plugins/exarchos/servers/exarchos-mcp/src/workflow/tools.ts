@@ -35,7 +35,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by workflow tool handlers. */
-export function configureWorkflowEventStore(store: EventStore): void {
+export function configureWorkflowEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 

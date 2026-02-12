@@ -21,7 +21,7 @@ import * as path from 'node:path';
 let moduleEventStore: EventStore | null = null;
 
 /** Configure the EventStore instance used by next-action handlers. */
-export function configureNextActionEventStore(store: EventStore): void {
+export function configureNextActionEventStore(store: EventStore | null): void {
   moduleEventStore = store;
 }
 
