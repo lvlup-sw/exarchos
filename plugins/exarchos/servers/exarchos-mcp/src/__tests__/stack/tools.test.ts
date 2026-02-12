@@ -130,6 +130,18 @@ describe('handleStackPlace', () => {
     );
   });
 
+  it('success returns EventAck with only streamId, sequence, type keys', async () => {
+    const result = await handleStackPlace(
+      { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+    const keys = Object.keys(result.data as Record<string, unknown>).sort();
+    expect(keys).toEqual(['sequence', 'streamId', 'type']);
+  });
+
   it('missing streamId returns error', async () => {
     const result = await handleStackPlace(
       { streamId: '', position: 1, taskId: 't1' },

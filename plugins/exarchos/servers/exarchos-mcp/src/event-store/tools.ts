@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
 // ─── Shared Store Instance Cache ────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ export async function handleEventAppend(
         : undefined,
     );
 
-    return { success: true, data: event };
+    return { success: true, data: toEventAck(event) };
   } catch (err) {
     if (err instanceof SequenceConflictError) {
       return {

@@ -3,7 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
 // ─── Shared Store Cache ────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export async function handleStackPlace(
       data,
     });
 
-    return { success: true, data: event };
+    return { success: true, data: toEventAck(event) };
   } catch (err) {
     return {
       success: false,
