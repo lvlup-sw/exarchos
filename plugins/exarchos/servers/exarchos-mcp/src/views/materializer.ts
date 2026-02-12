@@ -22,11 +22,13 @@ interface ViewState<T = unknown> {
 export interface MaterializerOptions {
   readonly snapshotStore?: SnapshotStore;
   readonly snapshotInterval?: number;
+  readonly maxCacheEntries?: number;
 }
 
 // ─── Default Snapshot Interval ─────────────────────────────────────────────
 
 const DEFAULT_SNAPSHOT_INTERVAL = 50;
+const DEFAULT_MAX_CACHE_ENTRIES = 100;
 
 // ─── View Materializer ─────────────────────────────────────────────────────
 
@@ -39,10 +41,12 @@ export class ViewMaterializer {
 
   private readonly snapshotStore?: SnapshotStore;
   private readonly snapshotInterval: number;
+  private readonly maxCacheEntries: number;
 
   constructor(options?: MaterializerOptions) {
     this.snapshotStore = options?.snapshotStore;
     this.snapshotInterval = options?.snapshotInterval ?? DEFAULT_SNAPSHOT_INTERVAL;
+    this.maxCacheEntries = options?.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES;
   }
 
   /**
@@ -91,7 +95,12 @@ export class ViewMaterializer {
       highWaterMark: maxSequence,
     };
 
+    // LRU: delete and re-insert to move to end (most recently used)
+    this.states.delete(stateKey);
     this.states.set(stateKey, updatedState as ViewState);
+
+    // Evict least recently used if over limit
+    this.evictIfNeeded();
 
     // Trigger snapshot if interval crossed
     if (this.snapshotStore && newEvents.length > 0) {
@@ -133,7 +142,13 @@ export class ViewMaterializer {
    */
   getState<T>(streamId: string, viewName: string): ViewState<T> | undefined {
     const stateKey = `${viewName}:${streamId}`;
-    return this.states.get(stateKey) as ViewState<T> | undefined;
+    const state = this.states.get(stateKey);
+    if (state) {
+      // Refresh LRU order: delete and re-insert to move to end
+      this.states.delete(stateKey);
+      this.states.set(stateKey, state);
+    }
+    return state as ViewState<T> | undefined;
   }
 
   /**
@@ -156,5 +171,19 @@ export class ViewMaterializer {
    */
   getProjection<T>(viewName: string): ViewProjection<T> | undefined {
     return this.projections.get(viewName) as ViewProjection<T> | undefined;
+  }
+
+  /**
+   * Evict the least recently used cache entry if the cache exceeds maxCacheEntries.
+   * Uses Map insertion order: the first key is the least recently used.
+   */
+  private evictIfNeeded(): void {
+    if (this.states.size > this.maxCacheEntries) {
+      const oldest = this.states.keys().next().value;
+      if (oldest !== undefined) {
+        this.states.delete(oldest);
+        this.lastSnapshotHwm.delete(oldest);
+      }
+    }
   }
 }
