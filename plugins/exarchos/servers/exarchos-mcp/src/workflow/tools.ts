@@ -162,6 +162,21 @@ export async function handleGet(
 
   const meta = buildCheckpointMeta(state._checkpoint);
 
+  // Fields projection: return only requested fields (skips internal fields)
+  if (input.fields && !input.query) {
+    const stateObj = state as unknown as Record<string, unknown>;
+    const projected: Record<string, unknown> = {};
+    for (const field of input.fields) {
+      // Skip internal fields
+      if (field.startsWith('_')) continue;
+      const value = resolveDotPath(stateObj, field);
+      if (value !== undefined) {
+        projected[field] = value;
+      }
+    }
+    return { success: true, data: projected, _meta: meta };
+  }
+
   if (!input.query) {
     const strippedState = stripInternalFields(state as unknown as Record<string, unknown>);
     return {
@@ -430,8 +445,8 @@ export function registerWorkflowTools(server: McpServer, stateDir: string): void
 
   server.tool(
     'exarchos_workflow_get',
-    'Query a field via dot-path (e.g. query:"phase") or get full state if no query',
-    { featureId: featureIdParam, query: z.string().optional() },
+    'Query a field via dot-path (e.g. query:"phase"), project specific fields (fields:["phase","featureId"]), or get full state if neither',
+    { featureId: featureIdParam, query: z.string().optional(), fields: z.array(z.string()).optional() },
     async (args) => formatResult(await handleGet(args, stateDir)),
   );
 
