@@ -130,9 +130,9 @@ describe('CLI Framework', () => {
       // Act
       const result = await routeCommand('session-start', {});
 
-      // Assert
+      // Assert — session-start is implemented; returns silently when no workflows found
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result.error).toBeUndefined();
     });
 
     it('should route guard command to handler', async () => {
