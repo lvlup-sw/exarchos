@@ -6,61 +6,60 @@ Proactively use the installed MCP servers. Don't fall back to generic approaches
 
 ### Exarchos (`mcp__exarchos__*`)
 
-Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 26 tools across 6 modules.
+Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators.
 
-#### Workflow Tools
+#### Composite Tools
 
-| Tool | When to Use |
-|------|-------------|
-| `workflow_init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
-| `workflow_get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
-| `workflow_set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
-| `workflow_summary` | Quick context restoration after session restart |
-| `workflow_next_action` | Determining what to auto-continue after phase completion |
-| `workflow_reconcile` | Verifying state matches git reality on resume. Verification only — reports discrepancies but does not auto-fix |
-| `workflow_checkpoint` | Saving progress before likely context exhaustion |
-| `workflow_cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
-| `workflow_transitions` | Checking valid phase transitions for a `workflowType`. Use `fromPhase` to filter |
-| `workflow_list` | Finding active workflows at session start |
+| Tool | Actions | When to Use |
+|------|---------|-------------|
+| `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows |
+| `mcp__exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
+| `mcp__exarchos__exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination and task lifecycle |
+| `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
+| `mcp__exarchos__exarchos_sync` | `now` | Force sync of materialized views |
 
-#### Event Store Tools
+#### Workflow Tool Actions
 
-| Tool | When to Use |
-|------|-------------|
-| `event_append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
-| `event_query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
+| Action | When to Use |
+|--------|-------------|
+| `init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
+| `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
+| `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
+| `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
 
-#### View Tools (CQRS)
+**Hooks (automatic, no tool call needed):**
+- **SessionStart hook** — Discovers active workflows, restores context, determines next action, and verifies state on resume (replaces former `workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile` tools)
+- **PreCompact hook** — Saves checkpoints before context exhaustion (replaces former `workflow_checkpoint` tool)
+- Valid phase transitions are documented statically (replaces former `workflow_transitions` tool)
 
-| Tool | When to Use |
-|------|-------------|
-| `view_pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
-| `view_tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
-| `view_workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
-| `view_team_status` | Teammate composition and task assignments. Use `workflowId` to scope |
+#### Event Tool Actions
 
-#### Team Tools
+| Action | When to Use |
+|--------|-------------|
+| `append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
+| `query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
 
-| Tool | When to Use |
-|------|-------------|
-| `team_spawn` | Register a new agent with role assignment. Always pair with Task tool for subprocess |
+#### Orchestrate Tool Actions
+
+| Action | When to Use |
+|--------|-------------|
+| `team_spawn` | Register a new agent with role assignment. Pair with `task_*` actions for subprocess work |
 | `team_message` | Send a direct message to a specific teammate |
 | `team_broadcast` | Broadcast a message to all active teammates |
 | `team_shutdown` | Shut down a teammate agent. Emits shutdown event |
 | `team_status` | Get health status of all teammates. Use `summary: true` for counts-only response during orchestration |
-
-#### Task Tools
-
-| Tool | When to Use |
-|------|-------------|
 | `task_claim` | Claim a task for execution. Returns `ALREADY_CLAIMED` if previously claimed — handle gracefully |
 | `task_complete` | Mark a task complete with optional `result` (artifacts, duration) |
 | `task_fail` | Mark a task failed with `error` message and optional `diagnostics` |
 
-#### Stack Tools
+#### View Tool Actions
 
-| Tool | When to Use |
-|------|-------------|
+| Action | When to Use |
+|--------|-------------|
+| `pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
+| `tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
+| `workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
+| `team_status` | Teammate composition and task assignments. Use `workflowId` to scope |
 | `stack_status` | Get current stack positions from events. Use `streamId` to scope |
 | `stack_place` | Record a stack position with `position`, `taskId`, `branch`, optional `prUrl` |
 
@@ -185,7 +184,7 @@ When deciding which tool to use:
 | Use `gh issue view` or `gh issue list` | Use GitHub `issue_read` or `list_issues` / `search_issues` |
 | Use `gh pr view --json` for structured data | Use GitHub MCP tools which return structured data natively |
 | Guess library APIs from memory | Use Context7 `query-docs` |
-| Manually edit workflow state JSON | Use `workflow_set` MCP tool |
+| Manually edit workflow state JSON | Use `mcp__exarchos__exarchos_workflow` with `action: "set"` |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish --merge-when-ready` |
@@ -194,4 +193,4 @@ When deciding which tool to use:
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Generate diffs with shell commands | Use GitHub `pull_request_read` or Graphite `gt diff` |
 | Manually parse PR comments | Use GitHub `pull_request_read` for structured review data |
-| Skip state reconciliation on resume | Always call `workflow_reconcile` before resuming |
+| Skip state reconciliation on resume | The SessionStart hook handles reconciliation automatically |

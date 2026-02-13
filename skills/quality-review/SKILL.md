@@ -353,21 +353,21 @@ Task({
 
 ## State Management
 
-Update workflow state with review results using `mcp__exarchos__exarchos_workflow_set`.
+Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`.
 
 ### On Review Complete
 
 ```text
 # Update task review status - for approved
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "approved" }
 
 # Or if needs fixes:
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "needs_fixes" }
 
 # Add review details
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "reviews.<task-id>.qualityReview": {"status": "approved", "highPriority": [], "mediumPriority": []}
   }
@@ -378,7 +378,7 @@ Use mcp__exarchos__exarchos_workflow_set with featureId:
 Update phase for synthesis:
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   phase: "synthesize"
 ```
 
@@ -426,10 +426,10 @@ This is NOT a human checkpoint - workflow continues autonomously.
 When Exarchos MCP tools are available, emit gate events during review:
 
 1. **Read CI status:** Use `mcp__plugin_github_github__pull_request_read` with `method: "get_status"` to get CI gate results
-2. **For each CI check:** Call `exarchos_event_append` with event type `gate.executed` including:
+2. **For each CI check:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `gate.executed` including:
    - `gateName`: The CI check name
    - `layer`: "per-pr" or "per-stack"
    - `passed`: boolean
    - `duration`: milliseconds (if available)
-3. **Read unified status:** Use `exarchos_view_tasks` with `fields: ["taskId", "status", "title"]` and `limit: 20` for combined task + gate view with minimal token cost
+3. **Read unified status:** Use `mcp__exarchos__exarchos_view` with `action: "tasks"` with `fields: ["taskId", "status", "title"]` and `limit: 20` for combined task + gate view with minimal token cost
 4. **When all per-PR gates pass:** Apply `stack-ready` label to the PR
