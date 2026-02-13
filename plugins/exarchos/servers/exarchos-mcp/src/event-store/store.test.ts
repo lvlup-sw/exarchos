@@ -473,6 +473,53 @@ describe('EventStore Streaming Query', () => {
   });
 });
 
+// ─── Sub-Task A: Pre-Parse Sequence Filtering ──────────────────────────────
+
+describe('EventStore Query Fast-Skip', () => {
+  it('query_WithSinceSequence_ReturnsOnlyNewerEvents', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 100; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { sinceSequence: 90 });
+    expect(events).toHaveLength(10);
+    expect(events[0].sequence).toBe(91);
+    expect(events[9].sequence).toBe(100);
+  });
+
+  it('query_WithSinceSequenceAndLimit_CombinesCorrectly', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 100; i++) {
+      await store.append('my-workflow', { type: 'task.assigned' });
+    }
+
+    const events = await store.query('my-workflow', { sinceSequence: 90, limit: 5 });
+    expect(events).toHaveLength(5);
+    expect(events[0].sequence).toBe(91);
+    expect(events[4].sequence).toBe(95);
+  });
+
+  it('query_WithSinceSequenceAndType_FallsBackToFullParse', async () => {
+    const store = new EventStore(tempDir);
+    for (let i = 0; i < 100; i++) {
+      const type = i % 2 === 0 ? 'task.claimed' : 'task.assigned';
+      await store.append('my-workflow', { type });
+    }
+
+    // sinceSequence=50 with type filter should still work correctly
+    // i=0→seq1 (claimed), i=1→seq2 (assigned), ..., i=50→seq51 (claimed), i=51→seq52 (assigned)
+    // Events 51-100: task.claimed at 51,53,55,...,99 = 25 events
+    const events = await store.query('my-workflow', {
+      sinceSequence: 50,
+      type: 'task.claimed',
+    });
+    expect(events).toHaveLength(25);
+    expect(events.every(e => e.type === 'task.claimed')).toBe(true);
+    expect(events[0].sequence).toBe(51);
+  });
+});
+
 // ─── B1: Persist Sequence Counters ──────────────────────────────────────────
 
 describe('EventStore Sequence Persistence', () => {
@@ -576,5 +623,93 @@ describe('EventStore Sequence Persistence', () => {
 
     // Should still continue from correct sequence by counting JSONL lines
     expect(event.sequence).toBe(3);
+  });
+});
+
+// ─── Sub-Task B: Idempotency Key for Append ────────────────────────────────
+
+describe('EventStore Append Idempotency', () => {
+  it('append_WithIdempotencyKey_DeduplicatesRetry', async () => {
+    const store = new EventStore(tempDir);
+
+    const first = await store.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-1' },
+    );
+    const second = await store.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-1' },
+    );
+
+    // Second call should return the same event (same sequence)
+    expect(second.sequence).toBe(first.sequence);
+    expect(second.streamId).toBe(first.streamId);
+
+    // Only one event should exist in the stream
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(1);
+  });
+
+  it('append_WithDifferentKeys_BothSucceed', async () => {
+    const store = new EventStore(tempDir);
+
+    const a = await store.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'a' },
+    );
+    const b = await store.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'b' },
+    );
+
+    expect(a.sequence).toBe(1);
+    expect(b.sequence).toBe(2);
+
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(2);
+  });
+
+  it('append_WithoutKey_NoDedupe', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'task.claimed' });
+    await store.append('my-workflow', { type: 'task.claimed' });
+
+    // Both should succeed (no dedup without key)
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(2);
+    expect(events[0].sequence).toBe(1);
+    expect(events[1].sequence).toBe(2);
+  });
+
+  it('append_IdempotencyCacheEvictsOldest', async () => {
+    const store = new EventStore(tempDir);
+
+    // Append 101 events with unique keys (cache max is 100)
+    for (let i = 0; i < 101; i++) {
+      await store.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: `key-${i}` },
+      );
+    }
+
+    // First key should have been evicted — retrying should create a new event
+    const retried = await store.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-0' },
+    );
+
+    // Should get sequence 102 (new event, not deduplicated)
+    expect(retried.sequence).toBe(102);
+
+    // Total events should be 102 (101 original + 1 retry of evicted key)
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(102);
   });
 });
