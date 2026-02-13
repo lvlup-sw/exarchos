@@ -49,6 +49,7 @@ export const WorkflowEventBase = z.object({
   source: z.string().optional(),
   schemaVersion: z.string().default('1.0'),
   data: z.record(z.string(), z.unknown()).optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 // ─── Workflow-Level Event Data ──────────────────────────────────────────────

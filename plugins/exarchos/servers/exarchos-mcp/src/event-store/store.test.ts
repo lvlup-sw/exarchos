@@ -713,3 +713,124 @@ describe('EventStore Append Idempotency', () => {
     expect(events).toHaveLength(102);
   });
 });
+
+// ─── Idempotency Key Persistence ────────────────────────────────────────────
+
+describe('EventStore Idempotency Persistence', () => {
+  it('should persist idempotencyKey in JSONL event data', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-abc' },
+    );
+
+    // Read the raw JSONL file and verify the idempotencyKey is present
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(content.trim());
+
+    expect(parsed.idempotencyKey).toBe('claim-abc');
+  });
+
+  it('should not include idempotencyKey when none is provided', async () => {
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'task.claimed' });
+
+    // Read the raw JSONL file — idempotencyKey should be absent
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(content.trim());
+
+    expect(parsed.idempotencyKey).toBeUndefined();
+  });
+
+  it('should rebuild idempotency cache from persisted events on new instance', async () => {
+    const store1 = new EventStore(tempDir);
+
+    const original = await store1.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-xyz' },
+    );
+
+    // Create a new store instance (simulating server restart)
+    const store2 = new EventStore(tempDir);
+
+    // Retry the same idempotencyKey — should return the cached event, not a new one
+    const retried = await store2.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-xyz' },
+    );
+
+    // Should return the same event (dedup across restart)
+    expect(retried.sequence).toBe(original.sequence);
+    expect(retried.streamId).toBe(original.streamId);
+
+    // Only one event should exist in the stream
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(1);
+  });
+
+  it('should only rebuild cache once per stream per lifecycle', async () => {
+    const store1 = new EventStore(tempDir);
+
+    // Append several events with keys
+    await store1.append('my-workflow', { type: 'task.claimed' }, { idempotencyKey: 'k1' });
+    await store1.append('my-workflow', { type: 'task.assigned' }, { idempotencyKey: 'k2' });
+    await store1.append('my-workflow', { type: 'task.completed' }, { idempotencyKey: 'k3' });
+
+    // New instance
+    const store2 = new EventStore(tempDir);
+
+    // First dedup check triggers rebuild
+    const r1 = await store2.append('my-workflow', { type: 'task.claimed' }, { idempotencyKey: 'k1' });
+    expect(r1.sequence).toBe(1); // deduped
+
+    // Subsequent checks use the already-rebuilt cache
+    const r2 = await store2.append('my-workflow', { type: 'task.assigned' }, { idempotencyKey: 'k2' });
+    expect(r2.sequence).toBe(2); // deduped
+
+    const r3 = await store2.append('my-workflow', { type: 'task.completed' }, { idempotencyKey: 'k3' });
+    expect(r3.sequence).toBe(3); // deduped
+
+    // Still only 3 events total
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(3);
+  });
+
+  it('should respect MAX_IDEMPOTENCY_KEYS when rebuilding from JSONL', async () => {
+    const store1 = new EventStore(tempDir);
+
+    // Append 105 events with unique keys (cache max is 100)
+    for (let i = 0; i < 105; i++) {
+      await store1.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: `key-${i}` },
+      );
+    }
+
+    // New instance — rebuild should only load the last 100 keys
+    const store2 = new EventStore(tempDir);
+
+    // Key from the first 5 events should NOT be in cache (evicted during rebuild)
+    const retried = await store2.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-0' },
+    );
+    expect(retried.sequence).toBe(106); // new event, not deduped
+
+    // Key from a recent event should still be cached
+    const deduped = await store2.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-104' },
+    );
+    expect(deduped.sequence).toBe(105); // deduped
+  });
+});
