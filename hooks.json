@@ -1,12 +1,75 @@
 {
+  "description": "Exarchos progressive disclosure and lifecycle hooks",
   "hooks": {
-    "PreToolUse": [
+    "PreCompact": [
       {
-        "matcher": "Bash",
+        "matcher": "auto",
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/scripts/validate-rm.sh"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" pre-compact",
+            "timeout": 30,
+            "statusMessage": "Saving workflow checkpoint..."
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" session-start",
+            "timeout": 10,
+            "statusMessage": "Checking for active workflows..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__exarchos__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" guard",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" task-gate",
+            "timeout": 120,
+            "statusMessage": "Running quality gates..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" teammate-gate",
+            "timeout": 120,
+            "statusMessage": "Verifying teammate work..."
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" subagent-context",
+            "timeout": 5
           }
         ]
       }

@@ -1067,3 +1067,48 @@ describe('printHelp', () => {
     expect(typeof mod.printHelp).toBe('function');
   });
 });
+
+describe('hooks.json', () => {
+  const hooksPath = join(repoRoot, 'hooks.json');
+
+  it('hooksJson_IsValidJson', () => {
+    expect(existsSync(hooksPath)).toBe(true);
+    const content = readFileSync(hooksPath, 'utf-8');
+    expect(() => JSON.parse(content)).not.toThrow();
+  });
+
+  it('hooksJson_HasSixHookEvents', () => {
+    const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    const eventTypes = Object.keys(hooks.hooks);
+    expect(eventTypes).toContain('PreCompact');
+    expect(eventTypes).toContain('SessionStart');
+    expect(eventTypes).toContain('PreToolUse');
+    expect(eventTypes).toContain('TaskCompleted');
+    expect(eventTypes).toContain('TeammateIdle');
+    expect(eventTypes).toContain('SubagentStart');
+    expect(eventTypes).toHaveLength(6);
+  });
+
+  it('hooksJson_AllCommandsReferenceCliJs', () => {
+    const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    for (const [eventType, entries] of Object.entries(hooks.hooks)) {
+      for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
+        for (const hook of entry.hooks) {
+          expect(hook.command, `${eventType} hook command should reference cli.js`).toContain('cli.js');
+        }
+      }
+    }
+  });
+});
+
+describe('manifest.json workflow ruleset', () => {
+  it('manifest_WorkflowRuleSet_ExcludesAutoResume', () => {
+    const manifestPath = join(repoRoot, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    const workflowRuleSet = manifest.components.ruleSets.find(
+      (rs: { id: string }) => rs.id === 'workflow',
+    );
+    expect(workflowRuleSet).toBeDefined();
+    expect(workflowRuleSet.files).not.toContain('workflow-auto-resume.md');
+  });
+});
