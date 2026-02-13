@@ -255,11 +255,17 @@ export async function handleViewPipeline(
     const store = getOrCreateEventStore(stateDir);
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Discover all streams and materialize pipeline view for each
+    // Discover all streams and paginate IDs before materialization
     const streamIds = await discoverStreams(stateDir);
+    const total = streamIds.length;
+    const start = args.offset ?? 0;
+    const end = args.limit !== undefined ? start + args.limit : undefined;
+    const paginatedIds = streamIds.slice(start, end);
+
+    // Only materialize the paginated subset
     const workflows: PipelineViewState[] = [];
 
-    for (const streamId of streamIds) {
+    for (const streamId of paginatedIds) {
       await materializer.loadFromSnapshot(streamId, PIPELINE_VIEW);
       const events = await store.query(streamId);
       const view = materializer.materialize<PipelineViewState>(
@@ -270,12 +276,7 @@ export async function handleViewPipeline(
       workflows.push(view);
     }
 
-    // Apply pagination
-    const start = args.offset ?? 0;
-    const end = args.limit !== undefined ? start + args.limit : undefined;
-    const paginated = workflows.slice(start, end);
-
-    return { success: true, data: { workflows: paginated } };
+    return { success: true, data: { workflows, total } };
   } catch (err) {
     return {
       success: false,

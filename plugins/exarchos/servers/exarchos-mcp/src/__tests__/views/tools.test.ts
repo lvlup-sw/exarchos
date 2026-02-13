@@ -608,6 +608,63 @@ describe('handleViewPipeline', () => {
     expect(workflows).toHaveLength(3);
   });
 
+  it('handleViewPipeline_WithLimit_OnlyMaterializesSubset', async () => {
+    // Arrange: create 5 event streams
+    for (let i = 1; i <= 5; i++) {
+      await store.append(`wf-lazy-${i}`, {
+        type: 'workflow.started',
+        data: { featureId: `feat-lazy-${i}`, workflowType: 'feature' },
+      });
+    }
+
+    // Act: request only 2
+    const result = await handleViewPipeline({ limit: 2 }, tempDir);
+
+    // Assert: exactly 2 workflows returned, total is 5
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
+    expect(data.workflows).toHaveLength(2);
+    expect(data.total).toBe(5);
+  });
+
+  it('handleViewPipeline_WithOffsetAndLimit_ReturnsCorrectSlice', async () => {
+    // Arrange: create 5 event streams
+    for (let i = 1; i <= 5; i++) {
+      await store.append(`wf-slice-${i}`, {
+        type: 'workflow.started',
+        data: { featureId: `feat-slice-${i}`, workflowType: 'feature' },
+      });
+    }
+
+    // Act: request offset=2, limit=2 (should return streams 3 and 4)
+    const result = await handleViewPipeline({ offset: 2, limit: 2 }, tempDir);
+
+    // Assert: exactly 2 workflows returned from the middle, total is 5
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
+    expect(data.workflows).toHaveLength(2);
+    expect(data.total).toBe(5);
+  });
+
+  it('handleViewPipeline_ReturnsTotal', async () => {
+    // Arrange: create 3 event streams
+    for (let i = 1; i <= 3; i++) {
+      await store.append(`wf-total-${i}`, {
+        type: 'workflow.started',
+        data: { featureId: `feat-total-${i}`, workflowType: 'feature' },
+      });
+    }
+
+    // Act: no pagination params — should return all with total
+    const result = await handleViewPipeline({}, tempDir);
+
+    // Assert: total field is present and equals stream count
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
+    expect(data.total).toBe(3);
+    expect(data.workflows).toHaveLength(3);
+  });
+
   it('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
     // Create an events file with uppercase characters in the name,
     // which will cause assertSafeId to throw in SnapshotStore
