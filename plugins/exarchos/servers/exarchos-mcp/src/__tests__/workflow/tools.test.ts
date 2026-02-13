@@ -15,7 +15,7 @@ import {
   handleCheckpoint,
   configureWorkflowEventStore,
 } from '../../workflow/tools.js';
-import { initStateFile, readStateFile, writeStateFile } from '../../workflow/state-store.js';
+import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
 import { configureQueryEventStore } from '../../workflow/query.js';
 import { configureNextActionEventStore } from '../../workflow/next-action.js';
@@ -1834,7 +1834,7 @@ describe('External Event Store Bridge', () => {
 // ─── Guaranteed Event Append (Task 9) ──────────────────────────────────────
 
 describe('Guaranteed Event Append', () => {
-  it('handleSet_EventAppendFails_ReturnsError', async () => {
+  it('handleSet_EventAppendFails_ReturnsSuccessWithWarning', async () => {
     // Arrange — create a mock EventStore whose append method throws
     const eventStore = new EventStore(tmpDir);
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
@@ -1854,15 +1854,17 @@ describe('Guaranteed Event Append', () => {
       tmpDir,
     );
 
-    // Assert — should return error with EVENT_APPEND_FAILED code
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
-    expect(result.error?.message).toContain('Disk full');
+    // Assert — state-first: should succeed even if event append fails
+    // Events are supplementary; state write is the source of truth
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+    expect(data.eventWarning).toBeDefined();
+    expect(data.eventWarning).toContain('Disk full');
 
-    // State should NOT have been mutated (event-first guarantee)
+    // State SHOULD have been mutated (state-first, event-after)
     const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
-    expect(state.phase).toBe('ideate');
+    expect(state.phase).toBe('plan');
 
     appendSpy.mockRestore();
   });
@@ -1888,6 +1890,96 @@ describe('Guaranteed Event Append', () => {
     expect(result.error).toBeDefined();
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
     expect(result.error?.message).toContain('Permission denied');
+
+    appendSpy.mockRestore();
+  });
+});
+
+// ─── CAS Retry: No Duplicate Events ────────────────────────────────────────
+
+describe('CAS Retry Duplicate Event Prevention', () => {
+  it('handleSet_CASRetry_ShouldNotEmitDuplicateEvents: events emitted exactly once on retry', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Arrange: Create workflow and set design artifact
+    await handleInit({ featureId: 'cas-dup', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'cas-dup', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Spy on event store append to count calls
+    const appendSpy = vi.spyOn(eventStore, 'append');
+
+    // Mock writeStateFile to fail with VersionConflictError on first attempt,
+    // then succeed on second attempt
+    const stateStoreMod = await import('../../workflow/state-store.js');
+    let writeAttempt = 0;
+    const originalWrite = stateStoreMod.writeStateFile;
+    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
+      async (stateFile, state, options) => {
+        writeAttempt++;
+        if (writeAttempt === 1 && options?.expectedVersion !== undefined) {
+          // First CAS write attempt: simulate conflict
+          throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
+        }
+        // Subsequent attempts: use original implementation
+        return originalWrite(stateFile, state, options);
+      },
+    );
+
+    // Act: Transition from ideate to plan (triggers event emission)
+    const result = await handleSet(
+      { featureId: 'cas-dup', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert: Transition should succeed (on retry)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+
+    // Assert: Events should be emitted exactly once, NOT twice
+    const transitionAppends = appendSpy.mock.calls.filter(
+      (call) => (call[1] as Record<string, unknown>).type === 'workflow.transition',
+    );
+    expect(transitionAppends).toHaveLength(1);
+
+    appendSpy.mockRestore();
+    writeSpy.mockRestore();
+  });
+
+  it('handleSet_CASRetry_EventAppendFailsAfterStateWrite_ReturnsSuccessWithWarning', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Arrange: Create workflow and set design artifact
+    await handleInit({ featureId: 'cas-event-warn', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'cas-event-warn', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Mock event store append to fail
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Event store unavailable'),
+    );
+
+    // Act: Transition from ideate to plan
+    const result = await handleSet(
+      { featureId: 'cas-event-warn', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert: Should succeed (state write is primary), but may include warning
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+
+    // Verify state was actually written to disk
+    const state = await readStateFile(path.join(tmpDir, 'cas-event-warn.state.json'));
+    expect(state.phase).toBe('plan');
 
     appendSpy.mockRestore();
   });

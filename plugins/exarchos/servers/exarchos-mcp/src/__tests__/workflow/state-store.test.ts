@@ -10,6 +10,7 @@ import {
   listStateFiles,
   resolveStateDir,
   StateStoreError,
+  VersionConflictError,
 } from '../../workflow/state-store.js';
 import { ErrorCode } from '../../workflow/schemas.js';
 
@@ -620,6 +621,140 @@ describe('State Store', () => {
       );
 
       await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+    });
+  });
+
+  // ─── CAS Versioning ──────────────────────────────────────────────────────
+
+  describe('writeStateFile_AutoIncrementsVersion', () => {
+    it('should initialize state with _version 1 and increment to 2 on write', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-auto-inc', 'feature');
+
+      // Read the initial state — _version should default to 1
+      const state1 = await readStateFile(stateFile);
+      expect(state1._version).toBe(1);
+
+      // Write back (no expectedVersion) — _version should increment to 2
+      await writeStateFile(stateFile, state1);
+      const state2 = await readStateFile(stateFile);
+      expect(state2._version).toBe(2);
+    });
+
+    it('should increment _version on each successive write', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-multi-inc', 'feature');
+
+      let state = await readStateFile(stateFile);
+      expect(state._version).toBe(1);
+
+      // Write 3 times
+      for (let i = 2; i <= 4; i++) {
+        await writeStateFile(stateFile, state);
+        state = await readStateFile(stateFile);
+        expect(state._version).toBe(i);
+      }
+    });
+  });
+
+  describe('writeStateFile_WithExpectedVersion_ThrowsOnMismatch', () => {
+    it('should throw VersionConflictError when expectedVersion does not match current', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-conflict', 'feature');
+
+      const state = await readStateFile(stateFile);
+      // Write once to increment to version 2
+      await writeStateFile(stateFile, state);
+
+      // Now try to write with expectedVersion: 1 (stale) — should fail
+      const staleState = await readStateFile(stateFile);
+      await expect(
+        writeStateFile(stateFile, staleState, { expectedVersion: 1 }),
+      ).rejects.toThrow(VersionConflictError);
+    });
+
+    it('should succeed when expectedVersion matches current version', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-match', 'feature');
+
+      const state = await readStateFile(stateFile);
+      // Current version is 1, pass expectedVersion: 1
+      await expect(
+        writeStateFile(stateFile, state, { expectedVersion: 1 }),
+      ).resolves.toBeUndefined();
+
+      const updated = await readStateFile(stateFile);
+      expect(updated._version).toBe(2);
+    });
+
+    it('should include expected and actual versions in error', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-error-info', 'feature');
+
+      const state = await readStateFile(stateFile);
+      await writeStateFile(stateFile, state); // now version 2
+
+      const staleState = await readStateFile(stateFile);
+      try {
+        await writeStateFile(stateFile, staleState, { expectedVersion: 1 });
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(VersionConflictError);
+        expect((err as Error).message).toContain('expected 1');
+        expect((err as Error).message).toContain('actual 2');
+      }
+    });
+  });
+
+  describe('writeStateFile_WithoutExpectedVersion_AlwaysSucceeds', () => {
+    it('should succeed regardless of current version when no expectedVersion is given', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-compat', 'feature');
+
+      // Write 3 times, re-reading each time to get the current _version
+      for (let i = 0; i < 3; i++) {
+        const state = await readStateFile(stateFile);
+        await writeStateFile(stateFile, state);
+      }
+
+      const final = await readStateFile(stateFile);
+      // Each write increments: 1 -> 2 -> 3 -> 4
+      expect(final._version).toBe(4);
+    });
+  });
+
+  describe('writeStateFile_MissingVersionField_DefaultsToOne', () => {
+    it('should default _version to 1 when reading a state file without _version', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'cas-legacy', 'feature');
+
+      // Manually write a state file without _version (simulating legacy)
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      delete raw._version;
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      // Reading should default _version to 1
+      const loaded = await readStateFile(stateFile);
+      expect(loaded._version).toBe(1);
+    });
+
+    it('should increment from default 1 to 2 on first write of legacy file', async () => {
+      const { stateFile } = await initStateFile(tmpDir, 'cas-legacy-write', 'feature');
+
+      // Remove _version to simulate legacy
+      const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      delete raw._version;
+      await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+      const loaded = await readStateFile(stateFile);
+      expect(loaded._version).toBe(1);
+
+      await writeStateFile(stateFile, loaded);
+      const updated = await readStateFile(stateFile);
+      expect(updated._version).toBe(2);
+    });
+  });
+
+  describe('VersionConflictError_IsInstanceOfStateStoreError', () => {
+    it('should be an instance of StateStoreError with VERSION_CONFLICT code', () => {
+      const err = new VersionConflictError(1, 2);
+      expect(err).toBeInstanceOf(StateStoreError);
+      expect(err).toBeInstanceOf(VersionConflictError);
+      expect(err.code).toBe('VERSION_CONFLICT');
+      expect(err.name).toBe('VersionConflictError');
     });
   });
 });

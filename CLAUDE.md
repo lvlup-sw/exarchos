@@ -60,15 +60,15 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
 - `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
 - `workflow/hsm-definitions.ts` — HSM definitions for feature/debug/refactor workflows
-- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint). Emits transition events to external JSONL store. Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
+- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint). Uses CAS versioning (`_version` field) with retry loop to prevent lost updates on concurrent writes. Emits transition events to external JSONL store after successful state write (state-first, event-after). Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
 - `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping
-- `workflow/cancel.ts` — Saga compensation and workflow cancellation
+- `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
 - `workflow/query.ts` — Summary, reconcile, and transitions handlers
-- `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools
-- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack)
+- `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
+- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack). Pipeline view uses lazy pagination (materializes only the requested subset)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
-- `tasks/` — Task claim/complete/fail tools
-- `stack/` — Stack status/place tools
+- `tasks/` — Task claim/complete/fail tools with optimistic concurrency (expectedSequence) for atomic claims
+- `stack/` — Stack status/place tools with offset/limit pagination
 - `format.ts` — Canonical `ToolResult` interface (all modules import from here) and shared formatting helpers
 
 ### Three Workflow Types
