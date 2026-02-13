@@ -16,7 +16,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
-import { executeCompensation } from './compensation.js';
+import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
@@ -69,13 +69,16 @@ export async function handleCancel(
   const currentPhase = state.phase;
   const dryRun = input.dryRun ?? false;
 
+  // Read existing compensation checkpoint from prior partial failure (if any)
+  const existingCheckpoint = mutableState._compensationCheckpoint as CompensationCheckpoint | undefined;
+
   // Execute compensation actions (pass empty events array — events now in external store)
   const compensationResult = await executeCompensation(
     mutableState,
     currentPhase,
     [],
     0,
-    { dryRun, stateDir },
+    { dryRun, stateDir, checkpoint: existingCheckpoint },
   );
 
   // If dry run, return what would happen without modifying state
@@ -94,6 +97,11 @@ export async function handleCancel(
 
   // Check if compensation had failures
   if (!compensationResult.success) {
+    // Persist checkpoint so retry can resume from completed actions
+    mutableState._compensationCheckpoint = compensationResult.checkpoint;
+    mutableState.updatedAt = new Date().toISOString();
+    await writeStateFile(stateFile, mutableState as WorkflowState);
+
     const failedActions = compensationResult.actions.filter((a) => a.status === 'failed');
     return {
       success: false,
@@ -197,6 +205,9 @@ export async function handleCancel(
 
   const checkpoint = mutableState._checkpoint as Record<string, unknown>;
   checkpoint.lastActivityTimestamp = new Date().toISOString();
+
+  // Clear compensation checkpoint on successful cancellation
+  delete mutableState._compensationCheckpoint;
 
   // Write updated state
   await writeStateFile(stateFile, mutableState as WorkflowState);
