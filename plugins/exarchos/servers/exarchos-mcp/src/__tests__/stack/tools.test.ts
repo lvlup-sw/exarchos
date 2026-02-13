@@ -282,6 +282,107 @@ describe('handleStackStatus error path', () => {
   });
 });
 
+// ─── Pagination ─────────────────────────────────────────────────────────────
+
+describe('handleStackStatus pagination', () => {
+  async function seedPositions(streamId: string, count: number): Promise<void> {
+    for (let i = 1; i <= count; i++) {
+      await store.append(streamId, {
+        type: 'stack.position-filled',
+        data: { position: i, taskId: `t${i}`, branch: `feature/t${i}` },
+      });
+    }
+  }
+
+  it('with limit returns subset of positions', async () => {
+    // Arrange
+    await seedPositions('wf-paginate', 10);
+
+    // Act
+    const result = await handleStackStatus(
+      { streamId: 'wf-paginate', limit: 3 },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(3);
+    expect(positions[0].taskId).toBe('t1');
+    expect(positions[1].taskId).toBe('t2');
+    expect(positions[2].taskId).toBe('t3');
+  });
+
+  it('with offset and limit skips and returns correct positions', async () => {
+    // Arrange
+    await seedPositions('wf-paginate-offset', 10);
+
+    // Act
+    const result = await handleStackStatus(
+      { streamId: 'wf-paginate-offset', offset: 5, limit: 3 },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(3);
+    expect(positions[0].taskId).toBe('t6');
+    expect(positions[1].taskId).toBe('t7');
+    expect(positions[2].taskId).toBe('t8');
+  });
+
+  it('without pagination params returns all positions', async () => {
+    // Arrange
+    await seedPositions('wf-paginate-all', 10);
+
+    // Act
+    const result = await handleStackStatus(
+      { streamId: 'wf-paginate-all' },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(10);
+  });
+
+  it('with offset beyond array length returns empty', async () => {
+    // Arrange
+    await seedPositions('wf-paginate-beyond', 5);
+
+    // Act
+    const result = await handleStackStatus(
+      { streamId: 'wf-paginate-beyond', offset: 10 },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(0);
+  });
+
+  it('with only offset returns remaining positions', async () => {
+    // Arrange
+    await seedPositions('wf-paginate-offset-only', 5);
+
+    // Act
+    const result = await handleStackStatus(
+      { streamId: 'wf-paginate-offset-only', offset: 3 },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const positions = result.data as Array<{ position: number; taskId: string }>;
+    expect(positions).toHaveLength(2);
+    expect(positions[0].taskId).toBe('t4');
+    expect(positions[1].taskId).toBe('t5');
+  });
+});
+
 // ─── Task 005: StackView CQRS Rewire ─────────────────────────────────────────
 // These tests intentionally duplicate scenarios from the handleStackStatus suite
 // above (same assertions, different streamId). They exist as explicit regression

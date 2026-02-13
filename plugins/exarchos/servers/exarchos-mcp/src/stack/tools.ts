@@ -13,6 +13,8 @@ import type { StackViewState } from '../views/stack-view.js';
 export async function handleStackStatus(
   args: {
     streamId?: string;
+    limit?: number;
+    offset?: number;
   },
   stateDir: string,
 ): Promise<ToolResult> {
@@ -28,7 +30,19 @@ export async function handleStackStatus(
     const events = await store.query(args.streamId);
     const view = materializer.materialize<StackViewState>(args.streamId, STACK_VIEW, events);
 
-    return { success: true, data: view.positions };
+    let positions = view.positions;
+
+    // Apply optional offset (before limit)
+    if (args.offset !== undefined) {
+      positions = positions.slice(args.offset);
+    }
+
+    // Apply optional limit (after offset)
+    if (args.limit !== undefined) {
+      positions = positions.slice(0, args.limit);
+    }
+
+    return { success: true, data: positions };
   } catch (err) {
     return {
       success: false,
@@ -112,7 +126,11 @@ export function registerStackTools(server: McpServer, stateDir: string, _eventSt
   server.tool(
     'exarchos_stack_status',
     'Get current stack positions from stack.position-filled events',
-    { streamId: z.string().optional() },
+    {
+      streamId: z.string().optional(),
+      limit: z.number().int().positive().optional(),
+      offset: z.number().int().nonnegative().optional(),
+    },
     async (args) => formatResult(await handleStackStatus(args, stateDir)),
   );
 
