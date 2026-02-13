@@ -28,9 +28,14 @@ export interface CompensationAction {
   ) => Promise<CompensationActionResult>;
 }
 
+export interface CompensationCheckpoint {
+  readonly completedActions: readonly string[];
+}
+
 export interface CompensationOptions {
   readonly dryRun: boolean;
   readonly stateDir?: string;
+  readonly checkpoint?: CompensationCheckpoint;
 }
 
 export interface CompensationActionResult {
@@ -44,6 +49,7 @@ export interface CompensationResult {
   readonly events: readonly Event[];
   readonly success: boolean;
   readonly errorCode?: string;
+  readonly checkpoint: CompensationCheckpoint;
 }
 
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
@@ -303,14 +309,28 @@ export async function executeCompensation(
   const compensationEvents: Event[] = [];
   let currentSequence = eventSequence;
   let hasFailure = false;
+  const completedSet = new Set(options.checkpoint?.completedActions ?? []);
 
   for (const action of orderedActions) {
-    const result = await action.execute(state, options);
-    results.push(result);
+    let result: CompensationActionResult;
 
-    if (result.status === 'failed') {
-      hasFailure = true;
+    // Skip already-completed actions from a previous checkpoint
+    if (completedSet.has(action.id)) {
+      result = { actionId: action.id, status: 'skipped', message: 'Already completed (checkpoint)' };
+    } else {
+      result = await action.execute(state, options);
+
+      if (result.status === 'failed') {
+        hasFailure = true;
+      }
+
+      // Track successfully completed actions for the checkpoint
+      if (result.status === 'executed' || result.status === 'skipped') {
+        completedSet.add(action.id);
+      }
     }
+
+    results.push(result);
 
     // Log a compensation event for each action
     const { eventSequence: nextSeq, event } = appendEvent(
@@ -336,5 +356,6 @@ export async function executeCompensation(
     events: compensationEvents,
     success: !hasFailure,
     ...(hasFailure && { errorCode: ErrorCode.COMPENSATION_PARTIAL }),
+    checkpoint: { completedActions: [...completedSet] },
   };
 }

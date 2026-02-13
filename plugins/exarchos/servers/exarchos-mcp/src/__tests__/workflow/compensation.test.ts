@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Event } from '../../workflow/types.js';
 import type {
   CompensationAction,
+  CompensationCheckpoint,
   CompensationOptions,
   CompensationActionResult,
   CompensationResult,
@@ -1003,6 +1004,121 @@ describe('Compensation', () => {
       for (let i = 1; i < result.events.length; i++) {
         expect(result.events[i].sequence).toBeGreaterThan(result.events[i - 1].sequence);
       }
+    });
+  });
+
+  describe('ExecuteCompensation_WithCheckpoint_SkipsCompletedActions', () => {
+    it('should skip actions already recorded in the checkpoint', async () => {
+      const state = makeState({ phase: 'synthesize' });
+      const events = makeEvents(2);
+
+      // Provide a checkpoint indicating 'synthesize:close-pr' already completed
+      const checkpoint: CompensationCheckpoint = {
+        completedActions: ['synthesize:close-pr'],
+      };
+
+      const result = await executeCompensation(state, 'synthesize', events, 2, {
+        dryRun: false,
+        checkpoint,
+      });
+
+      // The close-pr action should be skipped with checkpoint message
+      const closePrAction = result.actions.find((a) => a.actionId === 'synthesize:close-pr');
+      expect(closePrAction).toBeDefined();
+      expect(closePrAction!.status).toBe('skipped');
+      expect(closePrAction!.message).toContain('Already completed (checkpoint)');
+
+      // Other actions (delegate phase) should still execute normally
+      const delegateActions = result.actions.filter((a) => a.actionId.startsWith('delegate:'));
+      expect(delegateActions.length).toBeGreaterThan(0);
+      for (const action of delegateActions) {
+        // Delegate actions should be executed or skipped-by-condition (not checkpoint-skipped)
+        expect(action.message).not.toContain('Already completed (checkpoint)');
+      }
+
+      // The gh close command should NOT have been called since close-pr was checkpointed
+      const ghCloseCalls = mockedExecFile.mock.calls.filter((call) => {
+        const args = call[1] as string[] | undefined;
+        return call[0] === 'gh' && args?.includes('close');
+      });
+      expect(ghCloseCalls.length).toBe(0);
+    });
+  });
+
+  describe('ExecuteCompensation_ReturnsCheckpoint', () => {
+    it('should return a checkpoint with IDs of all executed and skipped actions', async () => {
+      const state = makeState({ phase: 'delegate' });
+      const events = makeEvents(1);
+
+      const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
+
+      // Result should include checkpoint
+      expect(result.checkpoint).toBeDefined();
+      expect(Array.isArray(result.checkpoint.completedActions)).toBe(true);
+
+      // All actions that were executed or skipped should appear in checkpoint
+      for (const action of result.actions) {
+        if (action.status === 'executed' || action.status === 'skipped') {
+          expect(result.checkpoint.completedActions).toContain(action.actionId);
+        }
+      }
+
+      // Failed actions should NOT appear in checkpoint
+      const failedActions = result.actions.filter((a) => a.status === 'failed');
+      for (const action of failedActions) {
+        expect(result.checkpoint.completedActions).not.toContain(action.actionId);
+      }
+    });
+  });
+
+  describe('ExecuteCompensation_WithEmptyCheckpoint_ExecutesAll', () => {
+    it('should execute all actions when checkpoint has no completed actions', async () => {
+      const state = makeState({ phase: 'synthesize' });
+      const events = makeEvents(2);
+
+      // Empty checkpoint — no previously completed actions
+      const checkpoint: CompensationCheckpoint = {
+        completedActions: [],
+      };
+
+      const result = await executeCompensation(state, 'synthesize', events, 2, {
+        dryRun: false,
+        checkpoint,
+      });
+
+      // No actions should be checkpoint-skipped
+      for (const action of result.actions) {
+        expect(action.message).not.toContain('Already completed (checkpoint)');
+      }
+
+      // Actions should still execute or be condition-skipped as normal
+      expect(result.actions.length).toBeGreaterThan(0);
+
+      // Checkpoint should be returned with all executed/skipped action IDs
+      expect(result.checkpoint).toBeDefined();
+      expect(result.checkpoint.completedActions.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('ExecuteCompensation_WithoutCheckpoint_ExecutesAll', () => {
+    it('should execute all actions when no checkpoint option is provided', async () => {
+      const state = makeState({ phase: 'synthesize' });
+      const events = makeEvents(2);
+
+      // No checkpoint in options at all (backward compatibility)
+      const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
+
+      // No actions should be checkpoint-skipped
+      for (const action of result.actions) {
+        expect(action.message).not.toContain('Already completed (checkpoint)');
+      }
+
+      // Actions should still execute or be condition-skipped as normal
+      expect(result.actions.length).toBeGreaterThan(0);
+
+      // Checkpoint should still be returned in the result
+      expect(result.checkpoint).toBeDefined();
+      expect(Array.isArray(result.checkpoint.completedActions)).toBe(true);
     });
   });
 });
