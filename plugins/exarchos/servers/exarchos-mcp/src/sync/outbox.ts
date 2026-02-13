@@ -214,6 +214,32 @@ export class Outbox {
     }));
   }
 
+  // ─── Dead Letter Recovery ──────────────────────────────────────────────
+
+  async replayDeadLetters(streamId: string): Promise<number> {
+    return this.withLock(streamId, async () => {
+      const entries = await this.loadEntries(streamId);
+      let replayed = 0;
+
+      for (const entry of entries) {
+        if (entry.status === 'dead-letter') {
+          entry.status = 'pending';
+          entry.attempts = 0;
+          entry.error = undefined;
+          entry.nextRetryAt = undefined;
+          entry.lastAttemptAt = undefined;
+          replayed++;
+        }
+      }
+
+      if (replayed > 0) {
+        await this.saveEntries(streamId, entries);
+      }
+
+      return replayed;
+    });
+  }
+
   // ─── Cleanup ───────────────────────────────────────────────────────────
 
   async cleanup(
