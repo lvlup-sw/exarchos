@@ -181,12 +181,12 @@ describe('CLI Framework', () => {
     });
 
     it('should route guard command to handler', async () => {
-      // Act
+      // Act — empty stdin data means no tool_name, so guard allows
       const result = await routeCommand('guard', {});
 
-      // Assert
+      // Assert — guard returns empty object (allow) for missing tool_name
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result).toEqual({});
     });
 
     it('should route task-gate command to handler', async () => {
@@ -230,25 +230,25 @@ describe('CLI Framework', () => {
     });
 
     it('should pass stdin data to command handlers', async () => {
-      // Arrange
+      // Arrange — tool_name without mcp__exarchos__ prefix, so guard allows
       const stdinData = { tool_name: 'exarchos_workflow', tool_input: { action: 'init' } };
 
       // Act
       const result = await routeCommand('guard', stdinData);
 
-      // Assert — stub returns not-implemented but should not crash
+      // Assert — guard allows (not an exarchos MCP tool name)
       expect(result).toBeDefined();
     });
 
     it('should return not-implemented error for stubbed commands', async () => {
       // Act
-      const result = await routeCommand('guard', {});
+      const result = await routeCommand('task-gate', {});
 
       // Assert
       expect(result).toEqual({
         error: {
           code: 'NOT_IMPLEMENTED',
-          message: 'guard handler not yet implemented',
+          message: 'task-gate handler not yet implemented',
         },
       });
     });
