@@ -18,20 +18,26 @@ export interface CompositeTool {
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
 
+/** A ZodObject whose shape includes an `action` discriminator key. */
+type ActionDiscriminatedSchema = z.ZodObject<{ action: z.ZodTypeAny } & z.ZodRawShape>;
+
 /**
  * Builds a Zod discriminated union from a list of ToolActions.
  * Each action's schema is extended with an `action: z.literal(name)` discriminator.
  */
 export function buildCompositeSchema(
   actions: readonly ToolAction[],
-): z.ZodDiscriminatedUnion<'action', [z.ZodObject<z.ZodRawShape>, ...z.ZodObject<z.ZodRawShape>[]]> {
+): z.ZodDiscriminatedUnion<'action', [ActionDiscriminatedSchema, ...ActionDiscriminatedSchema[]]> {
   if (actions.length < 2) {
     throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
   }
 
+  // The .extend() call adds { action: z.literal(name) } to each schema, but
+  // TypeScript cannot infer the discriminator key through .map(). The assertion
+  // is safe because every schema is extended with an `action` literal field.
   const schemas = actions.map((action) =>
     action.schema.extend({ action: z.literal(action.name) }),
-  );
+  ) as ActionDiscriminatedSchema[];
 
   // Zod discriminatedUnion requires a tuple of [first, ...rest]
   const [first, ...rest] = schemas;
