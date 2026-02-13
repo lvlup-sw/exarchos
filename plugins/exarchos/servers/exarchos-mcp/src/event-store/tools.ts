@@ -29,6 +29,7 @@ export async function handleEventAppend(
     stream: string;
     event: Record<string, unknown>;
     expectedSequence?: number;
+    idempotencyKey?: string;
   },
   stateDir: string,
 ): Promise<ToolResult> {
@@ -62,8 +63,11 @@ export async function handleEventAppend(
         source: args.event.source as string | undefined,
         timestamp: args.event.timestamp as string | undefined,
       },
-      args.expectedSequence !== undefined
-        ? { expectedSequence: args.expectedSequence }
+      (args.expectedSequence !== undefined || args.idempotencyKey !== undefined)
+        ? {
+            expectedSequence: args.expectedSequence,
+            idempotencyKey: args.idempotencyKey,
+          }
         : undefined,
     );
 
@@ -154,11 +158,12 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
   moduleEventStore = eventStore;
   server.tool(
     'exarchos_event_append',
-    'Append an event to the event store with optional optimistic concurrency',
+    'Append an event to the event store with optional optimistic concurrency and idempotency key',
     {
       stream: z.string().min(1),
       event: z.record(z.string(), z.unknown()),
       expectedSequence: z.number().int().optional(),
+      idempotencyKey: z.string().optional(),
     },
     async (args) => formatResult(await handleEventAppend(args, stateDir)),
   );

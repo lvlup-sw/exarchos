@@ -23,6 +23,7 @@ export class SequenceConflictError extends Error {
 
 export interface AppendOptions {
   expectedSequence?: number;
+  idempotencyKey?: string;
 }
 
 // ─── Query Filters ──────────────────────────────────────────────────────────
@@ -54,6 +55,10 @@ function validateStreamId(streamId: string): void {
 export class EventStore {
   private sequenceCounters: Map<string, number> = new Map();
   private locks: Map<string, Promise<void>> = new Map();
+
+  /** In-memory dedup cache: streamId -> (idempotencyKey -> event) */
+  private idempotencyCache: Map<string, Map<string, WorkflowEvent>> = new Map();
+  private static readonly MAX_IDEMPOTENCY_KEYS = 100;
 
   constructor(private readonly stateDir: string) {}
 
@@ -91,14 +96,19 @@ export class EventStore {
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
     return this.withLock(streamId, async () => {
+      // Idempotency check: return cached event if key was already seen
+      if (options?.idempotencyKey) {
+        const streamCache = this.idempotencyCache.get(streamId);
+        const cached = streamCache?.get(options.idempotencyKey);
+        if (cached) return cached;
+      }
+
       const filePath = this.getEventFilePath(streamId);
 
       // Initialize sequence from file if not cached
       if (!this.sequenceCounters.has(streamId)) {
         await this.initializeSequence(streamId);
       }
-
-      const currentSequence = this.sequenceCounters.get(streamId) ?? 0;
 
       // Optimistic concurrency check
       if (options?.expectedSequence !== undefined) {
@@ -139,6 +149,22 @@ export class EventStore {
         await fs.rm(seqPath, { force: true }).catch(() => {});
       }
 
+      // Cache the idempotency key after successful append
+      if (options?.idempotencyKey) {
+        let streamCache = this.idempotencyCache.get(streamId);
+        if (!streamCache) {
+          streamCache = new Map();
+          this.idempotencyCache.set(streamId, streamCache);
+        }
+        streamCache.set(options.idempotencyKey, fullEvent);
+
+        // FIFO eviction: remove oldest key when cache exceeds max
+        if (streamCache.size > EventStore.MAX_IDEMPOTENCY_KEYS) {
+          const oldest = streamCache.keys().next().value;
+          if (oldest) streamCache.delete(oldest);
+        }
+      }
+
       return fullEvent;
     });
   }
@@ -161,16 +187,29 @@ export class EventStore {
     const offset = filters?.offset ?? 0;
     const limit = filters?.limit;
 
+    // Fast path: when only sinceSequence is set (no type/date filtering),
+    // skip JSON.parse for lines where lineCount <= sinceSequence.
+    // This works because line N contains sequence N (monotonically increasing).
+    const canFastSkip = filters?.sinceSequence !== undefined
+      && !filters.type && !filters.since && !filters.until;
+    let lineCount = 0;
+
     for await (const line of rl) {
       if (!line.trim()) continue;
+      lineCount++;
+
+      // Fast skip: line N = sequence N, skip without parsing
+      if (canFastSkip && lineCount <= filters!.sinceSequence!) continue;
 
       const event = JSON.parse(line) as WorkflowEvent;
 
-      // Apply filters
-      if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
-      if (filters?.type && event.type !== filters.type) continue;
-      if (filters?.since && event.timestamp < filters.since) continue;
-      if (filters?.until && event.timestamp > filters.until) continue;
+      // Apply filters for non-fast-path (sinceSequence still needs checking when combined with other filters)
+      if (!canFastSkip) {
+        if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
+        if (filters?.type && event.type !== filters.type) continue;
+        if (filters?.since && event.timestamp < filters.since) continue;
+        if (filters?.until && event.timestamp > filters.until) continue;
+      }
 
       // Apply offset
       if (skipped < offset) {
