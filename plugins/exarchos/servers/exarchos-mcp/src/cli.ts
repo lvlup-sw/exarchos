@@ -8,6 +8,7 @@
 import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
 import { handleGuard } from './cli-commands/guard.js';
+import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -55,8 +56,8 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'pre-compact': async (stdinData) => handlePreCompact(stdinData, resolveStateDir()),
   'session-start': async (stdinData) => handleSessionStart(stdinData, resolveStateDir()),
   'guard': handleGuard,
-  'task-gate': createStubHandler('task-gate'),
-  'teammate-gate': createStubHandler('teammate-gate'),
+  'task-gate': handleTaskGate,
+  'teammate-gate': handleTeammateGate,
   'subagent-context': createStubHandler('subagent-context'),
 };
 
@@ -138,7 +139,9 @@ async function main(): Promise<void> {
   outputJson(result);
 
   if (result.error) {
-    process.exitCode = 1;
+    // Gate commands use exit code 2 to signal "blocked" to the hook runner
+    const isGateCommand = command === 'task-gate' || command === 'teammate-gate';
+    process.exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;
   }
 }
 
