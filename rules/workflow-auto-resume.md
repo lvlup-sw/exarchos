@@ -8,7 +8,7 @@ This rule ensures autonomous workflow continuation after context compaction.
 
 ## Session Start Detection
 
-At the START of every session, BEFORE responding to any user request, silently check for active workflows using `mcp__exarchos__exarchos_workflow_list`.
+At the START of every session, the **SessionStart hook** automatically detects active workflows, restores context, determines the next action, and verifies state matches git reality. This replaces the former manual tool calls (`workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile`).
 
 If an active (non-completed) workflow exists, auto-restore and continue.
 
@@ -16,19 +16,20 @@ If an active (non-completed) workflow exists, auto-restore and continue.
 
 ### Step 1: Detect Active Workflow
 
-Use `mcp__exarchos__exarchos_workflow_list` to find state files with phase != "completed".
+The SessionStart hook discovers active workflow state files with phase != "completed".
 
 ### Step 2: Restore Context
 
-If active workflow found, use:
-- `mcp__exarchos__exarchos_workflow_summary` with the featureId
-- `mcp__exarchos__exarchos_workflow_next_action` with the featureId
+If active workflow found, the SessionStart hook:
+- Provides workflow context (phase, tasks, artifacts)
+- Determines the next action to take
+- Verifies state matches git reality (worktrees, branches)
 
-Display a brief context restoration message.
+A brief context restoration message is displayed.
 
 ### Step 3: Determine Next Action
 
-The `mcp__exarchos__exarchos_workflow_next_action` tool returns one of:
+The SessionStart hook returns one of:
 
 #### Feature Workflow Actions
 

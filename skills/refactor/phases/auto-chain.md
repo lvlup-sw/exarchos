@@ -32,27 +32,27 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 
 ### Polish Auto-Chain Commands
 
-After each phase, use `mcp__exarchos__exarchos_workflow_next_action` with the featureId to determine the next action:
+After each phase, use the SessionStart hook with the featureId to determine the next action:
 
 ```text
 # After explore
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-brief
 
 # After brief
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:polish-implement
 
 # After implement
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-validate
 
 # After validate (passed)
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-update-docs
 
 # After update-docs
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: WAIT:human-checkpoint:polish-update-docs
 ```
 
@@ -101,7 +101,7 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 
 ### Overhaul Auto-Chain Commands
 
-Use `mcp__exarchos__exarchos_workflow_next_action` with the featureId after each phase:
+Use the SessionStart hook with the featureId after each phase:
 
 ```text
 # After explore
@@ -165,7 +165,7 @@ polish:implement → [scope expands] → overhaul:plan
 Auto-chain handles this via MCP tools:
 
 ```text
-# When scope expands during implement, use mcp__exarchos__exarchos_workflow_set:
+# When scope expands during implement, use mcp__exarchos__exarchos_workflow with action: "set":
 # 1. First call: Set updates
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
 
@@ -174,7 +174,7 @@ phase: "plan"
 updates: { "track": "overhaul" }
 
 # Next action returns
-Use mcp__exarchos__exarchos_workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:overhaul-plan
 ```
 

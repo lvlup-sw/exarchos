@@ -10,10 +10,10 @@ If given a state file path, read task details using MCP tools:
 
 ```text
 # Get your task
-Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".tasks[] | select(.id == \"<task-id>\")"
+Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".tasks[] | select(.id == \"<task-id>\")"
 
 # Get plan path
-Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".artifacts.plan"
+Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".artifacts.plan"
 ```
 
 Then read the specific task section:
@@ -36,7 +36,7 @@ If you need design context:
 
 ```text
 # Get design path from state
-Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".artifacts.design"
+Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".artifacts.design"
 
 # Then read the design file
 Read({ file_path: "<design-path>" })

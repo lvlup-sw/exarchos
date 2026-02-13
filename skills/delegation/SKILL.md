@@ -236,7 +236,7 @@ Before dispatching ANY implementer:
 
 ### Worktree State Tracking
 
-Track worktrees in the workflow state file using `mcp__exarchos__exarchos_workflow_set`:
+Track worktrees in the workflow state file using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Set `worktrees.<worktree-id>` to an object containing `branch`, `status`, and either `taskId` (single task) or `tasks` (array of task IDs for multi-task worktrees)
 
 ### Implementer Prompt Requirements
@@ -273,11 +273,11 @@ This skill tracks task progress in workflow state for context persistence.
 
 ### Read Tasks from State
 
-Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow_get` with `query: "tasks"`. For status checks during monitoring, use `fields: ["tasks"]` to reduce response size.
+Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow` with `action: "get"` with `query: "tasks"`. For status checks during monitoring, use `fields: ["tasks"]` to reduce response size.
 
 ### On Task Dispatch
 
-Update task status when dispatched using `mcp__exarchos__exarchos_workflow_set`:
+Update task status when dispatched using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Update the task's status to "in_progress"
 - Set the task's startedAt timestamp
 
@@ -285,13 +285,13 @@ If creating worktree, also set the worktree entry with branch, status, and eithe
 
 ### On Task Complete
 
-Update task status when subagent reports completion using `mcp__exarchos__exarchos_workflow_set`:
+Update task status when subagent reports completion using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Update the task's status to "complete"
 - Set the task's completedAt timestamp
 
 ### On All Tasks Complete
 
-Update phase using `mcp__exarchos__exarchos_workflow_set`:
+Update phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Set `phase` to "review"
 
 ## Fix Mode (--fixes)
@@ -308,7 +308,7 @@ Or auto-invoked after review failures.
 
 ### Fix Mode Process
 
-1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow_get`:
+1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
    - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:
@@ -390,21 +390,21 @@ State is saved, enabling recovery after context compaction.
 
 When Exarchos MCP tools are available, emit events during delegation:
 
-1. **At delegation start:** Call `mcp__exarchos__exarchos_event_append` with event type `workflow.started` (if not already emitted for this workflow)
-2. **After team composition:** Call `mcp__exarchos__exarchos_event_append` with event type `team.formed` including teammates array
-3. **For each task dispatch:** Use `mcp__exarchos__exarchos_team_spawn` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
-4. **For each task assignment:** Call `mcp__exarchos__exarchos_event_append` with event type `task.assigned` including taskId, title, branch, worktree
-5. **Monitor progress:** Use `mcp__exarchos__exarchos_view_workflow_status` to check task completion status. For lightweight checks, use `mcp__exarchos__exarchos_workflow_get` with `fields: ["tasks"]`
+1. **At delegation start:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `workflow.started` (if not already emitted for this workflow)
+2. **After team composition:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `team.formed` including teammates array
+3. **For each task dispatch:** Use `mcp__exarchos__exarchos_orchestrate` with `action: "team_spawn"` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
+4. **For each task assignment:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `task.assigned` including taskId, title, branch, worktree
+5. **Monitor progress:** Use `mcp__exarchos__exarchos_view` with `action: "workflow_status"` to check task completion status. For lightweight checks, use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `fields: ["tasks"]`
 6. **On task completion — Graphite stacking:**
    Subagents handle stacking directly using `gt create` (per implementer prompt template).
    When a multi-task agent completes, it will have created a Graphite stack with one branch per logical review unit.
    The orchestrator should:
-   - Call `mcp__exarchos__exarchos_stack_place` with position, taskId, and branch to record each stack position
+   - Call `mcp__exarchos__exarchos_view` with `action: "stack_place"` with position, taskId, and branch to record each stack position
    - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
-7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` from delegate to next phase
+7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` from delegate to next phase
 
 ### Claim Guard
 
-`task_claim` prevents double-claims. If an agent receives an `ALREADY_CLAIMED` error, it means another agent already claimed that task. The orchestrator should:
+`task_claim` action prevents double-claims. If an agent receives an `ALREADY_CLAIMED` error, it means another agent already claimed that task. The orchestrator should:
 - Skip the task (it's being handled)
-- Check task status via `mcp__exarchos__exarchos_view_tasks` with `filter: { "taskId": "<id>" }` before re-dispatching
+- Check task status via `mcp__exarchos__exarchos_view` with `action: "tasks"` with `filter: { "taskId": "<id>" }` before re-dispatching

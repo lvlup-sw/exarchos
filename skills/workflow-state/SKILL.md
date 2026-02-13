@@ -26,7 +26,7 @@ State files are gitignored - they persist locally but are not committed.
 
 ### Initialize State
 
-At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow_init` with:
+At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
 - `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
 
@@ -34,7 +34,7 @@ This creates a new state file with phase "ideate".
 
 ### Read State
 
-Use `mcp__exarchos__exarchos_workflow_get` with `featureId`:
+Use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`:
 
 - **Full state**: Call with just `featureId`
 - **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`)
@@ -44,7 +44,7 @@ Field projection via `fields` returns only the requested top-level keys, reducin
 
 ### Update State
 
-Use `mcp__exarchos__exarchos_workflow_set` with `featureId` and either `updates`, `phase`, or both:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with `featureId` and either `updates`, `phase`, or both:
 
 - **Update phase**: `phase: "delegate"`
 - **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
@@ -56,11 +56,11 @@ Worktree status values: `'active' | 'merged' | 'removed'`
 
 ### Get Summary
 
-For context restoration after summarization, use `mcp__exarchos__exarchos_workflow_summary` with `featureId`. This outputs a minimal summary suitable for rebuilding orchestrator context.
+For context restoration after summarization, use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`. This outputs a minimal summary suitable for rebuilding orchestrator context.
 
 ### Reconcile State
 
-To verify state matches git reality, use `mcp__exarchos__exarchos_workflow_reconcile` with `featureId`. This checks that worktrees and branches referenced in state actually exist.
+To verify state matches git reality, the SessionStart hook automatically reconciles on resume. This checks that worktrees and branches referenced in state actually exist.
 
 ## Integration Points
 
@@ -136,13 +136,13 @@ Key sections:
 
 ## Example Workflow
 
-1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow_init` with `featureId: "user-authentication"`, `workflowType: "feature"`
+1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: Use `mcp__exarchos__exarchos_workflow_set` with:
+2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with:
    - `featureId: "user-authentication"`
    - `phase: "plan"`
    - `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
 
-3. **Check state**: Use `mcp__exarchos__exarchos_workflow_summary` with `featureId: "user-authentication"`
+3. **Check state**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
 
-4. **Resume after context loss**: Use `mcp__exarchos__exarchos_workflow_summary` with `featureId: "user-authentication"` to get context restoration output
+4. **Resume after context loss**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"` to get context restoration output

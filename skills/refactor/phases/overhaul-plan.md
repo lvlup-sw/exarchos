@@ -244,15 +244,15 @@ After all tasks complete:
 
 ### On Plan Completion
 
-Use `mcp__exarchos__exarchos_workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
 
 ```text
 # Set plan artifact path
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: { "artifacts.plan": "docs/plans/YYYY-MM-DD-<refactor>.md" }
 
 # Add tasks to state (single call with all tasks)
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: {
     "tasks": [
       {"id": "001", "title": "Task description", "status": "pending", "working_state_verified": false},
@@ -261,7 +261,7 @@ Use mcp__exarchos__exarchos_workflow_set:
   }
 
 # Transition to delegate phase (separate call)
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   phase: "delegate"
 ```
 

@@ -79,10 +79,10 @@ Significant doc updates → overhaul track indicator.
 
 ## Output
 
-Update workflow state with assessment using `mcp__exarchos__exarchos_workflow_set`:
+Update workflow state with assessment using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "explore": {
       "filesAffected": <count>,
