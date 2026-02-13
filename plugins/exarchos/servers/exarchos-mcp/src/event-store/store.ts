@@ -60,6 +60,9 @@ export class EventStore {
   private idempotencyCache: Map<string, Map<string, WorkflowEvent>> = new Map();
   private static readonly MAX_IDEMPOTENCY_KEYS = 100;
 
+  /** Tracks which streams have had their idempotency cache rebuilt from JSONL */
+  private idempotencyCacheInitialized: Set<string> = new Set();
+
   constructor(private readonly stateDir: string) {}
 
   private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
@@ -96,6 +99,11 @@ export class EventStore {
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
     return this.withLock(streamId, async () => {
+      // Rebuild idempotency cache from JSONL on first access per stream
+      if (options?.idempotencyKey && !this.idempotencyCacheInitialized.has(streamId)) {
+        await this.rebuildIdempotencyCache(streamId);
+      }
+
       // Idempotency check: return cached event if key was already seen
       if (options?.idempotencyKey) {
         const streamCache = this.idempotencyCache.get(streamId);
@@ -129,6 +137,7 @@ export class EventStore {
         streamId,
         sequence,
         timestamp: event.timestamp || new Date().toISOString(),
+        idempotencyKey: options?.idempotencyKey,
       });
 
       // Ensure directory exists
@@ -232,6 +241,43 @@ export class EventStore {
 
   async refreshSequence(streamId: string): Promise<void> {
     await this.initializeSequence(streamId);
+  }
+
+  private async rebuildIdempotencyCache(streamId: string): Promise<void> {
+    if (this.idempotencyCacheInitialized.has(streamId)) return;
+    this.idempotencyCacheInitialized.add(streamId);
+
+    const filePath = this.getEventFilePath(streamId);
+    try {
+      await fs.access(filePath);
+    } catch {
+      return; // No events file yet
+    }
+
+    const input = createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = createInterface({ input, crlfDelay: Infinity });
+
+    // Collect all events with idempotency keys
+    const keyed: Array<{ key: string; event: WorkflowEvent }> = [];
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as WorkflowEvent;
+      if (event.idempotencyKey) {
+        keyed.push({ key: event.idempotencyKey, event });
+      }
+    }
+
+    // Take only the last MAX_IDEMPOTENCY_KEYS entries
+    const toCache = keyed.slice(-EventStore.MAX_IDEMPOTENCY_KEYS);
+
+    if (toCache.length > 0) {
+      const streamCache = new Map<string, WorkflowEvent>();
+      for (const { key, event } of toCache) {
+        streamCache.set(key, event);
+      }
+      this.idempotencyCache.set(streamId, streamCache);
+    }
   }
 
   private async initializeSequence(streamId: string): Promise<void> {
