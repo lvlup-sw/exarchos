@@ -312,6 +312,18 @@ describe('parseArgs', () => {
     expect(result.nonInteractive).toBe(true);
     expect(result.configPath).toBe('/tmp/c.json');
   });
+
+  it('parseArgs_SkipVersionCheck_ReturnsFlagSet', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--skip-version-check']);
+    expect(result.skipVersionCheck).toBe(true);
+  });
+
+  it('parseArgs_NoSkipVersionCheck_FlagUndefined', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs([]);
+    expect(result.skipVersionCheck).toBeUndefined();
+  });
 });
 
 describe('Path Utilities', () => {

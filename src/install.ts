@@ -31,6 +31,7 @@ export interface ParsedArgs {
   mode?: 'standard' | 'dev';
   nonInteractive?: boolean;
   configPath?: string;
+  skipVersionCheck?: boolean;
 }
 
 // Legacy types (kept for backward compatibility with existing tests)
@@ -149,6 +150,10 @@ export function parseArgs(args: string[]): ParsedArgs {
 
   if (args.includes('--yes')) {
     result.nonInteractive = true;
+  }
+
+  if (args.includes('--skip-version-check')) {
+    result.skipVersionCheck = true;
   }
 
   const configIdx = args.indexOf('--config');
@@ -553,11 +558,12 @@ Usage:
   npx github:lvlup-sw/exarchos [options]
 
 Options:
-  --help, -h      Show this help message
-  --uninstall     Remove installed configuration
-  --dev           Install in dev mode (symlinks)
-  --yes           Non-interactive mode (use defaults)
-  --config <path> Use a config file for selections
+  --help, -h            Show this help message
+  --uninstall           Remove installed configuration
+  --dev                 Install in dev mode (symlinks)
+  --yes                 Non-interactive mode (use defaults)
+  --config <path>       Use a config file for selections
+  --skip-version-check  Skip remote version check at startup
 
 Examples:
   npx github:lvlup-sw/exarchos              Install configuration
@@ -587,6 +593,24 @@ export async function main(): Promise<void> {
       const { createPromptAdapter } = await import('./wizard/prompts.js');
       const claudeHome = getClaudeHome();
       const repoRoot = getRepoRoot();
+
+      // Version check against GitHub main (non-blocking)
+      if (!args.skipVersionCheck) {
+        const { checkVersion, formatVersionWarning } = await import('./operations/version-check.js');
+        const pkgPath = join(repoRoot, 'package.json');
+        const pkg: unknown = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const localVersion =
+          typeof pkg === 'object' && pkg !== null && 'version' in pkg && typeof (pkg as Record<string, unknown>).version === 'string'
+            ? (pkg as Record<string, string>).version
+            : '0.0.0';
+        const versionResult = await checkVersion(localVersion);
+        if (versionResult.status === 'outdated') {
+          console.log('');
+          console.log(formatVersionWarning(versionResult));
+          console.log('');
+        }
+      }
+
       await install({
         claudeHome,
         repoRoot,
