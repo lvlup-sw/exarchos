@@ -242,13 +242,13 @@ describe('CLI Framework', () => {
 
     it('should return not-implemented error for stubbed commands', async () => {
       // Act
-      const result = await routeCommand('task-gate', {});
+      const result = await routeCommand('subagent-context', {});
 
       // Assert
       expect(result).toEqual({
         error: {
           code: 'NOT_IMPLEMENTED',
-          message: 'task-gate handler not yet implemented',
+          message: 'subagent-context handler not yet implemented',
         },
       });
     });
