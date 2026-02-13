@@ -5,6 +5,8 @@
 // All hook scripts call: node dist/cli.js <command>
 // JSON is piped via stdin, JSON result is written to stdout.
 
+import { handleSubagentContext } from './cli-commands/subagent-context.js';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 /** Result returned by command handlers. */
@@ -50,7 +52,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'guard': createStubHandler('guard'),
   'task-gate': createStubHandler('task-gate'),
   'teammate-gate': createStubHandler('teammate-gate'),
-  'subagent-context': createStubHandler('subagent-context'),
+  'subagent-context': handleSubagentContext,
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
