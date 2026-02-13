@@ -162,13 +162,13 @@ describe('CLI Framework', () => {
       expect(result).toHaveProperty('error');
     });
 
-    it('should route subagent-context command to handler', async () => {
+    it('should route subagent-context command to real handler', async () => {
       // Act
       const result = await routeCommand('subagent-context', {});
 
-      // Assert
+      // Assert — real handler returns guidance (not an error)
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('guidance');
     });
 
     it('should return error for unknown command', async () => {

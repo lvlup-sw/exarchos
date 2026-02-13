@@ -9,6 +9,7 @@ import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
+import { handleSubagentContext } from './cli-commands/subagent-context.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'guard': handleGuard,
   'task-gate': handleTaskGate,
   'teammate-gate': handleTeammateGate,
-  'subagent-context': createStubHandler('subagent-context'),
+  'subagent-context': handleSubagentContext,
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
