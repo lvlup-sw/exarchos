@@ -7,6 +7,7 @@
 
 import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
+import { handleGuard } from './cli-commands/guard.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -48,10 +49,12 @@ function createStubHandler(command: string): CommandHandler {
   });
 }
 
+// ─── Command Handler Registry ───────────────────────────────────────────────
+
 const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'pre-compact': async (stdinData) => handlePreCompact(stdinData, resolveStateDir()),
   'session-start': async (stdinData) => handleSessionStart(stdinData, resolveStateDir()),
-  'guard': createStubHandler('guard'),
+  'guard': handleGuard,
   'task-gate': createStubHandler('task-gate'),
   'teammate-gate': createStubHandler('teammate-gate'),
   'subagent-context': createStubHandler('subagent-context'),
