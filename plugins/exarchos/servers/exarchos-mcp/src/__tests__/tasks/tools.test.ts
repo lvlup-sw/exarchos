@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore, SequenceConflictError } from '../../event-store/store.js';
 import {
   handleTaskClaim,
   handleTaskComplete,
@@ -382,5 +382,148 @@ describe('registerTaskTools', () => {
     expect(events).toHaveLength(1);
 
     constructorSpy.mockRestore();
+  });
+});
+
+// ─── TOCTOU Race Condition Fix ──────────────────────────────────────────────
+
+describe('handleTaskClaim TOCTOU protection', () => {
+  // Each test registers the test-level store via registerTaskTools so that
+  // handleTaskClaim uses the same instance we can spy on.
+  let mockServer: import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+
+  beforeEach(() => {
+    mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    registerTaskTools(mockServer, tempDir, store);
+  });
+
+  it('retries on SequenceConflictError from concurrent append', async () => {
+    // Arrange: seed the stream with an initial event so sequence > 0
+    await store.append('wf-race', { type: 'workflow.started', data: {} });
+
+    // Spy on store.append to inject a SequenceConflictError on the first claim attempt,
+    // then allow the second attempt to succeed normally.
+    const originalAppend = store.append.bind(store);
+    let claimAttemptCount = 0;
+    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+      async (streamId, event, options) => {
+        if ((event as { type: string }).type === 'task.claimed') {
+          claimAttemptCount++;
+          if (claimAttemptCount === 1 && options?.expectedSequence !== undefined) {
+            // Simulate concurrent write: throw SequenceConflictError on first attempt
+            throw new SequenceConflictError(options.expectedSequence, options.expectedSequence + 1);
+          }
+        }
+        return originalAppend(streamId, event, options);
+      },
+    );
+
+    // Act
+    const result = await handleTaskClaim(
+      { taskId: 't-race', agentId: 'agent-racer', streamId: 'wf-race' },
+      tempDir,
+    );
+
+    // Assert: should succeed after retrying
+    expect(result.success).toBe(true);
+    // The claim was attempted at least twice (first failed, second succeeded)
+    expect(claimAttemptCount).toBeGreaterThanOrEqual(2);
+
+    appendSpy.mockRestore();
+  });
+
+  it('uses expectedSequence for optimistic concurrency', async () => {
+    // Arrange: seed the stream with some events
+    await store.append('wf-seq', { type: 'workflow.started', data: {} });
+    await store.append('wf-seq', { type: 'team.formed', data: {} });
+
+    // Spy on store.append to capture the options passed
+    const originalAppend = store.append.bind(store);
+    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+      async (streamId, event, options) => {
+        return originalAppend(streamId, event, options);
+      },
+    );
+
+    // Act
+    const result = await handleTaskClaim(
+      { taskId: 't-seq', agentId: 'agent-seq', streamId: 'wf-seq' },
+      tempDir,
+    );
+
+    // Assert: claim succeeded
+    expect(result.success).toBe(true);
+
+    // The task.claimed append must have included expectedSequence
+    const claimCall = appendSpy.mock.calls.find(
+      ([, evt]) => (evt as { type: string }).type === 'task.claimed',
+    );
+    expect(claimCall).toBeDefined();
+    const options = claimCall![2] as { expectedSequence?: number } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.expectedSequence).toBe(2); // 2 events already in stream
+
+    appendSpy.mockRestore();
+  });
+
+  it('returns CLAIM_FAILED after max retries exhausted', async () => {
+    // Arrange: seed the stream
+    await store.append('wf-exhaust', { type: 'workflow.started', data: {} });
+
+    // Mock store.append to always throw SequenceConflictError for task.claimed
+    const originalAppend = store.append.bind(store);
+    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+      async (streamId, event, options) => {
+        if ((event as { type: string }).type === 'task.claimed' && options?.expectedSequence !== undefined) {
+          throw new SequenceConflictError(options.expectedSequence, options.expectedSequence + 1);
+        }
+        return originalAppend(streamId, event, options);
+      },
+    );
+
+    // Act
+    const result = await handleTaskClaim(
+      { taskId: 't-exhaust', agentId: 'agent-exhaust', streamId: 'wf-exhaust' },
+      tempDir,
+    );
+
+    // Assert: should fail with CLAIM_FAILED
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('CLAIM_FAILED');
+    expect(result.error?.message).toContain('retries');
+
+    appendSpy.mockRestore();
+  });
+
+  it('queries all events (not just task.claimed) to get accurate sequence', async () => {
+    // Arrange: seed with mixed event types
+    await store.append('wf-mixed', { type: 'workflow.started', data: {} });
+    await store.append('wf-mixed', { type: 'team.formed', data: {} });
+    await store.append('wf-mixed', { type: 'task.assigned', data: {} });
+
+    // Spy on store.query to verify it queries without type filter
+    const originalQuery = store.query.bind(store);
+    const querySpy = vi.spyOn(store, 'query').mockImplementation(
+      async (streamId, filters) => {
+        return originalQuery(streamId, filters);
+      },
+    );
+
+    // Act
+    const result = await handleTaskClaim(
+      { taskId: 't-mixed', agentId: 'agent-mixed', streamId: 'wf-mixed' },
+      tempDir,
+    );
+
+    // Assert: claim succeeded
+    expect(result.success).toBe(true);
+
+    // The query must have been called without a type filter (to get all events for sequence)
+    const queryCallWithoutTypeFilter = querySpy.mock.calls.some(
+      ([, filters]) => !filters?.type,
+    );
+    expect(queryCallWithoutTypeFilter).toBe(true);
+
+    querySpy.mockRestore();
   });
 });

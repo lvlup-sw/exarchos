@@ -2,7 +2,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { EventStore } from '../event-store/store.js';
+import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 
 // ─── Module-Level EventStore (injected via registerTaskTools) ────────────────
@@ -22,6 +22,8 @@ export function resetModuleEventStore(): void {
 }
 
 // ─── handleTaskClaim ──────────────────────────────────────────────────────
+
+const MAX_CLAIM_RETRIES = 3;
 
 export async function handleTaskClaim(
   args: {
@@ -54,23 +56,57 @@ export async function handleTaskClaim(
 
   const store = getStore(stateDir);
 
-  try {
-    // Guard: check if task is already claimed
-    const existingEvents = await store.query(args.streamId, { type: 'task.claimed' });
-    const alreadyClaimed = existingEvents.some(
-      (e) => (e.data as Record<string, unknown>)?.taskId === args.taskId,
-    );
-    if (alreadyClaimed) {
+  for (let attempt = 0; attempt < MAX_CLAIM_RETRIES; attempt++) {
+    try {
+      return await attemptTaskClaim(store, args);
+    } catch (err) {
+      if (err instanceof SequenceConflictError) {
+        continue; // Retry: re-query and re-check
+      }
       return {
         success: false,
         error: {
-          code: 'ALREADY_CLAIMED',
-          message: `Task '${args.taskId}' is already claimed`,
+          code: 'CLAIM_FAILED',
+          message: err instanceof Error ? err.message : String(err),
         },
       };
     }
+  }
 
-    const event = await store.append(args.streamId, {
+  return {
+    success: false,
+    error: {
+      code: 'CLAIM_FAILED',
+      message: `Task claim failed after ${MAX_CLAIM_RETRIES} retries due to concurrent modifications`,
+    },
+  };
+}
+
+/** Attempt a single claim with optimistic concurrency via expectedSequence. */
+async function attemptTaskClaim(
+  store: EventStore,
+  args: { taskId: string; agentId: string; streamId: string },
+): Promise<ToolResult> {
+  // Query all events to get current sequence and check for existing claims
+  const allEvents = await store.query(args.streamId);
+  const currentSequence = allEvents.length;
+
+  const alreadyClaimed = allEvents.some(
+    (e) => e.type === 'task.claimed' && (e.data as Record<string, unknown>)?.taskId === args.taskId,
+  );
+  if (alreadyClaimed) {
+    return {
+      success: false,
+      error: {
+        code: 'ALREADY_CLAIMED',
+        message: `Task '${args.taskId}' is already claimed`,
+      },
+    };
+  }
+
+  const event = await store.append(
+    args.streamId,
+    {
       type: 'task.claimed',
       data: {
         taskId: args.taskId,
@@ -78,18 +114,11 @@ export async function handleTaskClaim(
         claimedAt: new Date().toISOString(),
       },
       agentId: args.agentId,
-    });
+    },
+    { expectedSequence: currentSequence },
+  );
 
-    return { success: true, data: toEventAck(event) };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'CLAIM_FAILED',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
+  return { success: true, data: toEventAck(event) };
 }
 
 // ─── handleTaskComplete ───────────────────────────────────────────────────
