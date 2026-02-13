@@ -191,6 +191,9 @@ const BaseWorkflowStateSchema = z.object({
     lastActivityTimestamp: '1970-01-01T00:00:00Z',
     staleAfterMinutes: 120,
   }),
+  _compensationCheckpoint: z.object({
+    completedActions: z.array(z.string()),
+  }).optional(),
 }).passthrough();
 
 // ─── Workflow-Type-Specific State Schemas ───────────────────────────────────
