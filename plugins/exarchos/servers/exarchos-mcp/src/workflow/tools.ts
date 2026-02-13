@@ -16,6 +16,7 @@ import {
   applyDotPath,
   listStateFiles,
   StateStoreError,
+  VersionConflictError,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -197,138 +198,176 @@ export async function handleGet(
 
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
+const MAX_CAS_RETRIES = 3;
+
 export async function handleSet(
   input: SetInput,
   stateDir: string,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  let state: WorkflowState;
-  try {
-    state = await readStateFile(stateFile);
-  } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-      return {
-        success: false,
-        error: {
-          code: ErrorCode.STATE_NOT_FOUND,
-          message: `State not found for feature: ${input.featureId}`,
-        },
-      };
-    }
-    throw err;
-  }
-
-  // Work with a deep copy to avoid shared reference mutation
-  const mutableState = structuredClone(state) as Record<string, unknown>;
-
-  // ─── Field updates (applied first so phase guards see new state) ───
-  if (input.updates) {
-    // Check for reserved fields before applying any updates
-    for (const dotPath of Object.keys(input.updates)) {
-      if (isReservedField(dotPath)) {
+  for (let attempt = 0; attempt <= MAX_CAS_RETRIES; attempt++) {
+    let state: WorkflowState;
+    try {
+      state = await readStateFile(stateFile);
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
         return {
           success: false,
           error: {
-            code: ErrorCode.RESERVED_FIELD,
-            message: `Cannot update reserved field: ${dotPath}`,
+            code: ErrorCode.STATE_NOT_FOUND,
+            message: `State not found for feature: ${input.featureId}`,
           },
         };
       }
+      throw err;
     }
 
-    for (const [dotPath, value] of Object.entries(input.updates)) {
-      applyDotPath(mutableState, dotPath, value);
-    }
-  }
+    // Capture version for CAS
+    const expectedVersion = state._version ?? 1;
 
-  // ─── Phase transition (guards evaluate against updated state) ──────
-  if (input.phase) {
-    const hsm = getHSMDefinition(state.workflowType);
-    const result = executeTransition(hsm, mutableState, input.phase);
+    // Work with a deep copy to avoid shared reference mutation
+    const mutableState = structuredClone(state) as Record<string, unknown>;
 
-    if (!result.success) {
-      const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
-      return {
-        success: false,
-        error: {
-          code: errorCode,
-          message: result.errorMessage ?? `Transition failed to '${input.phase}'`,
-          ...(result.validTargets?.length ? { validTargets: result.validTargets } : {}),
-        },
-      };
-    }
-
-    if (!result.idempotent && result.newPhase) {
-      // Event-first: emit to external event store BEFORE mutating state (guaranteed)
-      if (moduleEventStore) {
-        try {
-          for (const transitionEvent of result.events) {
-            await moduleEventStore.append(input.featureId, {
-              type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-              data: {
-                from: transitionEvent.from,
-                to: transitionEvent.to,
-                trigger: transitionEvent.trigger,
-                featureId: input.featureId,
-                ...(transitionEvent.metadata ?? {}),
-              },
-            });
-          }
-        } catch (err) {
+    // ─── Field updates (applied first so phase guards see new state) ───
+    if (input.updates) {
+      // Check for reserved fields before applying any updates
+      for (const dotPath of Object.keys(input.updates)) {
+        if (isReservedField(dotPath)) {
           return {
             success: false,
             error: {
-              code: ErrorCode.EVENT_APPEND_FAILED,
-              message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+              code: ErrorCode.RESERVED_FIELD,
+              message: `Cannot update reserved field: ${dotPath}`,
             },
           };
         }
       }
 
-      // THEN mutate state
-      mutableState.phase = result.newPhase;
+      for (const [dotPath, value] of Object.entries(input.updates)) {
+        applyDotPath(mutableState, dotPath, value);
+      }
+    }
 
-      // Apply history updates
-      if (result.historyUpdates) {
-        const history = { ...(mutableState._history as Record<string, string>) };
-        for (const [key, value] of Object.entries(result.historyUpdates)) {
-          history[key] = value;
-        }
-        mutableState._history = history;
+    // ─── Phase transition (guards evaluate against updated state) ──────
+    // Collect transition events for deferred emission after CAS write succeeds
+    let pendingTransitionEvents: Array<{
+      type: string;
+      from: string;
+      to: string;
+      trigger: string;
+      metadata?: Record<string, unknown>;
+    }> = [];
+
+    if (input.phase) {
+      const hsm = getHSMDefinition(state.workflowType);
+      const result = executeTransition(hsm, mutableState, input.phase);
+
+      if (!result.success) {
+        const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
+        return {
+          success: false,
+          error: {
+            code: errorCode,
+            message: result.errorMessage ?? `Transition failed to '${input.phase}'`,
+            ...(result.validTargets?.length ? { validTargets: result.validTargets } : {}),
+          },
+        };
       }
 
-      // Reset checkpoint counter on phase transition
-      mutableState._checkpoint = resetCounter(
-        mutableState._checkpoint as WorkflowState['_checkpoint'],
-        result.newPhase,
-      );
+      if (!result.idempotent && result.newPhase) {
+        // Collect events for deferred emission (after CAS write)
+        pendingTransitionEvents = result.events.map((e) => ({
+          type: e.type,
+          from: e.from,
+          to: e.to,
+          trigger: e.trigger,
+          metadata: e.metadata,
+        }));
+
+        // Mutate state
+        mutableState.phase = result.newPhase;
+
+        // Apply history updates
+        if (result.historyUpdates) {
+          const history = { ...(mutableState._history as Record<string, string>) };
+          for (const [key, value] of Object.entries(result.historyUpdates)) {
+            history[key] = value;
+          }
+          mutableState._history = history;
+        }
+
+        // Reset checkpoint counter on phase transition
+        mutableState._checkpoint = resetCounter(
+          mutableState._checkpoint as WorkflowState['_checkpoint'],
+          result.newPhase,
+        );
+      }
     }
+
+    // Increment checkpoint operation counter
+    mutableState._checkpoint = incrementOperations(
+      mutableState._checkpoint as WorkflowState['_checkpoint'],
+    );
+
+    // Update timestamp
+    mutableState.updatedAt = new Date().toISOString();
+
+    // Update lastActivityTimestamp on checkpoint
+    const checkpoint = mutableState._checkpoint as Record<string, unknown>;
+    checkpoint.lastActivityTimestamp = new Date().toISOString();
+
+    // Write back to disk with CAS protection
+    try {
+      await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion });
+    } catch (err) {
+      if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
+        // Re-read and retry on version conflict — no events were emitted yet
+        continue;
+      }
+      throw err;
+    }
+
+    // State-first, event-after: emit transition events to external event store
+    // AFTER the CAS write succeeds. This prevents duplicate events on CAS retry.
+    // If event emission fails after a successful state write, we return success
+    // with a warning — events are supplementary and the state is the source of truth.
+    let eventWarning: string | undefined;
+    if (moduleEventStore && pendingTransitionEvents.length > 0) {
+      try {
+        for (const transitionEvent of pendingTransitionEvents) {
+          await moduleEventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          });
+        }
+      } catch (err) {
+        eventWarning = `Event append failed after state write: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        phase: mutableState.phase as string,
+        updatedAt: mutableState.updatedAt as string,
+        ...(eventWarning ? { eventWarning } : {}),
+      },
+      _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
+    };
   }
 
-  // Increment checkpoint operation counter
-  mutableState._checkpoint = incrementOperations(
-    mutableState._checkpoint as WorkflowState['_checkpoint'],
+  // Should not be reached, but satisfy TypeScript
+  throw new StateStoreError(
+    ErrorCode.VERSION_CONFLICT,
+    `CAS retry limit exceeded for feature: ${input.featureId}`,
   );
-
-  // Update timestamp
-  mutableState.updatedAt = new Date().toISOString();
-
-  // Update lastActivityTimestamp on checkpoint
-  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
-  checkpoint.lastActivityTimestamp = new Date().toISOString();
-
-  // Write back to disk
-  await writeStateFile(stateFile, mutableState as WorkflowState);
-
-  return {
-    success: true,
-    data: {
-      phase: mutableState.phase as string,
-      updatedAt: mutableState.updatedAt as string,
-    },
-    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
-  };
 }
 
 // ─── handleCheckpoint ──────────────────────────────────────────────────────

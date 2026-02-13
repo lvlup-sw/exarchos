@@ -25,6 +25,13 @@ export class StateStoreError extends Error {
   }
 }
 
+export class VersionConflictError extends StateStoreError {
+  constructor(expected: number, actual: number) {
+    super('VERSION_CONFLICT', `Version conflict: expected ${expected}, actual ${actual}`);
+    this.name = 'VersionConflictError';
+  }
+}
+
 // ─── Initialize a New State File ───────────────────────────────────────────
 
 export async function initStateFile(
@@ -55,6 +62,7 @@ export async function initStateFile(
       prUrl: null,
       prFeedback: [],
     },
+    _version: 1,
     _history: {},
     _checkpoint: {
       timestamp: now,
@@ -156,14 +164,60 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
   return result.data;
 }
 
+// ─── Version Helper ─────────────────────────────────────────────────────────
+
+/** Extract the CAS version from a workflow state, defaulting to 1 for legacy files. */
+function getStateVersion(state: WorkflowState): number {
+  return (state as Record<string, unknown>)._version as number ?? 1;
+}
+
 // ─── Write State File Atomically ───────────────────────────────────────────
 
+/**
+ * Write a workflow state file atomically using tmp+rename.
+ *
+ * When `expectedVersion` is provided, performs a Compare-And-Swap (CAS) check:
+ * reads the current file's `_version` and compares it to `expectedVersion`.
+ * If they don't match, throws `VersionConflictError`.
+ *
+ * **TOCTOU Note:** The CAS check has a time-of-check-to-time-of-use window
+ * between the version read and the atomic write (tmp+rename). This is acceptable
+ * because the MCP server runs as a single process with async serialization —
+ * concurrent writes only arise from interleaved async operations within the same
+ * event loop, not from separate processes. The atomic tmp+rename prevents file
+ * corruption, and the CAS version check prevents lost updates from concurrent
+ * async operations. For multi-process scenarios, file-level locking (e.g., `flock`)
+ * would be needed.
+ */
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
+  options?: { expectedVersion?: number },
 ): Promise<void> {
+  // CAS check: if expectedVersion is provided, verify it matches the current file
+  if (options?.expectedVersion !== undefined) {
+    let currentVersion = 1;
+    try {
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
+    } catch {
+      // If file doesn't exist or is unreadable, default to version 1
+    }
+
+    if (options.expectedVersion !== currentVersion) {
+      throw new VersionConflictError(options.expectedVersion, currentVersion);
+    }
+  }
+
+  // Auto-increment _version before writing
+  const stateWithVersion = {
+    ...state,
+    _version: getStateVersion(state) + 1,
+  } as WorkflowState;
+
   // Validate before writing to catch schema violations at write time (not deferred to read)
-  const validation = WorkflowStateSchema.safeParse(state);
+  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
   if (!validation.success) {
     throw new StateStoreError(
       ErrorCode.INVALID_INPUT,
@@ -173,7 +227,7 @@ export async function writeStateFile(
 
   const tmpPath = `${stateFile}.tmp.${process.pid}`;
   try {
-    await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+    await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
     await fs.rename(tmpPath, stateFile);
   } catch (err) {
     // Clean up temp file if rename failed

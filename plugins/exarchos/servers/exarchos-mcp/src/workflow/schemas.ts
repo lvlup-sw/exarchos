@@ -179,6 +179,7 @@ const BaseWorkflowStateSchema = z.object({
     passed: z.boolean(),
   }).nullable().default(null),
   synthesis: SynthesisSchema,
+  _version: z.number().int().positive().default(1),
   _history: z.record(z.string(), z.string()).default({}),
   // _events and _eventSequence removed — events now live in external JSONL store
   _checkpoint: CheckpointStateSchema.default({
@@ -297,6 +298,7 @@ export const ErrorCode = {
   COMPENSATION_PARTIAL: 'COMPENSATION_PARTIAL',
   FILE_IO_ERROR: 'FILE_IO_ERROR',
   EVENT_APPEND_FAILED: 'EVENT_APPEND_FAILED',
+  VERSION_CONFLICT: 'VERSION_CONFLICT',
 } as const;
 
 // ─── Reserved Field Validation ──────────────────────────────────────────────
