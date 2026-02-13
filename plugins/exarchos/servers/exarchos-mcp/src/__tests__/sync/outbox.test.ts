@@ -309,4 +309,127 @@ describe('Outbox', () => {
       expect(entries).toHaveLength(1);
     });
   });
+
+  // ─── replayDeadLetters ────────────────────────────────────────────────
+
+  describe('replayDeadLetters', () => {
+    it('should reset dead-letter entry to pending with attempts=0 and leave others unchanged', async () => {
+      // Arrange: create 3 entries with different statuses
+      const pendingEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
+      const confirmedEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
+      const deadLetterEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 3 }));
+
+      await outbox.updateEntry('test-stream', confirmedEntry.id, {
+        status: 'confirmed',
+        attempts: 1,
+        lastAttemptAt: '2026-02-08T01:00:00Z',
+      });
+      await outbox.updateEntry('test-stream', deadLetterEntry.id, {
+        status: 'dead-letter',
+        attempts: 10,
+        error: 'persistent failure',
+        lastAttemptAt: '2026-02-08T02:00:00Z',
+        nextRetryAt: '2026-02-08T03:00:00Z',
+      });
+
+      // Act
+      const replayed = await outbox.replayDeadLetters('test-stream');
+
+      // Assert
+      expect(replayed).toBe(1);
+
+      const entries = await outbox.loadEntries('test-stream');
+      const pending = entries.find((e) => e.id === pendingEntry.id)!;
+      const confirmed = entries.find((e) => e.id === confirmedEntry.id)!;
+      const recovered = entries.find((e) => e.id === deadLetterEntry.id)!;
+
+      // Pending entry unchanged
+      expect(pending.status).toBe('pending');
+      expect(pending.attempts).toBe(0);
+
+      // Confirmed entry unchanged
+      expect(confirmed.status).toBe('confirmed');
+      expect(confirmed.attempts).toBe(1);
+
+      // Dead-letter entry recovered
+      expect(recovered.status).toBe('pending');
+      expect(recovered.attempts).toBe(0);
+    });
+
+    it('should return 0 when no dead-letter entries exist', async () => {
+      // Arrange: create only pending and confirmed entries
+      const pendingEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
+      const confirmedEntry = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
+
+      await outbox.updateEntry('test-stream', confirmedEntry.id, {
+        status: 'confirmed',
+        attempts: 1,
+        lastAttemptAt: '2026-02-08T01:00:00Z',
+      });
+
+      // Act
+      const replayed = await outbox.replayDeadLetters('test-stream');
+
+      // Assert
+      expect(replayed).toBe(0);
+
+      const entries = await outbox.loadEntries('test-stream');
+      expect(entries.find((e) => e.id === pendingEntry.id)?.status).toBe('pending');
+      expect(entries.find((e) => e.id === confirmedEntry.id)?.status).toBe('confirmed');
+    });
+
+    it('should clear error, nextRetryAt, and lastAttemptAt fields', async () => {
+      // Arrange: create a dead-letter entry with all optional fields set
+      const entry = await outbox.addEntry('test-stream', makeEvent());
+      await outbox.updateEntry('test-stream', entry.id, {
+        status: 'dead-letter',
+        attempts: 10,
+        error: 'connection refused',
+        nextRetryAt: '2026-02-08T04:00:00Z',
+        lastAttemptAt: '2026-02-08T03:00:00Z',
+      });
+
+      // Act
+      await outbox.replayDeadLetters('test-stream');
+
+      // Assert
+      const entries = await outbox.loadEntries('test-stream');
+      const recovered = entries[0];
+      expect(recovered.status).toBe('pending');
+      expect(recovered.attempts).toBe(0);
+      expect(recovered.error).toBeUndefined();
+      expect(recovered.nextRetryAt).toBeUndefined();
+      expect(recovered.lastAttemptAt).toBeUndefined();
+    });
+
+    it('should replay all dead-letter entries and return the count', async () => {
+      // Arrange: create 3 dead-letter entries
+      const entry1 = await outbox.addEntry('test-stream', makeEvent({ sequence: 1 }));
+      const entry2 = await outbox.addEntry('test-stream', makeEvent({ sequence: 2 }));
+      const entry3 = await outbox.addEntry('test-stream', makeEvent({ sequence: 3 }));
+
+      for (const entry of [entry1, entry2, entry3]) {
+        await outbox.updateEntry('test-stream', entry.id, {
+          status: 'dead-letter',
+          attempts: 10,
+          error: 'failed',
+          lastAttemptAt: '2026-02-08T02:00:00Z',
+        });
+      }
+
+      // Act
+      const replayed = await outbox.replayDeadLetters('test-stream');
+
+      // Assert
+      expect(replayed).toBe(3);
+
+      const entries = await outbox.loadEntries('test-stream');
+      for (const entry of entries) {
+        expect(entry.status).toBe('pending');
+        expect(entry.attempts).toBe(0);
+        expect(entry.error).toBeUndefined();
+        expect(entry.lastAttemptAt).toBeUndefined();
+      }
+    });
+  });
 });
