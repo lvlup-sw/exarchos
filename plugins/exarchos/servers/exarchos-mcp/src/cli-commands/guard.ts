@@ -85,9 +85,13 @@ async function findActiveWorkflowPhase(stateDir: string): Promise<string | null>
     return null;
   }
 
-  // Filter to active (non-completed) workflows; fall back to all if none active
-  const activeWorkflows = stateFiles.filter((sf) => sf.state.phase !== 'completed');
-  const pool = activeWorkflows.length > 0 ? activeWorkflows : stateFiles;
+  // Filter to active (non-final) workflows; if none active, allow any action
+  const finalPhases = new Set(['completed', 'cancelled']);
+  const activeWorkflows = stateFiles.filter((sf) => !finalPhases.has(sf.state.phase));
+  if (activeWorkflows.length === 0) {
+    return null;
+  }
+  const pool = activeWorkflows;
 
   // Sort by updatedAt descending for deterministic selection across platforms
   const sorted = pool.sort((a, b) => {
