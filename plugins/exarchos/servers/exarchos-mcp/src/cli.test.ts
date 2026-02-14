@@ -166,9 +166,9 @@ describe('CLI Framework', () => {
       // Act
       const result = await routeCommand('pre-compact', {});
 
-      // Assert
+      // Assert — real handler returns continue: true when no active workflows
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('continue');
     });
 
     it('should route session-start command to handler', async () => {
@@ -242,13 +242,13 @@ describe('CLI Framework', () => {
 
     it('should return not-implemented error for stubbed commands', async () => {
       // Act
-      const result = await routeCommand('pre-compact', {});
+      const result = await routeCommand('session-start', {});
 
       // Assert
       expect(result).toEqual({
         error: {
           code: 'NOT_IMPLEMENTED',
-          message: 'pre-compact handler not yet implemented',
+          message: 'session-start handler not yet implemented',
         },
       });
     });

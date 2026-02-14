@@ -5,6 +5,9 @@
 // All hook scripts call: node dist/cli.js <command>
 // JSON is piped via stdin, JSON result is written to stdout.
 
+import { handlePreCompact } from './cli-commands/pre-compact.js';
+import { resolveStateDir } from './workflow/state-store.js';
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 /** Result returned by command handlers. */
@@ -45,7 +48,7 @@ function createStubHandler(command: string): CommandHandler {
 }
 
 const commandHandlers: Record<KnownCommand, CommandHandler> = {
-  'pre-compact': createStubHandler('pre-compact'),
+  'pre-compact': async (stdinData) => handlePreCompact(stdinData, resolveStateDir()),
   'session-start': createStubHandler('session-start'),
   'guard': createStubHandler('guard'),
   'task-gate': createStubHandler('task-gate'),
