@@ -1,3 +1,14 @@
+---
+name: git-worktrees
+description: "Git worktree management for parallel development in agent team workflows. Use when creating worktrees, validating worktree paths, or setting up isolated development environments. Trigger: \"create worktree\", \"worktree setup\", or during /delegate task dispatch. Do NOT use for general git operations."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: utility
+  phase-affinity: delegate
+---
+
 # Git Worktrees Skill
 
 ## Overview

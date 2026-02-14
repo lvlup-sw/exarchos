@@ -1,3 +1,12 @@
+---
+name: dotnet-standards
+description: ".NET and C# coding standards, conventions, and project configuration. Use when working with .cs files, .NET projects, or C# codebases. Provides SOLID constraints, naming conventions, error handling patterns, and project structure guidelines specific to the .NET ecosystem."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  category: standards
+---
+
 # .NET Standards Skill
 
 Validates and enforces Levelup Software C# project standards across repositories.
