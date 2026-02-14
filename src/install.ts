@@ -238,6 +238,25 @@ const legacyRemoveSymlink = async (target: string): Promise<RemoveResult> => {
 
 export { legacyCreateSymlink as createSymlink, legacyRemoveSymlink as removeSymlink };
 
+// ─── Hook resolution ─────────────────────────────────────────────────────────
+
+/**
+ * Read hooks.json and resolve the {{CLI_PATH}} placeholder.
+ *
+ * @param hooksPath - Absolute path to hooks.json.
+ * @param cliPath - Absolute path to the CLI binary.
+ * @returns The hooks object with resolved paths, ready for settings.json.
+ */
+export function resolveHooks(
+  hooksPath: string,
+  cliPath: string,
+): Record<string, unknown[]> {
+  const raw = fs.readFileSync(hooksPath, 'utf-8');
+  const resolved = raw.replace(/\{\{CLI_PATH\}\}/g, cliPath);
+  const parsed = JSON.parse(resolved) as { hooks: Record<string, unknown[]> };
+  return parsed.hooks;
+}
+
 // ─── Install dependencies interface ────────────────────────────────────────
 
 export interface InstallDeps {
@@ -331,8 +350,31 @@ async function installStandard(
     installBundle(bundlePath, claudeHome);
   }
 
+  // 3a. Install CLI bundles
+  for (const server of bundledServers) {
+    if (server.cliBundlePath) {
+      const cliBundlePath = join(repoRoot, server.cliBundlePath);
+      if (fs.existsSync(cliBundlePath)) {
+        installBundle(cliBundlePath, claudeHome);
+      }
+    }
+  }
+
+  // 3b. Resolve hooks
+  const hooksPath = join(repoRoot, 'hooks.json');
+  let resolvedHooks: Record<string, unknown[]> | undefined;
+  if (fs.existsSync(hooksPath)) {
+    const exarchosServer = manifest.components.mcpServers.find(
+      (s) => s.type === 'bundled' && s.cliBundlePath,
+    );
+    if (exarchosServer) {
+      const cliPath = join(claudeHome, 'mcp-servers', basename(exarchosServer.cliBundlePath!));
+      resolvedHooks = resolveHooks(hooksPath, cliPath);
+    }
+  }
+
   // 4. Generate and write settings.json
-  const settings = generateSettings(selections);
+  const settings = generateSettings(selections, resolvedHooks);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
@@ -383,8 +425,22 @@ async function installDev(
   const rulesTarget = join(claudeHome, 'rules');
   symlinkCreate(rulesSource, rulesTarget);
 
+  // 2a. Resolve hooks for dev mode
+  const hooksPath = join(repoRoot, 'hooks.json');
+  let resolvedHooks: Record<string, unknown[]> | undefined;
+  if (fs.existsSync(hooksPath)) {
+    const exarchosServer = manifest.components.mcpServers.find(
+      (s) => s.type === 'bundled' && s.cliBundlePath,
+    );
+    if (exarchosServer) {
+      // In dev mode, point to the repo's built CLI entry point
+      const cliPath = join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/cli.js');
+      resolvedHooks = resolveHooks(hooksPath, cliPath);
+    }
+  }
+
   // 3. Generate and write settings.json
-  const settings = generateSettings(selections);
+  const settings = generateSettings(selections, resolvedHooks);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
