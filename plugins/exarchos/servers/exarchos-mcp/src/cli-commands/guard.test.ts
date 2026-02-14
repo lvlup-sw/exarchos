@@ -319,8 +319,8 @@ describe('guard command', () => {
       });
     });
 
-    it('should fall back to most recently updated completed workflow when all are completed', async () => {
-      // Arrange — all workflows completed, should pick the most recently updated one
+    it('should allow any action when all workflows are completed', async () => {
+      // Arrange — all workflows completed, no active workflow to guard
       const olderTimestamp = '2025-01-01T00:00:00.000Z';
       const newerTimestamp = '2025-06-01T00:00:00.000Z';
 
@@ -333,21 +333,30 @@ describe('guard command', () => {
         makeStateJson('zzz-new-completed', 'completed', newerTimestamp),
       );
 
-      // workflow "set" is allowed in completed phase, so use an action restricted
-      // to specific phases — team_spawn is only allowed in delegate
       const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
 
       // Act
       const result = await handleGuard(input, tmpDir);
 
-      // Assert — falls back to completed pool, picks most recent, denies team_spawn in completed
-      expect(result).toEqual({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          reason: expect.stringContaining('completed'),
-        },
-      });
+      // Assert — no active workflows, allow (enables starting new workflows or
+      // invoking intermediate steps like /delegate without prior state)
+      expect(result).toEqual({});
+    });
+
+    it('should allow any action when all workflows are cancelled', async () => {
+      // Arrange — only cancelled workflows exist
+      await fs.writeFile(
+        path.join(tmpDir, 'cancelled-workflow.state.json'),
+        makeStateJson('cancelled-workflow', 'cancelled'),
+      );
+
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — cancelled is a final state, no active workflow to guard
+      expect(result).toEqual({});
     });
 
     it('should prefer active workflows over completed ones even if completed is newer', async () => {
