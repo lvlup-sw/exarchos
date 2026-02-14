@@ -207,13 +207,13 @@ describe('CLI Framework', () => {
       expect(result).toHaveProperty('error');
     });
 
-    it('should route subagent-context command to handler', async () => {
+    it('should route subagent-context command to real handler', async () => {
       // Act
       const result = await routeCommand('subagent-context', {});
 
-      // Assert
+      // Assert — real handler returns guidance (not an error)
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result).toHaveProperty('guidance');
     });
 
     it('should return error for unknown command', async () => {
@@ -240,17 +240,13 @@ describe('CLI Framework', () => {
       expect(result).toBeDefined();
     });
 
-    it('should return not-implemented error for stubbed commands', async () => {
-      // Act
-      const result = await routeCommand('subagent-context', {});
-
-      // Assert
-      expect(result).toEqual({
-        error: {
-          code: 'NOT_IMPLEMENTED',
-          message: 'subagent-context handler not yet implemented',
-        },
-      });
+    it('should have all commands implemented (no stubs)', async () => {
+      // Act — verify none of the known commands return NOT_IMPLEMENTED
+      const commands = ['pre-compact', 'guard', 'task-gate', 'teammate-gate', 'subagent-context'];
+      for (const cmd of commands) {
+        const result = await routeCommand(cmd, {});
+        expect(result.error?.code).not.toBe('NOT_IMPLEMENTED');
+      }
     });
   });
 

@@ -9,6 +9,7 @@ import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
+import { handleSubagentContext } from './cli-commands/subagent-context.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -39,16 +40,7 @@ function isKnownCommand(command: string): command is KnownCommand {
   return (KNOWN_COMMANDS as readonly string[]).includes(command);
 }
 
-// ─── Stub Handlers ──────────────────────────────────────────────────────────
-
-function createStubHandler(command: string): CommandHandler {
-  return async (_stdinData: Record<string, unknown>): Promise<CommandResult> => ({
-    error: {
-      code: 'NOT_IMPLEMENTED',
-      message: `${command} handler not yet implemented`,
-    },
-  });
-}
+// ─── Command Handler Registry ───────────────────────────────────────────────
 
 const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'pre-compact': async (stdinData) => handlePreCompact(stdinData, resolveStateDir()),
@@ -56,7 +48,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'guard': handleGuard,
   'task-gate': handleTaskGate,
   'teammate-gate': handleTeammateGate,
-  'subagent-context': createStubHandler('subagent-context'),
+  'subagent-context': handleSubagentContext,
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
