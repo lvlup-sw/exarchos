@@ -1,3 +1,20 @@
+---
+name: delegation
+description: |-
+  Dispatch implementation tasks to agent teammates in git worktrees.
+  Use when the user says "delegate", "dispatch tasks", "assign work",
+  or runs /delegate. Spawns teammates, creates worktrees, monitors
+  progress, and collects results. Supports --fixes flag for review
+  finding remediation.
+  Do NOT use for direct implementation — orchestrator delegates only.
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity: delegate
+---
+
 # Delegation Skill
 
 ## Overview
@@ -352,10 +369,11 @@ Each fix task extracted should include:
 
 ### Transition After Fixes
 
-Fix mode goes back to review after fixes are applied:
+Fix mode goes back to the integration phase after fixes are applied,
+then re-enters review to re-integrate and re-verify:
 
 ```
-/delegate --fixes -> [fixes applied] -> /review
+/delegate --fixes -> [fixes applied] -> re-integrate -> /review
 ```
 
 This ensures fixed code is re-verified.
@@ -385,6 +403,10 @@ After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 This is NOT a human checkpoint - workflow continues autonomously.
 State is saved, enabling recovery after context compaction.
+
+## Troubleshooting
+
+See `@skills/delegation/references/troubleshooting.md` for detailed troubleshooting covering MCP tool failures, state desync, worktree creation, teammate spawn timeouts, and task claim conflicts.
 
 ## Exarchos Integration
 

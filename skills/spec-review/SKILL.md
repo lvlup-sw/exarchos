@@ -41,14 +41,15 @@ The subagent:
 
 ### Context-Efficient Input
 
-Instead of per-worktree diffs, receive a combined diff:
+Instead of per-worktree diffs, receive an integrated diff from the
+integration branch (e.g., `feature/integration-branch`) against main:
 
 ```bash
-# Generate diff for review (feature branch vs main)
-git diff main...HEAD > /tmp/combined-diff.patch
+# Generate integrated diff for review
+git diff main...integration > /tmp/combined-diff.patch
 
-# Alternative: use review-diff script
-~/.claude/scripts/review-diff.sh HEAD main
+# Alternative: use review-diff script against integration branch
+~/.claude/scripts/review-diff.sh integration main
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
@@ -58,7 +59,7 @@ This provides the complete picture of all changes across all tasks and reduces c
 ### Review Scope: Combined Changes
 
 After delegation completes, spec review examines:
-- The **complete combined diff** (main...feature-branch)
+- The **complete integrated diff** (main...feature/integration branch)
 - All changes across all tasks in one view
 - The full picture of combined functionality
 
