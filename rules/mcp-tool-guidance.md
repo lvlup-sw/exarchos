@@ -4,66 +4,6 @@ Proactively use the installed MCP servers. Don't fall back to generic approaches
 
 ## Available MCP Servers
 
-### Exarchos (`mcp__exarchos__*`)
-<!-- Exarchos tool reference can be regenerated from registry: cd plugins/exarchos/servers/exarchos-mcp && npm run generate:docs -->
-
-Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators.
-
-#### Composite Tools
-
-| Tool | Actions | When to Use |
-|------|---------|-------------|
-| `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows |
-| `mcp__exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
-| `mcp__exarchos__exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination and task lifecycle |
-| `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
-| `mcp__exarchos__exarchos_sync` | `now` | Force sync of materialized views |
-
-#### Workflow Tool Actions
-
-| Action | When to Use |
-|--------|-------------|
-| `init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
-| `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
-| `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
-| `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
-
-**Hooks (automatic, no tool call needed):**
-- **SessionStart hook** — Discovers active workflows, restores context, determines next action, and verifies state on resume (replaces former `workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile` tools)
-- **PreCompact hook** — Saves checkpoints before context exhaustion (replaces former `workflow_checkpoint` tool)
-- Valid phase transitions are documented statically (replaces former `workflow_transitions` tool)
-
-#### Event Tool Actions
-
-| Action | When to Use |
-|--------|-------------|
-| `append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
-| `query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
-
-#### Orchestrate Tool Actions
-
-| Action | When to Use |
-|--------|-------------|
-| `team_spawn` | Register a new agent with role assignment. Pair with `task_*` actions for subprocess work |
-| `team_message` | Send a direct message to a specific teammate |
-| `team_broadcast` | Broadcast a message to all active teammates |
-| `team_shutdown` | Shut down a teammate agent. Emits shutdown event |
-| `team_status` | Get health status of all teammates. Use `summary: true` for counts-only response during orchestration |
-| `task_claim` | Claim a task for execution. Returns `ALREADY_CLAIMED` if previously claimed — handle gracefully |
-| `task_complete` | Mark a task complete with optional `result` (artifacts, duration) |
-| `task_fail` | Mark a task failed with `error` message and optional `diagnostics` |
-
-#### View Tool Actions
-
-| Action | When to Use |
-|--------|-------------|
-| `pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
-| `tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
-| `workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
-| `team_status` | Teammate composition and task assignments. Use `workflowId` to scope |
-| `stack_status` | Get current stack positions from events. Use `streamId` to scope |
-| `stack_place` | Record a stack position with `position`, `taskId`, `branch`, optional `prUrl` |
-
 ### GitHub (`mcp__plugin_github_github__*`)
 
 GitHub platform integration. **Always use GitHub MCP tools for ALL GitHub operations. NEVER use `gh` CLI when an MCP equivalent exists.**
@@ -161,12 +101,11 @@ Official Microsoft/Azure documentation via remote HTTP MCP. **Use for any Micros
 
 When deciding which tool to use:
 
-1. **Workflow tracking** — Always use Exarchos MCP for state, never manual JSON files
-2. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
-3. **GitHub operations** — **Always use GitHub MCP tools** for ALL GitHub operations: PR reading/listing/searching (`pull_request_read`, `list_pull_requests`, `search_pull_requests`), issue operations (`issue_read`, `issue_write`, `search_issues`), commit history (`list_commits`, `get_commit`), and merging (`merge_pull_request`). NEVER use `gh pr view`, `gh pr list`, `gh pr checks`, `gh api`, or any `gh` subcommand when an MCP tool covers the operation
-4. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive --publish --merge-when-ready`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
-5. **Library docs** — Use Context7 before web search for library documentation
-6. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
+1. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
+2. **GitHub operations** — **Always use GitHub MCP tools** for ALL GitHub operations: PR reading/listing/searching (`pull_request_read`, `list_pull_requests`, `search_pull_requests`), issue operations (`issue_read`, `issue_write`, `search_issues`), commit history (`list_commits`, `get_commit`), and merging (`merge_pull_request`). NEVER use `gh pr view`, `gh pr list`, `gh pr checks`, `gh api`, or any `gh` subcommand when an MCP tool covers the operation
+3. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive --publish --merge-when-ready`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
+4. **Library docs** — Use Context7 before web search for library documentation
+5. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
 
 ## Anti-Patterns
 
@@ -185,7 +124,6 @@ When deciding which tool to use:
 | Use `gh issue view` or `gh issue list` | Use GitHub `issue_read` or `list_issues` / `search_issues` |
 | Use `gh pr view --json` for structured data | Use GitHub MCP tools which return structured data natively |
 | Guess library APIs from memory | Use Context7 `query-docs` |
-| Manually edit workflow state JSON | Use `mcp__exarchos__exarchos_workflow` with `action: "set"` |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish --merge-when-ready` |
@@ -194,4 +132,3 @@ When deciding which tool to use:
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Generate diffs with shell commands | Use GitHub `pull_request_read` or Graphite `gt diff` |
 | Manually parse PR comments | Use GitHub `pull_request_read` for structured review data |
-| Skip state reconciliation on resume | The SessionStart hook handles reconciliation automatically |
