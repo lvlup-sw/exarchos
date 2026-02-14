@@ -105,7 +105,7 @@ gt create refactor/<brief-name> -m "refactor: <description>"
 
 After all changes are complete:
 ```bash
-gt submit --no-interactive --publish --merge-when-ready --stack
+gt submit --no-interactive --publish --stack
 ```
 
 **NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
