@@ -1,3 +1,23 @@
+---
+name: workflow-state
+description: |-
+  Checkpoint and resume workflow state for context persistence across
+  sessions. Use when the user says "save progress", "checkpoint",
+  "I need to stop", or runs /checkpoint or /resume. Saves current
+  workflow phase, task progress, and artifacts for later resumption.
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: utility
+  phase-affinity:
+    - ideate
+    - plan
+    - delegate
+    - review
+    - synthesize
+---
+
 # Workflow State Management Skill
 
 ## Overview
@@ -133,6 +153,39 @@ Key sections:
 3. **Reconcile on resume** - Always verify state matches git state
 4. **Checkpoint at boundaries** - Save state before likely context exhaustion
 5. **Read state, don't remember** - After summarization, read from state file
+
+## Troubleshooting
+
+### MCP Tool Call Failed
+If an Exarchos MCP tool returns an error:
+1. Check the error message — it usually contains specific guidance
+2. Verify the workflow state exists: call `exarchos_workflow` with `action: "get"` and the featureId
+3. If "version mismatch": another process updated state — retry the operation
+4. If state is corrupted: call `exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+
+### State Desync
+If workflow state doesn't match git reality:
+1. The SessionStart hook runs reconciliation automatically on resume
+2. If manual check needed: compare state file with `git log` and branch state
+3. Update state via `exarchos_workflow` with `action: "set"` to match git truth
+
+### Checkpoint File Missing
+If the PreCompact hook can't find state to checkpoint:
+1. Verify a workflow is active: call `exarchos_workflow` with `action: "get"` and the featureId
+2. If no active workflow: the hook will silently skip (expected behavior)
+3. If workflow exists but checkpoint fails: check disk space and permissions
+
+### Resume Finds Stale State
+If state references branches or worktrees that no longer exist:
+1. The SessionStart hook handles reconciliation automatically
+2. It updates state to reflect current git reality
+3. Missing branches are flagged in the session-start output
+
+### Multiple Active Workflows
+If multiple workflow state files exist:
+1. The system uses the most recently updated active (non-completed) workflow
+2. Use `exarchos_workflow` with `action: "cancel"` and `dryRun: true` on stale workflows to preview cleanup
+3. Cancel stale workflows before starting new ones
 
 ## Example Workflow
 
