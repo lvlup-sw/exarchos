@@ -369,10 +369,11 @@ Each fix task extracted should include:
 
 ### Transition After Fixes
 
-Fix mode goes back to review after fixes are applied:
+Fix mode goes back to the integration phase after fixes are applied,
+then re-enters review to re-integrate and re-verify:
 
 ```
-/delegate --fixes -> [fixes applied] -> /review
+/delegate --fixes -> [fixes applied] -> re-integrate -> /review
 ```
 
 This ensures fixed code is re-verified.

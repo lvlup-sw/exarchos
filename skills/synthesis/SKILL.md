@@ -22,8 +22,8 @@ Submit Graphite stack as pull requests after review phase completes.
 
 **Prerequisites:**
 - All delegated tasks complete
-- All reviews (spec + quality) passed
-- Graphite stack exists with task branches
+- All reviews (spec + quality) passed — integration must be complete and passing
+- Graphite stack exists with task branches (the integration branch already exists from delegation)
 
 ## Triggers
 

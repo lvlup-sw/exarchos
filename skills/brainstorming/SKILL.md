@@ -1,3 +1,14 @@
+---
+name: brainstorming
+description: "Collaborative design exploration for new features and architecture decisions. Use when the user says \"let's brainstorm\", \"let's ideate\", \"explore options\", or runs /ideate. Presents 2-3 distinct approaches with trade-offs, then documents the chosen approach as a design document. Do NOT use for implementation planning or code review."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity: ideate
+---
+
 # Brainstorming Skill
 
 ## Overview
