@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" pre-compact",
+            "command": "node \"{{CLI_PATH}}\" pre-compact",
             "timeout": 30,
             "statusMessage": "Saving workflow checkpoint..."
           }
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" session-start",
+            "command": "node \"{{CLI_PATH}}\" session-start",
             "timeout": 10,
             "statusMessage": "Checking for active workflows..."
           }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" guard",
+            "command": "node \"{{CLI_PATH}}\" guard",
             "timeout": 5
           }
         ]
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" task-gate",
+            "command": "node \"{{CLI_PATH}}\" task-gate",
             "timeout": 120,
             "statusMessage": "Running quality gates..."
           }
@@ -56,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" teammate-gate",
+            "command": "node \"{{CLI_PATH}}\" teammate-gate",
             "timeout": 120,
             "statusMessage": "Verifying teammate work..."
           }
@@ -68,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/cli.js\" subagent-context",
+            "command": "node \"{{CLI_PATH}}\" subagent-context",
             "timeout": 5
           }
         ]

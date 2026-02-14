@@ -29,6 +29,13 @@ describe('Project Configuration', () => {
       expect(pkg.scripts['test:run']).toBeDefined();
     });
 
+    it('packageJson_HasBuildCliScript', () => {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
+
+      expect(pkg.scripts['build:cli']).toBeDefined();
+      expect(pkg.scripts['build:cli']).toContain('exarchos-cli.js');
+    });
+
     it('should have correct name and version', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
       expect(pkg.name).toBe('@lvlup-sw/exarchos');
@@ -1089,15 +1096,24 @@ describe('hooks.json', () => {
     expect(eventTypes).toHaveLength(6);
   });
 
-  it('hooksJson_AllCommandsReferenceCliJs', () => {
+  it('hooksJson_AllCommandsReferenceCliPath', () => {
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     for (const [eventType, entries] of Object.entries(hooks.hooks)) {
       for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
         for (const hook of entry.hooks) {
-          expect(hook.command, `${eventType} hook command should reference cli.js`).toContain('cli.js');
+          expect(hook.command, `${eventType} hook command should reference {{CLI_PATH}}`).toContain('{{CLI_PATH}}');
         }
       }
     }
+  });
+
+  it('hooksJson_AllCommands_UseCliPathPlaceholder', () => {
+    const hooksContent = readFileSync(hooksPath, 'utf-8');
+
+    // Should use placeholder
+    expect(hooksContent).toContain('{{CLI_PATH}}');
+    // Should NOT contain old hardcoded path
+    expect(hooksContent).not.toContain('${CLAUDE_PLUGIN_ROOT}');
   });
 });
 
