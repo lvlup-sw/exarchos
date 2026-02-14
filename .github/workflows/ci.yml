@@ -45,6 +45,8 @@ jobs:
           node-version: '20'
           cache: npm
 
+      - uses: oven-sh/setup-bun@v2
+
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:run
