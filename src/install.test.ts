@@ -1027,6 +1027,33 @@ describe('Uninstall Orchestrator (E4)', () => {
     ).resolves.not.toThrow();
   });
 
+  it('uninstall_WithConfig_RemovesCliBundleToo', async () => {
+    const { uninstall } = await import('./install.js');
+
+    mkdirSync(join(claudeHome, 'mcp-servers'), { recursive: true });
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'), 'mcp code');
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'), 'cli code');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(false);
+  });
+
   it('uninstall_DevMode_RemovesSymlinks', async () => {
     const { uninstall } = await import('./install.js');
 
@@ -1138,6 +1165,22 @@ describe('resolveHooks', () => {
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('resolveHooks_MalformedJson_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), '{ not valid json!!!');
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/Failed to parse hooks file/);
+  });
+
+  it('resolveHooks_MissingHooksKey_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({ notHooks: {} }));
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/missing 'hooks' key/);
   });
 
   it('resolveHooks_WithCliPath_ReplacesPlaceholder', async () => {
