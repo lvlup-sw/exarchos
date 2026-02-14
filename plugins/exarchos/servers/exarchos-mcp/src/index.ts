@@ -4,46 +4,23 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
-
-import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from './registry.js';
-import { formatResult, type ToolResult } from './format.js';
-
-// Composite handlers
-import { handleWorkflow } from './workflow/composite.js';
-import { handleEvent } from './event-store/composite.js';
-import { handleOrchestrate } from './orchestrate/composite.js';
-import { handleView } from './views/composite.js';
-
-// EventStore configuration — workflow modules require explicit injection
-// (non-workflow modules use lazy init via getStore())
-import { configureWorkflowEventStore } from './workflow/tools.js';
-import { configureNextActionEventStore } from './workflow/next-action.js';
-import { configureCancelEventStore } from './workflow/cancel.js';
-import { configureQueryEventStore } from './workflow/query.js';
+import { stubResult } from './format.js';
+import { registerWorkflowTools, configureWorkflowEventStore } from './workflow/tools.js';
+import { registerNextActionTool, configureNextActionEventStore } from './workflow/next-action.js';
+import { registerCancelTool, configureCancelEventStore } from './workflow/cancel.js';
+import { registerQueryTools, configureQueryEventStore } from './workflow/query.js';
+import { registerEventTools } from './event-store/tools.js';
 import { EventStore } from './event-store/store.js';
+import { registerViewTools } from './views/tools.js';
+import { registerTeamTools } from './team/tools.js';
+import { registerTaskTools } from './tasks/tools.js';
+import { registerStackTools } from './stack/tools.js';
+import { registerTelemetryTools } from './telemetry/tools.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
 export const SERVER_VERSION = '1.0.0';
-
-// ─── Composite Handler Map ──────────────────────────────────────────────────
-
-type CompositeHandler = (
-  args: Record<string, unknown>,
-  stateDir: string,
-) => Promise<ToolResult>;
-
-const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
-  exarchos_workflow: handleWorkflow,
-  exarchos_event: handleEvent,
-  exarchos_orchestrate: handleOrchestrate,
-  exarchos_view: handleView,
-  exarchos_sync: async () => ({
-    success: false,
-    error: { code: 'NOT_IMPLEMENTED', message: 'Coming soon' },
-  }),
-};
 
 // ─── Server Factory ──────────────────────────────────────────────────────────
 
@@ -51,16 +28,23 @@ export function createServer(stateDir: string): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   const eventStore = new EventStore(stateDir);
 
-  // Configure module-level EventStore for workflow modules (no lazy init)
+  // Configure module-level EventStore instances before registration
   configureWorkflowEventStore(eventStore);
   configureNextActionEventStore(eventStore);
   configureCancelEventStore(eventStore);
   configureQueryEventStore(eventStore);
 
-  // Register composite tools from registry
-  for (const tool of TOOL_REGISTRY) {
-    const handler = COMPOSITE_HANDLERS[tool.name];
-    if (!handler) continue;
+  // Register all tool modules
+  registerWorkflowTools(server, stateDir);
+  registerNextActionTool(server, stateDir);
+  registerCancelTool(server, stateDir);
+  registerQueryTools(server, stateDir);
+  registerEventTools(server, stateDir, eventStore);
+  registerViewTools(server, stateDir, eventStore);
+  registerTeamTools(server, stateDir, eventStore);
+  registerTaskTools(server, stateDir, eventStore);
+  registerStackTools(server, stateDir, eventStore);
+  registerTelemetryTools(server, stateDir, eventStore);
 
     const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool);

@@ -30,6 +30,10 @@ import {
   stackViewProjection,
   STACK_VIEW,
 } from './stack-view.js';
+import {
+  telemetryProjection,
+  TELEMETRY_VIEW,
+} from '../telemetry/telemetry-projection.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -41,6 +45,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
   materializer.register(PIPELINE_VIEW, pipelineProjection);
   materializer.register(STACK_VIEW, stackViewProjection);
+  materializer.register(TELEMETRY_VIEW, telemetryProjection);
   return materializer;
 }
 
