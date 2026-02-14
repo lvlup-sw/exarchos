@@ -1,3 +1,19 @@
+---
+name: synthesis
+description: |-
+  Create pull request from completed feature branch using Graphite
+  stacked PRs. Use when the user says "create PR", "submit for review",
+  "synthesize", or runs /synthesize. Validates branch readiness, creates
+  PR with structured description, and manages merge queue.
+  Do NOT use before /review has passed.
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity: synthesize
+---
+
 # Synthesis Skill
 
 ## Overview
@@ -213,6 +229,40 @@ Options:
 - **'yes'**: Merge PR, update state to "completed"
 - **'feedback'**: Auto-continue to `/delegate --pr-fixes` to address comments, then return here
 - **'no'**: Pause workflow, can resume later with `/resume`
+
+## Troubleshooting
+
+### MCP Tool Call Failed
+If an Exarchos MCP tool returns an error:
+1. Check the error message — it usually contains specific guidance
+2. Verify the workflow state exists: call `exarchos_workflow` with `action: "get"` and the featureId
+3. If "version mismatch": another process updated state — retry the operation
+4. If state is corrupted: call `exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+
+### State Desync
+If workflow state doesn't match git reality:
+1. The SessionStart hook runs reconciliation automatically on resume
+2. If manual check needed: compare state file with `git log` and branch state
+3. Update state via `exarchos_workflow` with `action: "set"` to match git truth
+
+### PR Creation Failed
+If `gt submit` fails:
+1. Check the error output for specific guidance
+2. Run `gt log` to verify the stack state
+3. If rebase conflict: run `gt restack` to resolve
+4. If authentication issue: check GitHub token permissions
+
+### Stack Rebase Conflict
+If `gt restack` encounters conflicts:
+1. Resolve conflicts manually in each affected file
+2. Run `git add <resolved-files>` then `gt continue`
+3. After resolution, re-run `gt submit --no-interactive --publish --merge-when-ready`
+
+### Merge Queue Rejection
+If the merge queue rejects a PR:
+1. Check CI status via GitHub MCP: `pull_request_read` with method `get_status`
+2. Fix failing checks
+3. Push fixes and re-enqueue
 
 ## Exarchos Integration
 

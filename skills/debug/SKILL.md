@@ -1,3 +1,27 @@
+---
+name: debug
+description: |-
+  Bug investigation and fix workflow with hotfix and thorough tracks.
+  Use when the user says "debug", "fix bug", "investigate issue",
+  "something is broken", or runs /debug. Hotfix track for quick fixes,
+  thorough track for complex bugs requiring root cause analysis.
+  Do NOT use for code improvement — use refactor instead.
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity:
+    - triage
+    - investigate
+    - rca
+    - design
+    - implement
+    - validate
+    - review
+    - synthesize
+---
+
 # Debug Workflow Skill
 
 ## Overview
@@ -432,6 +456,33 @@ Extended to support:
 | Exceed 15 min on hotfix investigation | Switch to thorough track |
 | Add features during bug fix | Scope creep - only fix the bug |
 | Skip tests because "it's just a fix" | Fixes need tests to prevent regression |
+
+## Troubleshooting
+
+### MCP Tool Call Failed
+If an Exarchos MCP tool returns an error:
+1. Check the error message — it usually contains specific guidance
+2. Verify the workflow state exists: call `exarchos_workflow` with `action: "get"` and the featureId
+3. If "version mismatch": another process updated state — retry the operation
+4. If state is corrupted: call `exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+
+### State Desync
+If workflow state doesn't match git reality:
+1. The SessionStart hook runs reconciliation automatically on resume
+2. If manual check needed: compare state file with `git log` and branch state
+3. Update state via `exarchos_workflow` with `action: "set"` to match git truth
+
+### Investigation Timeout (Hotfix Track)
+If 15-minute investigation timer expires without root cause:
+1. The workflow auto-switches to thorough track
+2. All investigation findings are preserved in state
+3. Continue investigation without time constraint
+
+### Track Switching
+If hotfix track reveals complexity requiring thorough investigation:
+1. Call `exarchos_workflow` with `action: "set"` to update track to "thorough"
+2. Previous investigation findings carry over
+3. RCA phase begins after investigation completes
 
 ## Exarchos Integration
 
