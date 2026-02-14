@@ -29,6 +29,13 @@ describe('Project Configuration', () => {
       expect(pkg.scripts['test:run']).toBeDefined();
     });
 
+    it('packageJson_HasBuildCliScript', () => {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
+
+      expect(pkg.scripts['build:cli']).toBeDefined();
+      expect(pkg.scripts['build:cli']).toContain('exarchos-cli.js');
+    });
+
     it('should have correct name and version', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
       expect(pkg.name).toBe('@lvlup-sw/exarchos');
@@ -1020,6 +1027,33 @@ describe('Uninstall Orchestrator (E4)', () => {
     ).resolves.not.toThrow();
   });
 
+  it('uninstall_WithConfig_RemovesCliBundleToo', async () => {
+    const { uninstall } = await import('./install.js');
+
+    mkdirSync(join(claudeHome, 'mcp-servers'), { recursive: true });
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'), 'mcp code');
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'), 'cli code');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(false);
+  });
+
   it('uninstall_DevMode_RemovesSymlinks', async () => {
     const { uninstall } = await import('./install.js');
 
@@ -1089,15 +1123,254 @@ describe('hooks.json', () => {
     expect(eventTypes).toHaveLength(6);
   });
 
-  it('hooksJson_AllCommandsReferenceCliJs', () => {
+  it('hooksJson_AllCommandsReferenceCliPath', () => {
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     for (const [eventType, entries] of Object.entries(hooks.hooks)) {
       for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
         for (const hook of entry.hooks) {
-          expect(hook.command, `${eventType} hook command should reference cli.js`).toContain('cli.js');
+          expect(hook.command, `${eventType} hook command should reference {{CLI_PATH}}`).toContain('{{CLI_PATH}}');
         }
       }
     }
+  });
+
+  it('hooksJson_AllCommands_UseCliPathPlaceholder', () => {
+    const hooksContent = readFileSync(hooksPath, 'utf-8');
+
+    // Should use placeholder
+    expect(hooksContent).toContain('{{CLI_PATH}}');
+    // Should NOT contain old hardcoded path
+    expect(hooksContent).not.toContain('${CLAUDE_PLUGIN_ROOT}');
+  });
+});
+
+describe('resolveHooks', () => {
+  let tempDir: string;
+  let fakeRepoRoot: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'hooks-test-'));
+    fakeRepoRoot = join(tempDir, 'repo');
+    mkdirSync(fakeRepoRoot, { recursive: true });
+
+    // Create a hooks.json with placeholder
+    const hooksTemplate = {
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+        SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" session-start' }] }],
+      },
+    };
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify(hooksTemplate, null, 2));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('resolveHooks_MalformedJson_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), '{ not valid json!!!');
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/Failed to parse hooks file/);
+  });
+
+  it('resolveHooks_MissingHooksKey_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({ notHooks: {} }));
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/missing 'hooks' key/);
+  });
+
+  it('resolveHooks_WithCliPath_ReplacesPlaceholder', async () => {
+    const { resolveHooks } = await import('./install.js');
+    const cliPath = '/home/user/.claude/mcp-servers/exarchos-cli.js';
+
+    const result = resolveHooks(join(fakeRepoRoot, 'hooks.json'), cliPath);
+
+    // Verify placeholder was replaced
+    const preCompactCmd = (result.PreCompact[0] as { hooks: { command: string }[] }).hooks[0].command;
+    expect(preCompactCmd).toContain(cliPath);
+    expect(preCompactCmd).not.toContain('{{CLI_PATH}}');
+
+    const sessionStartCmd = (result.SessionStart[0] as { hooks: { command: string }[] }).hooks[0].command;
+    expect(sessionStartCmd).toContain(cliPath);
+    expect(sessionStartCmd).not.toContain('{{CLI_PATH}}');
+  });
+});
+
+describe('Install Orchestrator - Hooks Integration', () => {
+  let tempDir: string;
+  let claudeHome: string;
+  let fakeRepoRoot: string;
+  let manifestPath: string;
+  let claudeConfigPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'hooks-install-test-'));
+    claudeHome = join(tempDir, '.claude');
+    fakeRepoRoot = join(tempDir, 'repo');
+    manifestPath = join(fakeRepoRoot, 'manifest.json');
+    claudeConfigPath = join(tempDir, '.claude.json');
+    mkdirSync(claudeHome, { recursive: true });
+    mkdirSync(fakeRepoRoot, { recursive: true });
+
+    // Create fake repo content directories
+    mkdirSync(join(fakeRepoRoot, 'commands'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'commands', 'ideate.md'), '# Ideate');
+    mkdirSync(join(fakeRepoRoot, 'skills'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'skills', 'brainstorming.md'), '# Brainstorming');
+    mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'scripts', 'run.sh'), '#!/bin/bash');
+    mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards-typescript.md'), '# TS Rules');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd-typescript.md'), '# TDD');
+
+    // Create fake bundle file
+    mkdirSync(join(fakeRepoRoot, 'dist'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'), 'console.log("mcp")');
+
+    // Create manifest (with cliBundlePath)
+    const manifest = {
+      version: '2.0.0',
+      components: {
+        core: [
+          { id: 'commands', source: 'commands', target: 'commands', type: 'directory' },
+          { id: 'skills', source: 'skills', target: 'skills', type: 'directory' },
+          { id: 'scripts', source: 'scripts', target: 'scripts', type: 'directory' },
+        ],
+        mcpServers: [
+          {
+            id: 'exarchos', name: 'Exarchos',
+            description: 'Workflow orchestration',
+            required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
+            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+            cliBundlePath: 'dist/exarchos-cli.js',
+          },
+          {
+            id: 'graphite', name: 'Graphite',
+            description: 'Stacked PRs',
+            required: true, type: 'external',
+            command: 'gt', args: ['mcp'], prerequisite: 'gt',
+          },
+        ],
+        plugins: [
+          { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
+        ],
+        ruleSets: [
+          { id: 'typescript', name: 'TypeScript', description: 'TS rules', files: ['coding-standards-typescript.md', 'tdd-typescript.md'], default: true },
+        ],
+      },
+      defaults: { model: 'claude-opus-4-6', mode: 'standard' },
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('install_StandardMode_InstallsCliBundleWhenCliBundlePath', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create CLI bundle
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
+
+    // Create hooks.json with placeholder
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // CLI bundle should be installed alongside MCP bundle
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(true);
+  });
+
+  it('install_StandardMode_SettingsContainsHooksWithBundlePaths', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create CLI bundle and hooks.json
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
+    expect(settings.hooks).toBeDefined();
+    expect(settings.hooks.PreCompact).toBeDefined();
+    // The CLI path should be the installed bundle path
+    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
+    expect(cmd).toContain(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'));
+    expect(cmd).not.toContain('{{CLI_PATH}}');
+  });
+
+  it('install_DevMode_SettingsContainsHooksWithRepoPaths', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create hooks.json in fake repo
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
+    expect(settings.hooks).toBeDefined();
+    expect(settings.hooks.PreCompact).toBeDefined();
+    // Dev mode should use repo path
+    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
+    expect(cmd).toContain(fakeRepoRoot);
+    expect(cmd).toContain('plugins/exarchos/servers/exarchos-mcp/dist/cli.js');
+    expect(cmd).not.toContain('{{CLI_PATH}}');
   });
 });
 

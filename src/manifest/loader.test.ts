@@ -286,7 +286,6 @@ describe('Real Manifest File (E5)', () => {
     expect(coreIds).toContain('commands');
     expect(coreIds).toContain('skills');
     expect(coreIds).toContain('scripts');
-    expect(coreIds).toContain('hooks');
   });
 
   it('manifest_ContainsRequiredServers', () => {
@@ -328,5 +327,18 @@ describe('Real Manifest File (E5)', () => {
     const manifest = loadManifest(manifestPath);
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     expect(manifest.version).toBe(pkg.version);
+  });
+
+  it('manifest_ExarchosMcpServer_HasCliBundlePath', () => {
+    const manifest = loadManifest(manifestPath);
+    const exarchos = manifest.components.mcpServers.find((s) => s.id === 'exarchos');
+    expect(exarchos).toBeDefined();
+    expect(exarchos!.cliBundlePath).toBe('dist/exarchos-cli.js');
+  });
+
+  it('manifest_CoreComponents_DoesNotIncludeHooks', () => {
+    const manifest = loadManifest(manifestPath);
+    const coreIds = manifest.components.core.map((c) => c.id);
+    expect(coreIds).not.toContain('hooks');
   });
 });

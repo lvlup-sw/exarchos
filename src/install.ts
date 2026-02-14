@@ -238,6 +238,61 @@ const legacyRemoveSymlink = async (target: string): Promise<RemoveResult> => {
 
 export { legacyCreateSymlink as createSymlink, legacyRemoveSymlink as removeSymlink };
 
+// ─── Hook resolution ─────────────────────────────────────────────────────────
+
+/**
+ * Read hooks.json and resolve the {{CLI_PATH}} placeholder.
+ *
+ * @param hooksPath - Absolute path to hooks.json.
+ * @param cliPath - Absolute path to the CLI binary.
+ * @returns The hooks object with resolved paths, ready for settings.json.
+ */
+export function resolveHooks(
+  hooksPath: string,
+  cliPath: string,
+): Record<string, unknown[]> {
+  const raw = fs.readFileSync(hooksPath, 'utf-8');
+  const resolved = raw.replace(/\{\{CLI_PATH\}\}/g, cliPath);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resolved);
+  } catch {
+    throw new Error(`Failed to parse hooks file: ${hooksPath}`);
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('hooks' in parsed) ||
+    typeof (parsed as Record<string, unknown>).hooks !== 'object'
+  ) {
+    throw new Error(`Invalid hooks file: missing 'hooks' key in ${hooksPath}`);
+  }
+
+  return (parsed as { hooks: Record<string, unknown[]> }).hooks;
+}
+
+/**
+ * Resolve hooks from hooks.json for the given install mode.
+ * Returns undefined if hooks.json doesn't exist or no bundled server has cliBundlePath.
+ */
+function resolveHooksForMode(
+  repoRoot: string,
+  manifest: Manifest,
+  cliPath: string,
+): Record<string, unknown[]> | undefined {
+  const hooksPath = join(repoRoot, 'hooks.json');
+  if (!fs.existsSync(hooksPath)) return undefined;
+
+  const server = manifest.components.mcpServers.find(
+    (s) => s.type === 'bundled' && s.cliBundlePath,
+  );
+  if (!server?.cliBundlePath) return undefined;
+
+  return resolveHooks(hooksPath, cliPath);
+}
+
 // ─── Install dependencies interface ────────────────────────────────────────
 
 export interface InstallDeps {
@@ -331,8 +386,30 @@ async function installStandard(
     installBundle(bundlePath, claudeHome);
   }
 
+  // 3a. Install CLI bundles
+  for (const server of bundledServers) {
+    if (server.cliBundlePath) {
+      const cliBundlePath = join(repoRoot, server.cliBundlePath);
+      if (!fs.existsSync(cliBundlePath)) {
+        throw new Error(
+          `CLI bundle not found: ${cliBundlePath}\n` +
+          `Run 'npm run build' to generate the bundle before installing.`,
+        );
+      }
+      installBundle(cliBundlePath, claudeHome);
+    }
+  }
+
+  // 3b. Resolve hooks
+  const exarchosServer = manifest.components.mcpServers.find(
+    (s) => s.type === 'bundled' && s.cliBundlePath,
+  );
+  const resolvedHooks = exarchosServer?.cliBundlePath
+    ? resolveHooksForMode(repoRoot, manifest, join(claudeHome, 'mcp-servers', basename(exarchosServer.cliBundlePath)))
+    : undefined;
+
   // 4. Generate and write settings.json
-  const settings = generateSettings(selections);
+  const settings = generateSettings(selections, resolvedHooks);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
@@ -383,8 +460,15 @@ async function installDev(
   const rulesTarget = join(claudeHome, 'rules');
   symlinkCreate(rulesSource, rulesTarget);
 
+  // 2a. Resolve hooks for dev mode
+  const resolvedHooks = resolveHooksForMode(
+    repoRoot,
+    manifest,
+    join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/cli.js'),
+  );
+
   // 3. Generate and write settings.json
-  const settings = generateSettings(selections);
+  const settings = generateSettings(selections, resolvedHooks);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
@@ -527,7 +611,7 @@ export async function uninstall(deps: UninstallDeps): Promise<void> {
     // Remove known bundle files
     const bundleFiles = fs.readdirSync(mcpServersDir);
     for (const file of bundleFiles) {
-      if (file.endsWith('-mcp.js')) {
+      if (file.endsWith('-mcp.js') || file.endsWith('-cli.js')) {
         fs.unlinkSync(join(mcpServersDir, file));
       }
     }
