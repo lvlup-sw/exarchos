@@ -239,7 +239,7 @@ z.object({
 
 // Response
 {
-  action: string,              // "AUTO:plan:<path>", "WAIT:human-checkpoint:...", "DONE"
+  action: string,              // "AUTO:plan", "WAIT:human-checkpoint:...", "DONE"
   validTransitions: Array<{
     to: string,
     guardSatisfied: boolean,
@@ -459,7 +459,7 @@ RefactorWorkflow (root)
 │   │   └─→ update-docs [guard: tests pass]
 │   │
 │   └── update-docs (atomic)
-│       └─→ EXIT → HUMAN_CHECKPOINT(polish-complete)
+│       └─→ EXIT → HUMAN_CHECKPOINT(polish-update-docs)
 │
 ├── OverhaulTrack (compound state, maxFixCycles: 3)
 │   │   entry: checkpoint

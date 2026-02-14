@@ -17,7 +17,7 @@ set -euo pipefail
 # Auto-detect repo root - works from any directory within a git repo
 # Priority: 1) Git root of current directory, 2) Current directory
 # Note: We intentionally use current directory's git root, not script location,
-# because state files belong to the project being worked on, not lvlup-claude.
+# because state files belong to the project being worked on, not exarchos.
 if git rev-parse --show-toplevel &>/dev/null; then
     REPO_ROOT="$(git rev-parse --show-toplevel)"
 else

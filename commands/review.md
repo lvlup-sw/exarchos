@@ -9,17 +9,17 @@ Review implementation for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-            ↑                                            ▲▲▲▲▲▲
-            └──────────── ON BLOCKED ────────────────────────┘
-                          ON FAIL → /delegate --fixes (auto)
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+           ↑                                ▲▲▲▲▲▲
+           └──────────── ON BLOCKED ────────────┘
+                         ON FAIL → /delegate --fixes (auto)
 ```
 
 - **ON PASS**: Auto-invokes `/synthesize`
 - **ON FAIL**: Auto-invokes `/delegate --fixes`
 - **ON BLOCKED**: Auto-invokes `/ideate --redesign`
 
-Review runs AFTER integration phase completes - reviews the integrated diff, not per-task fragments.
+Review runs AFTER delegation completes - reviews the Graphite stack diff.
 
 ## Skill References
 
@@ -32,11 +32,14 @@ Reviews MUST be dispatched to subagents (not run inline).
 
 ### Context-Efficient Reviews
 
-Use the integrated diff (not per-worktree fragments) to reduce context by 80-90%:
+Use the Graphite stack diff (not per-worktree fragments) to reduce context by 80-90%:
 
 ```bash
-# Generate integrated diff for review subagent
-git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
+# Generate stack diff for review subagent (Graphite stack vs main)
+gt diff main > /tmp/stack-diff.patch
+
+# Alternative: use GitHub MCP to get PR diff
+# mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber, method: "get_diff" })
 ```
 
 ### Dispatch Spec Review

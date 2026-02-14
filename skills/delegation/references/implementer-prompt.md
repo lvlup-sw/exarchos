@@ -90,6 +90,14 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+## Code Exploration Tools
+
+For navigating and understanding code, prefer Serena MCP tools over grep/glob:
+- `mcp__plugin_serena_serena__find_symbol` — Locate classes, functions, methods by name
+- `mcp__plugin_serena_serena__get_symbols_overview` — Understand file structure without reading entire files
+- `mcp__plugin_serena_serena__search_for_pattern` — Regex search across the codebase
+- `mcp__plugin_serena_serena__find_referencing_symbols` — Find all callers/users of a symbol
+
 ## Schema Sync (If Modifying API Files)
 
 If this task modifies any of these file patterns, run schema sync after implementation:
@@ -103,6 +111,23 @@ npm run typecheck
 ```
 
 This regenerates TypeScript types from the OpenAPI spec. Include generated files in your commit.
+
+## Commit Strategy
+
+After completing each logical task within your assignment:
+
+1. Stage the relevant files: `git add <files>`
+2. Create a stacked branch: `gt create <task-branch-name> -m "feat: <task summary>"`
+3. Continue to the next task (you are now on a new branch stacked on the previous)
+
+After all tasks are complete:
+4. Submit the full stack: `gt submit --no-interactive --publish --merge-when-ready --stack`
+
+**IMPORTANT:** When using Graphite, never use `git commit` or `git push`. Always use `gt create` and `gt submit`.
+
+### Grouping Guidance
+
+Stack branches should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one stack layer. For example, if you implement types + config + tests for a module, that's one `gt create`, not three.
 
 ## Completion
 
@@ -216,4 +241,5 @@ describe('validateEmail', () => {
 2. **No File References** - Don't say "see plan.md" - paste content
 3. **Explicit Paths** - Absolute paths to working directory and files
 4. **TDD Mandatory** - Always include TDD requirements
-5. **Clear Success Criteria** - Checkboxes for completion
+5. **Graphite-First** - Include commit strategy section; always use `gt create` and `gt submit`
+6. **Clear Success Criteria** - Checkboxes for completion

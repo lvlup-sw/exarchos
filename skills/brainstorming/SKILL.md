@@ -111,13 +111,13 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `mcp__workflow-state__workflow_init` with the featureId.
+Initialize workflow state using `mcp__exarchos__exarchos_workflow` with `action: "init"` and the featureId.
 
 This creates a state file tracked by the MCP server.
 
 ### On Design Save (after Phase 3)
 
-Update state with design artifact using `mcp__workflow-state__workflow_set`:
+Update state with design artifact using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Set `artifacts.design` to the design path
 - Set `phase` to "plan"
 
@@ -134,7 +134,7 @@ Update state with design artifact using `mcp__workflow-state__workflow_set`:
 
 After brainstorming completes, **auto-continue to planning** (no user confirmation):
 
-1. Update state with design path and phase using `mcp__workflow-state__workflow_set`:
+1. Update state with design path and phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
    - Set `artifacts.design` to the design path
    - Set `phase` to "plan"
 
@@ -147,4 +147,10 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 
 This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
 
-**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate` → `/integrate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
+**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available:
+
+1. **At workflow start:** Call `mcp__exarchos__exarchos_event` with `action: "append"` and event type `workflow.started` including featureId and workflowType

@@ -12,7 +12,7 @@ plugins/*/servers/*/coverage/
 *.local.json
 
 # Workflow state files (not tracked)
-docs/workflow-state/*.state.json
+docs/workflow-state/
 # Terraform
 .terraform/
 *.tfstate
@@ -20,3 +20,4 @@ docs/workflow-state/*.state.json
 .terraform.lock.hcl
 
 .worktrees/
+.serena/

@@ -1,24 +1,18 @@
 {
-  "name": "lvlup-claude",
+  "name": "exarchos",
   "owner": {
     "name": "lvlup-sw"
   },
   "metadata": {
-    "description": "TDD-enforced workflow orchestration with Jules integration",
+    "description": "Local agent governance for Claude Code with event-sourced SDLC workflows",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "jules",
-      "source": "./plugins/jules",
-      "description": "Delegate coding tasks to Jules autonomous agent",
-      "keywords": ["jules", "autonomous-agent", "delegation", "mcp"]
-    },
-    {
-      "name": "workflow-state",
-      "source": "./plugins/workflow-state",
-      "description": "Workflow state persistence with HSM transitions",
-      "keywords": ["workflow", "state-machine", "mcp"]
+      "name": "exarchos",
+      "source": "./plugins/exarchos",
+      "description": "Unified MCP server: workflow state, event store, CQRS views, team coordination",
+      "keywords": ["workflow", "state-machine", "events", "cqrs", "teams", "mcp"]
     }
   ]
 }

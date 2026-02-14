@@ -106,15 +106,15 @@ If any answer is "no" -> switch to thorough track.
 
 ### Switching to Thorough Track
 
-Use `mcp__workflow-state__workflow_set` to update state:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to update state:
 
 ```text
 # Update track
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "track": "thorough" }
 
 # Record investigation findings so far
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "investigation.findings": ["Investigated for 15 min, narrowed to auth module but root cause unclear"]
   }
@@ -174,23 +174,23 @@ git blame -L 50,60 src/auth/login.ts
 
 ## Recording Findings
 
-Update state with investigation progress using `mcp__workflow-state__workflow_set`:
+Update state with investigation progress using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
 # Add finding
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "investigation.findings": ["Error occurs in handleLogin when session is null"]
   }
 
 # Record root cause when found
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "investigation.rootCause": "Session cookie not being set due to SameSite attribute mismatch"
   }
 
 # Mark investigation complete
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "investigation.completedAt": "2026-01-27T10:30:00Z"
   }

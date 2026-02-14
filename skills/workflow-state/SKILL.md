@@ -26,32 +26,41 @@ State files are gitignored - they persist locally but are not committed.
 
 ### Initialize State
 
-At the start of `/ideate`, use the `mcp__workflow-state__workflow_init` tool with the feature ID as the `id` parameter. This creates a new state file with phase "ideate".
+At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
+- `featureId`: the workflow identifier (e.g., `"user-authentication"`)
+- `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
+
+This creates a new state file with phase "ideate".
 
 ### Read State
 
-To restore context, use the `mcp__workflow-state__workflow_get` tool:
+Use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`:
 
-- **Full state**: Call with just the `file` parameter (the state file path)
-- **Specific field**: Call with `file` and `path` parameters (e.g., `path: ".phase"`)
-- **Task list**: Call with `file` and `path: ".tasks"`
+- **Full state**: Call with just `featureId`
+- **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`)
+- **Multiple fields**: Add `fields` array for projection (e.g., `fields: ["phase", "featureId", "tasks"]`)
+
+Field projection via `fields` returns only the requested top-level keys, reducing token cost.
 
 ### Update State
 
-Use the `mcp__workflow-state__workflow_set` tool with jq filters:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with `featureId` and either `updates`, `phase`, or both:
 
-- **Update phase**: `filter: '.phase = "delegate"'`
-- **Set artifact path**: `filter: '.artifacts.design = "docs/designs/2026-01-05-feature.md"'`
-- **Mark task complete**: `filter: '(.tasks[] | select(.id == "001")).status = "complete"'`
-- **Add worktree**: `filter: '.worktrees[".worktrees/001-types"] = {"branch": "feature/001-types", "taskId": "001", "status": "active"}'`
+- **Update phase**: `phase: "delegate"`
+- **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
+- **Mark task complete**: `updates: { "tasks[id=001].status": "complete", "tasks[id=001].completedAt": "<timestamp>" }`
+- **Add worktree**: `updates: { "worktrees.wt-001": { "branch": "feature/001-types", "taskId": "001", "status": "active" } }`
+- **Phase + updates together**: `phase: "delegate"`, `updates: { "artifacts.plan": "docs/plans/plan.md" }`
+
+Worktree status values: `'active' | 'merged' | 'removed'`
 
 ### Get Summary
 
-For context restoration after summarization, use the `mcp__workflow-state__workflow_summary` tool with the state file path. This outputs a minimal summary suitable for rebuilding orchestrator context.
+For context restoration after summarization, use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`. This outputs a minimal summary suitable for rebuilding orchestrator context.
 
 ### Reconcile State
 
-To verify state matches git reality, use the `mcp__workflow-state__workflow_reconcile` tool with the state file path. This checks that worktrees and branches referenced in state actually exist.
+To verify state matches git reality, the SessionStart hook automatically reconciles on resume. This checks that worktrees and branches referenced in state actually exist.
 
 ## Integration Points
 
@@ -106,13 +115,13 @@ On task complete:
 See `docs/schemas/workflow-state.schema.json` for full schema.
 
 Key sections:
-- `version`: Schema version (currently "1.0")
+- `version`: Schema version (currently "1.1")
 - `featureId`: Unique workflow identifier
+- `workflowType`: Required. One of "feature", "debug", or "refactor"
 - `phase`: Current workflow phase
 - `artifacts`: Paths to design, plan, PR
 - `tasks`: Task list with status
 - `worktrees`: Active git worktrees
-- `julesSessions`: Jules async task tracking
 - `planReview`: Plan-review delta analysis results (`gaps`, `approved`)
 - `reviews`: Review results
 - `synthesis`: Merge/PR state
@@ -127,12 +136,13 @@ Key sections:
 
 ## Example Workflow
 
-1. **Start new workflow**: Use `mcp__workflow-state__workflow_init` with `id: "user-authentication"`
+1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: Use `mcp__workflow-state__workflow_set` with:
-   - `file: "docs/workflow-state/user-authentication.state.json"`
-   - `filter: '.artifacts.design = "docs/designs/2026-01-05-user-auth.md" | .phase = "plan"'`
+2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with:
+   - `featureId: "user-authentication"`
+   - `phase: "plan"`
+   - `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
 
-3. **Check state**: Use `mcp__workflow-state__workflow_summary` with the state file path
+3. **Check state**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
 
-4. **Resume after context loss**: Use `mcp__workflow-state__workflow_summary` with the state file path to get context restoration output
+4. **Resume after context loss**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"` to get context restoration output

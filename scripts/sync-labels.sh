@@ -20,7 +20,7 @@ elif command -v gh &> /dev/null && gh repo view --json nameWithOwner -q .nameWit
     REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 else
     # Fallback to default
-    REPO="lvlup-sw/lvlup-claude"
+    REPO="lvlup-sw/exarchos"
 fi
 
 # Parse arguments

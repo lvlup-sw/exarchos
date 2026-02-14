@@ -34,22 +34,22 @@ The subagent:
 
 ### Context-Efficient Input
 
-Instead of per-worktree diffs, receive the integrated diff:
+Instead of reading full files, receive the stack diff:
 
 ```bash
-# Generate diff for review (integrated branch vs main)
-git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
+# Generate diff for review (Graphite stack vs main)
+gt diff main > /tmp/stack-diff.patch
 
-# Alternative: use review-diff script with integration branch
-~/.claude/scripts/review-diff.sh feature/integration-<feature> main
+# Alternative: use GitHub MCP to get PR diff
+# mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber, method: "get_diff" })
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
 
-### Review Scope: Integrated Changes
+### Review Scope: Combined Changes
 
-After the integration phase passes, quality review examines:
-- The **complete integrated diff** (main...feature/integration-branch)
+After delegation completes, quality review examines:
+- The **complete stack diff** (all task branches vs main)
 - All changes across all tasks in one view
 - The full picture of combined code quality
 
@@ -94,6 +94,11 @@ This enables catching:
 | Repeated business rules | 2+ locations | HIGH |
 | Copy-pasted tests | 3+ similar tests | LOW |
 | Magic literals | Same value 3+ times | MEDIUM |
+
+**Detection approach (prefer MCP tools):**
+- Use `mcp__plugin_serena_serena__search_for_pattern` to find duplicate code blocks
+- Use `mcp__plugin_serena_serena__find_referencing_symbols` to trace dependency usage
+- Use `mcp__plugin_serena_serena__get_symbols_overview` to understand module structure before deep-reading
 
 **Detection checklist:**
 - [ ] Search for identical multi-line blocks (5+ lines duplicated)
@@ -236,8 +241,6 @@ For frontend code (React, Vue, HTML/CSS, etc.), verify distinctive design:
 - Flat #f5f5f5 or pure white/black backgrounds
 - Animation without purpose
 
-**Reference:** See `skills/frontend-design/SKILL.md` for full aesthetics guidelines.
-
 ## Priority Levels
 
 | Priority | Action | Examples |
@@ -350,21 +353,21 @@ Task({
 
 ## State Management
 
-Update workflow state with review results using `mcp__workflow-state__workflow_set`.
+Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`.
 
 ### On Review Complete
 
 ```text
 # Update task review status - for approved
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "approved" }
 
 # Or if needs fixes:
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.qualityReview": "needs_fixes" }
 
 # Add review details
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "reviews.<task-id>.qualityReview": {"status": "approved", "highPriority": [], "mediumPriority": []}
   }
@@ -375,7 +378,7 @@ Use mcp__workflow-state__workflow_set with featureId:
 Update phase for synthesis:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   phase: "synthesize"
 ```
 
@@ -417,3 +420,16 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit gate events during review:
+
+1. **Read CI status:** Use `mcp__plugin_github_github__pull_request_read` with `method: "get_status"` to get CI gate results
+2. **For each CI check:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `gate.executed` including:
+   - `gateName`: The CI check name
+   - `layer`: "per-pr" or "per-stack"
+   - `passed`: boolean
+   - `duration`: milliseconds (if available)
+3. **Read unified status:** Use `mcp__exarchos__exarchos_view` with `action: "tasks"` with `fields: ["taskId", "status", "title"]` and `limit: 20` for combined task + gate view with minimal token cost
+4. **When all per-PR gates pass:** Apply `stack-ready` label to the PR

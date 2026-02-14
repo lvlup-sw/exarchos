@@ -1,19 +1,7 @@
-# CI Workflow for lvlup-claude configuration templates
-#
-# Features:
-# - YAML/JSON validation
-# - Shell script syntax checking
-# - Terraform validation
-# - Test suite execution
-# - Path-based filtering (jobs only run when relevant files change)
-#
-# Uses Blacksmith runners for fast builds
-
 name: CI
 
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -22,113 +10,72 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Detect which paths have changed to enable selective job execution
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      azd: ${{ steps.filter.outputs.azd }}
-      ci-templates: ${{ steps.filter.outputs.ci-templates }}
-      renovate: ${{ steps.filter.outputs.renovate }}
-      validate: ${{ steps.filter.outputs.validate }}
+      root: ${{ steps.filter.outputs.root }}
+      mcp: ${{ steps.filter.outputs.mcp }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Check paths
-        uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            azd:
-              - 'azd-templates/**'
+            root:
+              - 'src/**'
+              - 'package.json'
+              - 'tsconfig.json'
               - '.github/workflows/ci.yml'
-            ci-templates:
-              - 'ci-templates/**'
-              - '.github/workflows/ci.yml'
-            renovate:
-              - 'renovate-config/**'
-              - 'renovate-config.js'
-              - 'renovate.json'
-              - '.github/workflows/ci.yml'
-            validate:
-              - 'scripts/**'
-              - 'azd-templates/**'
-              - 'ci-templates/**'
-              - 'renovate-config/**'
+            mcp:
+              - 'plugins/exarchos/servers/exarchos-mcp/**'
               - '.github/workflows/ci.yml'
 
-  validate:
-    name: Validate Templates
+  test-root:
+    name: Root Package
     needs: changes
-    if: ${{ needs.changes.outputs.validate == 'true' }}
+    if: ${{ needs.changes.outputs.root == 'true' }}
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.14'
+          node-version: '20'
+          cache: npm
 
-      - name: Install validation tools
-        run: pip install pyyaml
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:run
+
+  test-mcp-skip:
+    name: Exarchos MCP Server
+    needs: changes
+    if: ${{ needs.changes.outputs.mcp != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No MCP changes, skipping"
+
+  test-mcp:
+    name: Exarchos MCP Server
+    needs: changes
+    if: ${{ needs.changes.outputs.mcp == 'true' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    defaults:
+      run:
+        working-directory: plugins/exarchos/servers/exarchos-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          terraform_version: '1.9.0'
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: plugins/exarchos/servers/exarchos-mcp/package-lock.json
 
-      - name: Run template validation
-        run: ./scripts/validate-templates.sh --verbose
-
-  test-azd:
-    name: Test azd Templates
-    needs: changes
-    if: ${{ needs.changes.outputs.azd == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2204
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: '1.9.0'
-
-      - name: Run azd tests
-        run: ./azd-templates/azd.test.sh
-
-      - name: Run infra tests
-        run: ./azd-templates/infra/infra.test.sh
-
-      - name: Run hooks tests
-        run: ./azd-templates/infra/scripts/hooks.test.sh
-
-  test-ci-templates:
-    name: Test CI Templates
-    needs: changes
-    if: ${{ needs.changes.outputs.ci-templates == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2204
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run coverage-gate tests
-        run: ./ci-templates/coverage-gate/coverage-gate.test.sh
-
-      - name: Run cd-azure workflow tests
-        run: ./ci-templates/workflows/cd-azure.yml.test.sh
-
-  test-renovate:
-    name: Test Renovate Config
-    needs: changes
-    if: ${{ needs.changes.outputs.renovate == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2204
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run renovate tests
-        run: ./renovate-config/renovate.test.sh
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run test:run

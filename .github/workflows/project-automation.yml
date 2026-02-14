@@ -132,9 +132,6 @@ jobs:
             }
 
             // Scope detection
-            if (text.match(/jules|mcp|delegate/)) {
-              labels.push('scope:jules');
-            }
             if (text.match(/workflow|ideate|plan|review|synthesize/)) {
               labels.push('scope:workflow');
             }

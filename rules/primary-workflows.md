@@ -18,8 +18,7 @@ These are phase commands used within workflows. Do not suggest them as starting 
 |---------|------|
 | `/plan` | Create TDD implementation plan (auto-invoked after `/ideate`) |
 | `/delegate` | Dispatch tasks to subagents (auto-invoked after plan approval) |
-| `/integrate` | Merge worktree branches (auto-invoked after delegation) |
-| `/review` | Two-stage quality review (auto-invoked after integration) |
+| `/review` | Two-stage quality review (auto-invoked after delegation) |
 | `/synthesize` | Create pull request (auto-invoked after review) |
 | `/resume` | Resume a workflow after session restart |
 | `/checkpoint` | Save workflow state for later resumption |

@@ -5,7 +5,7 @@ body = """
 ## {{ group | upper_first }}
 {% for commit in commits %}
 - {{ commit.message | split(pat="\n") | first | trim }} \
-  ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/lvlup-sw/lvlup-claude/commit/{{ commit.id }}))
+  ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/lvlup-sw/exarchos/commit/{{ commit.id }}))
 {% endfor %}
 {% endfor %}
 """

@@ -64,10 +64,10 @@ After updating documentation:
 
 ## State Update
 
-After documentation is updated, use `mcp__workflow-state__workflow_set`:
+After documentation is updated, use `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "validation.docsUpdated": true,
     "artifacts.updatedDocs": ["<doc1>", "<doc2>"]
@@ -84,7 +84,7 @@ If `docsToUpdate` is empty, verify this is correct:
 4. Document verification in state:
 
 ```text
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "validation.docsUpdated": true,
     "artifacts.updatedDocs": []

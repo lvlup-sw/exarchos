@@ -11,7 +11,7 @@
 
 ## Problem Summary
 
-When using Claude Code with MCP servers (like Jules) and subagents spawned via the Task tool, several issues prevent proper tool inheritance and permission propagation.
+When using Claude Code with MCP servers and subagents spawned via the Task tool, several issues prevent proper tool inheritance and permission propagation.
 
 ### Symptoms
 
@@ -49,18 +49,6 @@ When using Task tool to spawn subagents in MCP server mode:
 - This affects any custom agents defined in `.claude-plugin/` directories
 - Only built-in agent types receive proper MCP tool access
 
-### 4. Jules API Base URL (RESOLVED)
-
-**Status:** Fixed locally on 2026-01-05
-
-The Jules MCP server had an incorrect base URL:
-- **Wrong**: `https://jules.google/v1alpha` (returns 404 HTML page)
-- **Correct**: `https://jules.googleapis.com/v1alpha`
-
-This caused MCP tool calls to fail with JSON parse errors (`Unexpected token '<'`).
-
-**Fix applied in:** `plugins/jules/servers/jules-mcp/src/jules-client.ts:13`
-
 ---
 
 ## Workarounds
@@ -96,12 +84,12 @@ Instead of delegating MCP tool calls to subagents, have the main agent:
 Example flow:
 ```
 Main Agent:
-  1. Call jules_create_task() directly
-  2. Get session ID back
-  3. Pass session ID to subagent for monitoring
+  1. Call MCP tools directly (e.g., workflow_set, event_append)
+  2. Get results back
+  3. Pass results to subagent as context
 
 Subagent:
-  1. Receives session ID as context
+  1. Receives context from main agent
   2. Can only do non-MCP work (file operations with proper permissions)
 ```
 
@@ -143,7 +131,6 @@ This ensures:
       "Glob",
       "Grep",
       "WebFetch(domain:aka.ms)",
-      "WebFetch(domain:jules.google)",
       "Bash(find:*)",
       "Bash(mkdir:*)",
       "Bash(cat:*)",
@@ -153,24 +140,8 @@ This ensures:
       "Bash(chmod:*)",
       "Bash(ls:*)",
       "Bash(npx:*)",
-      "Bash(npm:*)",
-      "mcp__jules__*"
+      "Bash(npm:*)"
     ]
-  }
-}
-```
-
-### `.mcp.json` (Project Root)
-```json
-{
-  "mcpServers": {
-    "jules": {
-      "command": "npx",
-      "args": ["tsx", "./plugins/jules/servers/jules-mcp/src/index.ts"],
-      "env": {
-        "JULES_API_KEY": "${JULES_API_KEY}"
-      }
-    }
   }
 }
 ```
@@ -207,11 +178,9 @@ This ensures:
 | #13605 | Open | Yes - Use built-in agents |
 | #15810 | Open | Yes - Use built-in agents |
 | #5465 | Open | Yes - Pre-approve permissions |
-| Base URL Bug | **Resolved** | Fixed in jules-client.ts |
 
 ---
 
 ## Changelog
 
-- **2026-01-05**: Fixed Jules API base URL bug (`jules.google` → `jules.googleapis.com`)
 - **2026-01-05**: Initial documentation created after investigation

@@ -1,3 +1,9 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "exarchos": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["run", "./dist/exarchos-mcp.js"]
+    }
+  }
 }

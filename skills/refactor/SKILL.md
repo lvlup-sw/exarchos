@@ -97,10 +97,10 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 - Confirm polish is appropriate
 
 Update state using MCP tools:
-1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__workflow-state__workflow_set` to set track, phase, and explore scope assessment
+1. Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track, phase, and explore scope assessment
 
-On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
+On completion, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
@@ -114,7 +114,7 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "polish-implement".
+Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set the `brief` object and `phase` to "polish-implement".
 
 #### 3. Implement Phase
 
@@ -125,7 +125,12 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "polish-validate".
+When done, commit via Graphite:
+```typescript
+mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
+```
+
+Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "polish-validate".
 
 #### 4. Validate Phase
 
@@ -142,7 +147,7 @@ npm run lint  # or equivalent
 npm run typecheck  # if TypeScript
 ```
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation` object and `phase` to "polish-update-docs".
+Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation` object and `phase` to "polish-update-docs".
 
 #### 5. Update Docs Phase
 
@@ -156,7 +161,7 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 
 If `docsToUpdate` is empty, verify no docs need updating.
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
+Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
 
 > **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
 
@@ -171,12 +176,11 @@ Rigorous path for architectural changes, migrations, and multi-file restructurin
 ### Phases
 
 ```
-Explore -> Brief -> Plan -> Delegate -> Integrate -> Review -> Update Docs -> Synthesize
-   |         |        |         |           |           |            |             |
-   |         |        |         |           |           |            |             +-- PR creation
-   |         |        |         |           |           |            +-- Update architecture docs
-   |         |        |         |           |           +-- Quality review (emphasized)
-   |         |        |         |           +-- Merge worktrees, run tests
+Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
+   |         |        |         |          |            |             |
+   |         |        |         |          |            |             +-- PR creation
+   |         |        |         |          |            +-- Update architecture docs
+   |         |        |         |          +-- Quality review (emphasized)
    |         |        |         +-- TDD implementation in worktrees
    |         |        +-- Extract tasks from brief
    |         +-- Detailed goals, approach, affected areas
@@ -195,16 +199,16 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 - Map dependencies and impact
 
 Update state using MCP tools:
-1. Use `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__workflow-state__workflow_set` to set track to "overhaul", phase, and explore scope assessment
+1. Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`
+2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track to "overhaul", phase, and explore scope assessment
 
-On completion, use `mcp__workflow-state__workflow_set` to set `explore.completedAt` and `phase` to "brief".
+On completion, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `explore.completedAt` and `phase` to "brief".
 
 #### 2. Brief Phase
 
 Detailed capture of refactor intent (more thorough than polish).
 
-Update state using `mcp__workflow-state__workflow_set` to set the `brief` object and `phase` to "overhaul-plan".
+Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set the `brief` object and `phase` to "overhaul-plan".
 
 Then auto-invoke plan:
 ```typescript
@@ -225,7 +229,7 @@ The `/plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `artifacts.plan` and `phase` to "overhaul-delegate".
+Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `artifacts.plan` and `phase` to "overhaul-delegate".
 
 > **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` → `overhaul-delegate`.
 
@@ -249,34 +253,14 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-integrate".
-
-Then auto-invoke integrate:
-```typescript
-Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
-```
-
-#### 5. Integrate Phase
-
-Invoke `/integrate` skill to merge worktrees and run tests:
-
-```typescript
-Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
-```
-
-The `/integrate` skill:
-- Merges all task branches
-- Runs full test suite
-- Verifies no regressions
-
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-review".
+Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "overhaul-review".
 
 Then auto-invoke review:
 ```typescript
 Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
 ```
 
-#### 6. Review Phase
+#### 5. Review Phase
 
 Invoke `/review` skill with emphasis on quality:
 
@@ -289,9 +273,9 @@ The `/review` skill:
 - Refactors are high regression risk
 - Verifies structure matches brief goals
 
-Update state on completion using `mcp__workflow-state__workflow_set` to set `phase` to "overhaul-update-docs".
+Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "overhaul-update-docs".
 
-#### 7. Update Docs Phase
+#### 6. Update Docs Phase
 
 **Mandatory** - documentation must reflect new architecture.
 
@@ -301,14 +285,14 @@ For overhaul, typically includes:
 - Migration guides if public interfaces changed
 - Updated diagrams
 
-Update state using `mcp__workflow-state__workflow_set` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
+Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
 
 Then auto-invoke synthesize:
 ```typescript
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-#### 8. Synthesize Phase
+#### 7. Synthesize Phase
 
 Invoke `/synthesize` skill with explicit Skill tool call:
 
@@ -316,46 +300,35 @@ Invoke `/synthesize` skill with explicit Skill tool call:
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-The `/synthesize` skill creates the PR:
+The `/synthesize` skill creates the PR via Graphite MCP:
 
-```bash
-gh pr create --title "refactor: <summary>" --body "$(cat <<'EOF'
-## Summary
+```typescript
+// Submit the stack to create PRs
+mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
+```
 
-[Brief description of the refactor and why it was needed]
-
-## Changes
-
-- [Key structural change 1]
-- [Key structural change 2]
-
-## Documentation Updated
-
-- [doc1.md] - Updated for X
-- [doc2.md] - Updated for Y
-
-## Test Plan
-
-- All existing tests pass
-- [Any new tests added]
-EOF
-)"
+Then update the PR description using GitHub MCP:
+```typescript
+mcp__plugin_github_github__update_pull_request({
+  owner, repo, pullNumber,
+  body: "## Summary\n[Brief description of the refactor]\n\n## Changes\n- [Key structural change 1]\n\n## Documentation Updated\n- [doc1.md] - Updated for X\n\n## Test Plan\n- All existing tests pass"
+})
 ```
 
 **Human checkpoint:** Confirm merge.
 
 ## State Management
 
-Initialize refactor workflow using `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`.
+Initialize refactor workflow using `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`.
 
 Full state schema:
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "featureId": "refactor-<slug>",
   "workflowType": "refactor",
   "track": "polish | overhaul",
-  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-integrate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
+  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
   "explore": {
     "startedAt": "ISO8601",
     "completedAt": "ISO8601 | null",
@@ -401,33 +374,32 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
-- `AUTO:refactor-implement` after brief
+- `AUTO:polish-implement` after brief
 - `AUTO:refactor-validate` after polish-implement
 - `AUTO:refactor-update-docs` after polish-validate
-- `WAIT:human-checkpoint:polish-complete` after polish-update-docs
+- `WAIT:human-checkpoint:polish-update-docs` after polish-update-docs
 
 ### Overhaul Auto-Chain
 
 ```
-explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-integrate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
-           (auto)   (auto)          (auto)               (auto)                (auto)             (auto)                  (auto)        [HUMAN]
+explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+           (auto)   (auto)          (auto)               (auto)             (auto)                  (auto)        [HUMAN]
 ```
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
-- `AUTO:plan:<brief>` after brief
-- `AUTO:delegate:<plan>` after overhaul-plan
-- `AUTO:integrate:<state>` after overhaul-delegate
-- `AUTO:review:<path>` after overhaul-integrate
+- `AUTO:overhaul-plan` after brief
+- `AUTO:refactor-delegate` after overhaul-plan
+- `AUTO:refactor-review` after overhaul-delegate
 - `AUTO:refactor-update-docs` after overhaul-review
-- `AUTO:synthesize:<feature>` after overhaul-update-docs
-- `WAIT:human-checkpoint:overhaul-merge` after synthesize
+- `AUTO:refactor-synthesize` after overhaul-update-docs
+- `WAIT:human-checkpoint:synthesize` after synthesize
 
 ## Track Switching
 
 ### Polish -> Overhaul
 
-If scope expands beyond polish limits during explore or brief phase, use `mcp__workflow-state__workflow_set` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
+If scope expands beyond polish limits during explore or brief phase, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
 **Indicators to switch:**
 - More than 5 files affected
@@ -452,7 +424,6 @@ Output to user:
 |-------|------------|-------|
 | `/plan` | `Skill({ skill: "plan", args: "--refactor <state-file>" })` | Task extraction from brief |
 | `/delegate` | `Skill({ skill: "delegate", args: "<state-file>" })` | Subagent dispatch for TDD |
-| `/integrate` | `Skill({ skill: "integrate", args: "<state-file>" })` | Worktree merge and test |
 | `/review` | `Skill({ skill: "review", args: "<state-file>" })` | Quality review |
 | `/synthesize` | `Skill({ skill: "synthesize", args: "<feature>" })` | PR creation |
 
@@ -470,8 +441,8 @@ Task({
 
 The workflow-state MCP server supports:
 - `workflowType: "refactor"` field
-- Refactor-specific phases in `mcp__workflow-state__workflow_next_action` output
-- Refactor context in `mcp__workflow-state__workflow_summary` output
+- Refactor-specific phases handled by the SessionStart hook (which determines next action on resume)
+- Refactor context provided by the SessionStart hook on session start
 
 ### With workflow-auto-resume.md
 
@@ -480,17 +451,16 @@ Refactor phases map to auto-resume actions:
 | HSM Phase | Next Action |
 |-----------|-------------|
 | `explore` (completed) | `AUTO:refactor-brief` |
-| `brief` (completed, polish) | `AUTO:refactor-implement` |
-| `brief` (completed, overhaul) | `AUTO:plan:<brief>` |
+| `brief` (completed, polish) | `AUTO:polish-implement` |
+| `brief` (completed, overhaul) | `AUTO:overhaul-plan` |
 | `polish-implement` (completed) | `AUTO:refactor-validate` |
 | `polish-validate` (completed) | `AUTO:refactor-update-docs` |
-| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-complete` |
-| `overhaul-plan` (completed) | `AUTO:delegate:<plan>` |
-| `overhaul-delegate` (completed) | `AUTO:integrate:<state>` |
-| `overhaul-integrate` (completed) | `AUTO:review:<path>` |
+| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-update-docs` |
+| `overhaul-plan` (completed) | `AUTO:refactor-delegate` |
+| `overhaul-delegate` (completed) | `AUTO:refactor-review` |
 | `overhaul-review` (completed) | `AUTO:refactor-update-docs` |
-| `overhaul-update-docs` (completed) | `AUTO:synthesize:<feature>` |
-| `synthesize` (completed) | `WAIT:human-checkpoint:overhaul-merge` |
+| `overhaul-update-docs` (completed) | `AUTO:refactor-synthesize` |
+| `synthesize` (completed) | `WAIT:human-checkpoint:synthesize` |
 
 ## Completion Criteria
 
@@ -510,7 +480,6 @@ Refactor phases map to auto-resume actions:
 - [ ] Detailed brief captured
 - [ ] Plan created
 - [ ] All tasks delegated and complete
-- [ ] Integration passed
 - [ ] Quality review passed
 - [ ] Documentation updated
 - [ ] PR merged
@@ -526,3 +495,14 @@ Refactor phases map to auto-resume actions:
 | Skip tests because "just moving code" | Refactors need test verification |
 | Create design document for polish | Use brief in state file instead |
 | Work in main for overhaul | Use worktree isolation |
+
+## Exarchos Integration
+
+When Exarchos MCP tools are available, emit events throughout the refactor workflow:
+
+1. **At workflow start (explore):** `mcp__exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
+2. **On track selection:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` with selected track (polish/overhaul)
+3. **On each phase transition:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` from→to
+4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
+5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
+6. **On complete:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` to "completed"

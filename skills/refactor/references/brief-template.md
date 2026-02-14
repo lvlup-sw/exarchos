@@ -52,11 +52,11 @@ List documentation files that need updating after refactor.
 
 ## State Update
 
-Use `mcp__workflow-state__workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
 
 ```text
 # First call: Set brief data
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: {
     "brief": {
       "problem": "<problem statement>",
@@ -70,8 +70,8 @@ Use mcp__workflow-state__workflow_set:
   }
 
 # Second call: Transition phase
-Use mcp__workflow-state__workflow_set:
-  phase: "implement" (polish) or "plan" (overhaul)
+Use mcp__exarchos__exarchos_workflow with action: "set":
+  phase: "polish-implement" (polish) or "overhaul-plan" (overhaul)
 ```
 
 ## Polish vs Overhaul Brief Depth

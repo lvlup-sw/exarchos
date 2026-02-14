@@ -1,51 +1,128 @@
-# lvlup-claude
+# Exarchos
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-> SDLC workflow automation for Claude Code with state checkpointing
+> Local agent governance for Claude Code — event-sourced SDLC workflows with team coordination
 
 ## Quick Start
 
 ```bash
-npx -y github:lvlup-sw/lvlup-claude
+npx -y github:lvlup-sw/exarchos
 ```
 
-Done. Commands work in any project immediately.
+The interactive wizard walks you through setup:
 
-## Why lvlup-claude?
+```
+? Installation mode:      Standard / Dev
+? MCP servers:            [Exarchos ✓] [Graphite ✓] [Microsoft Learn]
+? Plugins:                [GitHub] [Serena] [Context7]
+? Rule sets:              [TypeScript] [C#/.NET] [Workflow]
+? Proceed with install?   Yes
+```
 
-Claude Code sessions lose context during long tasks. Context compaction discards your
-workflow state, forcing you to re-explain what you were doing.
+Commands work in any project immediately after install.
 
-lvlup-claude provides **three SDLC workflows** with automatic state checkpointing:
+### Other Install Modes
 
-- **Feature** — Design → Plan → Delegate → Integrate → Review → PR
+```bash
+# Non-interactive (use defaults or previous selections)
+npx -y github:lvlup-sw/exarchos --yes
+
+# Dev mode (symlinks for contributors)
+npx -y github:lvlup-sw/exarchos --dev
+
+# Uninstall
+npx -y github:lvlup-sw/exarchos --uninstall
+```
+
+### Prerequisites
+
+- **Node.js** >= 20
+- **Graphite CLI** (`gt`) — required for stacked PR workflows
+
+## Why Exarchos?
+
+Claude Code sessions lose context during long tasks. Context compaction discards your workflow state, forcing you to re-explain what you were doing. And subagents report back to the orchestrator but cannot collaborate, coordinate, or challenge each other.
+
+Exarchos solves both problems by coordinating local Claude Code agent teams with event-sourced state that survives any context disruption.
+
+**Three SDLC workflows** with automatic state checkpointing:
+
+- **Feature** — Design → Plan → Delegate → Review → Merge (via stacked PRs)
 - **Debug** — Triage → Investigate → Fix → Validate (hotfix or full RCA tracks)
 - **Refactor** — Explore → Brief → Implement → Validate (polish or overhaul tracks)
 
-All workflows auto-resume on session start. Human checkpoints only where they add value.
+All workflows auto-resume on session start. Human checkpoints only at plan approval and merge confirmation.
+
+## Architecture
+
+Exarchos is a unified MCP server combining workflow state management, event sourcing, CQRS views, and team coordination.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Claude Code Lead                         │
+│         Orchestrator — /ideate, /plan, /delegate, etc.      │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                    ┌────────┴────────┐
+                    │  Exarchos MCP   │
+                    │                 │
+                    │  Event Store    │  Append-only JSONL
+                    │  CQRS Views     │  Materialized read models
+                    │  Team Coord     │  Spawn/message/shutdown
+                    │  Workflow HSM   │  State machine transitions
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+         Teammate 1    Teammate 2    Teammate N
+         (worktree)    (worktree)    (worktree)
+```
+
+### MCP Tools (26)
+
+| Category | Tools | Purpose |
+|----------|-------|---------|
+| **Workflow** | `workflow_init`, `workflow_set`, `workflow_get`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile`, `workflow_checkpoint`, `workflow_cancel`, `workflow_transitions`, `workflow_list` | HSM state transitions, phase tracking |
+| **Events** | `event_append`, `event_query` | Append-only event log, temporal queries |
+| **Views** | `view_workflow_status`, `view_team_status`, `view_tasks`, `view_pipeline` | CQRS materialized read models |
+| **Teams** | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status` | Agent team lifecycle |
+| **Tasks** | `task_claim`, `task_complete`, `task_fail` | Shared task ledger |
+| **Stack** | `stack_status`, `stack_place` | Progressive Graphite stacking |
+
+### Companion MCP Servers & Plugins
+
+Configured during install via the interactive wizard:
+
+| Server/Plugin | Type | Purpose |
+|---------------|------|---------|
+| **Exarchos** | MCP (bundled) | Workflow orchestration, event sourcing, team coordination |
+| **Graphite** | MCP (external) | Stacked PR management and merge queue |
+| **Microsoft Learn** | MCP (remote) | Official Azure/.NET documentation |
+| **GitHub** | Claude plugin | PRs, issues, code search |
+| **Serena** | Claude plugin | Semantic code analysis |
+| **Context7** | Claude plugin | Up-to-date library documentation |
 
 ## Workflows
 
 ### Feature Workflow
 
 ```
-/ideate → /plan → plan-review → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-           (auto)      ↑             ↑         (auto)      (auto)      (auto)     (auto)           ↑
-                       │           HUMAN                     │                                   HUMAN
-                       └── gaps? ──┘                         └── fail? → /delegate --fixes ──┘
+/ideate → /plan → plan-review → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
+           (auto)      ↑             ↑         (auto)     (auto)     (auto)           ↑
+                       │           HUMAN                                             HUMAN
+                       └── gaps? ──┘
 ```
 
-**One plan-review checkpoint** (after plan, before delegation). Auto-loops back to `/plan` if gaps found. Everything else auto-continues until merge, with `/review` auto-looping to `/delegate --fixes` on failure.
+Tasks execute concurrently via agent teams. Completed work is progressively stacked as PRs via Graphite. Review validates per-PR gates and stack coherence.
 
 | Command | Purpose |
 |---------|---------|
 | `/ideate` | Design exploration with trade-offs |
-| `/plan` | TDD task decomposition + spec tracing |
-| `/delegate` | Dispatch to Jules (async) or subagents (sync) |
-| `/integrate` | Merge worktree branches, run combined tests |
+| `/plan` | TDD task decomposition + stack ordering |
+| `/delegate` | Spawn agent teams, progressive PR stacking |
 | `/review` | Two-stage: spec compliance → code quality |
-| `/synthesize` | Create PR from integration branch |
+| `/synthesize` | Enqueue stack in merge queue |
 
 ### Debug Workflow
 
@@ -80,30 +157,33 @@ Every task follows Red-Green-Refactor:
 2. **GREEN**: Minimum code to pass
 3. **REFACTOR**: Clean up, tests stay green
 
-## Key Features
+## What's Installed
 
-- **Context Persistence** — Workflows save to `docs/workflow-state/` and auto-resume on session start
-- **TDD Enforcement** — Every task follows Red-Green-Refactor
-- **Worktree Isolation** — Parallel tasks in separate git worktrees
-- **Human Checkpoints** — Only at plan review and merge confirmation
-- **Three Workflow Types** — Feature, Debug, and Refactor with specialized tracks
-
-## What's Included
+The installer copies (standard mode) or symlinks (dev mode) into `~/.claude/`:
 
 | Type | Count | Examples |
 |------|-------|----------|
-| Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/integrate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
+| Commands | 12 | `/ideate`, `/plan`, `/delegate`, `/review`, `/synthesize`, `/debug`, `/refactor` |
 | Skills | 14 | brainstorming, delegation, debug, refactor, spec-review, quality-review |
-| Rules | 10 | TDD standards, coding standards (TypeScript, C#), workflow auto-resume |
-| MCP Plugins | 2 | Jules (optional), workflow-state |
-| Marketplace Plugins | 2 | jules, workflow-state |
+| Rule sets | 3 | TypeScript, C#/.NET, Workflow & Orchestration |
+| MCP servers | 1–3 | Exarchos (required), Graphite (required), Microsoft Learn (optional) |
+| Plugins | 0–3 | GitHub, Serena, Context7 |
+
+### Installation Modes
+
+| Mode | What it does | For whom |
+|------|-------------|----------|
+| **Standard** | Copies files to `~/.claude/` with content hash tracking | End users |
+| **Dev** | Symlinks to repo for live editing | Exarchos contributors |
+
+Standard mode tracks file hashes in `~/.claude/exarchos.json`. Re-running the installer only updates changed files.
 
 ## Configuration
 
 ### Discovery Order
 
 1. **Project local**: `./.claude/` (highest priority)
-2. **Global**: `~/.claude/` (this repo, via symlinks)
+2. **Global**: `~/.claude/` (installed by Exarchos)
 
 ### Project Overrides
 
@@ -118,53 +198,15 @@ paths: '**/*.ts'
 EOF
 ```
 
-## Jules Integration (Optional)
-
-Delegate tasks to Google's Jules autonomous coding agent.
-
-```bash
-npx -y github:lvlup-sw/lvlup-claude --with-jules
-```
-
-### Setup
-
-1. Get API key: [jules.google/settings](https://jules.google/settings)
-2. Export: `echo 'export JULES_API_KEY="your-key"' >> ~/.zshrc && source ~/.zshrc`
-3. Connect repos: [jules.google](https://jules.google)
-
-### Tools
-
-| Tool | Purpose |
-|------|---------|
-| `jules_create_task` | Delegate coding task |
-| `jules_check_status` | Check progress |
-| `jules_approve_plan` | Approve execution plan |
-| `jules_send_feedback` | Send instructions |
-| `jules_list_sources` | List connected repos |
-| `jules_get_conversation` | Get session history |
-| `jules_get_pending_question` | Check if awaiting input |
-| `jules_cancel` | Cancel task |
-
-Use `/delegate` for workflow integration. Use `jules_*` tools directly for standalone tasks.
-
-## Uninstall
-
-```bash
-npx -y github:lvlup-sw/lvlup-claude --uninstall
-```
-
 ## Troubleshooting
 
-**Commands not available**: Re-run `npx -y github:lvlup-sw/lvlup-claude`
+**Commands not available**: Re-run `npx -y github:lvlup-sw/exarchos`
 
-**Missing MCP servers**: Re-run the installer to get newly added servers.
-
-**Jules not working**:
-1. Check API key: `echo $JULES_API_KEY`
-2. Check MCP config: `jq '.mcpServers.jules' ~/.claude.json`
-3. Restart Claude Code
+**Missing MCP servers**: Re-run the installer — the wizard preserves previous selections.
 
 **Rules not applying**: Check frontmatter `paths` pattern matches your files.
+
+**Installer not interactive**: Ensure you're running in a TTY (not piped). Use `--yes` for CI/scripts.
 
 ## License
 

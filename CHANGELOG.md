@@ -2,6 +2,19 @@
 
 Update sparingly - high signal/impactful changes only.
 
+## 2026-02-09
+
+### Removed Jules MCP Integration
+
+Jules (Google's autonomous coding agent) integration has been removed. It was never used in production and is superseded by the Task tool subagent pattern.
+
+**Removed:**
+- `plugins/jules/` — entire MCP server and plugin directory
+- `julesSessions` field from workflow state schema and initial state
+- `julesSessionId` and `jules` assignee from JSON schema
+- Jules permissions, labels, and auto-triage scope detection
+- Jules references from delegation skill, delegate command, and documentation
+
 ## 2026-01-06
 
 ### Workflow Phase Restructuring

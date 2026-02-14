@@ -1,5 +1,5 @@
 ---
-description: Dispatch tasks to Jules or Claude Code subagents
+description: Dispatch tasks to Claude Code subagents
 ---
 
 # Delegate
@@ -9,14 +9,14 @@ Delegate tasks for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲▲▲▲▲▲▲▲                                            │
-                                    │                                                │
-                      ON FAIL ──────┤                                                │
-                      --pr-fixes ───┴────────────────────────────────────────────────┘
+/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
+                                 ▲▲▲▲▲▲▲▲                                │
+                                    │                                    │
+                      ON FAIL ──────┤                                    │
+                      --pr-fixes ───┴────────────────────────────────────┘
 ```
 
-Auto-invokes `/integrate` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
+Auto-invokes `/review` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
 
 ## Invocation Modes
 
@@ -32,18 +32,9 @@ Auto-invokes `/integrate` after tasks complete (or `/synthesize` for `--pr-fixes
 - Git worktrees: `@skills/git-worktrees/SKILL.md`
 - Implementer template: `@skills/delegation/references/implementer-prompt.md`
 
-## Delegation Modes
+## Delegation Mode
 
-### Mode 1: Jules (Async PRs)
-```typescript
-jules_create_task({
-  repo: "owner/repo",
-  prompt: "[Task + TDD auto-injected]",
-  branch: "feature/task-name"
-})
-```
-
-### Mode 2: Task Tool (Sync)
+### Task Tool (Subagents)
 ```typescript
 Task({
   subagent_type: "general-purpose",
@@ -80,14 +71,10 @@ Use TodoWrite to track all delegated tasks.
 - Use `model: "opus"` for coding
 
 ### Step 5: Monitor
-- Jules: `jules_check_status`
 - Task tool: `TaskOutput`
 
 ### Step 6: Schema Sync (Auto)
-After all tasks complete, auto-detect if API files were modified:
-```bash
-git diff --name-only origin/main...HEAD | grep -E "(Endpoints|Models|Dtos).*\.cs$"
-```
+After all tasks complete, auto-detect if API files were modified using Serena `search_for_pattern` or GitHub MCP tools to check for changes to API-related files (Endpoints, Models, Dtos).
 
 If matches found, run `npm run sync:schemas` and commit generated files.
 
@@ -116,16 +103,21 @@ When invoked with `--pr-fixes [PR_URL]`:
 
 ### Step 1: Fetch All PR Feedback
 
-```bash
-# Extract owner, repo, PR number from URL
-# Get reviews (includes CHANGES_REQUESTED state)
-gh api repos/{owner}/{repo}/pulls/{number}/reviews
+```typescript
+// Extract owner, repo, PR number from URL
+// Get full PR details including reviews and comments
+mcp__plugin_github_github__pull_request_read({
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 
-# Get line-specific comments (contains severity labels)
-gh api repos/{owner}/{repo}/pulls/{number}/comments
-
-# Get general PR comments (pre-merge check summaries)
-gh api repos/{owner}/{repo}/issues/{number}/comments
+// Get issue-level comments (pre-merge check summaries)
+mcp__plugin_github_github__issue_read({
+  owner: "<owner>",
+  repo: "<repo>",
+  issueNumber: <number>
+})
 ```
 
 ### Step 2: Parse CodeRabbit Feedback
@@ -288,25 +280,14 @@ For Task tool:
 TaskOutput({ task_id: "[task-id]", block: true })
 ```
 
-For Jules:
-```typescript
-jules_check_status({ sessionId: "[session-id]" })
-```
-
 Update TodoWrite as each fix completes.
 
 ### Step 9: Push and Report
 
-After all fixes complete:
+After all fixes complete, use Graphite to commit and push:
 ```bash
-git add -A && git commit -m "fix: address PR review feedback
-
-Fixes:
-- P1 Critical: [count] issues
-- P2 Human: [count] items
-- P3 Major: [count] issues
-- P4 Minor: [count] issues"
-git push origin [branch]
+gt modify -m "fix: address PR review feedback"
+gt submit --no-interactive
 ```
 
 Report to user:
@@ -347,11 +328,11 @@ After all delegated tasks complete, **auto-continue immediately** (no user confi
 
 ### For normal delegation and --fixes mode:
 
-1. Update state: `.phase = "integrate"` and mark all tasks complete
-2. Output: "All [N] tasks complete. Auto-continuing to integration..."
+1. Update state: `.phase = "review"` and mark all tasks complete
+2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "integrate", args: "$STATE_FILE" })
+   Skill({ skill: "review", args: "$STATE_FILE" })
    ```
 
 ### For --pr-fixes mode:
