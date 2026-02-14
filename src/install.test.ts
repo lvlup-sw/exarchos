@@ -15,7 +15,7 @@ describe('Project Configuration', () => {
 
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.bin).toBeDefined();
-      expect(pkg.bin['lvlup-claude']).toBe('./dist/install.js');
+      expect(pkg.bin['exarchos']).toBe('./dist/install.js');
     });
 
     it('should be type module', () => {
@@ -29,10 +29,17 @@ describe('Project Configuration', () => {
       expect(pkg.scripts['test:run']).toBeDefined();
     });
 
+    it('packageJson_HasBuildCliScript', () => {
+      const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
+
+      expect(pkg.scripts['build:cli']).toBeDefined();
+      expect(pkg.scripts['build:cli']).toContain('exarchos-cli.js');
+    });
+
     it('should have correct name and version', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
-      expect(pkg.name).toBe('@lvlup-sw/lvlup-claude');
-      expect(pkg.version).toBe('1.0.0');
+      expect(pkg.name).toBe('@lvlup-sw/exarchos');
+      expect(pkg.version).toBe('2.0.0');
     });
   });
 
@@ -146,51 +153,49 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should only add workflow-state server by default (no jules)', async () => {
+  it('should add exarchos, graphite, and microsoft-learn servers', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.jules).toBeUndefined();
-    expect(config.mcpServers['workflow-state']).toBeDefined();
-    expect(config.mcpServers['workflow-state'].type).toBe('stdio');
+    expect(config.mcpServers['exarchos']).toBeDefined();
+    expect(config.mcpServers['exarchos'].type).toBe('stdio');
+    expect(config.mcpServers['microsoft-learn']).toBeDefined();
+    expect(config.mcpServers['microsoft-learn'].type).toBe('http');
   });
 
-  it('should add jules and workflow-state servers when withJules is true', async () => {
-    const { configureMcpServers } = await import('./install.js');
-
-    await configureMcpServers(configPath, repoRoot, { withJules: true });
-
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.jules).toBeDefined();
-    expect(config.mcpServers.jules.type).toBe('stdio');
-    expect(config.mcpServers['workflow-state']).toBeDefined();
-    expect(config.mcpServers['workflow-state'].type).toBe('stdio');
-  });
-
-  it('should configure jules server with correct command and args when withJules is true', async () => {
-    const { configureMcpServers } = await import('./install.js');
-
-    await configureMcpServers(configPath, repoRoot, { withJules: true });
-
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.jules.command).toBe('node');
-    expect(config.mcpServers.jules.args).toContain(
-      join(repoRoot, 'plugins/jules/servers/jules-mcp/dist/index.js')
-    );
-  });
-
-  it('should configure workflow-state server with correct command and args', async () => {
+  it('should configure exarchos server with correct command and args', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['workflow-state'].command).toBe('node');
-    expect(config.mcpServers['workflow-state'].args).toContain(
-      join(repoRoot, 'plugins/workflow-state/servers/workflow-state-mcp/dist/index.js')
+    expect(config.mcpServers['exarchos'].command).toBe('node');
+    expect(config.mcpServers['exarchos'].args).toContain(
+      join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/index.js')
     );
+  });
+
+  it('should add graphite server', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['graphite']).toBeDefined();
+    expect(config.mcpServers['graphite'].type).toBe('stdio');
+    expect(config.mcpServers['graphite'].command).toBe('gt');
+    expect(config.mcpServers['graphite'].args).toEqual(['mcp']);
+  });
+
+  it('should add microsoft-learn server with correct url', async () => {
+    const { configureMcpServers } = await import('./install.js');
+
+    await configureMcpServers(configPath, repoRoot);
+
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['microsoft-learn'].url).toBe('https://learn.microsoft.com/api/mcp');
   });
 
   it('should preserve existing mcpServers when merging', async () => {
@@ -204,23 +209,14 @@ describe('configureMcpServers', () => {
       })
     );
 
-    await configureMcpServers(configPath, repoRoot, { withJules: true });
+    await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers.existingServer).toBeDefined();
     expect(config.mcpServers.existingServer.command).toBe('existing');
-    expect(config.mcpServers.jules).toBeDefined();
-    expect(config.mcpServers['workflow-state']).toBeDefined();
-  });
-
-  it('should not add jules when withJules is false', async () => {
-    const { configureMcpServers } = await import('./install.js');
-
-    await configureMcpServers(configPath, repoRoot, { withJules: false });
-
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.jules).toBeUndefined();
-    expect(config.mcpServers['workflow-state']).toBeDefined();
+    expect(config.mcpServers['exarchos']).toBeDefined();
+    expect(config.mcpServers['graphite']).toBeDefined();
+    expect(config.mcpServers['microsoft-learn']).toBeDefined();
   });
 });
 
@@ -239,21 +235,22 @@ describe('removeMcpConfig', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should remove jules and workflow-state from config', async () => {
+  it('should remove exarchos, graphite, and microsoft-learn from config', async () => {
     const { removeMcpConfig, configureMcpServers } = await import('./install.js');
     await configureMcpServers(configPath, repoRoot);
 
     await removeMcpConfig(configPath);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers.jules).toBeUndefined();
-    expect(config.mcpServers['workflow-state']).toBeUndefined();
+    expect(config.mcpServers['exarchos']).toBeUndefined();
+    expect(config.mcpServers['graphite']).toBeUndefined();
+    expect(config.mcpServers['microsoft-learn']).toBeUndefined();
   });
 
   it('should preserve other config when removing servers', async () => {
     writeFileSync(configPath, JSON.stringify({
       existingKey: 'value',
-      mcpServers: { jules: {}, 'workflow-state': {}, other: {} }
+      mcpServers: { 'exarchos': {}, graphite: {}, other: {} }
     }));
     const { removeMcpConfig } = await import('./install.js');
 
@@ -271,39 +268,68 @@ describe('removeMcpConfig', () => {
 });
 
 describe('parseArgs', () => {
-  it('should return install action with withJules false when no args', async () => {
+  it('parseArgs_NoArgs_ReturnsInstallAction', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs([]);
     expect(result.action).toBe('install');
-    expect(result.withJules).toBe(false);
   });
 
-  it('should return uninstall action with withJules false when --uninstall flag', async () => {
+  it('parseArgs_Uninstall_ReturnsUninstallAction', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['--uninstall']);
     expect(result.action).toBe('uninstall');
-    expect(result.withJules).toBe(false);
   });
 
-  it('should return help action with withJules false when --help flag', async () => {
+  it('parseArgs_Help_ReturnsHelpAction', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['--help']);
     expect(result.action).toBe('help');
-    expect(result.withJules).toBe(false);
   });
 
-  it('should return help action with withJules false when -h flag', async () => {
+  it('parseArgs_ShortHelp_ReturnsHelpAction', async () => {
     const { parseArgs } = await import('./install.js');
     const result = parseArgs(['-h']);
     expect(result.action).toBe('help');
-    expect(result.withJules).toBe(false);
   });
 
-  it('should return withJules true when --with-jules flag', async () => {
+  it('parseArgs_Dev_ReturnsDevMode', async () => {
     const { parseArgs } = await import('./install.js');
-    const result = parseArgs(['--with-jules']);
+    const result = parseArgs(['--dev']);
     expect(result.action).toBe('install');
-    expect(result.withJules).toBe(true);
+    expect(result.mode).toBe('dev');
+  });
+
+  it('parseArgs_Yes_ReturnsNonInteractive', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--yes']);
+    expect(result.nonInteractive).toBe(true);
+  });
+
+  it('parseArgs_Config_ReturnsConfigPath', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--config', '/path/to/config.json']);
+    expect(result.configPath).toBe('/path/to/config.json');
+  });
+
+  it('parseArgs_MultipleFlags_CombinesCorrectly', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--dev', '--yes', '--config', '/tmp/c.json']);
+    expect(result.action).toBe('install');
+    expect(result.mode).toBe('dev');
+    expect(result.nonInteractive).toBe(true);
+    expect(result.configPath).toBe('/tmp/c.json');
+  });
+
+  it('parseArgs_SkipVersionCheck_ReturnsFlagSet', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs(['--skip-version-check']);
+    expect(result.skipVersionCheck).toBe(true);
+  });
+
+  it('parseArgs_NoSkipVersionCheck_FlagUndefined', async () => {
+    const { parseArgs } = await import('./install.js');
+    const result = parseArgs([]);
+    expect(result.skipVersionCheck).toBeUndefined();
   });
 });
 
@@ -323,7 +349,7 @@ describe('Path Utilities', () => {
       const { getRepoRoot } = await import('./install.js');
       const result = getRepoRoot();
       // Should be parent of src directory (where install.ts lives)
-      expect(result).toMatch(/lvlup-claude$/);
+      expect(result).toMatch(/lvlup-claude|exarchos$/);
       expect(result).not.toContain('.worktrees');
     });
   });
@@ -419,17 +445,646 @@ describe('removeSymlink', () => {
   });
 });
 
-describe('install', () => {
-  it('should be exported as a function', async () => {
-    const mod = await import('./install.js');
-    expect(typeof mod.install).toBe('function');
+describe('Install Orchestrator (E3)', () => {
+  let tempDir: string;
+  let claudeHome: string;
+  let fakeRepoRoot: string;
+  let manifestPath: string;
+  let claudeConfigPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'install-orch-test-'));
+    claudeHome = join(tempDir, '.claude');
+    fakeRepoRoot = join(tempDir, 'repo');
+    manifestPath = join(fakeRepoRoot, 'manifest.json');
+    claudeConfigPath = join(tempDir, '.claude.json');
+    mkdirSync(claudeHome, { recursive: true });
+    mkdirSync(fakeRepoRoot, { recursive: true });
+
+    // Create fake repo content directories
+    mkdirSync(join(fakeRepoRoot, 'commands'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'commands', 'ideate.md'), '# Ideate');
+    mkdirSync(join(fakeRepoRoot, 'skills'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'skills', 'brainstorming.md'), '# Brainstorming');
+    mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'scripts', 'run.sh'), '#!/bin/bash');
+    mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards-typescript.md'), '# TS Rules');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd-typescript.md'), '# TDD');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'orchestrator-constraints.md'), '# Orch');
+
+    // Create fake bundle file
+    mkdirSync(join(fakeRepoRoot, 'dist'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'), 'console.log("mcp")');
+
+    // Create manifest
+    const manifest = {
+      version: '2.0.0',
+      components: {
+        core: [
+          { id: 'commands', source: 'commands', target: 'commands', type: 'directory' },
+          { id: 'skills', source: 'skills', target: 'skills', type: 'directory' },
+          { id: 'scripts', source: 'scripts', target: 'scripts', type: 'directory' },
+        ],
+        mcpServers: [
+          {
+            id: 'exarchos', name: 'Exarchos',
+            description: 'Workflow orchestration',
+            required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
+            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+          },
+          {
+            id: 'graphite', name: 'Graphite',
+            description: 'Stacked PRs',
+            required: true, type: 'external',
+            command: 'gt', args: ['mcp'], prerequisite: 'gt',
+          },
+        ],
+        plugins: [
+          { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
+        ],
+        ruleSets: [
+          { id: 'typescript', name: 'TypeScript', description: 'TS rules', files: ['coding-standards-typescript.md', 'tdd-typescript.md'], default: true },
+          { id: 'workflow', name: 'Workflow', description: 'Workflow rules', files: ['orchestrator-constraints.md'], default: true },
+        ],
+      },
+      defaults: { model: 'claude-opus-4-6', mode: 'standard' },
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('install_StandardMode_CopiesAllCoreComponents', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Mock wizard responses: mode, servers, plugins, ruleSets, confirm
+    const prompts = new MockPromptAdapter([
+      'standard',           // mode
+      [],                   // optional servers (none)
+      ['github@claude-plugins-official'], // plugins
+      ['typescript', 'workflow'],         // ruleSets
+      true,                // confirm
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // All core directories should be copied
+    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'skills', 'brainstorming.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'scripts', 'run.sh'))).toBe(true);
+  });
+
+  it('install_StandardMode_CopiesSelectedRuleSets', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], // only typescript selected
+      true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // TypeScript rules should be copied
+    expect(existsSync(join(claudeHome, 'rules', 'coding-standards-typescript.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'rules', 'tdd-typescript.md'))).toBe(true);
+    // Workflow rules should NOT be copied (not selected)
+    expect(existsSync(join(claudeHome, 'rules', 'orchestrator-constraints.md'))).toBe(false);
+  });
+
+  it('install_StandardMode_InstallsMcpBundle', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // Bundle should be installed
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(true);
+  });
+
+  it('install_StandardMode_ThrowsOnMissingBundle', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Remove the fake bundle file
+    rmSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await expect(install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    })).rejects.toThrow(/bundle not found/i);
+  });
+
+  it('install_StandardMode_GeneratesSettings', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const settingsPath = join(claudeHome, 'settings.json');
+    expect(existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    expect(settings.permissions).toBeDefined();
+    expect(settings.model).toBe('claude-opus-4-6');
+    expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
+  });
+
+  it('install_StandardMode_MergesMcpConfig', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Pre-existing config with user server
+    writeFileSync(claudeConfigPath, JSON.stringify({
+      mcpServers: { 'user-server': { type: 'stdio', command: 'myserver' } },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
+    expect(config.mcpServers['exarchos']).toBeDefined();
+    expect(config.mcpServers['graphite']).toBeDefined();
+    // User server preserved
+    expect(config.mcpServers['user-server']).toBeDefined();
+  });
+
+  it('install_StandardMode_WritesExarchosConfig', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const configPath = join(claudeHome, 'exarchos.json');
+    expect(existsSync(configPath)).toBe(true);
+    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(config.mode).toBe('standard');
+    expect(config.version).toBe('2.0.0');
+    expect(config.selections).toBeDefined();
+  });
+
+  it('install_DevMode_CreatesSymlinks', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // Core dirs should be symlinks, not copies
+    expect(lstatSync(join(claudeHome, 'commands')).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(claudeHome, 'skills')).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(claudeHome, 'scripts')).isSymbolicLink()).toBe(true);
+  });
+
+  it('install_DevMode_PointsMcpToRepo', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
+    // In dev mode, exarchos MCP should point to repo's devEntryPoint path
+    const exarchosEntry = config.mcpServers['exarchos'];
+    expect(exarchosEntry).toBeDefined();
+    const argsJoined = exarchosEntry.args.join(' ');
+    expect(argsJoined).toContain(fakeRepoRoot);
+    expect(argsJoined).toContain('plugins/exarchos/servers/exarchos-mcp/dist/index.js');
+  });
+
+  it('install_DevMode_RecordsRepoPath', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const exarchosConfig = JSON.parse(readFileSync(join(claudeHome, 'exarchos.json'), 'utf-8'));
+    expect(exarchosConfig.mode).toBe('dev');
+    expect(exarchosConfig.repoPath).toBe(fakeRepoRoot);
+  });
+
+  it('install_ReInstall_SkipsUnchangedFiles', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // First install
+    const prompts1 = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts: prompts1,
+      args: { action: 'install' },
+    });
+
+    // Second install (reinstall) — should work without errors
+    const prompts2 = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts: prompts2,
+      args: { action: 'install' },
+    });
+
+    // Files should still exist
+    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(true);
+  });
+
+  it('install_V1Migration_MigratesFirst', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create v1 symlinks
+    symlinkSync(join(fakeRepoRoot, 'skills'), join(claudeHome, 'skills'));
+    symlinkSync(join(fakeRepoRoot, 'commands'), join(claudeHome, 'commands'));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // After install, should have real copies, not symlinks
+    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'skills', 'brainstorming.md'))).toBe(true);
+    // In standard mode the dirs should NOT be symlinks
+    expect(lstatSync(join(claudeHome, 'commands')).isSymbolicLink()).toBe(false);
+  });
+
+  it('install_NonInteractive_UsesDefaults', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    const prompts = new MockPromptAdapter([]); // No responses needed
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install', nonInteractive: true },
+    });
+
+    // Should still install with defaults
+    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(true);
   });
 });
 
-describe('uninstall', () => {
-  it('should be exported as a function', async () => {
-    const mod = await import('./install.js');
-    expect(typeof mod.uninstall).toBe('function');
+describe('Uninstall Orchestrator (E4)', () => {
+  let tempDir: string;
+  let claudeHome: string;
+  let fakeRepoRoot: string;
+  let claudeConfigPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'uninstall-test-'));
+    claudeHome = join(tempDir, '.claude');
+    fakeRepoRoot = join(tempDir, 'repo');
+    claudeConfigPath = join(tempDir, '.claude.json');
+    mkdirSync(claudeHome, { recursive: true });
+    mkdirSync(fakeRepoRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('uninstall_WithConfig_RemovesCopiedContent', async () => {
+    const { uninstall } = await import('./install.js');
+
+    // Setup installed state
+    mkdirSync(join(claudeHome, 'commands'), { recursive: true });
+    writeFileSync(join(claudeHome, 'commands', 'ideate.md'), '# Ideate');
+    mkdirSync(join(claudeHome, 'skills'), { recursive: true });
+    writeFileSync(join(claudeHome, 'skills', 'test.md'), '# Test');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: ['github@claude-plugins-official'],
+        ruleSets: ['typescript'],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'commands'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'skills'))).toBe(false);
+  });
+
+  it('uninstall_WithConfig_RemovesMcpBundle', async () => {
+    const { uninstall } = await import('./install.js');
+
+    mkdirSync(join(claudeHome, 'mcp-servers'), { recursive: true });
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'), 'mcp code');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(false);
+  });
+
+  it('uninstall_WithConfig_CleansMcpConfig', async () => {
+    const { uninstall } = await import('./install.js');
+
+    writeFileSync(claudeConfigPath, JSON.stringify({
+      mcpServers: {
+        exarchos: { type: 'stdio', command: 'bun' },
+        graphite: { type: 'stdio', command: 'gt' },
+        'user-server': { type: 'stdio', command: 'myserver' },
+      },
+    }));
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    const mcpConfig = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
+    expect(mcpConfig.mcpServers['exarchos']).toBeUndefined();
+    expect(mcpConfig.mcpServers['graphite']).toBeUndefined();
+    // User server preserved
+    expect(mcpConfig.mcpServers['user-server']).toBeDefined();
+  });
+
+  it('uninstall_WithConfig_RemovesExarchosConfig', async () => {
+    const { uninstall } = await import('./install.js');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(false);
+  });
+
+  it('uninstall_PreservesUserFiles_InClaudeDir', async () => {
+    const { uninstall } = await import('./install.js');
+
+    // Create user files
+    mkdirSync(join(claudeHome, 'projects'), { recursive: true });
+    writeFileSync(join(claudeHome, 'projects', 'my-project.json'), '{}');
+    writeFileSync(join(claudeHome, 'my-notes.txt'), 'notes');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: [],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    // User files preserved
+    expect(existsSync(join(claudeHome, 'projects', 'my-project.json'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'my-notes.txt'))).toBe(true);
+  });
+
+  it('uninstall_NoConfig_GracefulError', async () => {
+    const { uninstall } = await import('./install.js');
+
+    // No exarchos.json exists
+    await expect(
+      uninstall({ claudeHome, claudeConfigPath }),
+    ).resolves.not.toThrow();
+  });
+
+  it('uninstall_WithConfig_RemovesCliBundleToo', async () => {
+    const { uninstall } = await import('./install.js');
+
+    mkdirSync(join(claudeHome, 'mcp-servers'), { recursive: true });
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'), 'mcp code');
+    writeFileSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'), 'cli code');
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'standard' as const,
+      selections: {
+        mcpServers: ['exarchos', 'graphite'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(false);
+  });
+
+  it('uninstall_DevMode_RemovesSymlinks', async () => {
+    const { uninstall } = await import('./install.js');
+
+    // Create dev-mode symlinks
+    mkdirSync(join(fakeRepoRoot, 'commands'), { recursive: true });
+    mkdirSync(join(fakeRepoRoot, 'skills'), { recursive: true });
+    mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
+    symlinkSync(join(fakeRepoRoot, 'commands'), join(claudeHome, 'commands'));
+    symlinkSync(join(fakeRepoRoot, 'skills'), join(claudeHome, 'skills'));
+    symlinkSync(join(fakeRepoRoot, 'scripts'), join(claudeHome, 'scripts'));
+
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'dev' as const,
+      repoPath: fakeRepoRoot,
+      selections: {
+        mcpServers: ['exarchos'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    await uninstall({ claudeHome, claudeConfigPath });
+
+    expect(existsSync(join(claudeHome, 'commands'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'skills'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'scripts'))).toBe(false);
   });
 });
 
@@ -444,5 +1099,289 @@ describe('printHelp', () => {
   it('should be exported as a function', async () => {
     const mod = await import('./install.js');
     expect(typeof mod.printHelp).toBe('function');
+  });
+});
+
+describe('hooks.json', () => {
+  const hooksPath = join(repoRoot, 'hooks.json');
+
+  it('hooksJson_IsValidJson', () => {
+    expect(existsSync(hooksPath)).toBe(true);
+    const content = readFileSync(hooksPath, 'utf-8');
+    expect(() => JSON.parse(content)).not.toThrow();
+  });
+
+  it('hooksJson_HasSixHookEvents', () => {
+    const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    const eventTypes = Object.keys(hooks.hooks);
+    expect(eventTypes).toContain('PreCompact');
+    expect(eventTypes).toContain('SessionStart');
+    expect(eventTypes).toContain('PreToolUse');
+    expect(eventTypes).toContain('TaskCompleted');
+    expect(eventTypes).toContain('TeammateIdle');
+    expect(eventTypes).toContain('SubagentStart');
+    expect(eventTypes).toHaveLength(6);
+  });
+
+  it('hooksJson_AllCommandsReferenceCliPath', () => {
+    const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    for (const [eventType, entries] of Object.entries(hooks.hooks)) {
+      for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
+        for (const hook of entry.hooks) {
+          expect(hook.command, `${eventType} hook command should reference {{CLI_PATH}}`).toContain('{{CLI_PATH}}');
+        }
+      }
+    }
+  });
+
+  it('hooksJson_AllCommands_UseCliPathPlaceholder', () => {
+    const hooksContent = readFileSync(hooksPath, 'utf-8');
+
+    // Should use placeholder
+    expect(hooksContent).toContain('{{CLI_PATH}}');
+    // Should NOT contain old hardcoded path
+    expect(hooksContent).not.toContain('${CLAUDE_PLUGIN_ROOT}');
+  });
+});
+
+describe('resolveHooks', () => {
+  let tempDir: string;
+  let fakeRepoRoot: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'hooks-test-'));
+    fakeRepoRoot = join(tempDir, 'repo');
+    mkdirSync(fakeRepoRoot, { recursive: true });
+
+    // Create a hooks.json with placeholder
+    const hooksTemplate = {
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+        SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" session-start' }] }],
+      },
+    };
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify(hooksTemplate, null, 2));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('resolveHooks_MalformedJson_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), '{ not valid json!!!');
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/Failed to parse hooks file/);
+  });
+
+  it('resolveHooks_MissingHooksKey_ThrowsDescriptiveError', async () => {
+    const { resolveHooks } = await import('./install.js');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({ notHooks: {} }));
+
+    expect(() => resolveHooks(join(fakeRepoRoot, 'hooks.json'), '/some/path'))
+      .toThrow(/missing 'hooks' key/);
+  });
+
+  it('resolveHooks_WithCliPath_ReplacesPlaceholder', async () => {
+    const { resolveHooks } = await import('./install.js');
+    const cliPath = '/home/user/.claude/mcp-servers/exarchos-cli.js';
+
+    const result = resolveHooks(join(fakeRepoRoot, 'hooks.json'), cliPath);
+
+    // Verify placeholder was replaced
+    const preCompactCmd = (result.PreCompact[0] as { hooks: { command: string }[] }).hooks[0].command;
+    expect(preCompactCmd).toContain(cliPath);
+    expect(preCompactCmd).not.toContain('{{CLI_PATH}}');
+
+    const sessionStartCmd = (result.SessionStart[0] as { hooks: { command: string }[] }).hooks[0].command;
+    expect(sessionStartCmd).toContain(cliPath);
+    expect(sessionStartCmd).not.toContain('{{CLI_PATH}}');
+  });
+});
+
+describe('Install Orchestrator - Hooks Integration', () => {
+  let tempDir: string;
+  let claudeHome: string;
+  let fakeRepoRoot: string;
+  let manifestPath: string;
+  let claudeConfigPath: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'hooks-install-test-'));
+    claudeHome = join(tempDir, '.claude');
+    fakeRepoRoot = join(tempDir, 'repo');
+    manifestPath = join(fakeRepoRoot, 'manifest.json');
+    claudeConfigPath = join(tempDir, '.claude.json');
+    mkdirSync(claudeHome, { recursive: true });
+    mkdirSync(fakeRepoRoot, { recursive: true });
+
+    // Create fake repo content directories
+    mkdirSync(join(fakeRepoRoot, 'commands'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'commands', 'ideate.md'), '# Ideate');
+    mkdirSync(join(fakeRepoRoot, 'skills'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'skills', 'brainstorming.md'), '# Brainstorming');
+    mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'scripts', 'run.sh'), '#!/bin/bash');
+    mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards-typescript.md'), '# TS Rules');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd-typescript.md'), '# TDD');
+
+    // Create fake bundle file
+    mkdirSync(join(fakeRepoRoot, 'dist'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'), 'console.log("mcp")');
+
+    // Create manifest (with cliBundlePath)
+    const manifest = {
+      version: '2.0.0',
+      components: {
+        core: [
+          { id: 'commands', source: 'commands', target: 'commands', type: 'directory' },
+          { id: 'skills', source: 'skills', target: 'skills', type: 'directory' },
+          { id: 'scripts', source: 'scripts', target: 'scripts', type: 'directory' },
+        ],
+        mcpServers: [
+          {
+            id: 'exarchos', name: 'Exarchos',
+            description: 'Workflow orchestration',
+            required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
+            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+            cliBundlePath: 'dist/exarchos-cli.js',
+          },
+          {
+            id: 'graphite', name: 'Graphite',
+            description: 'Stacked PRs',
+            required: true, type: 'external',
+            command: 'gt', args: ['mcp'], prerequisite: 'gt',
+          },
+        ],
+        plugins: [
+          { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
+        ],
+        ruleSets: [
+          { id: 'typescript', name: 'TypeScript', description: 'TS rules', files: ['coding-standards-typescript.md', 'tdd-typescript.md'], default: true },
+        ],
+      },
+      defaults: { model: 'claude-opus-4-6', mode: 'standard' },
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('install_StandardMode_InstallsCliBundleWhenCliBundlePath', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create CLI bundle
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
+
+    // Create hooks.json with placeholder
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    // CLI bundle should be installed alongside MCP bundle
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(true);
+  });
+
+  it('install_StandardMode_SettingsContainsHooksWithBundlePaths', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create CLI bundle and hooks.json
+    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'standard', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
+    expect(settings.hooks).toBeDefined();
+    expect(settings.hooks.PreCompact).toBeDefined();
+    // The CLI path should be the installed bundle path
+    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
+    expect(cmd).toContain(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'));
+    expect(cmd).not.toContain('{{CLI_PATH}}');
+  });
+
+  it('install_DevMode_SettingsContainsHooksWithRepoPaths', async () => {
+    const { install } = await import('./install.js');
+    const { MockPromptAdapter } = await import('./wizard/prompts.js');
+
+    // Create hooks.json in fake repo
+    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+      hooks: {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
+      },
+    }));
+
+    const prompts = new MockPromptAdapter([
+      'dev', ['github@claude-plugins-official'],
+      ['typescript'], true,
+    ]);
+
+    await install({
+      claudeHome,
+      repoRoot: fakeRepoRoot,
+      manifestPath,
+      claudeConfigPath,
+      prompts,
+      args: { action: 'install' },
+    });
+
+    const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
+    expect(settings.hooks).toBeDefined();
+    expect(settings.hooks.PreCompact).toBeDefined();
+    // Dev mode should use repo path
+    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
+    expect(cmd).toContain(fakeRepoRoot);
+    expect(cmd).toContain('plugins/exarchos/servers/exarchos-mcp/dist/cli.js');
+    expect(cmd).not.toContain('{{CLI_PATH}}');
+  });
+});
+
+describe('manifest.json workflow ruleset', () => {
+  it('manifest_WorkflowRuleSet_ExcludesAutoResume', () => {
+    const manifestPath = join(repoRoot, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    const workflowRuleSet = manifest.components.ruleSets.find(
+      (rs: { id: string }) => rs.id === 'workflow',
+    );
+    expect(workflowRuleSet).toBeDefined();
+    expect(workflowRuleSet.files).not.toContain('workflow-auto-resume.md');
   });
 });

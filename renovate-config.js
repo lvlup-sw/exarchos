@@ -6,13 +6,13 @@ module.exports = {
 
   // Target repositories
   repositories: [
-    'lvlup-sw/lvlup-claude',
+    'lvlup-sw/exarchos',
     'lvlup-sw/agentic-engine'
   ],
 
   // Extend the shared base config (schedule, automerge, rate limits)
   extends: [
-    'github>lvlup-sw/lvlup-claude//renovate-config/renovate.json'
+    'github>lvlup-sw/exarchos//renovate-config/renovate.json'
   ],
 
   // Use different branch prefix to avoid conflicts with Mend app

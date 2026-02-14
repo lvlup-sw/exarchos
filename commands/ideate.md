@@ -11,12 +11,12 @@ Begin brainstorming session for: "$ARGUMENTS"
 This command is the **entry point** of the development workflow:
 
 ```
-/ideate → /plan → [CONFIRM] → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-           (auto)      ↑         (auto)      (auto)      (auto)     (auto)           │
-                       │                       ▲                                     │
-                       │   ON FAIL ────────────┤                                     │
-                       │   --pr-fixes ─────────┴─────────────────────────────────────┘
-                       └──────────── ON BLOCKED ─────────────────────────────────────┘
+/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
+  ▲▲▲▲     (auto)      ↑         (auto)    (auto)     (auto)           │
+                        │                     ▲                         │
+                        │   ON FAIL ──────────┤                         │
+                        │   --pr-fixes ───────┴─────────────────────────┘
+                        └──────────── ON BLOCKED ───────────────────────┘
 ```
 
 **Confirmation points:**
@@ -52,9 +52,9 @@ After user selects approach:
 
 ## State Management
 
-Initialize workflow state at the start using `mcp__workflow-state__workflow_init` with the featureId.
+Initialize workflow state at the start using `mcp__exarchos__exarchos_workflow` with `action: "init"` and the featureId.
 
-After saving design, update state using `mcp__workflow-state__workflow_set`:
+After saving design, update state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Set `artifacts.design` to the design path
 - Set `phase` to "plan"
 
@@ -66,7 +66,7 @@ Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$
 
 After saving the design document, **auto-continue to planning** (no user confirmation here):
 
-1. Update state with design path and phase using `mcp__workflow-state__workflow_set`:
+1. Update state with design path and phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
    - Set `artifacts.design` to the design document path
    - Set `phase` to "plan"
 

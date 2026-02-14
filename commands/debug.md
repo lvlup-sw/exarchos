@@ -65,11 +65,11 @@ Switch from hotfix to thorough track during investigation.
 
 ### Step 1: Initialize State
 
-Initialize workflow state using `mcp__workflow-state__workflow_init`:
+Initialize workflow state using `mcp__exarchos__exarchos_workflow` with `action: "init"`:
 - Set `featureId` to `debug-<issue-slug>`
 - Set `workflowType` to "debug"
 
-Then update the track using `mcp__workflow-state__workflow_set`:
+Then update the track using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 - Set `track` to "hotfix" or "thorough" based on triage
 
 ### Step 2: Triage

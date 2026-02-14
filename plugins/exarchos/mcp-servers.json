@@ -1,0 +1,8 @@
+{
+  "exarchos": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/servers/exarchos-mcp/dist/index.js"],
+    "env": { "WORKFLOW_STATE_DIR": "${WORKFLOW_STATE_DIR}" }
+  }
+}

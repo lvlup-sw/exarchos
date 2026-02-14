@@ -27,10 +27,6 @@
   color: "c5def5"
   description: "Workflow commands (/ideate, /plan, etc.)"
 
-- name: "scope:jules"
-  color: "bfdadc"
-  description: "Jules MCP integration"
-
 - name: "scope:templates"
   color: "d4c5f9"
   description: "CI/CD, Renovate, azd templates"

@@ -22,9 +22,7 @@ Use `/checkpoint` when:
 
 ### Step 1: Identify Active Workflow
 
-Find the current state file using `mcp__workflow-state__workflow_list` (no parameters required).
-
-Or if you know the feature, check the state directory:
+The SessionStart hook automatically discovers active workflows on session start. If you need to locate the state file manually, check the state directory:
 
 ```bash
 ls docs/workflow-state/*.state.json
@@ -40,8 +38,7 @@ Update state file with latest progress:
 
 ### Step 3: Reconcile State
 
-Verify state matches reality using `mcp__workflow-state__workflow_reconcile`:
-- Set `featureId` to the feature identifier
+The SessionStart hook automatically verifies state matches git reality on resume. If manual reconciliation is needed, review state file contents against actual worktree and branch state.
 
 Fix any discrepancies.
 

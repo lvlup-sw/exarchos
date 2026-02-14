@@ -2,7 +2,7 @@
 
 ## Summary
 
-When using `mcp__workflow-state__workflow_set` with an `updates` object that sets a nested key inside `artifacts`, the entire `artifacts` object is replaced rather than merged. This causes sibling keys to be lost.
+When using `mcp__exarchos__exarchos_workflow_set` with an `updates` object that sets a nested key inside `artifacts`, the entire `artifacts` object is replaced rather than merged. This causes sibling keys to be lost.
 
 ## Reproduction
 
@@ -10,13 +10,13 @@ When using `mcp__workflow-state__workflow_set` with an `updates` object that set
 
 1. Initialize a workflow:
    ```
-   mcp__workflow-state__workflow_init({ featureId: "test", workflowType: "feature" })
+   mcp__exarchos__exarchos_workflow_init({ featureId: "test", workflowType: "feature" })
    ```
    State has: `artifacts: { design: null, plan: null, pr: null }`
 
 2. Set the design artifact:
    ```
-   mcp__workflow-state__workflow_set({
+   mcp__exarchos__exarchos_workflow_set({
      featureId: "test",
      updates: { artifacts: { design: "docs/designs/foo.md" } }
    })
@@ -25,7 +25,7 @@ When using `mcp__workflow-state__workflow_set` with an `updates` object that set
 
 3. Attempt to transition phase:
    ```
-   mcp__workflow-state__workflow_set({
+   mcp__exarchos__exarchos_workflow_set({
      featureId: "test",
      phase: "plan"
    })

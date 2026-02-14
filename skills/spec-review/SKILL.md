@@ -30,30 +30,30 @@ The subagent:
 
 ### Context-Efficient Input
 
-Instead of per-worktree diffs, receive the integrated diff:
+Instead of per-worktree diffs, receive a combined diff:
 
 ```bash
-# Generate diff for review (integrated branch vs main)
-git diff main...feature/integration-<feature> > /tmp/integrated-diff.patch
+# Generate diff for review (feature branch vs main)
+git diff main...HEAD > /tmp/combined-diff.patch
 
-# Alternative: use review-diff script with integration branch
-~/.claude/scripts/review-diff.sh feature/integration-<feature> main
+# Alternative: use review-diff script
+~/.claude/scripts/review-diff.sh HEAD main
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
 
 ## Review Scope
 
-### Review Scope: Integrated Changes
+### Review Scope: Combined Changes
 
-After the integration phase passes, spec review examines:
-- The **complete integrated diff** (main...feature/integration-branch)
+After delegation completes, spec review examines:
+- The **complete combined diff** (main...feature-branch)
 - All changes across all tasks in one view
 - The full picture of combined functionality
 
 This enables catching:
 - Cross-task interface mismatches
-- Integration bugs not visible in isolation
+- Bugs not visible in isolation
 - Combined behavior vs specification
 
 **Spec Review focuses on:**
@@ -234,21 +234,21 @@ Task({
 
 ## State Management
 
-Update workflow state with review results using `mcp__workflow-state__workflow_set`.
+Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`.
 
 ### On Review Complete
 
 ```text
 # Update task review status - for pass
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.specReview": "pass" }
 
 # Or if failed:
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "tasks[id=<task-id>].reviewStatus.specReview": "fail" }
 
 # Add review details
-Use mcp__workflow-state__workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "reviews.<task-id>.specReview": {"status": "pass", "issues": []}
   }

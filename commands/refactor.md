@@ -63,7 +63,7 @@ Switch from polish to overhaul if scope expands.
 
 ### Step 1: Initialize State
 
-Initialize workflow state using `mcp__workflow-state__workflow_init` with featureId `refactor-<slug>` and workflowType `refactor`.
+Initialize workflow state using `mcp__exarchos__exarchos_workflow` with `action: "init"`, featureId `refactor-<slug>`, and workflowType `refactor`.
 
 ### Step 2: Explore
 
@@ -89,7 +89,6 @@ Select track based on scope assessment.
 - Brief (detailed goals and approach)
 - Plan (extract tasks via `/plan`)
 - Delegate (TDD in worktrees via `/delegate`)
-- Integrate (merge worktrees via `/integrate`)
 - Review (quality review via `/review`)
 - Update docs
 - Synthesize (PR via `/synthesize`)
@@ -127,8 +126,8 @@ explore → brief → implement → validate → update-docs → [HUMAN: complet
 
 **Overhaul:**
 ```
-explore → brief → plan → delegate → integrate → review → update-docs → synthesize → [HUMAN: merge]
-          (auto)  (auto)  (auto)     (auto)      (auto)   (auto)        (auto)
+explore → brief → plan → delegate → review → update-docs → synthesize → [HUMAN: merge]
+          (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
 ```
 
 ## Resume Support

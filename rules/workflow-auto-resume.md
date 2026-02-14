@@ -8,7 +8,7 @@ This rule ensures autonomous workflow continuation after context compaction.
 
 ## Session Start Detection
 
-At the START of every session, BEFORE responding to any user request, silently check for active workflows using `mcp__workflow-state__workflow_list`.
+At the START of every session, the **SessionStart hook** automatically detects active workflows, restores context, and verifies state matches git reality. This replaces the former manual session-start calls (`workflow_list`, `workflow_summary`, `workflow_reconcile`). After initial discovery, `workflow_next_action` continues to drive auto-continuation between phases during the session.
 
 If an active (non-completed) workflow exists, auto-restore and continue.
 
@@ -16,32 +16,30 @@ If an active (non-completed) workflow exists, auto-restore and continue.
 
 ### Step 1: Detect Active Workflow
 
-Use `mcp__workflow-state__workflow_list` to find state files with phase != "completed".
+The SessionStart hook discovers active workflow state files with phase != "completed".
 
 ### Step 2: Restore Context
 
-If active workflow found, use:
-- `mcp__workflow-state__workflow_summary` with the featureId
-- `mcp__workflow-state__workflow_next_action` with the featureId
+If active workflow found, the SessionStart hook:
+- Provides workflow context (phase, tasks, artifacts)
+- Verifies state matches git reality (worktrees, branches)
 
-Display a brief context restoration message.
+A brief context restoration message is displayed.
 
 ### Step 3: Determine Next Action
 
-The `mcp__workflow-state__workflow_next_action` tool returns one of:
+The SessionStart hook returns one of:
 
 #### Feature Workflow Actions
 
 | Response | Meaning | Action |
 |----------|---------|--------|
-| `AUTO:plan:<design-path>` | Auto-continue to plan | Invoke `/plan` |
-| `AUTO:plan:--revise <design-path>` | Plan has gaps, revise | Invoke `/plan --revise` with gap context |
-| `AUTO:plan-review:<plan-path>` | Auto-continue to plan review | Run plan-design delta analysis |
-| `AUTO:delegate:<path>` | Auto-continue to delegate | Invoke `/delegate` |
-| `AUTO:integrate:<state>` | Auto-continue to integrate | Invoke `/integrate` |
-| `AUTO:review:<path>` | Auto-continue to review | Invoke `/review` |
-| `AUTO:synthesize:<feature>` | Auto-continue to synthesize | Invoke `/synthesize` |
-| `AUTO:delegate:--fixes <path>` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
+| `AUTO:plan` | Auto-continue to plan | Invoke `/plan` |
+| `AUTO:plan-review` | Auto-continue to plan review | Run plan-design delta analysis |
+| `AUTO:delegate` | Auto-continue to delegate | Invoke `/delegate` |
+| `AUTO:review` | Auto-continue to review | Invoke `/review` |
+| `AUTO:synthesize` | Auto-continue to synthesize | Invoke `/synthesize` |
+| `AUTO:delegate:--fixes` | Auto-continue fix cycle | Invoke `/delegate --fixes` |
 
 #### Debug Workflow Actions
 
@@ -59,16 +57,14 @@ The `mcp__workflow-state__workflow_next_action` tool returns one of:
 
 | Response | Meaning | Action |
 |----------|---------|--------|
-| `AUTO:refactor-explore` | Continue exploration | Resume scope assessment |
-| `AUTO:refactor-brief` | Capture brief | Continue brief phase |
-| `AUTO:refactor-implement` | Polish track implement | Continue direct implementation |
-| `AUTO:refactor-validate` | Polish track validate | Run validation checks |
-| `AUTO:refactor-update-docs` | Update documentation | Continue doc updates |
-| `AUTO:refactor-plan` | Overhaul track plan | Invoke `/plan` |
-| `AUTO:refactor-delegate` | Overhaul track delegate | Invoke `/delegate` |
-| `AUTO:refactor-integrate` | Overhaul track integrate | Invoke `/integrate` |
-| `AUTO:refactor-review` | Overhaul track review | Invoke `/review` |
-| `AUTO:refactor-synthesize` | Overhaul track synthesize | Invoke `/synthesize` |
+| `AUTO:refactor-brief` | Explore complete, proceed to brief | Continue to brief phase |
+| `AUTO:polish-implement` | Brief complete (polish track) | Continue direct implementation |
+| `AUTO:overhaul-plan` | Brief complete (overhaul track) | Invoke `/plan` |
+| `AUTO:refactor-validate` | Polish implement complete | Run validation checks |
+| `AUTO:refactor-update-docs` | Validation passed or overhaul review passed | Continue doc updates |
+| `AUTO:refactor-delegate` | Overhaul plan complete | Invoke `/delegate` |
+| `AUTO:refactor-review` | Overhaul delegate complete | Invoke `/review` |
+| `AUTO:refactor-synthesize` | Overhaul update-docs complete | Invoke `/synthesize` |
 
 #### Wait/Done States
 
@@ -76,6 +72,7 @@ The `mcp__workflow-state__workflow_next_action` tool returns one of:
 |----------|---------|--------|
 | `WAIT:human-checkpoint:*` | Human input required | Display status, wait |
 | `WAIT:in-progress:*` | Work in progress | Check task status, continue |
+| `BLOCKED:circuit-open:<compoundId>` | Fix cycle limit reached | Display error, escalate to user |
 | `DONE` | Workflow complete | No action needed |
 
 ### Step 4: Execute Auto-Continue
@@ -103,9 +100,7 @@ All other phases auto-continue:
 - `plan` (plan saved) → auto-chains to plan-review (delta analysis)
 - `plan-review` (gaps found) → auto-chains to `/plan --revise`
 - `plan-review` (approved) → auto-chains to `/delegate`
-- `delegate` (all tasks complete) → auto-chains to `/integrate`
-- `integrate` (passed) → auto-chains to `/review`
-- `integrate` (failed) → auto-chains to `/delegate --fixes`
+- `delegate` (all tasks complete) → auto-chains to `/review`
 - `review` (all passed) → auto-chains to `/synthesize`
 - `review` (failed) → auto-chains to `/delegate --fixes`
 
@@ -182,9 +177,7 @@ All refactor phases auto-continue:
 - `explore` → auto-chains to `brief`
 - `brief` → auto-chains to `plan`
 - `plan` → auto-chains to `delegate`
-- `delegate` (all tasks complete) → auto-chains to `integrate`
-- `integrate` (passed) → auto-chains to `review`
-- `integrate` (failed) → auto-chains to `delegate --fixes`
+- `delegate` (all tasks complete) → auto-chains to `review`
 - `review` (all passed) → auto-chains to `update-docs`
 - `review` (failed) → auto-chains to `delegate --fixes`
 - `update-docs` → auto-chains to `synthesize`
@@ -216,12 +209,7 @@ Claude: Detecting active workflow...
         [Dispatches remaining 2 tasks]
         [Updates state on completion]
 
-        All 5 tasks complete. Auto-continuing to integration...
-
-        [Invokes /integrate automatically]
-        [Integration passes]
-
-        Auto-continuing to review...
+        All 5 tasks complete. Auto-continuing to review...
 
         [Invokes /review automatically]
 ```

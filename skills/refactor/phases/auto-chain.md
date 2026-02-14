@@ -32,28 +32,28 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 
 ### Polish Auto-Chain Commands
 
-After each phase, use `mcp__workflow-state__workflow_next_action` with the featureId to determine the next action:
+After each phase, use the SessionStart hook with the featureId to determine the next action:
 
 ```text
 # After explore
-Use mcp__workflow-state__workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-brief
 
 # After brief
-Use mcp__workflow-state__workflow_next_action with the featureId.
-Returns: AUTO:refactor-implement
+The SessionStart hook determines the next action automatically.
+Returns: AUTO:polish-implement
 
 # After implement
-Use mcp__workflow-state__workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-validate
 
 # After validate (passed)
-Use mcp__workflow-state__workflow_next_action with the featureId.
+The SessionStart hook determines the next action automatically.
 Returns: AUTO:refactor-update-docs
 
 # After update-docs
-Use mcp__workflow-state__workflow_next_action with the featureId.
-Returns: WAIT:human-checkpoint:polish-complete
+The SessionStart hook determines the next action automatically.
+Returns: WAIT:human-checkpoint:polish-update-docs
 ```
 
 ### Polish Checkpoint
@@ -81,7 +81,7 @@ Ready to commit changes. Approve to commit, or request modifications.
 ## Overhaul Track Auto-Chain
 
 ```text
-explore → brief → plan → delegate → integrate → review → update-docs → synthesize → CHECKPOINT
+explore → brief → plan → delegate → review → update-docs → synthesize → CHECKPOINT
                                         ↑                    │
                                         └─── fixes ──────────┘ (if review fails)
 ```
@@ -93,8 +93,7 @@ explore → brief → plan → delegate → integrate → review → update-docs
 | explore | brief | Scope assessed | Yes |
 | brief | plan | Brief captured | Yes |
 | plan | delegate | Plan created | Yes |
-| delegate | integrate | All tasks complete | Yes |
-| integrate | review | Integration passes | Yes |
+| delegate | review | All tasks complete | Yes |
 | review (pass) | update-docs | Review approved | Yes |
 | review (fail) | delegate | Fix tasks dispatched | Yes (loop) |
 | update-docs | synthesize | Docs updated | Yes |
@@ -102,22 +101,19 @@ explore → brief → plan → delegate → integrate → review → update-docs
 
 ### Overhaul Auto-Chain Commands
 
-Use `mcp__workflow-state__workflow_next_action` with the featureId after each phase:
+Use the SessionStart hook with the featureId after each phase:
 
 ```text
 # After explore
 Returns: AUTO:refactor-brief
 
 # After brief
-Returns: AUTO:refactor-plan
+Returns: AUTO:overhaul-plan
 
 # After plan
 Returns: AUTO:refactor-delegate
 
 # After delegate
-Returns: AUTO:refactor-integrate
-
-# After integrate
 Returns: AUTO:refactor-review
 
 # After review (passed)
@@ -130,7 +126,7 @@ Returns: AUTO:refactor-delegate:--fixes
 Returns: AUTO:refactor-synthesize
 
 # After synthesize
-Returns: WAIT:human-checkpoint:overhaul-merge
+Returns: WAIT:human-checkpoint:synthesize
 ```
 
 ### Overhaul Checkpoint
@@ -169,7 +165,7 @@ polish:implement → [scope expands] → overhaul:plan
 Auto-chain handles this via MCP tools:
 
 ```text
-# When scope expands during implement, use mcp__workflow-state__workflow_set:
+# When scope expands during implement, use mcp__exarchos__exarchos_workflow with action: "set":
 # 1. First call: Set updates
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
 
@@ -178,8 +174,8 @@ phase: "plan"
 updates: { "track": "overhaul" }
 
 # Next action returns
-Use mcp__workflow-state__workflow_next_action with the featureId.
-Returns: AUTO:refactor-plan
+The SessionStart hook determines the next action automatically.
+Returns: AUTO:overhaul-plan
 ```
 
 ## Failure Handling
@@ -196,7 +192,6 @@ Returns: AUTO:refactor-plan
 
 | Failure | Recovery |
 |---------|----------|
-| Integration fails | Fix and re-integrate |
 | Review fails | Delegate fixes, re-review |
 | Synthesize fails | Fix PR issues, re-synthesize |
 
@@ -216,8 +211,6 @@ All recoveries are automatic loops until success.
 │                           │                          ▣ COMPLETE  │
 │                           │                                      │
 │                           └─→ [overhaul] ─→ plan ─→ delegate     │
-│                                                          ↓       │
-│                                                      integrate   │
 │                                                          ↓       │
 │                                                      review ───┐ │
 │                                                          ↓     │ │
@@ -242,15 +235,13 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 
 | Action | Skill Invocation |
 |--------|------------------|
-| AUTO:refactor-explore | Resume scope assessment (inline) |
 | AUTO:refactor-brief | Continue to brief capture (inline) |
-| AUTO:refactor-implement | Continue to implement phase (inline - orchestrator implements) |
+| AUTO:polish-implement | Continue to implement phase (inline - orchestrator implements) |
 | AUTO:refactor-validate | Continue to validate phase (inline) |
 | AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
-| AUTO:refactor-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
+| AUTO:overhaul-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
 | AUTO:refactor-delegate | `Skill({ skill: "delegate", args: "<state-file>" })` |
 | AUTO:refactor-delegate:--fixes | `Skill({ skill: "delegate", args: "--fixes <state-file>" })` |
-| AUTO:refactor-integrate | `Skill({ skill: "integrate", args: "<state-file>" })` |
 | AUTO:refactor-review | `Skill({ skill: "review", args: "<state-file>" })` |
 | AUTO:refactor-synthesize | `Skill({ skill: "synthesize", args: "<feature-name>" })` |
 
@@ -264,9 +255,6 @@ Skill({ skill: "plan", args: "--refactor docs/workflow-state/refactor-auth.state
 Skill({ skill: "delegate", args: "docs/workflow-state/refactor-auth.state.json" })
 
 // After all tasks complete (invoked by /delegate skill)
-Skill({ skill: "integrate", args: "docs/workflow-state/refactor-auth.state.json" })
-
-// After integration passes (invoked by /integrate skill)
 Skill({ skill: "review", args: "docs/workflow-state/refactor-auth.state.json" })
 
 // After review passes, update-docs runs inline, then:

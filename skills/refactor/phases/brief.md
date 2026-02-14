@@ -108,11 +108,11 @@ Based on exploration, preparing brief for <polish|overhaul> track.
 
 ## State Update
 
-Use `mcp__workflow-state__workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
 
 ```
 # First call: Set brief data
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: {
     "brief": {
       "problem": "<problem statement>",
@@ -127,7 +127,7 @@ Use mcp__workflow-state__workflow_set:
   }
 
 # Second call: Transition phase
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   phase: "<implement|plan>"
 ```
 

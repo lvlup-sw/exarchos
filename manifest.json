@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "components": {
+    "core": [
+      { "id": "commands", "source": "commands", "target": "commands", "type": "directory" },
+      { "id": "skills", "source": "skills", "target": "skills", "type": "directory" },
+      { "id": "scripts", "source": "scripts", "target": "scripts", "type": "directory" }
+    ],
+    "mcpServers": [
+      {
+        "id": "exarchos",
+        "name": "Exarchos",
+        "description": "Workflow orchestration, event sourcing, team coordination",
+        "required": true,
+        "type": "bundled",
+        "bundlePath": "dist/exarchos-mcp.js",
+        "devEntryPoint": "plugins/exarchos/servers/exarchos-mcp/dist/index.js",
+        "cliBundlePath": "dist/exarchos-cli.js"
+      },
+      {
+        "id": "graphite",
+        "name": "Graphite",
+        "description": "Stacked PRs and merge queue",
+        "required": true,
+        "type": "external",
+        "command": "gt",
+        "args": ["mcp"],
+        "prerequisite": "gt"
+      },
+      {
+        "id": "microsoft-learn",
+        "name": "Microsoft Learn",
+        "description": "Official Azure/.NET documentation",
+        "required": false,
+        "type": "remote",
+        "url": "https://learn.microsoft.com/api/mcp"
+      }
+    ],
+    "plugins": [
+      { "id": "github@claude-plugins-official", "name": "GitHub", "description": "PRs, issues, code search", "required": false, "default": true },
+      { "id": "serena@claude-plugins-official", "name": "Serena", "description": "Semantic code analysis", "required": false, "default": true },
+      { "id": "context7@claude-plugins-official", "name": "Context7", "description": "Library documentation", "required": false, "default": true }
+    ],
+    "ruleSets": [
+      {
+        "id": "typescript",
+        "name": "TypeScript",
+        "description": "Coding standards and TDD rules for TypeScript",
+        "files": ["coding-standards-typescript.md", "tdd-typescript.md"],
+        "default": true
+      },
+      {
+        "id": "csharp",
+        "name": "C# / .NET",
+        "description": "Coding standards and TDD rules for C#",
+        "files": ["coding-standards-csharp.md", "tdd-csharp.md"],
+        "default": false
+      },
+      {
+        "id": "workflow",
+        "name": "Workflow & Orchestration",
+        "description": "Orchestrator constraints, PR descriptions, primary workflows",
+        "files": [
+          "orchestrator-constraints.md",
+          "pr-descriptions.md",
+          "primary-workflows.md",
+          "mcp-tool-guidance.md",
+          "skill-path-resolution.md",
+          "rm-safety.md"
+        ],
+        "default": true
+      }
+    ]
+  },
+  "defaults": {
+    "model": "claude-opus-4-6",
+    "mode": "standard"
+  }
+}

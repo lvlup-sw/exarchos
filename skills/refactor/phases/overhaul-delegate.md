@@ -1,4 +1,4 @@
-# Overhaul Track: Delegate/Integrate/Review
+# Overhaul Track: Delegate/Review
 
 ## Purpose
 
@@ -13,7 +13,7 @@ Execute large refactors using worktree-isolated subagents with the standard dele
 ## Phase Flow
 
 ```
-delegate → integrate → review → [update-docs OR delegate --fixes]
+delegate → review → [update-docs OR delegate --fixes]
 ```
 
 ## Delegation Phase
@@ -55,33 +55,6 @@ Create new class → Move methods → Update callers → Remove old code
 
 Ensure dependencies are respected in delegation.
 
-## Integration Phase
-
-```
-/integrate docs/workflow-state/<feature>.state.json
-```
-
-### Refactor Integration Focus
-
-| Check | Why It Matters |
-|-------|----------------|
-| Merge conflicts | Refactors touch shared code |
-| Test coverage | Combined changes might miss cases |
-| Behavior consistency | Same inputs → same outputs |
-
-### Integration Testing
-
-```bash
-# Run full test suite
-npm run test:run
-
-# Run integration tests specifically
-npm run test:integration
-
-# If applicable, run E2E tests
-npm run test:e2e
-```
-
 ## Review Phase
 
 ```
@@ -103,23 +76,19 @@ See `overhaul-review.md` for detailed criteria.
 
 ## State Updates
 
-Use `mcp__workflow-state__workflow_set` with the featureId for state updates:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId for state updates:
 
 ```text
 # After delegation complete
-Use mcp__workflow-state__workflow_set:
-  phase: "integrate"
-
-# After integration passes
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   phase: "review"
 
 # After review passes
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   phase: "update-docs"
 
 # After review fails - dispatch fix tasks, loop back
-Use mcp__workflow-state__workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: { "reviews.<id>.status": "failed", "reviews.<id>.findings": ["<issue1>"] }
 ```
 
@@ -129,30 +98,16 @@ No human checkpoints in this chain. Automatic progression:
 
 | From | To | Condition |
 |------|-----|-----------|
-| delegate | integrate | All tasks complete |
-| integrate | review | Integration passes |
+| delegate | review | All tasks complete |
 | review | update-docs | Review passes |
 | review | delegate --fixes | Review fails (loop) |
 
-## Transition to Integration
+## Transition to Review
 
-After all tasks complete, auto-continue to integration:
-
-1. Update state: `.phase = "integrate"`
-2. Output: "All [N] tasks complete. Auto-continuing to integration..."
-3. Invoke immediately:
-   ```typescript
-   Skill({ skill: "integrate", args: "docs/workflow-state/<feature>.state.json" })
-   ```
-
-This is NOT a human checkpoint - workflow continues autonomously.
-
-## Transition to Review (after integration)
-
-After integration passes, auto-continue to review:
+After all tasks complete, auto-continue to review:
 
 1. Update state: `.phase = "review"`
-2. Output: "Integration passed. Auto-continuing to review..."
+2. Output: "All tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
    Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
@@ -164,7 +119,6 @@ This is NOT a human checkpoint - workflow continues autonomously.
 
 **Success Path:**
 - All tasks delegated and completed
-- Integration tests pass
 - Review passes
 - Ready for update-docs phase
 
