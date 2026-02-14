@@ -175,9 +175,9 @@ describe('CLI Framework', () => {
       // Act
       const result = await routeCommand('session-start', {});
 
-      // Assert
+      // Assert — session-start is implemented; returns silently when no workflows found
       expect(result).toBeDefined();
-      expect(result).toHaveProperty('error');
+      expect(result.error).toBeUndefined();
     });
 
     it('should route guard command to handler', async () => {
@@ -242,13 +242,13 @@ describe('CLI Framework', () => {
 
     it('should return not-implemented error for stubbed commands', async () => {
       // Act
-      const result = await routeCommand('session-start', {});
+      const result = await routeCommand('guard', {});
 
       // Assert
       expect(result).toEqual({
         error: {
           code: 'NOT_IMPLEMENTED',
-          message: 'session-start handler not yet implemented',
+          message: 'guard handler not yet implemented',
         },
       });
     });
