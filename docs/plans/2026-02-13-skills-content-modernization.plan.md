@@ -29,16 +29,17 @@ main
 - §6 Validation scripts (pre-dispatch.sh, pre-submit.sh) — separate concern from content modernization
 
 ## Summary
-- Total tasks: 7
-- Parallel groups: 2 (5 parallel tasks after foundation, then integration)
+- Total tasks: 9
+- Parallel groups: 3 (5 parallel tasks after foundation, integration, then context optimization)
 - Estimated test count: 18 (6 validation functions × 12 skills + per-skill .test.sh updates)
 - Design coverage: 5 of 6 Technical Design sections (§1-§4 + §5.1 covered; §5.2-§5.3, §6 deferred)
+- Context optimization: ~2.4k token reduction from rule scoping + post-hooks rule elimination
 
 ## Spec Traceability
 
 ### Scope Declaration
 
-**Target:** YAML frontmatter, monolithic skill splitting, troubleshooting sections, validation infrastructure, generated mcp-tool-guidance.md, documentation
+**Target:** YAML frontmatter, monolithic skill splitting, troubleshooting sections, validation infrastructure, generated mcp-tool-guidance.md, documentation, rule context optimization
 **Excluded:** Per-skill tool manifests (§5.2), skill-aware SubagentStart hook (§5.3), validation scripts (§6)
 
 ### Traceability Matrix
@@ -55,6 +56,8 @@ main
 | §6 Validation Scripts | - delegation/scripts/pre-dispatch.sh<br>- synthesis/scripts/pre-submit.sh | — | Deferred: Separate concern from content modernization |
 | Testing Strategy > Phase 1 | - Frontmatter validation script<br>- Word count checks<br>- Reference existence checks | 001 | Covered |
 | Migration Plan > Step 6 | - Update CLAUDE.md with frontmatter convention | 007 | Covered |
+| Context Optimization (addendum) | - Scope file-specific rules with `paths` frontmatter<br>- Condense phase-specific rules<br>- Migrate phase-specific rules into skill references | 008 | Covered |
+| Post-Hooks Audit (addendum) | - Evaluate `mcp-tool-guidance.md` elimination<br>- Evaluate `primary-workflows.md` elimination<br>- Verify `workflow-auto-resume.md` removed by hooks<br>- Document final token budget | 009 | Covered |
 
 ### Already Completed by Hooks Stack
 
@@ -600,6 +603,134 @@ These skills coordinate MCP calls and need both frontmatter AND troubleshooting 
 
 ---
 
+### Task 008: Scope and condense rules for context optimization
+
+**Phase:** RED → GREEN → REFACTOR
+
+**Context:** Rules load into every session regardless of relevance. Five rules totaling ~2.8k tokens are only useful in specific contexts. Two strategies apply: `paths` frontmatter for file-specific rules (Claude Code skips loading when no matching files are active), and condensing + migrating phase-specific rules into skill `references/` so they only load when the skill is invoked.
+
+**TDD Steps:**
+
+1. [RED] Measure current token baseline
+   - Count tokens for each rule file (approximate: `wc -w` × 1.3)
+   - Record baseline: total rule tokens across all 9 rule files
+   - Verify no rules currently use `paths` frontmatter
+
+2. [GREEN] Scope file-specific rules with `paths` frontmatter
+   - File: `rules/tdd-typescript.md` (434 tokens)
+     - Add frontmatter: `paths: ["**/*.test.ts", "**/*.test.tsx"]`
+     - Only loads when test files are being worked on
+   - File: `rules/coding-standards-typescript.md` (675 tokens)
+     - Add frontmatter: `paths: ["**/*.ts", "**/*.tsx"]`
+     - Only loads when TypeScript files are being worked on
+   - Verify: rules still load correctly when working with matching files
+
+3. [GREEN] Condense and migrate phase-specific rules
+   - File: `rules/pr-descriptions.md` (674 → ~200 tokens)
+     - Keep: title format, body structure template, footer format
+     - Move to: `skills/synthesis/references/pr-descriptions.md` (full version with example)
+     - Replace rule with: brief 3-line reminder pointing to skill reference
+     - **OR** delete rule entirely — synthesis skill already loads during PR creation
+   - File: `rules/orchestrator-constraints.md` (630 → ~150 tokens)
+     - Keep: core "orchestrator MUST NOT write code" constraint (3 lines)
+     - Move to: `skills/delegation/references/orchestrator-constraints.md` (full version with exceptions, polish track details)
+     - Replace rule with: brief constraint statement + pointer to skill reference
+   - `rules/rm-safety.md` (383 tokens) — keep as-is (universal safety, justified cost)
+
+4. [REFACTOR] Verify scoping works correctly
+   - Confirm `paths`-scoped rules do NOT load when working on non-matching files
+   - Confirm migrated content is accessible when relevant skill is invoked
+   - Re-measure token baseline — expect ~1.5-2k reduction in typical sessions
+
+**Verification:**
+- [ ] `tdd-typescript.md` only loads when `.test.ts` files are active
+- [ ] `coding-standards-typescript.md` only loads when `.ts` files are active
+- [ ] `pr-descriptions.md` content preserved in synthesis skill reference
+- [ ] `orchestrator-constraints.md` core constraint preserved as lean rule
+- [ ] Full constraint details available via delegation skill reference
+- [ ] No behavioral regressions — constraints still enforced in relevant contexts
+
+**Files Modified:**
+
+| File | Action |
+|---|---|
+| `rules/tdd-typescript.md` | Add `paths` frontmatter |
+| `rules/coding-standards-typescript.md` | Add `paths` frontmatter |
+| `rules/pr-descriptions.md` | Condense to brief pointer (~200 tokens) |
+| `rules/orchestrator-constraints.md` | Condense to core constraint (~150 tokens) |
+| `skills/synthesis/references/pr-descriptions.md` | New — full PR description guide |
+| `skills/delegation/references/orchestrator-constraints.md` | New — full orchestrator constraints with exceptions |
+
+**Dependencies:** Task 007 (all skills must have frontmatter + references/ structure first)
+**Parallelizable:** Yes (independent of Task 009)
+
+---
+
+### Task 009: Post-hooks context audit — prune redundant rules
+
+**Phase:** RED → GREEN → REFACTOR
+
+**Context:** The progressive-disclosure hooks stack replaces several rules with deterministic hook behavior. Once hooks land, some rules become fully redundant (same guidance enforced by code), and others become partially redundant. This task audits and prunes them.
+
+**Prerequisite:** Full hooks stack must be merged (PreCompact, SessionStart, phase guardrails, SubagentStart context, quality gates). This task cannot start until hooks are deployed and verified.
+
+**TDD Steps:**
+
+1. [RED] Audit current rules against hook coverage
+   - Map each rule to hooks that subsume its guidance:
+
+   | Rule | Tokens | Hook That Subsumes | Verdict |
+   |---|---|---|---|
+   | `workflow-auto-resume.md` | 2,200 | SessionStart hook (context injection + auto-resume) | **Eliminate** |
+   | `mcp-tool-guidance.md` | 3,200 | Phase guardrail hook (§2.2) + SubagentStart hook (§2.4) | **Evaluate** |
+   | `primary-workflows.md` | 336 | Skill frontmatter trigger phrases + SessionStart hook | **Evaluate** |
+
+   - Verify `workflow-auto-resume.md` has already been removed by hooks stack installer changes
+   - If not removed: flag as oversight in hooks stack
+
+2. [GREEN] Evaluate and prune `mcp-tool-guidance.md`
+   - With phase guardrails enforcing tool selection deterministically and SubagentStart injecting per-phase tool lists, the rule's Exarchos sections are redundant
+   - **Keep:** Non-Exarchos MCP server sections (GitHub, Serena, Context7, Graphite) — hooks don't cover these
+   - **Keep:** Anti-pattern table entries for non-Exarchos tools
+   - **Remove:** Exarchos tool tables, Exarchos anti-patterns (hooks enforce these)
+   - **Remove:** Tool selection priority for Exarchos (guardrail hook handles this)
+   - Expected reduction: 3,200 → ~1,200 tokens (remove ~2k of Exarchos-specific guidance)
+
+3. [GREEN] Evaluate and prune `primary-workflows.md`
+   - With skill frontmatter containing trigger phrases, Claude already knows when to suggest each workflow
+   - **If redundant:** Remove entirely (336 tokens saved)
+   - **If partially useful:** Condense to a 3-line table (workflow → command mapping) ~80 tokens
+
+4. [REFACTOR] Document final token budget
+   - Create `docs/adrs/context-token-budget.md` with:
+     - Per-rule token costs (measured, not estimated)
+     - Per-MCP-server tool schema costs
+     - Total fixed overhead per session
+     - Comparison: before vs. after optimization
+     - Guidance for adding new rules (token budget awareness)
+
+**Verification:**
+- [ ] `workflow-auto-resume.md` confirmed removed (by hooks stack or by this task)
+- [ ] `mcp-tool-guidance.md` reduced to non-Exarchos content only (~1,200 tokens)
+- [ ] `primary-workflows.md` eliminated or condensed to ≤80 tokens
+- [ ] No behavioral regressions — all constraints still enforced (by hooks or remaining rules)
+- [ ] Token budget documented in ADR
+- [ ] Total fixed rule overhead ≤5k tokens (down from ~11k)
+
+**Files Modified:**
+
+| File | Action |
+|---|---|
+| `rules/workflow-auto-resume.md` | Verify removed (or remove) |
+| `rules/mcp-tool-guidance.md` | Prune Exarchos sections |
+| `rules/primary-workflows.md` | Eliminate or condense |
+| `docs/adrs/context-token-budget.md` | New — token budget documentation |
+
+**Dependencies:** Task 007 + full hooks stack merged and verified
+**Parallelizable:** Yes (independent of Task 008, but both after Task 007)
+
+---
+
 ## Parallelization Strategy
 
 ```
@@ -613,6 +744,13 @@ Task 001 (Foundation: validation script)
                                                                      │
                                                                      ▼
                                                             Task 007 (CLAUDE.md + validation)
+                                                                     │
+                                                    ┌────────────────┤
+                                                    ▼                ▼
+                                          Task 008            Task 009
+                                    (Scope/condense     (Post-hooks audit
+                                       rules)            + rule pruning)
+                                                          [blocked on hooks stack]
 ```
 
 ### Parallel Groups
@@ -620,6 +758,7 @@ Task 001 (Foundation: validation script)
 - **Group 1 (sequential):** Task 001 alone (foundation)
 - **Group 2 (parallel, 5 worktrees):** Tasks 002, 003, 004, 005, 006 — all edit different files
 - **Group 3 (sequential):** Task 007 alone (integration)
+- **Group 4 (parallel, after 007):** Tasks 008, 009 — independent rule optimizations (009 additionally blocked on hooks stack merge)
 
 ### Worktree File Ownership (no conflicts)
 
@@ -630,8 +769,10 @@ Task 001 (Foundation: validation script)
 | 004 | `skills/implementation-planning/SKILL.md`, `skills/implementation-planning/references/*` (new) |
 | 005 | `skills/{debug,delegation,synthesis,workflow-state}/SKILL.md` |
 | 006 | `rules/mcp-tool-guidance.md`, `docs/schemas/tool-reference.md` (new), `plugins/exarchos/servers/exarchos-mcp/package.json` |
+| 008 | `rules/tdd-typescript.md`, `rules/coding-standards-typescript.md`, `rules/pr-descriptions.md`, `rules/orchestrator-constraints.md`, `skills/synthesis/references/pr-descriptions.md` (new), `skills/delegation/references/orchestrator-constraints.md` (new) |
+| 009 | `rules/workflow-auto-resume.md`, `rules/mcp-tool-guidance.md`, `rules/primary-workflows.md`, `docs/adrs/context-token-budget.md` (new) |
 
-No file is touched by more than one parallel task.
+No file is touched by more than one parallel task (008 and 009 touch different rules; 009's `mcp-tool-guidance.md` edits are additive to 006's changes).
 
 ### Graphite Stacking Strategy
 
@@ -646,9 +787,11 @@ d3-prompt-migration
   │     ├─► skills-content-mod/005-mcp-skills-troubleshooting
   │     └─► skills-content-mod/006-generate-docs-wiring
   │           └─► skills-content-mod/007-docs-validation
+  │                 ├─► skills-content-mod/008-rule-scoping
+  │                 └─► skills-content-mod/009-post-hooks-audit [after hooks stack merge]
 ```
 
-Tasks 002-006 branch from 001 (not from each other) since they edit non-overlapping files. Task 007 merges all prior changes.
+Tasks 002-006 branch from 001 (not from each other) since they edit non-overlapping files. Task 007 merges all prior changes. Tasks 008-009 branch from 007; Task 009 additionally requires the full hooks stack to be merged.
 
 ## Deferred Items
 
@@ -671,5 +814,9 @@ Tasks 002-006 branch from 001 (not from each other) since they edit non-overlapp
 - [ ] Validation script covers all frontmatter requirements
 - [ ] All existing .test.sh scripts pass (no regressions)
 - [ ] CLAUDE.md documents frontmatter convention
+- [ ] File-specific rules scoped with `paths` frontmatter (tdd-typescript, coding-standards-typescript)
+- [ ] Phase-specific rules condensed and migrated to skill references (pr-descriptions, orchestrator-constraints)
+- [ ] Post-hooks rule audit complete — redundant rules eliminated or condensed
+- [ ] Token budget documented in ADR
 - [ ] All branches stacked on d3-prompt-migration via Graphite
 - [ ] Ready for review

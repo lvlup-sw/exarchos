@@ -431,6 +431,7 @@ Phase 5 (sequential, after Task 5):
 | `tool.args` tracking on events | Design Open Question #2 — deferred to v2. Adds ~50 bytes/event for more precise hints. Start with threshold-based rules first. |
 | `EXARCHOS_TELEMETRY` env var toggle | Design Open Question #3 — implement as part of Task 5 (server wiring). On by default, check `process.env.EXARCHOS_TELEMETRY !== 'false'`. |
 | Telemetry stream rotation | Design Open Question #1 — resolved: accumulate with capped projection window. No rotation needed in v1. |
+| Composite tool integration | Task 5 registers `exarchos_view_telemetry` as a standalone tool. After the progressive-disclosure hooks stack merges (27 tools → 5 composites), this tool should fold into the `exarchos_view` composite as `action: "telemetry"`. The handler is already compatible — only the registration in `index.ts` needs updating. Sequence: land telemetry as standalone first, fold into composite when hooks stack merges. |
 
 ## Completion Checklist
 - [ ] All tests written before implementation
