@@ -78,8 +78,8 @@ Stacked PR management and merge queue. **Use for all PR stacking and submission.
 
 | Instead of | Use |
 |------------|-----|
-| `git commit` + `git push` | `gt create -m "message"` then `gt submit --no-interactive --publish --merge-when-ready` |
-| `gh pr create` | `gt submit --no-interactive --publish --merge-when-ready` (creates stacked PRs automatically) |
+| `git commit` + `git push` | `gt create -m "message"` then `gt submit --no-interactive --publish` |
+| `gh pr create` | `gt submit --no-interactive --publish` (creates stacked PRs automatically) |
 | Manual rebasing | `gt restack` (rebases all PRs in the stack) |
 | `git checkout <branch>` | `gt checkout` (interactive branch selection) |
 
@@ -103,7 +103,7 @@ When deciding which tool to use:
 
 1. **Code structure** — Prefer Serena's `find_symbol` / `get_symbols_overview` over grep for understanding code architecture
 2. **GitHub operations** — **Always use GitHub MCP tools** for ALL GitHub operations: PR reading/listing/searching (`pull_request_read`, `list_pull_requests`, `search_pull_requests`), issue operations (`issue_read`, `issue_write`, `search_issues`), commit history (`list_commits`, `get_commit`), and merging (`merge_pull_request`). NEVER use `gh pr view`, `gh pr list`, `gh pr checks`, `gh api`, or any `gh` subcommand when an MCP tool covers the operation
-3. **PR creation** — **Always use Graphite MCP** (`gt submit --no-interactive --publish --merge-when-ready`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path
+3. **PR submission** — **Always use Graphite MCP** (`gt submit --no-interactive --publish`) for all PR creation. NEVER use `create_pull_request`, `gh pr create`, or any other non-Graphite PR creation path. Only add `--merge-when-ready` during `/synthesize` — never during `/delegate` or implementation
 4. **Library docs** — Use Context7 before web search for library documentation
 5. **Microsoft tech** — Use Microsoft Docs MCP for any Azure/.NET/Microsoft question
 
@@ -113,7 +113,7 @@ When deciding which tool to use:
 |-------|------------|
 | Grep for class definitions | Use Serena `find_symbol` |
 | Ask user to paste PR content | Use GitHub `pull_request_read` |
-| Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive --publish --merge-when-ready` for ALL PR creation |
+| Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive --publish` for ALL PR creation |
 | Use `gh pr view` | Use GitHub `pull_request_read` with method `get` |
 | Use `gh pr list` | Use GitHub `list_pull_requests` or `search_pull_requests` |
 | Use `gh pr diff` | Use GitHub `pull_request_read` with method `get_diff` |
@@ -126,7 +126,8 @@ When deciding which tool to use:
 | Guess library APIs from memory | Use Context7 `query-docs` |
 | Web search for .NET API reference | Use Microsoft Learn `search` |
 | Read entire files to find a function | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
-| Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish --merge-when-ready` |
+| Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish` |
+| Add `--merge-when-ready` during delegation | Only add `--merge-when-ready` in `/synthesize` phase |
 | Use grep/rg to search code patterns | Use Serena `search_for_pattern` for regex search |
 | Use sed/awk for code replacement | Use Serena `replace_content` or `replace_symbol_body` |
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
