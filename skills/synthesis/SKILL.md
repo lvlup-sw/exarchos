@@ -77,23 +77,51 @@ npm run typecheck
 
 If these fail, return to `/review` or `/delegate` to resolve.
 
-### Step 4: Submit Stacked PRs via Graphite
+### Step 4: Check CodeRabbit Review State
 
-Submit the entire stack to create stacked PRs:
+PRs were created during `/delegate` (without `--merge-when-ready`). Before entering the merge queue, check CodeRabbit's review state on each PR in the stack.
+
+1. Get PR numbers from the Graphite stack:
+```
+mcp__graphite__run_gt_cmd({
+  args: ["log", "--short"],
+  cwd: "<repo-root>"
+})
+```
+
+2. For each PR, check review state via GitHub MCP:
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_reviews",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <pr-number>
+})
+```
+
+3. Evaluate CodeRabbit reviews:
+   - **APPROVED or no CodeRabbit review:** Proceed to Step 5
+   - **CHANGES_REQUESTED:** Route to fix cycle:
+     ```typescript
+     Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+     ```
+     After fixes, return to Step 4 to re-check
+
+### Step 5: Submit Stack to Merge Queue
+
+Enqueue the stack for merging (PRs already exist from delegation):
 
 ```
 mcp__graphite__run_gt_cmd({
   args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"],
   cwd: "<repo-root>",
-  why: "Submit stacked PRs for all task branches"
+  why: "Enqueue stacked PRs in merge queue after review gates pass"
 })
 ```
 
-This creates one PR per stack entry, each targeting the branch below it. The bottom PR targets `main`.
-
 After submission, use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to get the PR URLs for each stack entry.
 
-### Step 5: Cleanup After Merge
+### Step 6: Cleanup After Merge
 
 After PRs are merged, use Graphite to clean up:
 ```
@@ -163,7 +191,8 @@ Set `phase` to "completed".
 
 - [ ] Graphite stack verified
 - [ ] Quick test verification passed
-- [ ] PRs created with proper descriptions
+- [ ] CodeRabbit reviews checked (no CHANGES_REQUESTED blocking)
+- [ ] PRs enqueued via `--merge-when-ready`
 - [ ] PR links provided to user
 - [ ] State file updated with PR URLs
 
@@ -217,10 +246,10 @@ If the user receives PR review comments:
 
 ## Transition
 
-After stacked PRs submitted, this is a **human checkpoint**:
+After stacked PRs enqueued in merge queue, this is a **human checkpoint**:
 
 1. Update state with PR URLs (from `gt log --short`)
-2. Output: "Stacked PRs submitted: [URLs]. Waiting for review/CI."
+2. Output: "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue."
 3. **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
 This is one of only TWO human checkpoints in the workflow.
