@@ -5,6 +5,7 @@ Proactively use the installed MCP servers. Don't fall back to generic approaches
 ## Available MCP Servers
 
 ### Exarchos (`mcp__exarchos__*`)
+<!-- Exarchos tool reference can be regenerated from registry: cd plugins/exarchos/servers/exarchos-mcp && npm run generate:docs -->
 
 Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators.
 
