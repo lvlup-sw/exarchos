@@ -1,3 +1,12 @@
+---
+name: sync-schemas
+description: "Synchronize TypeScript types from backend OpenAPI specifications. Use when the user says \"sync schemas\", \"update types from API\", or runs /sync-schemas. Generates TypeScript interfaces from OpenAPI spec files and validates type compatibility."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  category: utility
+---
+
 # Schema Sync Skill
 
 ## Overview

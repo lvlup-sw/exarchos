@@ -1,3 +1,20 @@
+---
+name: refactor
+description: "Code improvement workflow with two tracks: polish (small, direct changes) and overhaul (large, delegated restructuring). Use when the user says \"refactor\", \"clean up\", \"restructure\", \"reorganize\", or runs /refactor. Handles explore, brief, implement, validate, and documentation phases."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity:
+    - explore
+    - brief
+    - implement
+    - validate
+    - update-docs
+    - synthesize
+---
+
 # Refactor Workflow Skill
 
 ## Overview
@@ -294,28 +311,13 @@ Skill({ skill: "synthesize", args: "<feature-name>" })
 
 #### 7. Synthesize Phase
 
-Invoke `/synthesize` skill with explicit Skill tool call:
+Invoke `/synthesize` skill:
 
 ```typescript
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-The `/synthesize` skill creates the PR via Graphite MCP:
-
-```typescript
-// Submit the stack to create PRs
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
-```
-
-Then update the PR description using GitHub MCP:
-```typescript
-mcp__plugin_github_github__update_pull_request({
-  owner, repo, pullNumber,
-  body: "## Summary\n[Brief description of the refactor]\n\n## Changes\n- [Key structural change 1]\n\n## Documentation Updated\n- [doc1.md] - Updated for X\n\n## Test Plan\n- All existing tests pass"
-})
-```
-
-**Human checkpoint:** Confirm merge.
+Creates PR via Graphite, updates description via GitHub MCP. **Human checkpoint:** Confirm merge.
 
 ## State Management
 
@@ -408,11 +410,7 @@ If scope expands beyond polish limits during explore or brief phase, use `mcp__e
 - Test coverage gaps require new tests
 - Architectural documentation needed
 
-Output to user:
-> Scope has expanded beyond polish limits. Switching to overhaul track.
-> This will use worktree isolation and full delegation.
->
-> Continue? (Y/n)
+Output: "Scope expanded beyond polish limits. Switching to overhaul track. Continue? (Y/n)"
 
 ## Integration Points
 
@@ -443,24 +441,6 @@ The workflow-state MCP server supports:
 - `workflowType: "refactor"` field
 - Refactor-specific phases handled by the SessionStart hook (which determines next action on resume)
 - Refactor context provided by the SessionStart hook on session start
-
-### With workflow-auto-resume.md
-
-Refactor phases map to auto-resume actions:
-
-| HSM Phase | Next Action |
-|-----------|-------------|
-| `explore` (completed) | `AUTO:refactor-brief` |
-| `brief` (completed, polish) | `AUTO:polish-implement` |
-| `brief` (completed, overhaul) | `AUTO:overhaul-plan` |
-| `polish-implement` (completed) | `AUTO:refactor-validate` |
-| `polish-validate` (completed) | `AUTO:refactor-update-docs` |
-| `polish-update-docs` (completed) | `WAIT:human-checkpoint:polish-update-docs` |
-| `overhaul-plan` (completed) | `AUTO:refactor-delegate` |
-| `overhaul-delegate` (completed) | `AUTO:refactor-review` |
-| `overhaul-review` (completed) | `AUTO:refactor-update-docs` |
-| `overhaul-update-docs` (completed) | `AUTO:refactor-synthesize` |
-| `synthesize` (completed) | `WAIT:human-checkpoint:synthesize` |
 
 ## Completion Criteria
 
