@@ -45,6 +45,10 @@ Most of this repo is structured Markdown, not executable code:
 
 - **Commands** (`commands/*.md`) — Entry points with YAML frontmatter. Each command references a skill via `@skills/<name>/SKILL.md` path and contains workflow position diagrams.
 - **Skills** (`skills/*/SKILL.md`) — Reusable workflow modules with templates in `references/` subdirectories. Skills define multi-step processes (brainstorming, delegation, review, etc.).
+  Skills use YAML frontmatter (`name`, `description`, `metadata`) following
+  Anthropic's skill format. The `description` field includes trigger phrases
+  for when the skill should activate. Larger skills use `references/`
+  subdirectories for progressive disclosure of detailed content.
 - **Rules** (`rules/*.md`) — Behavioral constraints applied globally. Some use `paths` frontmatter to scope to specific file patterns.
 
 ### MCP Servers
@@ -103,6 +107,9 @@ The main Claude Code session coordinates but does not write implementation code 
 - **Vitest** — Import explicitly: `import { describe, it, expect, vi } from 'vitest'` (no globals)
 - **No runtime dependencies** for the root installer — only devDependencies
 - **Node >= 20** required across all packages
+- **Skill frontmatter** — Every `SKILL.md` has YAML frontmatter with `name`
+  (kebab-case, matches folder), `description` (<=1,024 chars, WHAT + WHEN +
+  triggers), and `metadata` (author, version, mcp-server, category, phase-affinity)
 
 ## Docs Directory
 
