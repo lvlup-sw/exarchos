@@ -329,4 +329,11 @@ describe('Real Manifest File (E5)', () => {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     expect(manifest.version).toBe(pkg.version);
   });
+
+  it('manifest_ExarchosMcpServer_HasCliBundlePath', () => {
+    const manifest = loadManifest(manifestPath);
+    const exarchos = manifest.components.mcpServers.find((s) => s.id === 'exarchos');
+    expect(exarchos).toBeDefined();
+    expect(exarchos!.cliBundlePath).toBe('dist/exarchos-cli.js');
+  });
 });

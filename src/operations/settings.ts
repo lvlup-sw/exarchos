@@ -12,28 +12,40 @@ export interface Settings {
   readonly permissions: { readonly allow: readonly string[] };
   readonly model: string;
   readonly enabledPlugins: Readonly<Record<string, boolean>>;
+  readonly hooks?: Readonly<Record<string, unknown[]>>;
 }
 
 /**
  * Generate a complete settings.json from wizard selections.
  *
  * Combines the comprehensive permission list, selected model,
- * and enabled plugin map into a single settings object.
+ * and enabled plugin map into a single settings object. Optionally
+ * includes Claude Code hook definitions when provided.
  *
  * @param selections - The user's wizard selections.
+ * @param hooks - Optional hook definitions keyed by event name.
  * @returns The settings.json content.
  */
-export function generateSettings(selections: WizardSelections): Settings {
+export function generateSettings(
+  selections: WizardSelections,
+  hooks?: Record<string, unknown[]>,
+): Settings {
   const enabledPlugins: Record<string, boolean> = {};
   for (const pluginId of selections.plugins) {
     enabledPlugins[pluginId] = true;
   }
 
-  return {
+  const settings: Settings = {
     permissions: { allow: generatePermissions() },
     model: selections.model,
     enabledPlugins,
   };
+
+  if (hooks && Object.keys(hooks).length > 0) {
+    return { ...settings, hooks };
+  }
+
+  return settings;
 }
 
 /**

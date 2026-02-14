@@ -15,7 +15,8 @@
         "required": true,
         "type": "bundled",
         "bundlePath": "dist/exarchos-mcp.js",
-        "devEntryPoint": "plugins/exarchos/servers/exarchos-mcp/dist/index.js"
+        "devEntryPoint": "plugins/exarchos/servers/exarchos-mcp/dist/index.js",
+        "cliBundlePath": "dist/exarchos-cli.js"
       },
       {
         "id": "graphite",

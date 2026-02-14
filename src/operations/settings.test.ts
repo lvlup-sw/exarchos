@@ -69,6 +69,40 @@ describe('Settings.json Generation (C3)', () => {
       expect(result.enabledPlugins).toBeDefined();
       expect(Object.keys(result.enabledPlugins)).toHaveLength(0);
     });
+
+    it('generateSettings_WithHooks_IncludesHooksInOutput', () => {
+      const selections = createSelections();
+      const hooks = {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node cli.js pre-compact' }] }],
+      };
+
+      const result = generateSettings(selections, hooks);
+
+      expect(result.hooks).toBeDefined();
+      expect(result.hooks).toEqual(hooks);
+    });
+
+    it('generateSettings_WithoutHooks_OmitsHooksKey', () => {
+      const selections = createSelections();
+
+      const result = generateSettings(selections);
+
+      expect(result.hooks).toBeUndefined();
+    });
+
+    it('generateSettings_HooksStructure_PreservesEventEntries', () => {
+      const selections = createSelections();
+      const hooks = {
+        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node cli.js pre-compact', timeout: 30 }] }],
+        SessionStart: [{ matcher: 'startup|resume', hooks: [{ type: 'command', command: 'node cli.js session-start', timeout: 10 }] }],
+      };
+
+      const result = generateSettings(selections, hooks);
+
+      expect(result.hooks).toBeDefined();
+      expect(result.hooks!.PreCompact).toHaveLength(1);
+      expect(result.hooks!.SessionStart).toHaveLength(1);
+    });
   });
 
   describe('generatePermissions', () => {
