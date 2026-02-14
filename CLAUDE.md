@@ -51,19 +51,31 @@ Most of this repo is structured Markdown, not executable code:
 
 One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.json`, and test suite:
 
-- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `~/.claude/workflow-state/` (configurable via `WORKFLOW_STATE_DIR` env var). Exposes 26 MCP tools via a per-module registration pattern.
+- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `~/.claude/workflow-state/` (configurable via `WORKFLOW_STATE_DIR` env var). Exposes 5 composite MCP tools with `action` discriminators, registered from a central tool registry.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
-**Key modules** (each exports a `registerXTools(server, stateDir, eventStore)` function — workflow modules use a `configureXEventStore(eventStore)` + 2-arg registration pattern instead):
+**Composite tools** (each routes to underlying handler functions via `action` field):
+
+| Tool | Actions | Purpose |
+|------|---------|---------|
+| `exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD |
+| `exarchos_event` | `append`, `query` | Event sourcing |
+| `exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination |
+| `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS read views |
+| `exarchos_sync` | `now` | Remote sync (stub) |
+
+**Key modules:**
 
 - `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
 - `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
 - `workflow/hsm-definitions.ts` — HSM definitions for feature/debug/refactor workflows
-- `workflow/tools.ts` — CRUD operations (init, list, get, set, checkpoint). Uses CAS versioning (`_version` field) with retry loop to prevent lost updates on concurrent writes. Emits transition events to external JSONL store after successful state write (state-first, event-after). Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
-- `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping
+- `workflow/tools.ts` — Handler functions for init, get, set. Uses CAS versioning (`_version` field) with retry loop to prevent lost updates on concurrent writes. Emits transition events to external JSONL store after successful state write (state-first, event-after). Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
+- `workflow/composite.ts` — Composite router dispatching `action` to init/get/set/cancel handlers
+- `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping (used by CLI hooks)
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
-- `workflow/query.ts` — Summary, reconcile, and transitions handlers
+- `registry.ts` — Single source of truth for all tool metadata (names, schemas, phase/role mappings). Consumed by `index.ts` for registration and by CLI hooks for guardrails
+- `cli.ts` — Hook CLI entry point (`pre-compact`, `session-start`, `guard`, `task-gate`, `teammate-gate`, `subagent-context`)
 - `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
 - `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack). Pipeline view uses lazy pagination (materializes only the requested subset)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
@@ -77,7 +89,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 **Debug:** `/debug` → triage → investigate → fix → validate (hotfix or thorough tracks)
 **Refactor:** `/refactor` → explore → brief → implement → validate (polish or overhaul tracks)
 
-Human checkpoints only at plan-review approval and merge confirmation. Everything else auto-continues via `workflow_next_action` MCP tool.
+Human checkpoints only at plan-review approval and merge confirmation. Everything else auto-continues via the SessionStart hook (which determines next action on resume).
 
 ### Orchestrator Pattern
 
