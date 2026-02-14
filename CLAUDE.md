@@ -10,7 +10,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 
 ```bash
 # Root installer
-npm run build          # tsc → dist/install.js
+npm run build          # tsc + bun → dist/install.js, dist/exarchos-mcp.js, dist/exarchos-cli.js
 npm run test:run       # vitest single run
 npm run test           # vitest watch mode
 npm run typecheck      # tsc --noEmit
@@ -35,9 +35,9 @@ The installer (`src/install.ts`) creates symlinks from this repo into `~/.claude
 - `commands/` → slash commands (`/ideate`, `/plan`, `/delegate`, etc.)
 - `skills/` → reusable workflow logic referenced by commands
 - `rules/` → coding standards and behavior constraints
-- `settings.json` → permissions and plugin config
+- `settings.json` → permissions, plugin config, and hooks with resolved CLI paths
 
-It also builds and registers MCP servers in `~/.claude.json`.
+It also builds and registers MCP servers in `~/.claude.json`. Hooks from `hooks.json` are resolved with mode-dependent CLI paths and merged into `settings.json` (not copied as a separate file).
 
 ### Content Layers (no runtime code)
 
