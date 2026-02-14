@@ -33,7 +33,7 @@
     "build": "tsc && bun run build:mcp && bun run build:cli",
     "build:cli": "bun build plugins/exarchos/servers/exarchos-mcp/src/cli.ts --outfile dist/exarchos-cli.js --target node",
     "build:mcp": "bun build plugins/exarchos/servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target bun --minify",
-    "prepare": "npm run build",
+    "prepare": "tsc",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
