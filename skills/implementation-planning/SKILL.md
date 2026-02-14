@@ -1,3 +1,14 @@
+---
+name: implementation-planning
+description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for design exploration -- use brainstorming instead."
+metadata:
+  author: exarchos
+  version: 1.0.0
+  mcp-server: exarchos
+  category: workflow
+  phase-affinity: plan
+---
+
 # Implementation Planning Skill
 
 ## Overview
@@ -16,14 +27,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with `--revise`, plan-review found gaps in the previous plan. The state file contains `.planReview.gaps` with specific missing items.
-
-**Revision workflow:**
-1. Read gaps from state using `mcp__exarchos__exarchos_workflow` with `action: "get"` with query `planReview.gaps`
-2. Re-read design document
-3. Add tasks to address each gap
-4. Update existing plan file (append new tasks)
-5. Clear gaps using `mcp__exarchos__exarchos_workflow` with `action: "set"` (set `planReview.gaps` to empty array, `planReview.gapsFound` to false)
+When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__exarchos__exarchos_workflow` `action: "set"`.
 
 ## The Iron Law
 
@@ -34,81 +38,26 @@ Every implementation task MUST:
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-## Task Format
-
-Each task follows this structure:
-
-```markdown
-### Task [N]: [Brief Description]
-
-**Phase:** [RED | GREEN | REFACTOR]
-
-**TDD Steps:**
-1. [RED] Write test: `TestName_Scenario_ExpectedOutcome`
-   - File: `path/to/test.ts`
-   - Expected failure: [Specific failure reason]
-   - Run: `npm run test:run` - MUST FAIL
-
-2. [GREEN] Implement minimum code
-   - File: `path/to/implementation.ts`
-   - Changes: [Brief description]
-   - Run: `npm run test:run` - MUST PASS
-
-3. [REFACTOR] Clean up (optional)
-   - Apply: [SOLID principle or improvement]
-   - Run: `npm run test:run` - MUST STAY GREEN
-
-**Verification:**
-- [ ] Witnessed test fail for the right reason
-- [ ] Test passes after implementation
-- [ ] No extra code beyond test requirements
-
-**Dependencies:** [Task IDs this depends on, or "None"]
-**Parallelizable:** [Yes/No]
-```
-
 ## Planning Process
 
 ### Step 1: Analyze Design Document
 
 Read the design document thoroughly. For each major section, extract:
-- **Problem Statement** → Context (no tasks, but informs scope)
-- **Chosen Approach** → Architectural decisions to implement
-- **Technical Design** → Core implementation requirements
-- **Integration Points** → Integration and glue code tasks
-- **Testing Strategy** → Test coverage requirements
-- **Open Questions** → Decisions to resolve or explicitly defer
+- **Problem Statement** — Context (no tasks, but informs scope)
+- **Chosen Approach** — Architectural decisions to implement
+- **Technical Design** — Core implementation requirements
+- **Integration Points** — Integration and glue code tasks
+- **Testing Strategy** — Test coverage requirements
+- **Open Questions** — Decisions to resolve or explicitly defer
 
 ### Step 1.5: Spec Tracing (Required)
 
-Create a traceability table mapping design sections to planned tasks. This ensures complete coverage.
-
-```markdown
-## Spec Traceability
-
-### Scope Declaration
-
-**Target:** [Full design | Partial: <specific components>]
-**Excluded:** [List any intentionally excluded sections with rationale]
-
-### Traceability Matrix
-
-| Design Section | Key Requirements | Task ID(s) | Status |
-|----------------|-----------------|------------|--------|
-| Technical Design > Component A | - Requirement 1<br>- Requirement 2 | 001, 002 | Covered |
-| Technical Design > Component B | - Requirement 3 | 003 | Covered |
-| Integration Points > X | - Connection to Y | 004 | Covered |
-| Testing Strategy | - Unit tests<br>- Integration tests | 005, 006 | Covered |
-| Open Questions > Q1 | Decision needed | — | Deferred: [reason] |
-```
-
-**Rules:**
-- Every sub-section of Technical Design MUST map to ≥1 task
-- Every file in "Files Changed" table MUST be touched by ≥1 task
-- Open Questions MUST be resolved OR explicitly deferred with rationale
-- For partial plans, declare scope upfront and only trace in-scope sections
+Create a traceability matrix mapping design sections to planned tasks.
+Consult `references/spec-tracing-guide.md` for the methodology and template.
 
 ### Step 2: Decompose into Tasks
+
+Each task follows the TDD format in `references/task-template.md`.
 
 **Granularity Guidelines:**
 - Each task: 2-5 minutes of focused work
@@ -123,94 +72,16 @@ Create a traceability table mapping design sections to planned tasks. This ensur
 
 ### Step 3: Identify Parallelization
 
-Analyze dependencies to find:
-- **Sequential tasks:** Must be done in order
-- **Parallel-safe tasks:** Can be done simultaneously in worktrees
-
-```markdown
-## Parallelization Analysis
-
-### Sequential Chain A
-Task 1 → Task 2 → Task 5
-
-### Sequential Chain B
-Task 3 → Task 4 → Task 6
-
-### Parallel Groups
-- Group 1: [Chain A tasks]
-- Group 2: [Chain B tasks]
-- Can run simultaneously in separate worktrees
-```
+Analyze dependencies to find sequential chains and parallel-safe groups that can run simultaneously in worktrees.
 
 ### Step 4: Generate Plan Document
 
 Save to: `docs/plans/YYYY-MM-DD-<feature>.md`
-
-```markdown
-# Implementation Plan: [Feature Name]
-
-## Source Design
-Link: `docs/designs/YYYY-MM-DD-<feature>.md`
-
-## Scope
-**Target:** [Full design | Partial: <specific components>]
-**Excluded:** [None | List excluded sections with rationale]
-
-## Summary
-- Total tasks: [N]
-- Parallel groups: [N]
-- Estimated test count: [N]
-- Design coverage: [X of Y sections covered]
-
-## Spec Traceability
-
-[Traceability matrix from Step 1.5]
-
-## Task Breakdown
-
-[Tasks in execution order]
-
-## Parallelization Strategy
-
-[Which tasks can run in parallel worktrees]
-
-## Deferred Items
-
-[Open questions or design sections not addressed, with rationale]
-
-## Completion Checklist
-- [ ] All tests written before implementation
-- [ ] All tests pass
-- [ ] Code coverage meets standards
-- [ ] Ready for review
-```
+Use the template from `references/plan-document-template.md`.
 
 ### Step 5: Plan Verification
 
-Before saving, verify completeness against the design document:
-
-**Coverage Checklist:**
-- [ ] Every sub-section of "Technical Design" has ≥1 task
-- [ ] All files in "Files Changed" table are touched by tasks
-- [ ] Testing strategy items have corresponding test tasks
-- [ ] Open questions are resolved OR explicitly deferred with rationale
-- [ ] For partial plans: scope declaration is clear and justified
-
-**Delta Analysis:**
-Compare design sections against task list. For each gap:
-1. Create a task to address it, OR
-2. Add to "Deferred Items" with explicit rationale
-
-If significant gaps remain that cannot be justified, **do not proceed** — return to design phase for clarification.
-
-## Test Naming Convention
-
-Follow: `MethodName_Scenario_ExpectedOutcome`
-
-**Examples:**
-- `CreateUser_ValidInput_ReturnsUserId`
-- `CreateUser_EmptyEmail_ThrowsValidationError`
-- `GetUser_NonExistentId_ReturnsNull`
+Follow the coverage checklist and delta analysis in `references/spec-tracing-guide.md`.
 
 ## Anti-Patterns
 
@@ -234,22 +105,10 @@ Follow: `MethodName_Scenario_ExpectedOutcome`
 
 ## State Management
 
-This skill updates workflow state with plan details.
-
-### On Plan Save
-
-Update state with plan artifact and tasks using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Set `artifacts.plan` to the plan path
-- Set `tasks` to the array of task objects (id, title, status, branch)
-- Set `phase` to "plan-review"
-
-### Task State Structure
-
-Each task in state should include:
-- `id`: Task identifier matching plan (e.g., "001", "A1")
-- `title`: Brief description
-- `status`: "pending" (initially)
-- `branch`: Git branch name for this task
+On plan save, update state via `mcp__exarchos__exarchos_workflow` `action: "set"`:
+- `artifacts.plan` -- plan file path
+- `tasks` -- array of objects: `id`, `title`, `status` ("pending"), `branch`
+- `phase` -- "plan-review"
 
 ## Completion Criteria
 
@@ -268,22 +127,12 @@ Each task in state should include:
 
 After planning completes, **auto-continue to plan-review** (delta analysis):
 
-1. Update state: `.phase = "plan-review"`, populate tasks
-2. Output: "Plan saved with [N] tasks. Running plan-design coverage analysis..."
-3. Run plan-review delta analysis:
-   - Re-read design document
-   - Compare each section against planned tasks
-   - If gaps found: set `.planReview.gaps`, auto-loop back to `/plan --revise`
-   - If no gaps: present to user for approval (human checkpoint)
+1. Set `.phase = "plan-review"` and populate tasks in state
+2. Run plan-review: compare design sections against planned tasks
+   - Gaps found: set `.planReview.gaps`, auto-loop back to `/plan --revise`
+   - No gaps: present to user for approval (human checkpoint)
    - On approval: set `.planReview.approved = true`, invoke `/delegate`
-
-```typescript
-// After plan-review passes and user approves:
-Skill({ skill: "delegate", args: "<plan-path>" })
-```
 
 ## Exarchos Integration
 
-When Exarchos MCP tools are available:
-
-1. **On plan completion:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` from plan to plan-review
+On plan completion, call `mcp__exarchos__exarchos_event` with `action: "append"` and event type `phase.transitioned` from plan to plan-review.
