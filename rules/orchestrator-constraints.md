@@ -42,7 +42,7 @@ If any trigger fires, stop and run:
 ```
 
 **Verification:**
-Before starting implementation, verify using `mcp__exarchos__exarchos_workflow_get`:
+Before starting implementation, verify using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
 1. Track is "polish" in state file (query: `.track`)
 2. Phase is "implement" (query: `.phase`)
 3. Brief goals are captured

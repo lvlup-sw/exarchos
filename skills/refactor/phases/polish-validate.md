@@ -36,8 +36,8 @@ If tests fail:
 Review each goal from the brief and verify completion:
 
 ```text
-# Read goals from state using mcp__exarchos__exarchos_workflow_get
-Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".brief.goals"
+# Read goals from state using mcp__exarchos__exarchos_workflow with action: "get"
+Use mcp__exarchos__exarchos_workflow with action: "get" with featureId and query: ".brief.goals"
 ```
 
 **For each goal:**
@@ -45,10 +45,10 @@ Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".brief.goals
 - [ ] Evidence of completion is clear (code change, metric improvement, etc.)
 - [ ] Goal was not partially implemented
 
-Document verified goals in state using `mcp__exarchos__exarchos_workflow_set`:
+Document verified goals in state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "validation.goalsVerified": ["<goal text>"] }
 ```
 
@@ -111,7 +111,7 @@ Manual review of key changes:
 
 ### Record Validation Start
 
-Use `mcp__exarchos__exarchos_workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
 
 ```text
 updates: {
@@ -130,21 +130,21 @@ On successful validation:
 
 ```text
 # First call: Record results
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "validation.testsPass": true,
     "validation.completedAt": "<ISO8601>"
   }
 
 # Second call: Transition phase
-Use mcp__exarchos__exarchos_workflow_set with featureId:
-  phase: "update-docs"
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
+  phase: "polish-update-docs"
 ```
 
 On failed validation:
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: {
     "validation.testsPass": false,
     "validation.failureReason": "<reason>"

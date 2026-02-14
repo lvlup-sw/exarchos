@@ -124,7 +124,7 @@ If tests fail during synthesis (they passed in review):
 
 ## State Management
 
-This skill tracks synthesis progress in workflow state using `mcp__exarchos__exarchos_workflow_get` and `mcp__exarchos__exarchos_workflow_set`.
+This skill tracks synthesis progress in workflow state using `mcp__exarchos__exarchos_workflow` with `action: "get"` and `mcp__exarchos__exarchos_workflow` with `action: "set"`.
 
 ### Read Task State
 
@@ -218,6 +218,6 @@ Options:
 
 When Exarchos MCP tools are available:
 
-1. **After stack submission:** Call `mcp__exarchos__exarchos_event_append` with event type `stack.enqueued` including PR numbers from `gt log --short`
+1. **After stack submission:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
 2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
-3. **On successful merge:** Call `mcp__exarchos__exarchos_event_append` with event type `phase.transitioned` to mark workflow complete
+3. **On successful merge:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete

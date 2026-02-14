@@ -239,11 +239,11 @@ Every goal from the brief must be verified as achieved.
 
 ### On Review Complete
 
-Use `mcp__exarchos__exarchos_workflow_set` with the featureId:
+Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
 
 ```text
 # Record review results
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: {
     "reviews.overhaul": {
       "status": "approved",
@@ -258,14 +258,14 @@ Use mcp__exarchos__exarchos_workflow_set:
 ### On Approval
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   phase: "synthesize"
 ```
 
 ### On Needs Fixes
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set:
+Use mcp__exarchos__exarchos_workflow with action: "set":
   updates: {
     "reviews.overhaul.status": "needs_fixes",
     "reviews.overhaul.issues": ["<issue1>", "<issue2>"]

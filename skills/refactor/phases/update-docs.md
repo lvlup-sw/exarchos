@@ -30,10 +30,10 @@ The `docsToUpdate` field in the brief identifies documents requiring updates. If
 
 ### Step 1: Review Documentation List
 
-Read the brief's `docsToUpdate` field using `mcp__exarchos__exarchos_workflow_get`:
+Read the brief's `docsToUpdate` field using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
 
 ```text
-Use mcp__exarchos__exarchos_workflow_get with featureId and query: ".brief.docsToUpdate"
+Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".brief.docsToUpdate"
 ```
 
 If the list is empty, proceed to Step 4 (Verification).
@@ -134,23 +134,23 @@ Update when:
 
 ## State Updates
 
-Record updated documents using `mcp__exarchos__exarchos_workflow_set`:
+Record updated documents using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
 # Add each updated document
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "artifacts.updatedDocs": ["docs/architecture/modules.md"] }
 
 # Mark docs updated
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   updates: { "validation.docsUpdated": true }
 
 # Update phase - Polish track
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   phase: "completed"
 
 # Update phase - Overhaul track
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   phase: "synthesize"
 ```
 
@@ -188,7 +188,7 @@ After completing documentation updates:
 4. **Auto-chain to synthesize phase**
 
 ```text
-Use mcp__exarchos__exarchos_workflow_set with featureId:
+Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
   phase: "synthesize"
 ```
 
@@ -230,6 +230,6 @@ Before exiting this phase:
 - [ ] Updated affected sections in each document
 - [ ] Verified file paths and links
 - [ ] Verified code examples work
-- [ ] Updated state with `updatedDocs` list
+- [ ] Updated state with `artifacts.updatedDocs` list
 - [ ] Set `docsUpdated = true`
 - [ ] Transitioned to next phase (completed or synthesize)
