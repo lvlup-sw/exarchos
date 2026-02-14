@@ -44,6 +44,54 @@ export function buildCompositeSchema(
   return z.discriminatedUnion('action', [first, ...rest]);
 }
 
+/**
+ * Builds a flat Zod raw shape for MCP SDK tool registration.
+ *
+ * The MCP SDK's `normalizeObjectSchema` cannot generate JSON Schema from
+ * discriminated unions, so we flatten the composite schema into a single
+ * object with `action` as a required enum and all other fields as optional.
+ *
+ * The composite handler performs action-level routing and the underlying
+ * handlers validate required fields per action.
+ */
+export function buildRegistrationSchema(
+  actions: readonly ToolAction[],
+): z.ZodRawShape {
+  const actionNames = actions.map((a) => a.name) as [string, ...string[]];
+  const shape: z.ZodRawShape = {
+    action: z.enum(actionNames),
+  };
+
+  for (const action of actions) {
+    const fields = action.schema.shape;
+    for (const [key, zodType] of Object.entries(fields)) {
+      if (key in shape) continue; // already added from an earlier action
+      // Make all per-action fields optional at the composite level;
+      // individual handlers enforce required fields via their own schemas.
+      const field = zodType as z.ZodTypeAny;
+      shape[key] = field.isOptional() ? field : field.optional();
+    }
+  }
+
+  return shape;
+}
+
+/**
+ * Builds a tool description that includes action signatures.
+ * Appends action names and their parameters to the base description.
+ */
+export function buildToolDescription(tool: CompositeTool): string {
+  const actionSigs = tool.actions.map((action) => {
+    const fields = Object.entries(action.schema.shape);
+    const params = fields.map(([key, zodType]) => {
+      const isOptional = (zodType as z.ZodTypeAny).isOptional();
+      return isOptional ? `${key}?` : key;
+    });
+    return `- ${action.name}(${params.join(', ')}): ${action.description}`;
+  });
+  return `${tool.description}\n\nActions:\n${actionSigs.join('\n')}`;
+}
+
 // ─── Shared Constants ───────────────────────────────────────────────────────
 
 const ALL_PHASES: ReadonlySet<string> = new Set([
