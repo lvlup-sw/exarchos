@@ -24,7 +24,7 @@ Restore workflow context after:
 If no argument provided, the SessionStart hook automatically discovers active workflows on session start. To manually locate state files, check the state directory:
 
 ```bash
-ls docs/workflow-state/*.state.json
+ls ~/.claude/workflow-state/*.state.json
 ```
 
 ### Step 2: Reconcile State
@@ -77,7 +77,7 @@ After displaying context, ask:
 ### Resume Specific Workflow
 
 ```
-/resume docs/workflow-state/user-authentication.state.json
+/resume ~/.claude/workflow-state/user-authentication.state.json
 ```
 
 ### List and Choose
@@ -89,7 +89,7 @@ After displaying context, ask:
 Lists available workflows, then:
 
 ```
-/resume docs/workflow-state/<chosen-feature>.state.json
+/resume ~/.claude/workflow-state/<chosen-feature>.state.json
 ```
 
 ## Context Efficiency

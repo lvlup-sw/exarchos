@@ -249,13 +249,13 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 
 ```typescript
 // After brief complete
-Skill({ skill: "plan", args: "--refactor docs/workflow-state/refactor-auth.state.json" })
+Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/refactor-auth.state.json" })
 
 // After plan complete (invoked by /plan skill)
-Skill({ skill: "delegate", args: "docs/workflow-state/refactor-auth.state.json" })
+Skill({ skill: "delegate", args: "~/.claude/workflow-state/refactor-auth.state.json" })
 
 // After all tasks complete (invoked by /delegate skill)
-Skill({ skill: "review", args: "docs/workflow-state/refactor-auth.state.json" })
+Skill({ skill: "review", args: "~/.claude/workflow-state/refactor-auth.state.json" })
 
 // After review passes, update-docs runs inline, then:
 Skill({ skill: "synthesize", args: "refactor-auth" })

@@ -75,6 +75,22 @@ export async function handleInit(
 ): Promise<ToolResult> {
   try {
     const { state } = await initStateFile(stateDir, input.featureId, input.workflowType);
+
+    // Emit workflow.started event for CQRS view materialization
+    if (moduleEventStore) {
+      try {
+        await moduleEventStore.append(input.featureId, {
+          type: 'workflow.started' as import('../event-store/schemas.js').EventType,
+          data: {
+            featureId: input.featureId,
+            workflowType: input.workflowType,
+          },
+        });
+      } catch {
+        // Event emission is supplementary — state file is the source of truth
+      }
+    }
+
     return {
       success: true,
       data: {

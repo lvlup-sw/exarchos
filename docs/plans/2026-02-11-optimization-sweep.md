@@ -1,7 +1,7 @@
 # Implementation Plan: Optimization Sweep
 
 ## Source Design
-Brief: `docs/workflow-state/refactor-optimization-sweep.state.json` (`.brief`)
+Brief: `~/.claude/workflow-state/refactor-optimization-sweep.state.json` (`.brief`)
 
 ## Scope
 **Target:** Full brief — Token optimization, Event-sourcing rigor, Performance, Installation hardening ADR

@@ -1,7 +1,7 @@
 # Implementation Plan: Hooks Installer & CLI Bundling Refactor
 
 ## Source Brief
-State file: `docs/workflow-state/refactor-hooks-installer-bundling.state.json`
+State file: `~/.claude/workflow-state/refactor-hooks-installer-bundling.state.json`
 
 ## Scope
 **Target:** Full refactor brief — all 5 goals

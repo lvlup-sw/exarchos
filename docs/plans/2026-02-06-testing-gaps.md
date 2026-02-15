@@ -2,7 +2,7 @@
 
 ## Source
 Audit: `docs/audits/2026-02-06-testing-gaps.md`
-Brief: `docs/workflow-state/refactor-testing-gaps.state.json`
+Brief: `~/.claude/workflow-state/refactor-testing-gaps.state.json`
 
 ## Scope
 

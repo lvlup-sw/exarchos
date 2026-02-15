@@ -135,5 +135,5 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 Refactor workflows resume like other workflows:
 
 ```bash
-/resume docs/workflow-state/refactor-<slug>.state.json
+/resume ~/.claude/workflow-state/refactor-<slug>.state.json
 ```

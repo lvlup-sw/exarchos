@@ -1137,7 +1137,7 @@ No `jq`. No bash. Zero external binary dependencies. The HSM, event log, circuit
     "command": "node",
     "args": ["${CLAUDE_PLUGIN_ROOT}/servers/workflow-state-mcp/dist/index.js"],
     "env": {
-      "WORKFLOW_STATE_DIR": "${REPO_ROOT}/docs/workflow-state"
+      "WORKFLOW_STATE_DIR": "${REPO_ROOT}/~/.claude/workflow-state"
     }
   }
 }
@@ -1154,7 +1154,7 @@ No `jq`. No bash. Zero external binary dependencies. The HSM, event log, circuit
       "command": "npx",
       "args": ["-y", "@lvlup-sw/workflow-state-mcp"],
       "env": {
-        "WORKFLOW_STATE_DIR": "./docs/workflow-state"
+        "WORKFLOW_STATE_DIR": "./~/.claude/workflow-state"
       }
     }
   }
@@ -1185,7 +1185,7 @@ All skill files (`SKILL.md`) that currently reference `~/.claude/scripts/workflo
 
 ```markdown
 # Before
-~/.claude/scripts/workflow-state.sh set docs/workflow-state/foo.state.json '.phase = "plan"'
+~/.claude/scripts/workflow-state.sh set ~/.claude/workflow-state/foo.state.json '.phase = "plan"'
 
 # After
 workflow_state_set({ featureId: "foo", phase: "plan" })

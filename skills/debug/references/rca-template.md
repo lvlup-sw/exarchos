@@ -128,7 +128,7 @@ For RCAs created after a hotfix, use this abbreviated version:
 
 ## Hotfix Reference
 
-- State file: `docs/workflow-state/debug-<issue>.state.json`
+- State file: `~/.claude/workflow-state/debug-<issue>.state.json`
 - Commit: [hash]
 - Date: YYYY-MM-DD
 

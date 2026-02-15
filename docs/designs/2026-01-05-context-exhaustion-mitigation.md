@@ -19,7 +19,7 @@ Based on brainstorming, we selected a comprehensive approach combining:
 
 ### State File Structure
 
-Location: `docs/workflow-state/<feature-id>.state.json`
+Location: `~/.claude/workflow-state/<feature-id>.state.json`
 
 ```json
 {
