@@ -62,11 +62,17 @@ export function createServer(stateDir: string): McpServer {
     const handler = COMPOSITE_HANDLERS[tool.name];
     if (!handler) continue;
 
-    const schema = buildRegistrationSchema(tool.actions);
+    const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool);
 
-    server.tool(tool.name, description, schema, async (args) =>
-      formatResult(await handler(args as Record<string, unknown>, stateDir)),
+    // Use registerTool() so the strict ZodObject is passed as inputSchema
+    // directly, preserving .strict() validation that rejects unrecognized keys.
+    // The server.tool() overload treats ZodObjects as annotations, not schemas.
+    server.registerTool(
+      tool.name,
+      { description, inputSchema },
+      async (args) =>
+        formatResult(await handler(args as Record<string, unknown>, stateDir)),
     );
   }
 
