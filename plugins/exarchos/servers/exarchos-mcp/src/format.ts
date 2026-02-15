@@ -20,6 +20,18 @@ export function toEventAck(event: { streamId: string; sequence: number; type: st
   return { streamId: event.streamId, sequence: event.sequence, type: event.type };
 }
 
+// ─── MCP Wire Format Types ──────────────────────────────────────────────────
+
+export interface McpToolContent {
+  readonly type: string;
+  readonly text: string;
+}
+
+export interface McpToolResult {
+  readonly content: readonly McpToolContent[];
+  readonly isError: boolean;
+}
+
 // ─── Result Formatting ──────────────────────────────────────────────────────
 
 /** Converts a ToolResult into the MCP content format expected by the SDK. */
