@@ -3,10 +3,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventStore } from '../event-store/store.js';
-import { handleViewTelemetry, registerTelemetryTools } from './tools.js';
+import { handleViewTelemetry } from './tools.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -297,21 +296,3 @@ describe('Telemetry projection registered in materializer', () => {
   });
 });
 
-describe('registerTelemetryTools', () => {
-  it('should register exarchos_view_telemetry tool on the server', () => {
-    // Arrange
-    const toolNames: string[] = [];
-    const mockServer = {
-      tool: (name: string, ..._rest: unknown[]) => {
-        toolNames.push(name);
-      },
-    } as unknown as McpServer;
-    const store = new EventStore('/tmp/test-reg');
-
-    // Act
-    registerTelemetryTools(mockServer, '/tmp/test-reg', store);
-
-    // Assert
-    expect(toolNames).toContain('exarchos_view_telemetry');
-  });
-});

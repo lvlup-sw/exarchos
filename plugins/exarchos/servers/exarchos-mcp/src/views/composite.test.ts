@@ -14,6 +14,11 @@ vi.mock('../stack/tools.js', () => ({
   handleStackPlace: vi.fn(),
 }));
 
+// Mock the telemetry tools module
+vi.mock('../telemetry/tools.js', () => ({
+  handleViewTelemetry: vi.fn(),
+}));
+
 import { handleView } from './composite.js';
 import {
   handleViewPipeline,
@@ -22,6 +27,7 @@ import {
   handleViewTeamStatus,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
+import { handleViewTelemetry } from '../telemetry/tools.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -173,6 +179,28 @@ describe('handleView', () => {
           branch: 'feat/foo',
           prUrl: 'https://github.com/org/repo/pull/1',
         },
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('telemetry', () => {
+    it('should delegate to handleViewTelemetry', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { session: { totalInvocations: 5 }, tools: [], hints: [] },
+      };
+      vi.mocked(handleViewTelemetry).mockResolvedValue(expected);
+      const args = { action: 'telemetry', compact: true, tool: 'workflow_get' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewTelemetry).toHaveBeenCalledWith(
+        { compact: true, tool: 'workflow_get' },
         STATE_DIR,
       );
     });

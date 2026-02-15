@@ -387,6 +387,18 @@ const viewActions: readonly ToolAction[] = [
     phases: STACK_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'telemetry',
+    description: 'Get telemetry metrics with per-tool performance data and optimization hints',
+    schema: z.object({
+      compact: z.boolean().optional(),
+      tool: z.string().optional(),
+      sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
+      limit: z.number().int().positive().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────
@@ -421,7 +433,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
   },
   {
     name: 'exarchos_view',
-    description: 'CQRS materialized views — pipeline, tasks, workflow status, team status, and stack',
+    description: 'CQRS materialized views — pipeline, tasks, workflow status, team status, stack, and telemetry',
     actions: viewActions,
   },
   {

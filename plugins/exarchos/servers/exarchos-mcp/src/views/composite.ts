@@ -11,6 +11,7 @@ import {
   handleViewTeamStatus,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
+import { handleViewTelemetry } from '../telemetry/tools.js';
 
 /**
  * Composite handler that dispatches to existing view/stack handlers
@@ -71,6 +72,17 @@ export async function handleView(
         stateDir,
       );
 
+    case 'telemetry':
+      return handleViewTelemetry(
+        rest as {
+          compact?: boolean;
+          tool?: string;
+          sort?: 'tokens' | 'invocations' | 'duration';
+          limit?: number;
+        },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -84,6 +96,7 @@ export async function handleView(
             'team_status',
             'stack_status',
             'stack_place',
+            'telemetry',
           ] as const,
         },
       };
