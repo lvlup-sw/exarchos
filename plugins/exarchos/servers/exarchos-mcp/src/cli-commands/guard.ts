@@ -66,13 +66,39 @@ function buildAllowResult(): CommandResult {
   return {};
 }
 
-// ─── Active Workflow Phase ──────────────────────────────────────────────────
+// ─── Workflow Identifier Extraction ─────────────────────────────────────────
 
 /**
- * Find the current phase of the active workflow.
- * Returns null if no active workflow exists or the directory is missing.
+ * Extract the workflow identifier from tool input.
+ * Workflow tools use `featureId`, event tools use `streamId`.
+ * Returns null if no identifier is present.
  */
-async function findActiveWorkflowPhase(stateDir: string): Promise<string | null> {
+function extractWorkflowId(toolInput: Record<string, unknown>): string | null {
+  const id = toolInput.featureId ?? toolInput.streamId;
+  return typeof id === 'string' ? id : null;
+}
+
+// ─── Active Workflow Phase ──────────────────────────────────────────────────
+
+const FINAL_PHASES = new Set(['completed', 'cancelled']);
+
+/**
+ * Find the current phase of the targeted workflow, or fall back to the
+ * most recently updated active workflow.
+ *
+ * When `targetId` is provided, returns the phase of that specific workflow
+ * (or null if it doesn't exist or is in a final phase). This enables
+ * per-workflow guard scoping — tools targeting workflow A are checked
+ * against A's phase, not an unrelated workflow B.
+ *
+ * When `targetId` is null, falls back to the most recently updated active
+ * workflow for backward compatibility with tools that don't specify a
+ * workflow identifier (e.g., orchestrate actions).
+ */
+async function findActiveWorkflowPhase(
+  stateDir: string,
+  targetId: string | null,
+): Promise<string | null> {
   let stateFiles;
   try {
     stateFiles = await listStateFiles(stateDir);
@@ -85,16 +111,22 @@ async function findActiveWorkflowPhase(stateDir: string): Promise<string | null>
     return null;
   }
 
-  // Filter to active (non-final) workflows; if none active, allow any action
-  const finalPhases = new Set(['completed', 'cancelled']);
-  const activeWorkflows = stateFiles.filter((sf) => !finalPhases.has(sf.state.phase));
+  // Per-workflow scoping: if a target is specified, check only that workflow
+  if (targetId !== null) {
+    const match = stateFiles.find((sf) => sf.featureId === targetId);
+    if (!match) return null;
+    if (FINAL_PHASES.has(match.state.phase)) return null;
+    return match.state.phase;
+  }
+
+  // Fallback: most recently updated active workflow
+  const activeWorkflows = stateFiles.filter((sf) => !FINAL_PHASES.has(sf.state.phase));
   if (activeWorkflows.length === 0) {
     return null;
   }
-  const pool = activeWorkflows;
 
   // Sort by updatedAt descending for deterministic selection across platforms
-  const sorted = pool.sort((a, b) => {
+  const sorted = activeWorkflows.sort((a, b) => {
     const tsA = Date.parse(a.state.updatedAt) || 0;
     const tsB = Date.parse(b.state.updatedAt) || 0;
     return tsB - tsA;
@@ -148,11 +180,14 @@ export async function handleGuard(
     return buildAllowResult();
   }
 
-  // Find the current workflow phase
+  // Extract workflow identifier for per-workflow scoping
+  const targetId = extractWorkflowId(toolInput as Record<string, unknown>);
+
+  // Find the current workflow phase (scoped to target if available)
   const stateDir = stateDirOverride ?? resolveStateDir();
-  const currentPhase = await findActiveWorkflowPhase(stateDir);
+  const currentPhase = await findActiveWorkflowPhase(stateDir, targetId);
   if (currentPhase === null) {
-    // No active workflow — allow
+    // No matching active workflow — allow
     return buildAllowResult();
   }
 
