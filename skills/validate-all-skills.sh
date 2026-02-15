@@ -12,6 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALIDATOR="${SCRIPT_DIR}/validate-frontmatter.sh"
 SKILLS_DIR="${SCRIPT_DIR}"
+shopt -s nullglob
 
 # Colors
 GREEN='\033[0;32m'
@@ -38,12 +39,12 @@ for skill_file in "${SKILLS_DIR}"/*/SKILL.md; do
 
   if [[ "$validation_exit" -eq 0 ]]; then
     PASS_COUNT=$((PASS_COUNT + 1))
-    printf "Validating %-30s ${GREEN}PASS${RESET}\n" "${folder_name}..."
+    printf "%b" "Validating $(printf '%-30s' "${folder_name}...") ${GREEN}PASS${RESET}\n"
   else
     FAIL_COUNT=$((FAIL_COUNT + 1))
     # Extract the first error for the summary line
     first_error=$(echo "$validation_output" | head -n 1 | sed 's/^ERROR: //')
-    printf "Validating %-30s ${RED}FAIL${RESET} (%s)\n" "${folder_name}..." "$first_error"
+    printf "%b" "Validating $(printf '%-30s' "${folder_name}...") ${RED}FAIL${RESET} (${first_error})\n"
   fi
 done
 

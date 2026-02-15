@@ -82,7 +82,7 @@ Activate this skill when:
 | Worktree | No (direct) | Yes (isolated) |
 | Delegation | No | Yes (full workflow) |
 | Documentation | Mandatory update phase | Mandatory update phase |
-| Human Checkpoints | 1 (completion) | 1 (merge) |
+| Human Checkpoints | 0 | 1 (merge) |
 
 ## Polish Track
 
@@ -181,8 +181,6 @@ If `docsToUpdate` is empty, verify no docs need updating.
 Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
 
 > **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
-
-**Human checkpoint:** Confirm refactor complete.
 
 ## Overhaul Track
 
@@ -371,7 +369,7 @@ Both tracks have ONE human checkpoint: completion/merge confirmation.
 
 ```
 explore -> brief -> polish-implement -> polish-validate -> polish-update-docs -> completed
-           (auto)   (auto)              (auto)             (auto)                [HUMAN]
+           (auto)   (auto)              (auto)             (auto)                (auto)
 ```
 
 **Next actions:**
@@ -379,7 +377,7 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 - `AUTO:polish-implement` after brief
 - `AUTO:refactor-validate` after polish-implement
 - `AUTO:refactor-update-docs` after polish-validate
-- `WAIT:human-checkpoint:polish-update-docs` after polish-update-docs
+- `AUTO:completed` after polish-update-docs
 
 ### Overhaul Auto-Chain
 
@@ -410,7 +408,7 @@ If scope expands beyond polish limits during explore or brief phase, use `mcp__e
 - Test coverage gaps require new tests
 - Architectural documentation needed
 
-Output: "Scope expanded beyond polish limits. Switching to overhaul track. Continue? (Y/n)"
+Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 
 ## Integration Points
 
