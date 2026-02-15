@@ -35,7 +35,7 @@ Rules load into every Claude Code session as system prompt context. Minimizing f
 | With TypeScript scoping | ~8,791 | ~3,304 | ~62% |
 | With C# scoping | ~8,791 | ~4,998 | ~43% |
 
-"Before" = all original rules including workflow-auto-resume.md loaded always (no scoping, no pruning). Measured via `wc -w` on `main` branch × 1.3.
+"Before" = all original rules including workflow-auto-resume.md always loaded (no scoping, no pruning). Measured via `wc -w` on `main` branch × 1.3.
 "After" = post-optimization with scoping, condensing, and pruning.
 
 Before values (measured on `main` via `wc -w`):
