@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-02-15",
+  "baselines": {
+    "telemetry_view_compact_5_tools_max_tokens": 400,
+    "telemetry_view_single_tool_max_tokens": 150,
+    "perf_field_overhead_max_tokens": 15,
+    "telemetry_wrapper_overhead_max_ms": 10,
+    "telemetry_view_100_events_max_ms": 100
+  }
+}
