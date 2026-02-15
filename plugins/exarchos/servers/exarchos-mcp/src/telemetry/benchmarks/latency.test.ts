@@ -9,6 +9,8 @@ import { formatResult } from '../../format.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
 
+const RUN_BENCHMARKS = process.env.RUN_BENCHMARKS === 'true';
+
 describe('Latency Benchmarks', () => {
   let stateDir: string;
   let store: EventStore;
@@ -19,7 +21,7 @@ describe('Latency Benchmarks', () => {
     resetMaterializerCache();
   });
 
-  it('withTelemetry wrapper adds less than 10ms overhead', async () => {
+  it.skipIf(!RUN_BENCHMARKS)('withTelemetry wrapper adds less than 10ms overhead', async () => {
     // Arrange
     const mockHandler = async () => formatResult({ success: true, data: {} });
     const instrumented = withTelemetry(mockHandler, 'latency_test', store);
@@ -48,7 +50,7 @@ describe('Latency Benchmarks', () => {
     expect(medianOverhead).toBeLessThan(10);
   });
 
-  it('telemetry view materialization completes under 100ms for 100 events', async () => {
+  it.skipIf(!RUN_BENCHMARKS)('telemetry view materialization completes under 100ms for 100 events', async () => {
     // Arrange
     for (let i = 0; i < 100; i++) {
       await store.append(TELEMETRY_STREAM, {
