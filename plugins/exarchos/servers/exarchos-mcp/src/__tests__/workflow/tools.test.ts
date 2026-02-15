@@ -86,6 +86,37 @@ describe('Core Tools', () => {
     });
   });
 
+  describe('ToolInit_EmitsWorkflowStartedEvent', () => {
+    it('should emit workflow.started event to event store on init', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'emit-test', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('emit-test');
+      expect(events.length).toBe(1);
+      expect(events[0].type).toBe('workflow.started');
+      expect(events[0].data).toEqual({
+        featureId: 'emit-test',
+        workflowType: 'feature',
+      });
+    });
+
+    it('should succeed even without event store configured', async () => {
+      configureWorkflowEventStore(null);
+
+      const result = await handleInit(
+        { featureId: 'no-store', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+
   // ─── ToolList ───────────────────────────────────────────────────────────────
 
   describe('ToolList_ActiveWorkflows_ReturnsWithStaleness', () => {

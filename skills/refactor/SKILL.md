@@ -227,7 +227,7 @@ Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to se
 
 Then auto-invoke plan:
 ```typescript
-Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 #### 3. Plan Phase
@@ -235,7 +235,7 @@ Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.jso
 Invoke `/plan` skill with explicit Skill tool call:
 
 ```typescript
-Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 The `/plan` skill:
@@ -250,7 +250,7 @@ Update state on completion using `mcp__exarchos__exarchos_workflow` with `action
 
 Then auto-invoke delegate:
 ```typescript
-Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 #### 4. Delegate Phase
@@ -258,7 +258,7 @@ Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
 Invoke `/delegate` skill for TDD implementation in worktrees:
 
 ```typescript
-Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 The `/delegate` skill:
@@ -272,7 +272,7 @@ Update state on completion using `mcp__exarchos__exarchos_workflow` with `action
 
 Then auto-invoke review:
 ```typescript
-Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "review", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 #### 5. Review Phase
@@ -280,7 +280,7 @@ Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
 Invoke `/review` skill with emphasis on quality:
 
 ```typescript
-Skill({ skill: "review", args: "docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "review", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 The `/review` skill:

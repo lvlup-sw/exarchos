@@ -1752,7 +1752,7 @@ The Exarchos bridge is configured via a JSON file that controls operational mode
   },
   "projection": {
     "strategy": "dual-write",
-    "localPath": "docs/workflow-state/",
+    "localPath": "~/.claude/workflow-state/",
     "syncIntervalMs": 30000,
     "conflictResolution": "last-writer-wins"
   },
@@ -1773,7 +1773,7 @@ The Exarchos bridge is configured via a JSON file that controls operational mode
 Events are stored in a separate append-only JSONL file alongside the HSM state file managed by workflow-state-mcp:
 
 ```text
-docs/workflow-state/
+~/.claude/workflow-state/
   my-feature.state.json    # HSM state (managed by workflow-state-mcp)
   my-feature.events.jsonl  # Append-only event log (managed by exarchos-mcp)
   my-feature.outbox.json   # Sync outbox (managed by exarchos-mcp)

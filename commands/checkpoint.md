@@ -25,7 +25,7 @@ Use `/checkpoint` when:
 The SessionStart hook automatically discovers active workflows on session start. If you need to locate the state file manually, check the state directory:
 
 ```bash
-ls docs/workflow-state/*.state.json
+ls ~/.claude/workflow-state/*.state.json
 ```
 
 ### Step 2: Ensure State is Current
@@ -49,7 +49,7 @@ Fix any discrepancies.
 
 **Feature:** <feature-id>
 **Phase:** <current-phase>
-**State file:** `docs/workflow-state/<feature>.state.json`
+**State file:** `~/.claude/workflow-state/<feature>.state.json`
 
 ### Progress
 - Tasks: X/Y complete
@@ -61,7 +61,7 @@ Fix any discrepancies.
 To continue this workflow in a new session:
 
 ```
-/resume docs/workflow-state/<feature>.state.json
+/resume ~/.claude/workflow-state/<feature>.state.json
 ```
 
 Or start Claude Code fresh and run the resume command.

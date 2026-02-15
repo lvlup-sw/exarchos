@@ -413,7 +413,7 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 Debug workflows resume like feature workflows:
 ```bash
-/resume docs/workflow-state/debug-<issue-slug>.state.json
+/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ### With Existing Skills

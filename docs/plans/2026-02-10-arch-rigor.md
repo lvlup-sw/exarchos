@@ -1,7 +1,7 @@
 # Implementation Plan: Architectural Rigor Refactor
 
 ## Source Design
-Brief: `docs/workflow-state/refactor-arch-rigor.state.json`
+Brief: `~/.claude/workflow-state/refactor-arch-rigor.state.json`
 ADR: `docs/adrs/distributed-sdlc-pipeline.md`
 
 ## Scope
