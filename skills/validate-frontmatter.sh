@@ -170,6 +170,51 @@ check_references_exist() {
 }
 
 # ---------------------------------------------------------------------------
+# check_negative_trigger
+#   Verify the description contains a negative trigger phrase
+#   (e.g., "Do NOT" or "Not for") to help Claude Code disambiguate skills.
+# ---------------------------------------------------------------------------
+check_negative_trigger() {
+  if [[ -z "$FRONTMATTER" ]]; then
+    return
+  fi
+
+  local desc_value
+  desc_value=$(echo "$FRONTMATTER" | grep '^description:' | sed 's/^description:[[:space:]]*//' | tr -d '"' | tr -d "'" || true)
+
+  if [[ -z "$desc_value" ]]; then
+    return  # Already caught by check_required_fields
+  fi
+
+  if ! echo "$desc_value" | grep -qi 'Do NOT\|Not for'; then
+    ERRORS+=("check_negative_trigger: Description lacks a negative trigger phrase (e.g., 'Do NOT ...' or 'Not for ...')")
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# check_no_orphan_references
+#   Verify every .md file in references/ is actually referenced in the body.
+#   Only checks .md files (not .sh, .json, etc.).
+# ---------------------------------------------------------------------------
+check_no_orphan_references() {
+  local skill_dir
+  skill_dir=$(dirname "$SKILL_FILE")
+  local refs_dir="${skill_dir}/references"
+
+  if [[ ! -d "$refs_dir" ]]; then
+    return  # No references directory — nothing to check
+  fi
+
+  for ref_file in "$refs_dir"/*.md; do
+    [[ -f "$ref_file" ]] || continue
+    local ref_name="references/$(basename "$ref_file")"
+    if ! echo "$BODY" | grep -qF "$ref_name"; then
+      ERRORS+=("check_no_orphan_references: File '${ref_name}' exists but is not referenced in SKILL.md")
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
 # Main — Run all checks, report errors, exit appropriately
 # ---------------------------------------------------------------------------
 
@@ -179,6 +224,8 @@ check_name_matches_folder
 check_no_xml_tags
 check_word_count
 check_references_exist
+check_negative_trigger
+check_no_orphan_references
 
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
   for err in "${ERRORS[@]}"; do
