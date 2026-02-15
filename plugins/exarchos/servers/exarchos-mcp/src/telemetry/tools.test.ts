@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -37,6 +37,10 @@ describe('handleViewTelemetry', () => {
   beforeEach(async () => {
     stateDir = await createTempDir();
     resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   describe('compact mode (default)', () => {
