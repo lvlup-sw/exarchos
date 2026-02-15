@@ -1,17 +1,8 @@
 import { EventStore } from '../event-store/store.js';
+import type { McpToolResult } from '../format.js';
 import { TELEMETRY_STREAM } from './constants.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-
-interface McpToolContent {
-  readonly type: string;
-  readonly text: string;
-}
-
-interface McpToolResult {
-  content: McpToolContent[];
-  isError: boolean;
-}
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<McpToolResult>;
 
