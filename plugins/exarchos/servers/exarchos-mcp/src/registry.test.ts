@@ -111,13 +111,25 @@ describe('TOOL_REGISTRY', () => {
     });
   });
 
-  it('should have non-empty phases for every action', () => {
+  it('should have non-empty phases for every action except init', () => {
+    // init has empty phases by design — it relies on the guard's null-check
+    // (no active workflow) rather than phase matching
+    const EMPTY_PHASE_ACTIONS = new Set(['exarchos_workflow.init']);
+
     for (const composite of TOOL_REGISTRY) {
       for (const action of composite.actions) {
-        expect(
-          action.phases.size,
-          `${composite.name}.${action.name} should have at least one phase`,
-        ).toBeGreaterThan(0);
+        const key = `${composite.name}.${action.name}`;
+        if (EMPTY_PHASE_ACTIONS.has(key)) {
+          expect(
+            action.phases.size,
+            `${key} should have empty phases (guard null-check only)`,
+          ).toBe(0);
+        } else {
+          expect(
+            action.phases.size,
+            `${key} should have at least one phase`,
+          ).toBeGreaterThan(0);
+        }
       }
     }
   });
