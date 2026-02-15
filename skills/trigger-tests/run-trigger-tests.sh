@@ -21,8 +21,12 @@ while IFS= read -r line; do
     SKIP=$((SKIP + 1)); continue
   fi
 
-  # Extract description from frontmatter
-  description=$(sed -n '/^---$/,/^---$/p' "$skill_file" | grep -A 100 '^description:' | head -20)
+  # Extract description from frontmatter (handles multiline YAML values)
+  description=$(sed -n '/^---$/,/^---$/p' "$skill_file" | awk '
+    /^description:/ { capture=1 }
+    capture && /^[a-z_-]+:/ && !/^description:/ { capture=0 }
+    capture { print }
+  ')
 
   case "$expected" in
     trigger)
@@ -38,6 +42,7 @@ while IFS= read -r line; do
       fi
       ;;
     no-trigger)
+      # Static check: verify skill has negative guidance (phrase-specific exclusion deferred to eval framework)
       if echo "$description" | grep -qi "Do NOT\|Not for"; then
         PASS=$((PASS + 1))
       else
