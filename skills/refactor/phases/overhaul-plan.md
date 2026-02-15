@@ -21,7 +21,7 @@ The overhaul track leverages the existing `/plan` skill with additional refactor
 
 ```bash
 # Auto-invocation from brief phase
-Skill({ skill: "plan", args: "--refactor docs/workflow-state/<feature>.state.json" })
+Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 ### Context Passing
@@ -163,7 +163,7 @@ Save to: `docs/plans/YYYY-MM-DD-<refactor-name>.md`
 # Implementation Plan: [Refactor Name]
 
 ## Source
-- **Brief:** `docs/workflow-state/<feature>.state.json`
+- **Brief:** `~/.claude/workflow-state/<feature>.state.json`
 - **Track:** Overhaul
 - **Affected scope:** [Files/modules from brief]
 
@@ -299,7 +299,7 @@ After plan completion, auto-continue to delegate:
 2. Output: "Refactor plan created with [N] tasks and [M] rollback points. Auto-continuing to delegation..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "delegate", args: "docs/workflow-state/<feature>.state.json" })
+   Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

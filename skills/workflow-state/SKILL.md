@@ -37,7 +37,7 @@ Activate this skill when:
 ## State File Location
 
 ```
-docs/workflow-state/<feature-id>.state.json
+~/.claude/workflow-state/<feature-id>.state.json
 ```
 
 State files are gitignored - they persist locally but are not committed.

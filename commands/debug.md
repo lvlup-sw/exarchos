@@ -134,7 +134,7 @@ Debug workflows auto-chain through phases with ONE human checkpoint.
 Debug workflows resume like feature workflows:
 
 ```bash
-/resume docs/workflow-state/debug-<issue-slug>.state.json
+/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ## Related

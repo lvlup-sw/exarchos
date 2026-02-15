@@ -117,5 +117,4 @@ The main Claude Code session coordinates but does not write implementation code 
 - `docs/plans/` — TDD implementation plans
 - `docs/adrs/` — Architecture Decision Records
 - `docs/rca/` — Root Cause Analysis documents
-- `docs/workflow-state/` — Legacy workflow state location (gitignored, no longer default)
 - `docs/schemas/` — JSON schemas for state files

@@ -24,7 +24,7 @@ else
     REPO_ROOT="$(pwd)"
 fi
 
-STATE_DIR="$REPO_ROOT/docs/workflow-state"
+STATE_DIR="$HOME/.claude/workflow-state"
 
 # Resolve state file paths - handle both relative and absolute paths
 resolve_state_file() {
@@ -32,9 +32,9 @@ resolve_state_file() {
     if [[ "$input" == /* ]]; then
         # Absolute path - use as-is
         echo "$input"
-    elif [[ "$input" == docs/workflow-state/* ]]; then
-        # Relative from repo root
-        echo "$REPO_ROOT/$input"
+    elif [[ "$input" == ~/.claude/workflow-state/* ]]; then
+        # Relative from home
+        echo "${input/#\~/$HOME}"
     elif [[ "$input" == *.state.json ]]; then
         # Just filename - prepend STATE_DIR
         echo "$STATE_DIR/$input"

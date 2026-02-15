@@ -112,6 +112,52 @@ describe('PipelineView', () => {
     });
   });
 
+  describe('WorkflowTransition_ExtractsFeatureId', () => {
+    it('should extract featureId from workflow.transition when no workflow.started exists', () => {
+      const events = [
+        makeEvent(1, 'workflow.transition', {
+          from: 'ideate',
+          to: 'plan',
+          trigger: 'plan',
+          featureId: 'feat-from-transition',
+        }),
+        makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
+      ];
+
+      const view = materializer.materialize<PipelineViewState>(
+        'wf-003',
+        PIPELINE_VIEW,
+        events,
+      );
+
+      expect(view.featureId).toBe('feat-from-transition');
+      expect(view.phase).toBe('plan');
+      expect(view.taskCount).toBe(1);
+    });
+
+    it('should not overwrite featureId from workflow.started with workflow.transition', () => {
+      const events = [
+        makeEvent(1, 'workflow.started', { featureId: 'from-started', workflowType: 'feature' }),
+        makeEvent(2, 'workflow.transition', {
+          from: 'ideate',
+          to: 'plan',
+          trigger: 'plan',
+          featureId: 'from-transition',
+        }),
+      ];
+
+      const view = materializer.materialize<PipelineViewState>(
+        'wf-004',
+        PIPELINE_VIEW,
+        events,
+      );
+
+      expect(view.featureId).toBe('from-started');
+      expect(view.workflowType).toBe('feature');
+      expect(view.phase).toBe('plan');
+    });
+  });
+
   describe('EmptyPipeline', () => {
     it('should return defaults for empty stream', () => {
       const view = materializer.materialize<PipelineViewState>(

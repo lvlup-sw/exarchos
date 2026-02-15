@@ -1,7 +1,7 @@
 # Implementation Plan: Optimize Exarchos MCP Server
 
 ## Source Design
-Source: Refactor brief in `docs/workflow-state/refactor-optimize-mcp.state.json`
+Source: Refactor brief in `~/.claude/workflow-state/refactor-optimize-mcp.state.json`
 Audit prompt: `docs/prompts/optimize.md`
 
 ## Scope

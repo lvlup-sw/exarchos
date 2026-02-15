@@ -1,7 +1,7 @@
 # Implementation Plan: MCP Instruction-Implementation Consistency
 
 ## Source
-Brief: `docs/workflow-state/refactor-mcp-consistency.state.json`
+Brief: `~/.claude/workflow-state/refactor-mcp-consistency.state.json`
 Bug report: `docs/bugs/ex.md`
 
 ## Scope

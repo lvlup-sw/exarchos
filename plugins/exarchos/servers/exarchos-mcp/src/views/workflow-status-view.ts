@@ -43,6 +43,20 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
         };
       }
 
+      case 'workflow.transition': {
+        const data = event.data as {
+          featureId?: string;
+          from?: string;
+          to?: string;
+        } | undefined;
+        return {
+          ...view,
+          // Only set featureId if not already populated by workflow.started
+          featureId: view.featureId || data?.featureId || view.featureId,
+          phase: data?.to ?? view.phase,
+        };
+      }
+
       case 'phase.transitioned': {
         const data = event.data as { to?: string } | undefined;
         return {

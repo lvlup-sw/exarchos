@@ -1,7 +1,7 @@
 # Implementation Plan: Installer Refactor
 
 ## Source Brief
-Link: `docs/workflow-state/refactor-installer.state.json`
+Link: `~/.claude/workflow-state/refactor-installer.state.json`
 
 ## Scope
 **Target:** Full refactor - replace bash installer with Node.js/TypeScript
