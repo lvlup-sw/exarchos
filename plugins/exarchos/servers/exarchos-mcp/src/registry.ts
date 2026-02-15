@@ -45,7 +45,7 @@ export function buildCompositeSchema(
 }
 
 /**
- * Builds a flat Zod raw shape for MCP SDK tool registration.
+ * Builds a strict Zod object schema for MCP SDK tool registration.
  *
  * The MCP SDK's `normalizeObjectSchema` cannot generate JSON Schema from
  * discriminated unions, so we flatten the composite schema into a single
@@ -53,10 +53,14 @@ export function buildCompositeSchema(
  *
  * The composite handler performs action-level routing and the underlying
  * handlers validate required fields per action.
+ *
+ * The returned schema uses `.strict()` so that unrecognized parameter names
+ * (e.g., `streamId` instead of `stream`) produce clear validation errors
+ * instead of being silently dropped.
  */
 export function buildRegistrationSchema(
   actions: readonly ToolAction[],
-): z.ZodRawShape {
+): z.ZodObject<z.ZodRawShape> {
   const actionNames = actions.map((a) => a.name) as [string, ...string[]];
   const shape: z.ZodRawShape = {
     action: z.enum(actionNames),
@@ -73,7 +77,7 @@ export function buildRegistrationSchema(
     }
   }
 
-  return shape;
+  return z.object(shape).strict();
 }
 
 /**
