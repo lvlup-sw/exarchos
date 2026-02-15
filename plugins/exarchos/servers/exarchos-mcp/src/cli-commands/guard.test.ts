@@ -46,11 +46,12 @@ function makeStateJson(featureId: string, phase: string, updatedAt?: string): st
 function makePreToolUseInput(
   mcpToolName: string,
   action: string,
+  extraInput?: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     hook_event_name: 'PreToolUse',
     tool_name: mcpToolName,
-    tool_input: { action },
+    tool_input: { action, ...extraInput },
   };
 }
 
@@ -111,16 +112,19 @@ describe('guard command', () => {
   // ─── Init Enforcement ──────────────────────────────────────────────────
 
   describe('init enforcement', () => {
-    it('should deny init when an active workflow exists in any phase', async () => {
-      // Arrange — active workflow in delegate phase
+    it('should deny init when targeting a featureId with active workflow', async () => {
+      // Arrange — active workflow with same featureId as init target
       const stateFile = path.join(tmpDir, 'test-feature.state.json');
       await fs.writeFile(stateFile, makeStateJson('test-feature', 'delegate'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'init',
+        { featureId: 'test-feature', workflowType: 'feature' },
+      );
 
       // Act
       const result = await handleGuard(input, tmpDir);
 
-      // Assert — init has empty phases set, always denied when active workflow exists
+      // Assert — init denied for existing active workflow (duplicate prevention)
       expect(result).toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -130,11 +134,14 @@ describe('guard command', () => {
       });
     });
 
-    it('should deny init even when active workflow is in ideate phase', async () => {
-      // Arrange — prevents creating duplicate workflows
+    it('should deny init for same featureId even in ideate phase', async () => {
+      // Arrange — prevents re-initializing an in-progress workflow
       const stateFile = path.join(tmpDir, 'test-feature.state.json');
       await fs.writeFile(stateFile, makeStateJson('test-feature', 'ideate'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'init',
+        { featureId: 'test-feature', workflowType: 'feature' },
+      );
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -231,6 +238,122 @@ describe('guard command', () => {
 
       // Assert
       expect(result).toEqual({});
+    });
+  });
+
+  // ─── Per-Workflow Scoping ─────────────────────────────────────────────
+
+  describe('per-workflow scoping', () => {
+    it('should allow init when unrelated active workflows exist', async () => {
+      // Arrange — active workflow "existing-feature" in delegate phase
+      // but init targets a NEW workflow "new-refactor"
+      await fs.writeFile(
+        path.join(tmpDir, 'existing-feature.state.json'),
+        makeStateJson('existing-feature', 'delegate'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'init',
+        { featureId: 'new-refactor', workflowType: 'refactor' },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — init targets a non-existent workflow, should be allowed
+      expect(result).toEqual({});
+    });
+
+    it('should deny init when targeting a featureId that already has an active workflow', async () => {
+      // Arrange — active workflow "my-feature" already exists
+      await fs.writeFile(
+        path.join(tmpDir, 'my-feature.state.json'),
+        makeStateJson('my-feature', 'delegate'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'init',
+        { featureId: 'my-feature', workflowType: 'feature' },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — init for existing active workflow should be denied
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          reason: expect.stringContaining('init'),
+        },
+      });
+    });
+
+    it('should allow init when targeting a featureId whose workflow is completed', async () => {
+      // Arrange — "old-feature" exists but is completed; another active workflow also exists
+      await fs.writeFile(
+        path.join(tmpDir, 'old-feature.state.json'),
+        makeStateJson('old-feature', 'completed'),
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'active-other.state.json'),
+        makeStateJson('active-other', 'delegate'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'init',
+        { featureId: 'old-feature', workflowType: 'feature' },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — completed workflow can be re-initialized
+      expect(result).toEqual({});
+    });
+
+    it('should check targeted workflow phase for set action, not unrelated workflow', async () => {
+      // Arrange — workflow A in ideate, workflow B in delegate
+      // set on workflow A should check ideate (allow), not delegate
+      await fs.writeFile(
+        path.join(tmpDir, 'workflow-a.state.json'),
+        makeStateJson('workflow-a', 'ideate', '2025-01-01T00:00:00.000Z'),
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'workflow-b.state.json'),
+        makeStateJson('workflow-b', 'delegate', '2025-06-01T00:00:00.000Z'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_workflow', 'set',
+        { featureId: 'workflow-a' },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — should check workflow-a's phase (ideate), not workflow-b's (delegate)
+      // "set" is valid in ALL_PHASES, so this should allow
+      expect(result).toEqual({});
+    });
+
+    it('should fall back to most recent active workflow when no featureId in input', async () => {
+      // Arrange — orchestrate tools don't always specify featureId
+      await fs.writeFile(
+        path.join(tmpDir, 'active-workflow.state.json'),
+        makeStateJson('active-workflow', 'ideate'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_orchestrate', 'team_spawn',
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — no featureId, falls back to global check; team_spawn denied in ideate
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          reason: expect.stringContaining('team_spawn'),
+        },
+      });
     });
   });
 
