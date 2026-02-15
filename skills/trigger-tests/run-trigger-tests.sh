@@ -31,7 +31,7 @@ while IFS= read -r line; do
   case "$expected" in
     trigger)
       if [[ "$tag" == "obvious" ]]; then
-        if echo "$description" | grep -qi "$phrase"; then
+        if echo "$description" | grep -Fqi -- "$phrase"; then
           PASS=$((PASS + 1))
         else
           FAIL=$((FAIL + 1))
@@ -49,6 +49,10 @@ while IFS= read -r line; do
         FAIL=$((FAIL + 1))
         echo "FAIL: ${skill} has no negative triggers (needed to exclude: '${phrase}')"
       fi
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      echo "FAIL: ${skill} has unknown expected value: '${expected}'"
       ;;
   esac
 done < "$FIXTURES"
