@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # validate-synthesis-skill.test.sh — Verifies SKILL.md references scripts, not prose
 #
-# Exit 0 if all assertions pass, exit 1 on first failure.
+# Exit 0 if all assertions pass; exit 1 if any check fails.
 
 set -uo pipefail
 
@@ -55,7 +55,7 @@ assert_contains \
 
 # Step 1: Prose checklist removed
 assert_not_contains \
-  "Step1_NoProsChecklist_Removed" \
+  "Step1_NoProseChecklist_Removed" \
   "\- \[ \] All delegated tasks complete"
 
 # Failure routing documented for each script step
