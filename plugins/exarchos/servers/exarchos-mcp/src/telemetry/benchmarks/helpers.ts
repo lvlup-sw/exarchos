@@ -11,11 +11,11 @@ export async function createTempDir(): Promise<string> {
 
 export async function seedTelemetryEvents(
   stateDir: string,
-  events: Array<{
-    tool: string;
-    durationMs: number;
-    responseBytes: number;
-    tokenEstimate: number;
+  events: ReadonlyArray<{
+    readonly tool: string;
+    readonly durationMs: number;
+    readonly responseBytes: number;
+    readonly tokenEstimate: number;
   }>,
 ): Promise<EventStore> {
   const store = new EventStore(stateDir);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -12,6 +12,10 @@ describe('Telemetry Integration', () => {
   beforeEach(async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'telemetry-integration-'));
     resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   it('should include telemetry metrics in view response when events exist', async () => {

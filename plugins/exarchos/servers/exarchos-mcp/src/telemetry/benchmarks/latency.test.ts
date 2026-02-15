@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -19,6 +19,10 @@ describe('Latency Benchmarks', () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'latency-bench-'));
     store = new EventStore(stateDir);
     resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   it.skipIf(!RUN_BENCHMARKS)('withTelemetry wrapper adds less than 10ms overhead', async () => {
