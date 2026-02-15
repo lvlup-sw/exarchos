@@ -108,6 +108,132 @@ describe('guard command', () => {
     });
   });
 
+  // ─── Init Enforcement ──────────────────────────────────────────────────
+
+  describe('init enforcement', () => {
+    it('should deny init when an active workflow exists in any phase', async () => {
+      // Arrange — active workflow in delegate phase
+      const stateFile = path.join(tmpDir, 'test-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('test-feature', 'delegate'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — init has empty phases set, always denied when active workflow exists
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          reason: expect.stringContaining('init'),
+        },
+      });
+    });
+
+    it('should deny init even when active workflow is in ideate phase', async () => {
+      // Arrange — prevents creating duplicate workflows
+      const stateFile = path.join(tmpDir, 'test-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('test-feature', 'ideate'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — init should be denied to prevent duplicate workflows
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          reason: expect.stringContaining('init'),
+        },
+      });
+    });
+
+    it('should allow init when no active workflow exists', async () => {
+      // Arrange — empty state directory
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'init');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — null phase means no active workflow, allow
+      expect(result).toEqual({});
+    });
+  });
+
+  // ─── Blocked Phase ────────────────────────────────────────────────────
+
+  describe('blocked phase', () => {
+    it('should allow workflow get in blocked phase', async () => {
+      // Arrange — workflow is blocked, should still be inspectable
+      const stateFile = path.join(tmpDir, 'test-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('test-feature', 'blocked'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'get');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — must be able to read blocked workflows
+      expect(result).toEqual({});
+    });
+
+    it('should allow workflow set in blocked phase', async () => {
+      // Arrange — need set to transition out of blocked
+      const stateFile = path.join(tmpDir, 'test-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('test-feature', 'blocked'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'set');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — must be able to unblock workflows
+      expect(result).toEqual({});
+    });
+
+    it('should allow workflow cancel in blocked phase', async () => {
+      // Arrange — need cancel to clean up blocked workflows
+      const stateFile = path.join(tmpDir, 'test-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('test-feature', 'blocked'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'cancel');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert
+      expect(result).toEqual({});
+    });
+  });
+
+  // ─── Debug Workflow Phases ────────────────────────────────────────────
+
+  describe('debug workflow phases', () => {
+    it('should allow team_spawn in debug-implement phase', async () => {
+      // Arrange — debug thorough track uses team coordination
+      const stateFile = path.join(tmpDir, 'debug-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('debug-feature', 'debug-implement'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — debug-implement is in DELEGATE_PHASES
+      expect(result).toEqual({});
+    });
+
+    it('should allow task_claim in debug-implement phase', async () => {
+      // Arrange
+      const stateFile = path.join(tmpDir, 'debug-feature.state.json');
+      await fs.writeFile(stateFile, makeStateJson('debug-feature', 'debug-implement'));
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert
+      expect(result).toEqual({});
+    });
+  });
+
   // ─── Deny Cases ─────────────────────────────────────────────────────────
 
   describe('deny decisions', () => {

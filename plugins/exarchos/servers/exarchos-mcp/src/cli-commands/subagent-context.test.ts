@@ -324,5 +324,41 @@ describe('subagent-context', () => {
       // Assert
       expect(result).toBeNull();
     });
+
+    it('should skip cancelled workflows and find active one', async () => {
+      // Arrange
+      await writeStateFile(tempDir, 'cancelled-feature', 'cancelled');
+      await writeStateFile(tempDir, 'active-feature', 'delegate');
+
+      // Act
+      const result = await findActiveWorkflowPhase(tempDir);
+
+      // Assert
+      expect(result).toBe('delegate');
+    });
+
+    it('should return null when all workflows are cancelled', async () => {
+      // Arrange
+      await writeStateFile(tempDir, 'cancelled-1', 'cancelled');
+      await writeStateFile(tempDir, 'cancelled-2', 'cancelled');
+
+      // Act
+      const result = await findActiveWorkflowPhase(tempDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null when workflows are mix of completed and cancelled', async () => {
+      // Arrange
+      await writeStateFile(tempDir, 'done', 'completed');
+      await writeStateFile(tempDir, 'stopped', 'cancelled');
+
+      // Act
+      const result = await findActiveWorkflowPhase(tempDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
   });
 });
