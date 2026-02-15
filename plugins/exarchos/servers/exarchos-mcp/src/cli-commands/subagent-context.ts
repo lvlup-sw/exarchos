@@ -120,7 +120,7 @@ export async function findActiveWorkflowPhase(
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       const phase = parsed.phase;
 
-      if (typeof phase === 'string' && phase !== 'completed') {
+      if (typeof phase === 'string' && phase !== 'completed' && phase !== 'cancelled') {
         return phase;
       }
     } catch {

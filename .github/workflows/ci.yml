@@ -12,7 +12,7 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2204
     outputs:
       root: ${{ steps.filter.outputs.root }}
       mcp: ${{ steps.filter.outputs.mcp }}
@@ -51,14 +51,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:run
 
-  test-mcp-skip:
-    name: Exarchos MCP Server
-    needs: changes
-    if: ${{ needs.changes.outputs.mcp != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "No MCP changes, skipping"
-
   test-mcp:
     name: Exarchos MCP Server
     needs: changes
@@ -79,3 +71,30 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test:run
+
+  ci-gate:
+    name: CI Gate
+    runs-on: blacksmith-2vcpu-ubuntu-2204
+    needs: [changes, test-root, test-mcp]
+    if: always()
+    steps:
+      - name: Evaluate results
+        run: |
+          echo "changes=${{ needs.changes.result }}"
+          echo "test-root=${{ needs.test-root.result }}"
+          echo "test-mcp=${{ needs.test-mcp.result }}"
+
+          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Change detection: ${{ needs.changes.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.test-root.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Root package tests: ${{ needs.test-root.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
+            exit 1
+          fi
+
+          echo "All checks passed (skipped jobs are OK)"
