@@ -1,9 +1,6 @@
 // ─── Telemetry MCP Tool Handler ──────────────────────────────────────────────
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import type { EventStore } from '../event-store/store.js';
-import { formatResult, type ToolResult } from '../format.js';
+import type { ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
@@ -154,26 +151,3 @@ function toToolEntry(
   };
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-//
-// NOTE: Wiring createInstrumentedRegistrar to replace direct server.tool()
-// calls is deferred to a future task to avoid breaking existing tool
-// registrations and their test suites.
-
-export function registerTelemetryTools(
-  server: McpServer,
-  stateDir: string,
-  _eventStore: EventStore,
-): void {
-  server.tool(
-    'exarchos_view_telemetry',
-    'Get telemetry view with per-tool metrics, percentiles, and optimization hints. Supports compact/full modes, filtering, sorting, and limiting.',
-    {
-      compact: z.boolean().optional().describe('Strip rolling window arrays (default: true)'),
-      tool: z.string().optional().describe('Filter to a single tool name'),
-      sort: z.enum(['tokens', 'invocations', 'duration']).optional().describe('Sort descending by field'),
-      limit: z.number().int().positive().optional().describe('Return top N tools'),
-    },
-    async (args) => formatResult(await handleViewTelemetry(args, stateDir)),
-  );
-}
