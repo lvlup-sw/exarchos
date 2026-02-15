@@ -4,13 +4,15 @@ import { TELEMETRY_STREAM } from './constants.js';
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface McpToolContent {
-  readonly type: string;
+  readonly type: 'text';
   readonly text: string;
+  readonly [key: string]: unknown;
 }
 
 interface McpToolResult {
   content: McpToolContent[];
   isError: boolean;
+  [key: string]: unknown;
 }
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<McpToolResult>;
