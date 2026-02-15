@@ -1,6 +1,6 @@
 ---
 name: valid-skill
-description: A valid skill used for testing frontmatter validation.
+description: A valid skill used for testing frontmatter validation. Do NOT use for production workflows.
 metadata:
   author: test
   version: "1.0"

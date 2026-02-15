@@ -73,6 +73,12 @@ run_test "BodyTooLong_OverWordLimit_Fails" 1 "${FIXTURES}/body-too-long"
 # 8. Broken reference — missing file — should fail
 run_test "ReferenceMissing_BrokenLink_Fails" 1 "${FIXTURES}/broken-reference"
 
+# 9. Missing negative trigger — no "Do NOT" or "Not for" in description — should fail
+run_test "MissingNegativeTrigger_NoDoNot_Fails" 1 "${FIXTURES}/no-negative-trigger"
+
+# 10. Orphan reference — unreferenced .md file in references/ — should fail
+run_test "OrphanReference_UnreferencedFile_Fails" 1 "${FIXTURES}/orphan-reference"
+
 echo ""
 echo "=== Results: ${PASS_COUNT}/${TOTAL} passed, ${FAIL_COUNT} failed ==="
 
