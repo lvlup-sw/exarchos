@@ -23,6 +23,11 @@ if [[ ! -d "$TARGET_DIR" ]]; then
   exit 2
 fi
 
+if [[ ! -x "$VALIDATOR" ]]; then
+  echo "ERROR: Validator script not found or not executable: $VALIDATOR"
+  exit 2
+fi
+
 ERRORS=()
 PASS_COUNT=0
 TOTAL=0
