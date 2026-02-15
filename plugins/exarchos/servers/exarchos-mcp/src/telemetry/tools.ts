@@ -1,5 +1,6 @@
 // ─── Telemetry MCP Tool Handler ──────────────────────────────────────────────
 
+import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
@@ -9,12 +10,14 @@ import { generateHints } from './hints.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface ViewTelemetryArgs {
-  compact?: boolean;
-  tool?: string;
-  sort?: 'tokens' | 'invocations' | 'duration';
-  limit?: number;
-}
+const ViewTelemetryArgsSchema = z.object({
+  compact: z.boolean().optional(),
+  tool: z.string().optional(),
+  sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
+  limit: z.number().int().positive().optional(),
+});
+
+type ViewTelemetryArgs = z.infer<typeof ViewTelemetryArgsSchema>;
 
 interface CompactToolEntry {
   readonly tool: string;
@@ -48,9 +51,21 @@ const SORT_FIELDS: Record<string, keyof ToolMetrics> = {
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handleViewTelemetry(
-  args: ViewTelemetryArgs,
+  args: unknown,
   stateDir: string,
 ): Promise<ToolResult> {
+  const parseResult = ViewTelemetryArgsSchema.safeParse(args);
+  if (!parseResult.success) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: parseResult.error.issues.map((i) => i.message).join('; '),
+      },
+    };
+  }
+  const validated = parseResult.data;
+
   try {
     const store = getOrCreateEventStore(stateDir);
     const materializer = getOrCreateMaterializer(stateDir);
@@ -66,17 +81,17 @@ export async function handleViewTelemetry(
 
     // Convert tools map to array of { tool, ...metrics } entries
     let toolEntries = Object.entries(view.tools).map(([name, metrics]) =>
-      toToolEntry(name, metrics, args.compact !== false),
+      toToolEntry(name, metrics, validated.compact !== false),
     );
 
     // Apply tool filter
-    if (args.tool) {
-      toolEntries = toolEntries.filter((entry) => entry.tool === args.tool);
+    if (validated.tool) {
+      toolEntries = toolEntries.filter((entry) => entry.tool === validated.tool);
     }
 
     // Apply sort (descending)
-    if (args.sort) {
-      const sortField = SORT_FIELDS[args.sort];
+    if (validated.sort) {
+      const sortField = SORT_FIELDS[validated.sort];
       if (sortField) {
         toolEntries.sort((a, b) => {
           const aVal = (a as unknown as Record<string, number>)[sortField] ?? 0;
@@ -87,8 +102,8 @@ export async function handleViewTelemetry(
     }
 
     // Apply limit
-    if (args.limit !== undefined) {
-      toolEntries = toolEntries.slice(0, args.limit);
+    if (validated.limit !== undefined) {
+      toolEntries = toolEntries.slice(0, validated.limit);
     }
 
     // Generate hints
@@ -150,4 +165,3 @@ function toToolEntry(
     tokenEstimates: metrics.tokenEstimates,
   };
 }
-
