@@ -5,6 +5,8 @@ metadata:
   author: test
   version: "1.0"
   category: testing
+  mcp-server: test
+  phase-affinity: testing
 ---
 
 # Orphan Reference Skill
