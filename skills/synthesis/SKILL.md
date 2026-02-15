@@ -44,28 +44,43 @@ Since delegation creates Graphite stack branches and review validates them, synt
 
 ### Step 1: Verify Readiness
 
-**Pre-flight checklist:**
-```markdown
-## Synthesis Readiness
-
-- [ ] All delegated tasks complete
-- [ ] All reviews passed (spec + quality)
-- [ ] Graphite stack branches exist
-- [ ] All tests pass (verified in review phase)
-- [ ] No outstanding fix requests
+Run the pre-synthesis readiness check:
+```bash
+scripts/pre-synthesis-check.sh \
+  --state-file ~/.claude/workflow-state/<featureId>.state.json \
+  --repo-root <repo-root>
 ```
 
-If any check fails, return to appropriate phase (likely `/review` or `/delegate`).
+The script validates all readiness conditions:
+- All delegated tasks complete (from state file)
+- All reviews passed (from state file)
+- No outstanding fix requests (from state file)
+- Graphite stack branches exist (`gt log`)
+- All tests pass (`npm run test:run && npm run typecheck`)
 
-### Step 2: Verify Graphite Stack
+**On exit 0:** All checks passed -- proceed to Step 2.
+**On exit 1:** Output identifies the failing check. Return to `/review` or `/delegate` as appropriate.
 
-Verify the stack is ready for submission:
+Use `--skip-tests` if tests were already verified in review phase. Use `--skip-stack` to defer stack check to Step 2.
+
+### Step 2: Verify and Reconstruct Graphite Stack
+
+Run the stack reconstruction script to detect and fix any broken stack state:
+```bash
+scripts/reconstruct-stack.sh \
+  --repo-root <repo-root> \
+  --state-file ~/.claude/workflow-state/<featureId>.state.json
 ```
-mcp__graphite__run_gt_cmd({
-  args: ["log", "--short"],
-  cwd: "<repo-root>"
-})
-```
+
+The script has three phases:
+1. **Detection** -- Parses `gt log` for diverged branches, restack markers, or missing task branches
+2. **Reconstruction** -- If issues detected: resets branch pointers, removes blocking worktrees, re-tracks with correct parent chain
+3. **Validation** -- Confirms `gt log` shows a clean stack with correct parent chain
+
+**On exit 0:** Stack is healthy (or was successfully reconstructed) -- proceed to Step 3.
+**On exit 1:** Reconstruction failed validation. Manual intervention required -- inspect `gt log` output and resolve conflicts.
+
+Use `--dry-run` to preview reconstruction actions without making changes.
 
 ### Step 3: Quick Test Verification
 
@@ -79,33 +94,25 @@ If these fail, return to `/review` or `/delegate` to resolve.
 
 ### Step 4: Check CodeRabbit Review State
 
-PRs were created during `/delegate` (without `--merge-when-ready`). Before entering the merge queue, check CodeRabbit's review state on each PR in the stack.
+Get PR numbers from the Graphite stack, then run the CodeRabbit review check:
+```bash
+# Get PR numbers from gt log
+PR_NUMBERS=$(gt log --short | grep -o '#[0-9]*' | sed 's/#//')
 
-1. Get PR numbers from the Graphite stack:
-```
-mcp__graphite__run_gt_cmd({
-  args: ["log", "--short"],
-  cwd: "<repo-root>"
-})
-```
-
-2. For each PR, check review state via GitHub MCP:
-```
-mcp__plugin_github_github__pull_request_read({
-  method: "get_reviews",
-  owner: "<owner>",
-  repo: "<repo>",
-  pullNumber: <pr-number>
-})
+# Check CodeRabbit review state
+scripts/check-coderabbit.sh \
+  --owner <owner> --repo <repo> \
+  $PR_NUMBERS
 ```
 
-3. Evaluate CodeRabbit reviews:
-   - **APPROVED or no CodeRabbit review:** Proceed to Step 5
-   - **CHANGES_REQUESTED:** Route to fix cycle:
-     ```typescript
-     Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
-     ```
-     After fixes, return to Step 4 to re-check
+The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.
+
+**On exit 0:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
+**On exit 1:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
+```typescript
+Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+```
+After fixes are applied, return to Step 4 to re-check.
 
 ### Step 5: Submit Stack to Merge Queue
 
