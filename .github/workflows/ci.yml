@@ -12,7 +12,7 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2204
     outputs:
       root: ${{ steps.filter.outputs.root }}
       mcp: ${{ steps.filter.outputs.mcp }}
@@ -74,7 +74,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2204
     needs: [changes, test-root, test-mcp]
     if: always()
     steps:
