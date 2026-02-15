@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { buildCompositeSchema, TOOL_REGISTRY } from './registry.js';
+import { buildCompositeSchema, buildRegistrationSchema, TOOL_REGISTRY } from './registry.js';
 import type { ToolAction } from './registry.js';
 
 describe('buildCompositeSchema', () => {
@@ -39,6 +39,65 @@ describe('buildCompositeSchema', () => {
     // Should reject an invalid action
     const invalidResult = schema.safeParse({ action: 'invalid' });
     expect(invalidResult.success).toBe(false);
+  });
+});
+
+describe('buildRegistrationSchema', () => {
+  const testActions: readonly ToolAction[] = [
+    {
+      name: 'append',
+      description: 'Append an event',
+      schema: z.object({
+        stream: z.string().min(1),
+        event: z.record(z.string(), z.unknown()),
+      }),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+    },
+    {
+      name: 'query',
+      description: 'Query events',
+      schema: z.object({
+        stream: z.string().min(1),
+        limit: z.number().optional(),
+      }),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+    },
+  ];
+
+  it('should reject unrecognized parameters with a clear error', () => {
+    const schema = buildRegistrationSchema(testActions);
+
+    // "streamId" is a typo for "stream" — should be rejected, not silently dropped
+    const result = schema.safeParse({
+      action: 'append',
+      streamId: 'workflow-123',
+      event: { type: 'test' },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errorMessage = result.error.message;
+      expect(errorMessage).toContain('streamId');
+    }
+  });
+
+  it('should accept valid parameters', () => {
+    const schema = buildRegistrationSchema(testActions);
+
+    const result = schema.safeParse({
+      action: 'append',
+      stream: 'workflow-123',
+      event: { type: 'test' },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should return a ZodObject, not a raw shape', () => {
+    const schema = buildRegistrationSchema(testActions);
+    expect(schema).toBeInstanceOf(z.ZodObject);
   });
 });
 

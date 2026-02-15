@@ -33,6 +33,19 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
         toolRegistrations.set(name, { description, schema, handler });
       },
     ),
+    registerTool: vi.fn(
+      (
+        name: string,
+        config: { description: string; inputSchema: unknown },
+        handler: (...args: unknown[]) => unknown,
+      ) => {
+        toolRegistrations.set(name, {
+          description: config.description,
+          schema: config.inputSchema,
+          handler,
+        });
+      },
+    ),
     connect: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -142,8 +155,9 @@ describe('MCP Server Entry Point', () => {
       createServer('/tmp/test-state-dir');
       for (const [, registration] of toolRegistrations) {
         expect(registration.schema).toBeDefined();
-        const schema = registration.schema as Record<string, unknown>;
-        expect(schema).toHaveProperty('action');
+        // Schema is a strict ZodObject; check the shape for the action field
+        const schema = registration.schema as { shape: Record<string, unknown> };
+        expect(schema.shape).toHaveProperty('action');
       }
     });
   });
