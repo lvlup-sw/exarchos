@@ -46,8 +46,8 @@ Instead of reading full files, receive the integrated diff:
 # Generate integrated diff for review (Graphite stack vs main)
 gt diff main > /tmp/stack-diff.patch
 
-# Alternative: git diff main...integration-branch for complete picture
-git diff main...integration > /tmp/integration-diff.patch
+# Alternative: git diff for integration branch
+git diff main...integration-branch > /tmp/integration-diff.patch
 
 # Alternative: use GitHub MCP to get PR diff
 # mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber, method: "get_diff" })
@@ -112,9 +112,9 @@ Use the template from `references/review-report-template.md` to structure the re
 | **MEDIUM** | Should fix, may defer | SOLID violations, complexity |
 | **LOW** | Nice to have | Style preferences, minor refactors |
 
-## Fix Loop for HIGH Priority
+## Fix Loop for HIGH-Priority
 
-If HIGH priority issues found:
+If HIGH-priority issues found:
 
 1. Create fix task listing each HIGH finding with file, issue, and required fix
 2. Dispatch to implementer subagent
@@ -142,7 +142,7 @@ Update workflow state with review results using `mcp__exarchos__exarchos_workflo
 ## Completion Criteria
 
 - [ ] Static analysis passes
-- [ ] All HIGH priority issues fixed
+- [ ] All HIGH-priority issues fixed
 - [ ] No security vulnerabilities
 - [ ] Test quality acceptable
 - [ ] Code is maintainable
@@ -162,7 +162,7 @@ All transitions happen **immediately** without user confirmation:
 
 ### If NEEDS_FIXES:
 1. Update state with failed issues
-2. Output: "Quality review found [N] HIGH priority issues. Auto-continuing to fixes..."
+2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript
    Skill({ skill: "delegate", args: "--fixes <plan-path>" })

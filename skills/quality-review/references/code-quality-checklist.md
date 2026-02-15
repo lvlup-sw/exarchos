@@ -72,13 +72,13 @@ Detailed review criteria for code quality, SOLID principles, DRY enforcement, an
 ### Guard Clause Pattern
 
 **Preferred:**
-```
+```typescript
 if (input == null) return;
 // Main logic flat
 ```
 
 **Avoid:**
-```
+```typescript
 if (input != null) {
   // Entire body nested
 }

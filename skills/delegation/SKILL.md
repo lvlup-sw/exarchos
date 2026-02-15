@@ -372,7 +372,7 @@ Each fix task extracted should include:
 Fix mode goes back to the integration phase after fixes are applied,
 then re-enters review to re-integrate and re-verify:
 
-```
+```text
 /delegate --fixes -> [fixes applied] -> re-integrate -> /review
 ```
 

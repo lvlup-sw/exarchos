@@ -63,7 +63,7 @@ check_frontmatter_exists() {
   # Extract body (everything after closing delimiter)
   local body_start=$((closing_line + 1))
   local total_lines
-  total_lines=$(wc -l < "$SKILL_FILE" | tr -d ' ')
+  total_lines=$(awk 'END {print NR}' "$SKILL_FILE")
   if [[ "$body_start" -le "$total_lines" ]]; then
     BODY=$(tail -n +"$body_start" "$SKILL_FILE")
   else
