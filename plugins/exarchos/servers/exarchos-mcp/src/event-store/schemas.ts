@@ -31,6 +31,9 @@ export const EventTypes = [
   'workflow.cancel',
   'workflow.compensation',
   'workflow.circuit-open',
+  'tool.invoked',
+  'tool.completed',
+  'tool.errored',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -245,6 +248,25 @@ export const WorkflowCircuitOpenData = z.object({
   maxFixCycles: z.number().int().optional(),
 });
 
+// ─── Telemetry Event Data ──────────────────────────────────────────────────
+
+export const ToolInvokedData = z.object({
+  tool: z.string(),
+});
+
+export const ToolCompletedData = z.object({
+  tool: z.string(),
+  durationMs: z.number(),
+  responseBytes: z.number(),
+  tokenEstimate: z.number(),
+});
+
+export const ToolErroredData = z.object({
+  tool: z.string(),
+  durationMs: z.number(),
+  errorCode: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -276,3 +298,6 @@ export type WorkflowCompoundExit = z.infer<typeof WorkflowCompoundExitData>;
 export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
 export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
+export type ToolInvoked = z.infer<typeof ToolInvokedData>;
+export type ToolCompleted = z.infer<typeof ToolCompletedData>;
+export type ToolErrored = z.infer<typeof ToolErroredData>;

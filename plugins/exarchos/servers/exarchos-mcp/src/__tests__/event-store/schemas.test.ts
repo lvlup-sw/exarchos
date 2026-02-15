@@ -552,8 +552,8 @@ describe('RemediationStartedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 28 event types', () => {
-    expect(EventTypes).toHaveLength(28);
+  it('should contain all 31 event types', () => {
+    expect(EventTypes).toHaveLength(31);
   });
 
   it('should include workflow-level types', () => {
