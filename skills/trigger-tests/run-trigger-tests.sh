@@ -11,6 +11,7 @@ SKILLS_DIR="${2:-skills}"
 PASS=0; FAIL=0; SKIP=0
 
 while IFS= read -r line; do
+  [[ -z "$line" || "$line" == \#* ]] && continue
   skill=$(echo "$line" | jq -r '.skill')
   phrase=$(echo "$line" | jq -r '.phrase')
   expected=$(echo "$line" | jq -r '.expected')
@@ -18,7 +19,12 @@ while IFS= read -r line; do
 
   skill_file="${SKILLS_DIR}/${skill}/SKILL.md"
   if [[ ! -f "$skill_file" ]]; then
-    SKIP=$((SKIP + 1)); continue
+    if [[ "${SKIP_MISSING_SKILLS:-}" == "true" ]]; then
+      SKIP=$((SKIP + 1)); continue
+    fi
+    FAIL=$((FAIL + 1))
+    echo "FAIL: skill file not found: ${skill_file}"
+    continue
   fi
 
   # Extract description from frontmatter (handles multiline YAML values)
