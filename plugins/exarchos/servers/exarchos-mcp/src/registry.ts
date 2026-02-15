@@ -95,20 +95,48 @@ export function buildToolDescription(tool: CompositeTool): string {
 // ─── Shared Constants ───────────────────────────────────────────────────────
 
 const ALL_PHASES: ReadonlySet<string> = new Set([
+  // Feature workflow
   'ideate',
   'plan',
   'plan-review',
   'delegate',
   'review',
   'synthesize',
+  // Debug workflow
+  'triage',
+  'investigate',
+  'rca',
+  'design',
+  'debug-implement',
+  'debug-validate',
+  'debug-review',
+  'hotfix-implement',
+  'hotfix-validate',
+  // Refactor workflow
+  'explore',
+  'brief',
+  'polish-implement',
+  'polish-validate',
+  'polish-update-docs',
+  'overhaul-plan',
+  'overhaul-delegate',
+  'overhaul-review',
+  'overhaul-update-docs',
 ]);
 
 const ROLE_ANY: ReadonlySet<string> = new Set(['any']);
 const ROLE_LEAD: ReadonlySet<string> = new Set(['lead']);
 const ROLE_TEAMMATE: ReadonlySet<string> = new Set(['teammate']);
 
-const DELEGATE_PHASES: ReadonlySet<string> = new Set(['delegate']);
-const STACK_PHASES: ReadonlySet<string> = new Set(['synthesize', 'delegate']);
+const DELEGATE_PHASES: ReadonlySet<string> = new Set([
+  'delegate',
+  'overhaul-delegate',
+]);
+const STACK_PHASES: ReadonlySet<string> = new Set([
+  'synthesize',
+  'delegate',
+  'overhaul-delegate',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 

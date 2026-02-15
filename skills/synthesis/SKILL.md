@@ -264,15 +264,15 @@ Options:
 ### MCP Tool Call Failed
 If an Exarchos MCP tool returns an error:
 1. Check the error message — it usually contains specific guidance
-2. Verify the workflow state exists: call `exarchos_workflow` with `action: "get"` and the featureId
+2. Verify the workflow state exists: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
 3. If "version mismatch": another process updated state — retry the operation
-4. If state is corrupted: call `exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+4. If state is corrupted: call `mcp__exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
 
 ### State Desync
 If workflow state doesn't match git reality:
 1. The SessionStart hook runs reconciliation automatically on resume
 2. If manual check needed: compare state file with `git log` and branch state
-3. Update state via `exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
 ### PR Creation Failed
 If `gt submit` fails:
