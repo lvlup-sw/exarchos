@@ -100,7 +100,7 @@ describe('withTelemetry', () => {
       expect(events[1].type).toBe('tool.errored');
       const errorData = events[1].data as Record<string, unknown>;
       expect(errorData.tool).toBe('fail_tool');
-      expect(errorData.errorCode).toContain('Handler failed');
+      expect(errorData.errorMessage).toContain('Handler failed');
     });
   });
 

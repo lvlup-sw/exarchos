@@ -90,7 +90,7 @@ export function withTelemetry(
           data: {
             tool: toolName,
             durationMs,
-            errorCode: error instanceof Error ? error.message : String(error),
+            errorMessage: error instanceof Error ? error.message : String(error),
           },
         })
         .catch(() => {});
