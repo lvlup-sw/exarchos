@@ -14,7 +14,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VALIDATOR="${SCRIPT_DIR}/validate-frontmatter.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VALIDATOR="${REPO_ROOT}/skills/validate-frontmatter.sh"
 TARGET_DIR="${1:-${HOME}/.claude/skills}"
 
 if [[ ! -d "$TARGET_DIR" ]]; then
@@ -57,7 +58,7 @@ for skill_dir in "$TARGET_DIR"/*/; do
   PASS_COUNT=$((PASS_COUNT + 1))
 
   # Check 3: references/ directory file count matches repo source (if applicable)
-  repo_refs="${SCRIPT_DIR}/${local_name}/references"
+  repo_refs="${REPO_ROOT}/skills/${local_name}/references"
   target_refs="${skill_dir}references"
 
   if [[ -d "$repo_refs" ]]; then
@@ -75,6 +76,11 @@ for skill_dir in "$TARGET_DIR"/*/; do
     fi
   fi
 done
+
+if [[ $TOTAL -eq 0 ]]; then
+  echo "ERROR: No skills found in $TARGET_DIR"
+  exit 1
+fi
 
 echo "=== Installation Validation: ${PASS_COUNT}/${TOTAL} skills passed ==="
 
