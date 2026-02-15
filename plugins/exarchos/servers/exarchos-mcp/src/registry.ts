@@ -122,6 +122,8 @@ const ALL_PHASES: ReadonlySet<string> = new Set([
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',
+  // Shared
+  'blocked',
 ]);
 
 const ROLE_ANY: ReadonlySet<string> = new Set(['any']);
@@ -131,11 +133,13 @@ const ROLE_TEAMMATE: ReadonlySet<string> = new Set(['teammate']);
 const DELEGATE_PHASES: ReadonlySet<string> = new Set([
   'delegate',
   'overhaul-delegate',
+  'debug-implement',
 ]);
 const STACK_PHASES: ReadonlySet<string> = new Set([
   'synthesize',
   'delegate',
   'overhaul-delegate',
+  'debug-implement',
 ]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
@@ -152,7 +156,7 @@ const workflowActions: readonly ToolAction[] = [
       featureId: featureIdSchema,
       workflowType: z.enum(['feature', 'debug', 'refactor']),
     }),
-    phases: new Set(['ideate']),
+    phases: new Set<string>(),
     roles: ROLE_LEAD,
   },
   {
