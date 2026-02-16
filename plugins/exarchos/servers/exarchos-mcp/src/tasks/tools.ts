@@ -3,6 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
+import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
@@ -127,17 +128,23 @@ async function attemptTaskClaim(
     }
   }
 
+  const claimEvent = {
+    type: 'task.claimed' as const,
+    data: {
+      taskId: args.taskId,
+      agentId: args.agentId,
+      claimedAt: new Date().toISOString(),
+    },
+    agentId: args.agentId,
+    source: 'exarchos-mcp',
+  };
+
+  // Validate agent event metadata before appending
+  validateAgentEvent(claimEvent);
+
   const event = await store.append(
     args.streamId,
-    {
-      type: 'task.claimed',
-      data: {
-        taskId: args.taskId,
-        agentId: args.agentId,
-        claimedAt: new Date().toISOString(),
-      },
-      agentId: args.agentId,
-    },
+    claimEvent,
     { expectedSequence: currentSequence },
   );
 
