@@ -70,10 +70,10 @@ function createValidManifest(): Manifest {
       ] satisfies PluginComponent[],
       ruleSets: [
         {
-          id: 'typescript',
-          name: 'TypeScript Standards',
-          description: 'TS coding rules',
-          files: ['coding-standards-typescript.md', 'tdd-typescript.md'],
+          id: 'coding-standards',
+          name: 'Coding Standards',
+          description: 'Coding standards and TDD rules',
+          files: ['coding-standards.md', 'tdd.md'],
           default: true,
         },
         {
@@ -130,10 +130,10 @@ describe('Manifest Type Definitions (A1)', () => {
 
     // Verify RuleSetComponent fields
     const ruleSet = manifest.components.ruleSets[0];
-    expect(ruleSet.id).toBe('typescript');
+    expect(ruleSet.id).toBe('coding-standards');
     expect(ruleSet.files).toEqual([
-      'coding-standards-typescript.md',
-      'tdd-typescript.md',
+      'coding-standards.md',
+      'tdd.md',
     ]);
     expect(ruleSet.default).toBe(true);
 
@@ -242,8 +242,8 @@ describe('Manifest Loader (A2)', () => {
 
       // 'serena' plugin has default: true; 'context7' has default: false
       expect(selections.plugins).toEqual(['serena']);
-      // 'typescript' ruleset has default: true; 'dotnet' has default: false
-      expect(selections.ruleSets).toEqual(['typescript']);
+      // 'coding-standards' ruleset has default: true; 'dotnet' has default: false
+      expect(selections.ruleSets).toEqual(['coding-standards']);
       // mcpServers with required: true should NOT be in selections
       // (they're always installed); only optional servers with default behavior
       // For now, no optional servers have a default flag, so empty
@@ -306,8 +306,7 @@ describe('Real Manifest File (E5)', () => {
   it('manifest_ContainsAllRuleSets', () => {
     const manifest = loadManifest(manifestPath);
     const ruleSetIds = manifest.components.ruleSets.map((r) => r.id);
-    expect(ruleSetIds).toContain('typescript');
-    expect(ruleSetIds).toContain('csharp');
+    expect(ruleSetIds).toContain('coding-standards');
     expect(ruleSetIds).toContain('workflow');
   });
 

@@ -33,7 +33,7 @@ describe('ExarchosConfig I/O (A3)', () => {
       },
       hashes: {
         'commands/ideate.md': 'abc123def456',
-        'rules/tdd-typescript.md': 'fed654cba321',
+        'rules/tdd.md': 'fed654cba321',
       },
     };
   }

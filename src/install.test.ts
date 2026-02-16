@@ -469,8 +469,8 @@ describe('Install Orchestrator (E3)', () => {
     mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
     writeFileSync(join(fakeRepoRoot, 'scripts', 'run.sh'), '#!/bin/bash');
     mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
-    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards-typescript.md'), '# TS Rules');
-    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd-typescript.md'), '# TDD');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards.md'), '# Coding Standards');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd.md'), '# TDD');
     writeFileSync(join(fakeRepoRoot, 'rules', 'orchestrator-constraints.md'), '# Orch');
 
     // Create fake bundle file
@@ -504,7 +504,7 @@ describe('Install Orchestrator (E3)', () => {
           { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
         ],
         ruleSets: [
-          { id: 'typescript', name: 'TypeScript', description: 'TS rules', files: ['coding-standards-typescript.md', 'tdd-typescript.md'], default: true },
+          { id: 'coding-standards', name: 'Coding Standards', description: 'Coding standards and TDD rules', files: ['coding-standards.md', 'tdd.md'], default: true },
           { id: 'workflow', name: 'Workflow', description: 'Workflow rules', files: ['orchestrator-constraints.md'], default: true },
         ],
       },
@@ -526,7 +526,7 @@ describe('Install Orchestrator (E3)', () => {
       'standard',           // mode
       [],                   // optional servers (none)
       ['github@claude-plugins-official'], // plugins
-      ['typescript', 'workflow'],         // ruleSets
+      ['coding-standards', 'workflow'],    // ruleSets
       true,                // confirm
     ]);
 
@@ -551,7 +551,7 @@ describe('Install Orchestrator (E3)', () => {
 
     const prompts = new MockPromptAdapter([
       'standard', ['github@claude-plugins-official'],
-      ['typescript'], // only typescript selected
+      ['coding-standards'], // only coding-standards selected
       true,
     ]);
 
@@ -564,9 +564,9 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // TypeScript rules should be copied
-    expect(existsSync(join(claudeHome, 'rules', 'coding-standards-typescript.md'))).toBe(true);
-    expect(existsSync(join(claudeHome, 'rules', 'tdd-typescript.md'))).toBe(true);
+    // Coding standards rules should be copied
+    expect(existsSync(join(claudeHome, 'rules', 'coding-standards.md'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'rules', 'tdd.md'))).toBe(true);
     // Workflow rules should NOT be copied (not selected)
     expect(existsSync(join(claudeHome, 'rules', 'orchestrator-constraints.md'))).toBe(false);
   });
@@ -1224,8 +1224,8 @@ describe('Install Orchestrator - Hooks Integration', () => {
     mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
     writeFileSync(join(fakeRepoRoot, 'scripts', 'run.sh'), '#!/bin/bash');
     mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
-    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards-typescript.md'), '# TS Rules');
-    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd-typescript.md'), '# TDD');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards.md'), '# Coding Standards');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'tdd.md'), '# TDD');
 
     // Create fake bundle file
     mkdirSync(join(fakeRepoRoot, 'dist'), { recursive: true });
@@ -1259,7 +1259,7 @@ describe('Install Orchestrator - Hooks Integration', () => {
           { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
         ],
         ruleSets: [
-          { id: 'typescript', name: 'TypeScript', description: 'TS rules', files: ['coding-standards-typescript.md', 'tdd-typescript.md'], default: true },
+          { id: 'coding-standards', name: 'Coding Standards', description: 'Coding standards and TDD rules', files: ['coding-standards.md', 'tdd.md'], default: true },
         ],
       },
       defaults: { model: 'claude-opus-4-6', mode: 'standard' },
