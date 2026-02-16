@@ -127,11 +127,12 @@ export async function handleInit(
       }
     }
 
-    const { state, stateFile } = await initStateFile(stateDir, input.featureId, input.workflowType);
-
-    // Persist _eventSequence on the state file (passthrough field)
-    const mutableState = { ...state, _eventSequence: eventSequence } as WorkflowState;
-    await writeStateFile(stateFile, mutableState);
+    const { state } = await initStateFile(
+      stateDir,
+      input.featureId,
+      input.workflowType,
+      { _eventSequence: eventSequence },
+    );
 
     return {
       success: true,
