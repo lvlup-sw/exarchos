@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 export const EventTypes = [
   'workflow.started',
-  'team.formed',
   'phase.transitioned',
   'task.assigned',
   'task.claimed',
@@ -12,8 +11,6 @@ export const EventTypes = [
   'test.result',
   'task.completed',
   'task.failed',
-  'agent.message',
-  'agent.handoff',
   'gate.executed',
   'gate.self-corrected',
   'stack.position-filled',
@@ -63,14 +60,6 @@ export const WorkflowStartedData = z.object({
   designPath: z.string().optional(),
 });
 
-export const TeamFormedData = z.object({
-  teammates: z.array(z.object({
-    name: z.string(),
-    role: z.string(),
-    model: z.string().optional(),
-  })),
-});
-
 export const PhaseTransitionedData = z.object({
   from: z.string(),
   to: z.string(),
@@ -117,22 +106,6 @@ export const TaskFailedData = z.object({
   taskId: z.string(),
   error: z.string(),
   diagnostics: z.record(z.string(), z.unknown()).optional(),
-});
-
-// ─── Inter-Agent Event Data ─────────────────────────────────────────────────
-
-export const AgentMessageData = z.object({
-  from: z.string(),
-  to: z.string(),
-  content: z.string(),
-  messageType: z.enum(['direct', 'broadcast']),
-});
-
-export const AgentHandoffData = z.object({
-  from: z.string(),
-  to: z.string(),
-  context: z.string().optional(),
-  reason: z.string().optional(),
 });
 
 // ─── Quality Gate Event Data ────────────────────────────────────────────────
@@ -271,7 +244,6 @@ export const ToolErroredData = z.object({
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
 export type WorkflowStarted = z.infer<typeof WorkflowStartedData>;
-export type TeamFormed = z.infer<typeof TeamFormedData>;
 export type PhaseTransitioned = z.infer<typeof PhaseTransitionedData>;
 export type TaskAssigned = z.infer<typeof TaskAssignedData>;
 export type TaskClaimed = z.infer<typeof TaskClaimedData>;
@@ -279,8 +251,6 @@ export type TaskProgressed = z.infer<typeof TaskProgressedData>;
 export type TestResult = z.infer<typeof TestResultData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
-export type AgentMessage = z.infer<typeof AgentMessageData>;
-export type AgentHandoff = z.infer<typeof AgentHandoffData>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
 export type GateSelfCorrected = z.infer<typeof GateSelfCorrectedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
@@ -308,8 +278,6 @@ export type ToolErrored = z.infer<typeof ToolErroredData>;
 export const AGENT_EVENT_TYPES = [
   'task.claimed',
   'task.progressed',
-  'agent.message',
-  'agent.handoff',
 ] as const;
 
 export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
@@ -317,9 +285,8 @@ export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
 /**
  * Validates that agent event types include required metadata fields.
  *
- * Agent events (`task.claimed`, `task.progressed`, `agent.message`, `agent.handoff`)
- * must have both `agentId` and `source` set. System events pass through without
- * validation.
+ * Agent events (`task.claimed`, `task.progressed`) must have both `agentId`
+ * and `source` set. System events pass through without validation.
  *
  * @returns `true` if validation passes
  * @throws Error if an agent event is missing `agentId` or `source`

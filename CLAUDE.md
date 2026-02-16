@@ -78,7 +78,7 @@ Most of this repo is structured Markdown, not executable code:
 
 One self-contained TypeScript MCP server with its own `package.json`, `tsconfig.json`, and test suite:
 
-- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and agent team coordination (spawn/message/shutdown). Persists to `~/.claude/workflow-state/` (configurable via `WORKFLOW_STATE_DIR` env var). Exposes 5 composite MCP tools with `action` discriminators, registered from a central tool registry.
+- **exarchos** (`plugins/exarchos/servers/exarchos-mcp/`) — Unified server combining workflow HSM (state machine transitions), append-only event store (JSONL), CQRS materialized views, and task coordination. Persists to `~/.claude/workflow-state/` (configurable via `WORKFLOW_STATE_DIR` env var). Exposes 5 composite MCP tools with `action` discriminators, registered from a central tool registry. Note: inter-agent messaging is handled by Claude Code's native Agent Teams, not by Exarchos.
 
 Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is registered in `~/.claude.json` by the installer.
 
@@ -88,8 +88,8 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 |------|---------|---------|
 | `exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD |
 | `exarchos_event` | `append`, `query` | Event sourcing |
-| `exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination |
-| `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS read views |
+| `exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination |
+| `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS read views |
 | `exarchos_sync` | `now` | Outbox drain (no-op sender until remote wired) |
 
 **Key modules:**
@@ -103,14 +103,13 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
 - `registry.ts` — Single source of truth for all tool metadata (names, schemas, phase/role mappings). Consumed by `index.ts` for registration and by CLI hooks for guardrails
 - `cli.ts` — Hook CLI entry point (`pre-compact`, `session-start`, `guard`, `task-gate`, `teammate-gate`, `subagent-context`)
-- `event-store/` — Zod event schemas (31 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
-- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack) plus telemetry projection. Pipeline view uses lazy pagination (materializes only the requested subset)
-- `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
+- `event-store/` — Zod event schemas (28 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
+- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 5 view types (pipeline, tasks, workflow status, task detail, stack) plus telemetry projection. Pipeline view uses lazy pagination (materializes only the requested subset)
 - `tasks/` — Task claim/complete/fail tools with CQRS materializer for claim-status checks and optimistic concurrency (expectedSequence) for atomic claims
 - `stack/` — Stack status/place tools with offset/limit pagination
 - `telemetry/` — Performance telemetry: projections, hints, middleware, percentile calculations, benchmarks
 - `sync/` — Remote sync state management (outbox drain, stub sender)
-- `orchestrate/` — Composite router for team and task coordination actions
+- `orchestrate/` — Composite router for task coordination actions
 - `format.ts` — Canonical `ToolResult` interface (all modules import from here) and shared formatting helpers
 
 ### Three Workflow Types
