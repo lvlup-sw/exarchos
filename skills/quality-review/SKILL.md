@@ -80,20 +80,33 @@ This enables catching:
 
 ### Step 1: Static Analysis
 
-```bash
-# TypeScript
-npm run lint
-npm run typecheck
+Run the static analysis gate:
 
-# If available
-npm run quality-check
+```bash
+scripts/static-analysis-gate.sh --repo-root <repo-root>
 ```
+
+The script runs lint, typecheck, and quality-check (if available), distinguishing errors from warnings.
+
+**On exit 0:** All analysis passes -- proceed to Step 2.
+**On exit 1:** Errors found -- fix before continuing review.
 
 ### Step 2: Code Walkthrough
 
 Assess each modified file against the quality checklists:
 - Consult `references/code-quality-checklist.md` for code quality, SOLID, DRY, and structural criteria
 - Consult `references/security-checklist.md` for security review criteria
+
+### Step 2.5: Security Scan (Automated)
+
+Run automated security pattern detection:
+
+```bash
+scripts/security-scan.sh --repo-root <repo-root> --base-branch main
+```
+
+**On exit 0:** No security patterns detected.
+**On exit 1:** Potential security issues found -- include in review report.
 
 ### Step 3: Generate Report
 
@@ -142,6 +155,18 @@ Update workflow state with review results using `mcp__exarchos__exarchos_workflo
 - [ ] Test quality acceptable
 - [ ] Code is maintainable
 - [ ] State file updated with review results
+
+## Determine Verdict
+
+Classify review findings into a routing verdict:
+
+```bash
+scripts/review-verdict.sh --high <N> --medium <N> --low <N>
+```
+
+**On exit 0 (APPROVED):** Proceed to synthesis.
+**On exit 1 (NEEDS_FIXES):** Route to `/delegate --fixes`.
+**On exit 2 (BLOCKED):** Return to design phase.
 
 ## Transition
 
