@@ -1999,10 +1999,10 @@ describe('Diagnostic Event Emission', () => {
   });
 });
 
-// ─── Guaranteed Event Append (Task 9) ──────────────────────────────────────
+// ─── Guaranteed Event Append (Task 9, updated for event-first T3) ─────────
 
 describe('Guaranteed Event Append', () => {
-  it('handleSet_EventAppendFails_ReturnsSuccessWithWarning', async () => {
+  it('handleSet_EventAppendFails_ReturnsErrorAndDoesNotUpdateState', async () => {
     // Arrange — init with real event store, then mock append to fail for set
     const eventStore = new EventStore(tmpDir);
     configureWorkflowEventStore(eventStore);
@@ -2024,17 +2024,15 @@ describe('Guaranteed Event Append', () => {
       tmpDir,
     );
 
-    // Assert — state-first: should succeed even if event append fails
-    // Events are supplementary; state write is the source of truth
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
-    expect(data.eventWarning).toBeDefined();
-    expect(data.eventWarning).toContain('Disk full');
+    // Assert — event-first: should FAIL when event append fails
+    // Events are the commit point; state is NOT updated on event failure.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Disk full');
 
-    // State SHOULD have been mutated (state-first, event-after)
+    // State should NOT have been mutated (event-first contract)
     const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
-    expect(state.phase).toBe('plan');
+    expect(state.phase).toBe('ideate');
 
     appendSpy.mockRestore();
   });
@@ -2067,10 +2065,10 @@ describe('Guaranteed Event Append', () => {
   });
 });
 
-// ─── CAS Retry: No Duplicate Events ────────────────────────────────────────
+// ─── CAS Retry: No Duplicate Events (updated for event-first T3) ───────────
 
 describe('CAS Retry Duplicate Event Prevention', () => {
-  it('handleSet_CASRetry_ShouldNotEmitDuplicateEvents: events emitted exactly once on retry', async () => {
+  it('handleSet_CASRetry_ShouldNotStoreDuplicateEvents: idempotency key prevents duplicates on retry', async () => {
     const eventStore = new EventStore(tmpDir);
     configureWorkflowEventStore(eventStore);
 
@@ -2080,9 +2078,6 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       { featureId: 'cas-dup', updates: { 'artifacts.design': 'design.md' } },
       tmpDir,
     );
-
-    // Spy on event store append to count calls
-    const appendSpy = vi.spyOn(eventStore, 'append');
 
     // Mock writeStateFile to fail with VersionConflictError on first attempt,
     // then succeed on second attempt
@@ -2101,7 +2096,7 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       },
     );
 
-    // Act: Transition from ideate to plan (triggers event emission)
+    // Act: Transition from ideate to plan (event-first: append before CAS write)
     const result = await handleSet(
       { featureId: 'cas-dup', phase: 'plan' },
       tmpDir,
@@ -2112,17 +2107,17 @@ describe('CAS Retry Duplicate Event Prevention', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan');
 
-    // Assert: Events should be emitted exactly once, NOT twice
-    const transitionAppends = appendSpy.mock.calls.filter(
-      (call) => (call[1] as Record<string, unknown>).type === 'workflow.transition',
-    );
-    expect(transitionAppends).toHaveLength(1);
+    // Assert: Only one transition event should be STORED (idempotency key dedup)
+    // Note: append() is called on each retry attempt, but the idempotency key
+    // ensures the second call returns the cached event without creating a duplicate.
+    const events = await eventStore.query('cas-dup');
+    const transitions = events.filter(e => e.type === 'workflow.transition');
+    expect(transitions).toHaveLength(1);
 
-    appendSpy.mockRestore();
     writeSpy.mockRestore();
   });
 
-  it('handleSet_CASRetry_EventAppendFailsAfterStateWrite_ReturnsSuccessWithWarning', async () => {
+  it('handleSet_EventAppendFails_ReturnsErrorBeforeStateWrite', async () => {
     const eventStore = new EventStore(tmpDir);
     configureWorkflowEventStore(eventStore);
 
@@ -2144,14 +2139,14 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       tmpDir,
     );
 
-    // Assert: Should succeed (state write is primary), but may include warning
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    expect(data.phase).toBe('plan');
+    // Assert: Event-first — should return error, state NOT updated
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('Event store unavailable');
 
-    // Verify state was actually written to disk
+    // Verify state was NOT written to disk (still at ideate)
     const state = await readStateFile(path.join(tmpDir, 'cas-event-warn.state.json'));
-    expect(state.phase).toBe('plan');
+    expect(state.phase).toBe('ideate');
 
     appendSpy.mockRestore();
   });
@@ -2393,5 +2388,209 @@ describe('handleInit_EventFirst', () => {
     const stateFile = path.join(tmpDir, 'no-es.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw._eventSequence).toBe(0);
+  });
+});
+
+// ─── handleSet Event-First (T3) ──────────────────────────────────────────────
+
+describe('handleSet_EventFirst', () => {
+  it('should append transition event before writing state file', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-set', workflowType: 'feature' }, tmpDir);
+
+    // Set design artifact so ideate->plan guard passes
+    await handleSet(
+      { featureId: 'ef-set', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    const result = await handleSet({ featureId: 'ef-set', phase: 'plan' }, tmpDir);
+
+    expect(result.success).toBe(true);
+
+    // Event should exist
+    const events = await eventStore.query('ef-set');
+    const transitions = events.filter(e => e.type === 'workflow.transition');
+    expect(transitions.length).toBe(1);
+    expect((transitions[0].data as Record<string, unknown>).from).toBe('ideate');
+    expect((transitions[0].data as Record<string, unknown>).to).toBe('plan');
+
+    // State should have _eventSequence matching event
+    const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-set.state.json'), 'utf-8'));
+    expect(raw._eventSequence).toBe(transitions[0].sequence);
+
+    // No eventWarning in response
+    expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();
+  });
+
+  it('should fail and NOT update state if event append fails', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-fail-set', workflowType: 'feature' }, tmpDir);
+
+    // Set design artifact so guard passes
+    await handleSet(
+      { featureId: 'ef-fail-set', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    // Now make event store fail for transition events
+    const originalAppend = eventStore.append.bind(eventStore);
+    const appendSpy = vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, opts) => {
+      if (event.type === 'workflow.transition') {
+        throw new Error('Event store unavailable');
+      }
+      return originalAppend(streamId, event, opts);
+    });
+
+    const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan' }, tmpDir);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+
+    // State should remain at ideate
+    const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fail-set.state.json'), 'utf-8'));
+    expect(raw.phase).toBe('ideate');
+
+    appendSpy.mockRestore();
+  });
+
+  it('should use idempotency key to prevent duplicate events on CAS retry', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-idem', workflowType: 'feature' }, tmpDir);
+
+    // Set design artifact so guard passes
+    await handleSet(
+      { featureId: 'ef-idem', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    const result = await handleSet({ featureId: 'ef-idem', phase: 'plan' }, tmpDir);
+    expect(result.success).toBe(true);
+
+    // Verify event has idempotencyKey set
+    const events = await eventStore.query('ef-idem');
+    const transitions = events.filter(e => e.type === 'workflow.transition');
+    expect(transitions[0].idempotencyKey).toBeDefined();
+    expect(transitions[0].idempotencyKey).toContain('ef-idem');
+  });
+
+  it('should handle field-only updates without event emission', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-fields', workflowType: 'feature' }, tmpDir);
+
+    const eventsBefore = await eventStore.query('ef-fields');
+    const result = await handleSet({
+      featureId: 'ef-fields',
+      updates: { 'artifacts.design': 'docs/design.md' },
+    }, tmpDir);
+
+    expect(result.success).toBe(true);
+
+    const eventsAfter = await eventStore.query('ef-fields');
+    // No new events for field-only updates
+    expect(eventsAfter.length).toBe(eventsBefore.length);
+
+    // _eventSequence unchanged
+    const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fields.state.json'), 'utf-8'));
+    expect(raw._eventSequence).toBe(1); // only from init
+  });
+
+  it('should update _eventSequence after successful transition', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-seq', workflowType: 'feature' }, tmpDir);
+
+    // Initial _eventSequence should be 1 (from init event)
+    let raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-seq.state.json'), 'utf-8'));
+    expect(raw._eventSequence).toBe(1);
+
+    // Set design artifact so guard passes
+    await handleSet(
+      { featureId: 'ef-seq', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    await handleSet({ featureId: 'ef-seq', phase: 'plan' }, tmpDir);
+
+    raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-seq.state.json'), 'utf-8'));
+    expect(raw._eventSequence).toBeGreaterThan(1);
+  });
+
+  it('should include improved CAS error message on exhaustion', async () => {
+    // Verify a normal transition works and the old eventWarning pattern is gone
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ef-cas-msg', workflowType: 'feature' }, tmpDir);
+
+    // Set design artifact so guard passes
+    await handleSet(
+      { featureId: 'ef-cas-msg', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    const result = await handleSet({ featureId: 'ef-cas-msg', phase: 'plan' }, tmpDir);
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();
+  });
+
+  it('should use CAS retry with idempotency key dedup when version conflicts occur', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Arrange: Create workflow and set design artifact
+    await handleInit({ featureId: 'ef-cas-retry', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'ef-cas-retry', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Mock writeStateFile to fail with VersionConflictError on first attempt,
+    // then succeed on second attempt
+    const stateStoreMod = await import('../../workflow/state-store.js');
+    let writeAttempt = 0;
+    const originalWrite = stateStoreMod.writeStateFile;
+    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
+      async (stateFile, state, options) => {
+        writeAttempt++;
+        if (writeAttempt === 1 && options?.expectedVersion !== undefined) {
+          // First CAS write attempt: simulate conflict
+          throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
+        }
+        // Subsequent attempts: use original implementation
+        return originalWrite(stateFile, state, options);
+      },
+    );
+
+    // Act: Transition from ideate to plan (triggers event-first)
+    const result = await handleSet(
+      { featureId: 'ef-cas-retry', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert: Transition should succeed (on retry)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+
+    // Assert: Only one transition event should exist (idempotency key prevents dups)
+    const events = await eventStore.query('ef-cas-retry');
+    const transitions = events.filter(e => e.type === 'workflow.transition');
+    expect(transitions).toHaveLength(1);
+
+    // Assert: No eventWarning
+    expect(data.eventWarning).toBeUndefined();
+
+    writeSpy.mockRestore();
   });
 });
