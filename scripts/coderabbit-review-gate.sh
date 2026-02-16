@@ -243,9 +243,64 @@ count_review_rounds() {
 # THREAD QUERYING
 # ============================================================
 
-get_review_threads() {
-    # Stub — returns empty JSON array
-    echo "[]"
+query_all_threads() {
+    local cursor=""
+    local all_nodes="[]"
+    local page_json has_next
+
+    while :; do
+        local -a gql_args=(
+            -f query='
+            query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pr) {
+                        reviewThreads(first: 100, after: $cursor) {
+                            pageInfo { hasNextPage endCursor }
+                            nodes {
+                                id
+                                isResolved
+                                isOutdated
+                                comments(first: 1) {
+                                    nodes {
+                                        body
+                                        author { login }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            '
+            -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER"
+        )
+        if [[ -n "$cursor" ]]; then
+            gql_args+=(-f "cursor=$cursor")
+        fi
+
+        page_json=$(gh_graphql "${gql_args[@]}") || {
+            echo -e "${YELLOW}WARNING${NC}: Failed to query review threads" >&2
+            # Return what we have so far, filtered
+            echo "$all_nodes" | jq '[.[] | select(.isResolved == false and .isOutdated == false)]'
+            return
+        }
+
+        all_nodes=$(jq -s '.[0] + .[1]' <(echo "$all_nodes") <(echo "$page_json" | jq '.data.repository.pullRequest.reviewThreads.nodes'))
+
+        has_next=$(echo "$page_json" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+        if [[ "$has_next" != "true" ]]; then
+            break
+        fi
+        cursor=$(echo "$page_json" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+    done
+
+    jq -n --argjson nodes "$all_nodes" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":$nodes}}}}}'
+}
+
+get_active_threads() {
+    local all_threads_json="$1"
+    # Filter: unresolved, non-outdated, CodeRabbit-authored threads only
+    echo "$all_threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false and (.comments.nodes[0].author.login == "coderabbitai[bot]"))]'
 }
 
 # ============================================================
@@ -253,8 +308,30 @@ get_review_threads() {
 # ============================================================
 
 resolve_outdated_threads() {
-    # Stub — no-op
-    :
+    local all_threads_json="$1"
+    # Find unresolved outdated threads
+    local outdated_thread_ids
+    outdated_thread_ids=$(echo "$all_threads_json" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == true and (.comments.nodes[0].author.login == "coderabbitai[bot]")) | .id')
+
+    if [[ -z "$outdated_thread_ids" ]]; then
+        return 0
+    fi
+
+    # Resolve each outdated thread
+    while IFS= read -r thread_id; do
+        if [[ -z "$thread_id" ]]; then
+            continue
+        fi
+        gh_graphql -f query='
+            mutation($threadId: ID!) {
+                resolveReviewThread(input: { threadId: $threadId }) {
+                    thread { id isResolved }
+                }
+            }
+        ' -f "threadId=$thread_id" > /dev/null 2>&1 || {
+            echo -e "${YELLOW}WARNING${NC}: Failed to resolve outdated thread $thread_id" >&2
+        }
+    done <<< "$outdated_thread_ids"
 }
 
 # ============================================================
@@ -263,8 +340,19 @@ resolve_outdated_threads() {
 
 has_blocking_findings() {
     local threads_json="$1"
-    # Stub — returns 1 (no blockers)
-    return 1
+    # Check if any thread's first comment body contains critical (red circle) or major (orange circle) severity markers
+    # Use printf to generate actual emoji bytes for the jq regex
+    local red_circle orange_circle
+    red_circle=$(printf '\xf0\x9f\x94\xb4')       # U+1F534
+    orange_circle=$(printf '\xf0\x9f\x9f\xa0')     # U+1F7E0
+    local blocker_count
+    blocker_count=$(echo "$threads_json" | jq --arg rc "$red_circle" --arg oc "$orange_circle" '[.[] | select(.comments.nodes[0] | (.author.login == "coderabbitai[bot]") and (.body != null) and (.body | test($rc) or test($oc)))] | length' 2>/dev/null || echo "0")
+
+    if [[ "$blocker_count" -gt 0 ]]; then
+        return 0  # has blockers
+    else
+        return 1  # no blockers
+    fi
 }
 
 # ============================================================
@@ -297,28 +385,35 @@ post_action_comment() {
 # 1. Count review rounds
 ROUND_COUNT=$(count_review_rounds)
 
-# 2. Get active review threads
-ACTIVE_THREADS_JSON=$(get_review_threads)
-ACTIVE_THREAD_COUNT=$(echo "$ACTIVE_THREADS_JSON" | jq 'length')
+# 2. Query all review threads
+ALL_THREADS_JSON=$(query_all_threads)
 
 # 3. Resolve outdated threads
-resolve_outdated_threads
+if [[ "$DRY_RUN" == false ]]; then
+    resolve_outdated_threads "$ALL_THREADS_JSON"
+else
+    echo -e "${YELLOW}DRY-RUN${NC}: Skipping auto-resolve of outdated threads" >&2
+fi
 
-# 4. Classify severity
+# 4. Get active review threads (unresolved, non-outdated)
+ACTIVE_THREADS_JSON=$(get_active_threads "$ALL_THREADS_JSON")
+ACTIVE_THREAD_COUNT=$(echo "$ACTIVE_THREADS_JSON" | jq 'length')
+
+# 5. Classify severity
 HAS_BLOCKERS="false"
 if has_blocking_findings "$ACTIVE_THREADS_JSON"; then
     HAS_BLOCKERS="true"
 fi
 
-# 5. Decide action
+# 6. Decide action
 ACTION=$(decide_action "$ROUND_COUNT" "$ACTIVE_THREAD_COUNT" "$HAS_BLOCKERS")
 
-# 6. Post comment (unless dry-run)
+# 7. Post comment (unless dry-run)
 if [[ "$DRY_RUN" == false ]]; then
     post_action_comment "$ACTION" "$ROUND_COUNT"
 fi
 
-# 7. Output structured summary
+# 8. Output structured summary
 cat <<SUMMARY
 ## CodeRabbit Review Gate
 
@@ -329,7 +424,7 @@ cat <<SUMMARY
 - **Action:** ${ACTION}
 SUMMARY
 
-# 8. Exit code based on action
+# 9. Exit code based on action
 case "$ACTION" in
     approve|wait) exit 0 ;;
     escalate)     exit 1 ;;
