@@ -301,3 +301,50 @@ export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
+
+// ─── Agent Event Validation ──────────────────────────────────────────────────
+
+/** Event types that require agentId and source metadata. */
+export const AGENT_EVENT_TYPES = [
+  'task.claimed',
+  'task.progressed',
+  'agent.message',
+  'agent.handoff',
+] as const;
+
+export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
+
+/**
+ * Validates that agent event types include required metadata fields.
+ *
+ * Agent events (`task.claimed`, `task.progressed`, `agent.message`, `agent.handoff`)
+ * must have both `agentId` and `source` set. System events pass through without
+ * validation.
+ *
+ * @returns `true` if validation passes
+ * @throws Error if an agent event is missing `agentId` or `source`
+ */
+export function validateAgentEvent(event: {
+  type: string;
+  agentId?: string;
+  source?: string;
+}): true {
+  const isAgentEvent = (AGENT_EVENT_TYPES as readonly string[]).includes(event.type);
+  if (!isAgentEvent) {
+    return true;
+  }
+
+  if (!event.agentId) {
+    throw new Error(
+      `Agent event '${event.type}' requires agentId but none was provided`,
+    );
+  }
+
+  if (!event.source) {
+    throw new Error(
+      `Agent event '${event.type}' requires source but none was provided`,
+    );
+  }
+
+  return true;
+}

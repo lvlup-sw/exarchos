@@ -151,79 +151,11 @@ bash scripts/post-delegation-check.sh \
 
 ### Step 7: Schema Sync (Auto-Detection)
 
-After all tasks complete, run the schema sync detection script:
-
-```bash
-bash scripts/needs-schema-sync.sh \
-  --repo-root <project-root> \
-  [--base-branch main] \
-  [--diff-file <path-to-diff>]
-```
-
-**Validates:** Git diff for API file patterns that trigger schema regeneration:
-- `*Endpoints.cs`
-- `Models/*.cs`
-- `Requests/*.cs`
-- `Responses/*.cs`
-- `Dtos/*.cs`
-
-**On exit 0:** No sync needed. No API files were modified. Proceed to review phase.
-
-**On exit 1:** Sync needed. The output lists modified API files. Run schema sync:
-
-```bash
-# Run schema sync from monorepo root
-npm run sync:schemas
-
-# Verify types
-npm run typecheck
-
-# Stage and commit via Graphite
-git add shared/types/src/generated/ shared/validation/src/generated/ apps/ares-elite-web/src/api/generated/
-gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
-gt submit --no-interactive --publish
-```
-
-**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
-
-**Skill Reference:** `@skills/sync-schemas/SKILL.md`
+After all tasks complete, check for modified API files (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). If found, run `npm run sync:schemas` and commit via Graphite. See `@skills/sync-schemas/SKILL.md`.
 
 ## Parallel Execution Strategy
 
-### Identifying Parallel Groups
-
-From implementation plan:
-```markdown
-## Parallel Groups
-
-Group A (can run simultaneously):
-- Task 001: Types
-- Task 002: Interfaces
-
-Group B (depends on Group A):
-- Task 003: Implementation
-- Task 004: API handlers
-```
-
-### Dispatching Parallel Tasks
-
-**Critical:** Use single message with multiple Task calls:
-
-```typescript
-// CORRECT: Single message, parallel execution
-Task({ model: "opus", description: "Task 001", prompt: "..." })
-Task({ model: "opus", description: "Task 002", prompt: "..." })
-
-// WRONG: Separate messages = sequential
-```
-
-### Waiting for Parallel Completion
-
-```typescript
-// Wait for all background tasks
-TaskOutput({ task_id: "task-001-id" })
-TaskOutput({ task_id: "task-002-id" })
-```
+Dispatch parallel tasks in a single message with multiple Task calls. See `@skills/delegation/references/parallel-strategy.md` for group identification, dispatching patterns, and model selection.
 
 ## Worktree Enforcement (MANDATORY)
 
@@ -286,15 +218,6 @@ Include in ALL implementer prompts:
 | Forget to track in TodoWrite | Update status for every task |
 | Skip TDD requirements | Include TDD instructions in prompt |
 
-## Model Selection Guide
-
-| Task Type | Model | Reason |
-|-----------|-------|--------|
-| Code implementation | `opus` | Best quality for coding |
-| Code review | `opus` | Thorough analysis |
-| File search/exploration | (default) | Speed over quality |
-| Simple queries | `haiku` | Fast, low cost |
-
 ## State Management
 
 This skill tracks task progress in workflow state for context persistence.
@@ -324,83 +247,9 @@ Update phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ## Fix Mode (--fixes)
 
-When invoked with `--fixes`, delegation handles review failures instead of initial implementation.
+When invoked with `--fixes`, delegation handles review failures instead of initial implementation. Uses fixer-prompt template, dispatches fix tasks per issue, then re-invokes review.
 
-### Trigger
-
-```bash
-/delegate --fixes docs/plans/YYYY-MM-DD-feature.md
-```
-
-Or auto-invoked after review failures.
-
-### Fix Mode Process
-
-1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
-   - Query `reviews` for review failures
-
-2. **Extract fix tasks** using the extraction script:
-
-   ```bash
-   bash scripts/extract-fix-tasks.sh \
-     --state-file <path-to-state.json> \
-     [--review-report <path-to-report.json>] \
-     [--repo-root <project-root>]
-   ```
-
-   **Validates:**
-   - Findings parsed from state file reviews (or external report file)
-   - Each finding mapped to file path and line number
-   - File-to-worktree ownership determined from task worktree assignments
-
-   **On exit 0:** Outputs JSON array of fix tasks with fields: `id`, `file`, `line`, `worktree`, `description`, `severity`. Use this output to create fix task dispatches.
-
-   **On exit 1:** Parse error. Check that the state file or review report contains valid JSON with the expected structure.
-
-3. **Create fix tasks** for each extracted issue:
-   - Use `fixer-prompt.md` template
-   - Include full issue context from the extracted JSON
-   - Specify target worktree from the extraction output
-
-4. **Dispatch fixers** (same as implementers, different prompt):
-   ```typescript
-   Task({
-     subagent_type: "general-purpose",
-     model: "opus",
-     description: "Fix: [issue summary]",
-     prompt: "[fixer-prompt template with issue details]"
-   })
-   ```
-
-5. **Re-review after fixes**:
-   After all fix tasks complete, auto-invoke review phase:
-   ```typescript
-   Skill({ skill: "review", args: "<state-file>" })
-   ```
-
-### Fix Task Structure
-
-Each fix task extracted should include:
-
-| Field | Description |
-|-------|-------------|
-| issue | Problem description from review |
-| file | File path needing fix |
-| line | Line number (if known) |
-| worktree | Which worktree to fix in |
-| branch | Which branch owns this fix |
-| priority | HIGH / MEDIUM / LOW |
-
-### Transition After Fixes
-
-Fix mode goes back to the integration phase after fixes are applied,
-then re-enters review to re-integrate and re-verify:
-
-```text
-/delegate --fixes -> [fixes applied] -> re-integrate -> /review
-```
-
-This ensures fixed code is re-verified.
+For detailed fix mode process, task structure, and transition flow, see `@skills/delegation/references/fix-mode.md`.
 
 ## Completion Criteria
 
@@ -434,29 +283,16 @@ See `@skills/delegation/references/troubleshooting.md` for detailed troubleshoot
 
 ## Exarchos Integration
 
-When Exarchos MCP tools are available, emit events during delegation:
+Emit events at each delegation milestone using Exarchos MCP tools:
 
-1. **At delegation start:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `workflow.started` (if not already emitted for this workflow)
-2. **After team composition:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `team.formed` including teammates array
-3. **For each task dispatch:** Use `mcp__exarchos__exarchos_orchestrate` with `action: "team_spawn"` to register the agent with the team coordinator, then use the Task tool to launch the subagent. `team_spawn` handles role assignment, event emission, and health tracking; the Task tool handles actual subprocess execution. Both are always used together — `team_spawn` does not replace the Task tool
-4. **For each task assignment:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `task.assigned` including taskId, title, branch, worktree
-5. **Monitor progress:** Use `mcp__exarchos__exarchos_view` with `action: "workflow_status"` to check task completion status. For lightweight checks, use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `fields: ["tasks"]`
-6. **On task completion — Graphite stacking:**
-   Subagents handle stacking directly using `gt create` (per implementer prompt template).
-   When a multi-task agent completes, it will have created a Graphite stack with one branch per logical review unit.
-   The orchestrator should:
-   - Call `mcp__exarchos__exarchos_view` with `action: "stack_place"` with position, taskId, and branch to record each stack position
-   - Verify the stack was submitted by checking for PRs: `mcp__graphite__run_gt_cmd({ args: ["--no-interactive", "ls"], cwd: "<worktree-path>" })`
-7. **On all tasks complete:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` from delegate to next phase
+1. **Delegation start:** `exarchos_event` append `workflow.started` (if not already emitted)
+2. **Team composition:** `exarchos_event` append `team.formed` with teammates array
+3. **Task dispatch:** `exarchos_orchestrate` `team_spawn` to register agent, then Task tool to launch. Both are always used together -- `team_spawn` does not replace Task tool
+4. **Task assignment:** `exarchos_event` append `task.assigned` with taskId, title, branch, worktree
+5. **Monitor:** `exarchos_view` `workflow_status` or `exarchos_workflow` `get` with `fields: ["tasks"]`
+6. **Task completion:** Record stack positions via `exarchos_view` `stack_place`. Subagents handle Graphite stacking via `gt create`
+7. **All complete:** `exarchos_event` append `phase.transitioned` from delegate to next phase
 
 ### Claim Guard
 
-Use `mcp__exarchos__exarchos_orchestrate` with `action: "task_claim"` to claim tasks. This action prevents double-claims via optimistic concurrency. If an agent receives an `ALREADY_CLAIMED` error, another agent already claimed that task. The orchestrator should:
-- Skip the task (it's being handled)
-- Check task status via `mcp__exarchos__exarchos_view` with `action: "tasks"` with `filter: { "taskId": "<id>" }` before re-dispatching
-
-## Performance Notes
-
-- Complete each step fully before advancing — quality over speed
-- Do not skip validation checks even when the change appears trivial
-- Verify each task dispatch before proceeding to next. Do not batch dispatches without confirming worktree readiness.
+Use `exarchos_orchestrate` `task_claim` for optimistic concurrency. On `ALREADY_CLAIMED`, skip the task and check status via `exarchos_view` `tasks` before re-dispatching.
