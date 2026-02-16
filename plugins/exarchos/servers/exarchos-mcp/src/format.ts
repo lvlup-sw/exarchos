@@ -23,13 +23,15 @@ export function toEventAck(event: { streamId: string; sequence: number; type: st
 // ─── MCP Wire Format Types ──────────────────────────────────────────────────
 
 export interface McpToolContent {
-  readonly type: string;
+  readonly type: 'text';
   readonly text: string;
+  readonly [key: string]: unknown;
 }
 
 export interface McpToolResult {
-  readonly content: readonly McpToolContent[];
-  readonly isError: boolean;
+  content: McpToolContent[];
+  isError: boolean;
+  [key: string]: unknown;
 }
 
 // ─── Result Formatting ──────────────────────────────────────────────────────

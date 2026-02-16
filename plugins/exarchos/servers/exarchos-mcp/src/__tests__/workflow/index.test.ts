@@ -92,6 +92,11 @@ vi.mock('../../event-store/store.js', () => ({
   EventStore: vi.fn(),
 }));
 
+// Mock telemetry middleware (pass-through by default)
+vi.mock('../../telemetry/middleware.js', () => ({
+  withTelemetry: vi.fn((handler: unknown) => handler),
+}));
+
 // Import after mocks are set up
 import { createServer } from '../../index.js';
 import { TOOL_REGISTRY } from '../../registry.js';
@@ -159,6 +164,23 @@ describe('MCP Server Entry Point', () => {
         const schema = registration.schema as { shape: Record<string, unknown> };
         expect(schema.shape).toHaveProperty('action');
       }
+    });
+
+    it('should include telemetry action in exarchos_view', () => {
+      createServer('/tmp/test-state-dir');
+
+      const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+      expect(viewTool).toBeDefined();
+
+      const actionNames = viewTool!.actions.map((a) => a.name);
+      expect(actionNames).toContain('telemetry');
+    });
+
+    it('should mention telemetry in exarchos_view description', () => {
+      createServer('/tmp/test-state-dir');
+
+      const viewReg = toolRegistrations.get('exarchos_view')!;
+      expect(viewReg.description).toContain('telemetry');
     });
   });
 
@@ -257,6 +279,21 @@ describe('MCP Server Entry Point', () => {
       expect(parsed.success).toBe(false);
       expect(parsed.error.code).toBe('NOT_IMPLEMENTED');
       expect(parsed.error.message).toBe('Coming soon');
+    });
+  });
+
+  describe('telemetry integration', () => {
+    it('should wrap handlers with withTelemetry when EXARCHOS_TELEMETRY is not false', async () => {
+      const { withTelemetry } = await import('../../telemetry/middleware.js');
+      const originalEnv = process.env.EXARCHOS_TELEMETRY;
+      try {
+        delete process.env.EXARCHOS_TELEMETRY;
+        createServer('/tmp/test-state-dir');
+        expect(withTelemetry).toHaveBeenCalled();
+      } finally {
+        if (originalEnv === undefined) { delete process.env.EXARCHOS_TELEMETRY; }
+        else { process.env.EXARCHOS_TELEMETRY = originalEnv; }
+      }
     });
   });
 
