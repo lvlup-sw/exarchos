@@ -201,8 +201,42 @@ gh_graphql() {
 # ============================================================
 
 count_review_rounds() {
-    # Stub — returns 0 for now
-    echo "0"
+    local reviews_json
+    reviews_json=$(gh_graphql -f query='
+        query($owner: String!, $repo: String!, $pr: Int!) {
+            repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                    reviews(first: 100) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            author { login }
+                            submittedAt
+                        }
+                    }
+                }
+            }
+        }
+    ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER") || {
+        echo -e "${YELLOW}WARNING${NC}: Failed to query reviews" >&2
+        echo "0"
+        return
+    }
+
+    # Validate response structure
+    if ! echo "$reviews_json" | jq -e '.data.repository.pullRequest' > /dev/null 2>&1; then
+        echo -e "${YELLOW}WARNING${NC}: Malformed reviews response" >&2
+        echo "0"
+        return
+    fi
+
+    # Warn if there are more pages (>100 reviews is rare; pagination not implemented)
+    local has_next
+    has_next=$(echo "$reviews_json" | jq -r '.data.repository.pullRequest.reviews.pageInfo.hasNextPage' 2>/dev/null || echo "false")
+    if [[ "$has_next" == "true" ]]; then
+        echo -e "${YELLOW}WARNING${NC}: More than 100 reviews found; count may be incomplete" >&2
+    fi
+
+    echo "$reviews_json" | jq '[.data.repository.pullRequest.reviews.nodes[] | select(.author.login == "coderabbitai[bot]")] | length' 2>/dev/null || echo "0"
 }
 
 # ============================================================
