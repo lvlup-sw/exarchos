@@ -118,6 +118,15 @@ Use `@skills/debug/references/triage-questions.md` to gather:
 - Urgency justification
 - Affected area
 
+Run deterministic track selection:
+
+```bash
+scripts/select-debug-track.sh --urgency <critical|high|medium|low> --root-cause-known <yes|no>
+```
+
+**On exit 0:** Hotfix track selected.
+**On exit 1:** Thorough track selected.
+
 Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
 ```text
@@ -130,10 +139,10 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
       "impact": "<impact>"
     },
     "urgency": {
-      "level": "P0",
-      "justification": "<why P0>"
+      "level": "<level>",
+      "justification": "<justification>"
     },
-    "track": "hotfix"
+    "track": "<hotfix|thorough>"
   }
   phase: "investigate"
 ```
@@ -142,9 +151,14 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
 
 Use `@skills/debug/references/investigation-checklist.md`.
 
-**Time-boxed to 15 minutes.** At 15 min checkpoint:
-- Root cause found -> Continue to implement
-- Root cause NOT found -> Switch to thorough track
+Run the investigation timer to enforce the 15-minute time-box:
+
+```bash
+scripts/investigation-timer.sh --state-file <state-file>
+```
+
+**On exit 0:** Within budget — continue investigation.
+**On exit 1:** Budget exceeded — escalate to thorough track.
 
 Record findings using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 
@@ -307,13 +321,20 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
 
 #### 6. Review Phase
 
-Spec review only (not quality review - this is a fix, not new feature):
+Spec review only (not quality review - this is a fix, not new feature).
 
-Verify:
+Run the debug review gate to verify test coverage for the bug fix:
+
+```bash
+scripts/debug-review-gate.sh --repo-root <path> --base-branch <branch> --state-file <state-file>
+```
+
+**On exit 0:** Review passed — tests added and passing.
+**On exit 1:** Gaps found — missing tests or regressions.
+
+Additionally verify:
 - [ ] Fix matches RCA root cause
 - [ ] Fix matches design approach
-- [ ] Tests cover the bug scenario
-- [ ] No regressions
 
 Update state:
 
@@ -348,7 +369,7 @@ mcp__plugin_github_github__update_pull_request({
 
 ### Hotfix -> Thorough
 
-If during hotfix investigation root cause is not found in 15 minutes:
+When `scripts/investigation-timer.sh` exits with code 1 (budget exceeded), switch to thorough track:
 
 ```
 Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
