@@ -842,6 +842,34 @@ type RemediationExhausted = WorkflowEvent & {
 };
 ```
 
+#### Verification Events
+
+Emitted by CI gates and the CodeQualityView when benchmark or quality data is available. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full context on property-based testing and benchmark infrastructure.
+
+```typescript
+type BenchmarkCompleted = WorkflowEvent & {
+  type: "BenchmarkCompleted";
+  taskId: string;
+  results: Array<{
+    operation: string;
+    metric: string;      // "p50" | "p95" | "p99" | "throughput" | "memory"
+    value: number;
+    unit: string;        // "ms" | "ops/sec" | "MB"
+    baseline?: number;
+    regressionPercent?: number;
+    passed: boolean;
+  }>;
+};
+
+type QualityRegression = WorkflowEvent & {
+  type: "QualityRegression";
+  gate: string;
+  firstFailedAt: string;
+  consecutiveFailures: number;
+  possibleCauses: string[];
+};
+```
+
 #### Stack Events
 
 Emitted during progressive stacking within the `/delegate` phase.
@@ -883,8 +911,9 @@ type StackEnqueued = WorkflowEvent & {
 | Quality gates | `GateExecuted`, `GateSelfCorrected` | Agentic Coder / CI pipeline | Implemented |
 | Remediation | `RemediationStarted`, `RemediationAttempted`, `RemediationExhausted` | Basileus | Partial (`RemediationStarted` implemented; `RemediationAttempted`, `RemediationExhausted` deferred to Phase 4-5) |
 | Stack | `StackPositionFilled`, `StackRestacked`, `StackEnqueued` | Lead orchestrator / Agentic Coder | Implemented |
+| Verification | `BenchmarkCompleted`, `QualityRegression` | CI pipeline / CodeQualityView | Not implemented |
 
-> **Implementation note:** 19 of 28 event types are implemented with Zod schemas and JSONL persistence in the local event store. Deferred events are remote-only types that will be added when Basileus integration (Phases 4-5) is implemented. The local event store uses dot-notation for type names (e.g., `workflow.started`) while this ADR uses PascalCase — the mapping is 1:1.
+> **Implementation note:** 19 of 30 event types are implemented with Zod schemas and JSONL persistence in the local event store. Deferred events include remote-only types that will be added when Basileus integration (Phases 4-5) is implemented, plus verification events (`BenchmarkCompleted`, `QualityRegression`) planned as part of the verification infrastructure. The local event store uses dot-notation for type names (e.g., `workflow.started`) while this ADR uses PascalCase — the mapping is 1:1.
 
 ### Event Projection: Local to Remote
 
@@ -1093,6 +1122,29 @@ interface TaskDetailView {
 ```
 
 **Answers:** "Show me the full history of this task."
+
+### CodeQualityView
+
+A CQRS projection that aggregates gate results across workflows, enabling quality trend analysis per skill, model, and task type. Materialized from `GateExecuted`, `GateSelfCorrected`, `RemediationAttempted`, `TaskCompleted`, and `BenchmarkCompleted` events.
+
+```typescript
+interface CodeQualityView {
+  /** Per-skill quality aggregates (first-pass rate, top failing gates, mutation trends) */
+  skills: Record<string, SkillQualityMetrics>;
+  /** Per-gate pass rates, avg duration, remediation success, trend direction */
+  gates: Record<string, GateMetrics>;
+  /** Active regressions: gates with consecutive failures and possible causes */
+  regressions: QualityRegression[];
+  /** Benchmark trends: per-operation historical measurements with baseline comparison */
+  benchmarks: BenchmarkTrend[];
+}
+```
+
+**Answers:** "What is the quality trend across my workflows?"
+
+See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full interface definitions (`SkillQualityMetrics`, `ModelQualityMetrics`, `GateMetrics`, `BenchmarkTrend`, `QualityRegression`) and attribution analysis.
+
+> **Implementation status:** Not implemented. Planned as part of the verification infrastructure — requires `BenchmarkCompleted` event type and sufficient workflow history for statistically meaningful trends.
 
 ---
 
@@ -1339,6 +1391,26 @@ The agent runs a subset of gates pre-PR; CI re-runs the full suite. Redundancy i
 | API Contract Drift | No | Yes | Requires schema generation pipeline |
 | Integration Tests | No | Yes | Requires running services |
 | Agent-Based Review | No | Yes | Post-PR only; separate workflows |
+
+### Verification Gates
+
+Two additional gate types extend the quality gate framework with systematic code verification. Both are planned — see the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full specifications.
+
+#### Property-Based Testing
+
+Property-based tests (PBT) use generators to produce random inputs and invariant assertions to verify properties across the input space. Unlike example tests that check specific cases, PBT systematically explores boundary conditions, state machine violations, and invariant breaches. The `/plan` skill determines when PBT is required based on task category (data transformations, mathematical operations, state machines, collections, concurrency, serialization). Agent spawn prompts are enriched with PBT patterns (roundtrip, invariant, idempotence, commutativity) when `propertyTests: true`.
+
+| Gate | Tool | Layer | Tier | Cost/Duration | Failure Action |
+|------|------|-------|------|---------------|----------------|
+| **Property Tests** | fast-check / FsCheck | 2 (Governance) | Per-PR | Medium (~1-2 min) | Block merge; auto-remediate if agent-authored |
+
+#### Benchmark Regression Detection
+
+Performance benchmarks measure latency (P50/P95/P99), throughput (ops/sec), and resource usage (memory, allocations) against stored baselines. A regression gate compares PR benchmark results against `benchmarks/baselines.json` and fails when measurements exceed a configurable threshold (default 10%). The gate runs conditionally — only when the PR includes the `has-benchmarks` label (applied by `/delegate` when the plan includes benchmark tasks).
+
+| Gate | Tool | Layer | Tier | Cost/Duration | Failure Action |
+|------|------|-------|------|---------------|----------------|
+| **Benchmark Regression** | Vitest bench / BenchmarkDotNet | 2 (Governance) | Per-PR (conditional) | Medium (~2-5 min) | Block merge; auto-remediate with optimization hints |
 
 ### SARIF Integration
 
@@ -1634,6 +1706,39 @@ jobs:
 
 > **Remediation note:** Per-PR failures are handled by agent self-correction during the `/delegate` phase -- the authoring agent fixes its own PR, pushes an update, and per-PR CI re-runs. After 3 self-correction attempts, the lead escalates. Per-stack failures in the merge queue follow the existing auto-remediation pipeline (3 attempts, then Exarchos escalation).
 
+### Verification Flywheel
+
+Gate results, benchmark measurements, and property test outcomes flow through the event stream into the CodeQualityView (see [Section 8](#8-cqrs-views)), which materializes quality trends per skill, model, and task type. The flywheel connects this data to the eval framework, creating a self-improving system where generated code quality feeds back into prompt refinement.
+
+```text
+Agent generates code
+    │
+    ▼
+CI gates execute ──── GateExecuted events ────┐
+Benchmarks run ─────── BenchmarkCompleted ─────┤
+Property tests run ── TestResult events ───────┤
+                                               ▼
+                                    CodeQualityView materializes
+                                               │
+                              ┌────────────────┴────────────────┐
+                              │   Eval Framework Integration    │
+                              │                                 │
+                              │  Capability: "Does /delegate    │
+                              │   produce code that passes      │
+                              │   mutation testing?"            │
+                              │                                 │
+                              │  Regression: "Did prompt v2.1   │
+                              │   cause benchmark regressions?" │
+                              │                                 │
+                              │  Reliability: "How often does   │
+                              │   auto-remediation succeed?"    │
+                              └────────────────┬────────────────┘
+                                               ▼
+                              Prompt Refinement Signal
+```
+
+**Attribution dimensions** — When quality degrades, the CodeQualityView enables multi-dimensional analysis: per-skill mutation scores, per-model first-pass rates, per-task-type gate failures, per-complexity-tier trends, and per-prompt-version comparisons. When a regression is detected (consecutive gate failures), the flywheel emits a `QualityRegression` event that surfaces alongside eval regressions. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full attribution analysis and flywheel integration points.
+
 ---
 
 ## 12. Basileus Integration
@@ -1859,15 +1964,55 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 
 ## Implementation Status
 
+### Pipeline Phases
+
 | Phase | Status | Summary |
 |-------|--------|---------|
-| Phase 1: Foundation | **Complete** | Unified exarchos-mcp server with 27 MCP tools, local JSONL event store (19 event types), Zod schemas, HSM state machine with 26 guards across feature/debug/refactor workflows |
+| Phase 1: Foundation | **Complete** | Unified exarchos-mcp server with 27 MCP tools, local JSONL event store (19 of 30 event types), Zod schemas, HSM state machine with 26 guards across feature/debug/refactor workflows |
 | Phase 2: Team Coordinator | **Complete** | Team spawn/message/broadcast/shutdown/status lifecycle, task claim/complete/fail, role definitions and composition strategy |
 | Phase 3: Materialized Views | **Complete** | CQRS views (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView), view materialization from event sequences, snapshot persistence |
 | Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery with real sender, event schema mapping, Task Router score-based routing |
 | Phase 5: Bidirectional Sync | **Planned** | Remote event polling, conflict resolution, cross-session coordination, dual-write mode, Agentic Coder container dispatching |
 
 > **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool has plumbing in place (stream discovery, outbox drain) but uses a no-op sender until the Basileus remote client is implemented in Phase 4. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
+
+### Verification Infrastructure
+
+See [Autonomous Code Verification](../designs/2026-02-15-autonomous-code-verification.md) for full design.
+
+| Component | Status | Summary |
+|-----------|--------|---------|
+| Property-based testing — plan schema | **Not implemented** | `testingStrategy` field with `propertyTests`, `properties` per task |
+| Property-based testing — spawn enrichment | **Not implemented** | PBT pattern guidance injected into delegation spawn prompts |
+| Property-based testing — validation script | **Not implemented** | `check-property-tests.sh` to verify coverage |
+| Benchmark regression — baselines and gate | **Not implemented** | `baselines.json`, `check-benchmark-regression.sh`, CI gate |
+| CodeQualityView | **Not implemented** | CQRS projection aggregating gate results per skill/model/gate |
+| Verification flywheel | **Not implemented** | Closed-loop integration with eval framework for prompt refinement |
+
+### Content Hardening
+
+See [Content Hardening](../designs/2026-02-15-content-hardening-trigger-harness.md) for full design.
+
+| Component | Status | Summary |
+|-----------|--------|---------|
+| Trigger harness | **Complete** | Deterministic skill activation via YAML frontmatter |
+| Skill frontmatter schema | **Complete** | `name`, `description`, `metadata` fields with validation |
+| Integration tests | **Complete** | Validation scripts verifying each SKILL.md references its scripts |
+| Progressive disclosure | **Complete** | `references/` subdirectories for large skills |
+| Installer hook resolution | **Complete** | Mode-dependent CLI paths resolved from `hooks.json` |
+
+### Productization
+
+See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
+
+| Component | Status | Summary |
+|-----------|--------|---------|
+| Foundation hardening (Phase 0) | **Not started** | Error taxonomy, state migrations, config validation |
+| CLI and documentation (Phase 1) | **Not started** | `exarchos` CLI binary, getting started docs |
+| Extension architecture (Phase 2) | **Not started** | Plugin-based extensibility for workflows, gates, views |
+| AI client abstraction (Phase 3) | **Not started** | `AgentCapabilities` interface, multi-client support |
+| SaaS tier (Phase 4) | **Not started** | Basileus integration, remote compute, web dashboard |
+| Flywheel and team features (Phase 5) | **Not started** | Multi-tenant analytics, cross-developer coordination |
 
 ---
 
@@ -1962,8 +2107,12 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 |----------|-------------|
 | [System Index](./system-index.md) | Entry-point reference mapping concepts to authoritative locations |
 | [Platform Architecture](./platform-architecture.md) | Three-tier runtime, Agentic.Workflow, event sourcing, deployment, resources |
+| [Productization Roadmap](./productization-roadmap.md) | Strategic roadmap for OSS local tool and optional SaaS tier |
 | [`docs/designs/2026-01-18-agentic-coder.md`](../designs/2026-01-18-agentic-coder.md) | Full Agentic Coder design (remote tier) |
 | [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Graphite Stacked PR Integration design |
+| [`docs/designs/2026-02-15-autonomous-code-verification.md`](../designs/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
+| [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Full productization assessment (source for Productization Roadmap ADR) |
+| [`docs/designs/2026-02-15-content-hardening.md`](../designs/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |
 
 ## References
 
