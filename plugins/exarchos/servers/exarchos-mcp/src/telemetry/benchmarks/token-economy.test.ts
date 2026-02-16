@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -17,6 +17,10 @@ describe('Token Economy Benchmarks', () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'token-bench-'));
     store = new EventStore(stateDir);
     resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   it('telemetry view compact response should be under 400 tokens for 5 tools', async () => {
