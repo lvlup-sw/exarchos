@@ -10,17 +10,23 @@ import {
   registerTaskTools,
   resetModuleEventStore,
 } from '../../tasks/tools.js';
+import {
+  getOrCreateEventStore,
+  resetMaterializerCache,
+} from '../../views/tools.js';
 
 let tempDir: string;
 let store: EventStore;
 
 beforeEach(async () => {
   resetModuleEventStore();
+  resetMaterializerCache();
   tempDir = await mkdtemp(path.join(tmpdir(), 'task-tools-test-'));
   store = new EventStore(tempDir);
 });
 
 afterEach(async () => {
+  resetMaterializerCache();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -364,12 +370,9 @@ describe('registerTaskTools', () => {
     expect(registerTaskTools.length).toBe(3);
   });
 
-  it('should not create additional EventStore instances after registration', async () => {
+  it('should use shared EventStore singleton after registration', async () => {
     const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
     registerTaskTools(mockServer, tempDir, store);
-
-    // Spy on EventStore constructor after registration
-    const constructorSpy = vi.spyOn(EventStore.prototype, 'append');
 
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-consolidation' },
@@ -377,35 +380,32 @@ describe('registerTaskTools', () => {
     );
     expect(result.success).toBe(true);
 
-    // The provided store should see the events
+    // The events should be readable from the JSONL file via any EventStore instance
     const events = await store.query('wf-consolidation', { type: 'task.claimed' });
     expect(events).toHaveLength(1);
-
-    constructorSpy.mockRestore();
   });
 });
 
 // ─── TOCTOU Race Condition Fix ──────────────────────────────────────────────
 
 describe('handleTaskClaim TOCTOU protection', () => {
-  // Each test registers the test-level store via registerTaskTools so that
-  // handleTaskClaim uses the same instance we can spy on.
-  let mockServer: import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+  // Get the shared singleton store that handleTaskClaim actually uses
+  let sharedStore: EventStore;
 
   beforeEach(() => {
-    mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
-    registerTaskTools(mockServer, tempDir, store);
+    // Trigger singleton creation so we can spy on the correct instance
+    sharedStore = getOrCreateEventStore(tempDir);
   });
 
   it('retries on SequenceConflictError from concurrent append', async () => {
     // Arrange: seed the stream with an initial event so sequence > 0
-    await store.append('wf-race', { type: 'workflow.started', data: {} });
+    await sharedStore.append('wf-race', { type: 'workflow.started', data: {} });
 
-    // Spy on store.append to inject a SequenceConflictError on the first claim attempt,
+    // Spy on sharedStore.append to inject a SequenceConflictError on the first claim attempt,
     // then allow the second attempt to succeed normally.
-    const originalAppend = store.append.bind(store);
+    const originalAppend = sharedStore.append.bind(sharedStore);
     let claimAttemptCount = 0;
-    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+    const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
       async (streamId, event, options) => {
         if ((event as { type: string }).type === 'task.claimed') {
           claimAttemptCount++;
@@ -434,12 +434,12 @@ describe('handleTaskClaim TOCTOU protection', () => {
 
   it('uses expectedSequence for optimistic concurrency', async () => {
     // Arrange: seed the stream with some events
-    await store.append('wf-seq', { type: 'workflow.started', data: {} });
-    await store.append('wf-seq', { type: 'team.formed', data: {} });
+    await sharedStore.append('wf-seq', { type: 'workflow.started', data: {} });
+    await sharedStore.append('wf-seq', { type: 'team.formed', data: {} });
 
-    // Spy on store.append to capture the options passed
-    const originalAppend = store.append.bind(store);
-    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+    // Spy on sharedStore.append to capture the options passed
+    const originalAppend = sharedStore.append.bind(sharedStore);
+    const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
       async (streamId, event, options) => {
         return originalAppend(streamId, event, options);
       },
@@ -468,11 +468,11 @@ describe('handleTaskClaim TOCTOU protection', () => {
 
   it('returns CLAIM_FAILED after max retries exhausted', async () => {
     // Arrange: seed the stream
-    await store.append('wf-exhaust', { type: 'workflow.started', data: {} });
+    await sharedStore.append('wf-exhaust', { type: 'workflow.started', data: {} });
 
-    // Mock store.append to always throw SequenceConflictError for task.claimed
-    const originalAppend = store.append.bind(store);
-    const appendSpy = vi.spyOn(store, 'append').mockImplementation(
+    // Mock sharedStore.append to always throw SequenceConflictError for task.claimed
+    const originalAppend = sharedStore.append.bind(sharedStore);
+    const appendSpy = vi.spyOn(sharedStore, 'append').mockImplementation(
       async (streamId, event, options) => {
         if ((event as { type: string }).type === 'task.claimed' && options?.expectedSequence !== undefined) {
           throw new SequenceConflictError(options.expectedSequence, options.expectedSequence + 1);
@@ -497,13 +497,13 @@ describe('handleTaskClaim TOCTOU protection', () => {
 
   it('queries all events (not just task.claimed) to get accurate sequence', async () => {
     // Arrange: seed with mixed event types
-    await store.append('wf-mixed', { type: 'workflow.started', data: {} });
-    await store.append('wf-mixed', { type: 'team.formed', data: {} });
-    await store.append('wf-mixed', { type: 'task.assigned', data: {} });
+    await sharedStore.append('wf-mixed', { type: 'workflow.started', data: {} });
+    await sharedStore.append('wf-mixed', { type: 'team.formed', data: {} });
+    await sharedStore.append('wf-mixed', { type: 'task.assigned', data: {} });
 
-    // Spy on store.query to verify it queries without type filter
-    const originalQuery = store.query.bind(store);
-    const querySpy = vi.spyOn(store, 'query').mockImplementation(
+    // Spy on sharedStore.query to verify it queries without type filter
+    const originalQuery = sharedStore.query.bind(sharedStore);
+    const querySpy = vi.spyOn(sharedStore, 'query').mockImplementation(
       async (streamId, filters) => {
         return originalQuery(streamId, filters);
       },
