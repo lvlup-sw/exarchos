@@ -76,7 +76,14 @@ For context restoration after summarization, use `mcp__exarchos__exarchos_workfl
 
 ### Reconcile State
 
-To verify state matches git reality, the SessionStart hook automatically reconciles on resume. This checks that worktrees and branches referenced in state actually exist.
+To verify state matches git reality, the SessionStart hook automatically reconciles on resume. For manual verification, run the reconciliation script:
+
+```bash
+scripts/reconcile-state.sh --state-file <state-file> --repo-root <repo-root>
+```
+
+**On exit 0:** State is consistent.
+**On exit 1:** Discrepancies found — review output and resolve.
 
 ## Integration Points
 
