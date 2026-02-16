@@ -1,11 +1,6 @@
 ---
 name: debug
-description: |-
-  Bug investigation and fix workflow with hotfix and thorough tracks.
-  Use when the user says "debug", "fix bug", "investigate issue",
-  "something is broken", or runs /debug. Hotfix track for quick fixes,
-  thorough track for complex bugs requiring root cause analysis.
-  Do NOT use for code improvement — use refactor instead.
+description: "Bug investigation and fix workflow with hotfix and thorough tracks. Use when the user says 'debug', 'fix bug', 'investigate issue', 'something is broken', 'debug this issue', or runs /debug. Hotfix track for quick fixes, thorough track for complex bugs requiring root cause analysis. Do NOT use for feature development or planned refactoring."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -494,3 +489,9 @@ When Exarchos MCP tools are available, emit events throughout the debug workflow
 4. **Thorough track stacking:** Handled by `/synthesize` (Graphite stack submission)
 5. **Hotfix track commit:** Single `gt create -m "fix: <description>"` — no multi-branch stacking needed
 6. **On complete:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` to "completed"
+
+## Performance Notes
+
+- Complete each step fully before advancing — quality over speed
+- Do not skip validation checks even when the change appears trivial
+- Complete each investigation step before concluding root cause. Do not jump to fix without evidence.

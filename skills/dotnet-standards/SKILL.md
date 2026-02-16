@@ -1,6 +1,6 @@
 ---
 name: dotnet-standards
-description: ".NET and C# coding standards, conventions, and project configuration. Use when working with .cs files, .NET projects, or C# codebases. Provides SOLID constraints, naming conventions, error handling patterns, and project structure guidelines specific to the .NET ecosystem."
+description: ".NET and C# coding standards, conventions, and project configuration. Use when working with .cs files, .NET projects, C# codebases, or the user says \"check .NET standards\". Provides SOLID constraints, naming conventions, error handling patterns, and project structure guidelines specific to the .NET ecosystem. Do NOT use for TypeScript or non-.NET projects."
 metadata:
   author: exarchos
   version: 1.0.0

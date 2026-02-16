@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for design exploration -- use brainstorming instead."
+description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -136,3 +136,9 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
 ## Exarchos Integration
 
 On plan completion, call `mcp__exarchos__exarchos_event` with `action: "append"` and event type `phase.transitioned` from plan to plan-review.
+
+## Performance Notes
+
+- Complete each step fully before advancing — quality over speed
+- Do not skip validation checks even when the change appears trivial
+- Trace every design section to at least one task. Do not leave uncovered sections without explicit rationale.

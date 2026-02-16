@@ -1,11 +1,6 @@
 ---
 name: quality-review
-description: |
-  Two-stage code review: spec compliance then code quality analysis.
-  Use when the user says "review code", "check quality", "code review",
-  or runs /review. Stage 1 verifies design alignment. Stage 2 checks
-  SOLID principles, DRY, security, and test quality.
-  Do NOT use for plan-design delta analysis -- use spec-review instead.
+description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'review code', 'check quality', 'code review', or runs /review. Checks SOLID principles, DRY, security, and test quality. Requires spec-review to pass first. Do NOT use for spec review (use spec-review) or brainstorming."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -186,3 +181,9 @@ When Exarchos MCP tools are available, emit gate events during review:
 2. **Emit gate events** via `exarchos_event` with `action: "append"`, type `gate.executed` (include `gateName`, `layer`, `passed`, `duration`)
 3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
 4. **When all per-PR gates pass**, apply `stack-ready` label to the PR
+
+## Performance Notes
+
+- Complete each step fully before advancing — quality over speed
+- Do not skip validation checks even when the change appears trivial
+- Read each checklist file completely before scoring. Do not skip security or SOLID checks even for small changes.
