@@ -13,6 +13,7 @@ import { handleWorkflow } from './workflow/composite.js';
 import { handleEvent } from './event-store/composite.js';
 import { handleOrchestrate } from './orchestrate/composite.js';
 import { handleView } from './views/composite.js';
+import { handleSync } from './sync/composite.js';
 
 // EventStore configuration — workflow modules require explicit injection
 // (non-workflow modules use lazy init via getStore())
@@ -42,10 +43,7 @@ const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
   exarchos_event: handleEvent,
   exarchos_orchestrate: handleOrchestrate,
   exarchos_view: handleView,
-  exarchos_sync: async () => ({
-    success: false,
-    error: { code: 'NOT_IMPLEMENTED', message: 'Coming soon' },
-  }),
+  exarchos_sync: handleSync,
 };
 
 // ─── Server Factory ──────────────────────────────────────────────────────────
