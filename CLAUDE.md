@@ -27,6 +27,29 @@ npx vitest run src/install.test.ts
 npx vitest run src/state-machine.test.ts
 ```
 
+## Validation Scripts
+
+The `scripts/` directory contains deterministic validation scripts that replace prose checklists in skills. All scripts follow a consistent pattern: `set -euo pipefail`, exit codes (0=pass, 1=fail, 2=usage), and markdown output. Each has a co-located `.test.sh` integration test.
+
+| Category | Scripts |
+|----------|---------|
+| **Synthesis** | `pre-synthesis-check.sh`, `reconstruct-stack.sh`, `check-coderabbit.sh` |
+| **Delegation** | `setup-worktree.sh`, `post-delegation-check.sh`, `extract-fix-tasks.sh`, `needs-schema-sync.sh` |
+| **Git Worktrees** | `verify-worktree.sh`, `verify-worktree-baseline.sh` |
+| **Quality Review** | `review-verdict.sh`, `static-analysis-gate.sh`, `security-scan.sh` |
+| **Planning** | `spec-coverage-check.sh`, `verify-plan-coverage.sh`, `generate-traceability.sh`, `check-tdd-compliance.sh`, `check-coverage-thresholds.sh` |
+| **Refactor** | `assess-refactor-scope.sh`, `check-polish-scope.sh`, `validate-refactor.sh`, `verify-doc-links.sh` |
+| **Debug** | `investigation-timer.sh`, `select-debug-track.sh`, `debug-review-gate.sh` |
+| **Misc** | `verify-ideate-artifacts.sh`, `reconcile-state.sh`, `validate-dotnet-standards.sh` |
+
+**Integration tests** verify that each SKILL.md properly references its validation scripts:
+```bash
+# Run all skill integration tests
+for f in scripts/validate-*-skill.test.sh scripts/validate-misc-skills.test.sh; do
+  bash "$f"
+done
+```
+
 ## Architecture
 
 ### Installation Model

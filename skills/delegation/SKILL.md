@@ -129,27 +129,47 @@ TaskOutput({ task_id: "task-001-id", block: true })
 
 ### Step 6: Collect Results
 
-When tasks complete:
-1. Verify all tests pass
-2. Update TodoWrite status
-3. Check if schema sync is needed (Step 7)
-4. Proceed to review phase
+When tasks complete, run the post-delegation check:
+
+```bash
+bash scripts/post-delegation-check.sh \
+  --state-file <path-to-state.json> \
+  --repo-root <project-root> \
+  [--skip-tests]
+```
+
+**Validates:**
+- State file exists and is valid JSON
+- Tasks array has entries
+- All tasks report "complete" status
+- Per-worktree test runs pass (unless `--skip-tests`)
+- State file consistency (all tasks have id and status fields)
+
+**On exit 0:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
+
+**On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
 ### Step 7: Schema Sync (Auto-Detection)
 
-After all tasks complete, check if any modified API files that require schema regeneration.
+After all tasks complete, run the schema sync detection script:
 
-**Detection:** Use GitHub MCP `pull_request_read` or Serena `mcp__plugin_serena_serena__search_for_pattern` to detect modified API files matching these patterns:
+```bash
+bash scripts/needs-schema-sync.sh \
+  --repo-root <project-root> \
+  [--base-branch main] \
+  [--diff-file <path-to-diff>]
+```
 
-| Pattern | Triggers Sync |
-|---------|---------------|
-| `*Endpoints.cs` | Yes |
-| `Models/*.cs` | Yes |
-| `Requests/*.cs` | Yes |
-| `Responses/*.cs` | Yes |
-| `Dtos/*.cs` | Yes |
+**Validates:** Git diff for API file patterns that trigger schema regeneration:
+- `*Endpoints.cs`
+- `Models/*.cs`
+- `Requests/*.cs`
+- `Responses/*.cs`
+- `Dtos/*.cs`
 
-If API files were modified, run schema sync:
+**On exit 0:** No sync needed. No API files were modified. Proceed to review phase.
+
+**On exit 1:** Sync needed. The output lists modified API files. Run schema sync:
 
 ```bash
 # Run schema sync from monorepo root
@@ -218,32 +238,29 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 
 ### Pre-Dispatch Checklist
 
-Before dispatching ANY implementer:
+Before dispatching ANY implementer, run the worktree setup script:
 
-1. **Ensure .worktrees is gitignored:**
-   ```bash
-   git check-ignore -q .worktrees || echo ".worktrees/" >> .gitignore
-   ```
+```bash
+bash scripts/setup-worktree.sh \
+  --repo-root <project-root> \
+  --task-id <task-id> \
+  --task-name <task-name> \
+  [--base-branch main] \
+  [--skip-tests]
+```
 
-2. **Create feature branch:**
-   ```bash
-   git branch feature/<task-id>-<name> main
-   ```
+**Validates:**
+- `.worktrees/` is gitignored (adds to `.gitignore` if missing)
+- Feature branch created (`feature/<task-id>-<task-name>` from base branch)
+- Git worktree added at `.worktrees/<task-id>-<task-name>`
+- `npm install` ran in worktree
+- Baseline tests pass in worktree
 
-3. **Create worktree:**
-   ```bash
-   git worktree add .worktrees/<task-id>-<name> feature/<task-id>-<name>
-   ```
+**On exit 0:** Worktree is ready. Proceed with implementer dispatch.
 
-4. **Run setup in worktree:**
-   ```bash
-   cd .worktrees/<task-id>-<name> && npm install
-   ```
+**On exit 1:** Setup failed. Review the markdown checklist output for which step failed. Fix the issue before dispatching.
 
-5. **Verify baseline tests pass:**
-   ```bash
-   npm run test:run
-   ```
+**On exit 2:** Usage error. Check required arguments: `--repo-root`, `--task-id`, `--task-name`.
 
 ### Worktree State Tracking
 
@@ -322,15 +339,28 @@ Or auto-invoked after review failures.
 1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
    - Query `reviews` for review failures
 
-2. **Extract fix tasks** from failure reports:
-   - Parse issue descriptions
-   - Identify file paths and line numbers
-   - Determine which worktree/branch owns the fix
+2. **Extract fix tasks** using the extraction script:
 
-3. **Create fix tasks** for each issue:
+   ```bash
+   bash scripts/extract-fix-tasks.sh \
+     --state-file <path-to-state.json> \
+     [--review-report <path-to-report.json>] \
+     [--repo-root <project-root>]
+   ```
+
+   **Validates:**
+   - Findings parsed from state file reviews (or external report file)
+   - Each finding mapped to file path and line number
+   - File-to-worktree ownership determined from task worktree assignments
+
+   **On exit 0:** Outputs JSON array of fix tasks with fields: `id`, `file`, `line`, `worktree`, `description`, `severity`. Use this output to create fix task dispatches.
+
+   **On exit 1:** Parse error. Check that the state file or review report contains valid JSON with the expected structure.
+
+3. **Create fix tasks** for each extracted issue:
    - Use `fixer-prompt.md` template
-   - Include full issue context
-   - Specify target worktree
+   - Include full issue context from the extracted JSON
+   - Specify target worktree from the extraction output
 
 4. **Dispatch fixers** (same as implementers, different prompt):
    ```typescript
