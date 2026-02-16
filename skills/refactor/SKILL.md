@@ -148,6 +148,8 @@ Full state schema:
 
 If scope expands beyond polish limits during explore or brief phase, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
+**Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
+
 **Indicators to switch:**
 - More than 5 files affected
 - Multiple concerns identified

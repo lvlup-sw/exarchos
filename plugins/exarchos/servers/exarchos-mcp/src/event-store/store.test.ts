@@ -834,3 +834,63 @@ describe('EventStore Idempotency Persistence', () => {
     expect(deduped.sequence).toBe(105); // deduped
   });
 });
+
+// ─── Blank-line Tolerance ───────────────────────────────────────────────────
+
+describe('query_BlankLineTolerance', () => {
+  it('should correctly skip with sinceSequence when JSONL has blank lines', async () => {
+    // Arrange: append events normally, then manually inject blank lines into JSONL
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+    await store.append('my-workflow', { type: 'workflow.transition', data: { from: 'a', to: 'b' } });
+    await store.append('my-workflow', { type: 'task.claimed', data: { taskId: 't1' } });
+
+    // Manually inject blank lines between events in the JSONL file
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const original = await fs.readFile(filePath, 'utf-8');
+    const lines = original.trim().split('\n');
+    // Insert blank lines: before first, between each, and after last
+    const corrupted = '\n' + lines[0] + '\n\n' + lines[1] + '\n\n\n' + lines[2] + '\n';
+    await fs.writeFile(filePath, corrupted, 'utf-8');
+
+    // Create a fresh store to avoid cached sequence counters
+    const freshStore = new EventStore(tempDir);
+
+    // Act: query with sinceSequence=1 (should return events 2 and 3)
+    const result = await freshStore.query('my-workflow', { sinceSequence: 1 });
+
+    // Assert: returns correct events (not off-by-one due to blank lines)
+    expect(result).toHaveLength(2);
+    expect(result[0].sequence).toBe(2);
+    expect(result[1].sequence).toBe(3);
+  });
+});
+
+// ─── Orphaned .seq.tmp Cleanup ──────────────────────────────────────────────
+
+describe('initializeSequence_CleansTmpFiles', () => {
+  it('should remove orphaned .seq.tmp files during initialization', async () => {
+    // Arrange: create a JSONL file so initializeSequence has something to read,
+    // plus an orphaned .seq.tmp that simulates a crash during atomic write.
+    const store = new EventStore(tempDir);
+    await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+
+    // Now create an orphaned .seq.tmp file (simulating a crash mid-write)
+    const tmpFilePath = path.join(tempDir, 'my-workflow.seq.tmp');
+    await fs.writeFile(tmpFilePath, JSON.stringify({ sequence: 999 }), 'utf-8');
+
+    // Act: trigger initializeSequence via refreshSequence (no append side effects)
+    const freshStore = new EventStore(tempDir);
+    await freshStore.refreshSequence('my-workflow');
+
+    // Assert: .seq.tmp file should be removed by initializeSequence
+    let tmpExists = true;
+    try {
+      await fs.access(tmpFilePath);
+    } catch {
+      tmpExists = false;
+    }
+    expect(tmpExists).toBe(false);
+  });
+});

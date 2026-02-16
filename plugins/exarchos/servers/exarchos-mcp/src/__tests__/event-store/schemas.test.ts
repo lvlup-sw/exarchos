@@ -357,8 +357,8 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 22 event types', () => {
-    expect(EventTypes).toHaveLength(22);
+  it('should contain all 23 event types', () => {
+    expect(EventTypes).toHaveLength(23);
   });
 
   it('should include workflow-level types', () => {
@@ -391,6 +391,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.compound-entry');
     expect(EventTypes).toContain('workflow.compound-exit');
     expect(EventTypes).toContain('workflow.cancel');
+    expect(EventTypes).toContain('workflow.cleanup');
     expect(EventTypes).toContain('workflow.compensation');
     expect(EventTypes).toContain('workflow.circuit-open');
   });
@@ -693,7 +694,7 @@ describe('Dead event types removed', () => {
     }
   });
 
-  it('should have exactly 22 event types', () => {
-    expect(EventTypes).toHaveLength(22);
+  it('should have exactly 23 event types', () => {
+    expect(EventTypes).toHaveLength(23);
   });
 });

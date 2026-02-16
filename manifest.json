@@ -43,18 +43,11 @@
     ],
     "ruleSets": [
       {
-        "id": "typescript",
-        "name": "TypeScript",
-        "description": "Coding standards and TDD rules for TypeScript",
-        "files": ["coding-standards-typescript.md", "tdd-typescript.md"],
+        "id": "coding-standards",
+        "name": "Coding Standards",
+        "description": "SOLID, control flow, error handling, and language-specific conventions for TypeScript and C#",
+        "files": ["coding-standards.md", "tdd.md"],
         "default": true
-      },
-      {
-        "id": "csharp",
-        "name": "C# / .NET",
-        "description": "Coding standards and TDD rules for C#",
-        "files": ["coding-standards-csharp.md", "tdd-csharp.md"],
-        "default": false
       },
       {
         "id": "workflow",

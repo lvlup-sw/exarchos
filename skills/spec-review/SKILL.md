@@ -1,12 +1,12 @@
 ---
 name: spec-review
-description: "Design-to-plan delta analysis for implementation coverage verification. Use during the plan-review phase to compare design document sections against planned implementation tasks. Identifies gaps in spec coverage. Do NOT use for code quality review (use quality-review) or debugging."
+description: "Implementation-to-spec compliance verification (code review stage 1). Use during the review phase after delegation completes to compare implemented code against design specification. Checks functional completeness, TDD compliance, and test coverage. Do NOT use for code quality review (use quality-review) or debugging."
 metadata:
   author: exarchos
   version: 1.0.0
   mcp-server: exarchos
   category: workflow
-  phase-affinity: plan-review
+  phase-affinity: review
 ---
 
 # Spec Review Skill

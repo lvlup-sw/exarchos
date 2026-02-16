@@ -335,6 +335,21 @@ export const guards = {
     },
   },
 
+  mergeVerified: {
+    id: 'merge-verified',
+    description: 'Merge must be verified by the orchestrator before cleanup',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const cleanup = state._cleanup as Record<string, unknown> | undefined;
+      if (!cleanup || cleanup.mergeVerified !== true) {
+        return {
+          passed: false,
+          reason: 'Cleanup requires mergeVerified flag — verify PRs are merged via GitHub API before invoking cleanup',
+        };
+      }
+      return true;
+    },
+  },
+
   always: {
     id: 'always',
     description: 'Always passes',

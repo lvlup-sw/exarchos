@@ -20,6 +20,7 @@ import { handleSync } from './sync/composite.js';
 import { configureWorkflowEventStore } from './workflow/tools.js';
 import { configureNextActionEventStore } from './workflow/next-action.js';
 import { configureCancelEventStore } from './workflow/cancel.js';
+import { configureCleanupEventStore } from './workflow/cleanup.js';
 import { configureQueryEventStore } from './workflow/query.js';
 import { EventStore } from './event-store/store.js';
 
@@ -56,6 +57,7 @@ export function createServer(stateDir: string): McpServer {
   configureWorkflowEventStore(eventStore);
   configureNextActionEventStore(eventStore);
   configureCancelEventStore(eventStore);
+  configureCleanupEventStore(eventStore);
   configureQueryEventStore(eventStore);
 
   // Register composite tools from registry

@@ -86,7 +86,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 
 | Tool | Actions | Purpose |
 |------|---------|---------|
-| `exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD |
+| `exarchos_workflow` | `init`, `get`, `set`, `cancel`, `cleanup` | Workflow CRUD + post-merge resolution |
 | `exarchos_event` | `append`, `query` | Event sourcing |
 | `exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination |
 | `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS read views |
@@ -97,7 +97,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/state-machine.ts` — Types/interfaces, transition algorithm, HSM registry
 - `workflow/guards.ts` — Guard definitions (26 guards) for all HSM transitions
 - `workflow/hsm-definitions.ts` — HSM definitions for feature/debug/refactor workflows
-- `workflow/tools.ts` — Handler functions for init, get, set. Uses CAS versioning (`_version` field) with retry loop to prevent lost updates on concurrent writes. Emits transition events to external JSONL store after successful state write (state-first, event-after). Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
+- `workflow/tools.ts` — Handler functions for init, get, set. Uses CAS versioning (`_version` field) with retry loop to prevent lost updates on concurrent writes. Event-first architecture: appends transition events to JSONL store BEFORE writing state file; idempotency keys prevent duplicates on CAS retry. Responses strip internal fields (`_events`, `_history`) and include compact `_meta` summaries. Fast-path for simple queries (phase, featureId) skips full Zod validation.
 - `workflow/composite.ts` — Composite router dispatching `action` to init/get/set/cancel handlers
 - `workflow/next-action.ts` — Auto-continue logic and phase-to-action mapping (used by CLI hooks)
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
@@ -114,7 +114,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 
 ### Three Workflow Types
 
-**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/review` → `/synthesize`
+**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/review` → `/synthesize` → merge → `/cleanup`
 **Debug:** `/debug` → triage → investigate → fix → validate (hotfix or thorough tracks)
 **Refactor:** `/refactor` → explore → brief → implement → validate (polish or overhaul tracks)
 

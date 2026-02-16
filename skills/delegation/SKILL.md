@@ -69,89 +69,15 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 
 ## Delegation Workflow
 
-### Step 1: Prepare Environment
+1. Prepare worktrees -- `scripts/setup-worktree.sh`
+2. Extract task details from plan
+3. Create TodoWrite entries for tracking
+4. Dispatch parallel subagents via Task tool
+5. Monitor progress via TaskOutput
+6. Collect and verify -- `scripts/post-delegation-check.sh`
+7. Schema sync if API files modified
 
-For parallel tasks, create worktrees:
-```bash
-git worktree add .worktrees/task-001 feature/task-001
-cd .worktrees/task-001 && npm install
-```
-
-### Step 2: Extract Task Details
-
-From implementation plan, extract for each task:
-- Full task description
-- Files to create/modify
-- Test file paths
-- Expected test names
-- Dependencies
-
-### Step 3: Create TodoWrite Entries
-
-Track all delegated tasks:
-```typescript
-TodoWrite({
-  todos: [
-    { content: "Task 001: User model", status: "in_progress", activeForm: "Implementing user model" },
-    { content: "Task 002: Auth endpoints", status: "pending", activeForm: "Implementing auth endpoints" }
-  ]
-})
-```
-
-### Step 4: Dispatch Implementers
-
-**Parallel dispatch:**
-```typescript
-// Launch multiple in single message for parallel execution
-Task({
-  subagent_type: "general-purpose",
-  model: "opus",
-  run_in_background: true,
-  description: "Implement task 001",
-  prompt: "[Full implementer prompt]"
-})
-
-Task({
-  subagent_type: "general-purpose",
-  model: "opus",
-  run_in_background: true,
-  description: "Implement task 002",
-  prompt: "[Full implementer prompt]"
-})
-```
-
-### Step 5: Monitor Progress
-
-For background tasks:
-```typescript
-TaskOutput({ task_id: "task-001-id", block: true })
-```
-
-### Step 6: Collect Results
-
-When tasks complete, run the post-delegation check:
-
-```bash
-bash scripts/post-delegation-check.sh \
-  --state-file <path-to-state.json> \
-  --repo-root <project-root> \
-  [--skip-tests]
-```
-
-**Validates:**
-- State file exists and is valid JSON
-- Tasks array has entries
-- All tasks report "complete" status
-- Per-worktree test runs pass (unless `--skip-tests`)
-- State file consistency (all tasks have id and status fields)
-
-**On exit 0:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
-
-**On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
-
-### Step 7: Schema Sync (Auto-Detection)
-
-After all tasks complete, check for modified API files (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). If found, run `npm run sync:schemas` and commit via Graphite. See `@skills/sync-schemas/SKILL.md`.
+For detailed step instructions, see `references/workflow-steps.md`.
 
 ## Parallel Execution Strategy
 
@@ -159,64 +85,9 @@ Dispatch parallel tasks in a single message with multiple Task calls. See `@skil
 
 ## Worktree Enforcement (MANDATORY)
 
-All implementation tasks MUST run in isolated worktrees, not the main project root.
+All tasks MUST run in isolated worktrees. Use `scripts/setup-worktree.sh` for setup.
 
-### Why Worktrees Are Required
-
-- **Isolation:** Prevents merge conflicts between parallel tasks
-- **Safety:** Protects main project state
-- **Parallelism:** Enables multiple subagents to work simultaneously
-- **Recovery:** Easy rollback via branch deletion
-
-### Pre-Dispatch Checklist
-
-Before dispatching ANY implementer, run the worktree setup script:
-
-```bash
-bash scripts/setup-worktree.sh \
-  --repo-root <project-root> \
-  --task-id <task-id> \
-  --task-name <task-name> \
-  [--base-branch main] \
-  [--skip-tests]
-```
-
-**Validates:**
-- `.worktrees/` is gitignored (adds to `.gitignore` if missing)
-- Feature branch created (`feature/<task-id>-<task-name>` from base branch)
-- Git worktree added at `.worktrees/<task-id>-<task-name>`
-- `npm install` ran in worktree
-- Baseline tests pass in worktree
-
-**On exit 0:** Worktree is ready. Proceed with implementer dispatch.
-
-**On exit 1:** Setup failed. Review the markdown checklist output for which step failed. Fix the issue before dispatching.
-
-**On exit 2:** Usage error. Check required arguments: `--repo-root`, `--task-id`, `--task-name`.
-
-### Worktree State Tracking
-
-Track worktrees in the workflow state file using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Set `worktrees.<worktree-id>` to an object containing `branch`, `status`, and either `taskId` (single task) or `tasks` (array of task IDs for multi-task worktrees)
-
-### Implementer Prompt Requirements
-
-Include in ALL implementer prompts:
-
-1. **Absolute worktree path** as Working Directory
-2. **Worktree verification block** (from implementer-prompt.md template)
-3. **Abort instructions** if not in worktree
-
-## Anti-Patterns
-
-| Don't | Do Instead |
-|-------|------------|
-| Make subagents read plan files | Provide full task text in prompt |
-| Use default model for coding | Specify `model: "opus"` |
-| Send sequential Task calls | Batch parallel tasks in one message |
-| Skip worktree for parallel work | Create isolated worktrees |
-| Forget to track in TodoWrite | Update status for every task |
-| Skip TDD requirements | Include TDD instructions in prompt |
+For detailed enforcement rules, pre-dispatch checklist, and anti-patterns, see `references/worktree-enforcement.md`.
 
 ## State Management
 
@@ -248,6 +119,8 @@ Update phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
 ## Fix Mode (--fixes)
 
 When invoked with `--fixes`, delegation handles review failures instead of initial implementation. Uses fixer-prompt template, dispatches fix tasks per issue, then re-invokes review.
+
+**Arguments:** `--fixes <state-file-path>` where `<state-file-path>` is the workflow state JSON containing review results in `.reviews.<taskId>.specReview` or `.reviews.<taskId>.qualityReview`.
 
 For detailed fix mode process, task structure, and transition flow, see `@skills/delegation/references/fix-mode.md`.
 

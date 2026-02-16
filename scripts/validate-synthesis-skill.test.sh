@@ -3,10 +3,10 @@
 #
 # Exit 0 if all assertions pass; exit 1 if any check fails.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_FILE="$SCRIPT_DIR/../skills/synthesis/SKILL.md"
+SKILL_DIR="$SCRIPT_DIR/../skills/synthesis"
 
 PASS=0
 FAIL=0
@@ -14,7 +14,7 @@ FAIL=0
 assert_contains() {
   local label="$1"
   local pattern="$2"
-  if grep -q "$pattern" "$SKILL_FILE"; then
+  if grep -rq "$pattern" "$SKILL_DIR" --include="*.md"; then
     echo "PASS: $label"
     PASS=$((PASS + 1))
   else
@@ -26,7 +26,7 @@ assert_contains() {
 assert_not_contains() {
   local label="$1"
   local pattern="$2"
-  if grep -q "$pattern" "$SKILL_FILE"; then
+  if grep -rq "$pattern" "$SKILL_DIR" --include="*.md"; then
     echo "FAIL: $label — expected NOT to find: $pattern"
     FAIL=$((FAIL + 1))
   else

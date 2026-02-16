@@ -20,13 +20,13 @@ reviews:
   path_instructions:
     - path: "**/*.ts"
       instructions: |
-        Apply TypeScript standards from rules/coding-standards-typescript.md:
+        Apply TypeScript standards from rules/coding-standards.md:
         - SOLID: One class/component per file, discriminated unions over type switches
         - Types: Interfaces for extendable shapes, readonly default, no `any`
         - Control: Guard clauses first, early return, flatten async/await
     - path: "**/*.test.ts"
       instructions: |
-        Apply TDD standards from rules/tdd-typescript.md:
+        Apply TDD standards from rules/tdd.md:
         - Use describe/it with Arrange-Act-Assert pattern
         - Test behavior not implementation
         - Use vi.mock/vi.fn for dependencies
@@ -38,7 +38,7 @@ reviews:
   coding_guidelines:
     - title: TypeScript SOLID Principles
       description: |
-        Enforce SOLID constraints per rules/coding-standards-typescript.md:
+        Enforce SOLID constraints per rules/coding-standards.md:
         SRP (one export per file), OCP (discriminated unions), LSP (full implementations),
         ISP (small interfaces), DIP (inject dependencies)
       file_patterns:

@@ -84,6 +84,10 @@ vi.mock('../../workflow/cancel.js', () => ({
   configureCancelEventStore: vi.fn(),
 }));
 
+vi.mock('../../workflow/cleanup.js', () => ({
+  configureCleanupEventStore: vi.fn(),
+}));
+
 vi.mock('../../workflow/query.js', () => ({
   configureQueryEventStore: vi.fn(),
 }));
