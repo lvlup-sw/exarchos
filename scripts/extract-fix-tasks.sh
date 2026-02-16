@@ -145,6 +145,15 @@ fi
 # Get all worktrees from tasks for file-to-worktree mapping
 WORKTREES_JSON="$(jq -c '[.tasks[] | select(.worktree != null) | {worktree: .worktree, branch: (.branch // "unknown")}]' "$STATE_FILE" 2>/dev/null || echo '[]')"
 
+# Fail fast when multiple worktrees exist — deterministic mapping not yet implemented
+WORKTREE_COUNT="$(echo "$WORKTREES_JSON" | jq 'length')"
+FINDING_COUNT="$(echo "$ALL_FINDINGS" | jq 'length')"
+if [[ "$WORKTREE_COUNT" -gt 1 && "$FINDING_COUNT" -gt 0 ]]; then
+    echo "Error: $WORKTREE_COUNT worktrees detected but cannot deterministically map $FINDING_COUNT findings to worktrees." >&2
+    echo "  Assign worktrees manually in the fix task file." >&2
+    exit 1
+fi
+
 # Transform findings into fix tasks with IDs and worktree mapping
 FIX_TASKS="$(echo "$ALL_FINDINGS" | jq -c --argjson worktrees "$WORKTREES_JSON" '
     [to_entries[] | {
@@ -159,15 +168,6 @@ FIX_TASKS="$(echo "$ALL_FINDINGS" | jq -c --argjson worktrees "$WORKTREES_JSON" 
         severity: (.value.severity // "MEDIUM")
     }]
 ' 2>/dev/null)"
-
-# Warn if worktree mapping is ambiguous
-if echo "$FIX_TASKS" | jq -e '.[] | select(.worktree == null)' > /dev/null 2>&1; then
-    WORKTREE_COUNT=$(echo "$WORKTREES_JSON" | jq 'length')
-    if [[ "$WORKTREE_COUNT" -gt 1 ]]; then
-        echo "WARNING: Multiple worktrees detected but fix tasks have no worktree assignment." >&2
-        echo "  Provide --worktree-map or manually assign worktrees to fix tasks." >&2
-    fi
-fi
 
 if [[ -z "$FIX_TASKS" || "$FIX_TASKS" == "null" ]]; then
     echo "[]"

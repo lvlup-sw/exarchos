@@ -110,6 +110,37 @@ EOF
     echo "$dir/review-report.json"
 }
 
+# Helper: create state file with findings and a SINGLE worktree
+create_state_single_worktree_with_findings() {
+    local dir="$1"
+    cat > "$dir/state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-feature",
+  "phase": "review",
+  "tasks": [
+    { "id": "task-001", "title": "Types", "status": "complete", "branch": "feature/task-001-types", "worktree": ".worktrees/task-001-types" }
+  ],
+  "reviews": {
+    "specReview": {
+      "status": "fail",
+      "findings": [
+        { "severity": "HIGH", "file": "src/types/user.ts", "line": 42, "description": "Missing required field validation" },
+        { "severity": "MEDIUM", "file": "src/api/endpoints.ts", "line": 15, "description": "Unhandled error case in POST handler" }
+      ]
+    },
+    "qualityReview": {
+      "status": "fail",
+      "findings": [
+        { "severity": "LOW", "file": "src/types/user.ts", "line": 10, "description": "Unused import statement" }
+      ]
+    }
+  }
+}
+EOF
+    echo "$dir/state.json"
+}
+
 # Helper: create state with empty reviews
 create_state_empty_reviews() {
     local dir="$1"
@@ -138,7 +169,7 @@ echo ""
 # Test 1: HappyPath_FindingsExist_ExitsZero_OutputsJSON
 # --------------------------------------------------
 setup
-STATE_FILE="$(create_state_with_findings "$TMPDIR_ROOT")"
+STATE_FILE="$(create_state_single_worktree_with_findings "$TMPDIR_ROOT")"
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" \
     --state-file "$STATE_FILE" \
     --repo-root "$REPO_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
@@ -161,7 +192,7 @@ teardown
 # Test 2: FindingFields_HasRequiredFields
 # --------------------------------------------------
 setup
-STATE_FILE="$(create_state_with_findings "$TMPDIR_ROOT")"
+STATE_FILE="$(create_state_single_worktree_with_findings "$TMPDIR_ROOT")"
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" \
     --state-file "$STATE_FILE" \
     --repo-root "$REPO_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
@@ -176,10 +207,10 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 3: WorktreeMapping_FileMappedToCorrectWorktree
+# Test 3: WorktreeMapping_SingleWorktree_AssignsCorrectly
 # --------------------------------------------------
 setup
-STATE_FILE="$(create_state_with_findings "$TMPDIR_ROOT")"
+STATE_FILE="$(create_state_single_worktree_with_findings "$TMPDIR_ROOT")"
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" \
     --state-file "$STATE_FILE" \
     --repo-root "$REPO_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
@@ -289,7 +320,7 @@ teardown
 # Test 9: Idempotent_RunTwice_SameResult
 # --------------------------------------------------
 setup
-STATE_FILE="$(create_state_with_findings "$TMPDIR_ROOT")"
+STATE_FILE="$(create_state_single_worktree_with_findings "$TMPDIR_ROOT")"
 OUTPUT1="$(bash "$SCRIPT_UNDER_TEST" --state-file "$STATE_FILE" --repo-root "$REPO_DIR" 2>&1)" && EXIT1=$? || EXIT1=$?
 OUTPUT2="$(bash "$SCRIPT_UNDER_TEST" --state-file "$STATE_FILE" --repo-root "$REPO_DIR" 2>&1)" && EXIT2=$? || EXIT2=$?
 if [[ "$EXIT1" -eq "$EXIT2" && "$OUTPUT1" == "$OUTPUT2" ]]; then
@@ -310,6 +341,61 @@ if [[ $EXIT_CODE -eq 1 ]]; then
     pass "MissingStateFile_Path_ExitsOne"
 else
     fail "MissingStateFile_Path_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 11: MultipleWorktrees_WithFindings_FailsFast
+# --------------------------------------------------
+setup
+STATE_FILE="$(create_state_with_findings "$TMPDIR_ROOT")"
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" \
+    --state-file "$STATE_FILE" \
+    --repo-root "$REPO_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "MultipleWorktrees_WithFindings_FailsFast"
+else
+    fail "MultipleWorktrees_WithFindings_FailsFast (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify error message mentions worktrees
+if echo "$OUTPUT" | grep -qi "worktrees detected"; then
+    pass "MultipleWorktrees_ErrorMessageMentionsWorktrees"
+else
+    fail "MultipleWorktrees_ErrorMessageMentionsWorktrees"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 12: MultipleWorktrees_NoFindings_ExitsZero
+# --------------------------------------------------
+setup
+STATE_FILE="$(create_state_no_findings "$TMPDIR_ROOT")"
+# Replace the single-worktree fixture with a multi-worktree one that has no findings
+cat > "$TMPDIR_ROOT/multi-no-findings.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-feature",
+  "phase": "review",
+  "tasks": [
+    { "id": "task-001", "title": "Types", "status": "complete", "branch": "feature/task-001-types", "worktree": ".worktrees/task-001-types" },
+    { "id": "task-002", "title": "API", "status": "complete", "branch": "feature/task-002-api", "worktree": ".worktrees/task-002-api" }
+  ],
+  "reviews": {
+    "specReview": { "status": "pass", "findings": [] },
+    "qualityReview": { "status": "pass", "findings": [] }
+  }
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" \
+    --state-file "$TMPDIR_ROOT/multi-no-findings.json" \
+    --repo-root "$REPO_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "MultipleWorktrees_NoFindings_ExitsZero"
+else
+    fail "MultipleWorktrees_NoFindings_ExitsZero (exit=$EXIT_CODE, expected 0)"
     echo "  Output: $OUTPUT"
 fi
 teardown
