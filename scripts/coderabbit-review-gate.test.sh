@@ -302,7 +302,7 @@ echo "=== Task 2: Review Round Counting ==="
 
 # Test: CountRounds_OneReview_ReturnsOne
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Round:** 1'; then
     pass "CountRounds_OneReview_ReturnsOne"
@@ -312,7 +312,7 @@ fi
 
 # Test: CountRounds_ThreeReviews_ReturnsThree
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T12:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T12:00:00Z"}]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Round:** 3'; then
     pass "CountRounds_ThreeReviews_ReturnsThree"
@@ -322,7 +322,7 @@ fi
 
 # Test: CountRounds_MixedReviewers_OnlyCountsCodeRabbit
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"humanreviewer"},"submittedAt":"2026-01-15T09:00:00Z"},{"author":{"login":"otherbot[bot]"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T11:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"humanreviewer"},"submittedAt":"2026-01-15T09:00:00Z"},{"author":{"login":"otherbot[bot]"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T11:00:00Z"}]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Round:** 2'; then
     pass "CountRounds_MixedReviewers_OnlyCountsCodeRabbit"
@@ -348,7 +348,7 @@ echo "=== Task 3: Thread Querying and Severity Classification ==="
 
 # Test: GetThreads_NoThreads_ReturnsEmpty
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Active Threads:** 0'; then
@@ -359,11 +359,11 @@ fi
 
 # Test: GetThreads_ResolvedExcluded
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_1","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Resolved issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_3","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Another resolved","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_1","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Resolved issue","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_3","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Another resolved","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Active Threads:** 1'; then
@@ -374,9 +374,9 @@ fi
 
 # Test: ClassifySeverity_CriticalMarker_ReturnsCritical
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_RED} Critical: SQL injection vulnerability detected\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_RED} Critical: SQL injection vulnerability detected\",\"author\":{\"login\":\"coderabbitai\"}}]}}
 ]}}}}}"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
@@ -387,9 +387,9 @@ fi
 
 # Test: ClassifySeverity_MajorMarker_ReturnsMajor
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_ORANGE} Major: Missing error handling in async function\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_ORANGE} Major: Missing error handling in async function\",\"author\":{\"login\":\"coderabbitai\"}}]}}
 ]}}}}}"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
@@ -400,9 +400,9 @@ fi
 
 # Test: ClassifySeverity_MinorOnly_NoBlockers
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_YELLOW} Minor: Consider renaming variable for clarity\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_YELLOW} Minor: Consider renaming variable for clarity\",\"author\":{\"login\":\"coderabbitai\"}}]}}
 ]}}}}}"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Blocking Findings:** false'; then
@@ -413,7 +413,7 @@ fi
 
 # Test: ClassifySeverity_NonBotEmoji_Ignored
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
   {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_RED} Critical: not from bot\",\"author\":{\"login\":\"humanreviewer\"}}]}}
 ]}}}}}"
@@ -426,11 +426,11 @@ fi
 
 # Test: GetThreads_OutdatedExcluded
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Outdated issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_3","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another outdated","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Outdated issue","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_3","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another outdated","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 if echo "$OUTPUT" | grep -qF '**Active Threads:** 1'; then
@@ -448,11 +448,11 @@ echo "=== Task 4: Auto-Resolve Outdated Threads ==="
 # Test: ResolveOutdated_OutdatedThreads_CallsMutation
 # Mock returns threads with some outdated+unresolved; script should call resolveReviewThread mutation
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_outdated_2","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another old finding","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_outdated_2","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another old finding","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 MUTATION_COUNT=$(count_calls "mutation")
@@ -465,10 +465,10 @@ fi
 # Test: ResolveOutdated_NoOutdated_NoMutation
 # All threads are either resolved or not outdated — no mutation calls expected
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_resolved","isResolved":true,"isOutdated":true,"comments":{"nodes":[{"body":"Already resolved","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active finding","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_resolved","isResolved":true,"isOutdated":true,"comments":{"nodes":[{"body":"Already resolved","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active finding","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 MUTATION_COUNT=$(count_calls "mutation")
@@ -481,10 +481,10 @@ fi
 # Test: DryRun_OutdatedThreads_NoMutation
 # With --dry-run, outdated threads should NOT be resolved (no mutation calls)
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai"}}]}},
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100 --dry-run)
 MUTATION_COUNT=$(count_calls "mutation")
@@ -497,11 +497,11 @@ fi
 # Test: ResolveOutdated_NonBotThread_NotResolved
 # Outdated threads from non-CodeRabbit authors should NOT be auto-resolved
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
 write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_bot_outdated","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old bot finding","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_bot_outdated","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old bot finding","author":{"login":"coderabbitai"}}]}},
   {"id":"T_human_outdated","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old human comment","author":{"login":"humanreviewer"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai[bot]"}}]}}
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai"}}]}}
 ]}}}}}'
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
 MUTATION_COUNT=$(count_calls "mutation")
@@ -523,7 +523,7 @@ make_reviews() {
     local nodes=""
     for ((i=1; i<=count; i++)); do
         if [[ -n "$nodes" ]]; then nodes="$nodes,"; fi
-        nodes="${nodes}{\"author\":{\"login\":\"coderabbitai[bot]\"},\"submittedAt\":\"2026-01-15T$(printf '%02d' $i):00:00Z\"}"
+        nodes="${nodes}{\"author\":{\"login\":\"coderabbitai\"},\"submittedAt\":\"2026-01-15T$(printf '%02d' $i):00:00Z\"}"
     done
     echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviews\":{\"nodes\":[$nodes]}}}}}"
 }
@@ -544,7 +544,7 @@ make_threads() {
         elif [[ "$blocker_type" == "minor" ]]; then
             body="${EMOJI_YELLOW} Minor: Style suggestion"
         fi
-        nodes="${nodes}{\"id\":\"T_${i}\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${body}\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}"
+        nodes="${nodes}{\"id\":\"T_${i}\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${body}\",\"author\":{\"login\":\"coderabbitai\"}}]}}"
     done
     echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[${nodes}]}}}}}"
 }
