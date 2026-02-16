@@ -86,4 +86,67 @@ describe('generate-docs', () => {
       expect(result).toContain('Normal description');
     });
   });
+
+  describe('phase derivation', () => {
+    it('should derive phases from registry actions and include all in phase mappings', async () => {
+      const registry = [
+        {
+          name: 'exarchos_workflow',
+          description: 'Workflow management',
+          actions: [
+            {
+              name: 'init',
+              description: 'Initialize workflow',
+              phases: new Set(['ideate', 'triage', 'explore']),
+              roles: new Set(['lead']),
+            },
+            {
+              name: 'get',
+              description: 'Read state',
+              phases: new Set(['ideate', 'delegate', 'polish-implement']),
+              roles: new Set(['any']),
+            },
+          ],
+        },
+      ];
+
+      const result = await generateWithRegistry(registry);
+
+      // All unique phases should appear in the Phase Mappings table
+      expect(result).toContain('| delegate |');
+      expect(result).toContain('| explore |');
+      expect(result).toContain('| ideate |');
+      expect(result).toContain('| polish-implement |');
+      expect(result).toContain('| triage |');
+    });
+
+    it('should show "all" when an action covers every derived phase', async () => {
+      const registry = [
+        {
+          name: 'exarchos_test',
+          description: 'Test tool',
+          actions: [
+            {
+              name: 'action_a',
+              description: 'Covers all phases',
+              phases: new Set(['alpha', 'beta']),
+              roles: new Set(['any']),
+            },
+            {
+              name: 'action_b',
+              description: 'Also covers all',
+              phases: new Set(['alpha', 'beta']),
+              roles: new Set(['any']),
+            },
+          ],
+        },
+      ];
+
+      const result = await generateWithRegistry(registry);
+
+      // Both actions cover all derived phases (alpha, beta), so should show "all"
+      expect(result).toContain('| `action_a` | Covers all phases | all |');
+      expect(result).toContain('| `action_b` | Also covers all | all |');
+    });
+  });
 });
