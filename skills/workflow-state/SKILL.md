@@ -1,10 +1,6 @@
 ---
 name: workflow-state
-description: |-
-  Checkpoint and resume workflow state for context persistence across
-  sessions. Use when the user says "save progress", "checkpoint",
-  "I need to stop", or runs /checkpoint or /resume. Saves current
-  workflow phase, task progress, and artifacts for later resumption.
+description: "Checkpoint and resume workflow state for context persistence across sessions. Use when the user says 'save progress', 'checkpoint', 'I need to stop', or runs /checkpoint or /resume. Saves current workflow phase, task progress, and artifacts for later resumption. Do NOT use for workflow initialization (handled by ideate/debug/refactor commands)."
 metadata:
   author: exarchos
   version: 1.0.0
