@@ -1,0 +1,36 @@
+{"skill": "brainstorming", "phrase": "let's brainstorm", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "brainstorming", "phrase": "explore design options", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "brainstorming", "phrase": "fix the login bug", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "implementation-planning", "phrase": "plan implementation", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "implementation-planning", "phrase": "break down the design", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "implementation-planning", "phrase": "review code quality", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "delegation", "phrase": "delegate tasks", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "delegation", "phrase": "dispatch implementation work", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "delegation", "phrase": "create a worktree", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "quality-review", "phrase": "review code", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "quality-review", "phrase": "check code quality", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "quality-review", "phrase": "brainstorm a feature", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "spec-review", "phrase": "review plan", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "spec-review", "phrase": "check spec coverage", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "spec-review", "phrase": "debug the crash", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "synthesis", "phrase": "create PR", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "synthesis", "phrase": "synthesize the branch", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "synthesis", "phrase": "plan the sprint", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "debug", "phrase": "debug this issue", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "debug", "phrase": "investigate the regression", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "debug", "phrase": "refactor the module", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "refactor", "phrase": "refactor this code", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "refactor", "phrase": "clean up the module", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "refactor", "phrase": "add a new feature", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "workflow-state", "phrase": "save progress", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "workflow-state", "phrase": "checkpoint the workflow", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "workflow-state", "phrase": "review the PR", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "git-worktrees", "phrase": "create worktree", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "git-worktrees", "phrase": "set up parallel workspace", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "git-worktrees", "phrase": "sync schemas", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "dotnet-standards", "phrase": "check .NET standards", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "dotnet-standards", "phrase": "validate C# conventions", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "dotnet-standards", "phrase": "write TypeScript tests", "expected": "no-trigger", "tags": ["unrelated"]}
+{"skill": "sync-schemas", "phrase": "sync schemas", "expected": "trigger", "tags": ["obvious"]}
+{"skill": "sync-schemas", "phrase": "update types from API", "expected": "trigger", "tags": ["paraphrased"]}
+{"skill": "sync-schemas", "phrase": "deploy to staging", "expected": "no-trigger", "tags": ["unrelated"]}
