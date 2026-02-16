@@ -1,0 +1,42 @@
+name: Benchmark Regression Gate
+
+on:
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: benchmark-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    if: contains(github.event.pull_request.labels.*.name, 'has-benchmarks')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmarks
+        run: npm run bench -- --outputJson benchmark-results.json
+        working-directory: plugins/exarchos/servers/exarchos-mcp
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: plugins/exarchos/servers/exarchos-mcp/benchmark-results.json
+          retention-days: 7
+
+      - name: Check for regressions
+        run: bash scripts/check-benchmark-regression.sh --results plugins/exarchos/servers/exarchos-mcp/benchmark-results.json --baselines plugins/exarchos/servers/exarchos-mcp/src/telemetry/benchmarks/baselines.json
