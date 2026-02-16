@@ -341,8 +341,33 @@ decide_action() {
 post_action_comment() {
     local action="$1"
     local round_count="$2"
-    # Stub — no-op
-    :
+
+    case "$action" in
+        approve)
+            local body
+            body=$(cat <<COMMENT
+@coderabbitai approve
+
+Automated review gate: Round ${round_count}, no blocking findings. Requesting approval.
+COMMENT
+)
+            gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null 2>&1
+            ;;
+        escalate)
+            local body
+            body=$(cat <<COMMENT
+⚠️ **Human Review Needed**
+
+CodeRabbit review gate reached round ${round_count} cap with unresolved critical/major findings.
+Please review the outstanding threads and resolve manually.
+COMMENT
+)
+            gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null 2>&1
+            ;;
+        wait)
+            # No comment needed
+            ;;
+    esac
 }
 
 # ============================================================

@@ -578,6 +578,72 @@ else
 fi
 
 # ============================================================
+# TASK 6: PR COMMENTING AND MAIN ORCHESTRATION TESTS
+# ============================================================
+echo ""
+echo "=== Task 6: PR Commenting and Main Orchestration ==="
+
+# Test: Comment_Approve_PostsApprovalRequest
+# When action is "approve", script should POST a comment with @coderabbitai approve
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+REST_CALLS=$(count_calls "REST")
+if [[ "$REST_CALLS" -ge 1 ]]; then
+    # Verify the REST call was to the issues comments endpoint
+    if grep -q "REST.*repos/testowner/testrepo/issues/100/comments" "$MOCK_CALL_LOG"; then
+        pass "Comment_Approve_PostsApprovalRequest"
+    else
+        fail "Comment_Approve_PostsApprovalRequest — REST call not to correct endpoint: $(get_call_log)"
+    fi
+else
+    fail "Comment_Approve_PostsApprovalRequest — expected REST call, got $REST_CALLS"
+fi
+
+# Test: Comment_Escalate_PostsHumanReviewNeeded
+clear_mocks
+write_reviews_response "$(make_reviews 4)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100 || true)
+REST_CALLS=$(count_calls "REST")
+if [[ "$REST_CALLS" -ge 1 ]]; then
+    if grep -q "REST.*repos/testowner/testrepo/issues/100/comments" "$MOCK_CALL_LOG"; then
+        pass "Comment_Escalate_PostsHumanReviewNeeded"
+    else
+        fail "Comment_Escalate_PostsHumanReviewNeeded — REST call not to correct endpoint: $(get_call_log)"
+    fi
+else
+    fail "Comment_Escalate_PostsHumanReviewNeeded — expected REST call, got $REST_CALLS"
+fi
+
+# Test: Comment_Wait_NoComment
+# When action is "wait", no REST comment call should be made
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+REST_CALLS=$(count_calls "REST")
+if [[ "$REST_CALLS" -eq 0 ]]; then
+    pass "Comment_Wait_NoComment"
+else
+    fail "Comment_Wait_NoComment — expected 0 REST calls, got $REST_CALLS: $(get_call_log)"
+fi
+
+# Test: DryRun_Approve_NoComment
+# When --dry-run is set, no comment should be posted even on approve
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100 --dry-run)
+REST_CALLS=$(count_calls "REST")
+if [[ "$REST_CALLS" -eq 0 ]]; then
+    pass "DryRun_Approve_NoComment"
+else
+    fail "DryRun_Approve_NoComment — expected 0 REST calls, got $REST_CALLS: $(get_call_log)"
+fi
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo ""
