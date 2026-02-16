@@ -284,9 +284,9 @@ All teammates and the lead access these tools via the shared MCP server instance
 
 | Tool | Purpose | Access | Module |
 |------|---------|--------|--------|
-| `exarchos_sync_now` | Trigger immediate sync with Basileus (stub) | Lead only | `index.ts` |
+| `exarchos_sync_now` | Discover outbox streams and drain (no-op sender until remote wired) | Lead only | `sync/composite.ts` |
 
-> **Note:** `exarchos_sync_now` is currently a stub returning `NOT_IMPLEMENTED`. Remote sync will be implemented in Phase 4.
+> **Note:** `exarchos_sync_now` discovers local outbox streams and drains them via a no-op sender. Full remote sync (Basileus HTTP client) will be implemented in Phase 4.
 
 > **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the Graphite stack at its designated position.
 
@@ -1714,7 +1714,7 @@ All concerns are handled by the unified `exarchos-mcp` server (the originally-en
 | Teammate lifecycle | `exarchos_team_spawn`, `exarchos_team_message`, `exarchos_team_broadcast`, `exarchos_team_shutdown`, `exarchos_team_status` | `team/tools.ts` |
 | Task management | `exarchos_task_claim`, `exarchos_task_complete`, `exarchos_task_fail` | `tasks/tools.ts` |
 | Stack management | `exarchos_stack_status`, `exarchos_stack_place` | `stack/tools.ts` |
-| Sync with Basileus | `exarchos_sync_now` (stub) | `index.ts` |
+| Sync with Basileus | `exarchos_sync_now` (no-op sender) | `sync/composite.ts` |
 
 ### Skill Mapping
 
@@ -1864,10 +1864,10 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 | Phase 1: Foundation | **Complete** | Unified exarchos-mcp server with 27 MCP tools, local JSONL event store (19 event types), Zod schemas, HSM state machine with 26 guards across feature/debug/refactor workflows |
 | Phase 2: Team Coordinator | **Complete** | Team spawn/message/broadcast/shutdown/status lifecycle, task claim/complete/fail, role definitions and composition strategy |
 | Phase 3: Materialized Views | **Complete** | CQRS views (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView), view materialization from event sequences, snapshot persistence |
-| Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery, event schema mapping, `sync_now` implementation, Task Router score-based routing |
+| Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery with real sender, event schema mapping, Task Router score-based routing |
 | Phase 5: Bidirectional Sync | **Planned** | Remote event polling, conflict resolution, cross-session coordination, dual-write mode, Agentic Coder container dispatching |
 
-> **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool exists as a stub. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
+> **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool has plumbing in place (stream discovery, outbox drain) but uses a no-op sender until the Basileus remote client is implemented in Phase 4. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
 
 ---
 

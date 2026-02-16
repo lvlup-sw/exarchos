@@ -90,7 +90,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 | `exarchos_event` | `append`, `query` | Event sourcing |
 | `exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination |
 | `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS read views |
-| `exarchos_sync` | `now` | Remote sync (stub) |
+| `exarchos_sync` | `now` | Outbox drain (no-op sender until remote wired) |
 
 **Key modules:**
 
@@ -106,7 +106,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
 - `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack). Pipeline view uses lazy pagination (materializes only the requested subset)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
-- `tasks/` — Task claim/complete/fail tools with optimistic concurrency (expectedSequence) for atomic claims
+- `tasks/` — Task claim/complete/fail tools with CQRS materializer for claim-status checks and optimistic concurrency (expectedSequence) for atomic claims
 - `stack/` — Stack status/place tools with offset/limit pagination
 - `format.ts` — Canonical `ToolResult` interface (all modules import from here) and shared formatting helpers
 
