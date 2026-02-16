@@ -205,7 +205,9 @@ get_call_log() {
 # Helper: count calls matching a pattern
 count_calls() {
     local pattern="$1"
-    grep -c "$pattern" "$MOCK_CALL_LOG" 2>/dev/null || echo "0"
+    local count
+    count=$(grep -c "$pattern" "$MOCK_CALL_LOG" 2>/dev/null) || count=0
+    echo "$count"
 }
 
 # Helper: run the script under test with mock gh on PATH
@@ -397,6 +399,45 @@ if echo "$OUTPUT" | grep -qF '**Blocking Findings:** false'; then
     pass "ClassifySeverity_MinorOnly_NoBlockers"
 else
     fail "ClassifySeverity_MinorOnly_NoBlockers — output: $OUTPUT"
+fi
+
+# ============================================================
+# TASK 4: AUTO-RESOLVE OUTDATED THREADS TESTS
+# ============================================================
+echo ""
+echo "=== Task 4: Auto-Resolve Outdated Threads ==="
+
+# Test: ResolveOutdated_OutdatedThreads_CallsMutation
+# Mock returns threads with some outdated+unresolved; script should call resolveReviewThread mutation
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_outdated_2","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another old finding","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai[bot]"}}]}}
+]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+MUTATION_COUNT=$(count_calls "mutation")
+if [[ "$MUTATION_COUNT" -eq 2 ]]; then
+    pass "ResolveOutdated_OutdatedThreads_CallsMutation"
+else
+    fail "ResolveOutdated_OutdatedThreads_CallsMutation (expected 2 mutation calls, got $MUTATION_COUNT)"
+fi
+
+# Test: ResolveOutdated_NoOutdated_NoMutation
+# All threads are either resolved or not outdated — no mutation calls expected
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+  {"id":"T_resolved","isResolved":true,"isOutdated":true,"comments":{"nodes":[{"body":"Already resolved","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active finding","author":{"login":"coderabbitai[bot]"}}]}}
+]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+MUTATION_COUNT=$(count_calls "mutation")
+if [[ "$MUTATION_COUNT" -eq 0 ]]; then
+    pass "ResolveOutdated_NoOutdated_NoMutation"
+else
+    fail "ResolveOutdated_NoOutdated_NoMutation (expected 0 mutation calls, got $MUTATION_COUNT)"
 fi
 
 # ============================================================

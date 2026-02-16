@@ -224,9 +224,8 @@ count_review_rounds() {
 # THREAD QUERYING
 # ============================================================
 
-get_review_threads() {
-    local threads_json
-    threads_json=$(gh_graphql -f query='
+query_all_threads() {
+    gh_graphql -f query='
         query($owner: String!, $repo: String!, $pr: Int!) {
             repository(owner: $owner, name: $repo) {
                 pullRequest(number: $pr) {
@@ -246,10 +245,13 @@ get_review_threads() {
                 }
             }
         }
-    ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER")
+    ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER"
+}
 
+get_active_threads() {
+    local all_threads_json="$1"
     # Filter: unresolved and non-outdated threads only
-    echo "$threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)]'
+    echo "$all_threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)]'
 }
 
 # ============================================================
@@ -257,8 +259,30 @@ get_review_threads() {
 # ============================================================
 
 resolve_outdated_threads() {
-    # Stub — no-op
-    :
+    local all_threads_json="$1"
+    # Find unresolved outdated threads
+    local outdated_thread_ids
+    outdated_thread_ids=$(echo "$all_threads_json" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == true) | .id')
+
+    if [[ -z "$outdated_thread_ids" ]]; then
+        return 0
+    fi
+
+    # Resolve each outdated thread
+    while IFS= read -r thread_id; do
+        if [[ -z "$thread_id" ]]; then
+            continue
+        fi
+        gh_graphql -f query='
+            mutation($threadId: ID!) {
+                resolveReviewThread(input: { threadId: $threadId }) {
+                    thread { id isResolved }
+                }
+            }
+        ' -f "threadId=$thread_id" > /dev/null 2>&1 || {
+            echo -e "${YELLOW}WARNING${NC}: Failed to resolve outdated thread $thread_id" >&2
+        }
+    done <<< "$outdated_thread_ids"
 }
 
 # ============================================================
@@ -312,28 +336,31 @@ post_action_comment() {
 # 1. Count review rounds
 ROUND_COUNT=$(count_review_rounds)
 
-# 2. Get active review threads
-ACTIVE_THREADS_JSON=$(get_review_threads)
-ACTIVE_THREAD_COUNT=$(echo "$ACTIVE_THREADS_JSON" | jq 'length')
+# 2. Query all review threads
+ALL_THREADS_JSON=$(query_all_threads)
 
 # 3. Resolve outdated threads
-resolve_outdated_threads
+resolve_outdated_threads "$ALL_THREADS_JSON"
 
-# 4. Classify severity
+# 4. Get active review threads (unresolved, non-outdated)
+ACTIVE_THREADS_JSON=$(get_active_threads "$ALL_THREADS_JSON")
+ACTIVE_THREAD_COUNT=$(echo "$ACTIVE_THREADS_JSON" | jq 'length')
+
+# 5. Classify severity
 HAS_BLOCKERS="false"
 if has_blocking_findings "$ACTIVE_THREADS_JSON"; then
     HAS_BLOCKERS="true"
 fi
 
-# 5. Decide action
+# 6. Decide action
 ACTION=$(decide_action "$ROUND_COUNT" "$ACTIVE_THREAD_COUNT" "$HAS_BLOCKERS")
 
-# 6. Post comment (unless dry-run)
+# 7. Post comment (unless dry-run)
 if [[ "$DRY_RUN" == false ]]; then
     post_action_comment "$ACTION" "$ROUND_COUNT"
 fi
 
-# 7. Output structured summary
+# 8. Output structured summary
 cat <<SUMMARY
 ## CodeRabbit Review Gate
 
@@ -344,7 +371,7 @@ cat <<SUMMARY
 - **Action:** ${ACTION}
 SUMMARY
 
-# 8. Exit code based on action
+# 9. Exit code based on action
 case "$ACTION" in
     approve|wait) exit 0 ;;
     escalate)     exit 1 ;;
