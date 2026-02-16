@@ -52,12 +52,25 @@ function validateStreamId(streamId: string): void {
 
 // ─── Event Store ────────────────────────────────────────────────────────────
 
+/**
+ * Append-only event store backed by JSONL files with .seq sequence caches.
+ *
+ * Uses in-memory promise-chain locks that only protect within a single Node.js process.
+ * Multiple EventStore instances sharing the same stateDir will corrupt data.
+ * The MCP server ensures a single EventStore per stateDir via the singleton in views/tools.ts.
+ */
 export class EventStore {
   private sequenceCounters: Map<string, number> = new Map();
   private locks: Map<string, Promise<void>> = new Map();
 
   /** In-memory dedup cache: streamId -> (idempotencyKey -> event) */
   private idempotencyCache: Map<string, Map<string, WorkflowEvent>> = new Map();
+  /**
+   * Maximum number of idempotency keys retained per stream.
+   * Keys older than this limit are evicted via FIFO.
+   * Retries with evicted keys will NOT be deduplicated.
+   * Acceptable because retries occur within the same session, not across long time spans.
+   */
   private static readonly MAX_IDEMPOTENCY_KEYS = 100;
 
   /** Tracks which streams have had their idempotency cache rebuilt from JSONL */
@@ -283,6 +296,9 @@ export class EventStore {
   private async initializeSequence(streamId: string): Promise<void> {
     // Try .seq file first (O(1))
     const seqPath = this.getSeqFilePath(streamId);
+    // Clean up orphaned .seq.tmp files left by crashed atomic writes
+    const tmpPath = `${seqPath}.tmp`;
+    await fs.rm(tmpPath, { force: true }).catch(() => {});
     try {
       const content = await fs.readFile(seqPath, 'utf-8');
       const parsed = JSON.parse(content);
