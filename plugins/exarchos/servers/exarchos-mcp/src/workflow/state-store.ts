@@ -478,21 +478,22 @@ export async function reconcileFromEvents(
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
-  // Query ALL events for this stream to check for workflow.started
-  const allEvents = await eventStore.query(featureId);
-  if (allEvents.length === 0) {
-    return { reconciled: false, eventsApplied: 0 };
-  }
-
   // Read existing state or create from workflow.started event
   let state: WorkflowState;
+  let currentSeq = 0;
   try {
     state = await readStateFile(stateFile);
+    const stateRecord = state as unknown as Record<string, unknown>;
+    currentSeq = (stateRecord._eventSequence as number) ?? 0;
   } catch (err) {
     if (!(err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND)) {
       throw err;
     }
-    // If no state file, look for workflow.started to create one
+    // If no state file, query all events to find workflow.started
+    const allEvents = await eventStore.query(featureId);
+    if (allEvents.length === 0) {
+      return { reconciled: false, eventsApplied: 0 };
+    }
     const startedEvent = allEvents.find((e) => e.type === 'workflow.started');
     if (!startedEvent?.data) {
       return { reconciled: false, eventsApplied: 0 };
@@ -501,19 +502,32 @@ export async function reconcileFromEvents(
     const workflowType = data.workflowType as WorkflowType;
     const result = await initStateFile(stateDir, featureId, workflowType);
     state = result.state;
+    // Fix 1: Preserve original event timestamp instead of "now"
+    const startedAt = startedEvent.timestamp;
+    const stateRecord = state as unknown as Record<string, unknown>;
+    stateRecord.createdAt = startedAt;
+    stateRecord.updatedAt = startedAt;
+    const checkpoint = stateRecord._checkpoint as Record<string, unknown> | undefined;
+    if (checkpoint) {
+      checkpoint.timestamp = startedAt;
+      checkpoint.lastActivityTimestamp = startedAt;
+    }
   }
 
-  // Determine which events to apply
-  const stateRecord = state as unknown as Record<string, unknown>;
-  const currentSeq = (stateRecord._eventSequence as number) ?? 0;
+  // Fix 2: Capture CAS version before applying events
+  const initialVersion = getStateVersion(state);
 
-  // Filter events with sequence > currentSeq
-  const newEvents = allEvents.filter((e) => e.sequence > currentSeq);
+  // Query only new events using sinceSequence for efficiency (Fix 3)
+  const newEvents = currentSeq > 0
+    ? await eventStore.query(featureId, { sinceSequence: currentSeq })
+    : (await eventStore.query(featureId)).filter((e) => e.sequence > currentSeq);
+
   if (newEvents.length === 0) {
     return { reconciled: false, eventsApplied: 0 };
   }
 
   // Apply each event to the state
+  const stateRecord = state as unknown as Record<string, unknown>;
   let eventsApplied = 0;
   let maxSequence = currentSeq;
 
@@ -530,8 +544,8 @@ export async function reconcileFromEvents(
   // Update _eventSequence
   stateRecord._eventSequence = maxSequence;
 
-  // Write updated state
-  await writeStateFile(stateFile, state);
+  // Write updated state with CAS guard (Fix 2)
+  await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
 
   return { reconciled: eventsApplied > 0, eventsApplied };
 }
