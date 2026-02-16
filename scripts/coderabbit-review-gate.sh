@@ -363,8 +363,24 @@ decide_action() {
     local round_count="$1"
     local active_thread_count="$2"
     local has_blockers="$3"  # "true" or "false"
-    # Stub — returns "approve"
-    echo "approve"
+
+    # Decision matrix:
+    # At or past max rounds with blockers → escalate
+    # At or past max rounds without blockers → approve
+    # Round 1 with no active threads → approve
+    # Round 2+ without blockers → approve
+    # Otherwise → wait
+    if [[ "$round_count" -ge "$MAX_ROUNDS" && "$has_blockers" == "true" ]]; then
+        echo "escalate"
+    elif [[ "$round_count" -ge "$MAX_ROUNDS" && "$has_blockers" != "true" ]]; then
+        echo "approve"
+    elif [[ "$round_count" -eq 1 && "$active_thread_count" -eq 0 ]]; then
+        echo "approve"
+    elif [[ "$round_count" -ge 2 && "$has_blockers" != "true" ]]; then
+        echo "approve"
+    else
+        echo "wait"
+    fi
 }
 
 # ============================================================
@@ -374,8 +390,37 @@ decide_action() {
 post_action_comment() {
     local action="$1"
     local round_count="$2"
-    # Stub — no-op
-    :
+
+    case "$action" in
+        approve)
+            local body
+            body=$(cat <<COMMENT
+@coderabbitai approve
+
+Automated review gate: Round ${round_count}, no blocking findings. Requesting approval.
+COMMENT
+)
+            if ! gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null 2>&1; then
+                echo -e "${YELLOW}WARNING${NC}: Failed to post approve comment" >&2
+            fi
+            ;;
+        escalate)
+            local body
+            body=$(cat <<COMMENT
+⚠️ **Human Review Needed**
+
+CodeRabbit review gate reached round ${round_count} cap with unresolved critical/major findings.
+Please review the outstanding threads and resolve manually.
+COMMENT
+)
+            if ! gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null 2>&1; then
+                echo -e "${YELLOW}WARNING${NC}: Failed to post escalate comment" >&2
+            fi
+            ;;
+        wait)
+            # No comment needed
+            ;;
+    esac
 }
 
 # ============================================================

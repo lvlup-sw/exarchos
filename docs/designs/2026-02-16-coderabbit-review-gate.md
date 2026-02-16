@@ -257,7 +257,10 @@ After deployment, trigger by pushing a fix to a PR with CodeRabbit review. Verif
 ## Open Questions
 
 1. **Approval comment format:** Should it use `@coderabbitai approve` (if supported) or `@coderabbitai review` with approval-requesting text? Need to verify CodeRabbit's command interface.
+   **Resolved:** Using `@coderabbitai approve` format.
 
 2. **`GITHUB_TOKEN` vs PAT:** The `resolveReviewThread` mutation may require a PAT if `GITHUB_TOKEN` lacks the necessary GraphQL permissions. Needs verification during implementation.
+   **Resolved:** Deferred to post-deployment verification. GITHUB_TOKEN used by default.
 
 3. **Debouncing:** When a Graphite stack push triggers 8 simultaneous reviews, should there be a delay between workflow runs to avoid API rate issues? Likely not needed given the low call count, but worth monitoring.
+   **Resolved:** Not needed per design analysis (32 API calls well within limits).
