@@ -39,8 +39,7 @@ Since delegation creates Graphite stack branches and review validates them, synt
 
 ## Synthesis Process
 
-0. **Advance HSM to synthesize phase** -- walk intermediate phases with guard prerequisites (see `references/synthesis-steps.md`)
-1. **Verify readiness** -- `scripts/pre-synthesis-check.sh`
+1. **Verify readiness** -- `scripts/pre-synthesis-check.sh` (includes phase readiness check with transition guidance)
 2. **Verify/reconstruct Graphite stack** -- `scripts/reconstruct-stack.sh`
 3. **Quick test verification** -- `npm run test:run && npm run typecheck`
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
