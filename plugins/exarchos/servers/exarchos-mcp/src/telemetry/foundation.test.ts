@@ -38,7 +38,7 @@ describe('Telemetry Event Types', () => {
   it('should accept tool.errored event with error info', async () => {
     const event = await store.append(TELEMETRY_STREAM, {
       type: 'tool.errored',
-      data: { tool: 'test_tool', durationMs: 5, errorCode: 'TIMEOUT' },
+      data: { tool: 'test_tool', durationMs: 5, errorMessage: 'TIMEOUT' },
     });
     expect(event.type).toBe('tool.errored');
   });
@@ -46,7 +46,7 @@ describe('Telemetry Event Types', () => {
   it('should query telemetry stream and return all 3 events', async () => {
     await store.append(TELEMETRY_STREAM, { type: 'tool.invoked', data: { tool: 't' } });
     await store.append(TELEMETRY_STREAM, { type: 'tool.completed', data: { tool: 't', durationMs: 1, responseBytes: 10, tokenEstimate: 3 } });
-    await store.append(TELEMETRY_STREAM, { type: 'tool.errored', data: { tool: 't', durationMs: 1, errorCode: 'ERR' } });
+    await store.append(TELEMETRY_STREAM, { type: 'tool.errored', data: { tool: 't', durationMs: 1, errorMessage: 'ERR' } });
 
     const events = await store.query(TELEMETRY_STREAM);
     expect(events).toHaveLength(3);
