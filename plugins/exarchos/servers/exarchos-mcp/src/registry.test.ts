@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { buildCompositeSchema, buildRegistrationSchema, TOOL_REGISTRY } from './registry.js';
+import {
+  buildCompositeSchema,
+  buildRegistrationSchema,
+  coercedRecord,
+  coercedPositiveInt,
+  coercedNonnegativeInt,
+  TOOL_REGISTRY,
+} from './registry.js';
 import type { ToolAction } from './registry.js';
 
 describe('buildCompositeSchema', () => {
@@ -98,6 +105,91 @@ describe('buildRegistrationSchema', () => {
   it('should return a ZodObject, not a raw shape', () => {
     const schema = buildRegistrationSchema(testActions);
     expect(schema).toBeInstanceOf(z.ZodObject);
+  });
+});
+
+// ─── Type Coercion Tests ─────────────────────────────────────────────────────
+
+describe('coercedRecord', () => {
+  const schema = coercedRecord();
+
+  it('should accept a native object', () => {
+    const result = schema.safeParse({ type: 'workflow.transition' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual({ type: 'workflow.transition' });
+  });
+
+  it('should coerce a JSON string to an object', () => {
+    const result = schema.safeParse('{"type":"workflow.transition"}');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual({ type: 'workflow.transition' });
+  });
+
+  it('should reject an invalid JSON string', () => {
+    const result = schema.safeParse('not-json');
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject a JSON string that parses to a non-object', () => {
+    const result = schema.safeParse('"just a string"');
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject a number', () => {
+    const result = schema.safeParse(42);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('coercedPositiveInt', () => {
+  const schema = coercedPositiveInt();
+
+  it('should accept a native number', () => {
+    const result = schema.safeParse(5);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toBe(5);
+  });
+
+  it('should coerce a string number', () => {
+    const result = schema.safeParse('10');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toBe(10);
+  });
+
+  it('should reject zero', () => {
+    const result = schema.safeParse(0);
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject negative', () => {
+    const result = schema.safeParse(-1);
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject non-numeric string', () => {
+    const result = schema.safeParse('abc');
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('coercedNonnegativeInt', () => {
+  const schema = coercedNonnegativeInt();
+
+  it('should accept zero', () => {
+    const result = schema.safeParse(0);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toBe(0);
+  });
+
+  it('should coerce a string zero', () => {
+    const result = schema.safeParse('0');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toBe(0);
+  });
+
+  it('should reject negative', () => {
+    const result = schema.safeParse(-1);
+    expect(result.success).toBe(false);
   });
 });
 
@@ -289,6 +381,36 @@ describe('TOOL_REGISTRY', () => {
 
       const result = action!.schema.safeParse({ limit: 10, offset: 0 });
       expect(result.success).toBe(true);
+    });
+
+    it('should coerce string filter and limit in event query schema', () => {
+      const action = findAction('exarchos_event', 'query');
+      expect(action).toBeDefined();
+
+      const result = action!.schema.safeParse({
+        stream: 'wf-123',
+        filter: '{"type":"workflow.transition"}',
+        limit: '5',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.filter).toEqual({ type: 'workflow.transition' });
+        expect(result.data.limit).toBe(5);
+      }
+    });
+
+    it('should coerce string updates in workflow set schema', () => {
+      const action = findAction('exarchos_workflow', 'set');
+      expect(action).toBeDefined();
+
+      const result = action!.schema.safeParse({
+        featureId: 'test-feature',
+        updates: '{"phase":"completed"}',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.updates).toEqual({ phase: 'completed' });
+      }
     });
 
     it('should accept empty input for sync now', () => {
