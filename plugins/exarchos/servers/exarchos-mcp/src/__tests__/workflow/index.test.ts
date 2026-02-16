@@ -266,19 +266,18 @@ describe('MCP Server Entry Point', () => {
     });
   });
 
-  describe('stub tools', () => {
-    it('should return NOT_IMPLEMENTED for exarchos_sync', async () => {
+  describe('sync tools', () => {
+    it('should return success for exarchos_sync now action', async () => {
       createServer('/tmp/test-state-dir');
       const result = await toolRegistrations.get('exarchos_sync')!.handler({
         action: 'now',
       });
 
       const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
-      expect(typedResult.isError).toBe(true);
+      expect(typedResult.isError).toBe(false);
       const parsed = JSON.parse(typedResult.content[0].text);
-      expect(parsed.success).toBe(false);
-      expect(parsed.error.code).toBe('NOT_IMPLEMENTED');
-      expect(parsed.error.message).toBe('Coming soon');
+      expect(parsed.success).toBe(true);
+      expect(parsed.data.message).toContain('no remote configured');
     });
   });
 
