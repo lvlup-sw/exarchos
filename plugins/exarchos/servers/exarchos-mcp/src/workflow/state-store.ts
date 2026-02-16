@@ -1,6 +1,8 @@
 import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
 import { migrateState, CURRENT_VERSION } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -406,6 +408,132 @@ export async function listStateFiles(
   }
 
   return results;
+}
+
+// ─── Apply Event to State (pure helper) ─────────────────────────────────────
+
+/**
+ * Apply a single event's mutation to a workflow state object (in-place).
+ * Returns true if the event was meaningfully applied.
+ */
+function applyEventToState(
+  state: Record<string, unknown>,
+  event: WorkflowEvent,
+): boolean {
+  const data = event.data as Record<string, unknown> | undefined;
+
+  switch (event.type) {
+    case 'workflow.started':
+      // workflow.started is used to create the state file; no mutation needed
+      // when state already exists
+      return true;
+
+    case 'workflow.transition': {
+      if (!data) return false;
+      const to = data.to as string | undefined;
+      if (!to) return false;
+      state.phase = to;
+      state.updatedAt = event.timestamp;
+      return true;
+    }
+
+    case 'workflow.checkpoint': {
+      if (!data) return false;
+      const checkpointPhase = data.phase as string | undefined;
+      const counter = data.counter as number | undefined;
+      const checkpoint = state._checkpoint as Record<string, unknown> | undefined;
+      if (checkpoint && checkpointPhase) {
+        checkpoint.phase = checkpointPhase;
+        checkpoint.timestamp = event.timestamp;
+        checkpoint.lastActivityTimestamp = event.timestamp;
+        if (counter !== undefined) {
+          checkpoint.operationsSince = counter;
+        }
+      }
+      return true;
+    }
+
+    default:
+      // Unknown event types are skipped
+      return false;
+  }
+}
+
+// ─── Reconcile State from Events ────────────────────────────────────────────
+
+/**
+ * Rebuild a workflow state file from events in the JSONL event store.
+ *
+ * If no state file exists and the first event is `workflow.started`, creates
+ * the state file via `initStateFile`. Then replays all events with sequence
+ * numbers greater than the state's `_eventSequence` (defaulting to 0).
+ *
+ * This function is idempotent — running it twice with no new events produces
+ * the same state and returns `{ reconciled: false, eventsApplied: 0 }`.
+ */
+export async function reconcileFromEvents(
+  stateDir: string,
+  featureId: string,
+  eventStore: EventStore,
+): Promise<{ reconciled: boolean; eventsApplied: number }> {
+  const stateFile = path.join(stateDir, `${featureId}.state.json`);
+
+  // Query ALL events for this stream to check for workflow.started
+  const allEvents = await eventStore.query(featureId);
+  if (allEvents.length === 0) {
+    return { reconciled: false, eventsApplied: 0 };
+  }
+
+  // Read existing state or create from workflow.started event
+  let state: WorkflowState;
+  try {
+    state = await readStateFile(stateFile);
+  } catch (err) {
+    if (!(err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND)) {
+      throw err;
+    }
+    // If no state file, look for workflow.started to create one
+    const startedEvent = allEvents.find((e) => e.type === 'workflow.started');
+    if (!startedEvent?.data) {
+      return { reconciled: false, eventsApplied: 0 };
+    }
+    const data = startedEvent.data as Record<string, unknown>;
+    const workflowType = data.workflowType as WorkflowType;
+    const result = await initStateFile(stateDir, featureId, workflowType);
+    state = result.state;
+  }
+
+  // Determine which events to apply
+  const stateRecord = state as unknown as Record<string, unknown>;
+  const currentSeq = (stateRecord._eventSequence as number) ?? 0;
+
+  // Filter events with sequence > currentSeq
+  const newEvents = allEvents.filter((e) => e.sequence > currentSeq);
+  if (newEvents.length === 0) {
+    return { reconciled: false, eventsApplied: 0 };
+  }
+
+  // Apply each event to the state
+  let eventsApplied = 0;
+  let maxSequence = currentSeq;
+
+  for (const event of newEvents) {
+    const applied = applyEventToState(stateRecord, event);
+    if (applied) {
+      eventsApplied++;
+    }
+    if (event.sequence > maxSequence) {
+      maxSequence = event.sequence;
+    }
+  }
+
+  // Update _eventSequence
+  stateRecord._eventSequence = maxSequence;
+
+  // Write updated state
+  await writeStateFile(stateFile, state);
+
+  return { reconciled: eventsApplied > 0, eventsApplied };
 }
 
 // ─── Resolve State Directory ───────────────────────────────────────────────
