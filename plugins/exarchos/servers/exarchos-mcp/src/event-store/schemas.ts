@@ -26,6 +26,7 @@ export const EventTypes = [
   'tool.invoked',
   'tool.completed',
   'tool.errored',
+  'benchmark.completed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -205,6 +206,21 @@ export const ToolErroredData = z.object({
   errorMessage: z.string(),
 });
 
+// ─── Benchmark Event Data ───────────────────────────────────────────────────
+
+export const BenchmarkCompletedData = z.object({
+  taskId: z.string(),
+  results: z.array(z.object({
+    operation: z.string().min(1),
+    metric: z.string(),
+    value: z.number(),
+    unit: z.string(),
+    baseline: z.number().optional(),
+    regressionPercent: z.number().optional(),
+    passed: z.boolean(),
+  })).min(1),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -231,6 +247,7 @@ export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
+export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
