@@ -143,6 +143,7 @@ export function mapInternalToExternalType(internalType: string): string {
     'compound-exit': 'workflow.compound-exit',
     'circuit-open': 'workflow.circuit-open',
     'cancel': 'workflow.cancel',
+    'cleanup': 'workflow.cleanup',
   };
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }

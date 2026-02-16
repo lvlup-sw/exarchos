@@ -12,6 +12,7 @@ export const EventTypeSchema = z.enum([
   'circuit-open',
   'compensation',
   'cancel',
+  'cleanup',
   'field-update',
 ]);
 
@@ -265,6 +266,14 @@ export const CancelInputSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
+export const CleanupInputSchema = z.object({
+  featureId: FeatureIdSchema,
+  mergeVerified: z.boolean(),
+  prUrl: z.union([z.string(), z.array(z.string())]).optional(),
+  mergedBranches: z.array(z.string()).optional(),
+  dryRun: z.boolean().optional(),
+});
+
 export const CheckpointInputSchema = z.object({
   featureId: FeatureIdSchema,
   summary: z.string().optional(),
@@ -282,6 +291,7 @@ export const ToolInputSchemas = {
   'next-action': NextActionInputSchema,
   transitions: TransitionsInputSchema,
   cancel: CancelInputSchema,
+  cleanup: CleanupInputSchema,
   checkpoint: CheckpointInputSchema,
 } as const;
 
@@ -298,6 +308,7 @@ export const ErrorCode = {
   INVALID_INPUT: 'INVALID_INPUT',
   RESERVED_FIELD: 'RESERVED_FIELD',
   ALREADY_CANCELLED: 'ALREADY_CANCELLED',
+  ALREADY_COMPLETED: 'ALREADY_COMPLETED',
   COMPENSATION_PARTIAL: 'COMPENSATION_PARTIAL',
   FILE_IO_ERROR: 'FILE_IO_ERROR',
   EVENT_APPEND_FAILED: 'EVENT_APPEND_FAILED',

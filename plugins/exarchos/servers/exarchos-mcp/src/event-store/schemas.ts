@@ -20,6 +20,7 @@ export const EventTypes = [
   'workflow.compound-entry',
   'workflow.compound-exit',
   'workflow.cancel',
+  'workflow.cleanup',
   'workflow.compensation',
   'workflow.circuit-open',
   'tool.invoked',

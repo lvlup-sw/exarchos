@@ -5,6 +5,7 @@ import {
   getValidTransitions,
 } from '../../workflow/state-machine.js';
 import type { HSMDefinition, State, Transition } from '../../workflow/state-machine.js';
+import { guards } from '../../workflow/guards.js';
 
 // ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
 
@@ -2223,5 +2224,120 @@ describe('Leaf-state onEntry/onExit effects', () => {
     expect(result.newPhase).toBe('cancelled');
     // Should include the onExit effect from the alpha leaf state via cancel path
     expect(result.effects).toContain('log');
+  });
+});
+
+// ─── Task 1: mergeVerified guard ──────────────────────────────────────────────
+
+describe('mergeVerified guard', () => {
+  it('should pass when _cleanup.mergeVerified is true', () => {
+    const state = { _cleanup: { mergeVerified: true } } as Record<string, unknown>;
+    expect(guards.mergeVerified.evaluate(state)).toBe(true);
+  });
+
+  it('should fail with reason when _cleanup.mergeVerified is false', () => {
+    const state = { _cleanup: { mergeVerified: false } } as Record<string, unknown>;
+    const result = guards.mergeVerified.evaluate(state);
+    expect(typeof result).toBe('object');
+    expect((result as { passed: boolean; reason: string }).passed).toBe(false);
+    expect((result as { passed: boolean; reason: string }).reason).toBeTruthy();
+  });
+
+  it('should fail with reason when _cleanup is missing', () => {
+    const state = {} as Record<string, unknown>;
+    const result = guards.mergeVerified.evaluate(state);
+    expect(typeof result).toBe('object');
+    expect((result as { passed: boolean }).passed).toBe(false);
+  });
+});
+
+// ─── Task 2: Universal cleanup transition ─────────────────────────────────────
+
+describe('universal cleanup transition', () => {
+  it('should transition from review to completed when mergeVerified', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = { phase: 'review', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('should transition from delegate to completed when mergeVerified', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = { phase: 'delegate', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('should fall through to normal transition when mergeVerified is false', () => {
+    const hsm = getHSMDefinition('feature');
+    // review has no normal transition to completed, so this should fail
+    const state = { phase: 'review', _cleanup: { mergeVerified: false }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(false);
+  });
+
+  it('should still allow normal synthesize to completed via prUrlExists', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'synthesize',
+      synthesis: { prUrl: 'https://github.com/test/pr/1' },
+      artifacts: { pr: 'https://github.com/test/pr/1' },
+      _events: [],
+      _history: {},
+    };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('should emit cleanup event type for cleanup transitions', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = { phase: 'review', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.events[0].type).toBe('cleanup');
+    expect(result.events[0].trigger).toBe('cleanup');
+  });
+
+  it('should work for debug workflow', () => {
+    const hsm = getHSMDefinition('debug');
+    const state = { phase: 'investigate', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+  });
+
+  it('should work for refactor workflow', () => {
+    const hsm = getHSMDefinition('refactor');
+    const state = { phase: 'overhaul-review', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+  });
+
+  it('should collect exit effects from compound parents', () => {
+    const hsm = getHSMDefinition('feature');
+    // delegate is inside 'implementation' compound
+    const state = { phase: 'delegate', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.success).toBe(true);
+    // Should have exit effects from implementation compound
+    expect(result.effects.length).toBeGreaterThan(0);
+  });
+
+  it('should record history for compound states being exited', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = { phase: 'delegate', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    expect(result.historyUpdates).toBeDefined();
+    expect(result.historyUpdates?.['implementation']).toBe('delegate');
+  });
+
+  it('should not transition from already completed state', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = { phase: 'completed', _cleanup: { mergeVerified: true }, _events: [], _history: {} };
+    const result = executeTransition(hsm, state as Record<string, unknown>, 'completed');
+    // Should be idempotent
+    expect(result.success).toBe(true);
+    expect(result.idempotent).toBe(true);
   });
 });
