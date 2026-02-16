@@ -55,12 +55,30 @@ Task({
 })
 ```
 
+### Agent Teams Dispatch (alternative)
+
+When using `--mode agent-team`:
+1. Orchestrator activates delegate mode (Shift+Tab in Claude Code terminal)
+2. Describes each task to teammates via natural language (see parallel-strategy.md for example)
+3. Each teammate receives worktree path + implementer prompt content
+4. Teammates self-coordinate via shared task list
+
+**No `Task()` calls needed** — delegation happens through natural language.
+
 ## Step 5: Monitor Progress
 
 For background tasks:
 ```typescript
 TaskOutput({ task_id: "task-001-id", block: true })
 ```
+
+### Agent Teams Monitoring (alternative)
+
+When using `--mode agent-team`:
+- Teammates visible in tmux split panes
+- `TeammateIdle` hook auto-runs quality gates
+- Orchestrator observes progress via pane output
+- No `TaskOutput` polling needed
 
 ## Step 6: Collect Results
 
@@ -83,6 +101,14 @@ bash scripts/post-delegation-check.sh \
 **On exit 0:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
 
 **On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
+
+### Agent Teams Collection (alternative)
+
+When using `--mode agent-team`:
+- `TeammateIdle` hook updates Exarchos workflow state automatically
+- On quality gate pass: task marked "complete" in state
+- On quality gate fail: exit code 2 sends feedback, teammate continues
+- Run `post-delegation-check.sh` as usual after all teammates finish
 
 ## Step 7: Schema Sync (Auto-Detection)
 

@@ -8,6 +8,9 @@
 //   - error returned   → exit 2 (gate blocked, feedback on stderr)
 
 import { execSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
 
 // ─── Check Definitions ─────────────────────────────────────────────────────
@@ -100,6 +103,97 @@ function validateCwd(input: Record<string, unknown>): CommandResult | null {
   return null;
 }
 
+// ─── Workflow State Types ───────────────────────────────────────────────────
+
+interface WorkflowTask {
+  readonly id: string;
+  readonly title: string;
+  status: string;
+  readonly branch: string;
+  completedAt?: string;
+}
+
+interface WorkflowWorktree {
+  readonly branch: string;
+  readonly status: string;
+  readonly taskId: string;
+  readonly path: string;
+}
+
+interface WorkflowState {
+  readonly featureId: string;
+  readonly phase: string;
+  tasks: WorkflowTask[];
+  worktrees: Record<string, WorkflowWorktree>;
+  _version: number;
+  [key: string]: unknown;
+}
+
+interface ActiveWorkflowResult {
+  readonly featureId: string;
+  readonly filePath: string;
+  readonly state: WorkflowState;
+}
+
+const TERMINAL_PHASES = new Set(['completed', 'cancelled']);
+
+// ─── Active Workflow Discovery ─────────────────────────────────────────────
+
+/**
+ * Scan the state directory for the first active (non-terminal) workflow.
+ * Returns the full state including tasks and worktrees, or null if none found.
+ */
+export async function findActiveWorkflowState(
+  stateDir: string,
+): Promise<ActiveWorkflowResult | null> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(stateDir);
+  } catch {
+    return null;
+  }
+
+  const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
+
+  for (const file of stateFiles) {
+    const filePath = path.join(stateDir, file);
+    try {
+      const raw = await fs.readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(raw) as WorkflowState;
+
+      if (
+        typeof parsed.phase === 'string' &&
+        !TERMINAL_PHASES.has(parsed.phase) &&
+        typeof parsed.featureId === 'string'
+      ) {
+        return {
+          featureId: parsed.featureId,
+          filePath,
+          state: parsed,
+        };
+      }
+    } catch {
+      // Skip corrupt files
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// ─── State Directory Resolution ────────────────────────────────────────────
+
+function resolveStateDir(): string {
+  const envDir = process.env.WORKFLOW_STATE_DIR;
+  if (envDir) return envDir;
+
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
+  }
+  return path.join(home, '.claude', 'workflow-state');
+}
+
 // ─── Gate Handlers ─────────────────────────────────────────────────────────
 
 /**
@@ -127,6 +221,10 @@ export async function handleTaskGate(
 /**
  * Teammate gate handler for TeammateIdle hook events.
  *
+ * When quality checks pass, attempts to update the corresponding task's
+ * status to "complete" in the workflow state file. This is best-effort:
+ * failures in state update do not block the gate.
+ *
  * Expected stdin shape:
  * ```json
  * {
@@ -142,7 +240,71 @@ export async function handleTeammateGate(
   const validationError = validateCwd(input);
   if (validationError) return validationError;
 
-  return runQualityChecks(input.cwd as string);
+  const cwd = input.cwd as string;
+  const qualityResult = await runQualityChecks(cwd);
+
+  // Only attempt state update when quality checks pass
+  if (!qualityResult.error) {
+    await updateTaskCompletion(cwd);
+  }
+
+  return qualityResult;
+}
+
+// ─── State Bridge ──────────────────────────────────────────────────────────
+
+/**
+ * Best-effort update: find the active workflow, match cwd to a worktree entry,
+ * mark the corresponding task as complete, and write back. Silently swallows
+ * all errors so the gate is never blocked by state issues.
+ */
+async function updateTaskCompletion(cwd: string): Promise<void> {
+  try {
+    const stateDir = resolveStateDir();
+    const active = await findActiveWorkflowState(stateDir);
+    if (!active) return;
+
+    const expectedVersion = active.state._version;
+
+    // Find the worktree entry whose path matches cwd
+    const matchingWorktree = Object.values(active.state.worktrees).find(
+      (wt) => wt.path === cwd,
+    );
+    if (!matchingWorktree) return;
+
+    // Find the corresponding task
+    const task = active.state.tasks.find((t) => t.id === matchingWorktree.taskId);
+    if (!task) return;
+
+    // Update task status
+    task.status = 'complete';
+    task.completedAt = new Date().toISOString();
+    active.state._version += 1;
+
+    // CAS check: re-read file and verify version hasn't changed
+    const currentRaw = await fs.readFile(active.filePath, 'utf-8');
+    const currentState = JSON.parse(currentRaw) as WorkflowState;
+    if (currentState._version !== expectedVersion) {
+      // Another writer intervened — skip this update (best-effort)
+      return;
+    }
+
+    // Atomic write: tmp file + rename (with unique suffix to prevent same-process collisions)
+    const tmpPath = `${active.filePath}.tmp.${process.pid}.${randomUUID()}`;
+    try {
+      await fs.writeFile(tmpPath, JSON.stringify(active.state, null, 2));
+      await fs.rename(tmpPath, active.filePath);
+    } catch {
+      // Clean up tmp file on failure
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+  } catch {
+    // Best-effort: swallow errors so gate is never blocked
+  }
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
