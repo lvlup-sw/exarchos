@@ -23,8 +23,8 @@ npm run test:coverage  # vitest with coverage
 npm run dev            # tsx watch mode
 
 # Run a single test file (any package)
-npx vitest run src/install.test.ts
-npx vitest run src/state-machine.test.ts
+npx vitest run src/install.test.ts                                           # root installer
+cd plugins/exarchos/servers/exarchos-mcp && npx vitest run src/__tests__/workflow/state-machine.test.ts
 ```
 
 ## Validation Scripts
@@ -103,11 +103,14 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
 - `registry.ts` — Single source of truth for all tool metadata (names, schemas, phase/role mappings). Consumed by `index.ts` for registration and by CLI hooks for guardrails
 - `cli.ts` — Hook CLI entry point (`pre-compact`, `session-start`, `guard`, `task-gate`, `teammate-gate`, `subagent-context`)
-- `event-store/` — Zod event schemas (24 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
-- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack). Pipeline view uses lazy pagination (materializes only the requested subset)
+- `event-store/` — Zod event schemas (31 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
+- `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 6 view types (pipeline, tasks, workflow status, team status, task detail, stack) plus telemetry projection. Pipeline view uses lazy pagination (materializes only the requested subset)
 - `team/` — Coordinator lifecycle, roles, composition, spawn/message/broadcast/shutdown tools
 - `tasks/` — Task claim/complete/fail tools with CQRS materializer for claim-status checks and optimistic concurrency (expectedSequence) for atomic claims
 - `stack/` — Stack status/place tools with offset/limit pagination
+- `telemetry/` — Performance telemetry: projections, hints, middleware, percentile calculations, benchmarks
+- `sync/` — Remote sync state management (outbox drain, stub sender)
+- `orchestrate/` — Composite router for team and task coordination actions
 - `format.ts` — Canonical `ToolResult` interface (all modules import from here) and shared formatting helpers
 
 ### Three Workflow Types
@@ -141,3 +144,6 @@ The main Claude Code session coordinates but does not write implementation code 
 - `docs/adrs/` — Architecture Decision Records
 - `docs/rca/` — Root Cause Analysis documents
 - `docs/schemas/` — JSON schemas for state files
+- `docs/audits/` — Testing and quality audit findings
+- `docs/bugs/` — Bug reports and investigation notes
+- `docs/prompts/` — Prompt optimization templates
