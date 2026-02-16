@@ -91,6 +91,11 @@ if [[ ! -f "$PLAN_FILE" ]]; then
     exit 2
 fi
 
+if [[ ! -d "$REPO_ROOT" ]]; then
+    echo "Error: Repo root directory not found: $REPO_ROOT" >&2
+    exit 2
+fi
+
 # ============================================================
 # CHECK FUNCTIONS
 # ============================================================
@@ -170,7 +175,7 @@ if [[ "$SKIP_RUN" == true ]]; then
     check_skip "Test execution (--skip-run)"
 elif [[ ${#TEST_FILES[@]} -gt 0 && $MISSING -eq 0 ]]; then
     for test_file in "${TEST_FILES[@]}"; do
-        if ! npx vitest run "$REPO_ROOT/$test_file" >/dev/null 2>&1; then
+        if ! npx vitest run --root "$REPO_ROOT" "$test_file" >/dev/null 2>&1; then
             check_fail "Test passes: $test_file"
         else
             check_pass "Test passes: $test_file"

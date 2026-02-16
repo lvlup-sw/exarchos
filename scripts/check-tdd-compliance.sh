@@ -162,7 +162,7 @@ for commit_hash in "${COMMITS[@]}"; do
     FILES_IN_COMMIT=()
     while IFS= read -r file; do
         [[ -n "$file" ]] && FILES_IN_COMMIT+=("$file")
-    done < <(git diff-tree --no-commit-id --name-only -r "$commit_hash" 2>/dev/null)
+    done < <(git diff-tree --no-commit-id --name-only --diff-filter=ACMRT -r "$commit_hash" 2>/dev/null)
 
     # Classify files in this commit
     HAS_TEST=false
@@ -174,7 +174,7 @@ for commit_hash in "${COMMITS[@]}"; do
         if is_test_file "$file"; then
             HAS_TEST=true
             TEST_FILES+=("$file")
-            TESTS_SEEN="${TESTS_SEEN}|${file}"
+            TESTS_SEEN="${TESTS_SEEN}|${file}|"
         elif is_impl_file "$file"; then
             HAS_IMPL=true
             IMPL_FILES+=("$file")
@@ -199,8 +199,8 @@ for commit_hash in "${COMMITS[@]}"; do
                 test_candidate_test="${base}.test.${ext}"
                 test_candidate_spec="${base}.spec.${ext}"
 
-                if echo "$TESTS_SEEN" | grep -qF "|${test_candidate_test}" || \
-                   echo "$TESTS_SEEN" | grep -qF "|${test_candidate_spec}"; then
+                if echo "$TESTS_SEEN" | grep -qF "|${test_candidate_test}|" || \
+                   echo "$TESTS_SEEN" | grep -qF "|${test_candidate_spec}|"; then
                     FOUND_PRIOR_TEST=true
                     break
                 fi
