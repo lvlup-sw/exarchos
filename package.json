@@ -31,6 +31,7 @@
     "build:cli": "bun build plugins/exarchos/servers/exarchos-mcp/src/cli.ts --outfile dist/exarchos-cli.js --target node",
     "build:mcp": "bun build plugins/exarchos/servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target bun --minify",
     "prepare": "tsc",
+    "bench": "cd plugins/exarchos/servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
