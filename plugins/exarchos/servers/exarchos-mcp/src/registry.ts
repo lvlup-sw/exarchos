@@ -155,7 +155,7 @@ const featureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 const workflowActions: readonly ToolAction[] = [
   {
     name: 'init',
-    description: 'Initialize a new workflow',
+    description: 'Initialize a new workflow. Auto-emits workflow.started event',
     schema: z.object({
       featureId: featureIdSchema,
       workflowType: z.enum(['feature', 'debug', 'refactor']),
@@ -176,7 +176,7 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'set',
-    description: 'Update workflow state fields or transition phase',
+    description: 'Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided — do not duplicate via event append',
     schema: z.object({
       featureId: featureIdSchema,
       updates: z.record(z.string(), z.unknown()).optional(),
@@ -187,7 +187,7 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'cancel',
-    description: 'Cancel a workflow with saga compensation',
+    description: 'Cancel a workflow with saga compensation. Auto-emits workflow.cancel and compensation events',
     schema: z.object({
       featureId: featureIdSchema,
       dryRun: z.boolean().optional(),
@@ -300,7 +300,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'task_complete',
-    description: 'Mark a task as complete with optional result',
+    description: 'Mark a task as complete with optional result. Auto-emits task.completed event',
     schema: z.object({
       taskId: z.string().min(1),
       result: z.record(z.string(), z.unknown()).optional(),
@@ -311,7 +311,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'task_fail',
-    description: 'Mark a task as failed with error details',
+    description: 'Mark a task as failed with error details. Auto-emits task.failed event',
     schema: z.object({
       taskId: z.string().min(1),
       error: z.string().min(1),

@@ -24,8 +24,10 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 |--------|-------------|
 | `init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
 | `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
-| `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
-| `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
+| `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions. **Auto-emits** `workflow.transition` events when `phase` is provided — do not duplicate with manual `exarchos_event append` |
+| `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions. **Auto-emits** `workflow.cancel` and compensation events |
+
+**Event auto-emission:** The `set` (with `phase`), `init`, `cancel`, `task_complete`, and `task_fail` actions automatically append events to the JSONL event store. Do not manually emit `workflow.transition`, `workflow.started`, `task.completed`, or `task.failed` events — they are already recorded. Use `exarchos_event append` only for events that no tool auto-emits (e.g., `gate.executed`, `stack.restacked`, `agent.message`).
 
 **Hooks (automatic, no tool call needed):**
 - **SessionStart hook** — Discovers active workflows, restores context, determines next action, and verifies state on resume (replaces former `workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile` tools)
@@ -36,7 +38,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Action | When to Use |
 |--------|-------------|
-| `append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
+| `append` | Recording events not auto-emitted by other tools (gate.executed, stack.restacked, agent.message, etc.). Use `expectedSequence` for optimistic concurrency. **Never** append `workflow.transition` or `task.completed` — these are auto-emitted by `workflow set` and `task_complete` |
 | `query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
 
 #### Orchestrate Tool Actions
@@ -193,4 +195,6 @@ When deciding which tool to use:
 | Read entire files to understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Generate diffs with shell commands | Use GitHub `pull_request_read` or Graphite `gt diff` |
 | Manually parse PR comments | Use GitHub `pull_request_read` for structured review data |
+| Manually emit `workflow.transition` after `workflow set` with `phase` | Phase transitions auto-emit events — manual append creates duplicates |
+| Use `phase: "complete"` for terminal state | Use `phase: "completed"` (or `"cancelled"`) — these are the HSM final state IDs |
 | Skip state reconciliation on resume | The SessionStart hook handles reconciliation automatically |
