@@ -3,7 +3,7 @@
 #
 # Exit 0 if all assertions pass; exit 1 if any check fails.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$SCRIPT_DIR/../skills/synthesis"
