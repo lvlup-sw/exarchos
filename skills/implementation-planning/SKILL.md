@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for brainstorming, debugging, or code review. Requires an existing design document as input. Do NOT use if no design document exists — use /ideate first."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -196,6 +196,8 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
    - Gaps found: set `.planReview.gaps`, auto-loop back to `/plan --revise`
    - No gaps: present to user for approval (human checkpoint)
    - On approval: set `.planReview.approved = true`, invoke `/delegate`
+
+**REQUIRED:** Run `scripts/verify-plan-coverage.sh --design-file <design> --plan-file <plan>`. If exit code 1: auto-invoke `Skill({ skill: "plan", args: "--revise <design>" })`. If exit code 0: proceed to delegation.
 
 ## Exarchos Integration
 
