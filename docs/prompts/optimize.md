@@ -19,16 +19,16 @@ Validate that our implementations are faithful to the canonical definitions of t
 - Does the materializer's projection model match canonical CQRS — event stream as write model, views as read model, views rebuilt from events on demand?
 
 **Event Sourcing — Append-only, events as source of truth:**
-- Is the event store (`event-store/store.ts`) truly append-only? Are events ever mutated or deleted?
-- Are events self-describing and sufficient to rebuild state, or do any views depend on state file data that isn't derivable from events alone?
+- Is the event store (`event-store/store.ts`) truly append-only? Are events ever mutated or deleted? (The idempotency key cache is in-memory with JSONL persistence — verify this doesn't introduce a mutation path.)
+- Are events self-describing and sufficient to rebuild state, or do any views depend on state file data (`.state.json`) that isn't derivable from events alone? The state-first/event-after pattern in `workflow/tools.ts` means state files are the primary store and events are supplementary — does this invert the canonical event sourcing model?
 - Do the event schemas (`event-store/schemas.ts`) carry the metadata the ADR specifies (`correlationId`, `causationId`, `agentId`, `source`)?
 
 **Outbox — Transactional Outbox pattern:**
 - Does `sync/outbox.ts` implement the pattern faithfully? The canonical form writes to the outbox in the same transaction as the local store. Since we use JSONL (no transactions), how is atomicity approximated? Is there a gap where an event is appended to JSONL but not enqueued to the outbox?
 
 **Saga — Compensation on cancel:**
-- Does `workflow/cancel.ts` implement proper saga compensation? Are compensation steps idempotent and ordered correctly (reverse of execution order)?
-- What happens if compensation partially fails — is the workflow left in a consistent state?
+- `workflow/cancel.ts` implements checkpoint-based compensation with reverse-order execution and idempotent skip logic. Verify: Are all compensation actions truly idempotent in practice (e.g., deleting a worktree that's already gone, archiving an already-archived state file)?
+- Does checkpoint file cleanup happen after successful full compensation, or do stale checkpoints accumulate?
 
 **HSM — Hierarchical State Machine:**
 - Does the transition algorithm in `workflow/state-machine.ts` correctly implement HSM semantics (compound states, history, guards)?
@@ -123,24 +123,20 @@ Every byte in a tool response or skill body consumes agent context window. Audit
 
 Audit runtime characteristics: latency per tool call, I/O patterns, memory growth, and concurrency safety.
 
-**I/O and latency:**
-- `event-store/store.ts` — `query()` reads and parses the entire JSONL file on every call. At scale (thousands of events), this is O(n) per query. Is there a path to indexed reads or cursor-based pagination?
-- `views/tools.ts` — First view materialization replays all events (cold start). Subsequent calls use high-water marks. Is snapshot loading reliable enough to avoid cold-start replay in practice?
-- `workflow/tools.ts` — The fast-path optimization skips Zod validation for simple queries. Are there other hot paths that pay unnecessary validation costs?
+**Implemented safeguards (verify correctness, not existence):**
+- **Pre-parse sequence filtering** — `query()` skips `JSON.parse` for lines below `sinceSequence`. Verify the line-number-equals-sequence invariant holds after compaction or manual edits.
+- **LRU eviction** — `ViewMaterializer` has configurable `maxCacheEntries` (default 100) with Map-order LRU. Verify eviction doesn't discard views that are immediately re-requested in tight loops.
+- **CAS versioning** — `workflow/tools.ts` uses `_version` with retry loop (max 3). Verify retry exhaustion produces a clear error, not silent data loss.
+- **Optimistic task claims** — `handleTaskClaim` checks for prior `task.claimed` events with `expectedSequence`. Verify the retry loop handles sequence gaps from concurrent event appends.
+- **Idempotency keys** — `append()` deduplicates via in-memory FIFO cache (100 keys), rebuilt from JSONL on restart. Verify cache rebuild performance at scale (thousands of events per stream).
+- **Saga compensation** — `cancel.ts` persists `CompensationCheckpoint` on partial failure for resumable re-execution. Verify checkpoint file cleanup after successful completion.
 
-**Memory:**
-- The `ViewMaterializer` caches all materialized views in memory indefinitely. For long-running sessions with many workflows, does memory grow unbounded? Is there an eviction strategy?
-- `TeamCoordinator` (`team/coordinator.ts`) holds teammate state in memory. Is this cleaned up on shutdown, or can stale entries accumulate?
-
-**Concurrency:**
-- `event-store/store.ts` — In-memory promise-chain locks serialize within one Node.js process. If multiple MCP instances share a `stateDir`, JSONL corruption is possible. Is the single-instance assumption validated or enforced?
-- `event-store/store.ts` — If the `.seq` cache is missing and concurrent appends both trigger `initializeSequence`, can they compute the same sequence number?
-- `workflow/tools.ts` — State file read-mutate-write has no file lock or compare-and-swap.
-- `tasks/tools.ts` — `handleTaskClaim` emits `task.claimed` without checking whether the task is already claimed. Two teammates can claim the same task.
-
-**Idempotency:**
-- Can `eventStore.append()` produce duplicate events if a caller retries after a timeout? Is there an idempotency key mechanism?
-- Are saga compensation steps in `workflow/cancel.ts` safe to re-execute?
+**Open concerns:**
+- `event-store/store.ts` — In-memory promise-chain locks only protect within a single Node.js process. If multiple MCP instances share a `stateDir`, JSONL corruption is possible. Is the single-instance assumption validated or enforced (e.g., PID lock file)?
+- `event-store/store.ts` — The `.seq` cache race condition: if two processes both call `initializeSequence()` concurrently, both may compute the same sequence number. The cache is best-effort, but what's the blast radius of a stale `.seq` value?
+- `TeamCoordinator` (`team/coordinator.ts`) holds teammate state in memory. Is this cleaned up on shutdown, or can stale entries accumulate across sessions?
+- `views/tools.ts` — Cold-start materialization replays all events. At what event count does cold start become a latency problem? Is snapshot loading reliable enough to avoid this in practice?
+- Are there hot paths beyond `workflow/tools.ts` fast-path that pay unnecessary Zod validation costs?
 
 ---
 
