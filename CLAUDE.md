@@ -33,7 +33,7 @@ The `scripts/` directory contains deterministic validation scripts that replace 
 
 | Category | Scripts |
 |----------|---------|
-| **Synthesis** | `pre-synthesis-check.sh`, `reconstruct-stack.sh`, `check-coderabbit.sh` |
+| **Synthesis** | `pre-synthesis-check.sh`, `reconstruct-stack.sh`, `check-coderabbit.sh`, `coderabbit-review-gate.sh` |
 | **Delegation** | `setup-worktree.sh`, `post-delegation-check.sh`, `extract-fix-tasks.sh`, `needs-schema-sync.sh` |
 | **Git Worktrees** | `verify-worktree.sh`, `verify-worktree-baseline.sh` |
 | **Quality Review** | `review-verdict.sh`, `static-analysis-gate.sh`, `security-scan.sh` |

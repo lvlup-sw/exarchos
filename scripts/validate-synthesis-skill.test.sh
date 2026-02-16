@@ -67,6 +67,33 @@ assert_contains \
   "FailureRouting_Exit1_Documented" \
   "exit 1"
 
+# ReviewGate: Script exists and is executable
+if [[ -x "$SCRIPT_DIR/coderabbit-review-gate.sh" ]]; then
+  echo "PASS: ReviewGate_ScriptExists"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: ReviewGate_ScriptExists — expected scripts/coderabbit-review-gate.sh to exist and be executable"
+  FAIL=$((FAIL + 1))
+fi
+
+# ReviewGate: Test file exists
+if [[ -f "$SCRIPT_DIR/coderabbit-review-gate.test.sh" ]]; then
+  echo "PASS: ReviewGate_TestExists"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: ReviewGate_TestExists — expected scripts/coderabbit-review-gate.test.sh to exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# ReviewGate: Workflow file exists
+if [[ -f "$SCRIPT_DIR/../.github/workflows/coderabbit-review-gate.yml" ]]; then
+  echo "PASS: ReviewGate_WorkflowExists"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: ReviewGate_WorkflowExists — expected .github/workflows/coderabbit-review-gate.yml to exist"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 
