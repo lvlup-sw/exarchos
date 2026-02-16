@@ -20,11 +20,11 @@ If `git worktree add` fails:
 3. If stale worktree: `git worktree prune` then retry
 4. If branch conflict: use a unique branch name
 
-## Teammate Spawn Timeout
-If a spawned teammate doesn't respond:
-1. Check teammate status: call `exarchos_orchestrate` with `action: "team_status"`
-2. If teammate shows as active but idle: send a message via `exarchos_orchestrate` with `action: "team_message"`
-3. If teammate is missing: shut down and re-spawn
+## Subagent Not Responding
+If a spawned subagent doesn't respond:
+1. Check task output: use `TaskOutput` with the agent's task ID and `block: false`
+2. If the subagent is stuck: stop it with `TaskStop` and re-dispatch
+3. For Agent Teams: use Claude Code's native teammate messaging (Shift+Up/Down to select, then type)
 
 ## Task Claim Conflict
 If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
