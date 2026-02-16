@@ -1,12 +1,6 @@
 ---
 name: delegation
-description: |-
-  Dispatch implementation tasks to agent teammates in git worktrees.
-  Use when the user says "delegate", "dispatch tasks", "assign work",
-  or runs /delegate. Spawns teammates, creates worktrees, monitors
-  progress, and collects results. Supports --fixes flag for review
-  finding remediation.
-  Do NOT use for direct implementation — orchestrator delegates only.
+description: "Dispatch implementation tasks to agent teammates in git worktrees. Use when the user says 'delegate', 'dispatch tasks', 'assign work', 'delegate tasks', or runs /delegate. Spawns teammates, creates worktrees, monitors progress, and collects results. Supports --fixes flag for review finding remediation. Do NOT use for single-file changes or polish-track refactors."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -430,3 +424,9 @@ When Exarchos MCP tools are available, emit events during delegation:
 Use `mcp__exarchos__exarchos_orchestrate` with `action: "task_claim"` to claim tasks. This action prevents double-claims via optimistic concurrency. If an agent receives an `ALREADY_CLAIMED` error, another agent already claimed that task. The orchestrator should:
 - Skip the task (it's being handled)
 - Check task status via `mcp__exarchos__exarchos_view` with `action: "tasks"` with `filter: { "taskId": "<id>" }` before re-dispatching
+
+## Performance Notes
+
+- Complete each step fully before advancing — quality over speed
+- Do not skip validation checks even when the change appears trivial
+- Verify each task dispatch before proceeding to next. Do not batch dispatches without confirming worktree readiness.

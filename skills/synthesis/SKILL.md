@@ -1,11 +1,6 @@
 ---
 name: synthesis
-description: |-
-  Create pull request from completed feature branch using Graphite
-  stacked PRs. Use when the user says "create PR", "submit for review",
-  "synthesize", or runs /synthesize. Validates branch readiness, creates
-  PR with structured description, and manages merge queue.
-  Do NOT use before /review has passed.
+description: "Create pull request from completed feature branch using Graphite stacked PRs. Use when the user says 'create PR', 'submit for review', 'synthesize', or runs /synthesize. Validates branch readiness, creates PR with structured description, and manages merge queue. Do NOT use before review phase completes. Not for draft PRs."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -300,3 +295,9 @@ When Exarchos MCP tools are available:
 1. **After stack submission:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
 2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
 3. **On successful merge:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
+
+## Performance Notes
+
+- Complete each step fully before advancing — quality over speed
+- Do not skip validation checks even when the change appears trivial
+- Verify all tests pass before creating PR. Do not skip the pre-submit validation step.
