@@ -78,7 +78,7 @@ Task({
 5. `TeammateIdle` hook (see State Bridge section below) runs quality gates; updates Exarchos workflow state
 6. Orchestrator synthesizes results when all teammates finish
 
-**CRITICAL:** Always specify `model: "opus"` for coding tasks.
+**CRITICAL:** Ensure your session is using the opus model for coding tasks. All teammates inherit the session model — use Task tool dispatch if you need per-task model selection.
 
 ## Controller Responsibilities
 
