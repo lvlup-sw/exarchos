@@ -199,7 +199,7 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
 
 ## Exarchos Integration
 
-On plan completion, call `mcp__exarchos__exarchos_event` with `action: "append"` and event type `phase.transitioned` from plan to plan-review.
+On plan completion, auto-emitted by `exarchos_workflow` `set` when phase transitions — emits `workflow.transition` from plan to plan-review. No manual `exarchos_event` append needed.
 
 ## Performance Notes
 

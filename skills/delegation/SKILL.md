@@ -290,7 +290,7 @@ Emit events at each delegation milestone using Exarchos MCP tools:
 3. **Task assignment:** `exarchos_event` append `task.assigned` with taskId, title, branch, worktree
 4. **Monitor:** `exarchos_view` `workflow_status` or `exarchos_workflow` `get` with `fields: ["tasks"]`
 5. **Task completion:** Record stack positions via `exarchos_view` `stack_place`. Subagents handle Graphite stacking via `gt create`
-6. **All complete:** `exarchos_event` append `phase.transitioned` from delegate to next phase
+6. **All complete:** Auto-emitted by `exarchos_workflow` `set` when phase transitions — emits `workflow.transition` from delegate to next phase
 
 ### Claim Guard
 

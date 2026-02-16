@@ -236,7 +236,7 @@ count_review_rounds() {
         echo -e "${YELLOW}WARNING${NC}: More than 100 reviews found; count may be incomplete" >&2
     fi
 
-    echo "$reviews_json" | jq '[.data.repository.pullRequest.reviews.nodes[] | select(.author.login == "coderabbitai[bot]")] | length' 2>/dev/null || echo "0"
+    echo "$reviews_json" | jq '[.data.repository.pullRequest.reviews.nodes[] | select(.author.login == "coderabbitai")] | length' 2>/dev/null || echo "0"
 }
 
 # ============================================================
@@ -300,7 +300,7 @@ query_all_threads() {
 get_active_threads() {
     local all_threads_json="$1"
     # Filter: unresolved, non-outdated, CodeRabbit-authored threads only
-    echo "$all_threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false and (.comments.nodes[0].author.login == "coderabbitai[bot]"))]'
+    echo "$all_threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false and (.comments.nodes[0].author.login == "coderabbitai"))]'
 }
 
 # ============================================================
@@ -311,7 +311,7 @@ resolve_outdated_threads() {
     local all_threads_json="$1"
     # Find unresolved outdated threads
     local outdated_thread_ids
-    outdated_thread_ids=$(echo "$all_threads_json" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == true and (.comments.nodes[0].author.login == "coderabbitai[bot]")) | .id')
+    outdated_thread_ids=$(echo "$all_threads_json" | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == true and (.comments.nodes[0].author.login == "coderabbitai")) | .id')
 
     if [[ -z "$outdated_thread_ids" ]]; then
         return 0
@@ -346,7 +346,7 @@ has_blocking_findings() {
     red_circle=$(printf '\xf0\x9f\x94\xb4')       # U+1F534
     orange_circle=$(printf '\xf0\x9f\x9f\xa0')     # U+1F7E0
     local blocker_count
-    blocker_count=$(echo "$threads_json" | jq --arg rc "$red_circle" --arg oc "$orange_circle" '[.[] | select(.comments.nodes[0] | (.author.login == "coderabbitai[bot]") and (.body != null) and (.body | test($rc) or test($oc)))] | length' 2>/dev/null || echo "0")
+    blocker_count=$(echo "$threads_json" | jq --arg rc "$red_circle" --arg oc "$orange_circle" '[.[] | select(.comments.nodes[0] | (.author.login == "coderabbitai") and (.body != null) and (.body | test($rc) or test($oc)))] | length' 2>/dev/null || echo "0")
 
     if [[ "$blocker_count" -gt 0 ]]; then
         return 0  # has blockers

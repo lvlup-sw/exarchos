@@ -505,11 +505,11 @@ If hotfix track reveals complexity requiring thorough investigation:
 When Exarchos MCP tools are available, emit events throughout the debug workflow:
 
 1. **At workflow start (triage):** `mcp__exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "debug", urgency
-2. **On track selection:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` with selected track (hotfix/thorough)
-3. **On each phase transition:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` from→to
+2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (hotfix/thorough)
+3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
 4. **Thorough track stacking:** Handled by `/synthesize` (Graphite stack submission)
 5. **Hotfix track commit:** Single `gt create -m "fix: <description>"` — no multi-branch stacking needed
-6. **On complete:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` to "completed"
+6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"
 
 ## Performance Notes
 
