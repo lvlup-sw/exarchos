@@ -28,6 +28,15 @@ jobs:
                   pull_number: pr.number
                 });
                 console.log(`Updated PR #${pr.number}`);
+                // Dispatch CI on the updated branch — needed because pushes
+                // from GITHUB_TOKEN don't trigger pull_request workflows
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ci.yml',
+                  ref: pr.head.ref
+                });
+                console.log(`Dispatched CI for PR #${pr.number} on ${pr.head.ref}`);
               } catch (e) {
                 console.log(`Skipped PR #${pr.number}: ${e.message}`);
               }
