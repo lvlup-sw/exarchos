@@ -35,8 +35,8 @@ async function populateWorkflow(streamId: string) {
     data: { featureId: 'auth-feature', workflowType: 'feature' },
   });
   await store.append(streamId, {
-    type: 'phase.transitioned',
-    data: { from: 'started', to: 'delegating' },
+    type: 'workflow.transition',
+    data: { from: 'started', to: 'delegating', trigger: 'auto', featureId: 'test-workflow' },
   });
   await store.append(streamId, {
     type: 'task.assigned',

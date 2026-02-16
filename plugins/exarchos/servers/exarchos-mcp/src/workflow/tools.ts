@@ -212,6 +212,47 @@ export async function handleGet(
   };
 }
 
+// ─── Event Emission Helper ──────────────────────────────────────────────────
+
+interface TransitionEventRecord {
+  readonly type: string;
+  readonly from: string;
+  readonly to: string;
+  readonly trigger: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
+ * Emit transition events to the external JSONL event store.
+ * Used by both the success path (after CAS write) and the failure path
+ * (diagnostic events like guard-failed, circuit-open).
+ *
+ * @returns Error message string on failure, undefined on success or when no events to emit.
+ */
+async function emitTransitionEvents(
+  featureId: string,
+  events: readonly TransitionEventRecord[],
+): Promise<string | undefined> {
+  if (!moduleEventStore || events.length === 0) return undefined;
+  try {
+    for (const evt of events) {
+      await moduleEventStore.append(featureId, {
+        type: mapInternalToExternalType(evt.type) as import('../event-store/schemas.js').EventType,
+        data: {
+          from: evt.from,
+          to: evt.to,
+          trigger: evt.trigger,
+          featureId,
+          ...(evt.metadata ?? {}),
+        },
+      });
+    }
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
 const MAX_CAS_RETRIES = 3;
@@ -267,19 +308,17 @@ export async function handleSet(
 
     // ─── Phase transition (guards evaluate against updated state) ──────
     // Collect transition events for deferred emission after CAS write succeeds
-    let pendingTransitionEvents: Array<{
-      type: string;
-      from: string;
-      to: string;
-      trigger: string;
-      metadata?: Record<string, unknown>;
-    }> = [];
+    let pendingTransitionEvents: TransitionEventRecord[] = [];
 
     if (input.phase) {
       const hsm = getHSMDefinition(state.workflowType);
       const result = executeTransition(hsm, mutableState, input.phase);
 
       if (!result.success) {
+        // Emit diagnostic events (guard-failed, circuit-open) before returning error.
+        // These are emitted BEFORE state write since no state change occurs on failure.
+        await emitTransitionEvents(input.featureId, result.events);
+
         const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
         return {
           success: false,
@@ -348,25 +387,10 @@ export async function handleSet(
     // AFTER the CAS write succeeds. This prevents duplicate events on CAS retry.
     // If event emission fails after a successful state write, we return success
     // with a warning — events are supplementary and the state is the source of truth.
-    let eventWarning: string | undefined;
-    if (moduleEventStore && pendingTransitionEvents.length > 0) {
-      try {
-        for (const transitionEvent of pendingTransitionEvents) {
-          await moduleEventStore.append(input.featureId, {
-            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-            data: {
-              from: transitionEvent.from,
-              to: transitionEvent.to,
-              trigger: transitionEvent.trigger,
-              featureId: input.featureId,
-              ...(transitionEvent.metadata ?? {}),
-            },
-          });
-        }
-      } catch (err) {
-        eventWarning = `Event append failed after state write: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    }
+    const emitError = await emitTransitionEvents(input.featureId, pendingTransitionEvents);
+    const eventWarning = emitError
+      ? `Event append failed after state write: ${emitError}`
+      : undefined;
 
     return {
       success: true,

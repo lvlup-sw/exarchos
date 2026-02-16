@@ -103,7 +103,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 - `workflow/cancel.ts` — Saga compensation and workflow cancellation with checkpoint persistence for resumable compensation on partial failure
 - `registry.ts` — Single source of truth for all tool metadata (names, schemas, phase/role mappings). Consumed by `index.ts` for registration and by CLI hooks for guardrails
 - `cli.ts` — Hook CLI entry point (`pre-compact`, `session-start`, `guard`, `task-gate`, `teammate-gate`, `subagent-context`)
-- `event-store/` — Zod event schemas (28 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
+- `event-store/` — Zod event schemas (22 types including workflow.transition, workflow.fix-cycle), JSONL store with `.seq` files for O(1) sequence initialization, append/query tools. Supports idempotency keys (persisted in JSONL, cache rebuilt on restart) and pre-parse sequence filtering for fast queries
 - `views/` — CQRS materializer (cached singleton per server lifecycle, LRU-bounded), 5 view types (pipeline, tasks, workflow status, task detail, stack) plus telemetry projection. Pipeline view uses lazy pagination (materializes only the requested subset)
 - `tasks/` — Task claim/complete/fail tools with CQRS materializer for claim-status checks and optimistic concurrency (expectedSequence) for atomic claims
 - `stack/` — Stack status/place tools with offset/limit pagination

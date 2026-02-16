@@ -65,14 +65,6 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
         };
       }
 
-      case 'phase.transitioned': {
-        const data = event.data as { to?: string } | undefined;
-        return {
-          ...view,
-          phase: data?.to ?? view.phase,
-        };
-      }
-
       case 'task.assigned':
         return {
           ...view,

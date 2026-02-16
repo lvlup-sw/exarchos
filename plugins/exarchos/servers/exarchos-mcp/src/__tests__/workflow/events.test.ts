@@ -4,6 +4,7 @@ import {
   getFixCycleCount,
   getRecentEvents,
   getPhaseDuration,
+  mapInternalToExternalType,
   EVENT_LOG_MAX,
 } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
@@ -403,6 +404,33 @@ describe('Event Log', () => {
   describe('EVENT_LOG_MAX', () => {
     it('should default to 100', () => {
       expect(EVENT_LOG_MAX).toBe(100);
+    });
+  });
+
+  describe('mapInternalToExternalType', () => {
+    it('should map compound-exit to workflow.compound-exit explicitly', () => {
+      expect(mapInternalToExternalType('compound-exit')).toBe('workflow.compound-exit');
+    });
+
+    it('should map circuit-open to workflow.circuit-open explicitly', () => {
+      expect(mapInternalToExternalType('circuit-open')).toBe('workflow.circuit-open');
+    });
+
+    it('should map all known internal types to correct external types', () => {
+      const expectedMappings: Record<string, string> = {
+        'transition': 'workflow.transition',
+        'fix-cycle': 'workflow.fix-cycle',
+        'guard-failed': 'workflow.guard-failed',
+        'checkpoint': 'workflow.checkpoint',
+        'compound-entry': 'workflow.compound-entry',
+        'compound-exit': 'workflow.compound-exit',
+        'circuit-open': 'workflow.circuit-open',
+        'cancel': 'workflow.cancel',
+      };
+
+      for (const [internal, external] of Object.entries(expectedMappings)) {
+        expect(mapInternalToExternalType(internal)).toBe(external);
+      }
     });
   });
 });

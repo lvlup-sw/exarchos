@@ -50,8 +50,8 @@ export class ConflictResolver {
 
       // Phase divergence
       if (
-        localEvent.type === 'phase.transitioned' &&
-        remoteEvent.type === 'phase.transitioned'
+        localEvent.type === 'workflow.transition' &&
+        remoteEvent.type === 'workflow.transition'
       ) {
         const localTo = (localEvent.data as Record<string, unknown>)?.to as string;
         const remoteTo = (remoteEvent.data as Record<string, unknown>)?.to as string;

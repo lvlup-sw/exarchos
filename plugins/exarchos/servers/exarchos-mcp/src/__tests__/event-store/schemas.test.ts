@@ -2,21 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   WorkflowEventBase,
   WorkflowStartedData,
-  PhaseTransitionedData,
   TaskAssignedData,
   TaskClaimedData,
   TaskProgressedData,
-  TestResultData,
   TaskCompletedData,
   TaskFailedData,
   GateExecutedData,
-  GateSelfCorrectedData,
   StackPositionFilledData,
   StackRestackedData,
   StackEnqueuedData,
-  ContextAssembledData,
-  TaskRoutedData,
-  RemediationStartedData,
   WorkflowTransitionData,
   WorkflowFixCycleData,
   WorkflowGuardFailedData,
@@ -161,27 +155,6 @@ describe('WorkflowStartedData', () => {
   });
 });
 
-describe('PhaseTransitionedData', () => {
-  it('should parse valid phase transition', () => {
-    const data = PhaseTransitionedData.parse({
-      from: 'ideate',
-      to: 'plan',
-      trigger: 'design-approved',
-    });
-    expect(data.from).toBe('ideate');
-    expect(data.to).toBe('plan');
-    expect(data.trigger).toBe('design-approved');
-  });
-
-  it('should allow optional trigger', () => {
-    const data = PhaseTransitionedData.parse({
-      from: 'ideate',
-      to: 'plan',
-    });
-    expect(data.trigger).toBeUndefined();
-  });
-});
-
 describe('TaskAssignedData', () => {
   it('should parse valid task assignment with worktree', () => {
     const data = TaskAssignedData.parse({
@@ -266,33 +239,6 @@ describe('TaskProgressedData', () => {
   });
 });
 
-describe('TestResultData', () => {
-  it('should parse valid test result', () => {
-    const data = TestResultData.parse({
-      taskId: 'task-001',
-      passed: true,
-      testCount: 42,
-      failCount: 0,
-      coverage: 95.5,
-    });
-    expect(data.taskId).toBe('task-001');
-    expect(data.passed).toBe(true);
-    expect(data.testCount).toBe(42);
-    expect(data.failCount).toBe(0);
-    expect(data.coverage).toBe(95.5);
-  });
-
-  it('should allow optional fields', () => {
-    const data = TestResultData.parse({
-      taskId: 'task-001',
-      passed: false,
-      testCount: 10,
-      failCount: 3,
-    });
-    expect(data.coverage).toBeUndefined();
-  });
-});
-
 describe('TaskCompletedData', () => {
   it('should parse valid task completion with artifacts', () => {
     const data = TaskCompletedData.parse({
@@ -364,19 +310,6 @@ describe('GateExecutedData', () => {
   });
 });
 
-describe('GateSelfCorrectedData', () => {
-  it('should parse valid self-correction', () => {
-    const data = GateSelfCorrectedData.parse({
-      gateName: 'format',
-      attempt: 2,
-      correction: 'Auto-formatted 3 files',
-    });
-    expect(data.gateName).toBe('format');
-    expect(data.attempt).toBe(2);
-    expect(data.correction).toBe('Auto-formatted 3 files');
-  });
-});
-
 // ─── Stack Events (A03) ─────────────────────────────────────────────────────
 
 describe('StackPositionFilledData', () => {
@@ -421,77 +354,33 @@ describe('StackEnqueuedData', () => {
   });
 });
 
-// ─── Context Events (A03) ───────────────────────────────────────────────────
-
-describe('ContextAssembledData', () => {
-  it('should parse valid context assembly', () => {
-    const data = ContextAssembledData.parse({
-      qualityScore: 0.85,
-      sources: ['design-doc', 'test-results', 'code-analysis'],
-    });
-    expect(data.qualityScore).toBe(0.85);
-    expect(data.sources).toHaveLength(3);
-  });
-});
-
-describe('TaskRoutedData', () => {
-  it('should parse valid task routing with scores', () => {
-    const data = TaskRoutedData.parse({
-      taskId: 'task-001',
-      scores: { 'coder-1': 0.9, 'coder-2': 0.7 },
-    });
-    expect(data.taskId).toBe('task-001');
-    expect(data.scores['coder-1']).toBe(0.9);
-  });
-});
-
-describe('RemediationStartedData', () => {
-  it('should parse valid remediation start', () => {
-    const data = RemediationStartedData.parse({
-      failedGates: ['build', 'test'],
-      strategy: 'auto-fix',
-    });
-    expect(data.failedGates).toEqual(['build', 'test']);
-    expect(data.strategy).toBe('auto-fix');
-  });
-});
-
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 28 event types', () => {
-    expect(EventTypes).toHaveLength(28);
+  it('should contain all 22 event types', () => {
+    expect(EventTypes).toHaveLength(22);
   });
 
   it('should include workflow-level types', () => {
     expect(EventTypes).toContain('workflow.started');
-    expect(EventTypes).toContain('phase.transitioned');
     expect(EventTypes).toContain('task.assigned');
   });
 
   it('should include task-level types', () => {
     expect(EventTypes).toContain('task.claimed');
     expect(EventTypes).toContain('task.progressed');
-    expect(EventTypes).toContain('test.result');
     expect(EventTypes).toContain('task.completed');
     expect(EventTypes).toContain('task.failed');
   });
 
   it('should include quality gate types', () => {
     expect(EventTypes).toContain('gate.executed');
-    expect(EventTypes).toContain('gate.self-corrected');
   });
 
   it('should include stack types', () => {
     expect(EventTypes).toContain('stack.position-filled');
     expect(EventTypes).toContain('stack.restacked');
     expect(EventTypes).toContain('stack.enqueued');
-  });
-
-  it('should include context types', () => {
-    expect(EventTypes).toContain('context.assembled');
-    expect(EventTypes).toContain('task.routed');
-    expect(EventTypes).toContain('remediation.started');
   });
 
   it('should include workflow internal event types', () => {
@@ -784,5 +673,27 @@ describe('WorkflowCircuitOpenData', () => {
       type: 'workflow.circuit-open',
     });
     expect(event.type).toBe('workflow.circuit-open');
+  });
+});
+
+// ─── Dead Event Types Removal Verification ──────────────────────────────────
+
+describe('Dead event types removed', () => {
+  it('should not contain removed event types', () => {
+    const removedTypes = [
+      'phase.transitioned',
+      'task.routed',
+      'context.assembled',
+      'test.result',
+      'gate.self-corrected',
+      'remediation.started',
+    ];
+    for (const type of removedTypes) {
+      expect(EventTypes).not.toContain(type);
+    }
+  });
+
+  it('should have exactly 22 event types', () => {
+    expect(EventTypes).toHaveLength(22);
   });
 });

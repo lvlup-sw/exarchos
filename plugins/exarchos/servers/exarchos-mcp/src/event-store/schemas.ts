@@ -4,21 +4,15 @@ import { z } from 'zod';
 
 export const EventTypes = [
   'workflow.started',
-  'phase.transitioned',
   'task.assigned',
   'task.claimed',
   'task.progressed',
-  'test.result',
   'task.completed',
   'task.failed',
   'gate.executed',
-  'gate.self-corrected',
   'stack.position-filled',
   'stack.restacked',
   'stack.enqueued',
-  'context.assembled',
-  'task.routed',
-  'remediation.started',
   'workflow.transition',
   'workflow.fix-cycle',
   'workflow.guard-failed',
@@ -60,12 +54,6 @@ export const WorkflowStartedData = z.object({
   designPath: z.string().optional(),
 });
 
-export const PhaseTransitionedData = z.object({
-  from: z.string(),
-  to: z.string(),
-  trigger: z.string().optional(),
-});
-
 export const TaskAssignedData = z.object({
   taskId: z.string(),
   title: z.string(),
@@ -86,14 +74,6 @@ export const TaskProgressedData = z.object({
   taskId: z.string(),
   tddPhase: z.enum(['red', 'green', 'refactor']),
   detail: z.string().optional(),
-});
-
-export const TestResultData = z.object({
-  taskId: z.string(),
-  passed: z.boolean(),
-  testCount: z.number().int(),
-  failCount: z.number().int(),
-  coverage: z.number().optional(),
 });
 
 export const TaskCompletedData = z.object({
@@ -118,12 +98,6 @@ export const GateExecutedData = z.object({
   details: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const GateSelfCorrectedData = z.object({
-  gateName: z.string(),
-  attempt: z.number().int(),
-  correction: z.string(),
-});
-
 // ─── Stack Event Data ───────────────────────────────────────────────────────
 
 export const StackPositionFilledData = z.object({
@@ -139,23 +113,6 @@ export const StackRestackedData = z.object({
 
 export const StackEnqueuedData = z.object({
   prNumbers: z.array(z.number().int()),
-});
-
-// ─── Context Event Data ─────────────────────────────────────────────────────
-
-export const ContextAssembledData = z.object({
-  qualityScore: z.number(),
-  sources: z.array(z.string()),
-});
-
-export const TaskRoutedData = z.object({
-  taskId: z.string(),
-  scores: z.record(z.string(), z.number()),
-});
-
-export const RemediationStartedData = z.object({
-  failedGates: z.array(z.string()),
-  strategy: z.string(),
 });
 
 // ─── Workflow Internal Event Data ─────────────────────────────────────────
@@ -244,21 +201,15 @@ export const ToolErroredData = z.object({
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
 export type WorkflowStarted = z.infer<typeof WorkflowStartedData>;
-export type PhaseTransitioned = z.infer<typeof PhaseTransitionedData>;
 export type TaskAssigned = z.infer<typeof TaskAssignedData>;
 export type TaskClaimed = z.infer<typeof TaskClaimedData>;
 export type TaskProgressed = z.infer<typeof TaskProgressedData>;
-export type TestResult = z.infer<typeof TestResultData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
-export type GateSelfCorrected = z.infer<typeof GateSelfCorrectedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
 export type StackRestacked = z.infer<typeof StackRestackedData>;
 export type StackEnqueued = z.infer<typeof StackEnqueuedData>;
-export type ContextAssembled = z.infer<typeof ContextAssembledData>;
-export type TaskRouted = z.infer<typeof TaskRoutedData>;
-export type RemediationStarted = z.infer<typeof RemediationStartedData>;
 export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
 export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
