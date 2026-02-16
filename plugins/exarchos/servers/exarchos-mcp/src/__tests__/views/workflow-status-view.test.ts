@@ -80,12 +80,12 @@ describe('WorkflowStatusView', () => {
     });
   });
 
-  describe('PhaseTransitioned_UpdatesPhase', () => {
-    it('should update current phase when phase.transitioned event is processed', () => {
+  describe('WorkflowTransition_UpdatesPhase', () => {
+    it('should update current phase when workflow.transition event is processed', () => {
       const events = [
         makeEvent(1, 'workflow.started', { featureId: 'f1', workflowType: 'feature' }),
-        makeEvent(2, 'phase.transitioned', { from: 'started', to: 'planning' }),
-        makeEvent(3, 'phase.transitioned', { from: 'planning', to: 'delegating' }),
+        makeEvent(2, 'workflow.transition', { from: 'started', to: 'planning', trigger: 'auto', featureId: 'f1' }),
+        makeEvent(3, 'workflow.transition', { from: 'planning', to: 'delegating', trigger: 'auto', featureId: 'f1' }),
       ];
 
       const view = materializer.materialize<WorkflowStatusViewState>(

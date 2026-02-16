@@ -46,7 +46,7 @@ describe('EventStore Append', () => {
 
     const e1 = await store.append('my-workflow', { type: 'workflow.started' });
     const e2 = await store.append('my-workflow', { type: 'task.assigned' });
-    const e3 = await store.append('my-workflow', { type: 'phase.transitioned' });
+    const e3 = await store.append('my-workflow', { type: 'workflow.transition' });
 
     expect(e1.sequence).toBe(1);
     expect(e2.sequence).toBe(2);
@@ -94,7 +94,7 @@ describe('EventStore Append', () => {
 
     // Create a new store instance (simulating restart)
     const store2 = new EventStore(tempDir);
-    const event = await store2.append('my-workflow', { type: 'phase.transitioned' });
+    const event = await store2.append('my-workflow', { type: 'workflow.transition' });
 
     // Should continue from 3, not start over at 1
     expect(event.sequence).toBe(3);
@@ -144,7 +144,7 @@ describe('EventStore Query', () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
     await store.append('my-workflow', { type: 'task.assigned' });
-    await store.append('my-workflow', { type: 'phase.transitioned' });
+    await store.append('my-workflow', { type: 'workflow.transition' });
     await store.append('my-workflow', { type: 'task.claimed' });
     await store.append('my-workflow', { type: 'task.progressed' });
 
@@ -170,7 +170,7 @@ describe('EventStore Query', () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
     await store.append('my-workflow', { type: 'task.assigned' });
-    await store.append('my-workflow', { type: 'phase.transitioned' });
+    await store.append('my-workflow', { type: 'workflow.transition' });
     await store.append('my-workflow', { type: 'task.claimed' });
     await store.append('my-workflow', { type: 'task.progressed' });
 
@@ -187,11 +187,11 @@ describe('EventStore Query', () => {
       timestamp: '2025-01-01T00:00:00.000Z',
     });
     await store.append('my-workflow', {
-      type: 'context.assembled',
+      type: 'task.assigned',
       timestamp: '2025-06-15T00:00:00.000Z',
     });
     await store.append('my-workflow', {
-      type: 'task.routed',
+      type: 'task.completed',
       timestamp: '2025-12-31T00:00:00.000Z',
     });
 
@@ -200,7 +200,7 @@ describe('EventStore Query', () => {
       until: '2025-09-01T00:00:00.000Z',
     });
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('context.assembled');
+    expect(events[0].type).toBe('task.assigned');
   });
 
   it('should return empty array for nonexistent stream', async () => {
@@ -248,7 +248,7 @@ describe('EventStore Optimistic Concurrency', () => {
     // expectedSequence=2 means "I expect the current sequence to be 2"
     const event = await store.append(
       'my-workflow',
-      { type: 'phase.transitioned' },
+      { type: 'workflow.transition' },
       { expectedSequence: 2 },
     );
     expect(event.sequence).toBe(3);
@@ -261,7 +261,7 @@ describe('EventStore Optimistic Concurrency', () => {
 
     // expectedSequence=1 but actual is 2
     await expect(
-      store.append('my-workflow', { type: 'phase.transitioned' }, { expectedSequence: 1 }),
+      store.append('my-workflow', { type: 'workflow.transition' }, { expectedSequence: 1 }),
     ).rejects.toThrow(SequenceConflictError);
   });
 
@@ -301,7 +301,7 @@ describe('EventStore Optimistic Concurrency', () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
     await store.append('my-workflow', { type: 'task.assigned' });
-    await store.append('my-workflow', { type: 'phase.transitioned' });
+    await store.append('my-workflow', { type: 'workflow.transition' });
 
     try {
       await store.append('my-workflow', { type: 'task.claimed' }, { expectedSequence: 1 });
@@ -546,7 +546,7 @@ describe('EventStore Sequence Persistence', () => {
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started' });
     await store1.append('my-workflow', { type: 'task.assigned' });
-    await store1.append('my-workflow', { type: 'phase.transitioned' });
+    await store1.append('my-workflow', { type: 'workflow.transition' });
 
     // Create a NEW store instance (simulating server restart)
     const store2 = new EventStore(tempDir);
@@ -574,7 +574,7 @@ describe('EventStore Sequence Persistence', () => {
 
     // Create a new store — should fall back to line counting
     const store2 = new EventStore(tempDir);
-    const event = await store2.append('my-workflow', { type: 'phase.transitioned' });
+    const event = await store2.append('my-workflow', { type: 'workflow.transition' });
 
     // Should still continue from correct sequence by counting JSONL lines
     expect(event.sequence).toBe(3);
@@ -619,7 +619,7 @@ describe('EventStore Sequence Persistence', () => {
 
     // Create a new store — should fall back to line counting
     const store2 = new EventStore(tempDir);
-    const event = await store2.append('my-workflow', { type: 'phase.transitioned' });
+    const event = await store2.append('my-workflow', { type: 'workflow.transition' });
 
     // Should still continue from correct sequence by counting JSONL lines
     expect(event.sequence).toBe(3);
