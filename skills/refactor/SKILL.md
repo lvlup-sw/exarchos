@@ -106,16 +106,29 @@ Explore -> Brief -> Implement -> Validate -> Update Docs -> Complete
 
 #### 1. Explore Phase
 
-Use `@skills/refactor/references/explore-checklist.md` to assess:
-- Current code structure
-- Files/modules affected (must be <=5 for polish)
-- Test coverage of affected areas
-- Documentation that needs updates
-- Confirm polish is appropriate
+Use `@skills/refactor/references/explore-checklist.md` to assess current code structure, then run the scope assessment script to determine the recommended track:
+
+```bash
+# Assess scope from a comma-separated file list
+scripts/assess-refactor-scope.sh --files "src/foo.ts,src/bar.ts,src/baz.ts"
+
+# Or read files from workflow state
+scripts/assess-refactor-scope.sh --state-file ~/.claude/workflow-state/<feature>.state.json
+```
+
+**What it validates:**
+- File count (<=5 for polish)
+- Cross-module span (files in different top-level directories)
+- Test coverage assessment (test counterparts for source files)
+
+**Exit code routing:**
+- Exit 0 = polish recommended (proceed with polish track)
+- Exit 1 = overhaul recommended (switch to overhaul track)
+- Exit 2 = usage error
 
 Update state using MCP tools:
 1. Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track, phase, and explore scope assessment
+2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track (based on script recommendation), phase, and explore scope assessment
 
 On completion, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `explore.completedAt` and `phase` to "brief".
 
@@ -151,18 +164,27 @@ Update state on completion using `mcp__exarchos__exarchos_workflow` with `action
 
 #### 4. Validate Phase
 
-Verify refactor goals are met:
-- [ ] All existing tests pass
-- [ ] Each goal in brief is addressed
-- [ ] No new lint/type errors introduced
-- [ ] Code quality improved per brief
+Run the validation script to verify refactor goals are met:
 
-Run validation:
 ```bash
-npm run test:run
-npm run lint  # or equivalent
-npm run typecheck  # if TypeScript
+# Run all checks (tests, lint, typecheck)
+scripts/validate-refactor.sh --repo-root <path>
+
+# Skip optional checks
+scripts/validate-refactor.sh --repo-root <path> --skip-lint --skip-typecheck
 ```
+
+**What it validates:**
+- `npm run test:run` passes (required)
+- `npm run lint` passes (skipped if missing or `--skip-lint`)
+- `npm run typecheck` passes (skipped if missing or `--skip-typecheck`)
+
+**Exit code routing:**
+- Exit 0 = all checks pass (proceed to update-docs)
+- Exit 1 = one or more checks failed (fix before proceeding)
+- Exit 2 = usage error
+
+Additionally verify each goal in brief is addressed and code quality improved per brief (manual review).
 
 Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation` object and `phase` to "polish-update-docs".
 
@@ -177,6 +199,26 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 - Inline comments if complex logic moved
 
 If `docsToUpdate` is empty, verify no docs need updating.
+
+After updating documentation, verify all internal links resolve:
+
+```bash
+# Check a single doc file
+scripts/verify-doc-links.sh --doc-file docs/designs/my-design.md
+
+# Check all docs recursively
+scripts/verify-doc-links.sh --docs-dir docs/
+```
+
+**What it validates:**
+- All `[text](path)` markdown links resolve to existing files
+- External URLs (http/https) are skipped
+- Anchor-only links (#section) are skipped
+
+**Exit code routing:**
+- Exit 0 = all internal links valid (proceed)
+- Exit 1 = broken links found (fix before proceeding)
+- Exit 2 = usage error
 
 Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
 
@@ -399,14 +441,24 @@ explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> ove
 
 ### Polish -> Overhaul
 
-If scope expands beyond polish limits during explore or brief phase, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
+During the implement phase, run the scope check script to detect expansion triggers:
 
-**Indicators to switch:**
-- More than 5 files affected
-- Multiple concerns identified
-- Cross-module changes needed
-- Test coverage gaps require new tests
-- Architectural documentation needed
+```bash
+scripts/check-polish-scope.sh --repo-root <path> --base-branch main
+```
+
+**What it validates (expansion triggers):**
+- File count > 5 (modified files via git diff)
+- Module boundaries crossed (>2 top-level dirs modified)
+- New test files needed (impl files without test counterparts)
+- Architectural docs needed (structural files across modules)
+
+**Exit code routing:**
+- Exit 0 = scope OK (stay on polish track)
+- Exit 1 = scope expanded (switch to overhaul track)
+- Exit 2 = usage error
+
+If exit 1, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
 Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 
