@@ -158,6 +158,7 @@ export class Outbox {
               source: entry.event.source,
               schemaVersion: entry.event.schemaVersion,
               data: entry.event.data,
+              ...(entry.event.idempotencyKey ? { idempotencyKey: entry.event.idempotencyKey } : {}),
             },
           ]);
 

@@ -75,6 +75,7 @@ export interface ExarchosEventDto {
   source?: string;
   schemaVersion?: string;
   data?: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 // ─── Workflow Registration ───────────────────────────────────────────────────
