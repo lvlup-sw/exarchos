@@ -249,7 +249,8 @@ get_review_threads() {
     local page_json has_next
 
     while :; do
-        page_json=$(gh_graphql -f query='
+        local -a gql_args=(
+            -f query='
             query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
                 repository(owner: $owner, name: $repo) {
                     pullRequest(number: $pr) {
@@ -270,7 +271,14 @@ get_review_threads() {
                     }
                 }
             }
-        ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER" -f "cursor=$cursor") || {
+            '
+            -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER"
+        )
+        if [[ -n "$cursor" ]]; then
+            gql_args+=(-f "cursor=$cursor")
+        fi
+
+        page_json=$(gh_graphql "${gql_args[@]}") || {
             echo -e "${YELLOW}WARNING${NC}: Failed to query review threads" >&2
             echo "[]"
             return
