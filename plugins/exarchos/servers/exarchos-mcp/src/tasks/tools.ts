@@ -114,13 +114,15 @@ async function attemptTaskClaim(
     return alreadyClaimedResult(args.taskId);
   }
 
-  // Fallback: check raw events for task.claimed without prior task.assigned
+  // Fallback: check raw events for terminal task states without prior task.assigned
   // (the view projection ignores claims for unassigned tasks)
   if (!task) {
-    const alreadyClaimed = events.some(
-      (e) => e.type === 'task.claimed' && (e.data as Record<string, unknown>)?.taskId === args.taskId,
+    const isTerminal = events.some(
+      (e) =>
+        (e.type === 'task.claimed' || e.type === 'task.completed' || e.type === 'task.failed') &&
+        (e.data as Record<string, unknown>)?.taskId === args.taskId,
     );
-    if (alreadyClaimed) {
+    if (isTerminal) {
       return alreadyClaimedResult(args.taskId);
     }
   }
