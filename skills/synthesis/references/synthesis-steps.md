@@ -1,5 +1,31 @@
 # Synthesis Process
 
+## Step 0: Advance HSM to Synthesize Phase
+
+Before verifying readiness, ensure the workflow state is at the `synthesize` phase. The HSM requires stepping through each intermediate phase with guard prerequisites satisfied — you cannot skip directly.
+
+1. Read current phase: `mcp__exarchos__exarchos_workflow` with `action: "get"`, `featureId`, `query: ".phase"`
+2. If already `synthesize`, skip to Step 1.
+3. Otherwise, walk the transition chain for the workflow type:
+
+**Feature workflow:** `review` → `synthesize`
+- Guard `allReviewsPassed`: Ensure `reviews` has entries with status `"pass"` or `"approved"`
+- Transition to `synthesize`
+
+**Refactor overhaul:** `overhaul-delegate` → `overhaul-review` → `overhaul-update-docs` → `synthesize`
+
+| From | To | Guard | Prerequisite |
+|------|-----|-------|-------------|
+| `overhaul-delegate` | `overhaul-review` | `allTasksComplete` | All `tasks[].status = "complete"` |
+| `overhaul-review` | `overhaul-update-docs` | `allReviewsPassed` | `reviews` has entries with status `"pass"` or `"approved"` |
+| `overhaul-update-docs` | `synthesize` | `docsUpdated` | `validation.docsUpdated = true` |
+
+For each transition: set prerequisite state first (`action: "set"`, `updates`), then transition (`action: "set"`, `phase`).
+
+**Debug workflow:** `validate` → `synthesize`
+- Guard `allTestsPass`: Ensure `validation.testsPass = true`
+- Transition to `synthesize`
+
 ## Step 1: Verify Readiness
 
 Run the pre-synthesis readiness check:
