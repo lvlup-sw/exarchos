@@ -6,7 +6,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_FILE="$SCRIPT_DIR/../skills/delegation/SKILL.md"
+SKILL_DIR="$SCRIPT_DIR/../skills/delegation"
 
 PASS=0
 FAIL=0
@@ -14,7 +14,7 @@ FAIL=0
 assert_contains() {
   local label="$1"
   local pattern="$2"
-  if grep -q "$pattern" "$SKILL_FILE"; then
+  if grep -rq "$pattern" "$SKILL_DIR" --include="*.md"; then
     echo "PASS: $label"
     PASS=$((PASS + 1))
   else

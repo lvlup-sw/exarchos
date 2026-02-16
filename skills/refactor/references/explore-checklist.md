@@ -38,6 +38,19 @@
 - [ ] Test coverage gaps exist
 - [ ] Architectural documentation needs updating
 
+## Deterministic Scope Assessment
+
+Run the scope assessment script for a deterministic track recommendation:
+
+```bash
+bash scripts/assess-refactor-scope.sh --files <file1,file2,...>
+# or
+bash scripts/assess-refactor-scope.sh --state-file <path>
+```
+
+**On Exit 0:** Polish recommended — scope is contained (<=5 files, single module).
+**On Exit 1:** Overhaul recommended — scope exceeds polish limits (>5 files or cross-module).
+
 ## Output
 
 After exploration, update state with scope assessment using `mcp__exarchos__exarchos_workflow` with `action: "set"`:

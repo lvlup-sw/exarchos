@@ -16,9 +16,13 @@ Or auto-invoked after review failures.
    - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:
-   - Parse issue descriptions
-   - Identify file paths and line numbers
-   - Determine which worktree/branch owns the fix
+
+   ```bash
+   bash scripts/extract-fix-tasks.sh --state-file <path> [--review-report <path>] [--repo-root <path>]
+   ```
+
+   **On exit 0:** Tasks extracted successfully (JSON array on stdout).
+   **On exit 1:** Parse error — review report or state file malformed.
 
 3. **Create fix tasks** for each issue:
    - Use `fixer-prompt.md` template

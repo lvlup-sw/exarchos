@@ -82,4 +82,11 @@ bash scripts/post-delegation-check.sh \
 
 ## Step 7: Schema Sync (Auto-Detection)
 
-After all tasks complete, check for modified API files (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). If found, run `npm run sync:schemas` and commit via Graphite. See `@skills/sync-schemas/SKILL.md`.
+After all tasks complete, check if API files were modified:
+
+```bash
+bash scripts/needs-schema-sync.sh --repo-root <path> [--base-branch main]
+```
+
+**On exit 0:** No sync needed — proceed to review.
+**On exit 1:** Sync needed — API files modified (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). Run `npm run sync:schemas` and commit via Graphite before proceeding. See `@skills/sync-schemas/SKILL.md`.

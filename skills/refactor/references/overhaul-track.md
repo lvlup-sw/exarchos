@@ -108,6 +108,15 @@ Update state on completion using `mcp__exarchos__exarchos_workflow` with `action
 
 **Mandatory** - documentation must reflect new architecture.
 
+Verify all documentation links are valid:
+
+```bash
+bash scripts/verify-doc-links.sh --docs-dir docs/
+```
+
+**On Exit 0:** All links valid.
+**On Exit 1:** Broken links found — fix before proceeding.
+
 For overhaul, typically includes:
 - Architecture documentation updates
 - API documentation changes

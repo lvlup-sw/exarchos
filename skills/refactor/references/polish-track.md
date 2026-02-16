@@ -63,18 +63,23 @@ Update state on completion using `mcp__exarchos__exarchos_workflow` with `action
 
 ### 4. Validate Phase
 
-Verify refactor goals are met:
-- [ ] All existing tests pass
-- [ ] Each goal in brief is addressed
-- [ ] No new lint/type errors introduced
-- [ ] Code quality improved per brief
+Verify scope hasn't expanded beyond polish limits:
 
-Run validation:
 ```bash
-npm run test:run
-npm run lint  # or equivalent
-npm run typecheck  # if TypeScript
+bash scripts/check-polish-scope.sh --repo-root <path>
 ```
+
+**On Exit 0:** Scope OK — stay on polish track.
+**On Exit 1:** Scope expanded — switch to overhaul track.
+
+Then run the refactor validation:
+
+```bash
+bash scripts/validate-refactor.sh --repo-root <path>
+```
+
+**On Exit 0:** All checks pass (tests, lint, typecheck).
+**On Exit 1:** One or more checks failed — fix before proceeding.
 
 Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation` object and `phase` to "polish-update-docs".
 
