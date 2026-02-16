@@ -84,24 +84,19 @@ describe('subagent-context', () => {
       expect(orchestrate!.actions).toContain('task_fail');
     });
 
-    it('should exclude lead-only actions for delegate phase with teammate role', () => {
-      // Arrange
+    it('should not have any denied orchestrate actions for delegate phase with teammate role', () => {
+      // Arrange — with team actions removed, only task actions remain (all teammate-accessible)
       const phase = 'delegate';
       const role = 'teammate';
 
       // Act
       const result = filterToolsForPhaseAndRole(phase, role);
 
-      // Assert — team_spawn, team_message, etc. should be in denied list
+      // Assert — no orchestrate actions should be denied (all 3 remaining are teammate-accessible)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
-      expect(deniedOrchestrate).toBeDefined();
-      expect(deniedOrchestrate!.actions).toContain('team_spawn');
-      expect(deniedOrchestrate!.actions).toContain('team_message');
-      expect(deniedOrchestrate!.actions).toContain('team_broadcast');
-      expect(deniedOrchestrate!.actions).toContain('team_shutdown');
-      expect(deniedOrchestrate!.actions).toContain('team_status');
+      expect(deniedOrchestrate).toBeUndefined();
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -133,7 +128,6 @@ describe('subagent-context', () => {
       expect(view!.actions).toContain('pipeline');
       expect(view!.actions).toContain('tasks');
       expect(view!.actions).toContain('workflow_status');
-      expect(view!.actions).toContain('team_status');
     });
 
     it('should exclude orchestrate actions for review phase with teammate role', () => {
@@ -149,8 +143,8 @@ describe('subagent-context', () => {
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      // All 8 orchestrate actions should be denied in review phase
-      expect(deniedOrchestrate!.actions.length).toBe(8);
+      // All 3 orchestrate actions should be denied in review phase
+      expect(deniedOrchestrate!.actions.length).toBe(3);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {
@@ -214,7 +208,7 @@ describe('subagent-context', () => {
         { name: 'exarchos_event', actions: ['append', 'query'] },
       ];
       const denied: FilteredComposite[] = [
-        { name: 'exarchos_orchestrate', actions: ['team_spawn', 'team_message'] },
+        { name: 'exarchos_orchestrate', actions: ['task_claim', 'task_complete'] },
         { name: 'exarchos_workflow', actions: ['init', 'cancel'] },
       ];
 
@@ -224,7 +218,7 @@ describe('subagent-context', () => {
       // Assert
       expect(output).toContain('Do NOT call:');
       expect(output).toContain('exarchos_orchestrate');
-      expect(output).toContain('team_spawn');
+      expect(output).toContain('task_claim');
       expect(output).toContain('exarchos_workflow');
       expect(output).toContain('init');
       expect(output).toContain('cancel');

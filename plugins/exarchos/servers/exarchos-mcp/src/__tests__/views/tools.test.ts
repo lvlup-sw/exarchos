@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import {
   handleViewWorkflowStatus,
-  handleViewTeamStatus,
   handleViewTasks,
   handleViewPipeline,
   resetMaterializerCache,
@@ -34,15 +33,6 @@ async function populateWorkflow(streamId: string) {
   await store.append(streamId, {
     type: 'workflow.started',
     data: { featureId: 'auth-feature', workflowType: 'feature' },
-  });
-  await store.append(streamId, {
-    type: 'team.formed',
-    data: {
-      teammates: [
-        { name: 'agent-1', role: 'coder', model: 'claude' },
-        { name: 'agent-2', role: 'reviewer' },
-      ],
-    },
   });
   await store.append(streamId, {
     type: 'phase.transitioned',
@@ -111,52 +101,6 @@ describe('handleViewWorkflowStatus', () => {
 
   it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
     const result = await handleViewWorkflowStatus(
-      { workflowId: 'INVALID/ID' },
-      tempDir,
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(result.error!.code).toBe('VIEW_ERROR');
-    expect(result.error!.message).toBeTruthy();
-  });
-});
-
-describe('handleViewTeamStatus', () => {
-  it('should return team composition and current tasks', async () => {
-    await populateWorkflow('wf-001');
-
-    const result = await handleViewTeamStatus({ workflowId: 'wf-001' }, tempDir);
-
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    const teammates = data.teammates as Array<{ name: string; role: string }>;
-    expect(teammates).toHaveLength(2);
-    expect(teammates[0].name).toBe('agent-1');
-    expect(teammates[0].role).toBe('coder');
-  });
-
-  it('should use default streamId when workflowId is omitted', async () => {
-    await store.append('default', {
-      type: 'team.formed',
-      data: {
-        teammates: [
-          { name: 'default-agent', role: 'coder' },
-        ],
-      },
-    });
-
-    const result = await handleViewTeamStatus({}, tempDir);
-
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    const teammates = data.teammates as Array<{ name: string; role: string }>;
-    expect(teammates).toHaveLength(1);
-    expect(teammates[0].name).toBe('default-agent');
-  });
-
-  it('should return VIEW_ERROR when workflowId contains invalid characters', async () => {
-    const result = await handleViewTeamStatus(
       { workflowId: 'INVALID/ID' },
       tempDir,
     );
