@@ -15,18 +15,6 @@ describe('validateAgentEvent', () => {
       ).toThrow();
     });
 
-    it('should reject agent.message when agentId and source are both missing', () => {
-      expect(() =>
-        validateAgentEvent({ type: 'agent.message' }),
-      ).toThrow();
-    });
-
-    it('should reject agent.handoff when agentId is missing', () => {
-      expect(() =>
-        validateAgentEvent({ type: 'agent.handoff', source: 'test' }),
-      ).toThrow();
-    });
-
     it('should reject task.progressed when source is missing', () => {
       expect(() =>
         validateAgentEvent({ type: 'task.progressed', agentId: 'agent-1' }),
@@ -36,18 +24,6 @@ describe('validateAgentEvent', () => {
     it('should pass task.claimed when both agentId and source are present', () => {
       expect(
         validateAgentEvent({ type: 'task.claimed', agentId: 'agent-1', source: 'test' }),
-      ).toBe(true);
-    });
-
-    it('should pass agent.message when both agentId and source are present', () => {
-      expect(
-        validateAgentEvent({ type: 'agent.message', agentId: 'agent-1', source: 'orchestrator' }),
-      ).toBe(true);
-    });
-
-    it('should pass agent.handoff when both agentId and source are present', () => {
-      expect(
-        validateAgentEvent({ type: 'agent.handoff', agentId: 'agent-1', source: 'test' }),
       ).toBe(true);
     });
 
@@ -76,21 +52,13 @@ describe('validateAgentEvent', () => {
         validateAgentEvent({ type: 'task.assigned' }),
       ).toBe(true);
     });
-
-    it('should pass team.formed without agentId or source', () => {
-      expect(
-        validateAgentEvent({ type: 'team.formed' }),
-      ).toBe(true);
-    });
   });
 
   describe('AGENT_EVENT_TYPES constant', () => {
-    it('should contain exactly the four agent event types', () => {
+    it('should contain exactly the two agent event types', () => {
       expect(AGENT_EVENT_TYPES).toEqual([
         'task.claimed',
         'task.progressed',
-        'agent.message',
-        'agent.handoff',
       ]);
     });
   });

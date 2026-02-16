@@ -45,7 +45,7 @@ describe('EventStore Append', () => {
     const store = new EventStore(tempDir);
 
     const e1 = await store.append('my-workflow', { type: 'workflow.started' });
-    const e2 = await store.append('my-workflow', { type: 'team.formed' });
+    const e2 = await store.append('my-workflow', { type: 'task.assigned' });
     const e3 = await store.append('my-workflow', { type: 'phase.transitioned' });
 
     expect(e1.sequence).toBe(1);
@@ -90,7 +90,7 @@ describe('EventStore Append', () => {
     // Write some events with one store instance
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started' });
-    await store1.append('my-workflow', { type: 'team.formed' });
+    await store1.append('my-workflow', { type: 'task.assigned' });
 
     // Create a new store instance (simulating restart)
     const store2 = new EventStore(tempDir);
@@ -105,8 +105,8 @@ describe('EventStore Append', () => {
 
     const a1 = await store.append('stream-a', { type: 'workflow.started' });
     const b1 = await store.append('stream-b', { type: 'workflow.started' });
-    const a2 = await store.append('stream-a', { type: 'team.formed' });
-    const b2 = await store.append('stream-b', { type: 'team.formed' });
+    const a2 = await store.append('stream-a', { type: 'task.assigned' });
+    const b2 = await store.append('stream-b', { type: 'task.assigned' });
 
     expect(a1.sequence).toBe(1);
     expect(b1.sequence).toBe(1);
@@ -143,7 +143,7 @@ describe('EventStore Query', () => {
   it('should return all events when no filters', async () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
     await store.append('my-workflow', { type: 'phase.transitioned' });
     await store.append('my-workflow', { type: 'task.claimed' });
     await store.append('my-workflow', { type: 'task.progressed' });
@@ -169,7 +169,7 @@ describe('EventStore Query', () => {
   it('should filter by sinceSequence', async () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
     await store.append('my-workflow', { type: 'phase.transitioned' });
     await store.append('my-workflow', { type: 'task.claimed' });
     await store.append('my-workflow', { type: 'task.progressed' });
@@ -243,7 +243,7 @@ describe('EventStore Optimistic Concurrency', () => {
   it('should accept append with correct expectedSequence', async () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
 
     // expectedSequence=2 means "I expect the current sequence to be 2"
     const event = await store.append(
@@ -257,7 +257,7 @@ describe('EventStore Optimistic Concurrency', () => {
   it('should reject append with stale expectedSequence', async () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
 
     // expectedSequence=1 but actual is 2
     await expect(
@@ -275,7 +275,7 @@ describe('EventStore Optimistic Concurrency', () => {
 
     // store2 tries to append with expectedSequence=0 (stale)
     await expect(
-      store2.append('my-workflow', { type: 'agent.message' }, { expectedSequence: 0 }),
+      store2.append('my-workflow', { type: 'task.progressed' }, { expectedSequence: 0 }),
     ).rejects.toThrow(SequenceConflictError);
   });
 
@@ -291,7 +291,7 @@ describe('EventStore Optimistic Concurrency', () => {
     // Now store2 can append with correct expectedSequence
     const event = await store2.append(
       'my-workflow',
-      { type: 'team.formed' },
+      { type: 'task.assigned' },
       { expectedSequence: 1 },
     );
     expect(event.sequence).toBe(2);
@@ -300,7 +300,7 @@ describe('EventStore Optimistic Concurrency', () => {
   it('SequenceConflictError should contain expected and actual', async () => {
     const store = new EventStore(tempDir);
     await store.append('my-workflow', { type: 'workflow.started' });
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
     await store.append('my-workflow', { type: 'phase.transitioned' });
 
     try {
@@ -535,7 +535,7 @@ describe('EventStore Sequence Persistence', () => {
     expect(parsed.sequence).toBe(1);
 
     // Append another and verify sequence increments
-    await store.append('my-workflow', { type: 'team.formed' });
+    await store.append('my-workflow', { type: 'task.assigned' });
     const content2 = await fs.readFile(seqPath, 'utf-8');
     const parsed2 = JSON.parse(content2);
     expect(parsed2.sequence).toBe(2);
@@ -545,7 +545,7 @@ describe('EventStore Sequence Persistence', () => {
   it('EventStore_NewInstance_ReadsSeqFile', async () => {
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started' });
-    await store1.append('my-workflow', { type: 'team.formed' });
+    await store1.append('my-workflow', { type: 'task.assigned' });
     await store1.append('my-workflow', { type: 'phase.transitioned' });
 
     // Create a NEW store instance (simulating server restart)
@@ -566,7 +566,7 @@ describe('EventStore Sequence Persistence', () => {
   it('EventStore_SeqFileMissing_FallsBackToLineCount', async () => {
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started' });
-    await store1.append('my-workflow', { type: 'team.formed' });
+    await store1.append('my-workflow', { type: 'task.assigned' });
 
     // Delete the .seq file to simulate missing file
     const seqPath = path.join(tempDir, 'my-workflow.seq');
@@ -593,9 +593,9 @@ describe('EventStore Sequence Persistence', () => {
     await fs.mkdir(seqPath);
 
     // Second append should still succeed despite .seq write failure
-    const event = await store.append('my-workflow', { type: 'team.formed' });
+    const event = await store.append('my-workflow', { type: 'task.assigned' });
     expect(event.sequence).toBe(2);
-    expect(event.type).toBe('team.formed');
+    expect(event.type).toBe('task.assigned');
 
     // Verify the JSONL file has both events (source of truth)
     const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
@@ -611,7 +611,7 @@ describe('EventStore Sequence Persistence', () => {
   it('EventStore_SeqFileCorrupt_FallsBackToLineCount', async () => {
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started' });
-    await store1.append('my-workflow', { type: 'team.formed' });
+    await store1.append('my-workflow', { type: 'task.assigned' });
 
     // Write garbage to the .seq file
     const seqPath = path.join(tempDir, 'my-workflow.seq');

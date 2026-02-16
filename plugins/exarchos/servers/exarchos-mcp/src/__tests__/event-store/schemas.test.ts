@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   WorkflowEventBase,
   WorkflowStartedData,
-  TeamFormedData,
   PhaseTransitionedData,
   TaskAssignedData,
   TaskClaimedData,
@@ -10,8 +9,6 @@ import {
   TestResultData,
   TaskCompletedData,
   TaskFailedData,
-  AgentMessageData,
-  AgentHandoffData,
   GateExecutedData,
   GateSelfCorrectedData,
   StackPositionFilledData,
@@ -161,34 +158,6 @@ describe('WorkflowStartedData', () => {
       workflowType: 'debug',
     });
     expect(data.designPath).toBeUndefined();
-  });
-});
-
-describe('TeamFormedData', () => {
-  it('should parse valid TeamFormed with teammates array', () => {
-    const data = TeamFormedData.parse({
-      teammates: [
-        { name: 'orchestrator', role: 'orchestrator', model: 'opus-4' },
-        { name: 'coder', role: 'specialist' },
-      ],
-    });
-    expect(data.teammates).toHaveLength(2);
-    expect(data.teammates[0].name).toBe('orchestrator');
-    expect(data.teammates[0].model).toBe('opus-4');
-    expect(data.teammates[1].model).toBeUndefined();
-  });
-
-  it('should accept empty teammates array', () => {
-    const data = TeamFormedData.parse({ teammates: [] });
-    expect(data.teammates).toHaveLength(0);
-  });
-
-  it('should reject teammate missing name', () => {
-    expect(() =>
-      TeamFormedData.parse({
-        teammates: [{ role: 'specialist' }],
-      }),
-    ).toThrow();
   });
 });
 
@@ -366,68 +335,6 @@ describe('TaskFailedData', () => {
   });
 });
 
-// ─── Inter-Agent Events (A02) ───────────────────────────────────────────────
-
-describe('AgentMessageData', () => {
-  it('should parse valid agent message', () => {
-    const data = AgentMessageData.parse({
-      from: 'orchestrator',
-      to: 'coder-1',
-      content: 'Start implementing task-001',
-      messageType: 'direct',
-    });
-    expect(data.from).toBe('orchestrator');
-    expect(data.to).toBe('coder-1');
-    expect(data.content).toBe('Start implementing task-001');
-    expect(data.messageType).toBe('direct');
-  });
-
-  it('should accept broadcast message type', () => {
-    const data = AgentMessageData.parse({
-      from: 'orchestrator',
-      to: 'all',
-      content: 'Workflow paused',
-      messageType: 'broadcast',
-    });
-    expect(data.messageType).toBe('broadcast');
-  });
-
-  it('should reject invalid message type', () => {
-    expect(() =>
-      AgentMessageData.parse({
-        from: 'a',
-        to: 'b',
-        content: 'test',
-        messageType: 'invalid',
-      }),
-    ).toThrow();
-  });
-});
-
-describe('AgentHandoffData', () => {
-  it('should parse valid agent handoff', () => {
-    const data = AgentHandoffData.parse({
-      from: 'coder-1',
-      to: 'reviewer-1',
-      context: 'Completed task-001, ready for review',
-      reason: 'task-completed',
-    });
-    expect(data.from).toBe('coder-1');
-    expect(data.to).toBe('reviewer-1');
-    expect(data.context).toBe('Completed task-001, ready for review');
-    expect(data.reason).toBe('task-completed');
-  });
-
-  it('should allow optional fields', () => {
-    const data = AgentHandoffData.parse({
-      from: 'coder-1',
-      to: 'reviewer-1',
-    });
-    expect(data.context).toBeUndefined();
-    expect(data.reason).toBeUndefined();
-  });
-});
-
 // ─── Quality Gate Events (A03) ──────────────────────────────────────────────
 
 describe('GateExecutedData', () => {
@@ -552,13 +459,12 @@ describe('RemediationStartedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 31 event types', () => {
-    expect(EventTypes).toHaveLength(31);
+  it('should contain all 28 event types', () => {
+    expect(EventTypes).toHaveLength(28);
   });
 
   it('should include workflow-level types', () => {
     expect(EventTypes).toContain('workflow.started');
-    expect(EventTypes).toContain('team.formed');
     expect(EventTypes).toContain('phase.transitioned');
     expect(EventTypes).toContain('task.assigned');
   });
@@ -569,11 +475,6 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('test.result');
     expect(EventTypes).toContain('task.completed');
     expect(EventTypes).toContain('task.failed');
-  });
-
-  it('should include inter-agent types', () => {
-    expect(EventTypes).toContain('agent.message');
-    expect(EventTypes).toContain('agent.handoff');
   });
 
   it('should include quality gate types', () => {

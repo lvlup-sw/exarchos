@@ -2088,7 +2088,7 @@ describe('Store-Based Event Consumers', () => {
     const eventStore = new EventStore(tmpDir);
 
     await eventStore.append('recent-test', { type: 'workflow.started' });
-    await eventStore.append('recent-test', { type: 'team.formed' });
+    await eventStore.append('recent-test', { type: 'task.assigned' });
     await eventStore.append('recent-test', { type: 'phase.transitioned' });
     await eventStore.append('recent-test', { type: 'task.assigned' });
     await eventStore.append('recent-test', { type: 'task.completed' });
