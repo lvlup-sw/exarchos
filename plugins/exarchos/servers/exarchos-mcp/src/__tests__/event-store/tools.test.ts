@@ -182,7 +182,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
-        event: { type: 'phase.transitioned' },
+        event: { type: 'workflow.transition' },
         expectedSequence: 1,
       },
       tempDir,
@@ -242,7 +242,7 @@ describe('handleEventQuery', () => {
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'phase.transitioned' } },
+      { stream: 'my-workflow', event: { type: 'workflow.transition' } },
       tempDir,
     );
 

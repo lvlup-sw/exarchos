@@ -41,9 +41,9 @@ describe('validateAgentEvent', () => {
       ).toBe(true);
     });
 
-    it('should pass phase.transitioned without agentId or source', () => {
+    it('should pass workflow.transition without agentId or source', () => {
       expect(
-        validateAgentEvent({ type: 'phase.transitioned' }),
+        validateAgentEvent({ type: 'workflow.transition' }),
       ).toBe(true);
     });
 

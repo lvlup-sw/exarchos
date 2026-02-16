@@ -498,7 +498,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
   it('queries all events (not just task.claimed) to get accurate sequence', async () => {
     // Arrange: seed with mixed event types
     await sharedStore.append('wf-mixed', { type: 'workflow.started', data: {} });
-    await sharedStore.append('wf-mixed', { type: 'phase.transitioned', data: {} });
+    await sharedStore.append('wf-mixed', { type: 'workflow.transition', data: {} });
     await sharedStore.append('wf-mixed', { type: 'task.assigned', data: {} });
 
     // Spy on sharedStore.query to verify it queries without type filter

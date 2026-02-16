@@ -2089,13 +2089,13 @@ describe('Store-Based Event Consumers', () => {
 
     await eventStore.append('recent-test', { type: 'workflow.started' });
     await eventStore.append('recent-test', { type: 'task.assigned' });
-    await eventStore.append('recent-test', { type: 'phase.transitioned' });
+    await eventStore.append('recent-test', { type: 'workflow.transition' });
     await eventStore.append('recent-test', { type: 'task.assigned' });
     await eventStore.append('recent-test', { type: 'task.completed' });
 
     const recent = await getRecentEventsFromStore(eventStore, 'recent-test', 3);
     expect(recent).toHaveLength(3);
-    expect(recent[0].type).toBe('phase.transitioned');
+    expect(recent[0].type).toBe('workflow.transition');
     expect(recent[2].type).toBe('task.completed');
   });
 });
