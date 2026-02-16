@@ -286,12 +286,11 @@ See `@skills/delegation/references/troubleshooting.md` for detailed troubleshoot
 Emit events at each delegation milestone using Exarchos MCP tools:
 
 1. **Delegation start:** `exarchos_event` append `workflow.started` (if not already emitted)
-2. **Team composition:** `exarchos_event` append `team.formed` with teammates array
-3. **Task dispatch:** `exarchos_orchestrate` `team_spawn` to register agent, then Task tool to launch. Both are always used together -- `team_spawn` does not replace Task tool
-4. **Task assignment:** `exarchos_event` append `task.assigned` with taskId, title, branch, worktree
-5. **Monitor:** `exarchos_view` `workflow_status` or `exarchos_workflow` `get` with `fields: ["tasks"]`
-6. **Task completion:** Record stack positions via `exarchos_view` `stack_place`. Subagents handle Graphite stacking via `gt create`
-7. **All complete:** `exarchos_event` append `phase.transitioned` from delegate to next phase
+2. **Task dispatch:** Launch subagents via Claude Code `Task` tool. Inter-agent messaging uses Claude Code's native Agent Teams (not Exarchos)
+3. **Task assignment:** `exarchos_event` append `task.assigned` with taskId, title, branch, worktree
+4. **Monitor:** `exarchos_view` `workflow_status` or `exarchos_workflow` `get` with `fields: ["tasks"]`
+5. **Task completion:** Record stack positions via `exarchos_view` `stack_place`. Subagents handle Graphite stacking via `gt create`
+6. **All complete:** `exarchos_event` append `phase.transitioned` from delegate to next phase
 
 ### Claim Guard
 
