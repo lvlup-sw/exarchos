@@ -117,6 +117,32 @@ describe('Core Tools', () => {
     });
   });
 
+  describe('ToolInit_DuplicateInit_NoOrphanEvents', () => {
+    it('should return STATE_ALREADY_EXISTS and not emit duplicate workflow.started event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      // First init — should succeed and emit one event
+      const first = await handleInit(
+        { featureId: 'dup-init', workflowType: 'feature' },
+        tmpDir,
+      );
+      expect(first.success).toBe(true);
+
+      // Second init — should fail without appending another event
+      const second = await handleInit(
+        { featureId: 'dup-init', workflowType: 'feature' },
+        tmpDir,
+      );
+      expect(second.success).toBe(false);
+      expect(second.error?.code).toBe('STATE_ALREADY_EXISTS');
+
+      // Verify: exactly ONE workflow.started event in the store, not two
+      const events = await eventStore.query('dup-init', { type: 'workflow.started' });
+      expect(events).toHaveLength(1);
+    });
+  });
+
   // ─── ToolList ───────────────────────────────────────────────────────────────
 
   describe('ToolList_ActiveWorkflows_ReturnsWithStaleness', () => {
@@ -1977,17 +2003,19 @@ describe('Diagnostic Event Emission', () => {
 
 describe('Guaranteed Event Append', () => {
   it('handleSet_EventAppendFails_ReturnsSuccessWithWarning', async () => {
-    // Arrange — create a mock EventStore whose append method throws
+    // Arrange — init with real event store, then mock append to fail for set
     const eventStore = new EventStore(tmpDir);
-    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
-      new Error('Disk full'),
-    );
     configureWorkflowEventStore(eventStore);
 
     await handleInit({ featureId: 'event-fail', workflowType: 'feature' }, tmpDir);
     await handleSet(
       { featureId: 'event-fail', updates: { 'artifacts.design': 'docs/test.md' } },
       tmpDir,
+    );
+
+    // Now mock append to fail for the transition event
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Disk full'),
     );
 
     // Act — attempt a phase transition that triggers event append
@@ -2012,14 +2040,16 @@ describe('Guaranteed Event Append', () => {
   });
 
   it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
-    // Arrange — create a mock EventStore whose append method throws
+    // Arrange — init with real event store, then mock append to fail for checkpoint
     const eventStore = new EventStore(tmpDir);
-    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
-      new Error('Permission denied'),
-    );
     configureWorkflowEventStore(eventStore);
 
     await handleInit({ featureId: 'ckpt-event-fail', workflowType: 'feature' }, tmpDir);
+
+    // Now mock append to fail for the checkpoint event
+    const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Permission denied'),
+    );
 
     // Act — attempt a checkpoint that triggers event append
     const result = await handleCheckpoint(
@@ -2156,12 +2186,13 @@ describe('B5: Event-First Mutation Ordering', () => {
     expect(state.phase).toBe('plan');
   });
 
-  it('WorkflowStateSchema_NoEventsField: schema does not include _events or _eventSequence', async () => {
+  it('WorkflowStateSchema_NoEventsField: schema does not include _events, _eventSequence is passthrough', async () => {
     await handleInit({ featureId: 'schema-check', workflowType: 'feature' }, tmpDir);
     const state = await readStateFile(path.join(tmpDir, 'schema-check.state.json'));
-    // After B5, _events and _eventSequence should not be present in the state
+    // _events should not be present in the state
     expect((state as Record<string, unknown>)._events).toBeUndefined();
-    expect((state as Record<string, unknown>)._eventSequence).toBeUndefined();
+    // _eventSequence is now a passthrough field set by event-first init (0 when no event store)
+    expect((state as Record<string, unknown>)._eventSequence).toBe(0);
   });
 });
 
@@ -2305,5 +2336,62 @@ describe('handleGet fields projection', () => {
     expect(data.phase).toBe('ideate');
     expect(data._history).toBeUndefined();
     expect(data._events).toBeUndefined();
+  });
+});
+
+// ─── handleInit Event-First ─────────────────────────────────────────────────
+
+describe('handleInit_EventFirst', () => {
+  it('should append workflow.started event before creating state file', async () => {
+    // Arrange
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Act
+    await handleInit({ featureId: 'ef-init', workflowType: 'feature' }, tmpDir);
+
+    // Assert — event should exist
+    const events = await eventStore.query('ef-init');
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('workflow.started');
+
+    // Assert — state file should exist with _eventSequence matching event
+    const stateFile = path.join(tmpDir, 'ef-init.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    expect(raw._eventSequence).toBe(events[0].sequence);
+  });
+
+  it('should fail and NOT create state file if event append fails', async () => {
+    // Arrange — create a mock event store that throws on append
+    const eventStore = new EventStore(tmpDir);
+    vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Event store unavailable'));
+    configureWorkflowEventStore(eventStore);
+
+    // Act
+    const result = await handleInit({ featureId: 'fail-init', workflowType: 'feature' }, tmpDir);
+
+    // Assert — should return error
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+
+    // Assert — state file should NOT exist
+    const stateFile = path.join(tmpDir, 'fail-init.state.json');
+    await expect(fs.access(stateFile)).rejects.toThrow();
+  });
+
+  it('should work without event store (graceful degradation)', async () => {
+    // Arrange
+    configureWorkflowEventStore(null);
+
+    // Act
+    const result = await handleInit({ featureId: 'no-es', workflowType: 'feature' }, tmpDir);
+
+    // Assert — should succeed
+    expect(result.success).toBe(true);
+
+    // Assert — state file should exist with _eventSequence = 0
+    const stateFile = path.join(tmpDir, 'no-es.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    expect(raw._eventSequence).toBe(0);
   });
 });

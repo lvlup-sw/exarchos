@@ -40,6 +40,7 @@ export async function initStateFile(
   stateDir: string,
   featureId: string,
   workflowType: WorkflowType,
+  extraFields?: Record<string, unknown>,
 ): Promise<{ stateFile: string; state: WorkflowState }> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
@@ -75,6 +76,7 @@ export async function initStateFile(
       lastActivityTimestamp: now,
       staleAfterMinutes: 120,
     },
+    ...extraFields,
   };
 
   const parseResult = WorkflowStateSchema.safeParse(rawState);
