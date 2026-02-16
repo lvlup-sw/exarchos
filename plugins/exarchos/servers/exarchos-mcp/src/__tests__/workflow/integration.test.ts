@@ -17,6 +17,7 @@ import { appendEvent, mapInternalToExternalType } from '../../workflow/events.js
 import { EventStore } from '../../event-store/store.js';
 import { configureQueryEventStore } from '../../workflow/query.js';
 import { configureCancelEventStore } from '../../workflow/cancel.js';
+import { readStateFile, reconcileFromEvents } from '../../workflow/state-store.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
 
 describe('Integration', () => {
@@ -726,6 +727,187 @@ describe('Integration', () => {
       expect('mergedBranches' in synthesis).toBe(true);
       expect('prUrl' in synthesis).toBe(true);
       expect('prFeedback' in synthesis).toBe(true);
+    });
+  });
+
+  // ─── 9. EventFirst_FullLifecycle ──────────────────────────────────────────
+
+  describe('EventFirst_FullLifecycle', () => {
+    // ── Helper: advance through guard-gated transitions ─────────────────
+
+    async function initAndAdvanceTo(
+      featureId: string,
+      targetPhase: string,
+      eventStore: EventStore,
+    ): Promise<void> {
+      await handleInit({ featureId, workflowType: 'feature' }, stateDir);
+
+      const phases = ['plan', 'plan-review', 'delegate'];
+      const guardSetups: Record<string, () => Promise<void>> = {
+        plan: async () => {
+          await handleSet(
+            { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
+            stateDir,
+            eventStore,
+          );
+        },
+        'plan-review': async () => {
+          await handleSet(
+            { featureId, updates: { 'artifacts.plan': 'docs/plan.md' } },
+            stateDir,
+            eventStore,
+          );
+        },
+        delegate: async () => {
+          await handleSet(
+            { featureId, updates: { planReview: { approved: true } } },
+            stateDir,
+            eventStore,
+          );
+        },
+      };
+
+      for (const phase of phases) {
+        if (guardSetups[phase]) {
+          await guardSetups[phase]();
+        }
+        const result = await handleSet({ featureId, phase }, stateDir, eventStore);
+        if (!result.success) {
+          throw new Error(`Failed to transition to ${phase}: ${result.error?.message}`);
+        }
+        if (phase === targetPhase) break;
+      }
+    }
+
+    it('should rebuild state entirely from events after state file deletion', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+
+      // Init + transition through ideate → plan → plan-review
+      await initAndAdvanceTo('lifecycle-rebuild', 'plan-review', eventStore);
+
+      // Verify state is at plan-review
+      const stateFile = path.join(stateDir, 'lifecycle-rebuild.state.json');
+      let state = await readStateFile(stateFile);
+      expect(state.phase).toBe('plan-review');
+
+      // Delete the state file
+      await fs.unlink(stateFile);
+
+      // Reconcile from events
+      const result = await reconcileFromEvents(stateDir, 'lifecycle-rebuild', eventStore);
+
+      expect(result.reconciled).toBe(true);
+      expect(result.eventsApplied).toBeGreaterThan(0);
+
+      // Verify state rebuilt at correct phase
+      state = await readStateFile(stateFile);
+      expect(state.phase).toBe('plan-review');
+      expect(state.featureId).toBe('lifecycle-rebuild');
+      expect(state.workflowType).toBe('feature');
+    });
+
+    it('should detect and recover stale state after simulated crash', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit({ featureId: 'stale-recovery', workflowType: 'feature' }, stateDir);
+      // Set guard and transition to plan
+      await handleSet(
+        { featureId: 'stale-recovery', updates: { 'artifacts.design': 'docs/design.md' } },
+        stateDir,
+        eventStore,
+      );
+      await handleSet({ featureId: 'stale-recovery', phase: 'plan' }, stateDir, eventStore);
+
+      // Simulate crash: manually append transition event WITHOUT updating state
+      await eventStore.append('stale-recovery', {
+        type: 'workflow.transition' as ExternalEventType,
+        data: { from: 'plan', to: 'plan-review', trigger: 'handleSet', featureId: 'stale-recovery' },
+      });
+
+      // State is at 'plan' but events say 'plan-review'
+      const stateFile = path.join(stateDir, 'stale-recovery.state.json');
+      let state = await readStateFile(stateFile);
+      expect(state.phase).toBe('plan'); // stale
+
+      // Reconcile should catch up
+      const result = await reconcileFromEvents(stateDir, 'stale-recovery', eventStore);
+      expect(result.reconciled).toBe(true);
+
+      state = await readStateFile(stateFile);
+      expect(state.phase).toBe('plan-review');
+    });
+
+    it('should maintain event-state consistency across init/set/checkpoint sequence', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+
+      // Init
+      await handleInit({ featureId: 'consistency-test', workflowType: 'feature' }, stateDir);
+      let events = await eventStore.query('consistency-test');
+      expect(events.length).toBe(1); // workflow.started
+
+      const stateFile = path.join(stateDir, 'consistency-test.state.json');
+      let raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      expect(raw._eventSequence).toBe(1);
+
+      // Set guard and transition to plan
+      await handleSet(
+        { featureId: 'consistency-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        stateDir,
+        eventStore,
+      );
+      await handleSet({ featureId: 'consistency-test', phase: 'plan' }, stateDir, eventStore);
+      events = await eventStore.query('consistency-test');
+      expect(events.length).toBe(2); // workflow.started + workflow.transition
+
+      raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      expect(raw._eventSequence).toBe(2);
+
+      // Checkpoint
+      await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir);
+      events = await eventStore.query('consistency-test');
+      expect(events.length).toBe(3); // + workflow.checkpoint
+
+      // Another phase transition (plan -> plan-review)
+      await handleSet(
+        { featureId: 'consistency-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
+        stateDir,
+        eventStore,
+      );
+      await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
+      events = await eventStore.query('consistency-test');
+      expect(events.length).toBe(4); // + another workflow.transition
+
+      raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      expect(raw._eventSequence).toBe(4);
+
+      // Reconcile should be idempotent (no changes)
+      const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
+      expect(result.reconciled).toBe(false);
+      expect(result.eventsApplied).toBe(0);
+    });
+
+    it('should verify idempotency keys on transition events', async () => {
+      const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit({ featureId: 'idem-verify', workflowType: 'feature' }, stateDir);
+      // Set guard and transition to plan
+      await handleSet(
+        { featureId: 'idem-verify', updates: { 'artifacts.design': 'docs/design.md' } },
+        stateDir,
+        eventStore,
+      );
+      await handleSet({ featureId: 'idem-verify', phase: 'plan' }, stateDir, eventStore);
+
+      const events = await eventStore.query('idem-verify');
+      const transitions = events.filter((e) => e.type === 'workflow.transition');
+
+      expect(transitions.length).toBe(1);
+      expect(transitions[0].idempotencyKey).toBeDefined();
+      expect(transitions[0].idempotencyKey).toContain('idem-verify');
     });
   });
 });
