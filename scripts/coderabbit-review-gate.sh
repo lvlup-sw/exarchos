@@ -363,8 +363,24 @@ decide_action() {
     local round_count="$1"
     local active_thread_count="$2"
     local has_blockers="$3"  # "true" or "false"
-    # Stub — returns "approve"
-    echo "approve"
+
+    # Decision matrix:
+    # At or past max rounds with blockers → escalate
+    # At or past max rounds without blockers → approve
+    # Round 1 with no active threads → approve
+    # Round 2+ without blockers → approve
+    # Otherwise → wait
+    if [[ "$round_count" -ge "$MAX_ROUNDS" && "$has_blockers" == "true" ]]; then
+        echo "escalate"
+    elif [[ "$round_count" -ge "$MAX_ROUNDS" && "$has_blockers" != "true" ]]; then
+        echo "approve"
+    elif [[ "$round_count" -eq 1 && "$active_thread_count" -eq 0 ]]; then
+        echo "approve"
+    elif [[ "$round_count" -ge 2 && "$has_blockers" != "true" ]]; then
+        echo "approve"
+    else
+        echo "wait"
+    fi
 }
 
 # ============================================================

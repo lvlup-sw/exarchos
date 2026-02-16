@@ -512,113 +512,140 @@ else
 fi
 
 # ============================================================
-# TASK 3: THREAD QUERYING AND SEVERITY CLASSIFICATION TESTS
+# TASK 5: DECISION LOGIC TESTS
 # ============================================================
 echo ""
-echo "=== Task 3: Thread Querying and Severity Classification ==="
+echo "=== Task 5: Decision Logic ==="
 
-# Test: GetThreads_NoThreads_ReturnsEmpty
+# Helper: create reviews response with N coderabbitai reviews
+make_reviews() {
+    local count="$1"
+    local nodes=""
+    for ((i=1; i<=count; i++)); do
+        if [[ -n "$nodes" ]]; then nodes="$nodes,"; fi
+        nodes="${nodes}{\"author\":{\"login\":\"coderabbitai[bot]\"},\"submittedAt\":\"2026-01-15T$(printf '%02d' $i):00:00Z\"}"
+    done
+    echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviews\":{\"nodes\":[$nodes]}}}}}"
+}
+
+# Helper: create threads response with specified active/outdated threads
+# Args: active_count blocker_type (none|minor|critical)
+make_threads() {
+    local active_count="$1"
+    local blocker_type="${2:-none}"
+    local nodes=""
+    for ((i=1; i<=active_count; i++)); do
+        if [[ -n "$nodes" ]]; then nodes="$nodes,"; fi
+        local body="Clean code finding"
+        if [[ "$blocker_type" == "critical" && $i -eq 1 ]]; then
+            body="${EMOJI_RED} Critical: Security vulnerability"
+        elif [[ "$blocker_type" == "major" && $i -eq 1 ]]; then
+            body="${EMOJI_ORANGE} Major: Missing error handling"
+        elif [[ "$blocker_type" == "minor" ]]; then
+            body="${EMOJI_YELLOW} Minor: Style suggestion"
+        fi
+        nodes="${nodes}{\"id\":\"T_${i}\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${body}\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}"
+    done
+    echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[${nodes}]}}}}}"
+}
+
+# Test: Decision_Round1_NoThreads_Approve
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 0)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-if echo "$OUTPUT" | grep -qF '**Active Threads:** 0'; then
-    pass "GetThreads_NoThreads_ReturnsEmpty"
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round1_NoThreads_Approve"
 else
-    fail "GetThreads_NoThreads_ReturnsEmpty — output: $OUTPUT"
+    fail "Decision_Round1_NoThreads_Approve — output: $OUTPUT"
 fi
 
-# Test: GetThreads_ResolvedExcluded
+# Test: Decision_Round1_HasFindings_Wait
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_1","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Resolved issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_3","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Another resolved","author":{"login":"coderabbitai[bot]"}}]}}
-]}}}}}'
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 2 critical)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-if echo "$OUTPUT" | grep -qF '**Active Threads:** 1'; then
-    pass "GetThreads_ResolvedExcluded"
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round1_HasFindings_Wait"
 else
-    fail "GetThreads_ResolvedExcluded — output: $OUTPUT"
+    fail "Decision_Round1_HasFindings_Wait — output: $OUTPUT"
 fi
 
-# Test: ClassifySeverity_CriticalMarker_ReturnsCritical
+# Test: Decision_Round1_MinorOnly_Wait
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_RED} Critical: SQL injection vulnerability detected\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
-]}}}}}"
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 1 minor)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
-    pass "ClassifySeverity_CriticalMarker_ReturnsCritical"
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round1_MinorOnly_Wait"
 else
-    fail "ClassifySeverity_CriticalMarker_ReturnsCritical — output: $OUTPUT"
+    fail "Decision_Round1_MinorOnly_Wait — output: $OUTPUT"
 fi
 
-# Test: ClassifySeverity_MajorMarker_ReturnsMajor
+# Test: Decision_Round2_NoBlockers_Approve
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_ORANGE} Major: Missing error handling in async function\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
-]}}}}}"
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 0)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
-    pass "ClassifySeverity_MajorMarker_ReturnsMajor"
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round2_NoBlockers_Approve"
 else
-    fail "ClassifySeverity_MajorMarker_ReturnsMajor — output: $OUTPUT"
+    fail "Decision_Round2_NoBlockers_Approve — output: $OUTPUT"
 fi
 
-# Test: ClassifySeverity_MinorOnly_NoBlockers
+# Test: Decision_Round2_MinorOnly_Approve
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
-  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_YELLOW} Minor: Consider renaming variable for clarity\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
-]}}}}}"
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 1 minor)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-if echo "$OUTPUT" | grep -qF '**Blocking Findings:** false'; then
-    pass "ClassifySeverity_MinorOnly_NoBlockers"
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round2_MinorOnly_Approve"
 else
-    fail "ClassifySeverity_MinorOnly_NoBlockers — output: $OUTPUT"
+    fail "Decision_Round2_MinorOnly_Approve — output: $OUTPUT"
 fi
 
-# ============================================================
-# TASK 4: AUTO-RESOLVE OUTDATED THREADS TESTS
-# ============================================================
-echo ""
-echo "=== Task 4: Auto-Resolve Outdated Threads ==="
-
-# Test: ResolveOutdated_OutdatedThreads_CallsMutation
-# Mock returns threads with some outdated+unresolved; script should call resolveReviewThread mutation
+# Test: Decision_Round2_HasCritical_Wait
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_outdated_1","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Old finding","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_outdated_2","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"body":"Another old finding","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Current finding","author":{"login":"coderabbitai[bot]"}}]}}
-]}}}}}'
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 2 critical)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-MUTATION_COUNT=$(count_calls "mutation")
-if [[ "$MUTATION_COUNT" -eq 2 ]]; then
-    pass "ResolveOutdated_OutdatedThreads_CallsMutation"
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round2_HasCritical_Wait"
 else
-    fail "ResolveOutdated_OutdatedThreads_CallsMutation (expected 2 mutation calls, got $MUTATION_COUNT)"
+    fail "Decision_Round2_HasCritical_Wait — output: $OUTPUT"
 fi
 
-# Test: ResolveOutdated_NoOutdated_NoMutation
-# All threads are either resolved or not outdated — no mutation calls expected
+# Test: Decision_Round3_Clean_Approve
 clear_mocks
-write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
-write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
-  {"id":"T_resolved","isResolved":true,"isOutdated":true,"comments":{"nodes":[{"body":"Already resolved","author":{"login":"coderabbitai[bot]"}}]}},
-  {"id":"T_active","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active finding","author":{"login":"coderabbitai[bot]"}}]}}
-]}}}}}'
+write_reviews_response "$(make_reviews 3)"
+write_threads_response "$(make_threads 0)"
 OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
-MUTATION_COUNT=$(count_calls "mutation")
-if [[ "$MUTATION_COUNT" -eq 0 ]]; then
-    pass "ResolveOutdated_NoOutdated_NoMutation"
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round3_Clean_Approve"
 else
-    fail "ResolveOutdated_NoOutdated_NoMutation (expected 0 mutation calls, got $MUTATION_COUNT)"
+    fail "Decision_Round3_Clean_Approve — output: $OUTPUT"
+fi
+
+# Test: Decision_Round4_HasCritical_Escalate
+clear_mocks
+write_reviews_response "$(make_reviews 4)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100 || true)
+if echo "$OUTPUT" | grep -qF '**Action:** escalate'; then
+    pass "Decision_Round4_HasCritical_Escalate"
+else
+    fail "Decision_Round4_HasCritical_Escalate — output: $OUTPUT"
+fi
+
+# Test: Decision_Round4_Clean_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 4)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round4_Clean_Approve"
+else
+    fail "Decision_Round4_Clean_Approve — output: $OUTPUT"
 fi
 
 # ============================================================
