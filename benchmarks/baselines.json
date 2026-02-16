@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-02-16",
+  "baselines": {
+    "telemetry-view-compact": {
+      "p50_ms": 8.0,
+      "p95_ms": 15.0,
+      "p99_ms": 25.0,
+      "measured_at": "2026-02-16T00:00:00Z",
+      "commit": "858a1b4",
+      "iterations": 100
+    },
+    "event-store-append-1000": {
+      "p50_ms": 5.0,
+      "p95_ms": 12.0,
+      "p99_ms": 20.0,
+      "measured_at": "2026-02-16T00:00:00Z",
+      "commit": "858a1b4",
+      "iterations": 100
+    }
+  }
+}
