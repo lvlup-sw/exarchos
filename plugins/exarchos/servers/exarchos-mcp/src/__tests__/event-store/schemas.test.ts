@@ -391,6 +391,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.compound-entry');
     expect(EventTypes).toContain('workflow.compound-exit');
     expect(EventTypes).toContain('workflow.cancel');
+    expect(EventTypes).toContain('workflow.cleanup');
     expect(EventTypes).toContain('workflow.compensation');
     expect(EventTypes).toContain('workflow.circuit-open');
   });

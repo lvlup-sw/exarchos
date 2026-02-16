@@ -161,26 +161,6 @@ export async function handleCleanup(
     };
   }
 
-  // Event-first: emit cleanup event BEFORE state write
-  if (moduleEventStore) {
-    try {
-      for (const transitionEvent of transitionResult.events) {
-        await moduleEventStore.append(input.featureId, {
-          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-          data: {
-            from: transitionEvent.from,
-            to: transitionEvent.to,
-            trigger: transitionEvent.trigger,
-            featureId: input.featureId,
-            ...(transitionEvent.metadata ?? {}),
-          },
-        });
-      }
-    } catch {
-      // External store is supplementary; append failure must not break cleanup
-    }
-  }
-
   // Mutate state
   mutableState.phase = 'completed';
 
@@ -208,8 +188,28 @@ export async function handleCleanup(
   // Clean up internal cleanup flag
   delete mutableState._cleanup;
 
-  // Write state
+  // Write state first — cleanup events are supplementary
   await writeStateFile(stateFile, mutableState as WorkflowState);
+
+  // Emit transition events after state write (best-effort)
+  if (moduleEventStore) {
+    try {
+      for (const transitionEvent of transitionResult.events) {
+        await moduleEventStore.append(input.featureId, {
+          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+          data: {
+            from: transitionEvent.from,
+            to: transitionEvent.to,
+            trigger: transitionEvent.trigger,
+            featureId: input.featureId,
+            ...(transitionEvent.metadata ?? {}),
+          },
+        });
+      }
+    } catch {
+      // External store is supplementary; append failure must not break cleanup
+    }
+  }
 
   return {
     success: true,
