@@ -86,7 +86,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 
 | Tool | Actions | Purpose |
 |------|---------|---------|
-| `exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD |
+| `exarchos_workflow` | `init`, `get`, `set`, `cancel`, `cleanup` | Workflow CRUD + post-merge resolution |
 | `exarchos_event` | `append`, `query` | Event sourcing |
 | `exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination |
 | `exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS read views |
@@ -114,7 +114,7 @@ Uses `@modelcontextprotocol/sdk` + `zod`, communicates over stdio, and is regist
 
 ### Three Workflow Types
 
-**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/review` → `/synthesize`
+**Feature:** `/ideate` → `/plan` → plan-review → `/delegate` → `/review` → `/synthesize` → merge → `/cleanup`
 **Debug:** `/debug` → triage → investigate → fix → validate (hotfix or thorough tracks)
 **Refactor:** `/refactor` → explore → brief → implement → validate (polish or overhaul tracks)
 
