@@ -512,6 +512,143 @@ else
 fi
 
 # ============================================================
+# TASK 5: DECISION LOGIC TESTS
+# ============================================================
+echo ""
+echo "=== Task 5: Decision Logic ==="
+
+# Helper: create reviews response with N coderabbitai reviews
+make_reviews() {
+    local count="$1"
+    local nodes=""
+    for ((i=1; i<=count; i++)); do
+        if [[ -n "$nodes" ]]; then nodes="$nodes,"; fi
+        nodes="${nodes}{\"author\":{\"login\":\"coderabbitai[bot]\"},\"submittedAt\":\"2026-01-15T$(printf '%02d' $i):00:00Z\"}"
+    done
+    echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviews\":{\"nodes\":[$nodes]}}}}}"
+}
+
+# Helper: create threads response with specified active/outdated threads
+# Args: active_count blocker_type (none|minor|critical)
+make_threads() {
+    local active_count="$1"
+    local blocker_type="${2:-none}"
+    local nodes=""
+    for ((i=1; i<=active_count; i++)); do
+        if [[ -n "$nodes" ]]; then nodes="$nodes,"; fi
+        local body="Clean code finding"
+        if [[ "$blocker_type" == "critical" && $i -eq 1 ]]; then
+            body="${EMOJI_RED} Critical: Security vulnerability"
+        elif [[ "$blocker_type" == "major" && $i -eq 1 ]]; then
+            body="${EMOJI_ORANGE} Major: Missing error handling"
+        elif [[ "$blocker_type" == "minor" ]]; then
+            body="${EMOJI_YELLOW} Minor: Style suggestion"
+        fi
+        nodes="${nodes}{\"id\":\"T_${i}\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${body}\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}"
+    done
+    echo "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[${nodes}]}}}}}"
+}
+
+# Test: Decision_Round1_NoThreads_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round1_NoThreads_Approve"
+else
+    fail "Decision_Round1_NoThreads_Approve — output: $OUTPUT"
+fi
+
+# Test: Decision_Round1_HasFindings_Wait
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round1_HasFindings_Wait"
+else
+    fail "Decision_Round1_HasFindings_Wait — output: $OUTPUT"
+fi
+
+# Test: Decision_Round1_MinorOnly_Wait
+clear_mocks
+write_reviews_response "$(make_reviews 1)"
+write_threads_response "$(make_threads 1 minor)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round1_MinorOnly_Wait"
+else
+    fail "Decision_Round1_MinorOnly_Wait — output: $OUTPUT"
+fi
+
+# Test: Decision_Round2_NoBlockers_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round2_NoBlockers_Approve"
+else
+    fail "Decision_Round2_NoBlockers_Approve — output: $OUTPUT"
+fi
+
+# Test: Decision_Round2_MinorOnly_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 1 minor)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round2_MinorOnly_Approve"
+else
+    fail "Decision_Round2_MinorOnly_Approve — output: $OUTPUT"
+fi
+
+# Test: Decision_Round2_HasCritical_Wait
+clear_mocks
+write_reviews_response "$(make_reviews 2)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** wait'; then
+    pass "Decision_Round2_HasCritical_Wait"
+else
+    fail "Decision_Round2_HasCritical_Wait — output: $OUTPUT"
+fi
+
+# Test: Decision_Round3_Clean_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 3)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round3_Clean_Approve"
+else
+    fail "Decision_Round3_Clean_Approve — output: $OUTPUT"
+fi
+
+# Test: Decision_Round4_HasCritical_Escalate
+clear_mocks
+write_reviews_response "$(make_reviews 4)"
+write_threads_response "$(make_threads 2 critical)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100 || true)
+if echo "$OUTPUT" | grep -qF '**Action:** escalate'; then
+    pass "Decision_Round4_HasCritical_Escalate"
+else
+    fail "Decision_Round4_HasCritical_Escalate — output: $OUTPUT"
+fi
+
+# Test: Decision_Round4_Clean_Approve
+clear_mocks
+write_reviews_response "$(make_reviews 4)"
+write_threads_response "$(make_threads 0)"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Action:** approve'; then
+    pass "Decision_Round4_Clean_Approve"
+else
+    fail "Decision_Round4_Clean_Approve — output: $OUTPUT"
+fi
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo ""
