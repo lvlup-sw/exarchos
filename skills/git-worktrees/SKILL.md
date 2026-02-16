@@ -95,21 +95,17 @@ fi
 
 ### 3. Baseline Verification
 
-**Run tests before reporting ready:**
+Run baseline tests to ensure the worktree is ready:
+
 ```bash
-cd .worktrees/task-name
-
-# TypeScript
-npm run test:run
-
-# .NET
-dotnet test
-
-# Rust
-cargo test
+scripts/verify-worktree-baseline.sh --worktree-path .worktrees/task-name
 ```
 
-**Only report worktree ready if baseline tests pass.**
+The script auto-detects project type (Node.js, .NET, Rust) and runs the appropriate test command.
+
+**On exit 0:** Baseline tests pass — worktree is ready for implementation.
+**On exit 1:** Baseline tests failed — investigate before proceeding.
+**On exit 2:** Unknown project type — manual verification required.
 
 If baseline fails:
 1. Check if main branch has failing tests
@@ -190,41 +186,22 @@ Subagents MUST verify they're in a worktree before making changes. Working in th
 - Accidental changes to shared state
 - Build/test interference
 
-### Verification Script
+### Worktree Verification
 
-Add this check at the start of any implementation task:
-
-```bash
-#!/usr/bin/env bash
-# verify_worktree.sh - Run before any file modifications
-
-verify_worktree() {
-    local cwd
-    cwd=$(pwd)
-
-    if [[ ! "$cwd" =~ \.worktrees/ ]]; then
-        echo "ERROR: Not in a worktree!"
-        echo "Current directory: $cwd"
-        echo "Expected: path containing '.worktrees/'"
-        echo "ABORTING - DO NOT proceed with file modifications"
-        return 1
-    fi
-
-    echo "OK: Working in worktree at $cwd"
-    return 0
-}
-
-# Call on script start
-verify_worktree || exit 1
-```
-
-### Quick Check Command
-
-For inline verification:
+Run the worktree verification script before any file modifications:
 
 ```bash
-pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree! STOP immediately."; exit 1; }
+scripts/verify-worktree.sh
 ```
+
+To check a specific path instead of the current directory:
+
+```bash
+scripts/verify-worktree.sh --cwd /path/to/.worktrees/task-name
+```
+
+**On exit 0:** In a valid worktree — proceed with implementation.
+**On exit 1:** NOT in a worktree — STOP immediately, do not modify files.
 
 ### Subagent Instructions
 
@@ -233,12 +210,11 @@ Include in all implementer prompts:
 ```markdown
 ## CRITICAL: Worktree Verification (MANDATORY)
 
-Before making ANY file changes:
+Before making ANY file changes, run:
 
-1. Run: `pwd`
-2. Verify path contains `.worktrees/`
-3. If NOT in worktree: STOP and report error
+    scripts/verify-worktree.sh
 
+If exit code is non-zero: STOP and report error.
 DO NOT proceed with any modifications outside a worktree.
 ```
 
