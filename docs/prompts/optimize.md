@@ -2,7 +2,7 @@
 
 **Context:** This audit covers two layers:
 
-1. **MCP Server** (`plugins/exarchos/servers/exarchos-mcp/src/`) — A TypeScript MCP server with 5 composite tools (27 action handlers) spanning workflow HSM, event store, CQRS views, team coordination, tasks, stack, and sync modules. Local store is append-only JSONL (`{streamId}.events.jsonl`) with in-memory materialized views and JSON snapshots. Remote store (Marten/PostgreSQL) is scaffolded via an outbox (`sync/outbox.ts`) but not yet wired.
+1. **MCP Server** (`plugins/exarchos/servers/exarchos-mcp/src/`) — A TypeScript MCP server with 5 composite tools spanning workflow HSM, event store, CQRS views, task coordination, stack, and sync modules. Local store is append-only JSONL (`{streamId}.events.jsonl`) with in-memory materialized views and JSON snapshots. Remote store (Marten/PostgreSQL) is scaffolded via an outbox (`sync/outbox.ts`) but not yet wired. Note: inter-agent messaging is handled by Claude Code's native Agent Teams, not by Exarchos.
 
 2. **Content Layer** (`commands/`, `skills/`, `rules/`) — Markdown-based skills with YAML frontmatter, slash commands, and behavioral rules that Claude loads via progressive disclosure. These install to `~/.claude/` via symlinks and govern agent behavior across all SDLC workflows.
 
@@ -15,16 +15,16 @@
 Validate that our implementations are faithful to the canonical definitions of these patterns. Cross-reference against authoritative sources — particularly Microsoft Learn's [CQRS Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs), [Saga Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/saga), and [Event Sourcing](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing).
 
 **CQRS — Read/write separation:**
-- Are all read paths hitting materialized views (`views/materializer.ts`), or do any tool handlers query raw events and aggregate inline? Check `stack/tools.ts`, `workflow/query.ts`, and `team/tools.ts` specifically.
+- Are all read paths hitting materialized views (`views/materializer.ts`), or do any tool handlers query raw events and aggregate inline? Check `stack/tools.ts` and `workflow/query.ts` specifically. (Note: task claims now use CQRS materializer — verify no regressions.)
 - Does the materializer's projection model match canonical CQRS — event stream as write model, views as read model, views rebuilt from events on demand?
 
 **Event Sourcing — Append-only, events as source of truth:**
 - Is the event store (`event-store/store.ts`) truly append-only? Are events ever mutated or deleted? (The idempotency key cache is in-memory with JSONL persistence — verify this doesn't introduce a mutation path.)
-- Are events self-describing and sufficient to rebuild state, or do any views depend on state file data (`.state.json`) that isn't derivable from events alone? The state-first/event-after pattern in `workflow/tools.ts` means state files are the primary store and events are supplementary — does this invert the canonical event sourcing model?
+- Are events self-describing and sufficient to rebuild state, or do any views depend on state file data (`.state.json`) that isn't derivable from events alone? The event-first architecture in `workflow/tools.ts` appends transition events BEFORE writing state files, with idempotency keys preventing duplicates on CAS retry. Verify: is `reconcileFromEvents()` sufficient to rebuild state from events alone, or do state files still carry data not captured in events?
 - Do the event schemas (`event-store/schemas.ts`) carry the metadata the ADR specifies (`correlationId`, `causationId`, `agentId`, `source`)?
 
 **Outbox — Transactional Outbox pattern:**
-- Does `sync/outbox.ts` implement the pattern faithfully? The canonical form writes to the outbox in the same transaction as the local store. Since we use JSONL (no transactions), how is atomicity approximated? Is there a gap where an event is appended to JSONL but not enqueued to the outbox?
+- Does `sync/outbox.ts` implement the pattern faithfully? The canonical form writes to the outbox in the same transaction as the local store. Since we use JSONL (no transactions), how is atomicity approximated? The outbox drain now propagates `idempotencyKey` — verify this closes the gap where an event could be appended to JSONL but not enqueued to the outbox.
 
 **Saga — Compensation on cancel:**
 - `workflow/cancel.ts` implements checkpoint-based compensation with reverse-order execution and idempotent skip logic. Verify: Are all compensation actions truly idempotent in practice (e.g., deleting a worktree that's already gone, archiving an already-archived state file)?
@@ -95,8 +95,7 @@ Every byte in a tool response or skill body consumes agent context window. Audit
 - Does `handleViewPipeline` embed event arrays that grow unbounded?
 - Could a `compact` vs. `full` parameter let agents choose their detail level?
 
-**Team and workflow responses:**
-- Does `handleTeamStatus` (`team/tools.ts`) return fields like spawn prompts or worktree paths that aren't needed for a status check?
+**Workflow responses:**
 - Does `handleSummary` (`workflow/query.ts`) return full event payloads when `{ type, timestamp }` references would suffice?
 
 **Event payloads (`event-store/schemas.ts`):**
@@ -123,18 +122,17 @@ Every byte in a tool response or skill body consumes agent context window. Audit
 
 Audit runtime characteristics: latency per tool call, I/O patterns, memory growth, and concurrency safety.
 
-**Implemented safeguards (verify correctness, not existence):**
-- **Pre-parse sequence filtering** — `query()` skips `JSON.parse` for lines below `sinceSequence`. Verify the line-number-equals-sequence invariant holds after compaction or manual edits.
+**Implemented safeguards (confirmed working — audit for regressions):**
+- **Pre-parse sequence filtering** — `query()` skips `JSON.parse` for lines below `sinceSequence`. Verify the line-number-equals-sequence invariant holds after compaction or manual edits. Event store now tolerates blank lines.
 - **LRU eviction** — `ViewMaterializer` has configurable `maxCacheEntries` (default 100) with Map-order LRU. Verify eviction doesn't discard views that are immediately re-requested in tight loops.
-- **CAS versioning** — `workflow/tools.ts` uses `_version` with retry loop (max 3). Verify retry exhaustion produces a clear error, not silent data loss.
-- **Optimistic task claims** — `handleTaskClaim` checks for prior `task.claimed` events with `expectedSequence`. Verify the retry loop handles sequence gaps from concurrent event appends.
+- **CAS versioning + idempotency** — `workflow/tools.ts` uses `_version` with retry loop (max 3) and event-first architecture with idempotency keys preventing duplicates on CAS retry. Verify retry exhaustion produces a clear error, not silent data loss.
+- **Optimistic task claims** — `handleTaskClaim` now uses CQRS materializer (not inline event aggregation) with `expectedSequence`. Verify the retry loop handles sequence gaps from concurrent event appends.
 - **Idempotency keys** — `append()` deduplicates via in-memory FIFO cache (100 keys), rebuilt from JSONL on restart. Verify cache rebuild performance at scale (thousands of events per stream).
-- **Saga compensation** — `cancel.ts` persists `CompensationCheckpoint` on partial failure for resumable re-execution. Verify checkpoint file cleanup after successful completion.
+- **Saga compensation** — `cancel.ts` persists `CompensationCheckpoint` on partial failure for resumable re-execution. Checkpoint cleanup after successful completion confirmed working.
 
 **Open concerns:**
 - `event-store/store.ts` — In-memory promise-chain locks only protect within a single Node.js process. If multiple MCP instances share a `stateDir`, JSONL corruption is possible. Is the single-instance assumption validated or enforced (e.g., PID lock file)?
 - `event-store/store.ts` — The `.seq` cache race condition: if two processes both call `initializeSequence()` concurrently, both may compute the same sequence number. The cache is best-effort, but what's the blast radius of a stale `.seq` value?
-- `TeamCoordinator` (`team/coordinator.ts`) holds teammate state in memory. Is this cleaned up on shutdown, or can stale entries accumulate across sessions?
 - `views/tools.ts` — Cold-start materialization replays all events. At what event count does cold start become a latency problem? Is snapshot loading reliable enough to avoid this in practice?
 - Are there hot paths beyond `workflow/tools.ts` fast-path that pay unnecessary Zod validation costs?
 
