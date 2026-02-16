@@ -248,47 +248,32 @@ This gives subagents both tool access information AND skill context, reducing th
 
 ---
 
-### 6. Validation Scripts (Phase 2)
+### 6. Validation Scripts (Phases 2-5 Complete)
 
-Add `scripts/` directories to skills that benefit from deterministic validation, following the guide's recommendation to use code over language instructions for critical checks.
+**Status:** Phases 2-5 completed. 27 validation scripts implemented across 8 skill categories, following the guide's recommendation to use code over language instructions for critical checks. All scripts follow a consistent pattern: `set -euo pipefail`, exit codes (0=pass, 1=fail, 2=usage), markdown output. Each has a co-located `.test.sh` integration test.
 
-#### delegation/scripts/pre-dispatch.sh
+**Implemented scripts by category:**
 
-Validates task readiness before dispatching to a teammate:
-- Verify the worktree exists and is clean
-- Verify the target branch exists
-- Verify the task's dependencies are met (all blocking tasks completed)
+| Category | Scripts | Status |
+|----------|---------|--------|
+| **Synthesis** | `pre-synthesis-check.sh`, `reconstruct-stack.sh`, `check-coderabbit.sh` | ✓ Phase 2 |
+| **Delegation** | `setup-worktree.sh`, `post-delegation-check.sh`, `extract-fix-tasks.sh`, `needs-schema-sync.sh` | ✓ Phase 3 |
+| **Git Worktrees** | `verify-worktree.sh`, `verify-worktree-baseline.sh` | ✓ Phase 3 |
+| **Quality Review** | `review-verdict.sh`, `static-analysis-gate.sh`, `security-scan.sh` | ✓ Phase 4 |
+| **Planning** | `spec-coverage-check.sh`, `verify-plan-coverage.sh`, `generate-traceability.sh`, `check-tdd-compliance.sh`, `check-coverage-thresholds.sh` | ✓ Phase 4 |
+| **Refactor** | `assess-refactor-scope.sh`, `check-polish-scope.sh`, `validate-refactor.sh`, `verify-doc-links.sh` | ✓ Phase 5 |
+| **Debug** | `investigation-timer.sh`, `select-debug-track.sh`, `debug-review-gate.sh` | ✓ Phase 5 |
+| **Misc** | `verify-ideate-artifacts.sh`, `reconcile-state.sh`, `validate-dotnet-standards.sh` | ✓ Phase 5 |
 
-```bash
-#!/bin/bash
-# Pre-dispatch validation for delegation skill
-WORKTREE_PATH="$1"
-TASK_ID="$2"
-
-# Check worktree exists
-if [ ! -d "$WORKTREE_PATH" ]; then
-  echo "ERROR: Worktree not found at $WORKTREE_PATH"
-  exit 1
-fi
-
-# Check worktree is clean
-cd "$WORKTREE_PATH"
-if [ -n "$(git status --porcelain)" ]; then
-  echo "ERROR: Worktree has uncommitted changes"
-  exit 1
-fi
-
-echo "OK: Pre-dispatch checks passed"
-exit 0
-```
-
-#### synthesis/scripts/pre-submit.sh
-
-Validates branch readiness before PR creation:
-- All tests pass
-- TypeScript compiles
-- No uncommitted changes
-- Branch has commits ahead of base
+**Integration test coverage:** 8 test files verify that each SKILL.md properly references its validation scripts and documents exit code routing:
+- `validate-synthesis-skill.test.sh`
+- `validate-delegation-skill.test.sh`
+- `validate-worktree-skill.test.sh`
+- `validate-quality-review-skill.test.sh`
+- `validate-planning-skill.test.sh`
+- `validate-refactor-skill.test.sh`
+- `validate-debug-skill.test.sh`
+- `validate-misc-skills.test.sh` (covers brainstorming, workflow-state, dotnet-standards)
 
 These complement the quality gate hooks from the progressive-disclosure-hooks design — hooks enforce at the MCP tool boundary, scripts validate within the skill workflow.
 
