@@ -244,8 +244,57 @@ count_review_rounds() {
 # ============================================================
 
 get_review_threads() {
-    # Stub — returns empty JSON array
-    echo "[]"
+    local cursor=""
+    local all_nodes="[]"
+    local page_json has_next
+
+    while :; do
+        page_json=$(gh_graphql -f query='
+            query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $pr) {
+                        reviewThreads(first: 100, after: $cursor) {
+                            pageInfo { hasNextPage endCursor }
+                            nodes {
+                                id
+                                isResolved
+                                isOutdated
+                                comments(first: 1) {
+                                    nodes {
+                                        body
+                                        author { login }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER" -f "cursor=$cursor") || {
+            echo -e "${YELLOW}WARNING${NC}: Failed to query review threads" >&2
+            echo "[]"
+            return
+        }
+
+        # Validate response structure
+        if ! echo "$page_json" | jq -e '.data.repository.pullRequest' > /dev/null 2>&1; then
+            echo -e "${YELLOW}WARNING${NC}: Malformed threads response" >&2
+            # Return what we have so far
+            echo "$all_nodes" | jq '[.[] | select(.isResolved == false and .isOutdated == false)]'
+            return
+        fi
+
+        all_nodes=$(jq -s '.[0] + .[1]' <(echo "$all_nodes") <(echo "$page_json" | jq '.data.repository.pullRequest.reviewThreads.nodes'))
+
+        has_next=$(echo "$page_json" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+        if [[ "$has_next" != "true" ]]; then
+            break
+        fi
+        cursor=$(echo "$page_json" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
+    done
+
+    # Filter: unresolved and non-outdated threads only
+    echo "$all_nodes" | jq '[.[] | select(.isResolved == false and .isOutdated == false)]'
 }
 
 # ============================================================
@@ -263,8 +312,19 @@ resolve_outdated_threads() {
 
 has_blocking_findings() {
     local threads_json="$1"
-    # Stub — returns 1 (no blockers)
-    return 1
+    # Check if any thread's first comment body contains critical (red circle) or major (orange circle) severity markers
+    # Use printf to generate actual emoji bytes for the jq regex
+    local red_circle orange_circle
+    red_circle=$(printf '\xf0\x9f\x94\xb4')       # U+1F534
+    orange_circle=$(printf '\xf0\x9f\x9f\xa0')     # U+1F7E0
+    local blocker_count
+    blocker_count=$(echo "$threads_json" | jq --arg rc "$red_circle" --arg oc "$orange_circle" '[.[] | select(.comments.nodes[0] | (.author.login == "coderabbitai[bot]") and (.body != null) and (.body | test($rc) or test($oc)))] | length' 2>/dev/null || echo "0")
+
+    if [[ "$blocker_count" -gt 0 ]]; then
+        return 0  # has blockers
+    else
+        return 1  # no blockers
+    fi
 }
 
 # ============================================================
