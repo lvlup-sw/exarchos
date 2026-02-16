@@ -69,27 +69,69 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
+/**
+ * Initialize a new workflow state file.
+ *
+ * **Event-first contract:** When an event store is configured, the
+ * `workflow.started` event is appended BEFORE the state file is created.
+ * If the event append fails, no state file is written and an error is
+ * returned. When no event store is configured, the state file is created
+ * with `_eventSequence = 0` for graceful degradation.
+ */
 export async function handleInit(
   input: InitInput,
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const { state } = await initStateFile(stateDir, input.featureId, input.workflowType);
+    // Guard: check if state file already exists BEFORE appending any event.
+    // This prevents orphan events when handleInit is called twice with the
+    // same featureId — without this check, the event would be appended and
+    // then initStateFile would fail with STATE_ALREADY_EXISTS.
+    const existingStateFile = path.join(stateDir, `${input.featureId}.state.json`);
+    try {
+      await fs.access(existingStateFile);
+      // State already exists — return error without appending event
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_ALREADY_EXISTS,
+          message: `State already exists for feature: ${input.featureId}`,
+        },
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      // File doesn't exist — proceed with init
+    }
 
-    // Emit workflow.started event for CQRS view materialization
+    // Event-first: append workflow.started event BEFORE creating state file
+    let eventSequence = 0;
     if (moduleEventStore) {
       try {
-        await moduleEventStore.append(input.featureId, {
+        const event = await moduleEventStore.append(input.featureId, {
           type: 'workflow.started' as import('../event-store/schemas.js').EventType,
           data: {
             featureId: input.featureId,
             workflowType: input.workflowType,
           },
-        });
-      } catch {
-        // Event emission is supplementary — state file is the source of truth
+        }, { idempotencyKey: `${input.featureId}:workflow.started` });
+        eventSequence = event.sequence;
+      } catch (err) {
+        // Event-first: if event append fails, do NOT create state file
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
       }
     }
+
+    const { state, stateFile } = await initStateFile(stateDir, input.featureId, input.workflowType);
+
+    // Persist _eventSequence on the state file (passthrough field)
+    const mutableState = { ...state, _eventSequence: eventSequence } as WorkflowState;
+    await writeStateFile(stateFile, mutableState);
 
     return {
       success: true,
