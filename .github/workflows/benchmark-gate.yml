@@ -7,6 +7,10 @@ on:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: benchmark-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     if: contains(github.event.pull_request.labels.*.name, 'has-benchmarks')
 
     steps:
@@ -24,6 +28,14 @@ jobs:
 
       - name: Run benchmarks
         run: npm run bench -- --reporter json --outputFile benchmark-results.json
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+          retention-days: 7
 
       - name: Check for regressions
         run: bash scripts/check-benchmark-regression.sh --results benchmark-results.json --baselines benchmarks/baselines.json
