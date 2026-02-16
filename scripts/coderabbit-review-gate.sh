@@ -225,8 +225,31 @@ count_review_rounds() {
 # ============================================================
 
 get_review_threads() {
-    # Stub — returns empty JSON array
-    echo "[]"
+    local threads_json
+    threads_json=$(gh_graphql -f query='
+        query($owner: String!, $repo: String!, $pr: Int!) {
+            repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                    reviewThreads(first: 100) {
+                        nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            comments(first: 1) {
+                                nodes {
+                                    body
+                                    author { login }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER")
+
+    # Filter: unresolved and non-outdated threads only
+    echo "$threads_json" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)]'
 }
 
 # ============================================================
@@ -244,8 +267,19 @@ resolve_outdated_threads() {
 
 has_blocking_findings() {
     local threads_json="$1"
-    # Stub — returns 1 (no blockers)
-    return 1
+    # Check if any thread's first comment body contains critical (red circle) or major (orange circle) severity markers
+    # Use printf to generate actual emoji bytes for the jq regex
+    local red_circle orange_circle
+    red_circle=$(printf '\xf0\x9f\x94\xb4')       # U+1F534
+    orange_circle=$(printf '\xf0\x9f\x9f\xa0')     # U+1F7E0
+    local blocker_count
+    blocker_count=$(echo "$threads_json" | jq --arg rc "$red_circle" --arg oc "$orange_circle" '[.[] | select(.comments.nodes[0].body | test($rc) or test($oc))] | length' 2>/dev/null || echo "0")
+
+    if [[ "$blocker_count" -gt 0 ]]; then
+        return 0  # has blockers
+    else
+        return 1  # no blockers
+    fi
 }
 
 # ============================================================
