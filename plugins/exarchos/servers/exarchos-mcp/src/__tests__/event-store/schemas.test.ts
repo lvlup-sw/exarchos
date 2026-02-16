@@ -20,6 +20,7 @@ import {
   WorkflowCancelData,
   WorkflowCompensationData,
   WorkflowCircuitOpenData,
+  BenchmarkCompletedData,
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
@@ -357,8 +358,8 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 23 event types', () => {
-    expect(EventTypes).toHaveLength(23);
+  it('should contain all 24 event types', () => {
+    expect(EventTypes).toHaveLength(24);
   });
 
   it('should include workflow-level types', () => {
@@ -394,6 +395,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.cleanup');
     expect(EventTypes).toContain('workflow.compensation');
     expect(EventTypes).toContain('workflow.circuit-open');
+  });
+
+  it('should include benchmark types', () => {
+    expect(EventTypes).toContain('benchmark.completed');
   });
 
   it('should support type-safe assignment', () => {
@@ -677,6 +682,58 @@ describe('WorkflowCircuitOpenData', () => {
   });
 });
 
+// ─── Benchmark Event Data ────────────────────────────────────────────────────
+
+describe('BenchmarkCompletedData', () => {
+  it('BenchmarkCompletedData_ValidResults_ParsesCorrectly', () => {
+    const data = BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{
+        operation: 'event-store-query',
+        metric: 'p99',
+        value: 45.2,
+        unit: 'ms',
+        baseline: 42.0,
+        regressionPercent: 7.6,
+        passed: true,
+      }],
+    });
+    expect(data.taskId).toBe('task-001');
+    expect(data.results).toHaveLength(1);
+    expect(data.results[0].operation).toBe('event-store-query');
+    expect(data.results[0].passed).toBe(true);
+  });
+
+  it('BenchmarkCompletedData_EmptyResults_Rejects', () => {
+    expect(() => BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [],
+    })).toThrow();
+  });
+
+  it('BenchmarkCompletedData_MissingOperation_Rejects', () => {
+    expect(() => BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{ metric: 'p99', value: 10, unit: 'ms', passed: true }],
+    })).toThrow();
+  });
+
+  it('BenchmarkCompletedData_OptionalBaselineFields', () => {
+    const data = BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{
+        operation: 'view-materialize',
+        metric: 'throughput',
+        value: 500,
+        unit: 'ops/sec',
+        passed: true,
+      }],
+    });
+    expect(data.results[0].baseline).toBeUndefined();
+    expect(data.results[0].regressionPercent).toBeUndefined();
+  });
+});
+
 // ─── Dead Event Types Removal Verification ──────────────────────────────────
 
 describe('Dead event types removed', () => {
@@ -694,7 +751,7 @@ describe('Dead event types removed', () => {
     }
   });
 
-  it('should have exactly 23 event types', () => {
-    expect(EventTypes).toHaveLength(23);
+  it('should have exactly 24 event types', () => {
+    expect(EventTypes).toHaveLength(24);
   });
 });
