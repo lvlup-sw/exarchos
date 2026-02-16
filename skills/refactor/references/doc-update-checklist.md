@@ -55,12 +55,20 @@ Every refactor MUST update affected documentation. This is not optional. Code wi
 
 ## Verification
 
-After updating documentation:
+After updating documentation, run automated link verification:
+
+```bash
+bash scripts/verify-doc-links.sh --docs-dir docs/
+```
+
+**On Exit 0:** All links valid.
+**On Exit 1:** Broken links found — fix before proceeding.
+
+Additionally:
 
 1. [ ] Read each updated doc fresh
 2. [ ] Verify code references are accurate
 3. [ ] Test any code examples
-4. [ ] Check links aren't broken
 
 ## State Update
 

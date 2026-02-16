@@ -83,15 +83,8 @@ function createTestManifest(): Manifest {
         {
           id: 'coding-standards',
           name: 'Coding Standards',
-          description: 'TypeScript coding standards',
-          files: ['coding-standards-typescript.md'],
-          default: true,
-        },
-        {
-          id: 'tdd',
-          name: 'TDD Rules',
-          description: 'Test-driven development rules',
-          files: ['tdd-typescript.md'],
+          description: 'Coding standards and TDD rules',
+          files: ['coding-standards.md', 'tdd.md'],
           default: true,
         },
         {
@@ -118,7 +111,7 @@ describe('runWizard', () => {
       'standard',                          // mode
       ['context7'],                         // optional mcpServers
       ['serena'],                           // optional plugins
-      ['coding-standards', 'tdd'],          // ruleSets
+      ['coding-standards'],                  // ruleSets
       true,                                 // confirm
     ]);
 
@@ -136,7 +129,7 @@ describe('runWizard', () => {
       'dev',                                // mode
       ['context7', 'microsoft-learn'],      // optional mcpServers
       ['serena', 'graphite'],               // optional plugins
-      ['coding-standards', 'tdd', 'pr-descriptions'], // ruleSets
+      ['coding-standards', 'pr-descriptions'], // ruleSets
       true,                                 // confirm
     ]);
 
@@ -179,7 +172,6 @@ describe('runWizard', () => {
 
     expect(result.selections.ruleSets).toContain('coding-standards');
     expect(result.selections.ruleSets).toContain('pr-descriptions');
-    expect(result.selections.ruleSets).not.toContain('tdd');
   });
 
   it('uses manifest default model', async () => {
@@ -246,7 +238,6 @@ describe('runNonInteractive', () => {
     expect(result.selections.plugins).toContain('serena');
     // Default rule sets included
     expect(result.selections.ruleSets).toContain('coding-standards');
-    expect(result.selections.ruleSets).toContain('tdd');
   });
 
   it('uses previous selections with useDefaults and existing config', () => {

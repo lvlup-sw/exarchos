@@ -1886,6 +1886,17 @@ Events are stored in a separate append-only JSONL file alongside the HSM state f
 
 The `.state.json` file is unchanged from the existing workflow-state-mcp server. The `.events.jsonl` file contains the full event history for sync purposes (the `_events` array in the state file is capped at 100 entries). The `.outbox.json` file tracks pending event deliveries to the Basileus backend.
 
+### Event-First Architecture
+
+Events in `.events.jsonl` are the source of truth. The `.state.json` file is a materialized view (projection) of the event stream, updated after successful event append. State can be rebuilt from events via `reconcileFromEvents()`.
+
+**Consistency Model:** Event append is the commit point. State file update is a projection that follows. If state lags events (e.g., crash between event append and state write), `reconcileFromEvents()` replays missing events to catch up. The `_eventSequence` field in state files tracks the last applied event sequence.
+
+**Known Limitations:**
+- Outbox atomicity gap: event and outbox entry are not written atomically (documented limitation pending remote sync)
+- Event metadata: `correlationId`, `causationId`, `agentId` are optional; distributed tracing spans planned for remote sync phase
+- Single-instance assumption: EventStore uses in-memory locks; multi-process requires external coordination
+
 ### CI/CD Integration
 
 The autonomous invocation path (Path B) integrates with CI/CD systems:
@@ -2120,4 +2131,4 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 
 1. **Saga Pattern:** Microsoft. [Cloud Design Patterns: Saga](https://learn.microsoft.com/en-us/azure/architecture/patterns/saga) -- "choreography for simple local flows, orchestration for complex cross-service flows."
 2. **AI Agent Orchestration Patterns:** Microsoft. [AI Agent Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) -- "Magentic orchestration for complex generalist multi-agent collaboration."
-3. **CQRS + Event Sourcing:** Microsoft. [CQRS Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) -- append-only event store as write model, materialized views as read model.
+3. **CQRS + Event Sourcing:** Microsoft. [CQRS Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) -- append-only event store as write model, materialized views as read model. **Implemented:** Event append is the commit point; state files are materialized views.
