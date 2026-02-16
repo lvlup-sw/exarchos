@@ -264,7 +264,7 @@ export const ToolCompletedData = z.object({
 export const ToolErroredData = z.object({
   tool: z.string(),
   durationMs: z.number(),
-  errorCode: z.string(),
+  errorMessage: z.string(),
 });
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

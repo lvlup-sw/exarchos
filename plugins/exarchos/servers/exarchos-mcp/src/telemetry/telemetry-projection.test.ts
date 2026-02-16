@@ -107,7 +107,7 @@ describe('TelemetryProjection', () => {
   describe('apply - tool.errored', () => {
     it('should increment error count', () => {
       let state = telemetryProjection.init();
-      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorCode: 'TIMEOUT' }));
+      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'TIMEOUT' }));
 
       expect(state.tools['x'].errors).toBe(1);
       expect(state.tools['x'].invocations).toBe(0);
@@ -116,7 +116,7 @@ describe('TelemetryProjection', () => {
     it('should track errors alongside invocations', () => {
       let state = telemetryProjection.init();
       state = telemetryProjection.apply(state, makeEvent('tool.completed', { tool: 'x', durationMs: 10, responseBytes: 100, tokenEstimate: 25 }));
-      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorCode: 'ERR' }));
+      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'ERR' }));
 
       expect(state.tools['x'].invocations).toBe(1);
       expect(state.tools['x'].errors).toBe(1);
@@ -124,7 +124,7 @@ describe('TelemetryProjection', () => {
 
     it('should not add to durations or sizes arrays for errored events', () => {
       let state = telemetryProjection.init();
-      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorCode: 'ERR' }));
+      state = telemetryProjection.apply(state, makeEvent('tool.errored', { tool: 'x', durationMs: 5, errorMessage: 'ERR' }));
 
       expect(state.tools['x'].durations).toEqual([]);
       expect(state.tools['x'].sizes).toEqual([]);
