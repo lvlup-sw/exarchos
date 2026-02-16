@@ -5,7 +5,6 @@ vi.mock('./tools.js', () => ({
   handleViewPipeline: vi.fn(),
   handleViewTasks: vi.fn(),
   handleViewWorkflowStatus: vi.fn(),
-  handleViewTeamStatus: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -24,7 +23,6 @@ import {
   handleViewPipeline,
   handleViewTasks,
   handleViewWorkflowStatus,
-  handleViewTeamStatus,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -106,22 +104,17 @@ describe('handleView', () => {
     });
   });
 
-  describe('team_status', () => {
-    it('should delegate to handleViewTeamStatus', async () => {
+  describe('removed team_status', () => {
+    it('should return UNKNOWN_ACTION for team_status', async () => {
       // Arrange
-      const expected = { success: true, data: { teammates: [] } };
-      vi.mocked(handleViewTeamStatus).mockResolvedValue(expected);
       const args = { action: 'team_status', workflowId: 'wf-3' };
 
       // Act
       const result = await handleView(args, STATE_DIR);
 
       // Assert
-      expect(result).toBe(expected);
-      expect(handleViewTeamStatus).toHaveBeenCalledWith(
-        { workflowId: 'wf-3' },
-        STATE_DIR,
-      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
   });
 

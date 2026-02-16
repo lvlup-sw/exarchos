@@ -214,19 +214,6 @@ describe('guard command', () => {
   // ─── Debug Workflow Phases ────────────────────────────────────────────
 
   describe('debug workflow phases', () => {
-    it('should allow team_spawn in debug-implement phase', async () => {
-      // Arrange — debug thorough track uses team coordination
-      const stateFile = path.join(tmpDir, 'debug-feature.state.json');
-      await fs.writeFile(stateFile, makeStateJson('debug-feature', 'debug-implement'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
-
-      // Act
-      const result = await handleGuard(input, tmpDir);
-
-      // Assert — debug-implement is in DELEGATE_PHASES
-      expect(result).toEqual({});
-    });
-
     it('should allow task_claim in debug-implement phase', async () => {
       // Arrange
       const stateFile = path.join(tmpDir, 'debug-feature.state.json');
@@ -340,18 +327,18 @@ describe('guard command', () => {
         makeStateJson('active-workflow', 'ideate'),
       );
       const input = makePreToolUseInput(
-        'mcp__exarchos__exarchos_orchestrate', 'team_spawn',
+        'mcp__exarchos__exarchos_orchestrate', 'task_claim',
       );
 
       // Act
       const result = await handleGuard(input, tmpDir);
 
-      // Assert — no featureId, falls back to global check; team_spawn denied in ideate
+      // Assert — no featureId, falls back to global check; task_claim denied in ideate
       expect(result).toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          reason: expect.stringContaining('team_spawn'),
+          reason: expect.stringContaining('task_claim'),
         },
       });
     });
@@ -360,11 +347,11 @@ describe('guard command', () => {
   // ─── Deny Cases ─────────────────────────────────────────────────────────
 
   describe('deny decisions', () => {
-    it('should deny orchestrate "team_spawn" action in ideate phase', async () => {
+    it('should deny orchestrate "task_claim" action in ideate phase', async () => {
       // Arrange
       const stateFile = path.join(tmpDir, 'test-feature.state.json');
       await fs.writeFile(stateFile, makeStateJson('test-feature', 'ideate'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -374,16 +361,16 @@ describe('guard command', () => {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          reason: expect.stringContaining('team_spawn'),
+          reason: expect.stringContaining('task_claim'),
         },
       });
     });
 
-    it('should deny orchestrate "team_spawn" action in review phase', async () => {
+    it('should deny orchestrate "task_claim" action in review phase', async () => {
       // Arrange
       const stateFile = path.join(tmpDir, 'test-feature.state.json');
       await fs.writeFile(stateFile, makeStateJson('test-feature', 'review'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -393,7 +380,7 @@ describe('guard command', () => {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
-          reason: expect.stringContaining('team_spawn'),
+          reason: expect.stringContaining('task_claim'),
         },
       });
     });
@@ -406,7 +393,7 @@ describe('guard command', () => {
       // Arrange
       const stateFile = path.join(tmpDir, 'test-feature.state.json');
       await fs.writeFile(stateFile, makeStateJson('test-feature', 'ideate'));
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -418,7 +405,7 @@ describe('guard command', () => {
       expect(output).toHaveProperty('permissionDecision', 'deny');
       expect(output).toHaveProperty('reason');
       expect(typeof output.reason).toBe('string');
-      expect(output.reason as string).toMatch(/team_spawn/);
+      expect(output.reason as string).toMatch(/task_claim/);
       expect(output.reason as string).toMatch(/ideate/);
       expect(output.reason as string).toMatch(/delegate/);
     });
@@ -429,7 +416,7 @@ describe('guard command', () => {
   describe('graceful degradation', () => {
     it('should allow when no active workflow exists', async () => {
       // Arrange — tmpDir is empty, no state files
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -441,7 +428,7 @@ describe('guard command', () => {
     it('should allow when state directory does not exist', async () => {
       // Arrange — nonexistent directory
       const nonExistentDir = path.join(tmpDir, 'does-not-exist');
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, nonExistentDir);
@@ -514,13 +501,13 @@ describe('guard command', () => {
         makeStateJson('zzz-newer', 'ideate', newerTimestamp),
       );
 
-      // team_spawn is denied in ideate but allowed in delegate
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      // task_claim is denied in ideate but allowed in delegate
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
 
-      // Assert — should pick "zzz-newer" (ideate, most recent updatedAt) and deny team_spawn
+      // Assert — should pick "zzz-newer" (ideate, most recent updatedAt) and deny task_claim
       expect(result).toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -552,13 +539,13 @@ describe('guard command', () => {
         makeStateJson('zzz-last', 'ideate', timestamps.zzz),
       );
 
-      // team_spawn is denied in review but allowed in delegate
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      // task_claim is denied in review but allowed in delegate
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
 
-      // Assert — should pick "mmm-middle" (review, most recent updatedAt) and deny team_spawn
+      // Assert — should pick "mmm-middle" (review, most recent updatedAt) and deny task_claim
       expect(result).toEqual({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -582,7 +569,7 @@ describe('guard command', () => {
         makeStateJson('zzz-new-completed', 'completed', newerTimestamp),
       );
 
-      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'team_spawn');
+      const input = makePreToolUseInput('mcp__exarchos__exarchos_orchestrate', 'task_claim');
 
       // Act
       const result = await handleGuard(input, tmpDir);
@@ -622,7 +609,7 @@ describe('guard command', () => {
         makeStateJson('active-older', 'ideate', activeTimestamp),
       );
 
-      // team_spawn is denied in ideate but would also be denied in completed
+      // task_claim is denied in ideate but would also be denied in completed
       // Use workflow "set" which IS allowed in ideate to distinguish
       const input = makePreToolUseInput('mcp__exarchos__exarchos_workflow', 'set');
 
