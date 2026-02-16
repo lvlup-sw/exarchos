@@ -2439,14 +2439,12 @@ describe('handleSet_EventFirst', () => {
 
     // Now make event store fail for transition events
     const originalAppend = eventStore.append.bind(eventStore);
-    let callCount = 0;
-    eventStore.append = async (streamId, event, opts) => {
-      callCount++;
+    const appendSpy = vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, opts) => {
       if (event.type === 'workflow.transition') {
         throw new Error('Event store unavailable');
       }
       return originalAppend(streamId, event, opts);
-    };
+    });
 
     const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan' }, tmpDir);
 
@@ -2456,6 +2454,8 @@ describe('handleSet_EventFirst', () => {
     // State should remain at ideate
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fail-set.state.json'), 'utf-8'));
     expect(raw.phase).toBe('ideate');
+
+    appendSpy.mockRestore();
   });
 
   it('should use idempotency key to prevent duplicate events on CAS retry', async () => {
