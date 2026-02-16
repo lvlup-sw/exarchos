@@ -3,7 +3,21 @@ import type { CompositeTool } from '../src/registry.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const ALL_PHASES = ['ideate', 'plan', 'plan-review', 'delegate', 'review', 'synthesize'] as const;
+/**
+ * Derives the complete set of phases from registry action metadata.
+ * This avoids hardcoding phases that may drift from the registry.
+ */
+function collectPhasesFromRegistry(registry: readonly CompositeTool[]): string[] {
+  const phases = new Set<string>();
+  for (const composite of registry) {
+    for (const action of composite.actions) {
+      for (const phase of action.phases) {
+        phases.add(phase);
+      }
+    }
+  }
+  return [...phases].sort();
+}
 
 // ─── Markdown Generation ────────────────────────────────────────────────────
 
@@ -11,8 +25,8 @@ function escapeTableCell(text: string): string {
   return text.replace(/\|/g, '\\|');
 }
 
-function formatPhases(phases: ReadonlySet<string>): string {
-  const hasAll = ALL_PHASES.every((p) => phases.has(p));
+function formatPhases(phases: ReadonlySet<string>, allPhases: string[]): string {
+  const hasAll = allPhases.every((p) => phases.has(p));
   if (hasAll) return 'all';
   return [...phases].join(', ');
 }
@@ -37,7 +51,7 @@ function generateCompositeTable(registry: readonly CompositeTool[]): string {
   return lines.join('\n');
 }
 
-function generateActionDetails(registry: readonly CompositeTool[]): string {
+function generateActionDetails(registry: readonly CompositeTool[], allPhases: string[]): string {
   const sections: string[] = ['## Action Details'];
 
   for (const composite of registry) {
@@ -49,7 +63,7 @@ function generateActionDetails(registry: readonly CompositeTool[]): string {
 
     for (const action of composite.actions) {
       sections.push(
-        `| \`${action.name}\` | ${escapeTableCell(action.description)} | ${formatPhases(action.phases)} | ${formatRoles(action.roles)} |`,
+        `| \`${action.name}\` | ${escapeTableCell(action.description)} | ${formatPhases(action.phases, allPhases)} | ${formatRoles(action.roles)} |`,
       );
     }
   }
@@ -57,10 +71,10 @@ function generateActionDetails(registry: readonly CompositeTool[]): string {
   return sections.join('\n');
 }
 
-function generatePhaseMappings(registry: readonly CompositeTool[]): string {
+function generatePhaseMappings(registry: readonly CompositeTool[], allPhases: string[]): string {
   // Build a map of phase -> list of "composite:action" strings
   const phaseMap = new Map<string, string[]>();
-  for (const phase of ALL_PHASES) {
+  for (const phase of allPhases) {
     phaseMap.set(phase, []);
   }
 
@@ -83,7 +97,7 @@ function generatePhaseMappings(registry: readonly CompositeTool[]): string {
     '|-------|-------------------|',
   ];
 
-  for (const phase of ALL_PHASES) {
+  for (const phase of allPhases) {
     const actions = phaseMap.get(phase) ?? [];
     lines.push(`| ${phase} | ${actions.join(', ')} |`);
   }
@@ -96,6 +110,7 @@ function generatePhaseMappings(registry: readonly CompositeTool[]): string {
  * Exported for testability; the script's main entrypoint writes to stdout.
  */
 export function generateDocsMarkdown(): string {
+  const allPhases = collectPhasesFromRegistry(TOOL_REGISTRY);
   const sections: string[] = [
     '# Exarchos MCP Tool Reference',
     '',
@@ -103,9 +118,9 @@ export function generateDocsMarkdown(): string {
     '',
     generateCompositeTable(TOOL_REGISTRY),
     '',
-    generateActionDetails(TOOL_REGISTRY),
+    generateActionDetails(TOOL_REGISTRY, allPhases),
     '',
-    generatePhaseMappings(TOOL_REGISTRY),
+    generatePhaseMappings(TOOL_REGISTRY, allPhases),
     '',
   ];
 
