@@ -20,6 +20,7 @@ export const EventTypes = [
   'workflow.compound-entry',
   'workflow.compound-exit',
   'workflow.cancel',
+  'workflow.cleanup',
   'workflow.compensation',
   'workflow.circuit-open',
   'tool.invoked',
@@ -156,6 +157,13 @@ export const WorkflowCompoundExitData = z.object({
   trigger: z.string().optional(),
 });
 
+export const WorkflowCleanupData = z.object({
+  from: z.string(),
+  to: z.string(),
+  trigger: z.string(),
+  featureId: z.string(),
+});
+
 export const WorkflowCancelData = z.object({
   from: z.string(),
   to: z.string(),
@@ -216,6 +224,7 @@ export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
 export type WorkflowCompoundEntry = z.infer<typeof WorkflowCompoundEntryData>;
 export type WorkflowCompoundExit = z.infer<typeof WorkflowCompoundExitData>;
+export type WorkflowCleanup = z.infer<typeof WorkflowCleanupData>;
 export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
 export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;

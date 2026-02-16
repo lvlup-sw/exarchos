@@ -232,11 +232,11 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 4 actions: init, get, set, cancel', () => {
+    it('should have 5 actions: init, get, set, cancel, cleanup', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup']);
     });
   });
 

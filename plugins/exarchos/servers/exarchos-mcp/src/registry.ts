@@ -232,6 +232,19 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'cleanup',
+    description: 'Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Auto-emits workflow.cleanup event',
+    schema: z.object({
+      featureId: featureIdSchema,
+      mergeVerified: z.boolean(),
+      prUrl: z.union([z.string(), z.array(z.string())]).optional(),
+      mergedBranches: z.array(z.string()).optional(),
+      dryRun: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
@@ -393,7 +406,7 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, and cancel workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, and cleanup workflows',
     actions: workflowActions,
   },
   {
