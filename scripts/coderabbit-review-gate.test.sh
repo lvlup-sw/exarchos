@@ -512,6 +512,77 @@ else
 fi
 
 # ============================================================
+# TASK 3: THREAD QUERYING AND SEVERITY CLASSIFICATION TESTS
+# ============================================================
+echo ""
+echo "=== Task 3: Thread Querying and Severity Classification ==="
+
+# Test: GetThreads_NoThreads_ReturnsEmpty
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Active Threads:** 0'; then
+    pass "GetThreads_NoThreads_ReturnsEmpty"
+else
+    fail "GetThreads_NoThreads_ReturnsEmpty — output: $OUTPUT"
+fi
+
+# Test: GetThreads_ResolvedExcluded
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+  {"id":"T_1","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Resolved issue","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_2","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active issue","author":{"login":"coderabbitai[bot]"}}]}},
+  {"id":"T_3","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"body":"Another resolved","author":{"login":"coderabbitai[bot]"}}]}}
+]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Active Threads:** 1'; then
+    pass "GetThreads_ResolvedExcluded"
+else
+    fail "GetThreads_ResolvedExcluded — output: $OUTPUT"
+fi
+
+# Test: ClassifySeverity_CriticalMarker_ReturnsCritical
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_RED} Critical: SQL injection vulnerability detected\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+]}}}}}"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
+    pass "ClassifySeverity_CriticalMarker_ReturnsCritical"
+else
+    fail "ClassifySeverity_CriticalMarker_ReturnsCritical — output: $OUTPUT"
+fi
+
+# Test: ClassifySeverity_MajorMarker_ReturnsMajor
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_ORANGE} Major: Missing error handling in async function\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+]}}}}}"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Blocking Findings:** true'; then
+    pass "ClassifySeverity_MajorMarker_ReturnsMajor"
+else
+    fail "ClassifySeverity_MajorMarker_ReturnsMajor — output: $OUTPUT"
+fi
+
+# Test: ClassifySeverity_MinorOnly_NoBlockers
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response "{\"data\":{\"repository\":{\"pullRequest\":{\"reviewThreads\":{\"nodes\":[
+  {\"id\":\"T_1\",\"isResolved\":false,\"isOutdated\":false,\"comments\":{\"nodes\":[{\"body\":\"${EMOJI_YELLOW} Minor: Consider renaming variable for clarity\",\"author\":{\"login\":\"coderabbitai[bot]\"}}]}}
+]}}}}}"
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Blocking Findings:** false'; then
+    pass "ClassifySeverity_MinorOnly_NoBlockers"
+else
+    fail "ClassifySeverity_MinorOnly_NoBlockers — output: $OUTPUT"
+fi
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo ""
