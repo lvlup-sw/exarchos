@@ -11,6 +11,7 @@ import { execSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
+import { resolveStateDir } from '../workflow/state-store.js';
 
 // ─── Check Definitions ─────────────────────────────────────────────────────
 
@@ -180,19 +181,6 @@ export async function findActiveWorkflowState(
   return null;
 }
 
-// ─── State Directory Resolution ────────────────────────────────────────────
-
-function resolveStateDir(): string {
-  const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return envDir;
-
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
-  }
-  return path.join(home, '.claude', 'workflow-state');
-}
-
 // ─── Gate Handlers ─────────────────────────────────────────────────────────
 
 /**
@@ -254,14 +242,24 @@ export async function handleTeammateGate(
 
 /**
  * Best-effort update: find the active workflow, match cwd to a worktree entry,
- * mark the corresponding task as complete, and write back. Silently swallows
- * all errors so the gate is never blocked by state issues.
+ * mark the corresponding task as complete, and write back atomically with CAS
+ * version checking. Silently swallows all errors so the gate is never blocked
+ * by state issues.
+ *
+ * CAS protocol:
+ * 1. Read state via findActiveWorkflowState (captures expectedVersion)
+ * 2. Mutate in memory
+ * 3. Re-read file to verify _version still matches expectedVersion
+ * 4. If mismatch (concurrent writer intervened), skip the update silently
+ * 5. Write atomically via tmp file + rename
  */
 async function updateTaskCompletion(cwd: string): Promise<void> {
   try {
     const stateDir = resolveStateDir();
     const active = await findActiveWorkflowState(stateDir);
     if (!active) return;
+
+    const expectedVersion = active.state._version;
 
     // Find the worktree entry whose path matches cwd
     const matchingWorktree = Object.values(active.state.worktrees).find(
@@ -278,8 +276,27 @@ async function updateTaskCompletion(cwd: string): Promise<void> {
     task.completedAt = new Date().toISOString();
     active.state._version += 1;
 
-    // Write updated state back
-    await fs.writeFile(active.filePath, JSON.stringify(active.state, null, 2));
+    // CAS check: re-read file and verify version hasn't changed
+    const currentRaw = await fs.readFile(active.filePath, 'utf-8');
+    const currentState = JSON.parse(currentRaw) as WorkflowState;
+    if (currentState._version !== expectedVersion) {
+      // Another writer intervened — skip this update (best-effort)
+      return;
+    }
+
+    // Atomic write: tmp file + rename
+    const tmpPath = `${active.filePath}.tmp.${process.pid}`;
+    try {
+      await fs.writeFile(tmpPath, JSON.stringify(active.state, null, 2));
+      await fs.rename(tmpPath, active.filePath);
+    } catch {
+      // Clean up tmp file on failure
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   } catch {
     // Best-effort: swallow errors so gate is never blocked
   }

@@ -5,10 +5,46 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+// Shared state for CAS race simulation — accessible to the fs mock below
+const casRaceConfig = vi.hoisted(() => ({
+  targetPath: null as string | null,
+  readCount: 0,
+  concurrentState: null as Record<string, unknown> | null,
+}));
+
 // Mock child_process before importing the module under test
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }));
+
+// Wrap node:fs/promises readFile to support CAS race simulation.
+// All other functions pass through to the real implementation.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      const result = await actual.readFile(...args);
+      const filePath = typeof args[0] === 'string' ? args[0] : '';
+      if (
+        casRaceConfig.targetPath &&
+        filePath === casRaceConfig.targetPath &&
+        casRaceConfig.concurrentState
+      ) {
+        casRaceConfig.readCount += 1;
+        if (casRaceConfig.readCount === 1) {
+          // After the first read of the target state file, simulate a concurrent
+          // writer modifying the file on disk before the caller can write back.
+          await actual.writeFile(
+            casRaceConfig.targetPath,
+            JSON.stringify(casRaceConfig.concurrentState, null, 2),
+          );
+        }
+      }
+      return result;
+    },
+  };
+});
 
 import { execSync } from 'node:child_process';
 import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState } from './gates.js';
@@ -450,6 +486,66 @@ describe('Quality Gate Commands', () => {
         const updatedState = JSON.parse(updatedRaw);
         expect(updatedState.tasks[0].status).toBe('in_progress');
         expect(updatedState._version).toBe(1);
+      });
+
+      it('should not overwrite state when a concurrent write changes _version', async () => {
+        // Arrange — initial state at version 1
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const stateFilePath = path.join(tempDir, 'test-workflow.state.json');
+        const initialState = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/tmp/worktree',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(stateFilePath, JSON.stringify(initialState));
+
+        // Configure the CAS race simulation: after the first readFile of the
+        // state file (done by findActiveWorkflowState), the mock will inject
+        // a concurrent write that bumps _version to 2 and changes task status.
+        casRaceConfig.targetPath = stateFilePath;
+        casRaceConfig.readCount = 0;
+        casRaceConfig.concurrentState = {
+          ...initialState,
+          _version: 2,
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'claimed_by_other', branch: 'feat/test' },
+          ],
+        };
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Disable race simulation before reading final state
+        casRaceConfig.targetPath = null;
+        casRaceConfig.concurrentState = null;
+
+        // Assert — gate still returns success
+        expect(result).toEqual({ continue: true });
+
+        // Assert — the concurrent writer's state should be preserved, NOT overwritten
+        const finalRaw = await fsp.readFile(stateFilePath, 'utf-8');
+        const finalState = JSON.parse(finalRaw);
+        // The concurrent writer set _version=2 and status='claimed_by_other'
+        // updateTaskCompletion should detect the version mismatch and skip the write
+        expect(finalState._version).toBe(2);
+        expect(finalState.tasks[0].status).toBe('claimed_by_other');
       });
     });
   });
