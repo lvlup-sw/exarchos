@@ -143,15 +143,29 @@ for op in $OPERATIONS; do
             continue
         fi
 
-        # Calculate regression percentage using awk
-        CHANGE_PCT=$(awk "BEGIN { printf \"%.1f\", ($MEASURED - $BASELINE) / $BASELINE * 100 }")
+        # Validate BASELINE is numeric
+        if ! awk -v val="$BASELINE" 'BEGIN { exit (val+0 == val) ? 0 : 1 }'; then
+            RESULTS+=("- **SKIP**: \`$op\` ($metric) — non-numeric baseline: $BASELINE")
+            TABLE_ROWS+=("| $op | $metric | $BASELINE | $MEASURED | — | SKIP |")
+            continue
+        fi
+
+        # Skip if baseline is zero (cannot compute percentage change)
+        if awk -v val="$BASELINE" 'BEGIN { exit (val+0 == 0) ? 0 : 1 }'; then
+            RESULTS+=("- **SKIP**: \`$op\` ($metric) — zero baseline")
+            TABLE_ROWS+=("| $op | $metric | 0 | $MEASURED | — | SKIP |")
+            continue
+        fi
+
+        # Calculate regression percentage using awk (safe variable passing)
+        CHANGE_PCT=$(awk -v m="$MEASURED" -v b="$BASELINE" 'BEGIN { printf "%.1f", (m - b) / b * 100 }')
 
         # Format change with sign prefix (awk printf already adds - for negatives)
-        CHANGE_DISPLAY=$(awk "BEGIN { v = ($MEASURED - $BASELINE) / $BASELINE * 100; if (v >= 0) printf \"+%.1f\", v; else printf \"%.1f\", v }")
+        CHANGE_DISPLAY=$(awk -v m="$MEASURED" -v b="$BASELINE" 'BEGIN { v = (m - b) / b * 100; if (v >= 0) printf "+%.1f", v; else printf "%.1f", v }')
 
         # Check if regression exceeds threshold
-        IS_REGRESSION=$(awk "BEGIN { print ($CHANGE_PCT > $THRESHOLD) ? 1 : 0 }")
-        IS_IMPROVEMENT=$(awk "BEGIN { print ($CHANGE_PCT < -$THRESHOLD) ? 1 : 0 }")
+        IS_REGRESSION=$(awk -v c="$CHANGE_PCT" -v t="$THRESHOLD" 'BEGIN { print (c > t) ? 1 : 0 }')
+        IS_IMPROVEMENT=$(awk -v c="$CHANGE_PCT" -v t="$THRESHOLD" 'BEGIN { print (c < -t) ? 1 : 0 }')
 
         if [[ "$IS_REGRESSION" -eq 1 ]]; then
             RESULTS+=("- **FAIL**: \`$op\` ($metric) regressed from ${BASELINE} to ${MEASURED} (${CHANGE_DISPLAY}%, threshold ${THRESHOLD}%)")

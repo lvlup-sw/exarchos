@@ -134,6 +134,39 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Test 6: Zero baseline (should skip, not crash) ──
+echo "--- Test 6: Zero baseline ---"
+TDIR="$TMPDIR_BASE/test6"
+mkdir -p "$TDIR"
+cat > "$TDIR/results.json" << 'EOF'
+{
+  "event-store-query": { "p99_ms": 44.0 },
+  "new-operation": { "p99_ms": 12.0 }
+}
+EOF
+cat > "$TDIR/baselines.json" << 'EOF'
+{
+  "version": "1.0.0",
+  "generated": "2026-02-16",
+  "baselines": {
+    "event-store-query": { "p99_ms": 45.0, "measured_at": "2026-02-16T00:00:00Z", "commit": "abc123", "iterations": 100 },
+    "new-operation": { "p99_ms": 0, "measured_at": "2026-02-16T00:00:00Z", "commit": "abc123", "iterations": 100 }
+  }
+}
+EOF
+set +e
+output=$("$SCRIPT" --results "$TDIR/results.json" --baselines "$TDIR/baselines.json" 2>&1)
+exit6=$?
+set -e
+assert_exit "Zero baseline → exit 0 (skip, not crash)" 0 "$exit6"
+if echo "$output" | grep -qi "SKIP"; then
+    echo "PASS: Output contains SKIP for zero-baseline metric"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: Output should contain SKIP for zero-baseline metric"
+    FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──
 echo ""
 echo "==========================="
