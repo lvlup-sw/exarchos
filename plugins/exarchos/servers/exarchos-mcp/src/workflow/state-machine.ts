@@ -142,6 +142,10 @@ export function getValidTransitions(
 /**
  * Execute a transition in the HSM. This is a PURE function that computes
  * what should happen but does not perform I/O. The caller handles persistence.
+ *
+ * Returns diagnostic events in `result.events` even on failure (guard-failed,
+ * circuit-open). The caller is responsible for emitting these to the event store
+ * before returning the error to the client.
  */
 export function executeTransition(
   hsm: HSMDefinition,
@@ -248,7 +252,13 @@ export function executeTransition(
         success: false,
         idempotent: false,
         effects: [],
-        events: [],
+        events: [{
+          type: 'guard-failed',
+          from: currentPhase,
+          to: targetPhase,
+          trigger: 'execute-transition',
+          metadata: { guard: transition.guard.id },
+        }],
         errorCode: 'GUARD_FAILED',
         errorMessage: `Guard '${transition.guard.id}' threw: ${(err as Error).message}`,
         guardDescription: transition.guard.description,
@@ -262,7 +272,13 @@ export function executeTransition(
         success: false,
         idempotent: false,
         effects: [],
-        events: [],
+        events: [{
+          type: 'guard-failed',
+          from: currentPhase,
+          to: targetPhase,
+          trigger: 'execute-transition',
+          metadata: { guard: transition.guard.id },
+        }],
         errorCode: 'GUARD_FAILED',
         errorMessage: guardReason
           ? `Guard '${transition.guard.id}' failed: ${guardReason}`
@@ -283,7 +299,18 @@ export function executeTransition(
           success: false,
           idempotent: false,
           effects: [],
-          events: [],
+          events: [{
+            type: 'circuit-open',
+            from: currentPhase,
+            to: targetPhase,
+            trigger: 'execute-transition',
+            metadata: {
+              compoundStateId: parent.id,
+              compoundId: parent.id,
+              fixCycleCount: fixCount,
+              maxFixCycles: parent.maxFixCycles,
+            },
+          }],
           errorCode: 'CIRCUIT_OPEN',
           errorMessage: `Fix cycle limit (${parent.maxFixCycles}) reached for compound '${parent.id}'`,
         };
