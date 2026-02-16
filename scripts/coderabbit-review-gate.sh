@@ -201,8 +201,23 @@ gh_graphql() {
 # ============================================================
 
 count_review_rounds() {
-    # Stub — returns 0 for now
-    echo "0"
+    local reviews_json
+    reviews_json=$(gh_graphql -f query='
+        query($owner: String!, $repo: String!, $pr: Int!) {
+            repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                    reviews(first: 100) {
+                        nodes {
+                            author { login }
+                            submittedAt
+                        }
+                    }
+                }
+            }
+        }
+    ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER")
+
+    echo "$reviews_json" | jq '[.data.repository.pullRequest.reviews.nodes[] | select(.author.login == "coderabbitai[bot]")] | length'
 }
 
 # ============================================================

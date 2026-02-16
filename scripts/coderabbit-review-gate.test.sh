@@ -63,7 +63,12 @@ if [[ "$1" == "api" ]]; then
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 -f)
-                    VARS="$VARS $2"
+                    # Check if this is the query= parameter
+                    if [[ "$2" == query=* ]]; then
+                        QUERY="${2#query=}"
+                    else
+                        VARS="$VARS $2"
+                    fi
                     shift 2
                     ;;
                 -F)
@@ -71,7 +76,11 @@ if [[ "$1" == "api" ]]; then
                     shift 2
                     ;;
                 -f*)
-                    VARS="$VARS ${1#-f}"
+                    if [[ "${1#-f}" == query=* ]]; then
+                        QUERY="${1#-fquery=}"
+                    else
+                        VARS="$VARS ${1#-f}"
+                    fi
                     shift
                     ;;
                 -F*)
@@ -276,6 +285,42 @@ if [[ "$EXIT_CODE" -eq 0 ]]; then
     pass "DryRun_NoComment"
 else
     fail "DryRun_NoComment (expected exit 0, got $EXIT_CODE)"
+fi
+
+# ============================================================
+# TASK 2: REVIEW ROUND COUNTING TESTS
+# ============================================================
+echo ""
+echo "=== Task 2: Review Round Counting ==="
+
+# Test: CountRounds_OneReview_ReturnsOne
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Round:** 1'; then
+    pass "CountRounds_OneReview_ReturnsOne"
+else
+    fail "CountRounds_OneReview_ReturnsOne — output: $OUTPUT"
+fi
+
+# Test: CountRounds_ThreeReviews_ReturnsThree
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T12:00:00Z"}]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Round:** 3'; then
+    pass "CountRounds_ThreeReviews_ReturnsThree"
+else
+    fail "CountRounds_ThreeReviews_ReturnsThree — output: $OUTPUT"
+fi
+
+# Test: CountRounds_MixedReviewers_OnlyCountsCodeRabbit
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T08:00:00Z"},{"author":{"login":"humanreviewer"},"submittedAt":"2026-01-15T09:00:00Z"},{"author":{"login":"otherbot[bot]"},"submittedAt":"2026-01-15T10:00:00Z"},{"author":{"login":"coderabbitai[bot]"},"submittedAt":"2026-01-15T11:00:00Z"}]}}}}}'
+OUTPUT=$(run_script --owner testowner --repo testrepo --pr 100)
+if echo "$OUTPUT" | grep -qF '**Round:** 2'; then
+    pass "CountRounds_MixedReviewers_OnlyCountsCodeRabbit"
+else
+    fail "CountRounds_MixedReviewers_OnlyCountsCodeRabbit — output: $OUTPUT"
 fi
 
 # ============================================================
