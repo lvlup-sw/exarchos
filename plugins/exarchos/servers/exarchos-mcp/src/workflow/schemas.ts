@@ -144,7 +144,7 @@ export const SynthesisSchema = z.object({
   integrationBranch: z.string().nullable(),
   mergeOrder: z.array(z.string()),
   mergedBranches: z.array(z.string()),
-  prUrl: z.string().nullable(),
+  prUrl: z.union([z.string(), z.array(z.string())]).nullable(),
   prFeedback: z.array(z.unknown()),
 });
 
@@ -153,7 +153,7 @@ export const SynthesisSchema = z.object({
 export const ArtifactsSchema = z.object({
   design: z.string().nullable(),
   plan: z.string().nullable(),
-  pr: z.string().nullable(),
+  pr: z.union([z.string(), z.array(z.string())]).nullable(),
 });
 
 // ─── Feature ID Schema ──────────────────────────────────────────────────────
