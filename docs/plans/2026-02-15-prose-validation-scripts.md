@@ -134,7 +134,7 @@ Skill integration tests follow `validate-synthesis-skill.test.sh`:
 2. [GREEN] Implement each script following `pre-synthesis-check.sh` pattern:
    - Arg parsing with `--help`
    - Dependency checks (git, jq, npm)
-   - Check functions with markdown output
+   - Check functions with Markdown output
    - Proper exit codes
 
 3. [REFACTOR] Update `skills/delegation/SKILL.md`:
@@ -252,7 +252,7 @@ Skill integration tests follow `validate-synthesis-skill.test.sh`:
    - Output: Coverage matrix (design section → task IDs)
 
 3. **`generate-traceability.sh`** (#13) — Pre-populate traceability matrix from headers
-   - Generates: markdown traceability table by parsing design `##` headers and plan `### Task` headers
+   - Generates: Markdown traceability table by parsing design `##` headers and plan `### Task` headers
    - Args: `--design-file <path> --plan-file <path> [--output <path>]`
    - Exit: 0=generated, 1=parse error
    - Output: Markdown table to stdout or file
@@ -313,7 +313,7 @@ Skill integration tests follow `validate-synthesis-skill.test.sh`:
    - Output: Structured pass/fail per check with error details
 
 4. **`verify-doc-links.sh`** (#27) — Check internal doc links resolve
-   - Validates: markdown links (`[text](path)`) point to existing files, code examples reference valid paths
+   - Validates: Markdown links (`[text](path)`) point to existing files, code examples reference valid paths
    - Args: `--doc-file <path>` or `--docs-dir <path>`
    - Exit: 0=all links valid, 1=broken links found
    - Output: Broken link list with file:line and target
