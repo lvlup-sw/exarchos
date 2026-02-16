@@ -1970,6 +1970,125 @@ describe('Guard edge cases', () => {
 
 // ─── Task: Missing state/edge case coverage ──────────────────────────────────
 
+// ─── Task: Diagnostic event emission on guard failure and circuit open ──────
+
+describe('Diagnostic Event Emission', () => {
+  describe('guard-failed events', () => {
+    it('should return guard-failed event when guard returns false', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'ideate',
+        artifacts: { design: null, plan: null, pr: null },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'plan');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].type).toBe('guard-failed');
+      expect(result.events[0].from).toBe('ideate');
+      expect(result.events[0].to).toBe('plan');
+      expect(result.events[0].metadata).toBeDefined();
+      expect(result.events[0].metadata!.guard).toBe('design-artifact-exists');
+    });
+
+    it('should return guard-failed event when guard throws exception', () => {
+      const hsm = getHSMDefinition('feature');
+      // Corrupt state that makes the allTasksComplete guard throw
+      const state: Record<string, unknown> = {
+        phase: 'delegate',
+        tasks: { length: 1, 0: { status: 'pending' } },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'review');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].type).toBe('guard-failed');
+      expect(result.events[0].from).toBe('delegate');
+      expect(result.events[0].to).toBe('review');
+      expect(result.events[0].metadata).toBeDefined();
+      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete');
+    });
+  });
+
+  describe('circuit-open events', () => {
+    it('should return circuit-open event when fix-cycle limit reached', () => {
+      const hsm = getHSMDefinition('feature');
+
+      // Simulate 3 fix-cycle events within the implementation compound (maxFixCycles is 3)
+      const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
+        sequence: i + 1,
+        version: '1.0' as const,
+        timestamp: new Date().toISOString(),
+        type: 'fix-cycle' as const,
+        from: 'review',
+        to: 'delegate',
+        trigger: 'test',
+        metadata: { compoundStateId: 'implementation' },
+      }));
+
+      const state: Record<string, unknown> = {
+        phase: 'review',
+        reviews: { spec: { status: 'fail' } },
+        _events: fixCycleEvents,
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('CIRCUIT_OPEN');
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].type).toBe('circuit-open');
+      expect(result.events[0].from).toBe('review');
+      expect(result.events[0].to).toBe('delegate');
+      expect(result.events[0].metadata).toBeDefined();
+      expect(result.events[0].metadata!.compoundStateId).toBe('implementation');
+      expect(result.events[0].metadata!.fixCycleCount).toBe(3);
+      expect(result.events[0].metadata!.maxFixCycles).toBe(3);
+    });
+
+    it('should return circuit-open event for overhaul-track compound', () => {
+      const hsm = getHSMDefinition('refactor');
+
+      // Simulate 3 fix-cycle events within the overhaul-track compound (maxFixCycles is 3)
+      const fixCycleEvents = Array.from({ length: 3 }, (_, i) => ({
+        sequence: i + 1,
+        version: '1.0' as const,
+        timestamp: new Date().toISOString(),
+        type: 'fix-cycle' as const,
+        from: 'overhaul-review',
+        to: 'overhaul-delegate',
+        trigger: 'test',
+        metadata: { compoundStateId: 'overhaul-track' },
+      }));
+
+      const state: Record<string, unknown> = {
+        phase: 'overhaul-review',
+        track: 'overhaul',
+        reviews: { spec: { status: 'fail' } },
+        _events: fixCycleEvents,
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('CIRCUIT_OPEN');
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].type).toBe('circuit-open');
+      expect(result.events[0].metadata!.compoundStateId).toBe('overhaul-track');
+    });
+  });
+});
+
 describe('Missing _events and _history defaults', () => {
   it('handles missing _events gracefully (defaults to empty array)', () => {
     const hsm = getHSMDefinition('feature');

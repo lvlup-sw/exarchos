@@ -1862,6 +1862,117 @@ describe('External Event Store Bridge', () => {
   });
 });
 
+// ─── Diagnostic Event Emission (guard-failed, circuit-open) ────────────────
+
+describe('Diagnostic Event Emission', () => {
+  it('handleSet emits guard-failed event to event store on guard failure', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a feature workflow at ideate
+    await handleInit({ featureId: 'guard-diag', workflowType: 'feature' }, tmpDir);
+
+    // Try to transition from ideate to plan WITHOUT setting design artifact (guard will fail)
+    const result = await handleSet(
+      { featureId: 'guard-diag', phase: 'plan' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+
+    // Query external event store for workflow.guard-failed events
+    const events = await eventStore.query('guard-diag', { type: 'workflow.guard-failed' });
+    expect(events.length).toBe(1);
+    const data = events[0].data as Record<string, unknown>;
+    expect(data.guard).toBe('design-artifact-exists');
+    expect(data.from).toBe('ideate');
+    expect(data.to).toBe('plan');
+    expect(data.featureId).toBe('guard-diag');
+  });
+
+  it('handleSet emits circuit-open event to event store when circuit breaker trips', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Create a feature workflow
+    await handleInit({ featureId: 'circuit-diag', workflowType: 'feature' }, tmpDir);
+
+    // Advance to review phase — set up all the artifacts/state needed
+    await handleSet(
+      { featureId: 'circuit-diag', updates: { 'artifacts.design': 'docs/d.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'circuit-diag', phase: 'plan' }, tmpDir);
+    await handleSet(
+      { featureId: 'circuit-diag', updates: { 'artifacts.plan': 'docs/p.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'circuit-diag', phase: 'plan-review' }, tmpDir);
+    await handleSet(
+      { featureId: 'circuit-diag', updates: { 'planReview.approved': true } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'circuit-diag', phase: 'delegate' }, tmpDir);
+
+    // Complete tasks with proper task schema
+    await handleSet(
+      { featureId: 'circuit-diag', updates: { tasks: [{ id: 't1', title: 'Task 1', status: 'complete' }] } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'circuit-diag', phase: 'review' }, tmpDir);
+
+    // Now inject 3 fix-cycle events into internal state to trigger circuit breaker
+    // We need to write _events directly to the state file
+    const stateFile = path.join(tmpDir, 'circuit-diag.state.json');
+    const state = await readStateFile(stateFile);
+    const mutableState = state as unknown as Record<string, unknown>;
+    mutableState._events = Array.from({ length: 3 }, (_, i) => ({
+      sequence: i + 1,
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      type: 'fix-cycle',
+      from: 'review',
+      to: 'delegate',
+      trigger: 'test',
+      metadata: { compoundStateId: 'implementation' },
+    }));
+    // Set review to failed so the guard would pass for delegate transition
+    mutableState.reviews = { spec: { status: 'fail' } };
+    await writeStateFile(stateFile, mutableState as WorkflowState);
+
+    // Attempt fix cycle — should trigger circuit breaker
+    const result = await handleSet(
+      { featureId: 'circuit-diag', phase: 'delegate' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('CIRCUIT_OPEN');
+
+    // Query external event store for workflow.circuit-open events
+    const events = await eventStore.query('circuit-diag', { type: 'workflow.circuit-open' });
+    expect(events.length).toBe(1);
+    const data = events[0].data as Record<string, unknown>;
+    expect(data.featureId).toBe('circuit-diag');
+    expect(data.compoundId).toBe('implementation');
+  });
+
+  it('handleSet does not emit diagnostic events when no event store configured', async () => {
+    // No event store configured (default null)
+    await handleInit({ featureId: 'no-store', workflowType: 'feature' }, tmpDir);
+
+    // This should not throw even without event store
+    const result = await handleSet(
+      { featureId: 'no-store', phase: 'plan' },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+  });
+});
+
 // ─── Guaranteed Event Append (Task 9) ──────────────────────────────────────
 
 describe('Guaranteed Event Append', () => {
