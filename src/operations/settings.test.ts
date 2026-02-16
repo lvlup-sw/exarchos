@@ -90,6 +90,23 @@ describe('Settings.json Generation (C3)', () => {
       expect(result.hooks).toBeUndefined();
     });
 
+    it('generateSettings_DefaultSelections_IncludesAgentTeamsEnv', () => {
+      const selections = createSelections();
+
+      const result = generateSettings(selections);
+
+      expect(result.env).toBeDefined();
+      expect(result.env!.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe('1');
+    });
+
+    it('generateSettings_DefaultSelections_IncludesTeammateModeAuto', () => {
+      const selections = createSelections();
+
+      const result = generateSettings(selections);
+
+      expect(result.teammateMode).toBe('auto');
+    });
+
     it('generateSettings_HooksStructure_PreservesEventEntries', () => {
       const selections = createSelections();
       const hooks = {
