@@ -13,7 +13,7 @@ const noopSender: EventSender = {
     _streamId: string,
     _events: ExarchosEventDto[],
   ): Promise<AppendEventsResponse> {
-    // No remote configured; events are retained in the outbox
+    // No remote configured; events marked confirmed locally (no actual send)
     return { accepted: 0, streamVersion: 0 };
   },
 };
@@ -36,7 +36,7 @@ async function discoverOutboxStreams(stateDir: string): Promise<string[]> {
 /**
  * Discovers all outbox streams in stateDir and drains pending entries.
  * Since no remote client is configured yet, uses a no-op sender that
- * retains entries in the outbox without actually sending.
+ * marks entries as confirmed locally without actually sending.
  */
 export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
   try {
