@@ -22,6 +22,9 @@ import { configureCancelEventStore } from './workflow/cancel.js';
 import { configureQueryEventStore } from './workflow/query.js';
 import { EventStore } from './event-store/store.js';
 
+// Telemetry middleware
+import { withTelemetry } from './telemetry/middleware.js';
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
@@ -58,6 +61,8 @@ export function createServer(stateDir: string): McpServer {
   configureQueryEventStore(eventStore);
 
   // Register composite tools from registry
+  const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
+
   for (const tool of TOOL_REGISTRY) {
     const handler = COMPOSITE_HANDLERS[tool.name];
     if (!handler) continue;
@@ -65,14 +70,18 @@ export function createServer(stateDir: string): McpServer {
     const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool);
 
+    const baseHandler = async (args: Record<string, unknown>) =>
+      formatResult(await handler(args, stateDir));
+
     // Use registerTool() so the strict ZodObject is passed as inputSchema
     // directly, preserving .strict() validation that rejects unrecognized keys.
     // The server.tool() overload treats ZodObjects as annotations, not schemas.
     server.registerTool(
       tool.name,
       { description, inputSchema },
-      async (args) =>
-        formatResult(await handler(args as Record<string, unknown>, stateDir)),
+      enableTelemetry
+        ? withTelemetry(baseHandler, tool.name, eventStore)
+        : baseHandler,
     );
   }
 
