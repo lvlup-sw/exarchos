@@ -1,3 +1,7 @@
+---
+name: fix-mode
+---
+
 # Fix Mode (--fixes)
 
 When invoked with `--fixes`, delegation handles review failures instead of initial implementation.

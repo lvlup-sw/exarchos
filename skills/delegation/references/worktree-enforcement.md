@@ -1,3 +1,7 @@
+---
+name: worktree-enforcement
+---
+
 # Worktree Enforcement (MANDATORY)
 
 All implementation tasks MUST run in isolated worktrees, not the main project root.

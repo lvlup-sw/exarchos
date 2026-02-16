@@ -1,3 +1,7 @@
+---
+name: polish-track
+---
+
 # Polish Track — Detailed Phase Guide
 
 ## Purpose
