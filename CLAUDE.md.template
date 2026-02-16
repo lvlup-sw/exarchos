@@ -10,9 +10,11 @@ Uses global Claude Code workflow from `~/.claude/`:
 |---------|---------|
 | `/ideate` | Collaborative design exploration |
 | `/plan` | TDD implementation task breakdown |
-| `/delegate` | Jules + Task tool dispatch |
+| `/delegate` | Subagent dispatch to git worktrees |
 | `/review` | Two-stage: spec + quality review |
 | `/synthesize` | Branch merge and PR creation |
+| `/debug` | Bug investigation and fix workflow |
+| `/refactor` | Code improvement (polish or overhaul) |
 | `/tdd` | TDD workflow reference |
 
 ## TDD (Mandatory)
