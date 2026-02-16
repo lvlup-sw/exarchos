@@ -143,7 +143,7 @@ fi
 # ============================================================
 
 # Get all worktrees from tasks for file-to-worktree mapping
-WORKTREES_JSON="$(jq -c '[.tasks[] | select(.worktree != null) | {worktree: .worktree, branch: (.branch // "unknown")}]' "$STATE_FILE" 2>/dev/null || echo '[]')"
+WORKTREES_JSON="$(jq -c '[.tasks[] | select(.worktree != null) | {worktree: .worktree, branch: (.branch // "unknown")}] | unique_by(.worktree)' "$STATE_FILE" 2>/dev/null || echo '[]')"
 
 # Fail fast when multiple worktrees exist — deterministic mapping not yet implemented
 WORKTREE_COUNT="$(echo "$WORKTREES_JSON" | jq 'length')"

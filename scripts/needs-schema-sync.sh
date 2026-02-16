@@ -128,9 +128,12 @@ if [[ -n "$DIFF_FILE" ]]; then
     )"
 else
     # Use git diff to get changed files
-    CHANGED_FILES="$(git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null || \
-                     git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH" HEAD 2>/dev/null || \
-                     git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH" 2>/dev/null || true)"
+    if ! CHANGED_FILES="$(git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null || \
+                         git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH" HEAD 2>/dev/null || \
+                         git -C "$REPO_ROOT" diff --name-only "$BASE_BRANCH" 2>/dev/null)"; then
+        echo "Error: git diff failed for base '$BASE_BRANCH'" >&2
+        exit 1
+    fi
 fi
 
 # ============================================================
