@@ -1,5 +1,42 @@
 import { z } from 'zod';
 
+// ─── Type Coercion Helpers ──────────────────────────────────────────────────
+// LLM tool callers sometimes pass objects as JSON strings and numbers as
+// string digits. These helpers transparently coerce before Zod validation.
+
+function tryJsonParse(val: string): unknown {
+  try {
+    const parsed = JSON.parse(val);
+    return typeof parsed === 'object' && parsed !== null ? parsed : val;
+  } catch {
+    return val;
+  }
+}
+
+/** z.record() that also accepts a JSON string and parses it to an object. */
+export function coercedRecord(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodRecord<z.ZodString, z.ZodUnknown>> {
+  return z.preprocess(
+    (val) => (typeof val === 'string' ? tryJsonParse(val) : val),
+    z.unknown(),
+  ).pipe(z.record(z.string(), z.unknown()));
+}
+
+/** z.number().int().positive() that also accepts a numeric string. */
+export function coercedPositiveInt(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodNumber> {
+  return z.preprocess(
+    (val) => (typeof val === 'string' ? Number(val) : val),
+    z.unknown(),
+  ).pipe(z.number().int().positive());
+}
+
+/** z.number().int().nonnegative() that also accepts a numeric string. */
+export function coercedNonnegativeInt(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodNumber> {
+  return z.preprocess(
+    (val) => (typeof val === 'string' ? Number(val) : val),
+    z.unknown(),
+  ).pipe(z.number().int().nonnegative());
+}
+
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
 export interface ToolAction {
@@ -179,7 +216,7 @@ const workflowActions: readonly ToolAction[] = [
     description: 'Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided — do not duplicate via event append',
     schema: z.object({
       featureId: featureIdSchema,
-      updates: z.record(z.string(), z.unknown()).optional(),
+      updates: coercedRecord().optional(),
       phase: z.string().optional(),
     }),
     phases: ALL_PHASES,
@@ -205,8 +242,8 @@ const eventActions: readonly ToolAction[] = [
     description: 'Append an event to a stream',
     schema: z.object({
       stream: z.string().min(1),
-      event: z.record(z.string(), z.unknown()),
-      expectedSequence: z.number().int().optional(),
+      event: coercedRecord(),
+      expectedSequence: coercedNonnegativeInt().optional(),
       idempotencyKey: z.string().optional(),
     }),
     phases: ALL_PHASES,
@@ -217,9 +254,9 @@ const eventActions: readonly ToolAction[] = [
     description: 'Query events from a stream with optional filtering',
     schema: z.object({
       stream: z.string().min(1),
-      filter: z.record(z.string(), z.unknown()).optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
+      filter: coercedRecord().optional(),
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
       fields: z.array(z.string()).optional(),
     }),
     phases: ALL_PHASES,
@@ -303,7 +340,7 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Mark a task as complete with optional result. Auto-emits task.completed event',
     schema: z.object({
       taskId: z.string().min(1),
-      result: z.record(z.string(), z.unknown()).optional(),
+      result: coercedRecord().optional(),
       streamId: z.string().min(1),
     }),
     phases: DELEGATE_PHASES,
@@ -315,7 +352,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       taskId: z.string().min(1),
       error: z.string().min(1),
-      diagnostics: z.record(z.string(), z.unknown()).optional(),
+      diagnostics: coercedRecord().optional(),
       streamId: z.string().min(1),
     }),
     phases: DELEGATE_PHASES,
@@ -330,8 +367,8 @@ const viewActions: readonly ToolAction[] = [
     name: 'pipeline',
     description: 'Aggregated view of all workflows with stack positions',
     schema: z.object({
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -341,9 +378,9 @@ const viewActions: readonly ToolAction[] = [
     description: 'Task detail view with filtering and projection',
     schema: z.object({
       workflowId: z.string().optional(),
-      filter: z.record(z.string(), z.unknown()).optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
+      filter: coercedRecord().optional(),
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
       fields: z.array(z.string()).optional(),
     }),
     phases: ALL_PHASES,
@@ -372,8 +409,8 @@ const viewActions: readonly ToolAction[] = [
     description: 'Get current stack positions from events',
     schema: z.object({
       streamId: z.string().optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
+      limit: coercedPositiveInt().optional(),
+      offset: coercedNonnegativeInt().optional(),
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
@@ -383,7 +420,7 @@ const viewActions: readonly ToolAction[] = [
     description: 'Record a stack position for a task',
     schema: z.object({
       streamId: z.string().min(1),
-      position: z.number().int().nonnegative(),
+      position: coercedNonnegativeInt(),
       taskId: z.string().min(1),
       branch: z.string().optional(),
       prUrl: z.string().optional(),
@@ -398,7 +435,7 @@ const viewActions: readonly ToolAction[] = [
       compact: z.boolean().optional(),
       tool: z.string().optional(),
       sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
-      limit: z.number().int().positive().optional(),
+      limit: coercedPositiveInt().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
