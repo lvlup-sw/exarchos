@@ -68,42 +68,25 @@ Create new project with standard structure.
 
 ---
 
-## Validation Rules
+## Project Structure Validation
 
-### Required Files (src/ directory)
+Run .NET standards compliance check:
 
-| File | Purpose |
-|------|---------|
-| `Directory.Build.props` | Centralized build settings |
-| `Directory.Packages.props` | Central Package Management |
-| `stylecop.json` | StyleCop analyzer rules |
-| `.editorconfig` | Code formatting standards |
-| `global.json` | SDK version pinning |
-| `*.sln` | Solution file |
+```bash
+scripts/validate-dotnet-standards.sh --project-root <path>
+```
 
-### Required Directories
+**On exit 0:** Project is compliant.
+**On exit 1:** Violations found — fix before proceeding.
+**On exit 2:** Usage or dependency error — fix inputs before retrying.
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/` | Source code and solution |
-| `docs/` | Documentation |
-| `.github/workflows/` | CI/CD pipelines |
+### What It Checks
 
-### Configuration Checks
-
-| Check | Severity | Description |
-|-------|----------|-------------|
-| Lvlup.Build package referenced | ERROR | Meta-package must be in Directory.Build.props |
-| Nullable enabled | ERROR | `<Nullable>enable</Nullable>` required |
-| CPM enabled | ERROR | `<ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>` |
-| Line endings | WARN | Should be `crlf` for consistency |
-| SDK version | WARN | Should match template's global.json |
-
-### Severity Levels
-
-- **ERROR**: Must be fixed before proceeding
-- **WARN**: Should be addressed, doesn't block
-- **INFO**: Suggestions for improvement
+- `Directory.Build.props` exists in `src/`
+- `Directory.Packages.props` exists with `<ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>`
+- `.editorconfig` exists in `src/`
+- `global.json` exists with SDK version specified
+- No individual `<PackageReference>` with `Version` attribute in `.csproj` files (CPM requires versions in `Directory.Packages.props`)
 
 ---
 

@@ -132,14 +132,16 @@ Update state with design artifact using `mcp__exarchos__exarchos_workflow` with 
 - Set `artifacts.design` to the design path
 - Set `phase` to "plan"
 
-## Completion Criteria
+## Completion Verification
 
-- [ ] Problem is clearly understood (Phase 1 complete)
-- [ ] 2-3 distinct options presented with trade-offs
-- [ ] User has selected an approach
-- [ ] Design document saved to `docs/designs/`
-- [ ] State file created and updated with design path
-- [ ] Ready for implementation planning
+Run the ideation artifact verification:
+
+```bash
+scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/designs
+```
+
+**On exit 0:** All completion criteria met — proceed to /plan.
+**On exit 1:** Missing artifacts — review output and complete before continuing.
 
 ## Transition
 
