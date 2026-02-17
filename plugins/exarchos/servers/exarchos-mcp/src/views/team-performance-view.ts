@@ -3,7 +3,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
-export const TEAM_PERFORMANCE_VIEW = 'team_performance';
+export const TEAM_PERFORMANCE_VIEW = 'team-performance';
 
 // ─── View State ────────────────────────────────────────────────────────────
 

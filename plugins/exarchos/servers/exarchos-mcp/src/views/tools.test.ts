@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
   resetMaterializerCache,
+  handleViewTeamPerformance,
+  handleViewDelegationTimeline,
 } from './tools.js';
+import { EventStore } from '../event-store/store.js';
 
 describe('Singleton Cache', () => {
   beforeEach(() => {
@@ -59,6 +65,97 @@ describe('Singleton Cache', () => {
       // Step 3: Materializer should NOT return dir-A's instance
       const matB = getOrCreateMaterializer('/tmp/dir-B');
       expect(matB).not.toBe(matA);
+    });
+  });
+});
+
+// ─── View Handler Tests ──────────────────────────────────────────────────────
+
+describe('View Handlers', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    resetMaterializerCache();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-view-test-'));
+  });
+
+  afterEach(async () => {
+    resetMaterializerCache();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('handleViewTeamPerformance', () => {
+    it('handleViewTeamPerformance_WithTeamEvents_ReturnsMaterializedView', async () => {
+      // Arrange: seed event store with team.task.completed events
+      const store = new EventStore(tmpDir);
+      await store.append('test-wf', {
+        streamId: 'test-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'team.task.completed',
+        data: {
+          taskId: 'task-1',
+          teammateName: 'worker-1',
+          durationMs: 5000,
+          filesChanged: ['src/auth/login.ts'],
+          testsPassed: true,
+          qualityGateResults: {},
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewTeamPerformance({ workflowId: 'test-wf' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('teammates');
+      const teammates = data.teammates as Record<string, unknown>;
+      expect(teammates).toHaveProperty('worker-1');
+    });
+  });
+
+  describe('handleViewDelegationTimeline', () => {
+    it('handleViewDelegationTimeline_WithTeamEvents_ReturnsTimeline', async () => {
+      // Arrange: seed event store with team events
+      const store = new EventStore(tmpDir);
+      await store.append('test-wf', {
+        streamId: 'test-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'team.spawned',
+        data: {
+          teamSize: 2,
+          teammateNames: ['w1', 'w2'],
+          taskCount: 4,
+          dispatchMode: 'parallel',
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append('test-wf', {
+        streamId: 'test-wf',
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'team.task.assigned',
+        data: {
+          taskId: 'task-1',
+          teammateName: 'w1',
+          worktreePath: '/tmp/wt-1',
+          modules: ['auth'],
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewDelegationTimeline({ workflowId: 'test-wf' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('tasks');
+      const tasks = data.tasks as unknown[];
+      expect(tasks).toHaveLength(1);
     });
   });
 });

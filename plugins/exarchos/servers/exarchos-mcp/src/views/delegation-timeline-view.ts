@@ -3,7 +3,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
-export const DELEGATION_TIMELINE_VIEW = 'delegation_timeline';
+export const DELEGATION_TIMELINE_VIEW = 'delegation-timeline';
 
 // ─── View State ────────────────────────────────────────────────────────────
 

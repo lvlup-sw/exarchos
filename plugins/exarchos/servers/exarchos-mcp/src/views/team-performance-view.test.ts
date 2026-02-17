@@ -18,7 +18,7 @@ const makeEvent = (type: string, data: Record<string, unknown>, seq = 1): Workfl
 describe('TeamPerformanceView', () => {
   describe('view name constant', () => {
     it('should export team_performance as view name', () => {
-      expect(TEAM_PERFORMANCE_VIEW).toBe('team_performance');
+      expect(TEAM_PERFORMANCE_VIEW).toBe('team-performance');
     });
   });
 
