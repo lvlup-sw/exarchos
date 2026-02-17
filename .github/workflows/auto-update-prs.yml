@@ -11,6 +11,9 @@ jobs:
   update-prs:
     runs-on: blacksmith-2vcpu-ubuntu-2204
     steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/github-script@v8
         with:
           script: |
