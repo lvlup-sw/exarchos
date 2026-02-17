@@ -16,6 +16,7 @@ interface CheckpointData {
   readonly tasks: ReadonlyArray<{ id: string; status: string; title: string }>;
   readonly artifacts: Record<string, unknown>;
   readonly stateFile: string;
+  readonly teamState?: unknown;
 }
 
 /** Result returned from the pre-compact handler. */
@@ -102,6 +103,13 @@ export async function handlePreCompact(
     const nextAction = computeNextAction(state.workflowType, state.phase);
     const summary = buildSummary(featureId, state.workflowType, state.phase, tasks);
 
+    // Include team composition snapshot for delegate phase when teamState exists
+    const stateRecord = state as unknown as Record<string, unknown>;
+    const teamState =
+      state.phase === 'delegate' && stateRecord.teamState != null
+        ? stateRecord.teamState
+        : undefined;
+
     const checkpoint: CheckpointData = {
       featureId,
       timestamp: new Date().toISOString(),
@@ -111,6 +119,7 @@ export async function handlePreCompact(
       tasks,
       artifacts: state.artifacts as Record<string, unknown>,
       stateFile,
+      ...(teamState !== undefined && { teamState }),
     };
 
     const checkpointPath = path.join(stateDir, `${featureId}.checkpoint.json`);
