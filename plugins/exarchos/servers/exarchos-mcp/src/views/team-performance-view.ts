@@ -82,9 +82,11 @@ function getTeammate(
 
 /** Extract unique module names from file paths. */
 function extractModules(filesChanged: string[]): string[] {
-  return filesChanged
-    .map(extractModule)
-    .filter((m): m is string => m !== null);
+  return [...new Set(
+    filesChanged
+      .map(extractModule)
+      .filter((m): m is string => m !== null),
+  )];
 }
 
 /** Calculate pass rate from completed and failed counts. */

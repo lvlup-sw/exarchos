@@ -132,6 +132,22 @@ describe('TeamPerformanceView', () => {
   });
 
   describe('apply - module metrics', () => {
+    it('apply_TeamTaskCompleted_DeduplicatesModulesFromSameDirectory', () => {
+      const state = teamPerformanceProjection.init();
+      const event = makeEvent('team.task.completed', {
+        taskId: 'task-1',
+        teammateName: 'worker-1',
+        durationMs: 3000,
+        filesChanged: ['src/auth/login.ts', 'src/auth/signup.ts'],
+        testsPassed: true,
+        qualityGateResults: {},
+      });
+
+      const next = teamPerformanceProjection.apply(state, event);
+      // Module 'auth' should only be counted once despite two files in the same directory
+      expect(next.modules['auth'].totalTasks).toBe(1);
+    });
+
     it('apply_TeamTaskCompleted_TracksModuleDuration', () => {
       let state = teamPerformanceProjection.init();
 
