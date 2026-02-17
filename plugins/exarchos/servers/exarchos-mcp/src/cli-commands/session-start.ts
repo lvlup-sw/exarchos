@@ -44,6 +44,7 @@ export interface SessionStartResult extends CommandResult {
 // ─── Terminal Phases ────────────────────────────────────────────────────────
 
 const TERMINAL_PHASES = new Set(['completed', 'cancelled']);
+const DELEGATE_PHASES = new Set(['delegate', 'overhaul-delegate']);
 
 // ─── Type Guard ──────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ async function readAndDeleteCheckpoints(stateDir: string): Promise<CheckpointDat
 function detectOrphanedTeam(
   checkpoint: CheckpointData,
 ): RecoveryInfo | undefined {
-  if (checkpoint.phase !== 'delegate') return undefined;
+  if (!DELEGATE_PHASES.has(checkpoint.phase)) return undefined;
   if (!checkpoint.teamState || typeof checkpoint.teamState !== 'object') return undefined;
 
   const ts = checkpoint.teamState as Record<string, unknown>;
