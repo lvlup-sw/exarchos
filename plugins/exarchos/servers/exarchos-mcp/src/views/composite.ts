@@ -8,6 +8,8 @@ import {
   handleViewPipeline,
   handleViewTasks,
   handleViewWorkflowStatus,
+  handleViewTeamPerformance,
+  handleViewDelegationTimeline,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -76,6 +78,18 @@ export async function handleView(
         stateDir,
       );
 
+    case 'team_performance':
+      return handleViewTeamPerformance(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
+    case 'delegation_timeline':
+      return handleViewDelegationTimeline(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -89,6 +103,8 @@ export async function handleView(
             'stack_status',
             'stack_place',
             'telemetry',
+            'team_performance',
+            'delegation_timeline',
           ] as const,
         },
       };

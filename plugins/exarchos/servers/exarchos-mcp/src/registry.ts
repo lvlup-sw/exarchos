@@ -387,6 +387,24 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'team_performance',
+    description: 'Team performance metrics from delegation events',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'delegation_timeline',
+    description: 'Delegation timeline with bottleneck detection',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────

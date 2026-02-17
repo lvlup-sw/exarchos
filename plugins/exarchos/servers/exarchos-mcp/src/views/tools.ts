@@ -29,6 +29,16 @@ import {
   telemetryProjection,
   TELEMETRY_VIEW,
 } from '../telemetry/telemetry-projection.js';
+import {
+  teamPerformanceProjection,
+  TEAM_PERFORMANCE_VIEW,
+} from './team-performance-view.js';
+import type { TeamPerformanceViewState } from './team-performance-view.js';
+import {
+  delegationTimelineProjection,
+  DELEGATION_TIMELINE_VIEW,
+} from './delegation-timeline-view.js';
+import type { DelegationTimelineViewState } from './delegation-timeline-view.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -40,6 +50,8 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(PIPELINE_VIEW, pipelineProjection);
   materializer.register(STACK_VIEW, stackViewProjection);
   materializer.register(TELEMETRY_VIEW, telemetryProjection);
+  materializer.register(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection);
+  materializer.register(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection);
   return materializer;
 }
 
@@ -245,6 +257,68 @@ export async function handleViewPipeline(
     }
 
     return { success: true, data: { workflows, total } };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Team Performance Handler ──────────────────────────────────────────
+
+export async function handleViewTeamPerformance(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    await materializer.loadFromSnapshot(streamId, TEAM_PERFORMANCE_VIEW);
+    const events = await store.query(streamId);
+    const view = materializer.materialize<TeamPerformanceViewState>(
+      streamId,
+      TEAM_PERFORMANCE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Delegation Timeline Handler ───────────────────────────────────────
+
+export async function handleViewDelegationTimeline(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    await materializer.loadFromSnapshot(streamId, DELEGATION_TIMELINE_VIEW);
+    const events = await store.query(streamId);
+    const view = materializer.materialize<DelegationTimelineViewState>(
+      streamId,
+      DELEGATION_TIMELINE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
   } catch (err) {
     return {
       success: false,

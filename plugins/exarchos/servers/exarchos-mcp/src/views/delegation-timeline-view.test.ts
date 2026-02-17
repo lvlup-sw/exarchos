@@ -23,7 +23,7 @@ const makeEvent = (
 describe('DelegationTimelineView', () => {
   describe('view name constant', () => {
     it('should export delegation_timeline as view name', () => {
-      expect(DELEGATION_TIMELINE_VIEW).toBe('delegation_timeline');
+      expect(DELEGATION_TIMELINE_VIEW).toBe('delegation-timeline');
     });
   });
 
