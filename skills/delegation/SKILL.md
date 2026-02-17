@@ -80,6 +80,31 @@ Task({
 
 **CRITICAL:** Ensure your session is using the opus model for coding tasks. All teammates inherit the session model — use Task tool dispatch if you need per-task model selection.
 
+## Adaptive Orchestration
+
+When using Agent Teams mode, the orchestrator can leverage historical data for smarter team composition:
+
+### Pre-Delegation Intelligence
+
+Before creating the team, query the TeamPerformanceView for historical teammate metrics:
+- `exarchos_view` with `action: 'team_performance'` — teammate efficiency, module expertise, quality gate pass rates
+- Use `synthesizeIntelligence()` from SubagentStart hook for historical fix-cycle patterns per module
+
+### Team Composition
+
+Informed by historical metrics:
+- **Team sizing:** Use `teamSizing.avgTasksPerTeammate` to determine optimal teammate count
+- **Task assignment:** Match modules to teammates with relevant `moduleExpertise`
+- **Cold start:** When no historical data exists, fall back to plan's parallel groups for sizing
+
+### Guard-Aware Task Graph
+
+Before creating the native Claude Code task list:
+1. Build a dependency graph from plan task `blockedBy` fields
+2. Identify the critical path through the dependency chain
+3. Front-load independent tasks for maximum parallelism
+4. Use `findUnblockedTasks()` in TeammateIdle to auto-detect follow-up work
+
 ## Controller Responsibilities
 
 The orchestrator (you) MUST:
@@ -192,6 +217,7 @@ State is saved, enabling recovery after context compaction.
 - One team per session
 - No nested teams (teammates can't spawn sub-teammates)
 - Split panes require tmux or iTerm2 (not VS Code terminal, Windows Terminal, or Ghostty)
+- **TeamPerformanceView cold start:** First delegation in a project has no historical data. Falls back to plan's parallel group strategy for team sizing. Metrics accumulate across delegations.
 
 **Task Tool mode:**
 - No visual monitoring
@@ -228,3 +254,26 @@ When using Agent Teams mode, the `TeammateIdle` hook fires when a teammate compl
 This implements a **layered coordination** model:
 - Agent Teams handles real-time dispatch and self-coordination
 - Exarchos handles persistent workflow state and event sourcing
+
+### Agent Teams Event Emission
+
+When using Agent Teams mode, events are emitted at each lifecycle boundary:
+
+**Orchestrator-emitted events:**
+- `team.spawned` — When team is created (includes teamSize, teammateNames, taskCount, dispatchMode)
+- `team.task.assigned` — When tasks are assigned to teammates (includes taskId, teammateName, worktreePath, modules)
+- `team.disbanded` — When all tasks complete (includes totalDurationMs, tasksCompleted, tasksFailed)
+
+**Hook-emitted events (automatic via TeammateIdle):**
+- `team.task.completed` — After quality gates pass (includes taskId, teammateName, durationMs, filesChanged, testsPassed)
+- `team.task.failed` — After quality gates fail (includes taskId, teammateName, failureReason, gateResults)
+- `team.context.injected` — From SubagentStart hook (includes phase, toolsAvailable, historicalHints)
+
+> **Note:** TeammateIdle hook now emits rich events with performance data, not just state updates.
+
+### Intelligence Views
+
+Two CQRS views provide team analytics:
+
+- `exarchos_view` with `action: 'team_performance'` — Query before delegation for team sizing and module assignment. Returns teammate metrics (tasks completed, avg duration, module expertise, quality gate pass rates) and team sizing recommendations.
+- `exarchos_view` with `action: 'delegation_timeline'` — Query after delegation for retrospective analysis. Returns task timeline with bottleneck detection (longest task, blocking dependencies).
