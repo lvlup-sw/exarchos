@@ -4,6 +4,7 @@ on:
     branches: [main]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -23,6 +24,7 @@ jobs:
               state: 'open',
               base: 'main'
             });
+            const updated = [];
             for (const pr of pulls.data) {
               try {
                 await github.rest.pulls.updateBranch({
@@ -31,8 +33,22 @@ jobs:
                   pull_number: pr.number
                 });
                 console.log(`Updated PR #${pr.number}`);
-                // Dispatch CI on the updated branch — needed because pushes
-                // from GITHUB_TOKEN don't trigger pull_request workflows
+                updated.push(pr);
+              } catch (e) {
+                console.log(`Skipped PR #${pr.number} update: ${e.message}`);
+              }
+            }
+
+            // Wait for merge commits to propagate before dispatching CI
+            if (updated.length > 0) {
+              console.log(`Waiting 5s for ${updated.length} merge commit(s) to propagate...`);
+              await new Promise(r => setTimeout(r, 5000));
+            }
+
+            // Dispatch CI on updated branches — needed because pushes
+            // from GITHUB_TOKEN don't trigger pull_request workflows
+            for (const pr of updated) {
+              try {
                 await github.rest.actions.createWorkflowDispatch({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -41,6 +57,6 @@ jobs:
                 });
                 console.log(`Dispatched CI for PR #${pr.number} on ${pr.head.ref}`);
               } catch (e) {
-                console.log(`Skipped PR #${pr.number}: ${e.message}`);
+                console.error(`Failed to dispatch CI for PR #${pr.number}: ${e.message}`);
               }
             }
