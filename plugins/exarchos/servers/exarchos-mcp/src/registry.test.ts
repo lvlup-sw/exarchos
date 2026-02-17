@@ -320,6 +320,22 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
+  describe('view actions include new team views', () => {
+    it('TOOL_REGISTRY_ViewActions_IncludesTeamPerformance', () => {
+      const viewComposite = findComposite('exarchos_view');
+      expect(viewComposite).toBeDefined();
+      const actionNames = viewComposite!.actions.map((a) => a.name);
+      expect(actionNames).toContain('team_performance');
+    });
+
+    it('TOOL_REGISTRY_ViewActions_IncludesDelegationTimeline', () => {
+      const viewComposite = findComposite('exarchos_view');
+      expect(viewComposite).toBeDefined();
+      const actionNames = viewComposite!.actions.map((a) => a.name);
+      expect(actionNames).toContain('delegation_timeline');
+    });
+  });
+
   describe('schema validation', () => {
     it('should accept valid workflow init input', () => {
       const action = findAction('exarchos_workflow', 'init');

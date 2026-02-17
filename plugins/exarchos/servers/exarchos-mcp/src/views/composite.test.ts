@@ -5,6 +5,8 @@ vi.mock('./tools.js', () => ({
   handleViewPipeline: vi.fn(),
   handleViewTasks: vi.fn(),
   handleViewWorkflowStatus: vi.fn(),
+  handleViewTeamPerformance: vi.fn(),
+  handleViewDelegationTimeline: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -23,6 +25,8 @@ import {
   handleViewPipeline,
   handleViewTasks,
   handleViewWorkflowStatus,
+  handleViewTeamPerformance,
+  handleViewDelegationTimeline,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -194,6 +198,52 @@ describe('handleView', () => {
       expect(result).toBe(expected);
       expect(handleViewTelemetry).toHaveBeenCalledWith(
         { compact: true, tool: 'workflow_get' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('team_performance', () => {
+    it('handleView_TeamPerformanceAction_DispatchesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { teammates: {}, modules: {}, teamSizing: { avgTasksPerTeammate: 0, dataPoints: 0 } },
+      };
+      vi.mocked(handleViewTeamPerformance).mockResolvedValue(expected);
+      const args = { action: 'team_performance', workflowId: 'wf-4' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewTeamPerformance).toHaveBeenCalledWith(
+        { workflowId: 'wf-4' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('delegation_timeline', () => {
+    it('handleView_DelegationTimelineAction_DispatchesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { featureId: '', tasks: [], bottleneck: null },
+      };
+      vi.mocked(handleViewDelegationTimeline).mockResolvedValue(expected);
+      const args = { action: 'delegation_timeline', workflowId: 'test' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewDelegationTimeline).toHaveBeenCalledWith(
+        { workflowId: 'test' },
         STATE_DIR,
       );
     });
