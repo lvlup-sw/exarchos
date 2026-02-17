@@ -76,7 +76,7 @@ Validate that all skills, commands, and rules follow Anthropic's official skill-
 - Do skills cleanly delegate to other skills where appropriate, or do they duplicate logic that belongs in a different skill?
 
 **Validation scripts:**
-- For skills with critical validation steps (gate checks, review criteria, quality thresholds), are those checks implemented as `scripts/` that run programmatically, or expressed only as prose instructions?
+- For skills with critical validation steps (gate checks, review criteria, quality thresholds), are those checks implemented as `scripts/` that run programmatically, or expressed only as prose instructions? (Note: skills should reference their validation scripts — either in SKILL.md body or `references/` subdirectories. Verified as of v2 audit.)
 - Code is deterministic; language interpretation is not. Identify validation steps that would benefit from a bundled script rather than relying on Claude to interpret prose criteria consistently.
 
 **Rule scoping:**
@@ -106,7 +106,7 @@ Every byte in a tool response or skill body consumes agent context window. Audit
 - Is `format.ts` enforcing a consistent, minimal `ToolResult` shape across all modules?
 
 **Skill token budget:**
-- Which `SKILL.md` files exceed 5,000 words? These degrade Claude's instruction-following and should be split into body + `references/`.
+- Which `SKILL.md` files exceed 5,000 words? These degrade Claude's instruction-following and should be split into body + `references/`. (Note: skills are expected to be under 1,300 words. Verified as of v2 audit.)
 - Are any skills loading large inline templates, checklists, or code blocks that could be moved to `references/` for on-demand access?
 - Do commands embed full skill content inline instead of referencing via `@skills/` paths?
 - Are any `references/` files loaded eagerly (mentioned at the top of SKILL.md as required reading) rather than linked for progressive discovery?
