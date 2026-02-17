@@ -55,15 +55,16 @@ Task({
 })
 ```
 
-### Agent Teams Dispatch (alternative)
+### Agent Teams Dispatch (enhanced)
 
 When using `--mode agent-team`:
-1. Orchestrator activates delegate mode (Shift+Tab in Claude Code terminal)
-2. Describes each task to teammates via natural language (see parallel-strategy.md for example)
-3. Each teammate receives worktree path + implementer prompt content
-4. Teammates self-coordinate via shared task list
+1. **Pre-delegation intelligence:** Query `exarchos_view team_performance` for historical metrics
+2. **Team creation:** Create team with named teammates, each assigned to a worktree
+3. **Task list setup:** Create native Claude Code tasks with dependency annotations
+4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content
+5. **Event emission:** Append `team.spawned` event with teamSize, teammateNames, taskCount
 
-**No `Task()` calls needed** — delegation happens through natural language.
+Teammates self-coordinate via shared task list. No `Task()` calls needed.
 
 ## Step 5: Monitor Progress
 
@@ -72,13 +73,15 @@ For background tasks:
 TaskOutput({ task_id: "task-001-id", block: true })
 ```
 
-### Agent Teams Monitoring (alternative)
+### Agent Teams Monitoring (enhanced)
 
 When using `--mode agent-team`:
 - Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates
-- Orchestrator observes progress via pane output
-- No `TaskOutput` polling needed
+- `TeammateIdle` hook auto-runs quality gates (typecheck, tests, clean worktree)
+- On quality pass: emits `team.task.completed` event with performance data
+- On quality fail: exit code 2 sends feedback, emits `team.task.failed` event
+- Hook scans task graph for newly unblocked tasks and assigns follow-up work
+- Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 
 ## Step 6: Collect Results
 
@@ -102,13 +105,15 @@ bash scripts/post-delegation-check.sh \
 
 **On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
-### Agent Teams Collection (alternative)
+### Agent Teams Collection (enhanced)
 
 When using `--mode agent-team`:
-- `TeammateIdle` hook updates Exarchos workflow state automatically
-- On quality gate pass: task marked "complete" in state
-- On quality gate fail: exit code 2 sends feedback, teammate continues
-- Run `post-delegation-check.sh` as usual after all teammates finish
+- `TeammateIdle` hook bridges real-time Agent Teams with persistent Exarchos state
+- On quality gate pass: task marked "complete" + `team.task.completed` event emitted
+- On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
+- Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
+- After all teammates finish: append `team.disbanded` event with summary metrics
+- Run `post-delegation-check.sh` as usual for final validation
 
 ## Step 7: Schema Sync (Auto-Detection)
 
