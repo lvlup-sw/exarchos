@@ -191,7 +191,7 @@ export const teamPerformanceProjection: ViewProjection<TeamPerformanceViewState>
         const newFixCount = prevMod.fixCycleCount + 1;
         const fixRate = prevMod.totalTasks > 0
           ? newFixCount / prevMod.totalTasks
-          : newFixCount;
+          : 0;
 
         return {
           ...view,
