@@ -242,4 +242,63 @@ describe('pre-compact', () => {
       expect(result.continue).toBe(true);
     });
   });
+
+  describe('team composition snapshot', () => {
+    it('should include teamState in checkpoint when delegate phase has teamState', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      const teamState = {
+        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
+      };
+      await writeMockState(stateDir, 'team-feature', {
+        phase: 'delegate',
+        teamState,
+      });
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const checkpointPath = path.join(stateDir, 'team-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.teamState).toEqual(teamState);
+    });
+
+    it('should not include teamState in checkpoint when not in delegate phase', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      const teamState = {
+        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
+      };
+      await writeMockState(stateDir, 'review-feature', {
+        phase: 'review',
+        teamState,
+      });
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const checkpointPath = path.join(stateDir, 'review-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.teamState).toBeUndefined();
+    });
+
+    it('should omit teamState from checkpoint when delegate phase has no teamState', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'no-team-feature', {
+        phase: 'delegate',
+        // no teamState property
+      });
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const checkpointPath = path.join(stateDir, 'no-team-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.teamState).toBeUndefined();
+    });
+  });
 });
