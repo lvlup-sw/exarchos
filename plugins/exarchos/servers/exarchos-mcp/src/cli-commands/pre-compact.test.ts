@@ -284,6 +284,27 @@ describe('pre-compact', () => {
       expect(checkpoint.teamState).toBeUndefined();
     });
 
+    it('should include teamState in checkpoint when overhaul-delegate phase has teamState', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      const teamState = {
+        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
+      };
+      await writeMockState(stateDir, 'overhaul-feature', {
+        phase: 'overhaul-delegate',
+        workflowType: 'refactor',
+        teamState,
+      });
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const checkpointPath = path.join(stateDir, 'overhaul-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.teamState).toEqual(teamState);
+    });
+
     it('should omit teamState from checkpoint when delegate phase has no teamState', async () => {
       // Arrange
       const stateDir = tmpDir;
