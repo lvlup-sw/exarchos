@@ -10,6 +10,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench",
     "generate:docs": "tsx scripts/generate-docs.ts"
   },
   "dependencies": {

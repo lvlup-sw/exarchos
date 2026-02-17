@@ -435,7 +435,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
   it('uses expectedSequence for optimistic concurrency', async () => {
     // Arrange: seed the stream with some events
     await sharedStore.append('wf-seq', { type: 'workflow.started', data: {} });
-    await sharedStore.append('wf-seq', { type: 'team.formed', data: {} });
+    await sharedStore.append('wf-seq', { type: 'task.assigned', data: {} });
 
     // Spy on sharedStore.append to capture the options passed
     const originalAppend = sharedStore.append.bind(sharedStore);
@@ -498,7 +498,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
   it('queries all events (not just task.claimed) to get accurate sequence', async () => {
     // Arrange: seed with mixed event types
     await sharedStore.append('wf-mixed', { type: 'workflow.started', data: {} });
-    await sharedStore.append('wf-mixed', { type: 'team.formed', data: {} });
+    await sharedStore.append('wf-mixed', { type: 'workflow.transition', data: {} });
     await sharedStore.append('wf-mixed', { type: 'task.assigned', data: {} });
 
     // Spy on sharedStore.query to verify it queries without type filter

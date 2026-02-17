@@ -232,6 +232,19 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'cleanup',
+    description: 'Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Auto-emits workflow.cleanup event',
+    schema: z.object({
+      featureId: featureIdSchema,
+      mergeVerified: z.boolean(),
+      prUrl: z.union([z.string(), z.array(z.string())]).optional(),
+      mergedBranches: z.array(z.string()).optional(),
+      dryRun: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
@@ -267,63 +280,6 @@ const eventActions: readonly ToolAction[] = [
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
 
 const orchestrateActions: readonly ToolAction[] = [
-  {
-    name: 'team_spawn',
-    description: 'Register a new agent teammate with role assignment',
-    schema: z.object({
-      name: z.string().min(1),
-      role: z.string().min(1),
-      taskId: z.string().min(1),
-      taskTitle: z.string().min(1),
-      streamId: z.string().min(1),
-      worktreePath: z.string().optional(),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-  },
-  {
-    name: 'team_message',
-    description: 'Send a direct message to a specific teammate',
-    schema: z.object({
-      from: z.string().min(1),
-      to: z.string().min(1),
-      content: z.string().min(1),
-      streamId: z.string().min(1),
-      messageType: z.string().optional(),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-  },
-  {
-    name: 'team_broadcast',
-    description: 'Broadcast a message to all active teammates',
-    schema: z.object({
-      from: z.string().min(1),
-      content: z.string().min(1),
-      streamId: z.string().min(1),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-  },
-  {
-    name: 'team_shutdown',
-    description: 'Shut down a teammate agent',
-    schema: z.object({
-      name: z.string().min(1),
-      streamId: z.string().min(1),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-  },
-  {
-    name: 'team_status',
-    description: 'Get health status of all teammates',
-    schema: z.object({
-      summary: z.boolean().optional(),
-    }),
-    phases: DELEGATE_PHASES,
-    roles: ROLE_LEAD,
-  },
   {
     name: 'task_claim',
     description: 'Claim a task for execution',
@@ -396,15 +352,6 @@ const viewActions: readonly ToolAction[] = [
     roles: ROLE_ANY,
   },
   {
-    name: 'team_status',
-    description: 'Teammate composition and task assignments',
-    schema: z.object({
-      workflowId: z.string().optional(),
-    }),
-    phases: ALL_PHASES,
-    roles: ROLE_ANY,
-  },
-  {
     name: 'stack_status',
     description: 'Get current stack positions from events',
     schema: z.object({
@@ -459,7 +406,7 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, and cancel workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, and cleanup workflows',
     actions: workflowActions,
   },
   {
@@ -469,12 +416,12 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
   },
   {
     name: 'exarchos_orchestrate',
-    description: 'Agent team coordination — spawn, message, and manage teammates and tasks',
+    description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
   },
   {
     name: 'exarchos_view',
-    description: 'CQRS materialized views — pipeline, tasks, workflow status, team status, stack, and telemetry',
+    description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
   },
   {

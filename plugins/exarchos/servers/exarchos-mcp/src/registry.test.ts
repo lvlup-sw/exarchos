@@ -232,28 +232,23 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 4 actions: init, get, set, cancel', () => {
+    it('should have 5 actions: init, get, set, cancel, cleanup', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup']);
     });
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 8 actions for team and task management', () => {
+    it('should have 3 actions for task management', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(8);
+      expect(composite!.actions).toHaveLength(3);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
         expect.arrayContaining([
-          'team_spawn',
-          'team_message',
-          'team_broadcast',
-          'team_shutdown',
-          'team_status',
           'task_claim',
           'task_complete',
           'task_fail',
@@ -361,15 +356,13 @@ describe('TOOL_REGISTRY', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should accept valid team_spawn input', () => {
-      const action = findAction('exarchos_orchestrate', 'team_spawn');
+    it('should accept valid task_claim input', () => {
+      const action = findAction('exarchos_orchestrate', 'task_claim');
       expect(action).toBeDefined();
 
       const result = action!.schema.safeParse({
-        name: 'agent-1',
-        role: 'implementer',
         taskId: 'task-1',
-        taskTitle: 'Build feature X',
+        agentId: 'agent-1',
         streamId: 'workflow-123',
       });
       expect(result.success).toBe(true);

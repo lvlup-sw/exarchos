@@ -3,10 +3,10 @@
 #
 # Exit 0 if all assertions pass; exit 1 if any check fails.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_FILE="$SCRIPT_DIR/../skills/synthesis/SKILL.md"
+SKILL_DIR="$SCRIPT_DIR/../skills/synthesis"
 
 PASS=0
 FAIL=0
@@ -14,7 +14,7 @@ FAIL=0
 assert_contains() {
   local label="$1"
   local pattern="$2"
-  if grep -q "$pattern" "$SKILL_FILE"; then
+  if grep -rq "$pattern" "$SKILL_DIR" --include="*.md"; then
     echo "PASS: $label"
     PASS=$((PASS + 1))
   else
@@ -26,7 +26,7 @@ assert_contains() {
 assert_not_contains() {
   local label="$1"
   local pattern="$2"
-  if grep -q "$pattern" "$SKILL_FILE"; then
+  if grep -rq "$pattern" "$SKILL_DIR" --include="*.md"; then
     echo "FAIL: $label — expected NOT to find: $pattern"
     FAIL=$((FAIL + 1))
   else
@@ -66,6 +66,33 @@ assert_contains \
 assert_contains \
   "FailureRouting_Exit1_Documented" \
   "exit 1"
+
+# Review gate script exists and is executable
+if [[ -x "$SCRIPT_DIR/coderabbit-review-gate.sh" ]]; then
+    echo "PASS: ReviewGate_ScriptExists"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: ReviewGate_ScriptExists — scripts/coderabbit-review-gate.sh not found or not executable"
+    FAIL=$((FAIL + 1))
+fi
+
+# Review gate test exists
+if [[ -f "$SCRIPT_DIR/coderabbit-review-gate.test.sh" ]]; then
+    echo "PASS: ReviewGate_TestExists"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: ReviewGate_TestExists — scripts/coderabbit-review-gate.test.sh not found"
+    FAIL=$((FAIL + 1))
+fi
+
+# Review gate workflow exists
+if [[ -f "$SCRIPT_DIR/../.github/workflows/coderabbit-review-gate.yml" ]]; then
+    echo "PASS: ReviewGate_WorkflowExists"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: ReviewGate_WorkflowExists — .github/workflows/coderabbit-review-gate.yml not found"
+    FAIL=$((FAIL + 1))
+fi
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

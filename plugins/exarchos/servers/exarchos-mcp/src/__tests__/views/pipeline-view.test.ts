@@ -98,8 +98,8 @@ describe('PipelineView', () => {
     it('should track the current phase of the pipeline', () => {
       const events = [
         makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
-        makeEvent(2, 'phase.transitioned', { from: 'started', to: 'planning' }),
-        makeEvent(3, 'phase.transitioned', { from: 'planning', to: 'delegating' }),
+        makeEvent(2, 'workflow.transition', { from: 'started', to: 'planning', trigger: 'auto', featureId: 'feat-a' }),
+        makeEvent(3, 'workflow.transition', { from: 'planning', to: 'delegating', trigger: 'auto', featureId: 'feat-a' }),
       ];
 
       const view = materializer.materialize<PipelineViewState>(

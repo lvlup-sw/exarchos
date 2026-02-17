@@ -2,24 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   WorkflowEventBase,
   WorkflowStartedData,
-  TeamFormedData,
-  PhaseTransitionedData,
   TaskAssignedData,
   TaskClaimedData,
   TaskProgressedData,
-  TestResultData,
   TaskCompletedData,
   TaskFailedData,
-  AgentMessageData,
-  AgentHandoffData,
   GateExecutedData,
-  GateSelfCorrectedData,
   StackPositionFilledData,
   StackRestackedData,
   StackEnqueuedData,
-  ContextAssembledData,
-  TaskRoutedData,
-  RemediationStartedData,
   WorkflowTransitionData,
   WorkflowFixCycleData,
   WorkflowGuardFailedData,
@@ -29,6 +20,7 @@ import {
   WorkflowCancelData,
   WorkflowCompensationData,
   WorkflowCircuitOpenData,
+  BenchmarkCompletedData,
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
@@ -164,55 +156,6 @@ describe('WorkflowStartedData', () => {
   });
 });
 
-describe('TeamFormedData', () => {
-  it('should parse valid TeamFormed with teammates array', () => {
-    const data = TeamFormedData.parse({
-      teammates: [
-        { name: 'orchestrator', role: 'orchestrator', model: 'opus-4' },
-        { name: 'coder', role: 'specialist' },
-      ],
-    });
-    expect(data.teammates).toHaveLength(2);
-    expect(data.teammates[0].name).toBe('orchestrator');
-    expect(data.teammates[0].model).toBe('opus-4');
-    expect(data.teammates[1].model).toBeUndefined();
-  });
-
-  it('should accept empty teammates array', () => {
-    const data = TeamFormedData.parse({ teammates: [] });
-    expect(data.teammates).toHaveLength(0);
-  });
-
-  it('should reject teammate missing name', () => {
-    expect(() =>
-      TeamFormedData.parse({
-        teammates: [{ role: 'specialist' }],
-      }),
-    ).toThrow();
-  });
-});
-
-describe('PhaseTransitionedData', () => {
-  it('should parse valid phase transition', () => {
-    const data = PhaseTransitionedData.parse({
-      from: 'ideate',
-      to: 'plan',
-      trigger: 'design-approved',
-    });
-    expect(data.from).toBe('ideate');
-    expect(data.to).toBe('plan');
-    expect(data.trigger).toBe('design-approved');
-  });
-
-  it('should allow optional trigger', () => {
-    const data = PhaseTransitionedData.parse({
-      from: 'ideate',
-      to: 'plan',
-    });
-    expect(data.trigger).toBeUndefined();
-  });
-});
-
 describe('TaskAssignedData', () => {
   it('should parse valid task assignment with worktree', () => {
     const data = TaskAssignedData.parse({
@@ -297,33 +240,6 @@ describe('TaskProgressedData', () => {
   });
 });
 
-describe('TestResultData', () => {
-  it('should parse valid test result', () => {
-    const data = TestResultData.parse({
-      taskId: 'task-001',
-      passed: true,
-      testCount: 42,
-      failCount: 0,
-      coverage: 95.5,
-    });
-    expect(data.taskId).toBe('task-001');
-    expect(data.passed).toBe(true);
-    expect(data.testCount).toBe(42);
-    expect(data.failCount).toBe(0);
-    expect(data.coverage).toBe(95.5);
-  });
-
-  it('should allow optional fields', () => {
-    const data = TestResultData.parse({
-      taskId: 'task-001',
-      passed: false,
-      testCount: 10,
-      failCount: 3,
-    });
-    expect(data.coverage).toBeUndefined();
-  });
-});
-
 describe('TaskCompletedData', () => {
   it('should parse valid task completion with artifacts', () => {
     const data = TaskCompletedData.parse({
@@ -366,68 +282,6 @@ describe('TaskFailedData', () => {
   });
 });
 
-// ─── Inter-Agent Events (A02) ───────────────────────────────────────────────
-
-describe('AgentMessageData', () => {
-  it('should parse valid agent message', () => {
-    const data = AgentMessageData.parse({
-      from: 'orchestrator',
-      to: 'coder-1',
-      content: 'Start implementing task-001',
-      messageType: 'direct',
-    });
-    expect(data.from).toBe('orchestrator');
-    expect(data.to).toBe('coder-1');
-    expect(data.content).toBe('Start implementing task-001');
-    expect(data.messageType).toBe('direct');
-  });
-
-  it('should accept broadcast message type', () => {
-    const data = AgentMessageData.parse({
-      from: 'orchestrator',
-      to: 'all',
-      content: 'Workflow paused',
-      messageType: 'broadcast',
-    });
-    expect(data.messageType).toBe('broadcast');
-  });
-
-  it('should reject invalid message type', () => {
-    expect(() =>
-      AgentMessageData.parse({
-        from: 'a',
-        to: 'b',
-        content: 'test',
-        messageType: 'invalid',
-      }),
-    ).toThrow();
-  });
-});
-
-describe('AgentHandoffData', () => {
-  it('should parse valid agent handoff', () => {
-    const data = AgentHandoffData.parse({
-      from: 'coder-1',
-      to: 'reviewer-1',
-      context: 'Completed task-001, ready for review',
-      reason: 'task-completed',
-    });
-    expect(data.from).toBe('coder-1');
-    expect(data.to).toBe('reviewer-1');
-    expect(data.context).toBe('Completed task-001, ready for review');
-    expect(data.reason).toBe('task-completed');
-  });
-
-  it('should allow optional fields', () => {
-    const data = AgentHandoffData.parse({
-      from: 'coder-1',
-      to: 'reviewer-1',
-    });
-    expect(data.context).toBeUndefined();
-    expect(data.reason).toBeUndefined();
-  });
-});
-
 // ─── Quality Gate Events (A03) ──────────────────────────────────────────────
 
 describe('GateExecutedData', () => {
@@ -454,19 +308,6 @@ describe('GateExecutedData', () => {
     });
     expect(data.duration).toBeUndefined();
     expect(data.details).toBeUndefined();
-  });
-});
-
-describe('GateSelfCorrectedData', () => {
-  it('should parse valid self-correction', () => {
-    const data = GateSelfCorrectedData.parse({
-      gateName: 'format',
-      attempt: 2,
-      correction: 'Auto-formatted 3 files',
-    });
-    expect(data.gateName).toBe('format');
-    expect(data.attempt).toBe(2);
-    expect(data.correction).toBe('Auto-formatted 3 files');
   });
 });
 
@@ -514,83 +355,33 @@ describe('StackEnqueuedData', () => {
   });
 });
 
-// ─── Context Events (A03) ───────────────────────────────────────────────────
-
-describe('ContextAssembledData', () => {
-  it('should parse valid context assembly', () => {
-    const data = ContextAssembledData.parse({
-      qualityScore: 0.85,
-      sources: ['design-doc', 'test-results', 'code-analysis'],
-    });
-    expect(data.qualityScore).toBe(0.85);
-    expect(data.sources).toHaveLength(3);
-  });
-});
-
-describe('TaskRoutedData', () => {
-  it('should parse valid task routing with scores', () => {
-    const data = TaskRoutedData.parse({
-      taskId: 'task-001',
-      scores: { 'coder-1': 0.9, 'coder-2': 0.7 },
-    });
-    expect(data.taskId).toBe('task-001');
-    expect(data.scores['coder-1']).toBe(0.9);
-  });
-});
-
-describe('RemediationStartedData', () => {
-  it('should parse valid remediation start', () => {
-    const data = RemediationStartedData.parse({
-      failedGates: ['build', 'test'],
-      strategy: 'auto-fix',
-    });
-    expect(data.failedGates).toEqual(['build', 'test']);
-    expect(data.strategy).toBe('auto-fix');
-  });
-});
-
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 31 event types', () => {
-    expect(EventTypes).toHaveLength(31);
+  it('should contain all 30 event types', () => {
+    expect(EventTypes).toHaveLength(30);
   });
 
   it('should include workflow-level types', () => {
     expect(EventTypes).toContain('workflow.started');
-    expect(EventTypes).toContain('team.formed');
-    expect(EventTypes).toContain('phase.transitioned');
     expect(EventTypes).toContain('task.assigned');
   });
 
   it('should include task-level types', () => {
     expect(EventTypes).toContain('task.claimed');
     expect(EventTypes).toContain('task.progressed');
-    expect(EventTypes).toContain('test.result');
     expect(EventTypes).toContain('task.completed');
     expect(EventTypes).toContain('task.failed');
   });
 
-  it('should include inter-agent types', () => {
-    expect(EventTypes).toContain('agent.message');
-    expect(EventTypes).toContain('agent.handoff');
-  });
-
   it('should include quality gate types', () => {
     expect(EventTypes).toContain('gate.executed');
-    expect(EventTypes).toContain('gate.self-corrected');
   });
 
   it('should include stack types', () => {
     expect(EventTypes).toContain('stack.position-filled');
     expect(EventTypes).toContain('stack.restacked');
     expect(EventTypes).toContain('stack.enqueued');
-  });
-
-  it('should include context types', () => {
-    expect(EventTypes).toContain('context.assembled');
-    expect(EventTypes).toContain('task.routed');
-    expect(EventTypes).toContain('remediation.started');
   });
 
   it('should include workflow internal event types', () => {
@@ -601,8 +392,13 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('workflow.compound-entry');
     expect(EventTypes).toContain('workflow.compound-exit');
     expect(EventTypes).toContain('workflow.cancel');
+    expect(EventTypes).toContain('workflow.cleanup');
     expect(EventTypes).toContain('workflow.compensation');
     expect(EventTypes).toContain('workflow.circuit-open');
+  });
+
+  it('should include benchmark types', () => {
+    expect(EventTypes).toContain('benchmark.completed');
   });
 
   it('should support type-safe assignment', () => {
@@ -883,5 +679,79 @@ describe('WorkflowCircuitOpenData', () => {
       type: 'workflow.circuit-open',
     });
     expect(event.type).toBe('workflow.circuit-open');
+  });
+});
+
+// ─── Benchmark Event Data ────────────────────────────────────────────────────
+
+describe('BenchmarkCompletedData', () => {
+  it('BenchmarkCompletedData_ValidResults_ParsesCorrectly', () => {
+    const data = BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{
+        operation: 'event-store-query',
+        metric: 'p99',
+        value: 45.2,
+        unit: 'ms',
+        baseline: 42.0,
+        regressionPercent: 7.6,
+        passed: true,
+      }],
+    });
+    expect(data.taskId).toBe('task-001');
+    expect(data.results).toHaveLength(1);
+    expect(data.results[0].operation).toBe('event-store-query');
+    expect(data.results[0].passed).toBe(true);
+  });
+
+  it('BenchmarkCompletedData_EmptyResults_Rejects', () => {
+    expect(() => BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [],
+    })).toThrow();
+  });
+
+  it('BenchmarkCompletedData_MissingOperation_Rejects', () => {
+    expect(() => BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{ metric: 'p99', value: 10, unit: 'ms', passed: true }],
+    })).toThrow();
+  });
+
+  it('BenchmarkCompletedData_OptionalBaselineFields', () => {
+    const data = BenchmarkCompletedData.parse({
+      taskId: 'task-001',
+      results: [{
+        operation: 'view-materialize',
+        metric: 'throughput',
+        value: 500,
+        unit: 'ops/sec',
+        passed: true,
+      }],
+    });
+    expect(data.results[0].baseline).toBeUndefined();
+    expect(data.results[0].regressionPercent).toBeUndefined();
+  });
+});
+
+// ─── Dead Event Types Removal Verification ──────────────────────────────────
+
+describe('Dead event types removed', () => {
+  it('should not contain removed event types', () => {
+    const removedTypes = [
+      'phase.transitioned',
+      'task.routed',
+      'context.assembled',
+      'test.result',
+      'gate.self-corrected',
+      'remediation.started',
+    ];
+    for (const type of removedTypes) {
+      expect(EventTypes).not.toContain(type);
+    }
+  });
+
+  it('should have exactly 30 event types', () => {
+    expect(EventTypes).toHaveLength(30);
   });
 });

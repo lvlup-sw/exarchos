@@ -121,6 +121,119 @@ The pipeline uses two coordination models, each optimized for its execution envi
 
 The event stream is the unifying abstraction — not a shared coordination model. Teammates and containers are both event producers/consumers. CQRS views make local and remote work indistinguishable to the consumer.
 
+### Three-Tier Execution Fleet
+
+The orchestrator dispatches tasks to three execution tiers with complementary strengths. The tiers are not competing models — they form a fleet where each tier compensates for the others' limitations.
+
+#### Tier Comparison
+
+| Dimension | Subagents (Tier 1) | Agent Teams (Tier 2) | Agentic Coder (Tier 3) |
+|-----------|-----------|-------------|---------------|
+| **Mechanism** | Claude Code `Task` tool | Claude Code Agent Teams | Basileus ControlPlane containers |
+| **Context** | Shares orchestrator's window | Independent context windows | Containerized repo clone |
+| **Lifecycle** | Ephemeral (single task) | Session-scoped (dies with terminal) | Saga-managed (survives restarts) |
+| **Coordination** | Reports back only | Inter-agent messaging, shared task list | Autonomous plan-code-test-review loop |
+| **Environment** | Developer's machine | Developer's machine + worktrees | Any environment (DBs, cloud, GPUs) |
+| **Durability** | None | None | Full (Wolverine sagas + Marten) |
+| **Human proximity** | Closest (in-session) | Close (tmux panes, direct messaging) | Distant (autonomous, escalation-based) |
+| **Cost** | Low (shared context) | Medium (N context windows) | High (container + tokens + infra) |
+| **Best for** | Research, verification, quick fixes | Complex parallel implementation, review | Long-running tasks, special environments, CI-triggered work |
+
+#### Complementary Gaps
+
+Each tier's weakness is another tier's strength:
+
+- **Agent Teams can't survive session death** → Basileus provides durability via Strategos sagas
+- **Basileus containers can't interact with the developer** → Agent Teams provide human-in-the-loop steering
+- **Subagents can't coordinate with each other** → Agent Teams provide inter-agent discussion and challenge
+- **Agent Teams can't run special environments** → Basileus provides containerized sandboxes with databases, cloud services, and custom tooling
+- **Basileus has context assembly overhead** → Subagents and Agent Teams have immediate codebase access
+
+#### Mixed-Complexity Dispatch
+
+A typical feature involves tasks suited to different tiers. The Task Router ([section 5](#5-task-router)) scores each task and dispatches to the optimal tier:
+
+```
+/plan produces 12 tasks. Task Router evaluates each:
+
+Tasks 1-3: Type definitions, interfaces
+  → Subagent (mechanical, 2 min each, don't need own context)
+
+Tasks 4-8: Core auth logic, token handling, middleware
+  → Agent Teams (parallel, teammates discuss edge cases,
+     challenge each other's token validation approach)
+
+Task 9: Database migration + seed data
+  → Agentic Coder (needs PostgreSQL container with test data)
+
+Tasks 10-11: Integration + E2E tests
+  → Agentic Coder (needs full stack: API + DB + Redis + browser)
+
+Task 12: Update API documentation
+  → Subagent (focused, mechanical)
+```
+
+All 12 tasks emit events to the same unified stream. PipelineView shows a single progress picture regardless of where each task executed.
+
+#### Cross-Tier Escalation
+
+When one tier fails, its diagnostics enrich the next tier's starting context:
+
+```
+Basileus dispatches Task 9 (DB migration) to Agentic Coder
+  │
+  ├── Attempt 1: Container runs migration, tests fail
+  │   → coding.attempt.completed { outcome: "tests_failed" }
+  ├── Attempt 2: Self-corrects, tests still fail
+  ├── Attempt 3: Budget exhausted
+  │   → remediation.exhausted { escalationTarget: "exarchos" }
+  │
+  └── Exarchos picks up escalation event on next poll
+      │
+      └── Orchestrator re-dispatches to Agent Teams
+          WITH Basileus failure context:
+          "Container failed 3× on DB migration.
+           Error: FK constraint on users.org_id. Logs attached."
+          │
+          └── Teammate (full codebase context + human interaction)
+              resolves the schema dependency
+              → team.task.completed
+```
+
+Escalation works in reverse too — when a local teammate's circuit breaker opens (repeated quality gate failures), the Task Router can re-route to an Agentic Coder container with a different environment or extended compute budget.
+
+#### Autonomous Pipeline (CI-Triggered)
+
+Tier 3 enables fully autonomous workflows without a developer session:
+
+```
+Renovate PR / GitHub issue → webhook → Basileus API
+  │
+  └── Basileus creates autonomous workflow (Path B invocation)
+      ├── Agentic Coder: update deps, fix breaking changes, run tests
+      │   → All events emitted to Marten stream
+      │
+      ├── Clean result → auto-merge
+      │
+      └── Complex result (needs architectural decision):
+          → "needs-human-guidance" event emitted
+          → Next developer session:
+              Exarchos SessionStart hook surfaces the event
+              → Developer steers resolution via Agent Teams (Tier 2)
+```
+
+#### Amplification Model
+
+The tiers amplify each other through the unified event stream:
+
+**Intelligence accumulates upward.** Subagent results enrich teammate context via the SubagentStart hook. Teammate events enrich TeamPerformanceView, which informs Task Router scoring. Agentic Coder events enrich the same views, adding cross-environment intelligence. After sufficient history, the Task Router learns: "DB migration tasks fail 60% locally (no Postgres), succeed 95% in Basileus containers → auto-route to remote."
+
+**Context flows downward.** The orchestrator queries TeamPerformanceView before dispatching to ANY tier and injects historical warnings into spawn prompts (Agent Teams) and task descriptions (Agentic Coder) alike. Both tiers start with accumulated organizational knowledge, not blank context.
+
+**Durability complements interactivity.** Agent Teams are interactive (developer can steer mid-flight) but session-scoped. Agentic Coder is durable (saga-managed, survives overnight) but autonomous. Optimal strategy: use Agent Teams for design-heavy tasks where early course-correction matters, then offload validated patterns to Agentic Coder for autonomous execution.
+
+**Strategos enables what local can't.** Exarchos provides a lightweight local saga model (event store + HSM + circuit breakers + saga compensation). Strategos (the Basileus workflow runtime) provides the full distributed version: saga compensation across containers, checkpoint/resume for multi-hour tasks, and cross-session coordination across multiple developers' Exarchos instances. The local model is deliberately designed as a subset of the remote model — same patterns, smaller scale.
+
 Progressive stacking via Graphite replaces the monolithic PR model. Instead of producing a single large PR per feature, each feature decomposes into a stack of small, focused, independently-reviewable PRs that merge in order through a stack-aware merge queue. This enables progressive review (early finishers get reviewed immediately) and eliminates the `/integrate` phase — its responsibilities are absorbed by progressive stacking within `/delegate` and per-PR/per-stack CI gates. See [Graphite Stacked PR Integration](../designs/2026-02-07-graphite-sdlc-integration.md) for the full design.
 
 ### Operational Modes
@@ -1886,6 +1999,17 @@ Events are stored in a separate append-only JSONL file alongside the HSM state f
 
 The `.state.json` file is unchanged from the existing workflow-state-mcp server. The `.events.jsonl` file contains the full event history for sync purposes (the `_events` array in the state file is capped at 100 entries). The `.outbox.json` file tracks pending event deliveries to the Basileus backend.
 
+### Event-First Architecture
+
+Events in `.events.jsonl` are the source of truth. The `.state.json` file is a materialized view (projection) of the event stream, updated after successful event append. State can be rebuilt from events via `reconcileFromEvents()`.
+
+**Consistency Model:** Event append is the commit point. State file update is a projection that follows. If state lags events (e.g., crash between event append and state write), `reconcileFromEvents()` replays missing events to catch up. The `_eventSequence` field in state files tracks the last applied event sequence.
+
+**Known Limitations:**
+- Outbox atomicity gap: event and outbox entry are not written atomically (documented limitation pending remote sync)
+- Event metadata: `correlationId`, `causationId`, `agentId` are optional; distributed tracing spans planned for remote sync phase
+- Single-instance assumption: EventStore uses in-memory locks; multi-process requires external coordination
+
 ### CI/CD Integration
 
 The autonomous invocation path (Path B) integrates with CI/CD systems:
@@ -2120,4 +2244,4 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 
 1. **Saga Pattern:** Microsoft. [Cloud Design Patterns: Saga](https://learn.microsoft.com/en-us/azure/architecture/patterns/saga) -- "choreography for simple local flows, orchestration for complex cross-service flows."
 2. **AI Agent Orchestration Patterns:** Microsoft. [AI Agent Design Patterns](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns) -- "Magentic orchestration for complex generalist multi-agent collaboration."
-3. **CQRS + Event Sourcing:** Microsoft. [CQRS Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) -- append-only event store as write model, materialized views as read model.
+3. **CQRS + Event Sourcing:** Microsoft. [CQRS Pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) -- append-only event store as write model, materialized views as read model. **Implemented:** Event append is the commit point; state files are materialized views.

@@ -140,7 +140,10 @@ export function mapInternalToExternalType(internalType: string): string {
     'guard-failed': 'workflow.guard-failed',
     'checkpoint': 'workflow.checkpoint',
     'compound-entry': 'workflow.compound-entry',
+    'compound-exit': 'workflow.compound-exit',
+    'circuit-open': 'workflow.circuit-open',
     'cancel': 'workflow.cancel',
+    'cleanup': 'workflow.cleanup',
   };
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }

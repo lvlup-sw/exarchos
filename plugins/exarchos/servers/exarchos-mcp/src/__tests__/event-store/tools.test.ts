@@ -44,7 +44,7 @@ describe('handleEventAppend', () => {
       tempDir,
     );
     const result = await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'team.formed' } },
+      { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
     );
 
@@ -82,7 +82,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
-        event: { type: 'team.formed' },
+        event: { type: 'task.assigned' },
         expectedSequence: 1,
       },
       tempDir,
@@ -174,7 +174,7 @@ describe('handleEventAppend', () => {
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'team.formed' } },
+      { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
     );
 
@@ -182,7 +182,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       {
         stream: 'my-workflow',
-        event: { type: 'phase.transitioned' },
+        event: { type: 'workflow.transition' },
         expectedSequence: 1,
       },
       tempDir,
@@ -201,7 +201,7 @@ describe('handleEventQuery', () => {
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'team.formed' } },
+      { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
     );
 
@@ -238,11 +238,11 @@ describe('handleEventQuery', () => {
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'team.formed' } },
+      { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
     );
     await handleEventAppend(
-      { stream: 'my-workflow', event: { type: 'phase.transitioned' } },
+      { stream: 'my-workflow', event: { type: 'workflow.transition' } },
       tempDir,
     );
 
@@ -368,7 +368,7 @@ describe('handleEventQuery Fields Projection', () => {
       {
         stream: 'my-workflow',
         event: {
-          type: 'team.formed',
+          type: 'task.assigned',
           data: { teamId: 'team-1' },
         },
       },
@@ -481,7 +481,7 @@ describe('registerEventTools', () => {
     expect(result1.success).toBe(true);
 
     const result2 = await handleEventAppend(
-      { stream: 'wf-cache-test', event: { type: 'team.formed', data: {} } },
+      { stream: 'wf-cache-test', event: { type: 'task.assigned', data: {} } },
       tempDir,
     );
     expect(result2.success).toBe(true);

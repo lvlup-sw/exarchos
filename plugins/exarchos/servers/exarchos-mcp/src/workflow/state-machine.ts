@@ -1,4 +1,5 @@
 import type { Guard, GuardResult } from './guards.js';
+import { guards } from './guards.js';
 import { createFeatureHSM, createDebugHSM, createRefactorHSM } from './hsm-definitions.js';
 
 // Re-export guard types for consumers
@@ -136,12 +137,21 @@ export function getValidTransitions(
     targets.push('cancelled');
   }
 
+  // Add universal cleanup (completed) if not already present
+  if (!targets.includes('completed') && hsm.states['completed']) {
+    targets.push('completed');
+  }
+
   return [...new Set(targets)];
 }
 
 /**
  * Execute a transition in the HSM. This is a PURE function that computes
  * what should happen but does not perform I/O. The caller handles persistence.
+ *
+ * Returns diagnostic events in `result.events` even on failure (guard-failed,
+ * circuit-open). The caller is responsible for emitting these to the event store
+ * before returning the error to the client.
  */
 export function executeTransition(
   hsm: HSMDefinition,
@@ -220,6 +230,55 @@ export function executeTransition(
     };
   }
 
+  // Handle universal cleanup transition (mergeVerified → completed)
+  const isCleanup = targetPhase === 'completed' && hsm.states['completed']?.type === 'final';
+
+  if (isCleanup) {
+    // Evaluate mergeVerified guard
+    const guardResult = guards.mergeVerified.evaluate(state);
+    const guardPassed = typeof guardResult === 'boolean' ? guardResult : false;
+
+    if (guardPassed) {
+      const exitEffects: Effect[] = [];
+      const historyUpdates: Record<string, string> = {};
+
+      // Exit actions for current state and parent compounds (same pattern as cancel)
+      const currentAncestors = getCompoundAncestors(hsm, currentPhase);
+      if (currentState?.onExit) {
+        exitEffects.push(...currentState.onExit);
+      }
+      for (const ancestor of currentAncestors) {
+        if (ancestor.onExit) exitEffects.push(...ancestor.onExit);
+        historyUpdates[ancestor.id] = currentPhase;
+      }
+
+      // If current state is in a compound, record history
+      const parent = getParentCompound(hsm, currentPhase);
+      if (parent) {
+        historyUpdates[parent.id] = currentPhase;
+      }
+
+      return {
+        success: true,
+        idempotent: false,
+        newPhase: 'completed',
+        effects: exitEffects,
+        events: [
+          {
+            type: 'cleanup',
+            from: currentPhase,
+            to: 'completed',
+            trigger: 'cleanup',
+          },
+        ],
+        historyUpdates:
+          Object.keys(historyUpdates).length > 0 ? historyUpdates : undefined,
+      };
+    }
+    // If mergeVerified guard fails, fall through to normal transition lookup
+    // This allows existing transitions like synthesize → completed (prUrlExists) to work
+  }
+
   // Find matching transition
   const transition = hsm.transitions.find(
     (t) => t.from === currentPhase && t.to === targetPhase
@@ -248,7 +307,13 @@ export function executeTransition(
         success: false,
         idempotent: false,
         effects: [],
-        events: [],
+        events: [{
+          type: 'guard-failed',
+          from: currentPhase,
+          to: targetPhase,
+          trigger: 'execute-transition',
+          metadata: { guard: transition.guard.id },
+        }],
         errorCode: 'GUARD_FAILED',
         errorMessage: `Guard '${transition.guard.id}' threw: ${(err as Error).message}`,
         guardDescription: transition.guard.description,
@@ -262,7 +327,13 @@ export function executeTransition(
         success: false,
         idempotent: false,
         effects: [],
-        events: [],
+        events: [{
+          type: 'guard-failed',
+          from: currentPhase,
+          to: targetPhase,
+          trigger: 'execute-transition',
+          metadata: { guard: transition.guard.id },
+        }],
         errorCode: 'GUARD_FAILED',
         errorMessage: guardReason
           ? `Guard '${transition.guard.id}' failed: ${guardReason}`
@@ -283,7 +354,18 @@ export function executeTransition(
           success: false,
           idempotent: false,
           effects: [],
-          events: [],
+          events: [{
+            type: 'circuit-open',
+            from: currentPhase,
+            to: targetPhase,
+            trigger: 'execute-transition',
+            metadata: {
+              compoundStateId: parent.id,
+              compoundId: parent.id,
+              fixCycleCount: fixCount,
+              maxFixCycles: parent.maxFixCycles,
+            },
+          }],
           errorCode: 'CIRCUIT_OPEN',
           errorMessage: `Fix cycle limit (${parent.maxFixCycles}) reached for compound '${parent.id}'`,
         };

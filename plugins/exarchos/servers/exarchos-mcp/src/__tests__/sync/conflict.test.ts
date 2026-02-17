@@ -49,14 +49,14 @@ describe('ConflictResolver', () => {
       const local = [
         makeEvent({
           sequence: 1,
-          type: 'phase.transitioned',
+          type: 'workflow.transition',
           data: { from: 'ideate', to: 'plan' },
         }),
       ];
       const remote = [
         makeEvent({
           sequence: 1,
-          type: 'phase.transitioned',
+          type: 'workflow.transition',
           data: { from: 'ideate', to: 'delegate' },
         }),
       ];
@@ -72,14 +72,14 @@ describe('ConflictResolver', () => {
       const local = [
         makeEvent({
           sequence: 1,
-          type: 'phase.transitioned',
+          type: 'workflow.transition',
           data: { from: 'plan', to: 'review' },
         }),
       ];
       const remote = [
         makeEvent({
           sequence: 1,
-          type: 'phase.transitioned',
+          type: 'workflow.transition',
           data: { from: 'plan', to: 'delegate' },
         }),
       ];
@@ -148,15 +148,15 @@ describe('ConflictResolver', () => {
       const local = [
         makeEvent({
           sequence: 1,
-          type: 'agent.message',
-          data: { from: 'a1', to: 'a2', content: 'hello', messageType: 'direct' },
+          type: 'task.claimed',
+          data: { taskId: 't1', agentId: 'a1', claimedAt: '2026-02-08T00:00:00.000Z' },
         }),
       ];
       const remote = [
         makeEvent({
           sequence: 1,
-          type: 'team.formed',
-          data: { teammates: [] },
+          type: 'workflow.transition',
+          data: { from: 'ideate', to: 'plan' },
         }),
       ];
 

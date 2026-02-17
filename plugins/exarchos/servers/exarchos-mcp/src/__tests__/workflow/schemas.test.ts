@@ -24,10 +24,13 @@ import {
   TransitionsInputSchema,
   CancelInputSchema,
   CheckpointInputSchema,
+  CleanupInputSchema,
   ErrorCode,
   isReservedField,
   WorkflowTypeSchema,
 } from '../../workflow/schemas.js';
+import { EventTypes } from '../../event-store/schemas.js';
+import { TOOL_REGISTRY } from '../../registry.js';
 
 // Helper to create a minimal valid checkpoint state
 function makeCheckpointState() {
@@ -798,5 +801,68 @@ describe('Workflow State Schemas', () => {
         expect((result.data as Record<string, unknown>).planReview).toEqual({ approved: true });
       }
     });
+  });
+});
+
+// ─── Task 3: CleanupInputSchema and workflow.cleanup event type ────────────────
+
+describe('CleanupInputSchema', () => {
+  it('should accept valid cleanup input', () => {
+    const input = {
+      featureId: 'test-feature',
+      mergeVerified: true,
+      prUrl: 'https://github.com/test/pr/1',
+      mergedBranches: ['feature/task-1', 'feature/task-2'],
+    };
+    const result = CleanupInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('should require featureId', () => {
+    const input = { mergeVerified: true };
+    const result = CleanupInputSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('should require mergeVerified', () => {
+    const input = { featureId: 'test-feature' };
+    const result = CleanupInputSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept prUrl as string or array', () => {
+    const singleUrl = CleanupInputSchema.safeParse({
+      featureId: 'test', mergeVerified: true, prUrl: 'https://url',
+    });
+    const arrayUrl = CleanupInputSchema.safeParse({
+      featureId: 'test', mergeVerified: true, prUrl: ['https://url1', 'https://url2'],
+    });
+    expect(singleUrl.success).toBe(true);
+    expect(arrayUrl.success).toBe(true);
+  });
+
+  it('should accept optional dryRun', () => {
+    const result = CleanupInputSchema.safeParse({
+      featureId: 'test', mergeVerified: true, dryRun: true,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('workflow.cleanup event type', () => {
+  it('should be a valid event type', () => {
+    expect(EventTypes).toContain('workflow.cleanup');
+  });
+});
+
+// ─── Task 6: cleanup action registration ────────────────────────────────────
+
+describe('cleanup action registration', () => {
+  it('should include cleanup in exarchos_workflow actions', () => {
+    const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
+    expect(workflowTool).toBeDefined();
+    const cleanupAction = workflowTool!.actions.find(a => a.name === 'cleanup');
+    expect(cleanupAction).toBeDefined();
+    expect(cleanupAction!.schema).toBeDefined();
   });
 });

@@ -4,7 +4,7 @@ Detailed tool usage, methods, and anti-patterns for all installed MCP servers.
 
 ## Exarchos (`mcp__exarchos__*`)
 
-Unified MCP server for workflow orchestration, event sourcing, CQRS views, and team coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators.
+Unified MCP server for workflow orchestration, event sourcing, CQRS views, and task coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators. Note: inter-agent messaging uses Claude Code's native Agent Teams, not Exarchos.
 
 ### Composite Tools
 
@@ -12,8 +12,8 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 |------|---------|-------------|
 | `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows |
 | `mcp__exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
-| `mcp__exarchos__exarchos_orchestrate` | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`, `task_claim`, `task_complete`, `task_fail` | Team coordination and task lifecycle |
-| `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `team_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
+| `mcp__exarchos__exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination and lifecycle |
+| `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
 | `mcp__exarchos__exarchos_sync` | `now` | Force sync of materialized views |
 
 ### Workflow Tool Actions
@@ -34,18 +34,13 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Action | When to Use |
 |--------|-------------|
-| `append` | Recording workflow events (task.assigned, team.formed, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
+| `append` | Recording workflow events (task.assigned, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
 | `query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
 
 ### Orchestrate Tool Actions
 
 | Action | When to Use |
 |--------|-------------|
-| `team_spawn` | Register a new agent with role assignment. Pair with `task_*` actions for subprocess work |
-| `team_message` | Send a direct message to a specific teammate |
-| `team_broadcast` | Broadcast a message to all active teammates |
-| `team_shutdown` | Shut down a teammate agent. Emits shutdown event |
-| `team_status` | Get health status of all teammates. Use `summary: true` for counts-only response during orchestration |
 | `task_claim` | Claim a task for execution. Returns `ALREADY_CLAIMED` if previously claimed — handle gracefully |
 | `task_complete` | Mark a task complete with optional `result` (artifacts, duration) |
 | `task_fail` | Mark a task failed with `error` message and optional `diagnostics` |
@@ -57,7 +52,6 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `pipeline` | Aggregated view of all workflows with stack positions. Use `limit`/`offset` for pagination |
 | `tasks` | Task detail view with filtering and projection. Use `workflowId` to scope, `filter` for property matching, `fields` for projection (e.g., `fields: ["taskId", "status", "title"]`), `limit`/`offset` for pagination |
 | `workflow_status` | Workflow phase, task counts, and metadata. Use `workflowId` to scope |
-| `team_status` | Teammate composition and task assignments. Use `workflowId` to scope |
 | `stack_status` | Get current stack positions from events. Use `streamId` to scope |
 | `stack_place` | Record a stack position with `position`, `taskId`, `branch`, optional `prUrl` |
 

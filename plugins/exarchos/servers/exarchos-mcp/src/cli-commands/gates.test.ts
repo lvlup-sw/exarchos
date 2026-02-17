@@ -1,13 +1,53 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ExecSyncOptions } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+// Shared state for CAS race simulation — accessible to the fs mock below
+const casRaceConfig = vi.hoisted(() => ({
+  targetPath: null as string | null,
+  readCount: 0,
+  concurrentState: null as Record<string, unknown> | null,
+}));
 
 // Mock child_process before importing the module under test
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }));
 
+// Wrap node:fs/promises readFile to support CAS race simulation.
+// All other functions pass through to the real implementation.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: async (...args: Parameters<typeof actual.readFile>) => {
+      const result = await actual.readFile(...args);
+      const filePath = typeof args[0] === 'string' ? args[0] : '';
+      if (
+        casRaceConfig.targetPath &&
+        filePath === casRaceConfig.targetPath &&
+        casRaceConfig.concurrentState
+      ) {
+        casRaceConfig.readCount += 1;
+        if (casRaceConfig.readCount === 1) {
+          // After the first read of the target state file, simulate a concurrent
+          // writer modifying the file on disk before the caller can write back.
+          await actual.writeFile(
+            casRaceConfig.targetPath,
+            JSON.stringify(casRaceConfig.concurrentState, null, 2),
+          );
+        }
+      }
+      return result;
+    },
+  };
+});
+
 import { execSync } from 'node:child_process';
-import { handleTaskGate, handleTeammateGate, runQualityChecks } from './gates.js';
+import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState } from './gates.js';
 import type { CommandResult } from '../cli.js';
 
 const mockExecSync = vi.mocked(execSync);
@@ -15,6 +55,10 @@ const mockExecSync = vi.mocked(execSync);
 describe('Quality Gate Commands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset CAS race config to prevent leaks between tests
+    casRaceConfig.targetPath = null;
+    casRaceConfig.readCount = 0;
+    casRaceConfig.concurrentState = null;
   });
 
   describe('handleTaskGate', () => {
@@ -222,6 +266,397 @@ describe('Quality Gate Commands', () => {
       // Assert
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('INVALID_INPUT');
+    });
+
+    describe('state bridge (workflow state updates)', () => {
+      let tempDir: string;
+      const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+      beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-state-test-'));
+        process.env.WORKFLOW_STATE_DIR = tempDir;
+      });
+
+      afterEach(async () => {
+        process.env.WORKFLOW_STATE_DIR = originalEnv;
+        await fsp.rm(tempDir, { recursive: true, force: true });
+      });
+
+      it('should update task status to complete when quality checks pass', async () => {
+        // Arrange
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const state = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/tmp/worktree',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          JSON.stringify(state),
+        );
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Assert — gate still returns success
+        expect(result).toEqual({ continue: true });
+
+        // Assert — state file was updated
+        const updatedRaw = await fsp.readFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          'utf-8',
+        );
+        const updatedState = JSON.parse(updatedRaw);
+        expect(updatedState.tasks[0].status).toBe('complete');
+        expect(typeof updatedState.tasks[0].completedAt).toBe('string');
+        expect(updatedState._version).toBe(2);
+      });
+
+      it('should still return success when no active workflow exists', async () => {
+        // Arrange — empty state directory
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Assert
+        expect(result).toEqual({ continue: true });
+      });
+
+      it('should still return success when cwd does not match any worktree', async () => {
+        // Arrange
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const state = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/other/path',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          JSON.stringify(state),
+        );
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Assert — gate returns success
+        expect(result).toEqual({ continue: true });
+
+        // Assert — state file unchanged
+        const updatedRaw = await fsp.readFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          'utf-8',
+        );
+        const updatedState = JSON.parse(updatedRaw);
+        expect(updatedState.tasks[0].status).toBe('in_progress');
+        expect(updatedState._version).toBe(1);
+      });
+
+      it('should still return success when state write fails', async () => {
+        // Arrange
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const state = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/tmp/worktree',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          JSON.stringify(state),
+        );
+
+        // Make state dir read-only to force write failure
+        await fsp.chmod(path.join(tempDir, 'test-workflow.state.json'), 0o444);
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Assert — gate still succeeds even though write failed
+        expect(result).toEqual({ continue: true });
+
+        // Cleanup — restore write permission so afterEach can delete
+        await fsp.chmod(path.join(tempDir, 'test-workflow.state.json'), 0o644);
+      });
+
+      it('should not update task when quality checks fail', async () => {
+        // Arrange
+        const typecheckError = new Error('Type checking failed');
+        (typecheckError as NodeJS.ErrnoException).status = 1;
+        (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+        (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from('type error');
+
+        mockExecSync.mockImplementation((cmd: string) => {
+          if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+            throw typecheckError;
+          }
+          return Buffer.from('');
+        });
+
+        const state = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/tmp/worktree',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          JSON.stringify(state),
+        );
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Assert — gate fails
+        expect(result.error).toBeDefined();
+        expect(result.error!.code).toBe('GATE_FAILED');
+
+        // Assert — state file unchanged
+        const updatedRaw = await fsp.readFile(
+          path.join(tempDir, 'test-workflow.state.json'),
+          'utf-8',
+        );
+        const updatedState = JSON.parse(updatedRaw);
+        expect(updatedState.tasks[0].status).toBe('in_progress');
+        expect(updatedState._version).toBe(1);
+      });
+
+      it('should not overwrite state when a concurrent write changes _version', async () => {
+        // Arrange — initial state at version 1
+        mockExecSync.mockReturnValue(Buffer.from(''));
+        const stateFilePath = path.join(tempDir, 'test-workflow.state.json');
+        const initialState = {
+          featureId: 'test-workflow',
+          phase: 'overhaul-delegate',
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'in_progress', branch: 'feat/test' },
+          ],
+          worktrees: {
+            'wt-001': {
+              branch: 'feat/test',
+              status: 'active',
+              taskId: 'task-001',
+              path: '/tmp/worktree',
+            },
+          },
+          _version: 1,
+        };
+        await fsp.writeFile(stateFilePath, JSON.stringify(initialState));
+
+        // Configure the CAS race simulation: after the first readFile of the
+        // state file (done by findActiveWorkflowState), the mock will inject
+        // a concurrent write that bumps _version to 2 and changes task status.
+        casRaceConfig.targetPath = stateFilePath;
+        casRaceConfig.readCount = 0;
+        casRaceConfig.concurrentState = {
+          ...initialState,
+          _version: 2,
+          tasks: [
+            { id: 'task-001', title: 'Test task', status: 'claimed_by_other', branch: 'feat/test' },
+          ],
+        };
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TeammateIdle',
+          teammate_name: 'worker-1',
+          cwd: '/tmp/worktree',
+        };
+
+        // Act
+        const result = await handleTeammateGate(input);
+
+        // Disable race simulation before reading final state
+        casRaceConfig.targetPath = null;
+        casRaceConfig.concurrentState = null;
+
+        // Assert — gate still returns success
+        expect(result).toEqual({ continue: true });
+
+        // Assert — the concurrent writer's state should be preserved, NOT overwritten
+        const finalRaw = await fsp.readFile(stateFilePath, 'utf-8');
+        const finalState = JSON.parse(finalRaw);
+        // The concurrent writer set _version=2 and status='claimed_by_other'
+        // updateTaskCompletion should detect the version mismatch and skip the write
+        expect(finalState._version).toBe(2);
+        expect(finalState.tasks[0].status).toBe('claimed_by_other');
+      });
+    });
+  });
+
+  describe('findActiveWorkflowState', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gates-test-'));
+    });
+
+    afterEach(async () => {
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('should return state with tasks and worktrees for an active workflow', async () => {
+      // Arrange
+      const state = {
+        featureId: 'refactor-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          { id: 'task-001', title: 'Test', status: 'in_progress', branch: 'feat/test' },
+        ],
+        worktrees: {
+          'wt-1': {
+            branch: 'feat/test',
+            status: 'active',
+            taskId: 'task-001',
+            path: '/tmp/wt',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'refactor-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      // Act
+      const result = await findActiveWorkflowState(tempDir);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.featureId).toBe('refactor-test');
+      expect(result!.filePath).toBe(path.join(tempDir, 'refactor-test.state.json'));
+      expect(result!.state.tasks).toHaveLength(1);
+      expect(result!.state.tasks[0].id).toBe('task-001');
+      expect(result!.state.worktrees).toBeDefined();
+      expect(result!.state.worktrees['wt-1'].taskId).toBe('task-001');
+    });
+
+    it('should return null when no active workflow exists', async () => {
+      // Arrange
+      const state = {
+        featureId: 'done-workflow',
+        phase: 'completed',
+        tasks: [],
+        worktrees: {},
+        _version: 5,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'done-workflow.state.json'),
+        JSON.stringify(state),
+      );
+
+      // Act
+      const result = await findActiveWorkflowState(tempDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null for empty directory', async () => {
+      // Act
+      const result = await findActiveWorkflowState(tempDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should skip cancelled workflows', async () => {
+      // Arrange
+      const state = {
+        featureId: 'cancelled-workflow',
+        phase: 'cancelled',
+        tasks: [],
+        worktrees: {},
+        _version: 3,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'cancelled-workflow.state.json'),
+        JSON.stringify(state),
+      );
+
+      // Act
+      const result = await findActiveWorkflowState(tempDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null when directory does not exist', async () => {
+      // Act
+      const result = await findActiveWorkflowState('/nonexistent/path/abc123');
+
+      // Assert
+      expect(result).toBeNull();
     });
   });
 

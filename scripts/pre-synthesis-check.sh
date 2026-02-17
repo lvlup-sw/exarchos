@@ -151,7 +151,81 @@ check_state_file() {
 }
 
 # ============================================================
-# CHECK 2: All tasks complete
+# CHECK 2: Phase readiness (is workflow at or near synthesize?)
+# ============================================================
+
+check_phase_readiness() {
+    local phase
+    local workflow_type
+    phase="$(jq -r '.phase // "unknown"' "$STATE_FILE")"
+    workflow_type="$(jq -r '.workflowType // "feature"' "$STATE_FILE")"
+
+    if [[ "$phase" == "synthesize" ]]; then
+        check_pass "Phase is synthesize"
+        return 0
+    fi
+
+    # Determine the transition path and missing prerequisites
+    local missing=()
+
+    case "$workflow_type" in
+        feature)
+            case "$phase" in
+                review)
+                    missing+=("Transition: review → synthesize (guard: allReviewsPassed)")
+                    ;;
+                *)
+                    check_fail "Phase is synthesize" "Current phase '$phase' — manual phase advancement needed for $workflow_type workflow"
+                    return 1
+                    ;;
+            esac
+            ;;
+        refactor)
+            case "$phase" in
+                overhaul-delegate)
+                    missing+=("Transition: overhaul-delegate → overhaul-review (guard: allTasksComplete)")
+                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed — set reviews)")
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
+                    ;;
+                overhaul-review)
+                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed — set reviews)")
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
+                    ;;
+                overhaul-update-docs)
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
+                    ;;
+                *)
+                    check_fail "Phase is synthesize" "Current phase '$phase' — manual phase advancement needed for $workflow_type workflow"
+                    return 1
+                    ;;
+            esac
+            ;;
+        debug)
+            case "$phase" in
+                validate)
+                    missing+=("Transition: validate → synthesize (guard: allTestsPass — set validation.testsPass=true)")
+                    ;;
+                *)
+                    check_fail "Phase is synthesize" "Current phase '$phase' — manual phase advancement needed for $workflow_type workflow"
+                    return 1
+                    ;;
+            esac
+            ;;
+    esac
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        local detail
+        detail="Phase is '$phase', need ${#missing[@]} transition(s):"
+        for m in "${missing[@]}"; do
+            detail+="\n  - $m"
+        done
+        check_fail "Phase is synthesize" "$detail"
+        return 1
+    fi
+}
+
+# ============================================================
+# CHECK 3: All tasks complete
 # ============================================================
 
 check_all_tasks_complete() {
@@ -177,36 +251,70 @@ check_all_tasks_complete() {
 }
 
 # ============================================================
-# CHECK 3: Reviews passed
+# CHECK 4: Reviews passed
 # ============================================================
 
 check_reviews_passed() {
-    local reviews_obj
-    local spec_status
-    local quality_status
+    local reviews_json
+    reviews_json="$(jq '.reviews // {}' "$STATE_FILE")"
 
-    reviews_obj="$(jq '.reviews // {}' "$STATE_FILE")"
-
-    # Check specReview exists and passed
-    spec_status="$(jq -r '.reviews.specReview.status // "missing"' "$STATE_FILE")"
-    if [[ "$spec_status" != "pass" && "$spec_status" != "approved" ]]; then
-        check_fail "Reviews passed" "specReview status: $spec_status (expected pass or approved)"
+    # Count review entries
+    local entry_count
+    entry_count="$(echo "$reviews_json" | jq 'keys | length')"
+    if [[ "$entry_count" -eq 0 ]]; then
+        check_fail "Reviews passed" "No review entries found in state.reviews"
         return 1
     fi
 
-    # Check qualityReview exists and passed
-    quality_status="$(jq -r '.reviews.qualityReview.status // "missing"' "$STATE_FILE")"
-    if [[ "$quality_status" != "pass" && "$quality_status" != "approved" ]]; then
-        check_fail "Reviews passed" "qualityReview status: $quality_status (expected pass or approved)"
+    # Collect all statuses from both flat and nested review shapes:
+    #   Flat:   reviews.overhaul = { status: "approved" }
+    #   Nested: reviews.T1 = { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+    #   Legacy: reviews.T1 = { passed: true }
+    local failed_reviews
+    failed_reviews="$(echo "$reviews_json" | jq -r '
+        to_entries[] |
+        .key as $key |
+        .value |
+        if .status then
+            # Flat shape
+            if (.status | test("^(pass|passed|approved)$")) then empty
+            else "\($key) (status: \(.status))"
+            end
+        elif .specReview or .qualityReview then
+            # Nested shape — check both sub-reviews
+            [
+                (if .specReview.status then
+                    if (.specReview.status | test("^(pass|passed|approved)$")) then empty
+                    else "\($key).specReview (status: \(.specReview.status))"
+                    end
+                else empty end),
+                (if .qualityReview.status then
+                    if (.qualityReview.status | test("^(pass|passed|approved)$")) then empty
+                    else "\($key).qualityReview (status: \(.qualityReview.status))"
+                    end
+                else empty end)
+            ][]
+        elif .passed == true then
+            # Legacy shape
+            empty
+        elif .passed == false then
+            "\($key) (passed: false)"
+        else
+            "\($key) (no recognizable status)"
+        end
+    ')"
+
+    if [[ -n "$failed_reviews" ]]; then
+        check_fail "Reviews passed" "Failing reviews: $failed_reviews"
         return 1
     fi
 
-    check_pass "Reviews passed (spec=$spec_status, quality=$quality_status)"
+    check_pass "Reviews passed ($entry_count review entries, all passing)"
     return 0
 }
 
 # ============================================================
-# CHECK 4: No outstanding fix requests
+# CHECK 5: No outstanding fix requests
 # ============================================================
 
 check_no_fix_requests() {
@@ -225,7 +333,7 @@ check_no_fix_requests() {
 }
 
 # ============================================================
-# CHECK 5: Graphite stack exists
+# CHECK 6: Graphite stack exists
 # ============================================================
 
 check_graphite_stack() {
@@ -255,7 +363,7 @@ check_graphite_stack() {
 }
 
 # ============================================================
-# CHECK 6: Tests pass
+# CHECK 7: Tests pass
 # ============================================================
 
 check_tests_pass() {
@@ -286,20 +394,23 @@ check_tests_pass() {
 
 # Check 1: State file — all other checks depend on this
 if check_state_file; then
-    # Check 2: All tasks complete
+    # Check 2: Phase readiness
+    check_phase_readiness || true
+
+    # Check 3: All tasks complete
     check_all_tasks_complete || true
 
-    # Check 3: Reviews passed
+    # Check 4: Reviews passed
     check_reviews_passed || true
 
-    # Check 4: No outstanding fix requests
+    # Check 5: No outstanding fix requests
     check_no_fix_requests || true
 fi
 
-# Check 5: Graphite stack (independent of state file)
+# Check 6: Graphite stack (independent of state file)
 check_graphite_stack || true
 
-# Check 6: Tests (independent of state file)
+# Check 7: Tests (independent of state file)
 check_tests_pass || true
 
 # ============================================================
@@ -312,7 +423,7 @@ echo "**State file:** \`$STATE_FILE\`"
 echo ""
 
 for result in "${RESULTS[@]}"; do
-    echo "$result"
+    printf '%b\n' "$result"
 done
 
 echo ""

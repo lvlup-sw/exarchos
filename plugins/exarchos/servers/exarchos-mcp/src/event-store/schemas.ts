@@ -4,24 +4,15 @@ import { z } from 'zod';
 
 export const EventTypes = [
   'workflow.started',
-  'team.formed',
-  'phase.transitioned',
   'task.assigned',
   'task.claimed',
   'task.progressed',
-  'test.result',
   'task.completed',
   'task.failed',
-  'agent.message',
-  'agent.handoff',
   'gate.executed',
-  'gate.self-corrected',
   'stack.position-filled',
   'stack.restacked',
   'stack.enqueued',
-  'context.assembled',
-  'task.routed',
-  'remediation.started',
   'workflow.transition',
   'workflow.fix-cycle',
   'workflow.guard-failed',
@@ -29,11 +20,19 @@ export const EventTypes = [
   'workflow.compound-entry',
   'workflow.compound-exit',
   'workflow.cancel',
+  'workflow.cleanup',
   'workflow.compensation',
   'workflow.circuit-open',
   'tool.invoked',
   'tool.completed',
   'tool.errored',
+  'benchmark.completed',
+  'team.spawned',
+  'team.task.assigned',
+  'team.task.completed',
+  'team.task.failed',
+  'team.disbanded',
+  'team.context.injected',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -63,20 +62,6 @@ export const WorkflowStartedData = z.object({
   designPath: z.string().optional(),
 });
 
-export const TeamFormedData = z.object({
-  teammates: z.array(z.object({
-    name: z.string(),
-    role: z.string(),
-    model: z.string().optional(),
-  })),
-});
-
-export const PhaseTransitionedData = z.object({
-  from: z.string(),
-  to: z.string(),
-  trigger: z.string().optional(),
-});
-
 export const TaskAssignedData = z.object({
   taskId: z.string(),
   title: z.string(),
@@ -99,14 +84,6 @@ export const TaskProgressedData = z.object({
   detail: z.string().optional(),
 });
 
-export const TestResultData = z.object({
-  taskId: z.string(),
-  passed: z.boolean(),
-  testCount: z.number().int(),
-  failCount: z.number().int(),
-  coverage: z.number().optional(),
-});
-
 export const TaskCompletedData = z.object({
   taskId: z.string(),
   artifacts: z.array(z.string()).optional(),
@@ -119,22 +96,6 @@ export const TaskFailedData = z.object({
   diagnostics: z.record(z.string(), z.unknown()).optional(),
 });
 
-// ─── Inter-Agent Event Data ─────────────────────────────────────────────────
-
-export const AgentMessageData = z.object({
-  from: z.string(),
-  to: z.string(),
-  content: z.string(),
-  messageType: z.enum(['direct', 'broadcast']),
-});
-
-export const AgentHandoffData = z.object({
-  from: z.string(),
-  to: z.string(),
-  context: z.string().optional(),
-  reason: z.string().optional(),
-});
-
 // ─── Quality Gate Event Data ────────────────────────────────────────────────
 
 export const GateExecutedData = z.object({
@@ -143,12 +104,6 @@ export const GateExecutedData = z.object({
   passed: z.boolean(),
   duration: z.number().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const GateSelfCorrectedData = z.object({
-  gateName: z.string(),
-  attempt: z.number().int(),
-  correction: z.string(),
 });
 
 // ─── Stack Event Data ───────────────────────────────────────────────────────
@@ -166,23 +121,6 @@ export const StackRestackedData = z.object({
 
 export const StackEnqueuedData = z.object({
   prNumbers: z.array(z.number().int()),
-});
-
-// ─── Context Event Data ─────────────────────────────────────────────────────
-
-export const ContextAssembledData = z.object({
-  qualityScore: z.number(),
-  sources: z.array(z.string()),
-});
-
-export const TaskRoutedData = z.object({
-  taskId: z.string(),
-  scores: z.record(z.string(), z.number()),
-});
-
-export const RemediationStartedData = z.object({
-  failedGates: z.array(z.string()),
-  strategy: z.string(),
 });
 
 // ─── Workflow Internal Event Data ─────────────────────────────────────────
@@ -226,6 +164,13 @@ export const WorkflowCompoundExitData = z.object({
   trigger: z.string().optional(),
 });
 
+export const WorkflowCleanupData = z.object({
+  from: z.string(),
+  to: z.string(),
+  trigger: z.string(),
+  featureId: z.string(),
+});
+
 export const WorkflowCancelData = z.object({
   from: z.string(),
   to: z.string(),
@@ -267,40 +212,98 @@ export const ToolErroredData = z.object({
   errorMessage: z.string(),
 });
 
+// ─── Benchmark Event Data ───────────────────────────────────────────────────
+
+export const BenchmarkCompletedData = z.object({
+  taskId: z.string(),
+  results: z.array(z.object({
+    operation: z.string().min(1),
+    metric: z.string(),
+    value: z.number(),
+    unit: z.string(),
+    baseline: z.number().optional(),
+    regressionPercent: z.number().optional(),
+    passed: z.boolean(),
+  })).min(1),
+});
+
+// ─── Team Event Data ────────────────────────────────────────────────────────
+
+export const TeamSpawnedData = z.object({
+  teamSize: z.number().int(),
+  teammateNames: z.array(z.string()),
+  taskCount: z.number().int(),
+  dispatchMode: z.string(),
+});
+
+export const TeamTaskAssignedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  worktreePath: z.string(),
+  modules: z.array(z.string()),
+});
+
+export const TeamTaskCompletedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  durationMs: z.number(),
+  filesChanged: z.array(z.string()),
+  testsPassed: z.boolean(),
+  qualityGateResults: z.record(z.string(), z.unknown()),
+});
+
+export const TeamTaskFailedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  failureReason: z.string(),
+  gateResults: z.record(z.string(), z.unknown()),
+});
+
+export const TeamDisbandedData = z.object({
+  totalDurationMs: z.number(),
+  tasksCompleted: z.number().int(),
+  tasksFailed: z.number().int(),
+});
+
+export const TeamContextInjectedData = z.object({
+  phase: z.string(),
+  toolsAvailable: z.number().int(),
+  historicalHints: z.array(z.string()),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
 export type WorkflowStarted = z.infer<typeof WorkflowStartedData>;
-export type TeamFormed = z.infer<typeof TeamFormedData>;
-export type PhaseTransitioned = z.infer<typeof PhaseTransitionedData>;
 export type TaskAssigned = z.infer<typeof TaskAssignedData>;
 export type TaskClaimed = z.infer<typeof TaskClaimedData>;
 export type TaskProgressed = z.infer<typeof TaskProgressedData>;
-export type TestResult = z.infer<typeof TestResultData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
-export type AgentMessage = z.infer<typeof AgentMessageData>;
-export type AgentHandoff = z.infer<typeof AgentHandoffData>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
-export type GateSelfCorrected = z.infer<typeof GateSelfCorrectedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
 export type StackRestacked = z.infer<typeof StackRestackedData>;
 export type StackEnqueued = z.infer<typeof StackEnqueuedData>;
-export type ContextAssembled = z.infer<typeof ContextAssembledData>;
-export type TaskRouted = z.infer<typeof TaskRoutedData>;
-export type RemediationStarted = z.infer<typeof RemediationStartedData>;
 export type WorkflowTransition = z.infer<typeof WorkflowTransitionData>;
 export type WorkflowFixCycle = z.infer<typeof WorkflowFixCycleData>;
 export type WorkflowGuardFailed = z.infer<typeof WorkflowGuardFailedData>;
 export type WorkflowCheckpoint = z.infer<typeof WorkflowCheckpointData>;
 export type WorkflowCompoundEntry = z.infer<typeof WorkflowCompoundEntryData>;
 export type WorkflowCompoundExit = z.infer<typeof WorkflowCompoundExitData>;
+export type WorkflowCleanup = z.infer<typeof WorkflowCleanupData>;
 export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
 export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
+export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
+export type TeamSpawned = z.infer<typeof TeamSpawnedData>;
+export type TeamTaskAssigned = z.infer<typeof TeamTaskAssignedData>;
+export type TeamTaskCompleted = z.infer<typeof TeamTaskCompletedData>;
+export type TeamTaskFailed = z.infer<typeof TeamTaskFailedData>;
+export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
+export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
@@ -308,8 +311,8 @@ export type ToolErrored = z.infer<typeof ToolErroredData>;
 export const AGENT_EVENT_TYPES = [
   'task.claimed',
   'task.progressed',
-  'agent.message',
-  'agent.handoff',
+  'team.task.completed',
+  'team.task.failed',
 ] as const;
 
 export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
@@ -317,9 +320,8 @@ export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
 /**
  * Validates that agent event types include required metadata fields.
  *
- * Agent events (`task.claimed`, `task.progressed`, `agent.message`, `agent.handoff`)
- * must have both `agentId` and `source` set. System events pass through without
- * validation.
+ * Agent events (`task.claimed`, `task.progressed`) must have both `agentId`
+ * and `source` set. System events pass through without validation.
  *
  * @returns `true` if validation passes
  * @throws Error if an agent event is missing `agentId` or `source`

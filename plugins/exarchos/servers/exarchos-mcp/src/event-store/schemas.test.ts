@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { validateAgentEvent, AGENT_EVENT_TYPES } from './schemas.js';
+import {
+  validateAgentEvent,
+  AGENT_EVENT_TYPES,
+  EventTypes,
+  TeamSpawnedData,
+  TeamTaskAssignedData,
+  TeamTaskCompletedData,
+  TeamTaskFailedData,
+  TeamDisbandedData,
+  TeamContextInjectedData,
+} from './schemas.js';
 
 describe('validateAgentEvent', () => {
   describe('agent event types', () => {
@@ -15,18 +25,6 @@ describe('validateAgentEvent', () => {
       ).toThrow();
     });
 
-    it('should reject agent.message when agentId and source are both missing', () => {
-      expect(() =>
-        validateAgentEvent({ type: 'agent.message' }),
-      ).toThrow();
-    });
-
-    it('should reject agent.handoff when agentId is missing', () => {
-      expect(() =>
-        validateAgentEvent({ type: 'agent.handoff', source: 'test' }),
-      ).toThrow();
-    });
-
     it('should reject task.progressed when source is missing', () => {
       expect(() =>
         validateAgentEvent({ type: 'task.progressed', agentId: 'agent-1' }),
@@ -36,18 +34,6 @@ describe('validateAgentEvent', () => {
     it('should pass task.claimed when both agentId and source are present', () => {
       expect(
         validateAgentEvent({ type: 'task.claimed', agentId: 'agent-1', source: 'test' }),
-      ).toBe(true);
-    });
-
-    it('should pass agent.message when both agentId and source are present', () => {
-      expect(
-        validateAgentEvent({ type: 'agent.message', agentId: 'agent-1', source: 'orchestrator' }),
-      ).toBe(true);
-    });
-
-    it('should pass agent.handoff when both agentId and source are present', () => {
-      expect(
-        validateAgentEvent({ type: 'agent.handoff', agentId: 'agent-1', source: 'test' }),
       ).toBe(true);
     });
 
@@ -65,9 +51,9 @@ describe('validateAgentEvent', () => {
       ).toBe(true);
     });
 
-    it('should pass phase.transitioned without agentId or source', () => {
+    it('should pass workflow.transition without agentId or source', () => {
       expect(
-        validateAgentEvent({ type: 'phase.transitioned' }),
+        validateAgentEvent({ type: 'workflow.transition' }),
       ).toBe(true);
     });
 
@@ -76,22 +62,106 @@ describe('validateAgentEvent', () => {
         validateAgentEvent({ type: 'task.assigned' }),
       ).toBe(true);
     });
-
-    it('should pass team.formed without agentId or source', () => {
-      expect(
-        validateAgentEvent({ type: 'team.formed' }),
-      ).toBe(true);
-    });
   });
 
   describe('AGENT_EVENT_TYPES constant', () => {
-    it('should contain exactly the four agent event types', () => {
+    it('should contain all agent event types', () => {
       expect(AGENT_EVENT_TYPES).toEqual([
         'task.claimed',
         'task.progressed',
-        'agent.message',
-        'agent.handoff',
+        'team.task.completed',
+        'team.task.failed',
       ]);
     });
+  });
+});
+
+describe('Team Event Data Schemas', () => {
+  describe('TeamSpawnedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamSpawnedData.safeParse({
+        teamSize: 3,
+        teammateNames: ['a', 'b', 'c'],
+        taskCount: 5,
+        dispatchMode: 'agent-team',
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('TeamTaskCompletedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamTaskCompletedData.safeParse({
+        taskId: 'task-001',
+        teammateName: 'worker-1',
+        durationMs: 5000,
+        filesChanged: ['a.ts'],
+        testsPassed: true,
+        qualityGateResults: {},
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('TeamTaskFailedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamTaskFailedData.safeParse({
+        taskId: 'task-001',
+        teammateName: 'worker-1',
+        failureReason: 'typecheck',
+        gateResults: {},
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('TeamDisbandedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamDisbandedData.safeParse({
+        totalDurationMs: 60000,
+        tasksCompleted: 5,
+        tasksFailed: 0,
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('TeamContextInjectedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamContextInjectedData.safeParse({
+        phase: 'delegate',
+        toolsAvailable: 3,
+        historicalHints: ['hint'],
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('TeamTaskAssignedData', () => {
+    it('should parse valid payload successfully', () => {
+      const result = TeamTaskAssignedData.safeParse({
+        taskId: 'task-001',
+        teammateName: 'worker-1',
+        worktreePath: '/tmp/wt',
+        modules: ['auth'],
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+});
+
+describe('EventTypes', () => {
+  it('should include all 6 team event types', () => {
+    const teamEventTypes = [
+      'team.spawned',
+      'team.task.assigned',
+      'team.task.completed',
+      'team.task.failed',
+      'team.disbanded',
+      'team.context.injected',
+    ];
+    for (const eventType of teamEventTypes) {
+      expect(EventTypes).toContain(eventType);
+    }
   });
 });

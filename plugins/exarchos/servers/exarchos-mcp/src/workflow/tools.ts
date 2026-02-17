@@ -69,27 +69,70 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
+/**
+ * Initialize a new workflow state file.
+ *
+ * **Event-first contract:** When an event store is configured, the
+ * `workflow.started` event is appended BEFORE the state file is created.
+ * If the event append fails, no state file is written and an error is
+ * returned. When no event store is configured, the state file is created
+ * with `_eventSequence = 0` for graceful degradation.
+ */
 export async function handleInit(
   input: InitInput,
   stateDir: string,
 ): Promise<ToolResult> {
   try {
-    const { state } = await initStateFile(stateDir, input.featureId, input.workflowType);
+    // Guard: check if state file already exists BEFORE appending any event.
+    // This prevents orphan events when handleInit is called twice with the
+    // same featureId — without this check, the event would be appended and
+    // then initStateFile would fail with STATE_ALREADY_EXISTS.
+    const existingStateFile = path.join(stateDir, `${input.featureId}.state.json`);
+    try {
+      await fs.access(existingStateFile);
+      // State already exists — return error without appending event
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_ALREADY_EXISTS,
+          message: `State already exists for feature: ${input.featureId}`,
+        },
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      // File doesn't exist — proceed with init
+    }
 
-    // Emit workflow.started event for CQRS view materialization
+    // Event-first: append workflow.started event BEFORE creating state file
+    let eventSequence = 0;
     if (moduleEventStore) {
       try {
-        await moduleEventStore.append(input.featureId, {
+        const event = await moduleEventStore.append(input.featureId, {
           type: 'workflow.started' as import('../event-store/schemas.js').EventType,
           data: {
             featureId: input.featureId,
             workflowType: input.workflowType,
           },
-        });
-      } catch {
-        // Event emission is supplementary — state file is the source of truth
+        }, { idempotencyKey: `${input.featureId}:workflow.started` });
+        eventSequence = event.sequence;
+      } catch (err) {
+        // Event-first: if event append fails, do NOT create state file
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
       }
     }
+
+    const { state } = await initStateFile(
+      stateDir,
+      input.featureId,
+      input.workflowType,
+      { _eventSequence: eventSequence },
+    );
 
     return {
       success: true,
@@ -212,10 +255,63 @@ export async function handleGet(
   };
 }
 
+// ─── Event Emission Helper ──────────────────────────────────────────────────
+
+interface TransitionEventRecord {
+  readonly type: string;
+  readonly from: string;
+  readonly to: string;
+  readonly trigger: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
+ * Emit transition events to the external JSONL event store.
+ * Used by both the success path (after CAS write) and the failure path
+ * (diagnostic events like guard-failed, circuit-open).
+ *
+ * @returns Error message string on failure, undefined on success or when no events to emit.
+ */
+async function emitTransitionEvents(
+  featureId: string,
+  events: readonly TransitionEventRecord[],
+): Promise<string | undefined> {
+  if (!moduleEventStore || events.length === 0) return undefined;
+  try {
+    for (const evt of events) {
+      await moduleEventStore.append(featureId, {
+        type: mapInternalToExternalType(evt.type) as import('../event-store/schemas.js').EventType,
+        data: {
+          from: evt.from,
+          to: evt.to,
+          trigger: evt.trigger,
+          featureId,
+          ...(evt.metadata ?? {}),
+        },
+      });
+    }
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
 const MAX_CAS_RETRIES = 3;
 
+/**
+ * Update fields and/or transition phase on a workflow state file.
+ *
+ * **Event-first contract:** When an event store is configured and a phase
+ * transition occurs, the `workflow.transition` event is appended BEFORE
+ * the state file is written. If the event append fails, no state is
+ * modified and an error is returned. Idempotency keys prevent duplicate
+ * events on CAS retry: `${featureId}:${from}:${to}:${expectedVersion}`.
+ *
+ * For field-only updates (no phase change), no events are emitted and
+ * `_eventSequence` is not modified.
+ */
 export async function handleSet(
   input: SetInput,
   stateDir: string,
@@ -266,20 +362,18 @@ export async function handleSet(
     }
 
     // ─── Phase transition (guards evaluate against updated state) ──────
-    // Collect transition events for deferred emission after CAS write succeeds
-    let pendingTransitionEvents: Array<{
-      type: string;
-      from: string;
-      to: string;
-      trigger: string;
-      metadata?: Record<string, unknown>;
-    }> = [];
+    // Collect transition events for event-first emission before CAS write
+    let pendingTransitionEvents: TransitionEventRecord[] = [];
 
     if (input.phase) {
       const hsm = getHSMDefinition(state.workflowType);
       const result = executeTransition(hsm, mutableState, input.phase);
 
       if (!result.success) {
+        // Emit diagnostic events (guard-failed, circuit-open) before returning error.
+        // These are emitted BEFORE state write since no state change occurs on failure.
+        await emitTransitionEvents(input.featureId, result.events);
+
         const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
         return {
           success: false,
@@ -292,7 +386,7 @@ export async function handleSet(
       }
 
       if (!result.idempotent && result.newPhase) {
-        // Collect events for deferred emission (after CAS write)
+        // Collect transition events for event-first emission
         pendingTransitionEvents = result.events.map((e) => ({
           type: e.type,
           from: e.from,
@@ -321,6 +415,46 @@ export async function handleSet(
       }
     }
 
+    // ─── Event-first: append transition events BEFORE CAS write ───────
+    // Idempotency keys prevent duplicate events on CAS retry.
+    let highestEventSequence: number | undefined;
+
+    if (moduleEventStore && pendingTransitionEvents.length > 0) {
+      try {
+        for (const transitionEvent of pendingTransitionEvents) {
+          const idempotencyKey = `${input.featureId}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
+          const event = await moduleEventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          }, { idempotencyKey });
+
+          if (highestEventSequence === undefined || event.sequence > highestEventSequence) {
+            highestEventSequence = event.sequence;
+          }
+        }
+      } catch (err) {
+        // Event-first: if event append fails, do NOT update state
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
+    }
+
+    // Update _eventSequence only when transition events were appended
+    if (highestEventSequence !== undefined) {
+      mutableState._eventSequence = highestEventSequence;
+    }
+
     // Increment checkpoint operation counter
     mutableState._checkpoint = incrementOperations(
       mutableState._checkpoint as WorkflowState['_checkpoint'],
@@ -338,42 +472,21 @@ export async function handleSet(
       await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion });
     } catch (err) {
       if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
-        // Re-read and retry on version conflict — no events were emitted yet
+        // Re-read and retry on version conflict — events already appended
+        // with idempotency key, so re-append on next iteration is safely
+        // deduplicated
         continue;
       }
       throw err;
     }
 
-    // State-first, event-after: emit transition events to external event store
-    // AFTER the CAS write succeeds. This prevents duplicate events on CAS retry.
-    // If event emission fails after a successful state write, we return success
-    // with a warning — events are supplementary and the state is the source of truth.
-    let eventWarning: string | undefined;
-    if (moduleEventStore && pendingTransitionEvents.length > 0) {
-      try {
-        for (const transitionEvent of pendingTransitionEvents) {
-          await moduleEventStore.append(input.featureId, {
-            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-            data: {
-              from: transitionEvent.from,
-              to: transitionEvent.to,
-              trigger: transitionEvent.trigger,
-              featureId: input.featureId,
-              ...(transitionEvent.metadata ?? {}),
-            },
-          });
-        }
-      } catch (err) {
-        eventWarning = `Event append failed after state write: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    }
-
+    // Event-first: events already appended before CAS write with idempotency keys.
+    // State write is the follow-up materialization step.
     return {
       success: true,
       data: {
         phase: mutableState.phase as string,
         updatedAt: mutableState.updatedAt as string,
-        ...(eventWarning ? { eventWarning } : {}),
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     };
@@ -382,7 +495,7 @@ export async function handleSet(
   // Should not be reached, but satisfy TypeScript
   throw new StateStoreError(
     ErrorCode.VERSION_CONFLICT,
-    `CAS retry limit exceeded for feature: ${input.featureId}`,
+    `Concurrent write conflict: failed to acquire consistent version after ${MAX_CAS_RETRIES} retries for feature: ${input.featureId}`,
   );
 }
 

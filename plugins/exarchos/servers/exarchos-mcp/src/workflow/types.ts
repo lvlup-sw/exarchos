@@ -28,6 +28,7 @@ import type {
   NextActionInputSchema,
   TransitionsInputSchema,
   CancelInputSchema,
+  CleanupInputSchema,
   CheckpointInputSchema,
   ErrorCode,
 } from './schemas.js';
@@ -73,6 +74,7 @@ export type ReconcileInput = z.infer<typeof ReconcileInputSchema>;
 export type NextActionInput = z.infer<typeof NextActionInputSchema>;
 export type TransitionsInput = z.infer<typeof TransitionsInputSchema>;
 export type CancelInput = z.infer<typeof CancelInputSchema>;
+export type CleanupInput = z.infer<typeof CleanupInputSchema>;
 export type CheckpointInput = z.infer<typeof CheckpointInputSchema>;
 
 // ─── Error Code Type ────────────────────────────────────────────────────────

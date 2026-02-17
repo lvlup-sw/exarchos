@@ -12,11 +12,6 @@ import {
 } from './workflow-status-view.js';
 import type { WorkflowStatusViewState } from './workflow-status-view.js';
 import {
-  teamStatusProjection,
-  TEAM_STATUS_VIEW,
-} from './team-status-view.js';
-import type { TeamStatusViewState } from './team-status-view.js';
-import {
   taskDetailProjection,
   TASK_DETAIL_VIEW,
 } from './task-detail-view.js';
@@ -41,7 +36,6 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   const snapshotStore = new SnapshotStore(stateDir);
   const materializer = new ViewMaterializer({ snapshotStore });
   materializer.register(WORKFLOW_STATUS_VIEW, workflowStatusProjection);
-  materializer.register(TEAM_STATUS_VIEW, teamStatusProjection);
   materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
   materializer.register(PIPELINE_VIEW, pipelineProjection);
   materializer.register(STACK_VIEW, stackViewProjection);
@@ -135,37 +129,6 @@ export async function handleViewWorkflowStatus(
     const view = materializer.materialize<WorkflowStatusViewState>(
       streamId,
       WORKFLOW_STATUS_VIEW,
-      events,
-    );
-
-    return { success: true, data: view };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
-
-// ─── View Team Status Handler ──────────────────────────────────────────────
-
-export async function handleViewTeamStatus(
-  args: { workflowId?: string },
-  stateDir: string,
-): Promise<ToolResult> {
-  try {
-    const store = getOrCreateEventStore(stateDir);
-    const materializer = getOrCreateMaterializer(stateDir);
-    const streamId = args.workflowId ?? 'default';
-
-    await materializer.loadFromSnapshot(streamId, TEAM_STATUS_VIEW);
-    const events = await store.query(streamId);
-    const view = materializer.materialize<TeamStatusViewState>(
-      streamId,
-      TEAM_STATUS_VIEW,
       events,
     );
 
@@ -327,10 +290,4 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
     async (args) => formatResult(await handleViewWorkflowStatus(args, stateDir)),
   );
 
-  server.tool(
-    'exarchos_view_team_status',
-    'Get CQRS team status view with teammate composition and current task assignments',
-    { workflowId: z.string().optional() },
-    async (args) => formatResult(await handleViewTeamStatus(args, stateDir)),
-  );
 }

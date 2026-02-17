@@ -84,6 +84,10 @@ vi.mock('../../workflow/cancel.js', () => ({
   configureCancelEventStore: vi.fn(),
 }));
 
+vi.mock('../../workflow/cleanup.js', () => ({
+  configureCleanupEventStore: vi.fn(),
+}));
+
 vi.mock('../../workflow/query.js', () => ({
   configureQueryEventStore: vi.fn(),
 }));
@@ -212,12 +216,11 @@ describe('MCP Server Entry Point', () => {
     it('should route exarchos_orchestrate to handleOrchestrate', async () => {
       createServer('/tmp/test-state-dir');
       await toolRegistrations.get('exarchos_orchestrate')!.handler({
-        action: 'team_spawn', name: 'agent-1', role: 'implementer',
-        taskId: 'T1', taskTitle: 'Implement feature', streamId: 'feat-1',
+        action: 'task_claim', taskId: 'T1', agentId: 'agent-1', streamId: 'feat-1',
       });
 
       expect(mockHandleOrchestrate).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'team_spawn', name: 'agent-1' }),
+        expect.objectContaining({ action: 'task_claim', taskId: 'T1' }),
         '/tmp/test-state-dir',
       );
     });

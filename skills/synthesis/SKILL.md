@@ -20,6 +20,8 @@ Submit Graphite stack as pull requests after review phase completes.
 - All reviews (spec + quality) passed — integration must be complete and passing
 - Graphite stack exists with task branches (the integration branch already exists from delegation)
 
+Requires BOTH spec-review PASS AND quality-review APPROVED. If either review is incomplete or failed, do NOT proceed — return to /review.
+
 ## Triggers
 
 Activate this skill when:
@@ -37,127 +39,18 @@ Since delegation creates Graphite stack branches and review validates them, synt
 
 ## Synthesis Process
 
-### Step 1: Verify Readiness
+1. **Verify readiness** -- `scripts/pre-synthesis-check.sh` (includes phase readiness check with transition guidance)
+2. **Verify/reconstruct Graphite stack** -- `scripts/reconstruct-stack.sh`
+3. **Quick test verification** -- `npm run test:run && npm run typecheck`
+4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
+5. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
+6. **Cleanup after merge** -- `gt sync` + remove worktrees
 
-Run the pre-synthesis readiness check:
-```bash
-scripts/pre-synthesis-check.sh \
-  --state-file ~/.claude/workflow-state/<featureId>.state.json \
-  --repo-root <repo-root>
-```
-
-The script validates all readiness conditions:
-- All delegated tasks complete (from state file)
-- All reviews passed (from state file)
-- No outstanding fix requests (from state file)
-- Graphite stack branches exist (`gt log`)
-- All tests pass (`npm run test:run && npm run typecheck`)
-
-**On exit 0:** All checks passed -- proceed to Step 2.
-**On exit 1:** Output identifies the failing check. Return to `/review` or `/delegate` as appropriate.
-
-Use `--skip-tests` if tests were already verified in review phase. Use `--skip-stack` to defer stack check to Step 2.
-
-### Step 2: Verify and Reconstruct Graphite Stack
-
-Run the stack reconstruction script to detect and fix any broken stack state:
-```bash
-scripts/reconstruct-stack.sh \
-  --repo-root <repo-root> \
-  --state-file ~/.claude/workflow-state/<featureId>.state.json
-```
-
-The script has three phases:
-1. **Detection** -- Parses `gt log` for diverged branches, restack markers, or missing task branches
-2. **Reconstruction** -- If issues detected: resets branch pointers, removes blocking worktrees, re-tracks with correct parent chain
-3. **Validation** -- Confirms `gt log` shows a clean stack with correct parent chain
-
-**On exit 0:** Stack is healthy (or was successfully reconstructed) -- proceed to Step 3.
-**On exit 1:** Reconstruction failed validation. Manual intervention required -- inspect `gt log` output and resolve conflicts.
-
-Use `--dry-run` to preview reconstruction actions without making changes.
-
-### Step 3: Quick Test Verification
-
-Run tests from the top of the Graphite stack to confirm everything works:
-```bash
-npm run test:run
-npm run typecheck
-```
-
-If these fail, return to `/review` or `/delegate` to resolve.
-
-### Step 4: Check CodeRabbit Review State
-
-Get PR numbers from the Graphite stack, then run the CodeRabbit review check:
-```bash
-# Get PR numbers from gt log
-PR_NUMBERS=$(gt log --short | grep -o '#[0-9]*' | sed 's/#//')
-
-# Check CodeRabbit review state
-scripts/check-coderabbit.sh \
-  --owner <owner> --repo <repo> \
-  $PR_NUMBERS
-```
-
-The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.
-
-**On exit 0:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
-**On exit 1:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
-```typescript
-Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
-```
-After fixes are applied, return to Step 4 to re-check.
-
-### Step 5: Submit Stack to Merge Queue
-
-Enqueue the stack for merging (PRs already exist from delegation):
-
-```
-mcp__graphite__run_gt_cmd({
-  args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"],
-  cwd: "<repo-root>",
-  why: "Enqueue stacked PRs in merge queue after review gates pass"
-})
-```
-
-After submission, use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to get the PR URLs for each stack entry.
-
-### Step 6: Cleanup After Merge
-
-After PRs are merged, use Graphite to clean up:
-```
-mcp__graphite__run_gt_cmd({
-  args: ["sync"],
-  cwd: "<repo-root>",
-  why: "Pull latest trunk, clean up merged branches"
-})
-```
-
-Then remove worktrees if they exist:
-```bash
-# Remove worktrees used during delegation
-git worktree list | grep ".worktrees/" | awk '{print $1}' | xargs -I{} git worktree remove {}
-git worktree prune
-```
+For detailed step instructions, see `references/synthesis-steps.md`.
 
 ## Handling Failures
 
-### Test Failure (Unexpected)
-
-If tests fail during synthesis (they passed in review):
-
-1. Return to review phase to investigate
-2. Re-run `/review` to diagnose
-3. Dispatch fixes via `/delegate --fixes`
-4. Return to synthesis after review passes
-
-### PR Checks Fail
-
-1. Wait for CI feedback
-2. Create fix task for failures
-3. Push fixes to the stack branches
-4. Re-run synthesis verification
+See `references/troubleshooting.md` for test failures, PR check failures, and merge queue rejections.
 
 ## Anti-Patterns
 
@@ -198,53 +91,9 @@ Set `phase` to "completed".
 - [ ] PR links provided to user
 - [ ] State file updated with PR URLs
 
-## Final Report
-
-```markdown
-## Synthesis Complete
-
-### Pull Requests
-[PR URLs from gt log --short]
-
-### Stack Branches
-- task/001-types
-- task/002-api
-- task/003-tests
-
-### Test Results
-- Unit tests: PASS
-- Type check: PASS
-- Lint: PASS
-- Build: PASS
-
-### Next Steps
-1. Wait for CI/CD checks
-2. Request code review (if required)
-3. Merge when approved
-4. Worktrees will be cleaned up after merge
-
-### Documentation
-- Design: docs/designs/YYYY-MM-DD-feature.md
-- Plan: docs/plans/YYYY-MM-DD-feature.md
-```
-
 ## Handling PR Feedback
 
-If the user receives PR review comments:
-
-1. Offer to address feedback:
-   ```typescript
-   Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
-   ```
-
-2. Delegate reads PR comments via GitHub MCP:
-   ```
-   mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber })
-   ```
-
-3. Creates fix tasks from review comments
-4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive", "--publish", "--merge-when-ready"]`
-5. Return to merge confirmation
+Route to `/delegate --pr-fixes [PR_URL]` for automated fix dispatch. See `references/troubleshooting.md` for details.
 
 ## Transition
 
@@ -263,48 +112,4 @@ Options:
 
 ## Troubleshooting
 
-### MCP Tool Call Failed
-If an Exarchos MCP tool returns an error:
-1. Check the error message — it usually contains specific guidance
-2. Verify the workflow state exists: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
-3. If "version mismatch": another process updated state — retry the operation
-4. If state is corrupted: call `mcp__exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
-
-### State Desync
-If workflow state doesn't match git reality:
-1. The SessionStart hook runs reconciliation automatically on resume
-2. If manual check needed: compare state file with `git log` and branch state
-3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
-
-### PR Creation Failed
-If `gt submit` fails:
-1. Check the error output for specific guidance
-2. Run `gt log` to verify the stack state
-3. If rebase conflict: run `gt restack` to resolve
-4. If authentication issue: check GitHub token permissions
-
-### Stack Rebase Conflict
-If `gt restack` encounters conflicts:
-1. Resolve conflicts manually in each affected file
-2. Run `git add <resolved-files>` then `gt continue`
-3. After resolution, re-run `gt submit --no-interactive --publish --merge-when-ready`
-
-### Merge Queue Rejection
-If the merge queue rejects a PR:
-1. Check CI status via GitHub MCP: `pull_request_read` with method `get_status`
-2. Fix failing checks
-3. Push fixes and re-enqueue
-
-## Exarchos Integration
-
-When Exarchos MCP tools are available:
-
-1. **After stack submission:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
-2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
-3. **On successful merge:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
-
-## Performance Notes
-
-- Complete each step fully before advancing — quality over speed
-- Do not skip validation checks even when the change appears trivial
-- Verify all tests pass before creating PR. Do not skip the pre-submit validation step.
+See `references/troubleshooting.md` for MCP failures, state desync, PR creation issues, and stack rebase conflicts.

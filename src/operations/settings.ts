@@ -12,6 +12,8 @@ export interface Settings {
   readonly permissions: { readonly allow: readonly string[] };
   readonly model: string;
   readonly enabledPlugins: Readonly<Record<string, boolean>>;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly teammateMode?: string;
   readonly hooks?: Readonly<Record<string, unknown[]>>;
 }
 
@@ -39,6 +41,8 @@ export function generateSettings(
     permissions: { allow: generatePermissions() },
     model: selections.model,
     enabledPlugins,
+    env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' },
+    teammateMode: 'auto',
   };
 
   if (hooks && Object.keys(hooks).length > 0) {

@@ -148,6 +148,8 @@ Full state schema:
 
 If scope expands beyond polish limits during explore or brief phase, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
+**Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
+
 **Indicators to switch:**
 - More than 5 files affected
 - Multiple concerns identified
@@ -184,8 +186,8 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** `mcp__exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
-2. **On track selection:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` with selected track (polish/overhaul)
-3. **On each phase transition:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` from→to
+2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
 5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
-6. **On complete:** `mcp__exarchos__exarchos_event` with `action: "append"` → `phase.transitioned` to "completed"
+6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"
