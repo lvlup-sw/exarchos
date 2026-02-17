@@ -7,6 +7,9 @@ import {
   formatToolGuidance,
   findActiveWorkflowPhase,
   handleSubagentContext,
+  queryModuleHistory,
+  synthesizeIntelligence,
+  extractModulesFromCwd,
   type FilteredComposite,
 } from './subagent-context.js';
 
@@ -353,6 +356,106 @@ describe('subagent-context', () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+  });
+
+  // ─── Task 6: Historical Intelligence ────────────────────────────────────────
+
+  describe('historical intelligence', () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await createTempStateDir();
+    });
+
+    afterEach(async () => {
+      await cleanupDir(tempDir);
+    });
+
+    describe('queryModuleHistory', () => {
+      it('should return relevant events when JSONL contains matching module references', async () => {
+        // Arrange
+        const jsonlContent = [
+          '{"streamId":"test","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"test-feature"},"schemaVersion":"1.0"}',
+          '{"streamId":"test","sequence":2,"timestamp":"2026-01-01T00:00:01Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
+          '{"streamId":"test","sequence":3,"timestamp":"2026-01-01T00:00:02Z","type":"task.completed","data":{"taskId":"task-002","artifacts":["src/api/routes.ts"]},"schemaVersion":"1.0"}',
+        ].join('\n');
+        await fs.writeFile(
+          path.join(tempDir, 'test-feature.events.jsonl'),
+          jsonlContent,
+          'utf-8',
+        );
+
+        // Act
+        const result = await queryModuleHistory(tempDir, ['auth']);
+
+        // Assert — should return only events referencing 'auth'
+        expect(result.length).toBe(2);
+        expect(result[0]).toHaveProperty('type', 'workflow.fix-cycle');
+        expect(result[1]).toHaveProperty('type', 'task.completed');
+      });
+
+      it('should return empty array when state directory has no events', async () => {
+        // Act — tempDir is empty
+        const result = await queryModuleHistory(tempDir, ['auth']);
+
+        // Assert
+        expect(result).toEqual([]);
+      });
+    });
+
+    describe('synthesizeIntelligence', () => {
+      it('should summarize fix cycle patterns from events', () => {
+        // Arrange
+        const events: Array<Record<string, unknown>> = [
+          {
+            type: 'workflow.fix-cycle',
+            data: { compoundStateId: 'auth-review', count: 2, featureId: 'f1' },
+          },
+          {
+            type: 'workflow.fix-cycle',
+            data: { compoundStateId: 'auth-review', count: 3, featureId: 'f1' },
+          },
+          {
+            type: 'task.completed',
+            data: { taskId: 'task-001', artifacts: ['src/auth/login.ts'] },
+          },
+        ];
+
+        // Act
+        const result = synthesizeIntelligence(events);
+
+        // Assert — should mention fix cycle count
+        expect(result).toContain('fix cycle');
+        expect(result.length).toBeGreaterThan(0);
+        expect(result.length).toBeLessThanOrEqual(500);
+      });
+
+      it('should return empty string when no events provided', () => {
+        // Act
+        const result = synthesizeIntelligence([]);
+
+        // Assert
+        expect(result).toBe('');
+      });
+    });
+
+    describe('extractModulesFromCwd', () => {
+      it('should extract meaningful path segments from worktree path', () => {
+        // Act
+        const result = extractModulesFromCwd('/tmp/wt-auth-service/src');
+
+        // Assert — should include 'auth-service'
+        expect(result).toContain('auth-service');
+      });
+
+      it('should return empty array for root path', () => {
+        // Act
+        const result = extractModulesFromCwd('/');
+
+        // Assert
+        expect(result).toEqual([]);
+      });
     });
   });
 });
