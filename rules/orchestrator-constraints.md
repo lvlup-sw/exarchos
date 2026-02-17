@@ -1,4 +1,5 @@
 ---
+alwaysApply: true
 name: orchestrator-constraints
 description: "Main Claude Code session coordinates but does not write implementation code."
 ---
