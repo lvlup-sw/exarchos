@@ -184,6 +184,23 @@ function eventReferencesModules(
 }
 
 /**
+ * Expand module names into search terms by splitting on hyphens.
+ * For example, 'auth-service' produces ['auth-service', 'auth', 'service'].
+ */
+function expandModuleSearchTerms(modules: string[]): string[] {
+  const terms = new Set<string>();
+  for (const m of modules) {
+    terms.add(m);
+    // Also add individual segments for broader matching
+    const parts = m.split('-').filter((p) => p.length > 2);
+    for (const part of parts) {
+      terms.add(part);
+    }
+  }
+  return Array.from(terms);
+}
+
+/**
  * Scan JSONL event files for events relevant to specified modules.
  * Uses lightweight line-by-line JSON parsing (no full EventStore import) for CLI hook performance.
  */
@@ -204,6 +221,7 @@ export async function queryModuleHistory(
 
   if (jsonlFiles.length === 0) return [];
 
+  const searchTerms = expandModuleSearchTerms(modules);
   const results: Array<Record<string, unknown>> = [];
 
   for (const file of jsonlFiles) {
@@ -222,7 +240,7 @@ export async function queryModuleHistory(
             continue;
           }
 
-          if (eventReferencesModules(event, modules)) {
+          if (eventReferencesModules(event, searchTerms)) {
             results.push(event);
           }
         } catch {
@@ -368,26 +386,124 @@ function resolveStateDir(): string {
 }
 
 /**
+ * Read the active workflow state file and extract the tasks array.
+ * Returns the full parsed state or null if no active workflow found.
+ */
+async function readActiveWorkflowState(
+  stateDir: string,
+): Promise<Record<string, unknown> | null> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(stateDir);
+  } catch {
+    return null;
+  }
+
+  const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
+
+  for (const file of stateFiles) {
+    try {
+      const raw = await fs.readFile(path.join(stateDir, file), 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const phase = parsed.phase;
+
+      if (typeof phase === 'string' && phase !== 'completed' && phase !== 'cancelled') {
+        return parsed;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Format team context from the active workflow's tasks array.
+ * Summarizes task statuses and what other teammates are working on.
+ */
+async function formatTeamContext(stateDir: string): Promise<string> {
+  const state = await readActiveWorkflowState(stateDir);
+  if (!state) return '';
+
+  const tasks = state.tasks;
+  if (!Array.isArray(tasks) || tasks.length === 0) return '';
+
+  let inProgress = 0;
+  let complete = 0;
+  let pending = 0;
+  const inProgressTitles: string[] = [];
+
+  for (const task of tasks) {
+    if (typeof task !== 'object' || task === null) continue;
+    const t = task as Record<string, unknown>;
+    const status = t.status;
+
+    if (status === 'in_progress') {
+      inProgress++;
+      if (typeof t.title === 'string') {
+        inProgressTitles.push(t.title);
+      }
+    } else if (status === 'complete' || status === 'completed') {
+      complete++;
+    } else {
+      pending++;
+    }
+  }
+
+  const parts: string[] = [];
+
+  if (inProgress > 0) {
+    parts.push(`${inProgress} task${inProgress === 1 ? '' : 's'} in progress`);
+  }
+  if (complete > 0) {
+    parts.push(`${complete} completed`);
+  }
+  if (pending > 0) {
+    parts.push(`${pending} pending`);
+  }
+
+  let result = parts.join(', ');
+
+  if (inProgressTitles.length > 0) {
+    result += `. Other teammates working on: ${inProgressTitles.join(', ')}`;
+  }
+
+  return result;
+}
+
+/**
  * SubagentStart hook handler.
  *
  * Reads the active workflow's phase, filters tools by phase + teammate role,
- * and outputs plain-text guidance to stdout.
+ * and outputs plain-text guidance to stdout. Also enriches with historical
+ * intelligence and team context.
  *
- * Degrades gracefully: outputs nothing if no active workflow exists.
+ * Degrades gracefully: outputs empty fields if no active workflow exists.
  */
 export async function handleSubagentContext(
-  _stdinData: Record<string, unknown>,
+  stdinData: Record<string, unknown>,
 ): Promise<CommandResult> {
   const stateDir = resolveStateDir();
   const phase = await findActiveWorkflowPhase(stateDir);
 
   if (!phase) {
-    // Graceful degradation: no active workflow, output empty guidance
-    return { guidance: '' };
+    // Graceful degradation: no active workflow, output empty fields
+    return { guidance: '', context: '', team: '' };
   }
 
+  // Existing: tool guidance
   const { available, denied } = filterToolsForPhaseAndRole(phase, 'teammate');
   const guidance = formatToolGuidance(available, denied);
 
-  return { guidance };
+  // Historical intelligence
+  const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : '';
+  const modules = extractModulesFromCwd(cwd);
+  const events = await queryModuleHistory(stateDir, modules);
+  const context = synthesizeIntelligence(events);
+
+  // Team context
+  const team = await formatTeamContext(stateDir);
+
+  return { guidance, context, team };
 }
