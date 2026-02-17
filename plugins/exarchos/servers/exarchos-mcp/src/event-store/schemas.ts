@@ -27,6 +27,12 @@ export const EventTypes = [
   'tool.completed',
   'tool.errored',
   'benchmark.completed',
+  'team.spawned',
+  'team.task.assigned',
+  'team.task.completed',
+  'team.task.failed',
+  'team.disbanded',
+  'team.context.injected',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -221,6 +227,50 @@ export const BenchmarkCompletedData = z.object({
   })).min(1),
 });
 
+// ─── Team Event Data ────────────────────────────────────────────────────────
+
+export const TeamSpawnedData = z.object({
+  teamSize: z.number().int(),
+  teammateNames: z.array(z.string()),
+  taskCount: z.number().int(),
+  dispatchMode: z.string(),
+});
+
+export const TeamTaskAssignedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  worktreePath: z.string(),
+  modules: z.array(z.string()),
+});
+
+export const TeamTaskCompletedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  durationMs: z.number(),
+  filesChanged: z.array(z.string()),
+  testsPassed: z.boolean(),
+  qualityGateResults: z.record(z.string(), z.unknown()),
+});
+
+export const TeamTaskFailedData = z.object({
+  taskId: z.string(),
+  teammateName: z.string(),
+  failureReason: z.string(),
+  gateResults: z.record(z.string(), z.unknown()),
+});
+
+export const TeamDisbandedData = z.object({
+  totalDurationMs: z.number(),
+  tasksCompleted: z.number().int(),
+  tasksFailed: z.number().int(),
+});
+
+export const TeamContextInjectedData = z.object({
+  phase: z.string(),
+  toolsAvailable: z.number().int(),
+  historicalHints: z.array(z.string()),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -248,6 +298,12 @@ export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
 export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
+export type TeamSpawned = z.infer<typeof TeamSpawnedData>;
+export type TeamTaskAssigned = z.infer<typeof TeamTaskAssignedData>;
+export type TeamTaskCompleted = z.infer<typeof TeamTaskCompletedData>;
+export type TeamTaskFailed = z.infer<typeof TeamTaskFailedData>;
+export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
+export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
@@ -255,6 +311,8 @@ export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
 export const AGENT_EVENT_TYPES = [
   'task.claimed',
   'task.progressed',
+  'team.task.completed',
+  'team.task.failed',
 ] as const;
 
 export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
