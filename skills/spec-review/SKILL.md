@@ -82,122 +82,14 @@ This enables catching:
 
 ## Review Checklist
 
-### 1. Functional Completeness
+For the full checklist with verification commands, tables, and report template, see `references/review-checklist.md`.
 
-| Check | Verify |
-|-------|--------|
-| All requirements implemented | Compare to spec/plan |
-| No missing features | Cross-reference task list |
-| Correct behavior | Run manual verification |
-| Edge cases handled | Check spec edge cases |
-
-### 2. TDD Compliance
-
-| Check | Verify |
-|-------|--------|
-| Tests exist for all features | Grep for test files |
-| Tests written first | Check git history order |
-| Tests are meaningful | Not just "expect true" |
-| Test naming convention | `Method_Scenario_Outcome` |
-
-**Verification Commands:**
+**Verification:**
 ```bash
-# Check test file exists
-ls src/**/*.test.ts
-
-# Run tests
 npm run test:run
-
-# Check coverage
 npm run test:coverage
-```
-
-### 3. Specification Alignment
-
-Compare implementation to:
-- Original design document
-- Implementation plan tasks
-- Acceptance criteria
-
-**Questions to answer:**
-- Does it do what was specified?
-- Does it do MORE than specified? (over-engineering)
-- Does it do LESS than specified? (incomplete)
-
-### 4. Test Coverage
-
-| Metric | Threshold |
-|--------|-----------|
-| Line coverage | >80% for new code |
-| Branch coverage | >70% for new code |
-| Function coverage | 100% for public APIs |
-
-## Review Process
-
-### Step 1: Gather Artifacts
-
-```markdown
-## Review Artifacts
-
-- Design: `docs/designs/YYYY-MM-DD-feature.md`
-- Plan: `docs/plans/YYYY-MM-DD-feature.md`
-- Implementation: `src/feature/`
-- Tests: `src/feature/*.test.ts`
-```
-
-### Step 2: Run Verification
-
-```bash
-# Run all tests
-npm run test:run
-
-# Check coverage
-npm run test:coverage
-
-# Run type check
 npm run typecheck
-```
-
-### Step 3: Compare to Spec
-
-Read design/plan and verify each requirement:
-
-```markdown
-## Spec Compliance
-
-| Requirement | Implemented | Test Exists | Notes |
-|-------------|-------------|-------------|-------|
-| User can login | YES | YES | |
-| Email validation | YES | YES | |
-| Rate limiting | NO | NO | MISSING |
-```
-
-### Step 4: Generate Report
-
-```markdown
-## Spec Review Report
-
-### Summary
-- Status: [PASS | FAIL | NEEDS_FIXES]
-- Tested: [timestamp]
-- Reviewer: Claude Code
-
-### Compliance Matrix
-[Table from Step 3]
-
-### Issues Found
-1. [Issue description]
-   - File: `path/to/file.ts`
-   - Expected: [spec requirement]
-   - Actual: [current behavior]
-   - Fix: [required change]
-
-### Missing Items
-- [ ] [Feature not implemented]
-
-### Verdict
-[PASS] Ready for quality review
-[FAIL] Return to implementer with fix list
+scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
 ```
 
 ## Fix Loop
@@ -265,15 +157,6 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
     "reviews.<task-id>.specReview": {"status": "pass", "issues": []}
   }
 ```
-
-## Completion Criteria
-
-- [ ] All spec requirements verified
-- [ ] TDD compliance confirmed
-- [ ] Tests pass
-- [ ] Coverage meets thresholds
-- [ ] No missing functionality
-- [ ] State file updated with review results
 
 ## Transition
 
