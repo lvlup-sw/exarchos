@@ -33,6 +33,7 @@ interface CheckpointData {
   readonly tasks: ReadonlyArray<{ id: string; status: string; title: string }>;
   readonly artifacts: Record<string, unknown>;
   readonly stateFile: string;
+  readonly teamState?: unknown;
 }
 
 /** Minimal valid workflow state file for testing. */
@@ -368,6 +369,109 @@ describe('session-start command', () => {
 
       // Assert — the malformed file should NOT be deleted (skipped before unlink)
       await expect(fs.access(filePath)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('orphaned team recovery detection', () => {
+    it('should include recovery info when delegate phase has active teammates', async () => {
+      // Arrange
+      const checkpoint = createCheckpointFile({
+        featureId: 'team-feature',
+        phase: 'delegate',
+        teamState: {
+          teammates: [{ name: 'w1', status: 'active' }],
+        },
+        tasks: [
+          { id: 'T1', status: 'complete', title: 'Done task' },
+          { id: 'T2', status: 'in_progress', title: 'Active task' },
+          { id: 'T3', status: 'pending', title: 'Pending task' },
+        ],
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'team-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === 'team-feature');
+      expect(workflow).toBeDefined();
+      expect(workflow!.recovery).toBeDefined();
+      expect(workflow!.recovery!.type).toBe('orphaned_team');
+      expect(workflow!.recovery!.remainingTasks).toBeGreaterThan(0);
+    });
+
+    it('should not include recovery info when delegate phase has no teamState', async () => {
+      // Arrange
+      const checkpoint = createCheckpointFile({
+        featureId: 'no-team',
+        phase: 'delegate',
+        // no teamState
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'no-team.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      const workflow = result.workflows!.find((w) => w.featureId === 'no-team');
+      expect(workflow).toBeDefined();
+      expect(workflow!.recovery).toBeUndefined();
+    });
+
+    it('should not include recovery info when all teammates are completed', async () => {
+      // Arrange
+      const checkpoint = createCheckpointFile({
+        featureId: 'done-team',
+        phase: 'delegate',
+        teamState: {
+          teammates: [
+            { name: 'w1', status: 'completed' },
+            { name: 'w2', status: 'completed' },
+          ],
+        },
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'done-team.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      const workflow = result.workflows!.find((w) => w.featureId === 'done-team');
+      expect(workflow).toBeDefined();
+      expect(workflow!.recovery).toBeUndefined();
+    });
+
+    it('should not include recovery info when review phase has teamState', async () => {
+      // Arrange
+      const checkpoint = createCheckpointFile({
+        featureId: 'review-team',
+        phase: 'review',
+        teamState: {
+          teammates: [{ name: 'w1', status: 'active' }],
+        },
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'review-team.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      const workflow = result.workflows!.find((w) => w.featureId === 'review-team');
+      expect(workflow).toBeDefined();
+      expect(workflow!.recovery).toBeUndefined();
     });
   });
 });
