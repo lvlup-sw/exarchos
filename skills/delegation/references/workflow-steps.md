@@ -65,6 +65,17 @@ When using `--mode agent-team`:
 
 **No `Task()` calls needed** — delegation happens through natural language.
 
+### Agent Teams Dispatch (enhanced)
+
+When using `--mode agent-team`:
+1. **Pre-delegation intelligence:** Query `exarchos_view team_performance` for historical metrics
+2. **Team creation:** Create team with named teammates, each assigned to a worktree
+3. **Task list setup:** Create native Claude Code tasks with dependency annotations
+4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content
+5. **Event emission:** Append `team.spawned` event with teamSize, teammateNames, taskCount
+
+Teammates self-coordinate via shared task list. No `Task()` calls needed.
+
 ## Step 5: Monitor Progress
 
 For background tasks:
@@ -79,6 +90,16 @@ When using `--mode agent-team`:
 - `TeammateIdle` hook auto-runs quality gates
 - Orchestrator observes progress via pane output
 - No `TaskOutput` polling needed
+
+### Agent Teams Monitoring (enhanced)
+
+When using `--mode agent-team`:
+- Teammates visible in tmux split panes
+- `TeammateIdle` hook auto-runs quality gates (typecheck, tests, clean worktree)
+- On quality pass: emits `team.task.completed` event with performance data
+- On quality fail: exit code 2 sends feedback, emits `team.task.failed` event
+- `findUnblockedTasks()` auto-detects follow-up work for the teammate
+- Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 
 ## Step 6: Collect Results
 
@@ -109,6 +130,16 @@ When using `--mode agent-team`:
 - On quality gate pass: task marked "complete" in state
 - On quality gate fail: exit code 2 sends feedback, teammate continues
 - Run `post-delegation-check.sh` as usual after all teammates finish
+
+### Agent Teams Collection (enhanced)
+
+When using `--mode agent-team`:
+- `TeammateIdle` hook bridges real-time Agent Teams with persistent Exarchos state
+- On quality gate pass: task marked "complete" + `team.task.completed` event emitted
+- On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
+- Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
+- After all teammates finish: append `team.disbanded` event with summary metrics
+- Run `post-delegation-check.sh` as usual for final validation
 
 ## Step 7: Schema Sync (Auto-Detection)
 
