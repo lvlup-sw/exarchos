@@ -103,7 +103,7 @@ Before creating the native Claude Code task list:
 1. Build a dependency graph from plan task `blockedBy` fields
 2. Identify the critical path through the dependency chain
 3. Front-load independent tasks for maximum parallelism
-4. On TeammateIdle, scan the task graph for newly unblocked tasks (tasks whose `blockedBy` dependencies are all completed) and assign them as follow-up work
+4. On TeammateIdle, scan the task graph for newly unblocked tasks (tasks whose `blockedBy` dependencies are all completed) so teammates can claim them
 
 ## Controller Responsibilities
 

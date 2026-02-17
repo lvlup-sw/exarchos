@@ -80,7 +80,7 @@ When using `--mode agent-team`:
 - `TeammateIdle` hook auto-runs quality gates (typecheck, tests, clean worktree)
 - On quality pass: emits `team.task.completed` event with performance data
 - On quality fail: exit code 2 sends feedback, emits `team.task.failed` event
-- Hook scans task graph for newly unblocked tasks and assigns follow-up work
+- Hook scans task graph for newly unblocked tasks for teammates to claim
 - Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 
 ## Step 6: Collect Results
