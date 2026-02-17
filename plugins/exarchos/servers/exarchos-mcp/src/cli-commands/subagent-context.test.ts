@@ -7,6 +7,9 @@ import {
   formatToolGuidance,
   findActiveWorkflowPhase,
   handleSubagentContext,
+  queryModuleHistory,
+  synthesizeIntelligence,
+  extractModulesFromCwd,
   type FilteredComposite,
 } from './subagent-context.js';
 
@@ -353,6 +356,222 @@ describe('subagent-context', () => {
 
       // Assert
       expect(result).toBeNull();
+    });
+  });
+
+  // ─── Task 6: Historical Intelligence ────────────────────────────────────────
+
+  describe('historical intelligence', () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await createTempStateDir();
+    });
+
+    afterEach(async () => {
+      await cleanupDir(tempDir);
+    });
+
+    describe('queryModuleHistory', () => {
+      it('should return relevant events when JSONL contains matching module references', async () => {
+        // Arrange
+        const jsonlContent = [
+          '{"streamId":"test","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"test-feature"},"schemaVersion":"1.0"}',
+          '{"streamId":"test","sequence":2,"timestamp":"2026-01-01T00:00:01Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
+          '{"streamId":"test","sequence":3,"timestamp":"2026-01-01T00:00:02Z","type":"task.completed","data":{"taskId":"task-002","artifacts":["src/api/routes.ts"]},"schemaVersion":"1.0"}',
+        ].join('\n');
+        await fs.writeFile(
+          path.join(tempDir, 'test-feature.events.jsonl'),
+          jsonlContent,
+          'utf-8',
+        );
+
+        // Act
+        const result = await queryModuleHistory(tempDir, ['auth']);
+
+        // Assert — should return only events referencing 'auth'
+        expect(result.length).toBe(2);
+        expect(result[0]).toHaveProperty('type', 'workflow.fix-cycle');
+        expect(result[1]).toHaveProperty('type', 'task.completed');
+      });
+
+      it('should return empty array when state directory has no events', async () => {
+        // Act — tempDir is empty
+        const result = await queryModuleHistory(tempDir, ['auth']);
+
+        // Assert
+        expect(result).toEqual([]);
+      });
+    });
+
+    describe('synthesizeIntelligence', () => {
+      it('should summarize fix cycle patterns from events', () => {
+        // Arrange
+        const events: Array<Record<string, unknown>> = [
+          {
+            type: 'workflow.fix-cycle',
+            data: { compoundStateId: 'auth-review', count: 2, featureId: 'f1' },
+          },
+          {
+            type: 'workflow.fix-cycle',
+            data: { compoundStateId: 'auth-review', count: 3, featureId: 'f1' },
+          },
+          {
+            type: 'task.completed',
+            data: { taskId: 'task-001', artifacts: ['src/auth/login.ts'] },
+          },
+        ];
+
+        // Act
+        const result = synthesizeIntelligence(events);
+
+        // Assert — should mention fix cycle count
+        expect(result).toContain('fix cycle');
+        expect(result.length).toBeGreaterThan(0);
+        expect(result.length).toBeLessThanOrEqual(500);
+      });
+
+      it('should return empty string when no events provided', () => {
+        // Act
+        const result = synthesizeIntelligence([]);
+
+        // Assert
+        expect(result).toBe('');
+      });
+    });
+
+    describe('extractModulesFromCwd', () => {
+      it('should extract meaningful path segments from worktree path', () => {
+        // Act
+        const result = extractModulesFromCwd('/tmp/wt-auth-service/src');
+
+        // Assert — should include 'auth-service'
+        expect(result).toContain('auth-service');
+      });
+
+      it('should return empty array for root path', () => {
+        // Act
+        const result = extractModulesFromCwd('/');
+
+        // Assert
+        expect(result).toEqual([]);
+      });
+    });
+  });
+
+  // ─── Task 7: Enriched handleSubagentContext ─────────────────────────────────
+
+  describe('handleSubagentContext enriched', () => {
+    let tempDir: string;
+    let originalStateDir: string | undefined;
+
+    beforeEach(async () => {
+      tempDir = await createTempStateDir();
+      originalStateDir = process.env.WORKFLOW_STATE_DIR;
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+    });
+
+    afterEach(async () => {
+      if (originalStateDir !== undefined) {
+        process.env.WORKFLOW_STATE_DIR = originalStateDir;
+      } else {
+        delete process.env.WORKFLOW_STATE_DIR;
+      }
+      await cleanupDir(tempDir);
+    });
+
+    it('should include non-empty context field when active workflow has relevant events', async () => {
+      // Arrange — active workflow + JSONL events with fix-cycle
+      await writeStateFile(tempDir, 'my-feature', 'delegate');
+      const jsonlContent = [
+        '{"streamId":"my-feature","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"my-feature"},"schemaVersion":"1.0"}',
+        '{"streamId":"my-feature","sequence":2,"timestamp":"2026-01-01T00:00:01Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
+      ].join('\n');
+      await fs.writeFile(
+        path.join(tempDir, 'my-feature.events.jsonl'),
+        jsonlContent,
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
+
+      // Assert
+      expect(result).toHaveProperty('context');
+      expect(typeof result.context).toBe('string');
+      expect((result.context as string).length).toBeGreaterThan(0);
+    });
+
+    it('should have empty context when active workflow exists but no events', async () => {
+      // Arrange — active workflow but no JSONL events
+      await writeStateFile(tempDir, 'my-feature', 'delegate');
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
+
+      // Assert
+      expect(result).toHaveProperty('context');
+      expect(result.context).toBe('');
+    });
+
+    it('should include team field with task summary when workflow has tasks', async () => {
+      // Arrange — active workflow state file with tasks
+      const stateFile = path.join(tempDir, 'team-feature.state.json');
+      const state = {
+        version: 2,
+        featureId: 'team-feature',
+        workflowType: 'feature',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        phase: 'delegate',
+        artifacts: { design: null, plan: null, pr: null },
+        tasks: [
+          { id: 'task-1', title: 'Implement auth', status: 'in_progress', branch: 'auth' },
+          { id: 'task-2', title: 'Implement api', status: 'complete', branch: 'api' },
+          { id: 'task-3', title: 'Implement ui', status: 'pending', branch: 'ui' },
+        ],
+        worktrees: {},
+        reviews: {},
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+        _version: 1,
+        _history: {},
+        _checkpoint: {
+          timestamp: new Date().toISOString(),
+          phase: 'delegate',
+          summary: 'Test state',
+          operationsSince: 0,
+          fixCycleCount: 0,
+          lastActivityTimestamp: new Date().toISOString(),
+          staleAfterMinutes: 120,
+        },
+      };
+      await fs.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/some/path' });
+
+      // Assert
+      expect(result).toHaveProperty('team');
+      expect(typeof result.team).toBe('string');
+      expect((result.team as string).length).toBeGreaterThan(0);
+    });
+
+    it('should return empty guidance, context, and team when no active workflow', async () => {
+      // Arrange — no state files in tempDir (empty)
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/some/path' });
+
+      // Assert
+      expect(result.guidance).toBe('');
+      expect(result.context).toBe('');
+      expect(result.team).toBe('');
     });
   });
 });
