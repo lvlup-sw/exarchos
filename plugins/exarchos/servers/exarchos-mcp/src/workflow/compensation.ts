@@ -49,7 +49,7 @@ export interface CompensationResult {
   readonly events: readonly Event[];
   readonly success: boolean;
   readonly errorCode?: string;
-  readonly checkpoint: CompensationCheckpoint;
+  readonly checkpoint: CompensationCheckpoint | null;
 }
 
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
@@ -356,6 +356,6 @@ export async function executeCompensation(
     events: compensationEvents,
     success: !hasFailure,
     ...(hasFailure && { errorCode: ErrorCode.COMPENSATION_PARTIAL }),
-    checkpoint: { completedActions: [...completedSet] },
+    checkpoint: hasFailure ? { completedActions: [...completedSet] } : null,
   };
 }
