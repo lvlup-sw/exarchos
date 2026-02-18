@@ -1,8 +1,13 @@
-# Exarchos
+<div align="center">
+  <img src="exarchos-logo.png" alt="Exarchos" width="280" />
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+  [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-> Local agent governance for Claude Code — event-sourced SDLC workflows with team coordination
+  **Structured SDLC workflows with multi-agent orchestration for Claude Code**<br>
+  Verifiable outcomes · Graphite stacked PRs · Full auditability via event sourcing
+</div>
+
+---
 
 ## Quick Start
 
@@ -42,9 +47,13 @@ npx -y github:lvlup-sw/exarchos --uninstall
 
 ## Why Exarchos?
 
-Claude Code sessions lose context during long tasks. Context compaction discards your workflow state, forcing you to re-explain what you were doing. And subagents report back to the orchestrator but cannot collaborate, coordinate, or challenge each other.
+Claude Code is powerful, but complex features expose three gaps: sessions lose state during context compaction, subagents can't collaborate or challenge each other, and there's no structured way to verify what agents produce. Exarchos fills these gaps.
 
-Exarchos solves both problems by coordinating local Claude Code agent teams with event-sourced state that survives any context disruption.
+- **Verifiable outcomes** — Layered quality gates enforce spec compliance, code quality, and TDD at every stage. Work that doesn't pass doesn't merge.
+- **Multi-agent orchestration** — Agent teams work in parallel git worktrees with independent context. The orchestrator steers; teammates execute, review, and coordinate.
+- **Graphite stacked PRs** — Completed tasks are progressively stacked as PRs via Graphite, with merge queue integration. No monolithic PRs.
+- **Full auditability** — Every workflow transition, task completion, and agent interaction is recorded in an append-only event store. Saga compensation ensures safe cancellation and recovery. CQRS materialized views provide real-time observability.
+- **Context resilience** — HSM-driven workflow state survives context compaction. Sessions auto-resume exactly where they left off.
 
 **Three SDLC workflows** with automatic state checkpointing:
 
