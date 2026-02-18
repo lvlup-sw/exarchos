@@ -102,7 +102,7 @@ describe('[ComponentName]', () => {
 - Use `exarchos_view tasks` to see task details across the team
 - Use `exarchos_event append` to report TDD phase transitions:
     stream: "{featureId}"
-    event: { type: "task.progressed", taskId: "{taskId}", tddPhase: "red|green|refactor" }
+    event: { type: "task.progress", taskId: "{taskId}", tddPhase: "red|green|refactor" }
 
 ## Team Context
 <!-- Agent Teams mode only. Populated at spawn time by orchestrator. -->
