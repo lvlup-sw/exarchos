@@ -5,6 +5,10 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 export const DELEGATION_TIMELINE_VIEW = 'delegation-timeline';
 
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_TIMELINE_TASKS = 200;
+
 // ─── View State ────────────────────────────────────────────────────────────
 
 export interface TimelineTask {
@@ -28,6 +32,7 @@ export interface DelegationTimelineViewState {
   totalDurationMs: number;
   tasks: TimelineTask[];
   bottleneck: Bottleneck | null;
+  hasMore: boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -62,6 +67,7 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
     totalDurationMs: 0,
     tasks: [],
     bottleneck: null,
+    hasMore: false,
   }),
 
   apply: (view, event) => {
@@ -92,9 +98,16 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
           durationMs: 0,
         };
 
+        const newTasks = [...view.tasks, task];
+        const evicted = newTasks.length > MAX_TIMELINE_TASKS;
+        const boundedTasks = evicted
+          ? newTasks.slice(newTasks.length - MAX_TIMELINE_TASKS)
+          : newTasks;
+
         return {
           ...view,
-          tasks: [...view.tasks, task],
+          tasks: boundedTasks,
+          hasMore: view.hasMore || evicted,
         };
       }
 

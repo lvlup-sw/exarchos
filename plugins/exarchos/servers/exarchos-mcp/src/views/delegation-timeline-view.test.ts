@@ -36,6 +36,7 @@ describe('DelegationTimelineView', () => {
         totalDurationMs: 0,
         tasks: [],
         bottleneck: null,
+        hasMore: false,
       });
     });
   });
@@ -142,6 +143,64 @@ describe('DelegationTimelineView', () => {
 
       expect(state.teamDisbandedAt).toBe(disbandTs);
       expect(state.totalDurationMs).toBe(600000);
+    });
+
+    // ─── T18: Cap delegation timeline tasks array ──────────────────────
+
+    it('Apply_TeamTaskAssigned_ExceedsMaxTasks_EvictsOldest', () => {
+      let state = delegationTimelineProjection.init();
+
+      // Assign 210 tasks (exceeds MAX_TIMELINE_TASKS = 200)
+      for (let i = 0; i < 210; i++) {
+        state = delegationTimelineProjection.apply(
+          state,
+          makeEvent('team.task.assigned', {
+            taskId: `task-${i}`,
+            teammateName: `worker-${i}`,
+            worktreePath: `/tmp/wt-${i}`,
+            modules: ['auth'],
+          }, i + 1),
+        );
+      }
+
+      // Should be capped at 200
+      expect(state.tasks).toHaveLength(200);
+      // Oldest (task-0 through task-9) should be evicted
+      expect(state.tasks[0].taskId).toBe('task-10');
+      expect(state.tasks[199].taskId).toBe('task-209');
+    });
+
+    // ─── T20: hasMore indicator for delegation timeline ──────────────
+
+    it('ViewState_HasEvicted_HasMoreIsTrue', () => {
+      let state = delegationTimelineProjection.init();
+
+      // Under the limit — no eviction
+      for (let i = 0; i < 200; i++) {
+        state = delegationTimelineProjection.apply(
+          state,
+          makeEvent('team.task.assigned', {
+            taskId: `task-${i}`,
+            teammateName: `worker-${i}`,
+            worktreePath: `/tmp/wt-${i}`,
+            modules: ['auth'],
+          }, i + 1),
+        );
+      }
+      expect(state.hasMore).toBe(false);
+
+      // One more pushes over the limit
+      state = delegationTimelineProjection.apply(
+        state,
+        makeEvent('team.task.assigned', {
+          taskId: 'task-200',
+          teammateName: 'worker-200',
+          worktreePath: '/tmp/wt-200',
+          modules: ['auth'],
+        }, 201),
+      );
+      expect(state.hasMore).toBe(true);
+      expect(state.tasks).toHaveLength(200);
     });
 
     it('apply_MultipleCompleted_IdentifiesBottleneck', () => {
