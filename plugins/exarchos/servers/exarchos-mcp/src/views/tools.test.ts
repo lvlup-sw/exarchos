@@ -8,6 +8,7 @@ import {
   resetMaterializerCache,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
+  handleViewCodeQuality,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 
@@ -156,6 +157,70 @@ describe('View Handlers', () => {
       expect(data).toHaveProperty('tasks');
       const tasks = data.tasks as unknown[];
       expect(tasks).toHaveLength(1);
+    });
+  });
+
+  // ─── T17: handleViewCodeQuality ────────────────────────────────────────────
+
+  describe('handleViewCodeQuality', () => {
+    it('HandleViewCodeQuality_ReturnsEmptyState_WhenNoEvents', async () => {
+      // Act
+      const result = await handleViewCodeQuality({}, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      expect(data).toHaveProperty('gates');
+      expect(data).toHaveProperty('regressions');
+      expect(data).toHaveProperty('benchmarks');
+      expect(data.skills).toEqual({});
+      expect(data.gates).toEqual({});
+    });
+
+    it('HandleViewCodeQuality_WithWorkflowId_FiltersToStream', async () => {
+      // Arrange: seed events in specific stream
+      const store = new EventStore(tmpDir);
+      await store.append('quality-wf', {
+        streamId: 'quality-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: {},
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Seed a different stream
+      await store.append('other-wf', {
+        streamId: 'other-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: false,
+          duration: 800,
+          details: {},
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act: query specific stream
+      const result = await handleViewCodeQuality({ workflowId: 'quality-wf' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const gates = data.gates as Record<string, unknown>;
+      expect(gates).toHaveProperty('typecheck');
+      expect(gates).not.toHaveProperty('lint');
     });
   });
 });

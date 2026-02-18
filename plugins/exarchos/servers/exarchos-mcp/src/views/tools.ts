@@ -39,6 +39,11 @@ import {
   DELEGATION_TIMELINE_VIEW,
 } from './delegation-timeline-view.js';
 import type { DelegationTimelineViewState } from './delegation-timeline-view.js';
+import {
+  codeQualityProjection,
+  CODE_QUALITY_VIEW,
+} from './code-quality-view.js';
+import type { CodeQualityViewState } from './code-quality-view.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -52,6 +57,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(TELEMETRY_VIEW, telemetryProjection);
   materializer.register(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection);
   materializer.register(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection);
+  materializer.register(CODE_QUALITY_VIEW, codeQualityProjection);
   return materializer;
 }
 
@@ -315,6 +321,42 @@ export async function handleViewDelegationTimeline(
     const view = materializer.materialize<DelegationTimelineViewState>(
       streamId,
       DELEGATION_TIMELINE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Code Quality Handler ──────────────────────────────────────────────
+
+export async function handleViewCodeQuality(
+  args: {
+    workflowId?: string;
+    skill?: string;
+    gate?: string;
+    limit?: number;
+  },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    await materializer.loadFromSnapshot(streamId, CODE_QUALITY_VIEW);
+    const events = await store.query(streamId);
+    const view = materializer.materialize<CodeQualityViewState>(
+      streamId,
+      CODE_QUALITY_VIEW,
       events,
     );
 
