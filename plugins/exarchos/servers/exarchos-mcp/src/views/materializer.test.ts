@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ViewMaterializer, type ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
@@ -238,5 +238,92 @@ describe('ViewMaterializer LRU Eviction', () => {
       expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-101', VIEW_NAME)).toBeDefined();
     });
+  });
+});
+
+// ─── T29-T30: Configurable LRU Cache via Env Var ────────────────────────────
+
+describe('ViewMaterializer Configurable Cache', () => {
+  const VIEW_NAME = 'counter';
+  const originalEnv = process.env.EXARCHOS_MAX_CACHE_ENTRIES;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.EXARCHOS_MAX_CACHE_ENTRIES;
+    } else {
+      process.env.EXARCHOS_MAX_CACHE_ENTRIES = originalEnv;
+    }
+  });
+
+  it('ViewMaterializer_RespectsEnvVar_MaxCacheEntries', () => {
+    process.env.EXARCHOS_MAX_CACHE_ENTRIES = '5';
+    const materializer = new ViewMaterializer();
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize 6 streams — cache limit should be 5
+    for (let i = 1; i <= 6; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+
+    // stream-1 should have been evicted
+    expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
+
+    // stream-2 through stream-6 should still be present
+    expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
+    expect(materializer.getState('stream-6', VIEW_NAME)).toBeDefined();
+  });
+
+  it('ViewMaterializer_DefaultsTo100_WhenNoEnvVar', () => {
+    delete process.env.EXARCHOS_MAX_CACHE_ENTRIES;
+    const materializer = new ViewMaterializer();
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize 101 streams — cache limit should be 100 (default)
+    for (let i = 1; i <= 101; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+
+    // stream-1 should be evicted at 100 limit
+    expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
+    expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
+    expect(materializer.getState('stream-101', VIEW_NAME)).toBeDefined();
+  });
+
+  it('ViewMaterializer_InvalidEnvVar_FallsBackToDefault', () => {
+    process.env.EXARCHOS_MAX_CACHE_ENTRIES = 'abc';
+    const materializer = new ViewMaterializer();
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize 101 streams — should use default 100
+    for (let i = 1; i <= 101; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+
+    // stream-1 evicted at default 100 limit
+    expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
+    expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
+  });
+
+  it('ViewMaterializer_ZeroEnvVar_FallsBackToDefault', () => {
+    process.env.EXARCHOS_MAX_CACHE_ENTRIES = '0';
+    const materializer = new ViewMaterializer();
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize 101 streams — should use default 100
+    for (let i = 1; i <= 101; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+
+    // stream-1 evicted at default 100 limit
+    expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
+    expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
   });
 });

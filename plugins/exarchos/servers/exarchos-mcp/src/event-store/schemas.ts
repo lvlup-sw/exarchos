@@ -36,6 +36,7 @@ export const EventTypes = [
   'team.task.planned',
   'team.teammate.dispatched',
   'quality.regression',
+  'workflow.cas-failed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -196,6 +197,12 @@ export const WorkflowCircuitOpenData = z.object({
   maxFixCycles: z.number().int().optional(),
 });
 
+export const WorkflowCasFailedData = z.object({
+  featureId: z.string(),
+  phase: z.string(),
+  retries: z.number().int(),
+});
+
 // ─── Telemetry Event Data ──────────────────────────────────────────────────
 
 export const ToolInvokedData = z.object({
@@ -322,6 +329,7 @@ export type WorkflowCleanup = z.infer<typeof WorkflowCleanupData>;
 export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
 export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
+export type WorkflowCasFailed = z.infer<typeof WorkflowCasFailedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
