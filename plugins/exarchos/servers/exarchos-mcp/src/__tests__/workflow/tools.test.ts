@@ -17,7 +17,7 @@ import {
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
-import { configureQueryEventStore } from '../../workflow/query.js';
+import { configureQueryEventStore, reconcileTasks } from '../../workflow/query.js';
 import { configureNextActionEventStore } from '../../workflow/next-action.js';
 import type { WorkflowState } from '../../workflow/types.js';
 
@@ -2592,5 +2592,217 @@ describe('handleSet_EventFirst', () => {
     expect(data.eventWarning).toBeUndefined();
 
     writeSpy.mockRestore();
+  });
+});
+
+// ─── reconcileTasks ─────────────────────────────────────────────────────────
+
+describe('reconcileTasks_DriftDetected_ReportsMismatch', () => {
+  it('should report drift when native status differs from Exarchos status', async () => {
+    // Arrange: Exarchos task is "pending", native task is "completed"
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'native-1.json'),
+      JSON.stringify({ id: 'native-1', subject: 'Implement auth', status: 'completed' }),
+    );
+
+    const exarchosTasks = [
+      { id: 'task-001', title: 'Implement auth', status: 'pending', nativeTaskId: 'native-1' },
+    ];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.skipped).toBe(false);
+    expect(report.drift).toHaveLength(1);
+    expect(report.drift[0]).toMatchObject({
+      taskId: 'task-001',
+      exarchosStatus: 'pending',
+      nativeStatus: 'completed',
+    });
+    expect(report.drift[0].recommendation).toBeDefined();
+    expect(report.drift[0].recommendation.length).toBeGreaterThan(0);
+  });
+});
+
+describe('reconcileTasks_NativeCompleted_WorkflowPending_RecommendsUpdate', () => {
+  it('should recommend marking Exarchos task complete when native is completed', async () => {
+    // Arrange
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks-2');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'native-2.json'),
+      JSON.stringify({ id: 'native-2', subject: 'Add tests', status: 'completed' }),
+    );
+
+    const exarchosTasks = [
+      { id: 'task-002', title: 'Add tests', status: 'pending', nativeTaskId: 'native-2' },
+    ];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.drift).toHaveLength(1);
+    expect(report.drift[0].recommendation).toContain('complete');
+  });
+});
+
+describe('reconcileTasks_NoNativeTaskList_SkipsReconciliation', () => {
+  it('should return skipped report with note when native dir does not exist', async () => {
+    const nativeTaskDir = path.join(tmpDir, 'nonexistent-dir');
+
+    const exarchosTasks = [
+      { id: 'task-003', title: 'Build UI', status: 'pending', nativeTaskId: 'native-3' },
+    ];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.skipped).toBe(true);
+    expect(report.skipReason).toBeDefined();
+    expect(report.skipReason!.length).toBeGreaterThan(0);
+    expect(report.drift).toHaveLength(0);
+  });
+});
+
+describe('reconcileTasks_AllConsistent_ReturnsCleanReport', () => {
+  it('should return empty drift array when statuses match', async () => {
+    // Arrange: both native and Exarchos say "completed"
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks-consistent');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'native-4.json'),
+      JSON.stringify({ id: 'native-4', subject: 'Refactor module', status: 'completed' }),
+    );
+
+    const exarchosTasks = [
+      { id: 'task-004', title: 'Refactor module', status: 'complete', nativeTaskId: 'native-4' },
+    ];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.skipped).toBe(false);
+    expect(report.drift).toHaveLength(0);
+  });
+});
+
+describe('reconcileTasks_UnmatchedNativeTask_ReportsUntracked', () => {
+  it('should flag native tasks that have no Exarchos match', async () => {
+    // Arrange: native has a task, Exarchos does not
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks-untracked');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'native-5.json'),
+      JSON.stringify({ id: 'native-5', subject: 'Untracked work', status: 'in_progress' }),
+    );
+
+    const exarchosTasks: Array<Record<string, unknown>> = [];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.skipped).toBe(false);
+    expect(report.drift).toHaveLength(1);
+    expect(report.drift[0]).toMatchObject({
+      taskId: 'native-5',
+      exarchosStatus: null,
+      nativeStatus: 'in_progress',
+    });
+    expect(report.drift[0].recommendation).toContain('Untracked');
+  });
+});
+
+describe('reconcileTasks_MissingNativeTask_ReportsMissing', () => {
+  it('should flag Exarchos tasks with nativeTaskId but no native file', async () => {
+    // Arrange: Exarchos has a task with nativeTaskId, but native dir is empty
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks-missing');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+
+    const exarchosTasks = [
+      { id: 'task-006', title: 'Deploy service', status: 'in_progress', nativeTaskId: 'native-6' },
+    ];
+
+    // Act
+    const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
+
+    // Assert
+    expect(report.skipped).toBe(false);
+    expect(report.drift).toHaveLength(1);
+    expect(report.drift[0]).toMatchObject({
+      taskId: 'task-006',
+      exarchosStatus: 'in_progress',
+      nativeStatus: null,
+    });
+    expect(report.drift[0].recommendation).toContain('missing');
+  });
+});
+
+// ─── handleReconcile with task reconciliation ────────────────────────────
+
+describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
+  it('should include taskDrift in reconcile output when tasks have nativeTaskId', async () => {
+    await handleInit({ featureId: 'reconcile-tasks', workflowType: 'feature' }, tmpDir);
+
+    // Set up a task with nativeTaskId in the state file
+    const stateFile = path.join(tmpDir, 'reconcile-tasks.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.tasks = [
+      { id: 'task-001', title: 'Build API', status: 'pending', nativeTaskId: 'nt-1' },
+    ];
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    // Create native task dir with completed task
+    const nativeTaskDir = path.join(tmpDir, 'tasks', 'reconcile-tasks');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'nt-1.json'),
+      JSON.stringify({ id: 'nt-1', subject: 'Build API', status: 'completed' }),
+    );
+
+    const result = await handleReconcile(
+      { featureId: 'reconcile-tasks' },
+      tmpDir,
+      path.join(tmpDir, 'tasks'),
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.taskDrift).toBeDefined();
+    const taskDrift = data.taskDrift as { skipped: boolean; drift: Array<Record<string, unknown>> };
+    expect(taskDrift.skipped).toBe(false);
+    expect(taskDrift.drift).toHaveLength(1);
+    expect(taskDrift.drift[0].exarchosStatus).toBe('pending');
+    expect(taskDrift.drift[0].nativeStatus).toBe('completed');
+  });
+});
+
+describe('ToolReconcile_WithoutNativeTaskId_OmitsTaskDrift', () => {
+  it('should not include taskDrift when no tasks have nativeTaskId', async () => {
+    await handleInit({ featureId: 'reconcile-no-native', workflowType: 'feature' }, tmpDir);
+
+    // Set up a task WITHOUT nativeTaskId
+    const stateFile = path.join(tmpDir, 'reconcile-no-native.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.tasks = [
+      { id: 'task-001', title: 'Build API', status: 'pending' },
+    ];
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleReconcile(
+      { featureId: 'reconcile-no-native' },
+      tmpDir,
+      path.join(tmpDir, 'tasks'),
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.taskDrift).toBeUndefined();
   });
 });
