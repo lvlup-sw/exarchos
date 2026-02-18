@@ -196,7 +196,7 @@ function getStateVersion(state: WorkflowState): number {
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
-  options?: { expectedVersion?: number },
+  options?: { expectedVersion?: number; skipValidation?: boolean },
 ): Promise<void> {
   // CAS check: if expectedVersion is provided, verify it matches the current file
   if (options?.expectedVersion !== undefined) {
@@ -221,12 +221,15 @@ export async function writeStateFile(
   } as WorkflowState;
 
   // Validate before writing to catch schema violations at write time (not deferred to read)
-  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
-  if (!validation.success) {
-    throw new StateStoreError(
-      ErrorCode.INVALID_INPUT,
-      `Write-time validation failed: ${validation.error.message}`,
-    );
+  // Skip when caller guarantees state is already validated (e.g. handleSet reads then writes)
+  if (!options?.skipValidation) {
+    const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+    if (!validation.success) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `Write-time validation failed: ${validation.error.message}`,
+      );
+    }
   }
 
   const tmpPath = `${stateFile}.tmp.${process.pid}`;

@@ -760,6 +760,55 @@ describe('State Store', () => {
     });
   });
 
+  // ─── T16: skipValidation option for writeStateFile ─────────────────────
+
+  describe('writeStateFile_SkipValidation', () => {
+    it('WriteStateFile_SkipValidation_WritesWithoutZodParse', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'skip-val-test', 'feature');
+
+      // Write with skipValidation: true should succeed
+      const updated = { ...state, updatedAt: new Date().toISOString() };
+      await writeStateFile(stateFile, updated, { skipValidation: true });
+
+      // Verify the file was written
+      const raw = await fs.readFile(stateFile, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.updatedAt).toBe(updated.updatedAt);
+      // _version should still be auto-incremented
+      expect(parsed._version).toBe(2);
+    });
+
+    it('WriteStateFile_SkipValidation_StillPerformsCAS', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'skip-val-cas', 'feature');
+
+      // Write once to increment version to 2
+      await writeStateFile(stateFile, state);
+
+      // Read fresh state
+      const freshState = await readStateFile(stateFile);
+
+      // Now try with skipValidation + stale expectedVersion — should still fail CAS
+      await expect(
+        writeStateFile(stateFile, freshState, { expectedVersion: 1, skipValidation: true }),
+      ).rejects.toThrow(VersionConflictError);
+    });
+
+    it('WriteStateFile_WithoutSkipValidation_StillValidates', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'no-skip-val', 'feature');
+      const mutated = structuredClone(state) as Record<string, unknown>;
+      (mutated.worktrees as Record<string, unknown>)['bad-wt'] = {
+        branch: 'feat/bad',
+        status: 'active',
+        // Missing both taskId and tasks — schema violation
+      };
+
+      // Without skipValidation — should reject
+      await expect(
+        writeStateFile(stateFile, mutated as typeof state),
+      ).rejects.toThrow(ErrorCode.INVALID_INPUT);
+    });
+  });
+
   // ─── Reconcile From Events ──────────────────────────────────────────────
 
   describe('reconcileFromEvents', () => {

@@ -2900,6 +2900,34 @@ describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
   });
 });
 
+// ─── T17: handleSet passes skipValidation: true to writeStateFile ────────
+
+describe('HandleSet_WritesWithSkipValidation', () => {
+  it('should pass skipValidation: true to writeStateFile', async () => {
+    await handleInit({ featureId: 'skip-val-set', workflowType: 'feature' }, tmpDir);
+
+    // Spy on writeStateFile to verify options are passed
+    const stateStoreMod = await import('../../workflow/state-store.js');
+    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile');
+
+    // Perform a field update
+    const result = await handleSet(
+      { featureId: 'skip-val-set', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Verify writeStateFile was called with skipValidation: true
+    expect(writeSpy).toHaveBeenCalled();
+    const lastCall = writeSpy.mock.calls[writeSpy.mock.calls.length - 1];
+    const options = lastCall[2] as { expectedVersion?: number; skipValidation?: boolean } | undefined;
+    expect(options?.skipValidation).toBe(true);
+
+    writeSpy.mockRestore();
+  });
+});
+
 describe('ToolReconcile_WithoutNativeTaskId_OmitsTaskDrift', () => {
   it('should not include taskDrift when no tasks have nativeTaskId', async () => {
     await handleInit({ featureId: 'reconcile-no-native', workflowType: 'feature' }, tmpDir);
