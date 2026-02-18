@@ -18,6 +18,7 @@ import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
@@ -244,7 +245,8 @@ export async function reconcileTasks(
 
     // Compare statuses
     if (normalizeStatus(exStatus) !== normalizeStatus(nativeTask.status)) {
-      const recommendation = nativeTask.status === 'completed'
+      const normalizedNative = normalizeStatus(nativeTask.status);
+      const recommendation = normalizedNative === 'completed'
         ? `Update Exarchos task to complete — native task '${nativeTaskId}' shows completed`
         : `Status mismatch: Exarchos='${exStatus}', native='${nativeTask.status}' — investigate and reconcile`;
 
@@ -286,8 +288,8 @@ export async function reconcileTasks(
 // ─── Default Native Task Base Directory ──────────────────────────────────────
 
 function defaultNativeTaskBaseDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-  return path.join(home, '.claude', 'tasks');
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
+  return path.resolve(home, '.claude', 'tasks');
 }
 
 // ─── handleReconcile ────────────────────────────────────────────────────────
