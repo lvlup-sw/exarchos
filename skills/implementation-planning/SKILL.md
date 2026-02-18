@@ -29,6 +29,15 @@ Activate this skill when:
 
 When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__exarchos__exarchos_workflow` `action: "set"`.
 
+### Revision Loop Guard
+
+Max revisions: 3 per plan.
+
+After 3 failed revisions:
+1. Set `planReview.revisionsExhausted = true`
+2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
+3. Escalate: Suggest `/ideate --redesign` to revisit design
+
 ## The Iron Law
 
 > **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**

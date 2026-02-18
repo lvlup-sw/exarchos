@@ -174,6 +174,14 @@ The subagent MUST return results as structured JSON. The orchestrator parses thi
 | Accept poor test quality | Tests are code too |
 | Apply generic standards to language issues | Reference language-specific rules |
 
+## Cross-Task Integration Issues
+
+If an issue spans multiple tasks:
+1. Classify as "cross-task integration"
+2. Create fix task specifying ALL affected tasks
+3. Dispatch fix to implementer with context from all affected tasks
+4. Mark original tasks as blocked until cross-task fix completes
+
 ## State Management
 
 Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
