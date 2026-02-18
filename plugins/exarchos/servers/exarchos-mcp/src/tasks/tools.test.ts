@@ -18,6 +18,8 @@ afterEach(async () => {
   resetModuleEventStore();
   resetMaterializerCache();
   await rm(tempDir, { recursive: true, force: true });
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('handleTaskClaim (materialized view)', () => {
@@ -161,36 +163,35 @@ describe('handleTaskClaim (materialized view)', () => {
 });
 
 // ─── T33-T34: Exponential Backoff in Task Claim Retries ─────────────────────
+//
+// The sleep() helper in tools.ts uses setTimeout. To make backoff tests
+// deterministic (no real wall-clock delay, no flakiness under load), we
+// spy on globalThis.setTimeout and make it invoke the callback synchronously.
+// This lets us verify retry count and delay scheduling without waiting.
 
 describe('handleTaskClaim Exponential Backoff', () => {
   it('HandleTaskClaim_Retries_WithExponentialBackoff', async () => {
-    // Arrange: seed a stream with just a task.assigned event
+    // Arrange: seed the stream before installing the setTimeout spy
     const store = new EventStore(tempDir);
     await store.append('wf-backoff', {
       type: 'task.assigned',
       data: { taskId: 't-bo', title: 'Backoff task', assignee: 'agent-1' },
     });
 
-    // Mock the store's append to throw SequenceConflictError on first 3 calls
-    // (the claim attempts), then never succeed
-    const storeMod = await import('../event-store/store.js');
-    const originalAppend = EventStore.prototype.append;
-    let appendCallCount = 0;
-    const delays: number[] = [];
-    let lastCallTime = Date.now();
-
-    vi.spyOn(EventStore.prototype, 'append').mockImplementation(async function (this: EventStore, ...args) {
-      appendCallCount++;
-      const now = Date.now();
-      if (appendCallCount > 1) {
-        delays.push(now - lastCallTime);
-      }
-      lastCallTime = now;
-      // Always throw conflict to test backoff timing
-      throw new SequenceConflictError(0, 1);
+    // Capture requested sleep delays; resolve immediately for determinism
+    const capturedDelays: number[] = [];
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: (...args: unknown[]) => void, ms?: number) => {
+      capturedDelays.push(ms ?? 0);
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
     });
 
-    const start = Date.now();
+    // Mock append to always throw SequenceConflictError so all retries exhaust
+    let appendCallCount = 0;
+    vi.spyOn(EventStore.prototype, 'append').mockImplementation(async function () {
+      appendCallCount++;
+      throw new SequenceConflictError(0, 1);
+    });
 
     // Act
     const result = await handleTaskClaim(
@@ -198,25 +199,38 @@ describe('handleTaskClaim Exponential Backoff', () => {
       tempDir,
     );
 
-    const totalDuration = Date.now() - start;
-
-    // Assert: Should fail after retries
+    // Assert: Should fail after exhausting retries (MAX_CLAIM_RETRIES = 3)
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CLAIM_FAILED');
 
-    // Assert: Verify backoff delays occurred (~50ms, ~100ms, ~200ms)
-    // Total should be at least ~150ms (minimum backoff sum: 50 + 100 = 150 for 3 retries)
-    expect(totalDuration).toBeGreaterThan(100);
+    // Assert: append was called once per attempt
+    expect(appendCallCount).toBe(3);
 
-    vi.restoreAllMocks();
+    // Assert: exponential backoff was requested (3 delays, one per attempt)
+    // attempt 0: delay = 50 * 2^0 + jitter = 50..100ms
+    // attempt 1: delay = 50 * 2^1 + jitter = 100..150ms
+    // attempt 2: delay = 50 * 2^2 + jitter = 200..250ms
+    expect(capturedDelays).toHaveLength(3);
+    expect(capturedDelays[0]).toBeGreaterThanOrEqual(50);
+    expect(capturedDelays[1]).toBeGreaterThanOrEqual(100);
+    expect(capturedDelays[2]).toBeGreaterThanOrEqual(200);
+    // Each successive delay is strictly larger (exponential growth)
+    expect(capturedDelays[1]).toBeGreaterThan(capturedDelays[0]);
+    expect(capturedDelays[2]).toBeGreaterThan(capturedDelays[1]);
   });
 
   it('HandleTaskClaim_StillReturnsClaimFailed_AfterRetries', async () => {
-    // Arrange: seed a stream
+    // Arrange: seed the stream before installing the setTimeout spy
     const store = new EventStore(tempDir);
     await store.append('wf-retry-fail', {
       type: 'task.assigned',
       data: { taskId: 't-rf', title: 'Retry fail task', assignee: 'agent-1' },
+    });
+
+    // Make sleep() resolve immediately for determinism
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: (...args: unknown[]) => void) => {
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
     });
 
     // Mock append to always throw SequenceConflictError
@@ -234,16 +248,22 @@ describe('handleTaskClaim Exponential Backoff', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CLAIM_FAILED');
     expect(result.error?.message).toContain('retries');
-
-    vi.restoreAllMocks();
   });
 
   it('HandleTaskClaim_BackoffCapped_AtReasonableMax', async () => {
-    // Arrange: seed a stream
+    // Arrange: seed the stream before installing the setTimeout spy
     const store = new EventStore(tempDir);
     await store.append('wf-cap', {
       type: 'task.assigned',
       data: { taskId: 't-cap', title: 'Capped task', assignee: 'agent-1' },
+    });
+
+    // Capture requested delays; resolve immediately for determinism
+    const capturedDelays: number[] = [];
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: (...args: unknown[]) => void, ms?: number) => {
+      capturedDelays.push(ms ?? 0);
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
     });
 
     // Mock append to always throw SequenceConflictError
@@ -251,20 +271,17 @@ describe('handleTaskClaim Exponential Backoff', () => {
       throw new SequenceConflictError(0, 1);
     });
 
-    const start = Date.now();
-
     // Act
     const result = await handleTaskClaim(
       { taskId: 't-cap', agentId: 'agent-1', streamId: 'wf-cap' },
       tempDir,
     );
 
-    const totalDuration = Date.now() - start;
-
-    // Assert: total delay should be less than 500ms
-    expect(totalDuration).toBeLessThan(500);
+    // Assert: total requested virtual delay should be well below a reasonable cap (< 500ms)
+    // With CLAIM_BASE_DELAY_MS=50: delays are 50*1+jitter and 50*2+jitter
+    // Max sum with full jitter: (50+50) + (100+50) = 250ms
+    const totalRequestedDelay = capturedDelays.reduce((sum, d) => sum + d, 0);
+    expect(totalRequestedDelay).toBeLessThan(500);
     expect(result.success).toBe(false);
-
-    vi.restoreAllMocks();
   });
 });
