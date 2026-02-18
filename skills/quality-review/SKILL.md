@@ -1,6 +1,6 @@
 ---
 name: quality-review
-description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'review code', 'check quality', 'code review', or runs /review. Checks SOLID principles, DRY, security, and test quality. Requires spec-review to pass first. Do NOT use for spec review (use spec-review) or brainstorming."
+description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'quality review', 'check code quality', or runs /review (stage 2). Requires spec-review to have passed first (stage 2 of /review). Checks SOLID principles, DRY, security, and test quality. Do NOT use for spec compliance — use spec-review instead. Do NOT use for brainstorming."
 metadata:
   author: exarchos
   version: 1.0.0

@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "Implementation-to-spec compliance verification (code review stage 1). Use during the review phase after delegation completes to compare implemented code against design specification. Checks functional completeness, TDD compliance, and test coverage. Do NOT use for code quality review (use quality-review) or debugging."
+description: "Implementation-to-spec compliance verification (code review stage 1). Use when verifying implementation matches design specification (stage 1 of /review). Checks functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0
