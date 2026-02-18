@@ -1,6 +1,6 @@
 ---
 name: sync-schemas
-description: "Synchronize TypeScript types from backend OpenAPI specifications. Use when the user says \"sync schemas\", \"update types from API\", or runs /sync-schemas. Generates TypeScript interfaces from OpenAPI spec files and validates type compatibility. Do NOT use for manual type definitions or non-OpenAPI schemas."
+description: "Synchronize TypeScript types from backend OpenAPI specifications. Monorepo-specific to ares-elite-platform. Use when the user says \"sync schemas\", \"update types from API\", or runs /sync-schemas. Generates TypeScript interfaces from OpenAPI spec files and validates type compatibility. Do NOT use for manual type definitions or non-OpenAPI schemas."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -8,6 +8,12 @@ metadata:
 ---
 
 # Schema Sync Skill
+
+## Project Requirement
+
+This skill only works in the **ares-elite-platform** monorepo.
+Detection: check for `azure.yaml` and `apps/` directory at repo root.
+If not found: report "This skill requires the ares-elite-platform monorepo" and stop.
 
 ## Overview
 
@@ -37,16 +43,7 @@ fi
 
 ## API File Patterns
 
-Schema sync is needed after modifying these API files:
-
-| Pattern | Description |
-|---------|-------------|
-| `apps/aegis-api/src/**/*Endpoints.cs` | API endpoint definitions |
-| `apps/aegis-api/src/**/Models/*.cs` | Request/response DTOs |
-| `apps/aegis-api/src/**/Requests/*.cs` | Request models |
-| `apps/aegis-api/src/**/Responses/*.cs` | Response models |
-| `apps/aegis-api/src/**/Dtos/*.cs` | Data transfer objects |
-| `apps/black-gate/src/**/*.ts` | Black Gate route definitions |
+Schema sync is needed after modifying API files matching patterns in the Configuration section below.
 
 ## Process
 
@@ -118,7 +115,20 @@ if [[ $? -eq 0 ]]; then
 fi
 ```
 
-## Generated Files
+## Configuration (Project-Specific: ares-elite-platform)
+
+### API File Trigger Patterns
+
+| Pattern | Description |
+|---------|-------------|
+| `apps/aegis-api/src/**/*Endpoints.cs` | API endpoint definitions |
+| `apps/aegis-api/src/**/Models/*.cs` | Request/response DTOs |
+| `apps/aegis-api/src/**/Requests/*.cs` | Request models |
+| `apps/aegis-api/src/**/Responses/*.cs` | Response models |
+| `apps/aegis-api/src/**/Dtos/*.cs` | Data transfer objects |
+| `apps/black-gate/src/**/*.ts` | Black Gate route definitions |
+
+### Generated Files
 
 | File | Purpose |
 |------|---------|

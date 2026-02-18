@@ -40,7 +40,7 @@ Since delegation creates Graphite stack branches and review validates them, synt
 ## Synthesis Process
 
 1. **Verify readiness** -- `scripts/pre-synthesis-check.sh` (includes phase readiness check with transition guidance)
-2. **Verify/reconstruct Graphite stack** -- `scripts/reconstruct-stack.sh`
+2. **REQUIRED: Verify/reconstruct Graphite stack** -- Run `scripts/reconstruct-stack.sh` before PR creation. If exit 1: stop and report error.
 3. **Quick test verification** -- `npm run test:run && npm run typecheck`
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
 5. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
@@ -84,7 +84,7 @@ Set `phase` to "completed".
 
 ## Completion Criteria
 
-- [ ] Graphite stack verified
+- [ ] Graphite stack verified via reconstruct-stack.sh
 - [ ] Quick test verification passed
 - [ ] CodeRabbit reviews checked (no CHANGES_REQUESTED blocking)
 - [ ] PRs enqueued via `--merge-when-ready`

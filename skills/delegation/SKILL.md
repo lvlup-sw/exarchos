@@ -116,6 +116,12 @@ Dispatch parallel tasks in a single message with multiple Task calls. See `@skil
 
 All tasks MUST run in isolated worktrees. Use `scripts/setup-worktree.sh` for setup.
 
+### Pre-Dispatch Validation
+
+Before dispatching to each worktree:
+1. Run: `scripts/verify-worktree.sh --cwd <path>`
+2. If exit 1: stop dispatch, report invalid worktree
+
 For detailed enforcement rules, pre-dispatch checklist, and anti-patterns, see `references/worktree-enforcement.md`.
 
 ## State Management
@@ -157,6 +163,7 @@ For detailed fix mode process, task structure, and transition flow, see `@skills
 
 - [ ] All tasks extracted from plan (or read from state)
 - [ ] Worktrees created for parallel groups
+- [ ] All worktrees validated via verify-worktree.sh
 - [ ] State file updated with worktree locations
 - [ ] TodoWrite updated with all tasks
 - [ ] Implementers dispatched with full context
@@ -168,6 +175,14 @@ For detailed fix mode process, task structure, and transition flow, see `@skills
 ## Transition
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):
+
+### Pre-Chain Validation (MANDATORY)
+
+Before invoking `/review`:
+1. Verify all `tasks[].status === 'complete'` in workflow state
+2. If incomplete tasks exist: "Not all tasks complete, cannot proceed to review"
+
+### Chain Steps
 
 1. Update state: `.phase = "review"`, mark all tasks complete
 2. Output: "All [N] tasks complete. Auto-continuing to review..."

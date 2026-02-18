@@ -475,7 +475,7 @@ export async function handleSet(
 
     // Write back to disk with CAS protection
     try {
-      await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion });
+      await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion, skipValidation: true });
     } catch (err) {
       if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
         // Re-read and retry on version conflict — events already appended
