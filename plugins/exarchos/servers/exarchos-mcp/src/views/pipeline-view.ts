@@ -5,6 +5,10 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 export const PIPELINE_VIEW = 'pipeline';
 
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_STACK_POSITIONS = 100;
+
 // ─── Stack Position ────────────────────────────────────────────────────────
 
 export interface StackPosition {
@@ -24,6 +28,7 @@ export interface PipelineViewState {
   completedCount: number;
   failedCount: number;
   stackPositions: StackPosition[];
+  hasMore: boolean;
 }
 
 // ─── Projection ────────────────────────────────────────────────────────────
@@ -37,6 +42,7 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
     completedCount: 0,
     failedCount: 0,
     stackPositions: [],
+    hasMore: false,
   }),
 
   apply: (view, event) => {
@@ -91,17 +97,24 @@ export const pipelineProjection: ViewProjection<PipelineViewState> = {
           prUrl?: string;
         } | undefined;
         if (data?.position === undefined || !data?.taskId) return view;
+        const newPositions = [
+          ...view.stackPositions,
+          {
+            position: data.position,
+            taskId: data.taskId,
+            branch: data.branch,
+            prUrl: data.prUrl,
+          },
+        ];
+        const evicted = newPositions.length > MAX_STACK_POSITIONS;
+        const boundedPositions = evicted
+          ? newPositions.slice(newPositions.length - MAX_STACK_POSITIONS)
+          : newPositions;
+
         return {
           ...view,
-          stackPositions: [
-            ...view.stackPositions,
-            {
-              position: data.position,
-              taskId: data.taskId,
-              branch: data.branch,
-              prUrl: data.prUrl,
-            },
-          ],
+          stackPositions: boundedPositions,
+          hasMore: view.hasMore || evicted,
         };
       }
 

@@ -158,6 +158,87 @@ describe('PipelineView', () => {
     });
   });
 
+  // ─── T19: Cap pipeline stackPositions array ──────────────────────────
+
+  describe('StackPositionBounds', () => {
+    it('Apply_StackPositionFilled_ExceedsMax_EvictsOldest', () => {
+      // Fill 110 stack positions (exceeds MAX_STACK_POSITIONS = 100)
+      const events = [
+        makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
+      ];
+      for (let i = 0; i < 110; i++) {
+        events.push(
+          makeEvent(i + 2, 'stack.position-filled', {
+            position: i + 1,
+            taskId: `t${i}`,
+            branch: `feat/t${i}`,
+          }),
+        );
+      }
+
+      const view = materializer.materialize<PipelineViewState>(
+        'wf-001',
+        PIPELINE_VIEW,
+        events,
+      );
+
+      // Should be capped at 100
+      expect(view.stackPositions).toHaveLength(100);
+      // Oldest (t0 through t9) should be evicted
+      expect(view.stackPositions[0].taskId).toBe('t10');
+      expect(view.stackPositions[99].taskId).toBe('t109');
+    });
+  });
+
+  // ─── T21: hasMore indicator for pipeline view ─────────────────────
+
+  describe('PipelineHasMore', () => {
+    it('ViewState_HasEvicted_HasMoreIsTrue', () => {
+      // Under the limit
+      const events100 = [
+        makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
+      ];
+      for (let i = 0; i < 100; i++) {
+        events100.push(
+          makeEvent(i + 2, 'stack.position-filled', {
+            position: i + 1,
+            taskId: `t${i}`,
+            branch: `feat/t${i}`,
+          }),
+        );
+      }
+
+      const view100 = materializer.materialize<PipelineViewState>(
+        'wf-no-evict',
+        PIPELINE_VIEW,
+        events100,
+      );
+      expect(view100.hasMore).toBe(false);
+
+      // Over the limit
+      const events101 = [
+        makeEvent(1, 'workflow.started', { featureId: 'feat-a', workflowType: 'feature' }),
+      ];
+      for (let i = 0; i < 101; i++) {
+        events101.push(
+          makeEvent(i + 2, 'stack.position-filled', {
+            position: i + 1,
+            taskId: `t${i}`,
+            branch: `feat/t${i}`,
+          }),
+        );
+      }
+
+      const view101 = materializer.materialize<PipelineViewState>(
+        'wf-evict',
+        PIPELINE_VIEW,
+        events101,
+      );
+      expect(view101.hasMore).toBe(true);
+      expect(view101.stackPositions).toHaveLength(100);
+    });
+  });
+
   describe('EmptyPipeline', () => {
     it('should return defaults for empty stream', () => {
       const view = materializer.materialize<PipelineViewState>(
@@ -170,6 +251,7 @@ describe('PipelineView', () => {
       expect(view.phase).toBe('');
       expect(view.taskCount).toBe(0);
       expect(view.stackPositions).toEqual([]);
+      expect(view.hasMore).toBe(false);
     });
   });
 });
