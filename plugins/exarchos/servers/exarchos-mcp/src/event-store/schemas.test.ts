@@ -12,6 +12,7 @@ import {
   TeamContextInjectedData,
   TeamTaskPlannedData,
   TeamTeammateDispatchedData,
+  QualityRegressionData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -262,5 +263,39 @@ describe('TeamTeammateDispatchedData', () => {
       },
     });
     expect(event.success).toBe(true);
+  });
+});
+
+// ─── T11: quality.regression Event Type ──────────────────────────────────────
+
+describe('QualityRegressionData', () => {
+  it('QualityRegressionData_Valid_Parses', () => {
+    const result = QualityRegressionData.safeParse({
+      skill: 'delegation',
+      gate: 'typecheck',
+      consecutiveFailures: 3,
+      firstFailureCommit: 'abc',
+      lastFailureCommit: 'def',
+      detectedAt: '2026-02-17T00:00:00.000Z',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skill).toBe('delegation');
+      expect(result.data.gate).toBe('typecheck');
+      expect(result.data.consecutiveFailures).toBe(3);
+      expect(result.data.firstFailureCommit).toBe('abc');
+      expect(result.data.lastFailureCommit).toBe('def');
+      expect(result.data.detectedAt).toBe('2026-02-17T00:00:00.000Z');
+    }
+  });
+});
+
+describe('EventTypes', () => {
+  it('EventTypes_IncludesQualityRegression', () => {
+    expect(EventTypes).toContain('quality.regression');
+  });
+
+  it('EventTypes_HasExpectedCount', () => {
+    expect(EventTypes).toHaveLength(33);
   });
 });
