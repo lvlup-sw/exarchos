@@ -8,7 +8,6 @@
 //   - error returned   → exit 2 (gate blocked, feedback on stderr)
 
 import { execSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
@@ -108,9 +107,9 @@ function validateCwd(input: Record<string, unknown>): CommandResult | null {
 interface WorkflowTask {
   readonly id: string;
   readonly title: string;
-  status: string;
+  readonly status: string;
   readonly branch: string;
-  completedAt?: string;
+  readonly completedAt?: string;
   readonly startedAt?: string;
   readonly blockedBy?: string[];
 }
@@ -125,10 +124,10 @@ interface WorkflowWorktree {
 interface WorkflowState {
   readonly featureId: string;
   readonly phase: string;
-  tasks: WorkflowTask[];
-  worktrees: Record<string, WorkflowWorktree>;
-  _version: number;
-  [key: string]: unknown;
+  readonly tasks: readonly WorkflowTask[];
+  readonly worktrees: Readonly<Record<string, WorkflowWorktree>>;
+  readonly _version: number;
+  readonly [key: string]: unknown;
 }
 
 interface ActiveWorkflowResult {
@@ -196,6 +195,72 @@ function resolveStateDir(): string {
   return path.join(home, '.claude', 'workflow-state');
 }
 
+// ─── Team Config ──────────────────────────────────────────────────────────
+
+/** A team member entry from team config. */
+export interface TeamMember {
+  readonly name: string;
+  readonly worktree: string;
+}
+
+/** Parsed team configuration with members array. */
+export interface TeamConfig {
+  readonly members: readonly TeamMember[];
+}
+
+/**
+ * Read team config for a feature from the teams directory.
+ * Tries directory format first: `{teamsDir}/{featureId}/config.json`
+ * Falls back to flat file format: `{teamsDir}/{featureId}.json`
+ * Returns null if not found or malformed.
+ */
+export async function readTeamConfig(
+  featureId: string,
+  teamsDir: string,
+): Promise<TeamConfig | null> {
+  // Try directory format first
+  const dirConfigPath = path.join(teamsDir, featureId, 'config.json');
+  const dirResult = await tryReadTeamConfigFile(dirConfigPath);
+  if (dirResult) return dirResult;
+
+  // Fall back to flat file format
+  const flatConfigPath = path.join(teamsDir, `${featureId}.json`);
+  return tryReadTeamConfigFile(flatConfigPath);
+}
+
+/**
+ * Attempt to read and parse a team config file.
+ * Returns null on any error (missing file, malformed JSON, missing members).
+ */
+async function tryReadTeamConfigFile(filePath: string): Promise<TeamConfig | null> {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!Array.isArray(parsed.members)) return null;
+    return { members: parsed.members as TeamMember[] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the teammate name by matching cwd to a team member's worktree path.
+ * Falls back to inputName if no match, or 'unknown' if neither is available.
+ * Handles null config gracefully (returns inputName or 'unknown').
+ */
+export function resolveTeammateFromConfig(
+  config: TeamConfig | null,
+  cwd: string,
+  inputName?: string,
+): string {
+  if (!config) return inputName ?? 'unknown';
+
+  const match = config.members.find((m) => m.worktree === cwd);
+  if (match) return match.name;
+
+  return inputName ?? 'unknown';
+}
+
 // ─── Gate Handlers ─────────────────────────────────────────────────────────
 
 /**
@@ -223,10 +288,10 @@ export async function handleTaskGate(
 /**
  * Teammate gate handler for TeammateIdle hook events.
  *
- * When quality checks pass, attempts to update the corresponding task's
- * status to "complete" in the workflow state file, emits a team.task.completed
- * event, and detects newly unblocked follow-up tasks. This is best-effort:
- * failures in state update or event emission do not block the gate.
+ * Single-writer principle: this hook emits events ONLY. It does NOT mutate
+ * workflow.tasks[] — the orchestrator is the sole writer of task state via
+ * `exarchos_workflow set`. On quality pass, emits `team.task.completed` to
+ * the event stream and detects newly unblocked follow-up tasks.
  *
  * Includes a circuit breaker: after MAX_QUALITY_RETRIES consecutive failures
  * for the same cwd, the gate returns circuitOpen: true to signal the
@@ -265,10 +330,10 @@ export async function handleTeammateGate(
   // Quality passed — reset retry counter
   resetQualityRetries(cwd);
 
-  // Event-first: read context, emit event, then commit state
+  // Emit event only — no state mutation (single-writer principle)
   const completionContext = await readTaskCompletionContext(cwd);
   if (completionContext) {
-    // 1. Append event first — this is the atomic commit point
+    // Append event — this signals the orchestrator to update task state
     await emitTeamTaskEvent(
       cwd,
       teammateName,
@@ -279,10 +344,7 @@ export async function handleTeammateGate(
       completionContext.featureId,
     );
 
-    // 2. Best-effort state update (does not block gate on failure)
-    await commitTaskCompletion(completionContext);
-
-    // 3. Detect newly unblocked tasks
+    // Detect newly unblocked tasks for the orchestrator
     const unblockedTasks = findUnblockedTasks(completionContext.allTasks, completionContext.taskId);
     if (unblockedTasks.length > 0) {
       return { continue: true, unblockedTasks };
@@ -300,8 +362,6 @@ interface TaskCompletionContext {
   readonly startedAt: string | undefined;
   readonly featureId: string;
   readonly allTasks: readonly WorkflowTask[];
-  /** Internal: active state handle for commitTaskCompletion. */
-  readonly _active: { filePath: string; state: WorkflowState; expectedVersion: number };
 }
 
 /**
@@ -330,48 +390,9 @@ async function readTaskCompletionContext(cwd: string): Promise<TaskCompletionCon
       startedAt: task.startedAt,
       featureId: active.featureId,
       allTasks: active.state.tasks,
-      _active: { filePath: active.filePath, state: active.state, expectedVersion: active.state._version },
     };
   } catch {
     return null;
-  }
-}
-
-/**
- * Best-effort state write: mark the task as complete and persist.
- * Called AFTER event emission to maintain event-first ordering.
- * Silently swallows all errors so the gate is never blocked.
- */
-async function commitTaskCompletion(ctx: TaskCompletionContext): Promise<void> {
-  try {
-    const { filePath, state, expectedVersion } = ctx._active;
-
-    // Find and update the task
-    const task = state.tasks.find((t: WorkflowTask) => t.id === ctx.taskId);
-    if (!task) return;
-
-    task.status = 'complete';
-    task.completedAt = new Date().toISOString();
-    state._version += 1;
-
-    // CAS check: re-read file and verify version hasn't changed
-    const currentRaw = await fs.readFile(filePath, 'utf-8');
-    const currentState = JSON.parse(currentRaw) as WorkflowState;
-    if (currentState._version !== expectedVersion) {
-      // Another writer intervened — skip (best-effort)
-      return;
-    }
-
-    // Atomic write: tmp file + rename
-    const tmpPath = `${filePath}.tmp.${process.pid}.${randomUUID()}`;
-    try {
-      await fs.writeFile(tmpPath, JSON.stringify(state, null, 2));
-      await fs.rename(tmpPath, filePath);
-    } catch {
-      try { await fs.unlink(tmpPath); } catch { /* ignore cleanup errors */ }
-    }
-  } catch {
-    // Best-effort: swallow errors
   }
 }
 
