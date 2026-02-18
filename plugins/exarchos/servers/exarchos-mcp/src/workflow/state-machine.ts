@@ -43,6 +43,11 @@ export interface TransitionEvent {
   readonly metadata?: Record<string, unknown>;
 }
 
+export interface ValidTransitionTarget {
+  readonly phase: string;
+  readonly guard?: { readonly id: string; readonly description: string };
+}
+
 export interface TransitionResult {
   readonly success: boolean;
   readonly idempotent: boolean;
@@ -53,7 +58,7 @@ export interface TransitionResult {
   readonly errorCode?: string;
   readonly errorMessage?: string;
   readonly guardDescription?: string;
-  readonly validTargets?: readonly string[];
+  readonly validTargets?: readonly ValidTransitionTarget[];
 }
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
@@ -119,30 +124,40 @@ function countFixCycles(
 
 /**
  * Get all valid target phases for transitions from a given phase,
- * including the universal cancel transition.
+ * including the universal cancel and cleanup transitions.
+ * Returns guard metadata for each target so agents can see prerequisites.
  */
 export function getValidTransitions(
   hsm: HSMDefinition,
   fromPhase: string
-): readonly string[] {
+): readonly ValidTransitionTarget[] {
   const state = hsm.states[fromPhase];
   if (!state || state.type === 'final') return [];
 
-  const targets = hsm.transitions
-    .filter((t) => t.from === fromPhase)
-    .map((t) => t.to);
+  const seen = new Set<string>();
+  const targets: ValidTransitionTarget[] = [];
+
+  for (const t of hsm.transitions) {
+    if (t.from !== fromPhase || seen.has(t.to)) continue;
+    seen.add(t.to);
+    targets.push(
+      t.guard
+        ? { phase: t.to, guard: { id: t.guard.id, description: t.guard.description } }
+        : { phase: t.to },
+    );
+  }
 
   // Add universal cancel if not already present
-  if (!targets.includes('cancelled') && hsm.states['cancelled']) {
-    targets.push('cancelled');
+  if (!seen.has('cancelled') && hsm.states['cancelled']) {
+    targets.push({ phase: 'cancelled' });
   }
 
   // Add universal cleanup (completed) if not already present
-  if (!targets.includes('completed') && hsm.states['completed']) {
-    targets.push('completed');
+  if (!seen.has('completed') && hsm.states['completed']) {
+    targets.push({ phase: 'completed', guard: { id: 'merge-verified', description: 'Merge must be verified by the orchestrator before cleanup' } });
   }
 
-  return [...new Set(targets)];
+  return targets;
 }
 
 /**

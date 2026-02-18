@@ -504,6 +504,13 @@ describe('HSM Transition Algorithm', () => {
       expect(result.errorCode).toBe('INVALID_TRANSITION');
       expect(result.validTargets).toBeDefined();
       expect(result.validTargets!.length).toBeGreaterThan(0);
+
+      // Enriched validTargets include guard metadata
+      const planTarget = result.validTargets!.find((t) => t.phase === 'plan');
+      expect(planTarget).toBeDefined();
+      expect(planTarget!.guard).toBeDefined();
+      expect(planTarget!.guard!.id).toBe('design-artifact-exists');
+      expect(planTarget!.guard!.description).toBe('Design artifact must exist');
     });
 
     it('ExecuteTransition_GuardFails_ReturnsGuardFailed', () => {
@@ -685,12 +692,15 @@ describe('HSM Transition Algorithm', () => {
   });
 
   describe('getValidTransitions', () => {
+    /** Extract phase strings from enriched ValidTransitionTarget array */
+    const phases = (targets: readonly { phase: string }[]) => targets.map((t) => t.phase);
+
     it('returns valid target phases from a given phase', () => {
       const hsm = getHSMDefinition('feature');
       const targets = getValidTransitions(hsm, 'ideate');
 
-      expect(targets).toContain('plan');
-      expect(targets).toContain('cancelled');
+      expect(phases(targets)).toContain('plan');
+      expect(phases(targets)).toContain('cancelled');
     });
 
     it('returns empty array for final states', () => {
@@ -705,45 +715,45 @@ describe('HSM Transition Algorithm', () => {
 
       // delegate is inside implementation compound — goes directly to review
       const delegateTargets = getValidTransitions(hsm, 'delegate');
-      expect(delegateTargets).toContain('review');
-      expect(delegateTargets).toContain('cancelled');
-      expect(delegateTargets).not.toContain('integrate');
+      expect(phases(delegateTargets)).toContain('review');
+      expect(phases(delegateTargets)).toContain('cancelled');
+      expect(phases(delegateTargets)).not.toContain('integrate');
 
       // review has two transitions: synthesize (passed) and delegate (fix cycle)
       const reviewTargets = getValidTransitions(hsm, 'review');
-      expect(reviewTargets).toContain('synthesize');
-      expect(reviewTargets).toContain('delegate');
-      expect(reviewTargets).toContain('cancelled');
+      expect(phases(reviewTargets)).toContain('synthesize');
+      expect(phases(reviewTargets)).toContain('delegate');
+      expect(phases(reviewTargets)).toContain('cancelled');
     });
 
     it('returns valid transitions for debug HSM phases', () => {
       const hsm = getHSMDefinition('debug');
 
       const triageTargets = getValidTransitions(hsm, 'triage');
-      expect(triageTargets).toContain('investigate');
-      expect(triageTargets).toContain('cancelled');
+      expect(phases(triageTargets)).toContain('investigate');
+      expect(phases(triageTargets)).toContain('cancelled');
 
       const investigateTargets = getValidTransitions(hsm, 'investigate');
-      expect(investigateTargets).toContain('rca');
-      expect(investigateTargets).toContain('hotfix-implement');
-      expect(investigateTargets).toContain('cancelled');
+      expect(phases(investigateTargets)).toContain('rca');
+      expect(phases(investigateTargets)).toContain('hotfix-implement');
+      expect(phases(investigateTargets)).toContain('cancelled');
 
       const rcaTargets = getValidTransitions(hsm, 'rca');
-      expect(rcaTargets).toContain('design');
-      expect(rcaTargets).toContain('cancelled');
+      expect(phases(rcaTargets)).toContain('design');
+      expect(phases(rcaTargets)).toContain('cancelled');
     });
 
     it('returns valid transitions for refactor HSM phases', () => {
       const hsm = getHSMDefinition('refactor');
 
       const exploreTargets = getValidTransitions(hsm, 'explore');
-      expect(exploreTargets).toContain('brief');
-      expect(exploreTargets).toContain('cancelled');
+      expect(phases(exploreTargets)).toContain('brief');
+      expect(phases(exploreTargets)).toContain('cancelled');
 
       const briefTargets = getValidTransitions(hsm, 'brief');
-      expect(briefTargets).toContain('polish-implement');
-      expect(briefTargets).toContain('overhaul-plan');
-      expect(briefTargets).toContain('cancelled');
+      expect(phases(briefTargets)).toContain('polish-implement');
+      expect(phases(briefTargets)).toContain('overhaul-plan');
+      expect(phases(briefTargets)).toContain('cancelled');
     });
 
     it('returns empty array for cancelled (final) state', () => {
@@ -1650,6 +1660,58 @@ describe('Final state transitions', () => {
 
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('INVALID_TRANSITION');
+  });
+});
+
+// ─── Task: getValidTransitions enriched output ────────────────────────────────
+
+describe('getValidTransitions guard metadata', () => {
+  it('returns guard id and description for guarded transitions', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const planTarget = targets.find((t) => t.phase === 'plan');
+    expect(planTarget).toBeDefined();
+    expect(planTarget!.guard).toEqual({
+      id: 'design-artifact-exists',
+      description: 'Design artifact must exist',
+    });
+  });
+
+  it('omits guard for unguarded transitions (cancelled)', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const cancelTarget = targets.find((t) => t.phase === 'cancelled');
+    expect(cancelTarget).toBeDefined();
+    expect(cancelTarget!.guard).toBeUndefined();
+  });
+
+  it('includes merge-verified guard for universal completed transition', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const completedTarget = targets.find((t) => t.phase === 'completed');
+    expect(completedTarget).toBeDefined();
+    expect(completedTarget!.guard).toEqual({
+      id: 'merge-verified',
+      description: 'Merge must be verified by the orchestrator before cleanup',
+    });
+  });
+
+  it('returns empty array for final states', () => {
+    const hsm = getHSMDefinition('feature');
+    expect(getValidTransitions(hsm, 'completed')).toEqual([]);
+    expect(getValidTransitions(hsm, 'cancelled')).toEqual([]);
+  });
+
+  it('returns guards for refactor polish track transitions', () => {
+    const hsm = getHSMDefinition('refactor');
+    const targets = getValidTransitions(hsm, 'polish-validate');
+
+    const docsTarget = targets.find((t) => t.phase === 'polish-update-docs');
+    expect(docsTarget).toBeDefined();
+    expect(docsTarget!.guard!.id).toBe('goals-verified');
   });
 });
 

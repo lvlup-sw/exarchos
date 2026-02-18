@@ -585,7 +585,13 @@ describe('Core Tools', () => {
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBe('INVALID_TRANSITION');
       expect(result.error?.validTargets).toBeDefined();
-      expect(result.error?.validTargets).toContain('plan');
+
+      // Enriched validTargets include guard metadata
+      const targets = result.error?.validTargets as Array<{ phase: string; guard?: { id: string; description: string } }>;
+      const planTarget = targets.find((t) => t.phase === 'plan');
+      expect(planTarget).toBeDefined();
+      expect(planTarget!.guard).toBeDefined();
+      expect(planTarget!.guard!.id).toBe('design-artifact-exists');
     });
   });
 

@@ -28,7 +28,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 **Hooks (automatic, no tool call needed):**
 - **SessionStart hook** — Discovers active workflows, restores context, determines next action, and verifies state on resume (replaces former `workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile` tools)
 - **PreCompact hook** — Saves checkpoints before context exhaustion (replaces former `workflow_checkpoint` tool)
-- Valid phase transitions are documented statically (replaces former `workflow_transitions` tool)
+- Valid phase transitions are documented in `references/phase-transitions.md` (replaces former `workflow_transitions` tool). `INVALID_TRANSITION` errors include valid targets with guard descriptions.
 
 ### Event Tool Actions
 
@@ -147,6 +147,17 @@ Official Microsoft/Azure documentation via remote HTTP MCP. **Use for any Micros
 | `get-document` | Deep-reading full docs when search excerpts aren't enough |
 
 **Proactive use:** When working with .NET, Azure, or any Microsoft SDK, search docs to verify API usage rather than guessing from training data.
+
+## Workflow Transition Errors
+
+### INVALID_TRANSITION
+No path exists from current phase to target. Check `validTargets` in the error — it lists reachable phases with guard descriptions. You may need to step through intermediate phases.
+
+### GUARD_FAILED
+The transition exists but the guard condition is unmet. Send prerequisite `updates` and `phase` in a **single** `set` call — updates apply before guards evaluate. See `references/phase-transitions.md` for guard prerequisites.
+
+### CIRCUIT_OPEN
+A compound state's fix cycle limit was reached. Escalate to user or cancel the workflow.
 
 ## Anti-Patterns
 
