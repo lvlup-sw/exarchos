@@ -10,6 +10,7 @@ import {
   handleViewWorkflowStatus,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
+  handleViewCodeQuality,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -90,6 +91,17 @@ export async function handleView(
         stateDir,
       );
 
+    case 'code_quality':
+      return handleViewCodeQuality(
+        rest as {
+          workflowId?: string;
+          skill?: string;
+          gate?: string;
+          limit?: number;
+        },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -105,6 +117,7 @@ export async function handleView(
             'telemetry',
             'team_performance',
             'delegation_timeline',
+            'code_quality',
           ] as const,
         },
       };
