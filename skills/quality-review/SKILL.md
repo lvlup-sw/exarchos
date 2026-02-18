@@ -129,6 +129,32 @@ If HIGH-priority issues found:
 3. Re-review quality after fixes
 4. Only mark APPROVED when all HIGH items resolved and tests pass
 
+## Required Output Format
+
+The subagent MUST return results as structured JSON. The orchestrator parses this JSON to populate state. Any other format is an error.
+
+```json
+{
+  "verdict": "pass | fail | blocked",
+  "summary": "1-2 sentence summary",
+  "issues": [
+    {
+      "severity": "HIGH | MEDIUM | LOW",
+      "category": "security | solid | dry | perf | naming | other",
+      "file": "path/to/file",
+      "line": 123,
+      "description": "Issue description",
+      "required_fix": "What must change"
+    }
+  ],
+  "test_results": {
+    "passed": 0,
+    "failed": 0,
+    "coverage_percent": 0
+  }
+}
+```
+
 ## Anti-Patterns
 
 | Don't | Do Instead |
