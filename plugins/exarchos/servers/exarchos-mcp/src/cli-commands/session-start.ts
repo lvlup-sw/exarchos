@@ -263,8 +263,9 @@ async function listNativeTeamFeatureIds(teamsDir: string): Promise<string[]> {
 
 /**
  * Annotate workflows with native team cleanup recommendations.
- * Mutates the workflow objects in place by adding nativeTeamCleanup field
- * for workflows that are past the delegation phase but still have a native team.
+ * Replaces array elements with new WorkflowInfo objects containing the
+ * nativeTeamCleanup field for workflows past the delegation phase
+ * that still have a native team directory.
  */
 async function annotateNativeTeamCleanup(
   workflows: WorkflowInfo[],
