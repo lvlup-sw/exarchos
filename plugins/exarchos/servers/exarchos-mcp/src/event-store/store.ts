@@ -176,6 +176,7 @@ export class EventStore {
 
       // Phase 1: Validate all events before writing any (atomic: all-or-nothing)
       const toAppend: WorkflowEvent[] = [];
+      const batchKeys = new Set<string>();
       let nextSequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
 
       for (const event of events) {
@@ -185,9 +186,9 @@ export class EventStore {
           const cached = streamCache?.get(event.idempotencyKey);
           if (cached) continue;
 
-          // Also check within this batch's toAppend list
-          const alreadyInBatch = toAppend.some(e => e.idempotencyKey === event.idempotencyKey);
-          if (alreadyInBatch) continue;
+          // Also check within this batch (O(1) Set lookup)
+          if (batchKeys.has(event.idempotencyKey)) continue;
+          batchKeys.add(event.idempotencyKey);
         }
 
         const fullEvent = WorkflowEventBase.parse({

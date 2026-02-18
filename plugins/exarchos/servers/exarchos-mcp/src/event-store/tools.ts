@@ -132,14 +132,14 @@ export async function handleBatchAppend(
   try {
     const storeEvents = args.events.map((event) => ({
       type: event.type as string,
-      data: event.data as Record<string, unknown> | undefined,
-      correlationId: event.correlationId as string | undefined,
-      causationId: event.causationId as string | undefined,
-      agentId: event.agentId as string | undefined,
-      agentRole: event.agentRole as string | undefined,
-      source: event.source as string | undefined,
-      timestamp: event.timestamp as string | undefined,
-      idempotencyKey: event.idempotencyKey as string | undefined,
+      ...(event.data !== undefined && { data: event.data as Record<string, unknown> }),
+      ...(event.correlationId !== undefined && { correlationId: event.correlationId as string }),
+      ...(event.causationId !== undefined && { causationId: event.causationId as string }),
+      ...(event.agentId !== undefined && { agentId: event.agentId as string }),
+      ...(event.agentRole !== undefined && { agentRole: event.agentRole as string }),
+      ...(event.source !== undefined && { source: event.source as string }),
+      ...(event.timestamp !== undefined && { timestamp: event.timestamp as string }),
+      ...(event.idempotencyKey !== undefined && { idempotencyKey: event.idempotencyKey as string }),
     }));
 
     const appended = await store.batchAppend(args.stream, storeEvents);
