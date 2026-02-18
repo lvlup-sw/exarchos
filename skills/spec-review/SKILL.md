@@ -191,7 +191,7 @@ All transitions happen **immediately** without user confirmation:
 ### Pre-Chain Validation (MANDATORY)
 
 Before invoking quality-review:
-1. Verify spec-review verdict is "pass" in state
+1. Verify `reviews.spec.status === "pass"` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
 ### If PASS:
