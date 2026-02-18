@@ -66,28 +66,32 @@ export const guards = {
   designArtifactExists: {
     id: 'design-artifact-exists',
     description: 'Design artifact must exist',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts != null && artifacts.design != null;
+      if (artifacts != null && artifacts.design != null) return true;
+      return { passed: false, reason: 'design-artifact-exists not satisfied' };
     },
   },
 
   planArtifactExists: {
     id: 'plan-artifact-exists',
     description: 'Plan artifact must exist',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts != null && artifacts.plan != null;
+      if (artifacts != null && artifacts.plan != null) return true;
+      return { passed: false, reason: 'plan-artifact-exists not satisfied' };
     },
   },
 
   allTasksComplete: {
     id: 'all-tasks-complete',
     description: 'All tasks must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const tasks = state.tasks as Array<{ status: string }> | undefined;
       if (!tasks || tasks.length === 0) return true;
-      return tasks.every((t) => t.status === 'complete');
+      if (tasks.every((t) => t.status === 'complete')) return true;
+      const incomplete = tasks.filter((t) => t.status !== 'complete');
+      return { passed: false, reason: `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete` };
     },
   },
 
@@ -151,71 +155,79 @@ export const guards = {
   prUrlExists: {
     id: 'pr-url-exists',
     description: 'PR URL must exist',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const synthesis = state.synthesis as Record<string, unknown> | undefined;
       if (synthesis?.prUrl != null) return true;
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts?.pr != null;
+      if (artifacts?.pr != null) return true;
+      return { passed: false, reason: 'pr-url-exists not satisfied' };
     },
   },
 
   humanUnblocked: {
     id: 'human-unblocked',
     description: 'Human must have unblocked the workflow',
-    evaluate: (state: Record<string, unknown>) => {
-      return state.unblocked === true;
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      if (state.unblocked === true) return true;
+      return { passed: false, reason: 'human-unblocked not satisfied' };
     },
   },
 
   triageComplete: {
     id: 'triage-complete',
     description: 'Triage must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const triage = state.triage as Record<string, unknown> | undefined;
-      return triage != null && triage.symptom != null;
+      if (triage != null && triage.symptom != null) return true;
+      return { passed: false, reason: 'triage-complete not satisfied' };
     },
   },
 
   rootCauseFound: {
     id: 'root-cause-found',
     description: 'Root cause must be identified',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const investigation = state.investigation as Record<string, unknown> | undefined;
-      return investigation != null && investigation.rootCause != null;
+      if (investigation != null && investigation.rootCause != null) return true;
+      return { passed: false, reason: 'root-cause-found not satisfied' };
     },
   },
 
   hotfixTrackSelected: {
     id: 'hotfix-track-selected',
     description: 'Hotfix track must be selected',
-    evaluate: (state: Record<string, unknown>) => {
-      return state.track === 'hotfix';
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      if (state.track === 'hotfix') return true;
+      return { passed: false, reason: 'hotfix-track-selected not satisfied' };
     },
   },
 
   thoroughTrackSelected: {
     id: 'thorough-track-selected',
     description: 'Thorough track must be selected',
-    evaluate: (state: Record<string, unknown>) => {
-      return state.track === 'thorough';
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      if (state.track === 'thorough') return true;
+      return { passed: false, reason: 'thorough-track-selected not satisfied' };
     },
   },
 
   rcaDocumentComplete: {
     id: 'rca-document-complete',
     description: 'RCA document must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts?.rca != null;
+      if (artifacts?.rca != null) return true;
+      return { passed: false, reason: 'rca-document-complete not satisfied' };
     },
   },
 
   fixDesignComplete: {
     id: 'fix-design-complete',
     description: 'Fix design must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts?.fixDesign != null;
+      if (artifacts?.fixDesign != null) return true;
+      return { passed: false, reason: 'fix-design-complete not satisfied' };
     },
   },
 
@@ -228,9 +240,10 @@ export const guards = {
   validationPassed: {
     id: 'validation-passed',
     description: 'Validation must have passed',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
-      return validation != null && validation.testsPass === true;
+      if (validation != null && validation.testsPass === true) return true;
+      return { passed: false, reason: 'validation-passed not satisfied' };
     },
   },
 
@@ -268,70 +281,78 @@ export const guards = {
   scopeAssessmentComplete: {
     id: 'scope-assessment-complete',
     description: 'Scope assessment must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const explore = state.explore as Record<string, unknown> | undefined;
-      return explore?.scopeAssessment != null;
+      if (explore?.scopeAssessment != null) return true;
+      return { passed: false, reason: 'scope-assessment-complete not satisfied' };
     },
   },
 
   briefComplete: {
     id: 'brief-complete',
     description: 'Brief must be complete',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const brief = state.brief as Record<string, unknown> | undefined;
-      return brief != null && brief.goals != null;
+      if (brief != null && brief.goals != null) return true;
+      return { passed: false, reason: 'brief-complete not satisfied' };
     },
   },
 
   polishTrackSelected: {
     id: 'polish-track-selected',
     description: 'Polish track must be selected',
-    evaluate: (state: Record<string, unknown>) => {
-      return state.track === 'polish';
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      if (state.track === 'polish') return true;
+      return { passed: false, reason: 'polish-track-selected not satisfied' };
     },
   },
 
   overhaulTrackSelected: {
     id: 'overhaul-track-selected',
     description: 'Overhaul track must be selected',
-    evaluate: (state: Record<string, unknown>) => {
-      return state.track === 'overhaul';
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      if (state.track === 'overhaul') return true;
+      return { passed: false, reason: 'overhaul-track-selected not satisfied' };
     },
   },
 
   docsUpdated: {
     id: 'docs-updated',
     description: 'Documentation must be updated',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
-      return validation?.docsUpdated === true;
+      if (validation?.docsUpdated === true) return true;
+      return { passed: false, reason: 'docs-updated not satisfied' };
     },
   },
 
   goalsVerified: {
     id: 'goals-verified',
     description: 'Refactor goals must be verified',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
-      return validation?.testsPass === true;
+      if (validation?.testsPass === true) return true;
+      return { passed: false, reason: 'goals-verified not satisfied' };
     },
   },
 
   planReviewComplete: {
     id: 'plan-review-complete',
     description: 'Plan review must be complete with no gaps',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
-      return planReview?.approved === true;
+      if (planReview?.approved === true) return true;
+      return { passed: false, reason: 'plan-review-complete not satisfied' };
     },
   },
 
   planReviewGapsFound: {
     id: 'plan-review-gaps-found',
     description: 'Plan review found coverage gaps',
-    evaluate: (state: Record<string, unknown>) => {
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
-      return planReview?.gapsFound === true;
+      if (planReview?.gapsFound === true) return true;
+      return { passed: false, reason: 'plan-review-gaps-found not satisfied' };
     },
   },
 
