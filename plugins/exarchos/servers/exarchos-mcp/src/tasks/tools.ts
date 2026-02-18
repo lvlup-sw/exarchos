@@ -11,6 +11,12 @@ import type { TaskDetailViewState } from '../views/task-detail-view.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+const CLAIM_BASE_DELAY_MS = 50;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function alreadyClaimedResult(taskId: string): ToolResult {
   return {
     success: false,
@@ -68,6 +74,9 @@ export async function handleTaskClaim(
       return await attemptTaskClaim(args, stateDir);
     } catch (err) {
       if (err instanceof SequenceConflictError) {
+        // Exponential backoff: baseDelay * 2^attempt + jitter
+        const delay = CLAIM_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * CLAIM_BASE_DELAY_MS;
+        await sleep(delay);
         continue; // Retry: re-query and re-check
       }
       return {
