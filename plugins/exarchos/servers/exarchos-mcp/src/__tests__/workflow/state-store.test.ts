@@ -1016,5 +1016,104 @@ describe('State Store', () => {
       expect(result2.eventsApplied).toBe(0);
       expect(result2.reconciled).toBe(false);
     });
+
+    // ─── T8: Phase reconciliation check (ARCH-7) ───────────────────────────
+
+    it('should use event-derived phase when state.phase mismatches last transition after replay', async () => {
+      // Arrange: create state, do a normal reconciliation to 'plan'
+      await initStateFile(tmpDir, 'mismatch-test', 'feature');
+      await eventStore.append('mismatch-test', {
+        type: 'workflow.started',
+        data: { featureId: 'mismatch-test', workflowType: 'feature' },
+      });
+      await eventStore.append('mismatch-test', {
+        type: 'workflow.transition',
+        data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'mismatch-test' },
+      });
+
+      // First reconciliation — state phase becomes 'plan', _eventSequence = 2
+      await reconcileFromEvents(tmpDir, 'mismatch-test', eventStore);
+
+      // Now tamper with state: revert phase back to 'ideate' but keep _eventSequence = 2
+      // This simulates a corrupted state file where phase is out of sync with events
+      const stateFile = path.join(tmpDir, 'mismatch-test.state.json');
+      const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+      rawState.phase = 'ideate'; // Corrupt: events say 'plan', state says 'ideate'
+      await fs.writeFile(stateFile, JSON.stringify(rawState, null, 2), 'utf-8');
+
+      // Append a new event (not a transition) so reconcile has work to do
+      await eventStore.append('mismatch-test', {
+        type: 'workflow.checkpoint',
+        data: { counter: 0, phase: 'plan', featureId: 'mismatch-test' },
+      });
+
+      // Act: reconcile should detect the phase mismatch and correct it
+      const result = await reconcileFromEvents(tmpDir, 'mismatch-test', eventStore);
+      expect(result.reconciled).toBe(true);
+
+      // Assert: the final state should have phase 'plan' from events, not 'ideate'
+      const state = await readStateFile(stateFile);
+      expect(state.phase).toBe('plan');
+    });
+
+    it('should not correct phase when state matches last transition', async () => {
+      // Arrange: create state and advance it via events
+      await eventStore.append('match-test', {
+        type: 'workflow.started',
+        data: { featureId: 'match-test', workflowType: 'feature' },
+      });
+      await eventStore.append('match-test', {
+        type: 'workflow.transition',
+        data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'match-test' },
+      });
+
+      // First reconciliation creates state at phase 'plan'
+      await reconcileFromEvents(tmpDir, 'match-test', eventStore);
+      const stateFile = path.join(tmpDir, 'match-test.state.json');
+      const state1 = await readStateFile(stateFile);
+      expect(state1.phase).toBe('plan');
+
+      // Append another transition
+      await eventStore.append('match-test', {
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'match-test' },
+      });
+
+      // Act: reconcile picks up the new event
+      const result = await reconcileFromEvents(tmpDir, 'match-test', eventStore);
+      expect(result.reconciled).toBe(true);
+
+      // Assert: phase should be 'delegate' (consistent with events)
+      const state2 = await readStateFile(stateFile);
+      expect(state2.phase).toBe('delegate');
+    });
+
+    // ─── T9: applyEventToState phase mapping confidence test (ARCH-7) ───────
+
+    it('should set phase from workflow.transition event to field', async () => {
+      // This test verifies the existing behavior of applyEventToState
+      // when processing workflow.transition events.
+      // We test via reconcileFromEvents since applyEventToState is not exported.
+      await initStateFile(tmpDir, 'apply-phase-test', 'feature');
+
+      // Append events including a transition
+      await eventStore.append('apply-phase-test', {
+        type: 'workflow.started',
+        data: { featureId: 'apply-phase-test', workflowType: 'feature' },
+      });
+      await eventStore.append('apply-phase-test', {
+        type: 'workflow.transition',
+        data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'apply-phase-test' },
+      });
+
+      // Reconcile and verify phase was set from the transition event
+      const result = await reconcileFromEvents(tmpDir, 'apply-phase-test', eventStore);
+      expect(result.reconciled).toBe(true);
+
+      const stateFile = path.join(tmpDir, 'apply-phase-test.state.json');
+      const state = await readStateFile(stateFile);
+      // Phase should come from the 'to' field of workflow.transition
+      expect(state.phase).toBe('plan');
+    });
   });
 });
