@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleSessionStart, detectNativeTeam } from './session-start.js';
+import { handleSessionStart, detectNativeTeam, queryTelemetryHints } from './session-start.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -874,6 +874,121 @@ describe('session-start command', () => {
       expect(workflow).toBeDefined();
       expect(workflow!.nativeTeamCleanup).toBeDefined();
       expect(workflow!.nativeTeamCleanup).toContain('Orphaned native team detected');
+    });
+  });
+
+  // ─── Telemetry Hint Injection ──────────────────────────────────────────────
+
+  describe('queryTelemetryHints', () => {
+    it('should return formatted hints when telemetry exceeds thresholds', async () => {
+      // Arrange — create telemetry.events.jsonl with high-threshold metrics
+      // workflow_set with high duration triggers the p95DurationMs > 200 rule
+      const events = [];
+      for (let i = 1; i <= 5; i++) {
+        events.push(JSON.stringify({
+          streamId: 'telemetry',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'tool.completed',
+          data: { tool: 'workflow_set', durationMs: 300, responseBytes: 100, tokenEstimate: 50 },
+        }));
+      }
+      await fs.writeFile(
+        path.join(tmpDir, 'telemetry.events.jsonl'),
+        events.join('\n') + '\n',
+      );
+
+      // Act
+      const hints = await queryTelemetryHints(tmpDir);
+
+      // Assert
+      expect(hints.length).toBeGreaterThanOrEqual(1);
+      const workflowSetHint = hints.find((h) => h.startsWith('workflow_set:'));
+      expect(workflowSetHint).toBeDefined();
+      expect(workflowSetHint).toContain('Batch multiple field updates');
+    });
+
+    it('should return empty array when telemetry file does not exist', async () => {
+      // Arrange — no telemetry.events.jsonl file
+
+      // Act
+      const hints = await queryTelemetryHints(tmpDir);
+
+      // Assert
+      expect(hints).toEqual([]);
+    });
+
+    it('should return empty array when no thresholds exceeded', async () => {
+      // Arrange — create telemetry events with low metrics
+      const events = [];
+      for (let i = 1; i <= 3; i++) {
+        events.push(JSON.stringify({
+          streamId: 'telemetry',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'tool.completed',
+          data: { tool: 'workflow_set', durationMs: 50, responseBytes: 100, tokenEstimate: 50 },
+        }));
+      }
+      await fs.writeFile(
+        path.join(tmpDir, 'telemetry.events.jsonl'),
+        events.join('\n') + '\n',
+      );
+
+      // Act
+      const hints = await queryTelemetryHints(tmpDir);
+
+      // Assert
+      expect(hints).toEqual([]);
+    });
+  });
+
+  describe('handleSessionStart with telemetry hints', () => {
+    it('should include telemetryHints in result when thresholds exceeded', async () => {
+      // Arrange — active workflow + high-threshold telemetry
+      const stateData = createValidStateFile({ phase: 'delegate' });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      const events = [];
+      for (let i = 1; i <= 5; i++) {
+        events.push(JSON.stringify({
+          streamId: 'telemetry',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'tool.completed',
+          data: { tool: 'workflow_set', durationMs: 300, responseBytes: 100, tokenEstimate: 50 },
+        }));
+      }
+      await fs.writeFile(
+        path.join(tmpDir, 'telemetry.events.jsonl'),
+        events.join('\n') + '\n',
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.telemetryHints).toBeDefined();
+      expect(result.telemetryHints!.length).toBeGreaterThanOrEqual(1);
+      expect(result.telemetryHints!.some((h) => h.includes('workflow_set'))).toBe(true);
+    });
+
+    it('should omit telemetryHints when no thresholds exceeded', async () => {
+      // Arrange — active workflow but no telemetry file
+      const stateData = createValidStateFile({ phase: 'delegate' });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.telemetryHints).toBeUndefined();
     });
   });
 });
