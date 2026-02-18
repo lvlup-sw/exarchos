@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: "Code improvement workflow with two tracks: polish (small, direct changes) and overhaul (large, delegated restructuring). Use when the user says \"refactor\", \"clean up\", \"restructure\", \"reorganize\", \"refactor this code\", or runs /refactor. Handles explore, brief, implement, validate, and documentation phases. Do NOT use for bug fixes (use debug) or new features (use ideate)."
+description: "Code improvement workflow with two tracks: polish (small, direct changes) and overhaul (large, delegated restructuring). Use when the user says \"refactor\", \"clean up\", \"restructure\", \"reorganize\", \"refactor this code\", or runs /refactor. Handles explore, brief, implement, validate, and documentation phases. Do NOT use for bug fixes (use /debug) or new features (use /ideate). Applies to existing code only."
 metadata:
   author: exarchos
   version: 1.0.0

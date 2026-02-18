@@ -1,6 +1,6 @@
 ---
 name: quality-review
-description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'review code', 'check quality', 'code review', or runs /review. Checks SOLID principles, DRY, security, and test quality. Requires spec-review to pass first. Do NOT use for spec review (use spec-review) or brainstorming."
+description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'quality review', 'check code quality', or runs /review (stage 2). Requires spec-review to have passed first (stage 2 of /review). Checks SOLID principles, DRY, security, and test quality. Do NOT use for spec compliance — use spec-review instead. Do NOT use for brainstorming."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -120,6 +120,14 @@ Use the template from `references/review-report-template.md` to structure the re
 | **MEDIUM** | Should fix, may defer | SOLID violations, complexity |
 | **LOW** | Nice to have | Style preferences, minor refactors |
 
+### Priority Classification Rules
+
+- **HIGH:** security vulnerabilities, data loss risk, API contract breaks, uncaught exception paths
+- **MEDIUM:** SOLID violations (LSP, ISP), cyclomatic complexity >15, test coverage <70%
+- **LOW:** naming, code style, comment clarity, non-impactful performance
+
+If classification is ambiguous, default to MEDIUM and flag for human decision.
+
 ## Fix Loop for HIGH-Priority
 
 If HIGH-priority issues found:
@@ -165,6 +173,14 @@ The subagent MUST return results as structured JSON. The orchestrator parses thi
 | Skip security checks | Always verify basics |
 | Accept poor test quality | Tests are code too |
 | Apply generic standards to language issues | Reference language-specific rules |
+
+## Cross-Task Integration Issues
+
+If an issue spans multiple tasks:
+1. Classify as "cross-task integration"
+2. Create fix task specifying ALL affected tasks
+3. Dispatch fix to implementer with context from all affected tasks
+4. Mark original tasks as blocked until cross-task fix completes
 
 ## State Management
 

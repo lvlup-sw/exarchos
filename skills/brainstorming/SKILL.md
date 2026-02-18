@@ -70,6 +70,15 @@ Activate this skill when:
 - Include at least one "flexible but complex" option
 - Recommend one option but explain why
 
+### Exploration Quality Gate
+
+Stop Phase 2 when ALL are true:
+- [ ] 2-3 approaches documented
+- [ ] Each answers design questions from Phase 1
+- [ ] Approaches differ in at least 2 of: {data structure, API design, complexity}
+- [ ] Trade-offs are honest and specific
+- [ ] One approach recommended with rationale
+
 ### Phase 3: Design Presentation
 
 **Goal:** Document the chosen approach in detail.
@@ -147,6 +156,15 @@ scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/des
 
 After brainstorming completes, **auto-continue to planning** (no user confirmation):
 
+### Pre-Chain Validation (MANDATORY)
+
+Before invoking `/plan`:
+1. Verify `artifacts.design` exists in workflow state
+2. Verify the design file exists on disk: `test -f "$DESIGN_PATH"`
+3. If either fails: "Design artifact not found, cannot auto-chain to /plan"
+
+### Chain Steps
+
 1. Update state with design path and phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
    - Set `artifacts.design` to the design path
    - Set `phase` to "plan"
@@ -160,7 +178,7 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 
 This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
 
-**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate` → `/review` → `/synthesize` → [HUMAN CHECKPOINT]
+**Workflow continues:** `/ideate` -> `/plan` -> plan-review -> [HUMAN CHECKPOINT] -> `/delegate` -> `/review` -> `/synthesize` -> [HUMAN CHECKPOINT]
 
 ## Exarchos Integration
 
