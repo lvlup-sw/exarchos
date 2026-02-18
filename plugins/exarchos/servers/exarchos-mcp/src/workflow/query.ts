@@ -18,6 +18,7 @@ import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
@@ -119,11 +120,184 @@ export async function handleSummary(
   };
 }
 
+// ─── Task Drift Report Types ─────────────────────────────────────────────────
+
+export interface TaskDriftEntry {
+  readonly taskId: string;
+  readonly exarchosStatus: string | null;
+  readonly nativeStatus: string | null;
+  readonly recommendation: string;
+}
+
+export interface TaskDriftReport {
+  readonly skipped: boolean;
+  readonly skipReason?: string;
+  readonly drift: readonly TaskDriftEntry[];
+}
+
+// ─── Native Task File Reading ────────────────────────────────────────────────
+
+interface NativeTaskFile {
+  readonly id: string;
+  readonly subject?: string;
+  readonly status: string;
+}
+
+/**
+ * Read all native task JSON files from a directory.
+ * Returns a map of task ID to parsed task data.
+ * Returns null if the directory does not exist.
+ */
+async function readNativeTaskFiles(
+  nativeTaskDir: string,
+): Promise<Map<string, NativeTaskFile> | null> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(nativeTaskDir);
+  } catch {
+    return null;
+  }
+
+  const jsonFiles = entries.filter((f) => f.endsWith('.json'));
+  const tasks = new Map<string, NativeTaskFile>();
+
+  for (const file of jsonFiles) {
+    try {
+      const raw = await fs.readFile(path.join(nativeTaskDir, file), 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+      if (typeof parsed.id !== 'string' || typeof parsed.status !== 'string') {
+        continue;
+      }
+
+      tasks.set(parsed.id, {
+        id: parsed.id,
+        subject: typeof parsed.subject === 'string' ? parsed.subject : undefined,
+        status: parsed.status,
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return tasks;
+}
+
+// ─── Status Normalization ────────────────────────────────────────────────────
+
+/**
+ * Normalize status strings for comparison.
+ * Exarchos uses "complete", native may use "completed" — treat as equivalent.
+ */
+function normalizeStatus(status: string): string {
+  if (status === 'complete' || status === 'completed') return 'completed';
+  return status;
+}
+
+// ─── reconcileTasks ──────────────────────────────────────────────────────────
+
+/**
+ * Compare native task statuses with Exarchos workflow tasks and produce a drift report.
+ *
+ * Matches tasks by `nativeTaskId` field if present, or by title/subject as fallback.
+ * Reports drift for mismatches, untracked native tasks, and missing native tasks.
+ */
+export async function reconcileTasks(
+  exarchosTasks: ReadonlyArray<Record<string, unknown>>,
+  nativeTaskDir: string,
+): Promise<TaskDriftReport> {
+  const nativeTasks = await readNativeTaskFiles(nativeTaskDir);
+
+  if (nativeTasks === null) {
+    return {
+      skipped: true,
+      skipReason: `Native task directory not found: ${nativeTaskDir}`,
+      drift: [],
+    };
+  }
+
+  const drift: TaskDriftEntry[] = [];
+  const matchedNativeIds = new Set<string>();
+
+  // Check each Exarchos task against native tasks
+  for (const exTask of exarchosTasks) {
+    const taskId = typeof exTask.id === 'string' ? exTask.id : undefined;
+    const nativeTaskId = typeof exTask.nativeTaskId === 'string' ? exTask.nativeTaskId : undefined;
+    const exStatus = typeof exTask.status === 'string' ? exTask.status : 'unknown';
+
+    if (!nativeTaskId) continue;
+
+    // Match by nativeTaskId
+    const nativeTask = nativeTasks.get(nativeTaskId);
+
+    if (!nativeTask) {
+      // Exarchos task has nativeTaskId but no corresponding native file
+      drift.push({
+        taskId: taskId ?? nativeTaskId,
+        exarchosStatus: exStatus,
+        nativeStatus: null,
+        recommendation: `Native task missing (session may have ended) — native task '${nativeTaskId}' not found in task directory`,
+      });
+      continue;
+    }
+
+    matchedNativeIds.add(nativeTaskId);
+
+    // Compare statuses
+    if (normalizeStatus(exStatus) !== normalizeStatus(nativeTask.status)) {
+      const normalizedNative = normalizeStatus(nativeTask.status);
+      const recommendation = normalizedNative === 'completed'
+        ? `Update Exarchos task to complete — native task '${nativeTaskId}' shows completed`
+        : `Status mismatch: Exarchos='${exStatus}', native='${nativeTask.status}' — investigate and reconcile`;
+
+      drift.push({
+        taskId: taskId ?? nativeTaskId,
+        exarchosStatus: exStatus,
+        nativeStatus: nativeTask.status,
+        recommendation,
+      });
+    }
+  }
+
+  // Check for untracked native tasks (exist in native but not matched by any Exarchos task)
+  for (const [nativeId, nativeTask] of nativeTasks) {
+    if (matchedNativeIds.has(nativeId)) continue;
+
+    // Try title-based matching as fallback
+    const matchedByTitle = exarchosTasks.some((t) => {
+      const title = typeof t.title === 'string' ? t.title : '';
+      return title === nativeTask.subject;
+    });
+
+    if (!matchedByTitle) {
+      drift.push({
+        taskId: nativeId,
+        exarchosStatus: null,
+        nativeStatus: nativeTask.status,
+        recommendation: `Untracked native task '${nativeId}' (subject: '${nativeTask.subject ?? 'unknown'}') — consider adding to workflow state`,
+      });
+    }
+  }
+
+  return {
+    skipped: false,
+    drift,
+  };
+}
+
+// ─── Default Native Task Base Directory ──────────────────────────────────────
+
+function defaultNativeTaskBaseDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
+  return path.resolve(home, '.claude', 'tasks');
+}
+
 // ─── handleReconcile ────────────────────────────────────────────────────────
 
 export async function handleReconcile(
   input: ReconcileInput,
   stateDir: string,
+  nativeTaskBaseDir?: string,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -177,11 +351,32 @@ export async function handleReconcile(
     worktreeResults.push(result);
   }
 
+  // Task reconciliation: read raw state to access nativeTaskId (stripped by Zod)
+  let taskDrift: TaskDriftReport | undefined;
+  try {
+    const rawJson = await fs.readFile(stateFile, 'utf-8');
+    const rawState = JSON.parse(rawJson) as Record<string, unknown>;
+    const rawTasks = rawState.tasks as Array<Record<string, unknown>> | undefined;
+
+    const hasNativeTasks = rawTasks?.some(
+      (t) => typeof t.nativeTaskId === 'string',
+    );
+
+    if (hasNativeTasks && rawTasks) {
+      const baseDir = nativeTaskBaseDir ?? defaultNativeTaskBaseDir();
+      const nativeTaskDir = path.join(baseDir, input.featureId);
+      taskDrift = await reconcileTasks(rawTasks, nativeTaskDir);
+    }
+  } catch {
+    // If raw read fails, skip task reconciliation gracefully
+  }
+
   return {
     success: true,
     data: {
       featureId: state.featureId,
       worktrees: worktreeResults,
+      ...(taskDrift && { taskDrift }),
     },
     _meta: buildCheckpointMeta(state._checkpoint),
   };

@@ -99,7 +99,7 @@ describe('handleEvent', () => {
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: 'Unknown action: delete. Valid actions: append, query',
+          message: 'Unknown action: delete. Valid actions: append, query, batch_append',
         },
       });
       expect(handleEventAppend).not.toHaveBeenCalled();

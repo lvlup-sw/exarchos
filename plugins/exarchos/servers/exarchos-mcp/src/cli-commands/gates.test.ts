@@ -47,7 +47,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 import { execSync } from 'node:child_process';
-import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries } from './gates.js';
+import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries, readTeamConfig, resolveTeammateFromConfig } from './gates.js';
 import type { CommandResult } from '../cli.js';
 
 const mockExecSync = vi.mocked(execSync);
@@ -282,7 +282,7 @@ describe('Quality Gate Commands', () => {
         await fsp.rm(tempDir, { recursive: true, force: true });
       });
 
-      it('should update task status to complete when quality checks pass', async () => {
+      it('should NOT update task status in state file when quality checks pass (single-writer)', async () => {
         // Arrange
         mockExecSync.mockReturnValue(Buffer.from(''));
         const state = {
@@ -318,15 +318,15 @@ describe('Quality Gate Commands', () => {
         // Assert — gate still returns success
         expect(result).toEqual({ continue: true });
 
-        // Assert — state file was updated
+        // Assert — state file should NOT be mutated (single-writer: only orchestrator writes tasks[])
         const updatedRaw = await fsp.readFile(
           path.join(tempDir, 'test-workflow.state.json'),
           'utf-8',
         );
         const updatedState = JSON.parse(updatedRaw);
-        expect(updatedState.tasks[0].status).toBe('complete');
-        expect(typeof updatedState.tasks[0].completedAt).toBe('string');
-        expect(updatedState._version).toBe(2);
+        expect(updatedState.tasks[0].status).toBe('in_progress');
+        expect(updatedState.tasks[0].completedAt).toBeUndefined();
+        expect(updatedState._version).toBe(1);
       });
 
       it('should still return success when no active workflow exists', async () => {
@@ -492,7 +492,7 @@ describe('Quality Gate Commands', () => {
         expect(updatedState._version).toBe(1);
       });
 
-      it('should not overwrite state when a concurrent write changes _version', async () => {
+      it('should never write to state file even when concurrent writes occur (single-writer)', async () => {
         // Arrange — initial state at version 1
         mockExecSync.mockReturnValue(Buffer.from(''));
         const stateFilePath = path.join(tempDir, 'test-workflow.state.json');
@@ -543,11 +543,10 @@ describe('Quality Gate Commands', () => {
         // Assert — gate still returns success
         expect(result).toEqual({ continue: true });
 
-        // Assert — the concurrent writer's state should be preserved, NOT overwritten
+        // Assert — the concurrent writer's state is preserved because the hook
+        // never writes to the state file (single-writer principle)
         const finalRaw = await fsp.readFile(stateFilePath, 'utf-8');
         const finalState = JSON.parse(finalRaw);
-        // The concurrent writer set _version=2 and status='claimed_by_other'
-        // updateTaskCompletion should detect the version mismatch and skip the write
         expect(finalState._version).toBe(2);
         expect(finalState.tasks[0].status).toBe('claimed_by_other');
       });
@@ -1169,6 +1168,276 @@ describe('Quality Gate Commands', () => {
       // Assert
       expect(resultA.circuitOpen).toBe(true);
       expect(resultB.circuitOpen).toBeUndefined();
+    });
+  });
+
+  // ─── Task 004: Team Config Reading ──────────────────────────────────────────
+
+  describe('readTeamConfig', () => {
+    let tempTeamsDir: string;
+
+    beforeEach(() => {
+      tempTeamsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'team-config-test-'));
+    });
+
+    afterEach(async () => {
+      await fsp.rm(tempTeamsDir, { recursive: true, force: true });
+    });
+
+    it('should return parsed config with members array from directory format', async () => {
+      // Arrange — {teamsDir}/{featureId}/config.json
+      const featureId = 'my-feature';
+      const featureDir = path.join(tempTeamsDir, featureId);
+      fs.mkdirSync(featureDir, { recursive: true });
+      const config = {
+        members: [
+          { name: 'worker-1', worktree: '/tmp/wt-1' },
+          { name: 'worker-2', worktree: '/tmp/wt-2' },
+        ],
+      };
+      fs.writeFileSync(path.join(featureDir, 'config.json'), JSON.stringify(config));
+
+      // Act
+      const result = await readTeamConfig(featureId, tempTeamsDir);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.members).toHaveLength(2);
+      expect(result!.members[0].name).toBe('worker-1');
+      expect(result!.members[1].name).toBe('worker-2');
+    });
+
+    it('should return parsed config from flat file format', async () => {
+      // Arrange — {teamsDir}/{featureId}.json
+      const featureId = 'flat-feature';
+      const config = {
+        members: [
+          { name: 'agent-a', worktree: '/tmp/wt-a' },
+        ],
+      };
+      fs.writeFileSync(path.join(tempTeamsDir, `${featureId}.json`), JSON.stringify(config));
+
+      // Act
+      const result = await readTeamConfig(featureId, tempTeamsDir);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.members).toHaveLength(1);
+      expect(result!.members[0].name).toBe('agent-a');
+    });
+
+    it('should prefer directory format over flat file format', async () => {
+      // Arrange — both formats exist
+      const featureId = 'both-formats';
+      const featureDir = path.join(tempTeamsDir, featureId);
+      fs.mkdirSync(featureDir, { recursive: true });
+      const dirConfig = {
+        members: [{ name: 'dir-worker', worktree: '/tmp/dir-wt' }],
+      };
+      const flatConfig = {
+        members: [{ name: 'flat-worker', worktree: '/tmp/flat-wt' }],
+      };
+      fs.writeFileSync(path.join(featureDir, 'config.json'), JSON.stringify(dirConfig));
+      fs.writeFileSync(path.join(tempTeamsDir, `${featureId}.json`), JSON.stringify(flatConfig));
+
+      // Act
+      const result = await readTeamConfig(featureId, tempTeamsDir);
+
+      // Assert — directory format wins
+      expect(result).not.toBeNull();
+      expect(result!.members[0].name).toBe('dir-worker');
+    });
+
+    it('should return null when no config file exists', async () => {
+      // Act
+      const result = await readTeamConfig('nonexistent-feature', tempTeamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null for malformed JSON', async () => {
+      // Arrange
+      const featureId = 'bad-json';
+      fs.writeFileSync(path.join(tempTeamsDir, `${featureId}.json`), '{ not valid json!!!');
+
+      // Act
+      const result = await readTeamConfig(featureId, tempTeamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+  });
+
+  // ─── Task 004: Teammate Resolution from Config ──────────────────────────────
+
+  describe('resolveTeammateFromConfig', () => {
+    it('should match teammate by worktree path', () => {
+      // Arrange
+      const config = {
+        members: [
+          { name: 'worker-1', worktree: '/tmp/wt-1' },
+          { name: 'worker-2', worktree: '/tmp/wt-2' },
+        ],
+      };
+
+      // Act
+      const result = resolveTeammateFromConfig(config, '/tmp/wt-2');
+
+      // Assert
+      expect(result).toBe('worker-2');
+    });
+
+    it('should return fallback inputName when no worktree matches', () => {
+      // Arrange
+      const config = {
+        members: [
+          { name: 'worker-1', worktree: '/tmp/wt-1' },
+        ],
+      };
+
+      // Act
+      const result = resolveTeammateFromConfig(config, '/tmp/unknown-wt', 'fallback-agent');
+
+      // Assert
+      expect(result).toBe('fallback-agent');
+    });
+
+    it('should return unknown when no match and no fallback', () => {
+      // Arrange
+      const config = {
+        members: [
+          { name: 'worker-1', worktree: '/tmp/wt-1' },
+        ],
+      };
+
+      // Act
+      const result = resolveTeammateFromConfig(config, '/tmp/unknown-wt');
+
+      // Assert
+      expect(result).toBe('unknown');
+    });
+
+    it('should return null config fallback from inputName', () => {
+      // Act — config is null
+      const result = resolveTeammateFromConfig(null, '/tmp/some-wt', 'my-agent');
+
+      // Assert
+      expect(result).toBe('my-agent');
+    });
+  });
+
+  // ─── Task 004: Single-Writer Compliance ─────────────────────────────────────
+
+  describe('single-writer compliance', () => {
+    let tempDir: string;
+    const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-single-writer-test-'));
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+    });
+
+    afterEach(async () => {
+      process.env.WORKFLOW_STATE_DIR = originalEnv;
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('should emit team.task.completed event on quality pass', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = {
+        featureId: 'single-writer-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: 'task-sw-001',
+            title: 'Single writer task',
+            status: 'in_progress',
+            branch: 'feat/sw',
+            startedAt: new Date(Date.now() - 5000).toISOString(),
+          },
+        ],
+        worktrees: {
+          'wt-sw-001': {
+            branch: 'feat/sw',
+            status: 'active',
+            taskId: 'task-sw-001',
+            path: '/tmp/sw-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'single-writer-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-sw',
+        cwd: '/tmp/sw-worktree',
+      };
+
+      // Act
+      const result = await handleTeammateGate(input);
+
+      // Assert — gate passes
+      expect(result.continue).toBe(true);
+
+      // Assert — event was emitted
+      const eventFile = path.join(tempDir, 'single-writer-test.events.jsonl');
+      const content = await fsp.readFile(eventFile, 'utf-8');
+      const events = content.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const completedEvents = events.filter((e: Record<string, unknown>) => e.type === 'team.task.completed');
+      expect(completedEvents).toHaveLength(1);
+      expect((completedEvents[0].data as Record<string, unknown>).taskId).toBe('task-sw-001');
+      expect((completedEvents[0].data as Record<string, unknown>).teammateName).toBe('worker-sw');
+    });
+
+    it('should NOT mutate workflow state file on quality pass', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = {
+        featureId: 'no-mutate-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: 'task-nm-001',
+            title: 'No mutate task',
+            status: 'in_progress',
+            branch: 'feat/nm',
+            startedAt: new Date(Date.now() - 3000).toISOString(),
+          },
+        ],
+        worktrees: {
+          'wt-nm-001': {
+            branch: 'feat/nm',
+            status: 'active',
+            taskId: 'task-nm-001',
+            path: '/tmp/nm-worktree',
+          },
+        },
+        _version: 1,
+      };
+      const stateFilePath = path.join(tempDir, 'no-mutate-test.state.json');
+      await fsp.writeFile(stateFilePath, JSON.stringify(state));
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-nm',
+        cwd: '/tmp/nm-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert — state file should NOT be modified
+      const updatedRaw = await fsp.readFile(stateFilePath, 'utf-8');
+      const updatedState = JSON.parse(updatedRaw);
+      expect(updatedState.tasks[0].status).toBe('in_progress');
+      expect(updatedState.tasks[0].completedAt).toBeUndefined();
+      expect(updatedState._version).toBe(1);
     });
   });
 });
