@@ -90,6 +90,32 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+## Coordination (Native APIs)
+<!-- Agent Teams mode only. Remove this section for subagent mode. -->
+- Use `TaskList` to see available tasks and their statuses
+- Use `TaskUpdate` to mark tasks `in_progress` when you start and `completed` when done
+- Use `SendMessage` to communicate findings to teammates or the lead
+
+## Workflow Intelligence (Exarchos MCP)
+<!-- Agent Teams mode only. Remove this section for subagent mode. -->
+- Use `exarchos_workflow get` to query current workflow state
+- Use `exarchos_view tasks` to see task details across the team
+- Use `exarchos_event append` to report TDD phase transitions:
+    stream: "{featureId}"
+    event: { type: "task.progress", taskId: "{taskId}", tddPhase: "red|green|refactor" }
+
+## Team Context
+<!-- Agent Teams mode only. Populated at spawn time by orchestrator. -->
+{teamComposition}
+
+> This data is injected at spawn time. The SubagentStart hook provides only live coordination updates (task status changes, newly unblocked tasks).
+
+## Historical Context
+<!-- Agent Teams mode only. Populated at spawn time by orchestrator. -->
+{historicalIntelligence}
+
+> This data is injected at spawn time. The SubagentStart hook provides only live coordination updates.
+
 ## Code Exploration Tools
 
 For navigating and understanding code, prefer Serena MCP tools over grep/glob:
@@ -243,3 +269,18 @@ describe('validateEmail', () => {
 4. **TDD Mandatory** - Always include TDD requirements
 5. **Graphite-First** - Include commit strategy section; always use `gt create` and `gt submit`
 6. **Clear Success Criteria** - Checkboxes for completion
+
+## Agent Teams vs Subagent Mode
+
+The template sections marked "Agent Teams mode only" (Coordination, Workflow Intelligence, Team Context, Historical Context) should be **included only when dispatching via Agent Teams mode** (`Task` with `team_name`). When dispatching via subagent mode (`Task` with `run_in_background`), omit these sections -- the SubagentStart hook handles context injection for subagents.
+
+| Section | Agent Teams Mode | Subagent Mode |
+|---------|-----------------|---------------|
+| Coordination (Native APIs) | Include in spawn prompt | Omit (not applicable) |
+| Workflow Intelligence (Exarchos MCP) | Include in spawn prompt | Omit (hook injects) |
+| Team Context | Include -- populated at spawn time | Omit (hook injects) |
+| Historical Context | Include -- populated at spawn time | Omit (hook injects) |
+
+## MCP Auto-Loading
+
+Teammates automatically load project MCP servers (including Exarchos). The Coordination and Workflow Intelligence sections guide WHICH tools to use, not HOW to access them. Do not include MCP connection instructions or tool registration details in the spawn prompt.
