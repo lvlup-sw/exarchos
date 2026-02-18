@@ -107,6 +107,28 @@ export const RefactorPhaseSchema = z.enum([
   'blocked',
 ]);
 
+// ─── Performance SLA Schema ────────────────────────────────────────────────
+
+export const PerformanceSLASchema = z.object({
+  metric: z.string(),
+  threshold: z.number(),
+  unit: z.enum(['ms', 'ops/s', 'MB']),
+});
+
+export type PerformanceSLA = z.infer<typeof PerformanceSLASchema>;
+
+// ─── Testing Strategy Schema ───────────────────────────────────────────────
+
+export const TestingStrategySchema = z.object({
+  exampleTests: z.literal(true),
+  propertyTests: z.boolean(),
+  benchmarks: z.boolean(),
+  properties: z.array(z.string()).optional(),
+  performanceSLAs: z.array(PerformanceSLASchema).optional(),
+});
+
+export type TestingStrategy = z.infer<typeof TestingStrategySchema>;
+
 // ─── Task Schema ────────────────────────────────────────────────────────────
 
 export const TaskStatusSchema = z.enum([
@@ -127,6 +149,7 @@ export const TaskSchema = z.object({
   teammateName: z.string().optional(),
   blockedBy: z.array(z.string()).default([]),
   worktreePath: z.string().optional(),
+  testingStrategy: TestingStrategySchema.optional(),
 });
 
 // ─── Worktree Schema ────────────────────────────────────────────────────────
