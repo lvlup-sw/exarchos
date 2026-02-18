@@ -131,7 +131,7 @@ export async function handleBatchAppend(
 
   try {
     const storeEvents = args.events.map((event) => ({
-      type: event.type as string,
+      type: event.type as EventType,
       ...(event.data !== undefined && { data: event.data as Record<string, unknown> }),
       ...(event.correlationId !== undefined && { correlationId: event.correlationId as string }),
       ...(event.causationId !== undefined && { causationId: event.causationId as string }),
