@@ -109,6 +109,8 @@ export async function handleInit(
       try {
         const event = await moduleEventStore.append(input.featureId, {
           type: 'workflow.started' as import('../event-store/schemas.js').EventType,
+          correlationId: input.featureId,
+          source: 'workflow',
           data: {
             featureId: input.featureId,
             workflowType: input.workflowType,
@@ -281,6 +283,8 @@ async function emitTransitionEvents(
     for (const evt of events) {
       await moduleEventStore.append(featureId, {
         type: mapInternalToExternalType(evt.type) as import('../event-store/schemas.js').EventType,
+        correlationId: featureId,
+        source: 'workflow',
         data: {
           from: evt.from,
           to: evt.to,
@@ -425,6 +429,8 @@ export async function handleSet(
           const idempotencyKey = `${input.featureId}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
           const event = await moduleEventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            correlationId: input.featureId,
+            source: 'workflow',
             data: {
               from: transitionEvent.from,
               to: transitionEvent.to,
@@ -538,6 +544,8 @@ export async function handleCheckpoint(
     try {
       await moduleEventStore.append(input.featureId, {
         type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
+        correlationId: input.featureId,
+        source: 'workflow',
         data: {
           counter: 0,
           phase: state.phase,
