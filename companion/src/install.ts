@@ -1,24 +1,22 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 interface Settings {
   enabledPlugins?: Record<string, boolean>;
-  [key: string]: unknown;
 }
 
 interface McpServerEntry {
   type: string;
   url?: string;
   command?: string;
-  [key: string]: unknown;
 }
 
 interface McpConfig {
   mcpServers?: Record<string, McpServerEntry>;
-  [key: string]: unknown;
 }
 
 const PLUGINS_TO_ENABLE: Record<string, boolean> = {
@@ -47,12 +45,23 @@ export function installCompanion(
   return { pluginsEnabled, mcpServersAdded };
 }
 
+function parseJsonFile<T extends object>(filePath: string, label: string): T {
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8')) as T;
+  } catch {
+    process.stderr.write(
+      `Warning: could not parse ${label} at ${filePath} — treating as fresh install.\n`,
+    );
+    return {} as T;
+  }
+}
+
 function installPlugins(claudeHome: string): string[] {
   mkdirSync(claudeHome, { recursive: true });
 
   const settingsPath = join(claudeHome, 'settings.json');
   const settings: Settings = existsSync(settingsPath)
-    ? JSON.parse(readFileSync(settingsPath, 'utf-8')) as Settings
+    ? parseJsonFile<Settings>(settingsPath, 'settings.json')
     : {};
 
   if (!settings.enabledPlugins) {
@@ -75,7 +84,7 @@ function installPlugins(claudeHome: string): string[] {
 
 function installMcpServers(configPath: string): string[] {
   const config: McpConfig = existsSync(configPath)
-    ? JSON.parse(readFileSync(configPath, 'utf-8')) as McpConfig
+    ? parseJsonFile<McpConfig>(configPath, '.claude.json')
     : {};
 
   if (!config.mcpServers) {
@@ -97,7 +106,17 @@ function installMcpServers(configPath: string): string[] {
 }
 
 // CLI entry point
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+const isMainModule = (() => {
+  try {
+    const thisFile = fileURLToPath(import.meta.url);
+    const mainFile = realpathSync(process.argv[1]);
+    return thisFile === mainFile;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMainModule) {
   const result = installCompanion();
   console.log('Exarchos Dev Tools installed:');
   result.pluginsEnabled.forEach(p => console.log(`  Plugin enabled: ${p}`));
