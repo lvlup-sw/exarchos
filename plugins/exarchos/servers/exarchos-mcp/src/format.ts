@@ -1,9 +1,11 @@
 // ─── Shared Tool Result Formatting ──────────────────────────────────────────
 
+import type { ValidTransitionTarget } from './workflow/state-machine.js';
+
 export interface ToolResult {
   readonly success: boolean;
   readonly data?: unknown;
-  readonly error?: { code: string; message: string; validTargets?: readonly string[] };
+  readonly error?: { code: string; message: string; validTargets?: readonly (string | ValidTransitionTarget)[] };
   readonly _meta?: unknown;
 }
 
