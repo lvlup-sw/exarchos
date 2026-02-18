@@ -193,6 +193,37 @@ describe('coercedNonnegativeInt', () => {
   });
 });
 
+// ─── Registration Schema JSON Output ────────────────────────────────────────
+
+describe('buildRegistrationSchema JSON Schema', () => {
+  it('should emit type:object for coercedRecord fields', () => {
+    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
+    const workflow = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow')!;
+    const schema = buildRegistrationSchema(workflow.actions);
+    const json = zodToJsonSchema(schema) as Record<string, unknown>;
+    const props = json.properties as Record<string, Record<string, unknown>>;
+    expect(props.updates).toEqual({ type: 'object', additionalProperties: {} });
+  });
+
+  it('should emit type:integer for coercedPositiveInt fields', () => {
+    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
+    const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
+    const schema = buildRegistrationSchema(event.actions);
+    const json = zodToJsonSchema(schema) as Record<string, unknown>;
+    const props = json.properties as Record<string, Record<string, unknown>>;
+    expect(props.limit).toEqual({ type: 'integer', exclusiveMinimum: 0 });
+  });
+
+  it('should emit type:integer for coercedNonnegativeInt fields', () => {
+    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
+    const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
+    const schema = buildRegistrationSchema(event.actions);
+    const json = zodToJsonSchema(schema) as Record<string, unknown>;
+    const props = json.properties as Record<string, Record<string, unknown>>;
+    expect(props.offset).toEqual({ type: 'integer', minimum: 0 });
+  });
+});
+
 // ─── A2: TOOL_REGISTRY Tests ─────────────────────────────────────────────────
 
 const ALL_FEATURE_PHASES = new Set([

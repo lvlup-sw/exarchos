@@ -13,28 +13,35 @@ function tryJsonParse(val: string): unknown {
   }
 }
 
-/** z.record() that also accepts a JSON string and parses it to an object. */
-export function coercedRecord(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodRecord<z.ZodString, z.ZodUnknown>> {
+/** z.record() that also accepts a JSON string and parses it to an object.
+ *  Uses z.preprocess directly into z.record so zodToJsonSchema emits
+ *  {"type":"object"} instead of {} — prompting the LLM to pass native objects.
+ */
+export function coercedRecord() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? tryJsonParse(val) : val),
-    z.unknown(),
-  ).pipe(z.record(z.string(), z.unknown()));
+    z.record(z.string(), z.unknown()),
+  );
 }
 
-/** z.number().int().positive() that also accepts a numeric string. */
-export function coercedPositiveInt(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodNumber> {
+/** z.number().int().positive() that also accepts a numeric string.
+ *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
+ */
+export function coercedPositiveInt() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? Number(val) : val),
-    z.unknown(),
-  ).pipe(z.number().int().positive());
+    z.number().int().positive(),
+  );
 }
 
-/** z.number().int().nonnegative() that also accepts a numeric string. */
-export function coercedNonnegativeInt(): z.ZodPipeline<z.ZodEffects<z.ZodUnknown, unknown, unknown>, z.ZodNumber> {
+/** z.number().int().nonnegative() that also accepts a numeric string.
+ *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
+ */
+export function coercedNonnegativeInt() {
   return z.preprocess(
     (val) => (typeof val === 'string' ? Number(val) : val),
-    z.unknown(),
-  ).pipe(z.number().int().nonnegative());
+    z.number().int().nonnegative(),
+  );
 }
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
@@ -82,6 +89,29 @@ export function buildCompositeSchema(
 }
 
 /**
+ * Unwraps `z.preprocess()` effects so zodToJsonSchema emits the inner
+ * schema's type (e.g., `{"type":"object"}`) instead of an opaque
+ * `{"allOf":[{},{"type":"object"}]}` wrapper.  Handles both bare and
+ * optional-wrapped preprocess effects.
+ *
+ * The preprocess coercion still runs at validation time via the original
+ * action schemas in `buildCompositeSchema` — this only affects the JSON
+ * Schema sent to tool callers.
+ */
+function unwrapPreprocess(schema: z.ZodTypeAny): z.ZodTypeAny {
+  if (schema instanceof z.ZodOptional) {
+    const inner = schema._def.innerType;
+    if (inner instanceof z.ZodEffects && inner._def.effect.type === 'preprocess') {
+      return inner._def.schema.optional();
+    }
+  }
+  if (schema instanceof z.ZodEffects && schema._def.effect.type === 'preprocess') {
+    return schema._def.schema;
+  }
+  return schema;
+}
+
+/**
  * Builds a strict Zod object schema for MCP SDK tool registration.
  *
  * The MCP SDK's `normalizeObjectSchema` cannot generate JSON Schema from
@@ -94,6 +124,10 @@ export function buildCompositeSchema(
  * The returned schema uses `.strict()` so that unrecognized parameter names
  * (e.g., `streamId` instead of `stream`) produce clear validation errors
  * instead of being silently dropped.
+ *
+ * Preprocess effects are unwrapped so zodToJsonSchema emits clean type
+ * constraints (e.g., `{"type":"object"}`) rather than opaque wrappers.
+ * Runtime coercion is preserved via the original schemas in buildCompositeSchema.
  */
 export function buildRegistrationSchema(
   actions: readonly ToolAction[],
@@ -109,7 +143,8 @@ export function buildRegistrationSchema(
       if (key in shape) continue; // already added from an earlier action
       // Make all per-action fields optional at the composite level;
       // individual handlers enforce required fields via their own schemas.
-      const field = zodType as z.ZodTypeAny;
+      // Unwrap preprocess effects for clean JSON Schema generation.
+      const field = unwrapPreprocess(zodType as z.ZodTypeAny);
       shape[key] = field.isOptional() ? field : field.optional();
     }
   }
