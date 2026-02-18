@@ -19,6 +19,9 @@
     "settings.json",
     ".claude",
     ".mcp.json",
+    ".claude-plugin",
+    "hooks",
+    "companion",
     "CLAUDE.md.template",
     "AGENTS.md",
     "!**/node_modules",
@@ -34,12 +37,19 @@
     "bench": "cd plugins/exarchos/servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate": "bash scripts/validate-plugin.sh",
+    "validate:companion": "bash scripts/validate-companion.sh"
   },
   "keywords": [
-    "claude",
-    "cli",
-    "installer"
+    "claude-code-plugin",
+    "agent-governance",
+    "workflow",
+    "sdlc",
+    "tdd",
+    "graphite",
+    "event-sourcing",
+    "code-review"
   ],
   "author": "lvlup-sw",
   "license": "MIT",
