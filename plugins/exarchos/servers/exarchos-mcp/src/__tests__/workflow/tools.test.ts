@@ -143,6 +143,40 @@ describe('Core Tools', () => {
     });
   });
 
+  // ─── T1: handleInit event metadata (ARCH-4) ─────────────────────────────────
+
+  describe('HandleInit_AppendedEvent_HasCorrelationIdDefaultingToFeatureId', () => {
+    it('should include correlationId equal to featureId in workflow.started event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'corr-test', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('corr-test');
+      expect(events.length).toBe(1);
+      expect(events[0].correlationId).toBe('corr-test');
+    });
+  });
+
+  describe('HandleInit_AppendedEvent_HasSourceWorkflow', () => {
+    it('should include source: workflow in workflow.started event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'src-test', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('src-test');
+      expect(events.length).toBe(1);
+      expect(events[0].source).toBe('workflow');
+    });
+  });
+
   // ─── ToolList ───────────────────────────────────────────────────────────────
 
   describe('ToolList_ActiveWorkflows_ReturnsWithStaleness', () => {
@@ -650,6 +684,59 @@ describe('Core Tools', () => {
     });
   });
 
+  // ─── T2: handleSet transition event metadata (ARCH-4) ────────────────────────
+
+  describe('HandleSet_TransitionEvent_HasCorrelationId', () => {
+    it('should include correlationId in workflow.transition event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'set-corr-test', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      // Set design artifact to satisfy guard, then transition
+      await handleSet(
+        { featureId: 'set-corr-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'set-corr-test', phase: 'plan' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('set-corr-test', { type: 'workflow.transition' });
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      expect(events[0].correlationId).toBe('set-corr-test');
+    });
+  });
+
+  describe('HandleSet_TransitionEvent_HasSource', () => {
+    it('should include source: workflow in workflow.transition event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'set-src-test', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      await handleSet(
+        { featureId: 'set-src-test', updates: { 'artifacts.design': 'docs/design.md' } },
+        tmpDir,
+      );
+      await handleSet(
+        { featureId: 'set-src-test', phase: 'plan' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('set-src-test', { type: 'workflow.transition' });
+      expect(events.length).toBeGreaterThanOrEqual(1);
+      expect(events[0].source).toBe('workflow');
+    });
+  });
+
   // ─── ToolCancel ──────────────────────────────────────────────────────────────
 
   describe('ToolCancel_ActiveWorkflow_ExecutesCompensationAndTransitions', () => {
@@ -816,6 +903,30 @@ describe('Core Tools', () => {
       // Verify checkpoint counter was reset on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-multi.state.json'));
       expect(state._checkpoint.operationsSince).toBe(0);
+    });
+  });
+
+  // ─── T3: handleCheckpoint event metadata (ARCH-4) ───────────────────────────
+
+  describe('HandleCheckpoint_Event_HasCorrelationIdAndSource', () => {
+    it('should include correlationId and source in workflow.checkpoint event', async () => {
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+
+      await handleInit(
+        { featureId: 'ckpt-meta', workflowType: 'feature' },
+        tmpDir,
+      );
+
+      await handleCheckpoint(
+        { featureId: 'ckpt-meta', summary: 'test checkpoint' },
+        tmpDir,
+      );
+
+      const events = await eventStore.query('ckpt-meta', { type: 'workflow.checkpoint' });
+      expect(events.length).toBe(1);
+      expect(events[0].correlationId).toBe('ckpt-meta');
+      expect(events[0].source).toBe('workflow');
     });
   });
 });
