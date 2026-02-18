@@ -450,6 +450,18 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'code_quality',
+    description: 'Code quality metrics with gate pass rates, skill attribution, and regression detection',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      skill: z.string().optional(),
+      gate: z.string().optional(),
+      limit: coercedPositiveInt().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────

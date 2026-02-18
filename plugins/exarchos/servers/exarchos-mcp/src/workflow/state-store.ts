@@ -546,6 +546,20 @@ export async function reconcileFromEvents(
   // Update _eventSequence
   stateRecord._eventSequence = maxSequence;
 
+  // Phase reconciliation: compare state.phase against last workflow.transition event.
+  // This catches corrupted state files where the phase is out of sync with events.
+  const allEvents = await eventStore.query(featureId);
+  const lastTransition = [...allEvents]
+    .reverse()
+    .find((e) => e.type === 'workflow.transition');
+  if (lastTransition?.data) {
+    const eventPhase = (lastTransition.data as Record<string, unknown>).to as string | undefined;
+    if (eventPhase && stateRecord.phase !== eventPhase) {
+      stateRecord.phase = eventPhase;
+      if (!eventsApplied) eventsApplied = 1; // Mark as reconciled even if only phase was fixed
+    }
+  }
+
   // Write updated state with CAS guard (Fix 2)
   await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
 

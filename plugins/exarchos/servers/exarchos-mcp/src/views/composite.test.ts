@@ -7,6 +7,7 @@ vi.mock('./tools.js', () => ({
   handleViewWorkflowStatus: vi.fn(),
   handleViewTeamPerformance: vi.fn(),
   handleViewDelegationTimeline: vi.fn(),
+  handleViewCodeQuality: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -27,6 +28,7 @@ import {
   handleViewWorkflowStatus,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
+  handleViewCodeQuality,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -249,7 +251,44 @@ describe('handleView', () => {
     });
   });
 
+  describe('code_quality', () => {
+    it('HandleView_CodeQuality_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: {}, gates: {}, regressions: [], benchmarks: [] },
+      };
+      vi.mocked(handleViewCodeQuality).mockResolvedValue(expected);
+      const args = { action: 'code_quality', workflowId: 'wf-5' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewCodeQuality).toHaveBeenCalledWith(
+        { workflowId: 'wf-5' },
+        STATE_DIR,
+      );
+    });
+  });
+
   describe('unknown action', () => {
+    it('HandleView_UnknownAction_IncludesCodeQuality', async () => {
+      // Arrange
+      const args = { action: 'nonexistent' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('UNKNOWN_ACTION');
+      const validTargets = (result.error as Record<string, unknown>)?.validTargets as string[];
+      expect(validTargets).toContain('code_quality');
+    });
+
     it('should return error for unknown action', async () => {
       // Arrange
       const args = { action: 'nonexistent' };
