@@ -2,6 +2,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
 import { listStateFiles } from '../workflow/state-store.js';
+import { telemetryProjection } from '../telemetry/telemetry-projection.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
+import { generateHints } from '../telemetry/hints.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,7 @@ interface WorkflowInfo {
 export interface SessionStartResult extends CommandResult {
   readonly workflows?: ReadonlyArray<WorkflowInfo>;
   readonly orphanedTeams?: ReadonlyArray<string>;
+  readonly telemetryHints?: ReadonlyArray<string>;
 }
 
 // ─── Terminal Phases ────────────────────────────────────────────────────────
@@ -259,6 +263,48 @@ async function listNativeTeamFeatureIds(teamsDir: string): Promise<string[]> {
   return [...featureIds];
 }
 
+// ─── Telemetry Hint Injection ────────────────────────────────────────────────
+
+/**
+ * Query telemetry event stream and generate optimization hints.
+ *
+ * Reads the telemetry JSONL file, materializes the telemetry projection
+ * using init() + apply() directly (no ViewMaterializer dependency),
+ * and returns formatted hint strings.
+ *
+ * Gracefully handles missing files by returning an empty array.
+ */
+export async function queryTelemetryHints(stateDir: string): Promise<string[]> {
+  const telemetryPath = path.join(stateDir, 'telemetry.events.jsonl');
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(telemetryPath, 'utf-8');
+  } catch {
+    return [];
+  }
+
+  const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return [];
+
+  let state = telemetryProjection.init();
+
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as WorkflowEvent;
+      state = telemetryProjection.apply(state, event);
+    } catch {
+      // Skip malformed lines
+      continue;
+    }
+  }
+
+  const hints = generateHints(state);
+  if (hints.length === 0) return [];
+
+  return hints.map((h) => `${h.tool}: ${h.hint}`);
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
@@ -332,6 +378,19 @@ async function applyNativeTeamDetection(
 }
 
 /**
+ * Enrich a session-start result with telemetry optimization hints.
+ * Only adds the `telemetryHints` field when hints are non-empty.
+ */
+async function enrichWithTelemetryHints(
+  result: SessionStartResult,
+  stateDir: string,
+): Promise<SessionStartResult> {
+  const hints = await queryTelemetryHints(stateDir);
+  if (hints.length === 0) return result;
+  return { ...result, telemetryHints: hints };
+}
+
+/**
  * Handle the `session-start` CLI command.
  *
  * Priority:
@@ -341,6 +400,9 @@ async function applyNativeTeamDetection(
  *
  * Additionally, when teamsDir is provided, checks for orphaned native Agent
  * Teams directories and includes cleanup recommendations.
+ *
+ * Telemetry hints are appended when the telemetry stream contains metrics
+ * that exceed optimization thresholds.
  */
 export async function handleSessionStart(
   _stdinData: Record<string, unknown>,
@@ -384,8 +446,8 @@ export async function handleSessionStart(
       // Non-critical: if listing fails, we still have checkpoint data
     }
 
-    if (teamsDir) return applyNativeTeamDetection(workflows, teamsDir);
-    return { workflows };
+    if (teamsDir) return enrichWithTelemetryHints(await applyNativeTeamDetection(workflows, teamsDir), stateDir);
+    return enrichWithTelemetryHints({ workflows }, stateDir);
   }
 
   // Step 2: No checkpoints — discover active workflows from state files
@@ -395,7 +457,7 @@ export async function handleSessionStart(
       (entry) => !TERMINAL_PHASES.has(entry.state.phase),
     );
 
-    if (activeWorkflows.length === 0 && !teamsDir) return {};
+    if (activeWorkflows.length === 0 && !teamsDir) return enrichWithTelemetryHints({}, stateDir);
 
     const workflows: WorkflowInfo[] = activeWorkflows.map((entry) => ({
       featureId: entry.featureId,
@@ -404,12 +466,12 @@ export async function handleSessionStart(
       nextAction: `WAIT:in-progress:${entry.state.phase}`,
     }));
 
-    if (teamsDir) return applyNativeTeamDetection(workflows, teamsDir);
-    if (workflows.length === 0) return {};
-    return { workflows };
+    if (teamsDir) return enrichWithTelemetryHints(await applyNativeTeamDetection(workflows, teamsDir), stateDir);
+    if (workflows.length === 0) return enrichWithTelemetryHints({}, stateDir);
+    return enrichWithTelemetryHints({ workflows }, stateDir);
   } catch {
     // If state dir doesn't exist or is unreadable, still check for orphaned teams
-    if (teamsDir) return applyNativeTeamDetection([], teamsDir);
-    return {};
+    if (teamsDir) return enrichWithTelemetryHints(await applyNativeTeamDetection([], teamsDir), stateDir);
+    return enrichWithTelemetryHints({}, stateDir);
   }
 }
