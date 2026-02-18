@@ -1,5 +1,5 @@
 import * as fs from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
+import { createReadStream, openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
 import { WorkflowEventBase } from './schemas.js';
@@ -16,6 +16,31 @@ export class SequenceConflictError extends Error {
       `Sequence conflict: expected ${expected}, actual ${actual}`,
     );
     this.name = 'SequenceConflictError';
+  }
+}
+
+// ─── PID Lock Error ──────────────────────────────────────────────────────────
+
+export class PidLockError extends Error {
+  constructor(
+    public readonly existingPid: number,
+  ) {
+    super(
+      `Event store is locked by live process PID ${existingPid}`,
+    );
+    this.name = 'PidLockError';
+  }
+}
+
+// ─── PID Helpers ─────────────────────────────────────────────────────────────
+
+/** Check if a process with the given PID is alive. */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -50,6 +75,15 @@ function validateStreamId(streamId: string): void {
   }
 }
 
+/** Parse an integer from an environment variable with a fallback default. */
+function parseEnvInt(envVar: string, defaultValue: number): number {
+  const raw = process.env[envVar];
+  if (raw === undefined) return defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0) return defaultValue;
+  return parsed;
+}
+
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -71,12 +105,80 @@ export class EventStore {
    * Retries with evicted keys will NOT be deduplicated.
    * Acceptable because retries occur within the same session, not across long time spans.
    */
-  private static readonly MAX_IDEMPOTENCY_KEYS = 100;
+  private readonly maxIdempotencyKeys: number;
 
   /** Tracks which streams have had their idempotency cache rebuilt from JSONL */
   private idempotencyCacheInitialized: Set<string> = new Set();
 
-  constructor(private readonly stateDir: string) {}
+  /** Whether initialize() has been called */
+  private initialized = false;
+
+  /** Path to the PID lock file */
+  private lockFilePath: string;
+
+  constructor(private readonly stateDir: string) {
+    this.lockFilePath = path.join(stateDir, '.event-store.lock');
+    this.maxIdempotencyKeys = parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
+  }
+
+  // ─── PID Lock ──────────────────────────────────────────────────────────────
+
+  /**
+   * Initialize the event store: acquire PID lock and register cleanup handler.
+   * Must be called before first use when cross-process safety is needed.
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    await this.acquirePidLock();
+    this.initialized = true;
+  }
+
+  private async acquirePidLock(): Promise<void> {
+    await fs.mkdir(this.stateDir, { recursive: true });
+
+    try {
+      // Attempt atomic creation
+      const fd = openSync(this.lockFilePath, 'wx');
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+
+      // Lock file exists — check if holding PID is alive
+      const content = await fs.readFile(this.lockFilePath, 'utf-8');
+      const existingPid = parseInt(content.trim(), 10);
+
+      if (!isNaN(existingPid) && isPidAlive(existingPid)) {
+        throw new PidLockError(existingPid);
+      }
+
+      // Stale lock — atomic reclaim: unlink then exclusive create
+      try {
+        await fs.unlink(this.lockFilePath);
+        const fd = openSync(this.lockFilePath, 'wx');
+        writeSync(fd, String(process.pid));
+        closeSync(fd);
+      } catch (reclaimErr) {
+        if ((reclaimErr as NodeJS.ErrnoException).code === 'EEXIST') {
+          // Another process reclaimed between unlink and open — re-read to report
+          const newContent = await fs.readFile(this.lockFilePath, 'utf-8');
+          const winnerPid = parseInt(newContent.trim(), 10);
+          throw new PidLockError(winnerPid);
+        }
+        throw reclaimErr;
+      }
+    }
+
+    // Register cleanup handler
+    const lockPath = this.lockFilePath;
+    process.on('exit', () => {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // Best-effort cleanup
+      }
+    });
+  }
 
   private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
     const existing = this.locks.get(streamId) ?? Promise.resolve();
@@ -258,7 +360,7 @@ export class EventStore {
     streamCache.set(event.idempotencyKey, event);
 
     // FIFO eviction: remove oldest key when cache exceeds max
-    if (streamCache.size > EventStore.MAX_IDEMPOTENCY_KEYS) {
+    if (streamCache.size > this.maxIdempotencyKeys) {
       const oldest = streamCache.keys().next().value;
       if (oldest) streamCache.delete(oldest);
     }
@@ -355,7 +457,7 @@ export class EventStore {
     }
 
     // Take only the last MAX_IDEMPOTENCY_KEYS entries
-    const toCache = keyed.slice(-EventStore.MAX_IDEMPOTENCY_KEYS);
+    const toCache = keyed.slice(-this.maxIdempotencyKeys);
 
     if (toCache.length > 0) {
       const streamCache = new Map<string, WorkflowEvent>();
@@ -383,13 +485,35 @@ export class EventStore {
       // Fall through to line counting
     }
 
-    // Fallback: count lines in JSONL file (O(n))
+    // Fallback: count lines in JSONL file (O(n)) with sequence invariant validation
     const filePath = this.getEventFilePath(streamId);
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.trim().split('\n').filter(Boolean);
+
+      // Sequence invariant validation: sample first and last line
+      if (lines.length > 0) {
+        const firstEvent = JSON.parse(lines[0]) as WorkflowEvent;
+        if (firstEvent.sequence !== 1) {
+          throw new Error(
+            `Sequence invariant violated for stream '${streamId}': first event has sequence ${firstEvent.sequence}, expected 1`,
+          );
+        }
+
+        const lastEvent = JSON.parse(lines[lines.length - 1]) as WorkflowEvent;
+        if (lastEvent.sequence !== lines.length) {
+          throw new Error(
+            `Sequence invariant violated for stream '${streamId}': last event has sequence ${lastEvent.sequence}, expected ${lines.length}`,
+          );
+        }
+      }
+
       this.sequenceCounters.set(streamId, lines.length);
-    } catch {
+    } catch (err) {
+      // Re-throw sequence invariant errors
+      if (err instanceof Error && err.message.includes('Sequence invariant')) {
+        throw err;
+      }
       this.sequenceCounters.set(streamId, 0);
     }
   }
