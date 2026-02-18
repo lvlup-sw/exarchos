@@ -151,9 +151,10 @@ while IFS= read -r event; do
                 VIOLATIONS+=("VIOLATION: team.task.planned (seq $event_seq) appeared after team.disbanded (seq $DISBANDED_SEQUENCE)")
             fi
 
-            # Track planned task ID
-            task_id="$(echo "$event" | jq -r '.data.taskId')"
-            PLANNED_TASK_IDS+=("$task_id")
+            # Track planned task IDs — support both single taskId and batched taskIds[]
+            while IFS= read -r tid; do
+                PLANNED_TASK_IDS+=("$tid")
+            done < <(echo "$event" | jq -r '(.data.taskIds // [])[] // empty, (.data.taskId // empty)')
             HAS_PLANNED=true
             ;;
 
@@ -173,10 +174,10 @@ while IFS= read -r event; do
                 VIOLATIONS+=("VIOLATION: team.teammate.dispatched (seq $event_seq) appeared after team.disbanded (seq $DISBANDED_SEQUENCE)")
             fi
 
-            # Track dispatched task IDs for coverage check
+            # Track dispatched task IDs for coverage check (safe on missing/null field)
             while IFS= read -r tid; do
                 DISPATCHED_TASK_IDS+=("$tid")
-            done < <(echo "$event" | jq -r '.data.assignedTaskIds[]')
+            done < <(echo "$event" | jq -r '(.data.assignedTaskIds // [])[]')
             ;;
 
         team.disbanded)
@@ -186,7 +187,7 @@ while IFS= read -r event; do
 
         # Other team.* events — no specific rules yet, but check disbanded constraint
         team.*)
-            if [[ "$HAS_DISBANDED" == true && "$event_type" != "team.disbanded" ]]; then
+            if [[ "$HAS_DISBANDED" == true ]]; then
                 VIOLATIONS+=("VIOLATION: $event_type (seq $event_seq) appeared after team.disbanded (seq $DISBANDED_SEQUENCE)")
             fi
             ;;
@@ -219,15 +220,21 @@ fi
 # ============================================================
 
 if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
-    echo "Delegation saga validation FAILED for feature '$FEATURE_ID':"
+    echo "## Delegation Saga Validation"
+    echo ""
+    echo "**Status:** FAILED for feature \`$FEATURE_ID\`"
+    echo ""
+    echo "### Violations"
     echo ""
     for v in "${VIOLATIONS[@]}"; do
-        echo "  $v"
+        echo "- $v"
     done
     echo ""
-    echo "${#VIOLATIONS[@]} violation(s) found."
+    echo "**Total:** ${#VIOLATIONS[@]} violation(s) found."
     exit 1
 fi
 
-echo "Delegation saga validation PASSED for feature '$FEATURE_ID'."
+echo "## Delegation Saga Validation"
+echo ""
+echo "**Status:** PASSED for feature \`$FEATURE_ID\`"
 exit 0

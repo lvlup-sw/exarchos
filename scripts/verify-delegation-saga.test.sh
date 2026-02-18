@@ -27,6 +27,7 @@ fail() {
 # ============================================================
 
 TMPDIR_ROOT=""
+STATE_DIR=""
 
 setup() {
     TMPDIR_ROOT="$(mktemp -d)"
@@ -272,6 +273,66 @@ if echo "$OUTPUT" | grep -qi "team.disbanded"; then
     pass "DisbandedNotLast_OutputMentionsViolation"
 else
     fail "DisbandedNotLast_OutputMentionsViolation (output does not mention team.disbanded)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 12: Batched taskIds[] in planned event — dispatched tasks covered -> exit 0
+# --------------------------------------------------
+setup
+write_events "batched-taskids" \
+    '{"streamId":"batched-taskids","sequence":1,"timestamp":"2026-02-18T00:00:00.000Z","type":"team.spawned","data":{"teamSize":1,"taskCount":3,"dispatchMode":"agent-team"}}' \
+    '{"streamId":"batched-taskids","sequence":2,"timestamp":"2026-02-18T00:00:01.000Z","type":"team.task.planned","data":{"taskIds":["task-A","task-B","task-C"],"title":"Batched plan","modules":["core"],"blockedBy":[]}}' \
+    '{"streamId":"batched-taskids","sequence":3,"timestamp":"2026-02-18T00:00:02.000Z","type":"team.teammate.dispatched","data":{"teammateName":"worker-1","worktreePath":"/path/wt1","assignedTaskIds":["task-A","task-B","task-C"],"model":"opus"}}'
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --feature-id batched-taskids --state-dir "$STATE_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "BatchedTaskIds_PlannedArray_ExitsZero"
+else
+    fail "BatchedTaskIds_PlannedArray_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 13: Batched taskIds[] with unplanned dispatch -> exit 1
+# --------------------------------------------------
+setup
+write_events "batched-taskids-unplanned" \
+    '{"streamId":"batched-taskids-unplanned","sequence":1,"timestamp":"2026-02-18T00:00:00.000Z","type":"team.spawned","data":{"teamSize":1,"taskCount":2,"dispatchMode":"agent-team"}}' \
+    '{"streamId":"batched-taskids-unplanned","sequence":2,"timestamp":"2026-02-18T00:00:01.000Z","type":"team.task.planned","data":{"taskIds":["task-A","task-B"],"title":"Batched plan","modules":["core"],"blockedBy":[]}}' \
+    '{"streamId":"batched-taskids-unplanned","sequence":3,"timestamp":"2026-02-18T00:00:02.000Z","type":"team.teammate.dispatched","data":{"teammateName":"worker-1","worktreePath":"/path/wt1","assignedTaskIds":["task-A","task-X"],"model":"opus"}}'
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --feature-id batched-taskids-unplanned --state-dir "$STATE_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "BatchedTaskIds_UnplannedDispatch_ExitsOne"
+else
+    fail "BatchedTaskIds_UnplannedDispatch_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+if echo "$OUTPUT" | grep -q "task-X"; then
+    pass "BatchedTaskIds_OutputMentionsUnplannedTaskId"
+else
+    fail "BatchedTaskIds_OutputMentionsUnplannedTaskId (output does not mention task-X)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 14: Missing assignedTaskIds field in dispatch — no crash -> exit 0
+# --------------------------------------------------
+setup
+write_events "missing-assigned" \
+    '{"streamId":"missing-assigned","sequence":1,"timestamp":"2026-02-18T00:00:00.000Z","type":"team.spawned","data":{"teamSize":1,"taskCount":1,"dispatchMode":"agent-team"}}' \
+    '{"streamId":"missing-assigned","sequence":2,"timestamp":"2026-02-18T00:00:01.000Z","type":"team.task.planned","data":{"taskId":"task-001","title":"Schema extension","modules":["workflow"],"blockedBy":[]}}' \
+    '{"streamId":"missing-assigned","sequence":3,"timestamp":"2026-02-18T00:00:02.000Z","type":"team.teammate.dispatched","data":{"teammateName":"worker-1","worktreePath":"/path/wt1","model":"opus"}}'
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --feature-id missing-assigned --state-dir "$STATE_DIR" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "MissingAssignedTaskIds_NoCrash_ExitsZero"
+else
+    fail "MissingAssignedTaskIds_NoCrash_ExitsZero (exit=$EXIT_CODE, expected 0)"
     echo "  Output: $OUTPUT"
 fi
 teardown
