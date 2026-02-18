@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleSessionStart } from './session-start.js';
+import { handleSessionStart, detectNativeTeam } from './session-start.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -503,6 +503,377 @@ describe('session-start command', () => {
       const workflow = result.workflows!.find((w) => w.featureId === 'review-team');
       expect(workflow).toBeDefined();
       expect(workflow!.recovery).toBeUndefined();
+    });
+  });
+
+  // ─── Native Team Directory Detection ────────────────────────────────────────
+
+  describe('detectNativeTeam', () => {
+    let teamsDir: string;
+
+    beforeEach(async () => {
+      teamsDir = path.join(tmpDir, 'teams');
+      await fs.mkdir(teamsDir, { recursive: true });
+    });
+
+    it('should return team info when directory format config exists with members', async () => {
+      // Arrange — ~/.claude/teams/{featureId}/config.json
+      const featureId = 'my-feature';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [
+            { name: 'agent-auth', role: 'teammate' },
+            { name: 'agent-api', role: 'teammate' },
+          ],
+        }),
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.memberCount).toBe(2);
+      expect(result!.memberNames).toContain('agent-auth');
+      expect(result!.memberNames).toContain('agent-api');
+    });
+
+    it('should return team info when flat file format exists with members', async () => {
+      // Arrange — ~/.claude/teams/{featureId}.json
+      const featureId = 'flat-feature';
+      await fs.writeFile(
+        path.join(teamsDir, `${featureId}.json`),
+        JSON.stringify({
+          members: [
+            { name: 'agent-ui', role: 'teammate' },
+          ],
+        }),
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert
+      expect(result).not.toBeNull();
+      expect(result!.memberCount).toBe(1);
+      expect(result!.memberNames).toContain('agent-ui');
+    });
+
+    it('should return null when no team directory or file exists', async () => {
+      // Arrange — nothing created
+
+      // Act
+      const result = await detectNativeTeam('nonexistent-feature', teamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null when config file is empty or malformed', async () => {
+      // Arrange — directory format with invalid JSON
+      const featureId = 'malformed-feature';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        '{ not valid json }',
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null when config has no members array', async () => {
+      // Arrange — valid JSON but no members field
+      const featureId = 'no-members-feature';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ name: 'some team' }),
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should return null when members array is empty', async () => {
+      // Arrange
+      const featureId = 'empty-members-feature';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ members: [] }),
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert
+      expect(result).toBeNull();
+    });
+
+    it('should prefer directory format over flat file format', async () => {
+      // Arrange — both formats exist with different data
+      const featureId = 'both-formats';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [
+            { name: 'dir-agent-1', role: 'teammate' },
+            { name: 'dir-agent-2', role: 'teammate' },
+          ],
+        }),
+      );
+      await fs.writeFile(
+        path.join(teamsDir, `${featureId}.json`),
+        JSON.stringify({
+          members: [{ name: 'flat-agent-1', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await detectNativeTeam(featureId, teamsDir);
+
+      // Assert — directory format should take precedence
+      expect(result).not.toBeNull();
+      expect(result!.memberCount).toBe(2);
+      expect(result!.memberNames).toContain('dir-agent-1');
+    });
+
+    it('should return null when teams base directory does not exist', async () => {
+      // Act
+      const result = await detectNativeTeam('any-feature', '/nonexistent/teams');
+
+      // Assert
+      expect(result).toBeNull();
+    });
+  });
+
+  // ─── Native Team Cleanup Recommendations in handleSessionStart ─────────────
+
+  describe('native team cleanup recommendations', () => {
+    let teamsDir: string;
+
+    beforeEach(async () => {
+      teamsDir = path.join(tmpDir, 'teams');
+      await fs.mkdir(teamsDir, { recursive: true });
+    });
+
+    it('should include cleanup recommendation when native team exists and workflow is past delegation', async () => {
+      // Arrange — workflow in review phase + native team directory
+      const featureId = 'team-past-delegate';
+      const stateData = createValidStateFile({
+        featureId,
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [{ name: 'agent-1', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toContain('Orphaned native team detected');
+      expect(workflow!.nativeTeamCleanup).toContain(featureId);
+      expect(workflow!.nativeTeamCleanup).toContain('TeamDelete');
+    });
+
+    it('should not warn when native team exists and workflow is in delegation phase', async () => {
+      // Arrange — workflow in delegate phase + native team
+      const featureId = 'team-in-delegate';
+      const stateData = createValidStateFile({
+        featureId,
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [{ name: 'agent-1', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeUndefined();
+    });
+
+    it('should warn about orphaned team when team exists but no workflow found', async () => {
+      // Arrange — native team directory exists, but no workflow state file
+      const featureId = 'orphaned-team-no-workflow';
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [{ name: 'agent-orphan', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert — should have a workflow entry for the orphaned team warning
+      expect(result.orphanedTeams).toBeDefined();
+      expect(result.orphanedTeams).toHaveLength(1);
+      expect(result.orphanedTeams![0]).toContain(featureId);
+      expect(result.orphanedTeams![0]).toContain('TeamDelete');
+    });
+
+    it('should not produce warnings when no native teams exist', async () => {
+      // Arrange — workflow exists but no team directories
+      const featureId = 'no-team-feature';
+      const stateData = createValidStateFile({
+        featureId,
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeUndefined();
+      expect(result.orphanedTeams).toBeUndefined();
+    });
+
+    it('should include cleanup for synthesize phase workflow with native team', async () => {
+      // Arrange
+      const featureId = 'synth-team';
+      const stateData = createValidStateFile({
+        featureId,
+        phase: 'synthesize',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [{ name: 'agent-synth', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toContain('Orphaned native team detected');
+    });
+
+    it('should not warn for overhaul-delegate phase workflow with native team', async () => {
+      // Arrange — refactor workflow in overhaul-delegate phase (delegation active)
+      const featureId = 'overhaul-delegate-team';
+      const stateData = createValidStateFile({
+        featureId,
+        workflowType: 'refactor',
+        phase: 'overhaul-delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      const teamDir = path.join(teamsDir, featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({
+          members: [{ name: 'agent-overhaul', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeUndefined();
+    });
+
+    it('should detect orphaned teams from flat file format too', async () => {
+      // Arrange — flat file format team + workflow past delegation
+      const featureId = 'flat-file-team';
+      const stateData = createValidStateFile({
+        featureId,
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, `${featureId}.state.json`),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      await fs.writeFile(
+        path.join(teamsDir, `${featureId}.json`),
+        JSON.stringify({
+          members: [{ name: 'flat-agent', role: 'teammate' }],
+        }),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === featureId);
+      expect(workflow).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toBeDefined();
+      expect(workflow!.nativeTeamCleanup).toContain('Orphaned native team detected');
     });
   });
 });
