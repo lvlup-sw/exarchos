@@ -112,7 +112,7 @@ function calculateTrend(values: Array<{ value: number }>): 'improving' | 'stable
 
 /** Add or increment a failure reason in the reasons array. */
 function addFailureReason(
-  reasons: Array<{ reason: string; count: number }>,
+  reasons: ReadonlyArray<{ readonly reason: string; readonly count: number }>,
   reason: string,
 ): Array<{ reason: string; count: number }> {
   const existing = reasons.find((r) => r.reason === reason);
