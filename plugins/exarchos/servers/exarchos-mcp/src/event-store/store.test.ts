@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore, SequenceConflictError } from './store.js';
+import { EventStore, SequenceConflictError, PidLockError } from './store.js';
 
 let tempDir: string;
 
@@ -689,8 +689,8 @@ describe('EventStore Append Idempotency', () => {
   it('append_IdempotencyCacheEvictsOldest', async () => {
     const store = new EventStore(tempDir);
 
-    // Append 101 events with unique keys (cache max is 100)
-    for (let i = 0; i < 101; i++) {
+    // Append 201 events with unique keys (cache max is 200 by default)
+    for (let i = 0; i < 201; i++) {
       await store.append(
         'my-workflow',
         { type: 'task.assigned' },
@@ -705,12 +705,12 @@ describe('EventStore Append Idempotency', () => {
       { idempotencyKey: 'key-0' },
     );
 
-    // Should get sequence 102 (new event, not deduplicated)
-    expect(retried.sequence).toBe(102);
+    // Should get sequence 202 (new event, not deduplicated)
+    expect(retried.sequence).toBe(202);
 
-    // Total events should be 102 (101 original + 1 retry of evicted key)
+    // Total events should be 202 (201 original + 1 retry of evicted key)
     const events = await store.query('my-workflow');
-    expect(events).toHaveLength(102);
+    expect(events).toHaveLength(202);
   });
 });
 
@@ -805,8 +805,8 @@ describe('EventStore Idempotency Persistence', () => {
   it('should respect MAX_IDEMPOTENCY_KEYS when rebuilding from JSONL', async () => {
     const store1 = new EventStore(tempDir);
 
-    // Append 105 events with unique keys (cache max is 100)
-    for (let i = 0; i < 105; i++) {
+    // Append 205 events with unique keys (cache max is 200 by default)
+    for (let i = 0; i < 205; i++) {
       await store1.append(
         'my-workflow',
         { type: 'task.assigned' },
@@ -814,7 +814,7 @@ describe('EventStore Idempotency Persistence', () => {
       );
     }
 
-    // New instance — rebuild should only load the last 100 keys
+    // New instance — rebuild should only load the last 200 keys
     const store2 = new EventStore(tempDir);
 
     // Key from the first 5 events should NOT be in cache (evicted during rebuild)
@@ -823,15 +823,15 @@ describe('EventStore Idempotency Persistence', () => {
       { type: 'task.assigned' },
       { idempotencyKey: 'key-0' },
     );
-    expect(retried.sequence).toBe(106); // new event, not deduped
+    expect(retried.sequence).toBe(206); // new event, not deduped
 
     // Key from a recent event should still be cached
     const deduped = await store2.append(
       'my-workflow',
       { type: 'task.assigned' },
-      { idempotencyKey: 'key-104' },
+      { idempotencyKey: 'key-204' },
     );
-    expect(deduped.sequence).toBe(105); // deduped
+    expect(deduped.sequence).toBe(205); // deduped
   });
 });
 
@@ -892,5 +892,219 @@ describe('initializeSequence_CleansTmpFiles', () => {
       tmpExists = false;
     }
     expect(tmpExists).toBe(false);
+  });
+});
+
+// ─── T20: PID Lock File Acquisition ──────────────────────────────────────────
+
+describe('EventStore PID Lock', () => {
+  it('AcquirePidLock_CreatesLockFile_WithCurrentPid', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    const content = await fs.readFile(lockPath, 'utf-8');
+    expect(parseInt(content, 10)).toBe(process.pid);
+  });
+
+  it('AcquirePidLock_ThrowsWhenLivePidHoldsLock', async () => {
+    // Create a lock file with the current PID (simulating another live process)
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+
+    const store = new EventStore(tempDir);
+    await expect(store.initialize()).rejects.toThrow(PidLockError);
+  });
+
+  // T21: Stale lock reclaim
+  it('AcquirePidLock_ReclaimsStaleLock_WhenPidDead', async () => {
+    // Create a lock file with a PID that is very unlikely to be alive
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, '999999999', 'utf-8');
+
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // Lock should be reclaimed with our PID
+    const content = await fs.readFile(lockPath, 'utf-8');
+    expect(parseInt(content, 10)).toBe(process.pid);
+  });
+
+  // T22: Lock file cleanup on process exit
+  it('AcquirePidLock_RegistersExitCleanup', async () => {
+    const processOnSpy = vi.spyOn(process, 'on');
+
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // Verify that an 'exit' handler was registered
+    expect(processOnSpy).toHaveBeenCalledWith('exit', expect.any(Function));
+
+    processOnSpy.mockRestore();
+  });
+
+  // T23: EventStore initialize acquires PID lock
+  it('EventStore_Initialize_AcquiresPidLock', async () => {
+    const store = new EventStore(tempDir);
+
+    // Before initialize, lock should not exist
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await expect(fs.access(lockPath)).rejects.toThrow();
+
+    await store.initialize();
+
+    // After initialize, lock should exist with our PID
+    const content = await fs.readFile(lockPath, 'utf-8');
+    expect(parseInt(content, 10)).toBe(process.pid);
+  });
+});
+
+// ─── T24-T25: Sequence Invariant Validation ──────────────────────────────────
+
+describe('EventStore Sequence Invariant', () => {
+  it('InitializeSequence_ValidInvariant_Succeeds', async () => {
+    // Create a valid JSONL file where line N has sequence N
+    const filePath = path.join(tempDir, 'valid-seq.events.jsonl');
+    const events = [
+      { streamId: 'valid-seq', sequence: 1, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'valid-seq', sequence: 2, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+      { streamId: 'valid-seq', sequence: 3, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
+    ];
+    await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+
+    // Delete .seq file to force fallback path
+    const seqPath = path.join(tempDir, 'valid-seq.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+    // Should succeed without error — appending should continue from seq 3
+    const event = await store.append('valid-seq', { type: 'task.claimed' });
+    expect(event.sequence).toBe(4);
+  });
+
+  it('InitializeSequence_BrokenInvariant_Throws', async () => {
+    // Create a JSONL file where first line has wrong sequence
+    const filePath = path.join(tempDir, 'broken-seq.events.jsonl');
+    const events = [
+      { streamId: 'broken-seq', sequence: 5, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'broken-seq', sequence: 6, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+    ];
+    await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+
+    // Delete .seq file to force fallback path with invariant check
+    const seqPath = path.join(tempDir, 'broken-seq.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+    await expect(store.append('broken-seq', { type: 'task.claimed' })).rejects.toThrow(/sequence invariant/i);
+  });
+
+  // T25: Blank-line tolerance
+  it('InitializeSequence_WithBlankLines_ValidatesCorrectly', async () => {
+    // Create a JSONL with blank lines interspersed
+    const filePath = path.join(tempDir, 'blank-seq.events.jsonl');
+    const events = [
+      { streamId: 'blank-seq', sequence: 1, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'blank-seq', sequence: 2, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+      { streamId: 'blank-seq', sequence: 3, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
+    ];
+    // Insert blank lines between events
+    const content = '\n' + JSON.stringify(events[0]) + '\n\n' + JSON.stringify(events[1]) + '\n\n\n' + JSON.stringify(events[2]) + '\n';
+    await fs.writeFile(filePath, content, 'utf-8');
+
+    // Delete .seq file to force fallback path
+    const seqPath = path.join(tempDir, 'blank-seq.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+    // Should succeed despite blank lines — sequence count should be 3
+    const event = await store.append('blank-seq', { type: 'task.claimed' });
+    expect(event.sequence).toBe(4);
+  });
+});
+
+// ─── T31-T32: Configurable Idempotency Cache ────────────────────────────────
+
+describe('EventStore Configurable Idempotency Cache', () => {
+  it('EventStore_RespectsEnvVar_MaxIdempotencyKeys', async () => {
+    process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS = '5';
+    try {
+      const store = new EventStore(tempDir);
+
+      // Append 6 events with unique keys (cache max is 5)
+      for (let i = 0; i < 6; i++) {
+        await store.append(
+          'my-workflow',
+          { type: 'task.assigned' },
+          { idempotencyKey: `key-${i}` },
+        );
+      }
+
+      // First key should have been evicted
+      const retried = await store.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: 'key-0' },
+      );
+      expect(retried.sequence).toBe(7); // new event, not deduped
+    } finally {
+      delete process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
+    }
+  });
+
+  it('EventStore_DefaultsTo200_WhenNoEnvVar', async () => {
+    delete process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
+    const store = new EventStore(tempDir);
+
+    // Append 201 events with unique keys (cache max should be 200)
+    for (let i = 0; i < 201; i++) {
+      await store.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: `key-${i}` },
+      );
+    }
+
+    // First key should have been evicted at 200 limit
+    const retried = await store.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-0' },
+    );
+    expect(retried.sequence).toBe(202); // new event, not deduped
+
+    // Most recent key should still be deduped (within the 200 limit)
+    const deduped = await store.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-200' },
+    );
+    expect(deduped.sequence).toBe(201); // deduped
+  });
+
+  it('EventStore_InvalidIdempotencyEnvVar_FallsBackToDefault', async () => {
+    process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS = 'abc';
+    try {
+      const store = new EventStore(tempDir);
+
+      // Should use default of 200 — append 201 events
+      for (let i = 0; i < 201; i++) {
+        await store.append(
+          'my-workflow',
+          { type: 'task.assigned' },
+          { idempotencyKey: `key-${i}` },
+        );
+      }
+
+      // First key should have been evicted at 200 limit (default)
+      const retried = await store.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: 'key-0' },
+      );
+      expect(retried.sequence).toBe(202);
+    } finally {
+      delete process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
+    }
   });
 });
