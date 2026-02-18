@@ -365,6 +365,24 @@ describe('TOOL_REGISTRY', () => {
       const actionNames = viewComposite!.actions.map((a) => a.name);
       expect(actionNames).toContain('delegation_timeline');
     });
+
+    it('ViewActions_IncludesCodeQuality', () => {
+      const viewComposite = findComposite('exarchos_view');
+      expect(viewComposite).toBeDefined();
+      const actionNames = viewComposite!.actions.map((a) => a.name);
+      expect(actionNames).toContain('code_quality');
+
+      // Verify schema shape
+      const action = findAction('exarchos_view', 'code_quality');
+      expect(action).toBeDefined();
+      const result = action!.schema.safeParse({
+        workflowId: 'test-wf',
+        skill: 'delegation',
+        gate: 'typecheck',
+        limit: 10,
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe('schema validation', () => {
