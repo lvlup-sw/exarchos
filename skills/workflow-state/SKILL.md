@@ -30,6 +30,10 @@ Activate this skill when:
 - Restoring context after summarization (`/resume`)
 - Saving progress for later continuation (`/checkpoint`)
 
+## Phase Transitions
+
+Valid transitions, guards, and prerequisites for all workflow types are documented in `references/phase-transitions.md`. **CRITICAL:** When a transition has a guard, send the prerequisite `updates` and `phase` in a single `set` call — updates apply before guards evaluate.
+
 ## State File Location
 
 ```
