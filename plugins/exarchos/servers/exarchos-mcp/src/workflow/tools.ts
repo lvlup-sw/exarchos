@@ -483,6 +483,23 @@ export async function handleSet(
         // deduplicated
         continue;
       }
+
+      // CAS exhaustion: emit diagnostic event before throwing
+      if (err instanceof VersionConflictError && moduleEventStore) {
+        try {
+          await moduleEventStore.append(input.featureId, {
+            type: 'workflow.cas-failed' as import('../event-store/schemas.js').EventType,
+            data: {
+              featureId: input.featureId,
+              phase: input.phase ?? (mutableState.phase as string) ?? 'unknown',
+              retries: MAX_CAS_RETRIES,
+            },
+          });
+        } catch {
+          // Best-effort diagnostic emission — don't mask the actual CAS error
+        }
+      }
+
       throw err;
     }
 
@@ -501,7 +518,7 @@ export async function handleSet(
   // Should not be reached, but satisfy TypeScript
   throw new StateStoreError(
     ErrorCode.VERSION_CONFLICT,
-    `Concurrent write conflict: failed to acquire consistent version after ${MAX_CAS_RETRIES} retries for feature: ${input.featureId}`,
+    `Concurrent write conflict: failed to acquire consistent version after ${MAX_CAS_RETRIES} retries for feature: ${input.featureId}, phase: ${input.phase ?? 'field-update'}`,
   );
 }
 

@@ -13,6 +13,7 @@ import {
   TeamTaskPlannedData,
   TeamTeammateDispatchedData,
   QualityRegressionData,
+  WorkflowCasFailedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -290,12 +291,34 @@ describe('QualityRegressionData', () => {
   });
 });
 
+// ─── T26: workflow.cas-failed Event Schema ───────────────────────────────────
+
+describe('WorkflowCasFailedData', () => {
+  it('WorkflowCasFailedData_Valid_Parses', () => {
+    const result = WorkflowCasFailedData.safeParse({
+      featureId: 'test',
+      phase: 'delegate',
+      retries: 3,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.featureId).toBe('test');
+      expect(result.data.phase).toBe('delegate');
+      expect(result.data.retries).toBe(3);
+    }
+  });
+});
+
 describe('EventTypes', () => {
   it('EventTypes_IncludesQualityRegression', () => {
     expect(EventTypes).toContain('quality.regression');
   });
 
+  it('EventTypes_IncludesWorkflowCasFailed', () => {
+    expect(EventTypes).toContain('workflow.cas-failed');
+  });
+
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(33);
+    expect(EventTypes).toHaveLength(34);
   });
 });

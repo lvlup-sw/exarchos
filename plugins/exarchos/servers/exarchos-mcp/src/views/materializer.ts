@@ -30,6 +30,15 @@ export interface MaterializerOptions {
 const DEFAULT_SNAPSHOT_INTERVAL = 50;
 const DEFAULT_MAX_CACHE_ENTRIES = 100;
 
+/** Read EXARCHOS_MAX_CACHE_ENTRIES from env, falling back to default on invalid/missing. */
+function parseEnvMaxCacheEntries(): number {
+  const raw = process.env.EXARCHOS_MAX_CACHE_ENTRIES;
+  if (raw === undefined) return DEFAULT_MAX_CACHE_ENTRIES;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0) return DEFAULT_MAX_CACHE_ENTRIES;
+  return parsed;
+}
+
 // ─── View Materializer ─────────────────────────────────────────────────────
 
 export class ViewMaterializer {
@@ -46,7 +55,7 @@ export class ViewMaterializer {
   constructor(options?: MaterializerOptions) {
     this.snapshotStore = options?.snapshotStore;
     this.snapshotInterval = options?.snapshotInterval ?? DEFAULT_SNAPSHOT_INTERVAL;
-    this.maxCacheEntries = options?.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES;
+    this.maxCacheEntries = options?.maxCacheEntries ?? parseEnvMaxCacheEntries();
   }
 
   /**

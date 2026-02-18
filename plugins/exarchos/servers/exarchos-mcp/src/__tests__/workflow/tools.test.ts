@@ -2951,3 +2951,49 @@ describe('ToolReconcile_WithoutNativeTaskId_OmitsTaskDrift', () => {
     expect(data.taskDrift).toBeUndefined();
   });
 });
+
+// ─── T27: CAS Diagnostic Event on Exhaustion ────────────────────────────────
+
+describe('HandleSet CAS Diagnostic', () => {
+  it('HandleSet_CasExhausted_EmitsWorkflowCasFailed', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Arrange: Create workflow and set design artifact
+    await handleInit({ featureId: 'cas-diag', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'cas-diag', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Mock writeStateFile to always throw VersionConflictError (exhaust all retries)
+    const stateStoreMod = await import('../../workflow/state-store.js');
+    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
+      async (_stateFile, _state, options) => {
+        if (options?.expectedVersion !== undefined) {
+          throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
+        }
+        // Non-CAS writes pass through (shouldn't happen in this test)
+        throw new Error('Unexpected non-CAS write');
+      },
+    );
+
+    // Act: Transition from ideate to plan (should exhaust CAS retries)
+    try {
+      await handleSet({ featureId: 'cas-diag', phase: 'plan' }, tmpDir);
+    } catch {
+      // Expected to throw after CAS exhaustion
+    }
+
+    // Assert: Check that a workflow.cas-failed event was emitted
+    const events = await eventStore.query('cas-diag');
+    const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
+    expect(casFailedEvents).toHaveLength(1);
+    const casFailedData = casFailedEvents[0].data as Record<string, unknown>;
+    expect(casFailedData.featureId).toBe('cas-diag');
+    expect(casFailedData.phase).toBeDefined();
+    expect(casFailedData.retries).toBeDefined();
+
+    writeSpy.mockRestore();
+  });
+});

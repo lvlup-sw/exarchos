@@ -358,8 +358,8 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 33 event types', () => {
-    expect(EventTypes).toHaveLength(33);
+  it('should contain all 34 event types', () => {
+    expect(EventTypes).toHaveLength(34);
   });
 
   it('should include workflow-level types', () => {
