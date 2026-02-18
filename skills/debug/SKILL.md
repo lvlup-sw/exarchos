@@ -96,6 +96,13 @@ Fix production issues ASAP. Speed over ceremony.
 
 **Phases:** Triage -> Investigate (15 min max) -> Implement (no worktree) -> Validate -> Merge
 
+### Investigation Timer
+
+1. On hotfix track selection: record `investigation.startedAt` in state
+2. After each major finding: check elapsed time
+3. At 15 min mark: emit `investigation.timeout` event, pause for user confirmation
+   - Switch to thorough track? (yes/no)
+
 For detailed phase instructions, see `references/hotfix-track.md`.
 
 ## Thorough Track

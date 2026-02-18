@@ -70,6 +70,15 @@ Activate this skill when:
 - Include at least one "flexible but complex" option
 - Recommend one option but explain why
 
+### Exploration Quality Gate
+
+Stop Phase 2 when ALL are true:
+- [ ] 2-3 approaches documented
+- [ ] Each answers design questions from Phase 1
+- [ ] Approaches differ in at least 2 of: {data structure, API design, complexity}
+- [ ] Trade-offs are honest and specific
+- [ ] One approach recommended with rationale
+
 ### Phase 3: Design Presentation
 
 **Goal:** Document the chosen approach in detail.
