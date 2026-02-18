@@ -293,9 +293,10 @@ export const TeamTeammateDispatchedData = z.object({
 export const QualityRegressionData = z.object({
   skill: z.string(),
   gate: z.string(),
-  consecutiveFailures: z.number(),
+  consecutiveFailures: z.number().int().nonnegative(),
   firstFailureCommit: z.string(),
   lastFailureCommit: z.string(),
+  detectedAt: z.string().datetime(),
 });
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

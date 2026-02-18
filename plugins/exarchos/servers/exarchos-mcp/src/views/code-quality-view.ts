@@ -8,43 +8,43 @@ export const CODE_QUALITY_VIEW = 'code-quality';
 // ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface SkillQualityMetrics {
-  skill: string;
-  totalExecutions: number;
-  gatePassRate: number;
-  selfCorrectionRate: number;
-  avgRemediationAttempts: number;
-  topFailureCategories: Array<{ category: string; count: number }>;
+  readonly skill: string;
+  readonly totalExecutions: number;
+  readonly gatePassRate: number;
+  readonly selfCorrectionRate: number;
+  readonly avgRemediationAttempts: number;
+  readonly topFailureCategories: ReadonlyArray<{ readonly category: string; readonly count: number }>;
 }
 
 export interface GateMetrics {
-  gate: string;
-  executionCount: number;
-  passRate: number;
-  avgDuration: number;
-  failureReasons: Array<{ reason: string; count: number }>;
+  readonly gate: string;
+  readonly executionCount: number;
+  readonly passRate: number;
+  readonly avgDuration: number;
+  readonly failureReasons: ReadonlyArray<{ readonly reason: string; readonly count: number }>;
 }
 
 export interface BenchmarkTrend {
-  operation: string;
-  metric: string;
-  values: Array<{ value: number; commit: string; timestamp: string }>;
-  trend: 'improving' | 'stable' | 'degrading';
+  readonly operation: string;
+  readonly metric: string;
+  readonly values: ReadonlyArray<{ readonly value: number; readonly commit: string; readonly timestamp: string }>;
+  readonly trend: 'improving' | 'stable' | 'degrading';
 }
 
 export interface QualityRegression {
-  skill: string;
-  gate: string;
-  consecutiveFailures: number;
-  firstFailureCommit: string;
-  lastFailureCommit: string;
-  detectedAt: string;
+  readonly skill: string;
+  readonly gate: string;
+  readonly consecutiveFailures: number;
+  readonly firstFailureCommit: string;
+  readonly lastFailureCommit: string;
+  readonly detectedAt: string;
 }
 
 export interface CodeQualityViewState {
-  skills: Record<string, SkillQualityMetrics>;
-  gates: Record<string, GateMetrics>;
-  regressions: QualityRegression[];
-  benchmarks: BenchmarkTrend[];
+  readonly skills: Record<string, SkillQualityMetrics>;
+  readonly gates: Record<string, GateMetrics>;
+  readonly regressions: ReadonlyArray<QualityRegression>;
+  readonly benchmarks: ReadonlyArray<BenchmarkTrend>;
 }
 
 // ─── Projection ────────────────────────────────────────────────────────────

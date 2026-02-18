@@ -276,6 +276,7 @@ describe('QualityRegressionData', () => {
       consecutiveFailures: 3,
       firstFailureCommit: 'abc',
       lastFailureCommit: 'def',
+      detectedAt: '2026-02-17T00:00:00.000Z',
     });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -284,6 +285,7 @@ describe('QualityRegressionData', () => {
       expect(result.data.consecutiveFailures).toBe(3);
       expect(result.data.firstFailureCommit).toBe('abc');
       expect(result.data.lastFailureCommit).toBe('def');
+      expect(result.data.detectedAt).toBe('2026-02-17T00:00:00.000Z');
     }
   });
 });
@@ -291,5 +293,9 @@ describe('QualityRegressionData', () => {
 describe('EventTypes', () => {
   it('EventTypes_IncludesQualityRegression', () => {
     expect(EventTypes).toContain('quality.regression');
+  });
+
+  it('EventTypes_HasExpectedCount', () => {
+    expect(EventTypes).toHaveLength(33);
   });
 });
