@@ -169,6 +169,14 @@ For detailed fix mode process, task structure, and transition flow, see `@skills
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
+### Pre-Chain Validation (MANDATORY)
+
+Before invoking `/review`:
+1. Verify all `tasks[].status === 'complete'` in workflow state
+2. If incomplete tasks exist: "Not all tasks complete, cannot proceed to review"
+
+### Chain Steps
+
 1. Update state: `.phase = "review"`, mark all tasks complete
 2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:

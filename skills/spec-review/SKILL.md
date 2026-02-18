@@ -188,6 +188,12 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
 
 All transitions happen **immediately** without user confirmation:
 
+### Pre-Chain Validation (MANDATORY)
+
+Before invoking quality-review:
+1. Verify `reviews.spec.status === "pass"` in workflow state (all tasks passed)
+2. If not: "Spec review did not pass, cannot proceed to quality review"
+
 ### If PASS:
 1. Update state with review results
 2. Output: "Spec review passed. Auto-continuing to quality review..."
