@@ -54,14 +54,7 @@ Claude Code is powerful, but complex features expose three gaps: sessions lose s
 - **Graphite stacked PRs** — Completed tasks are progressively stacked as PRs via Graphite, with merge queue integration. No monolithic PRs.
 - **Full auditability** — Every workflow transition, task completion, and agent interaction is recorded in an append-only event store. Saga compensation ensures safe cancellation and recovery. CQRS materialized views provide real-time observability.
 - **Context resilience** — HSM-driven workflow state survives context compaction. Sessions auto-resume exactly where they left off.
-
-**Three SDLC workflows** with automatic state checkpointing:
-
-- **Feature** — Design → Plan → Delegate → Review → Merge (via stacked PRs)
-- **Debug** — Triage → Investigate → Fix → Validate (hotfix or full RCA tracks)
-- **Refactor** — Explore → Brief → Implement → Validate (polish or overhaul tracks)
-
-All workflows auto-resume on session start. Human checkpoints only at plan approval and merge confirmation.
+- **Token efficient** — 5 composite MCP tools using action discriminators replace what would otherwise be 26+ individual tool definitions. Fewer tool schemas in context means lower per-call token overhead. Structured Markdown content layers (commands, skills, rules) load on demand — only what's relevant enters the context window.
 
 ## Architecture
 
@@ -88,16 +81,17 @@ Exarchos is a unified MCP server combining workflow state management, event sour
          (worktree)    (worktree)    (worktree)
 ```
 
-### MCP Tools (26)
+### MCP Tools (5 Composite)
 
-| Category | Tools | Purpose |
-|----------|-------|---------|
-| **Workflow** | `workflow_init`, `workflow_set`, `workflow_get`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile`, `workflow_checkpoint`, `workflow_cancel`, `workflow_transitions`, `workflow_list` | HSM state transitions, phase tracking |
-| **Events** | `event_append`, `event_query` | Append-only event log, temporal queries |
-| **Views** | `view_workflow_status`, `view_team_status`, `view_tasks`, `view_pipeline` | CQRS materialized read models |
-| **Teams** | `team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status` | Agent team lifecycle |
-| **Tasks** | `task_claim`, `task_complete`, `task_fail` | Shared task ledger |
-| **Stack** | `stack_status`, `stack_place` | Progressive Graphite stacking |
+Each tool uses an `action` discriminator to route to specific operations:
+
+| Tool | Actions | Purpose |
+|------|---------|---------|
+| **`exarchos_workflow`** | `init`, `get`, `set`, `cancel`, `cleanup` | HSM state transitions, phase tracking, lifecycle management |
+| **`exarchos_event`** | `append`, `query` | Append-only event log, temporal queries |
+| **`exarchos_orchestrate`** | `task_claim`, `task_complete`, `task_fail` | Task lifecycle for delegated work |
+| **`exarchos_view`** | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place`, `telemetry`, `team_performance`, `delegation_timeline` | CQRS materialized read models |
+| **`exarchos_sync`** | `now` | Remote state synchronization |
 
 ### Companion MCP Servers & Plugins
 
@@ -114,50 +108,75 @@ Configured during install via the interactive wizard:
 
 ## Workflows
 
+Three HSM-driven SDLC workflows with automatic state checkpointing. All workflows auto-resume on session start. Human checkpoints only at plan approval and merge confirmation.
+
 ### Feature Workflow
 
 ```
-/ideate → /plan → plan-review → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
-           (auto)      ↑             ↑         (auto)     (auto)     (auto)           ↑
-                       │           HUMAN                                             HUMAN
-                       └── gaps? ──┘
+/ideate → /plan → plan-review ←──┐
+                      │  gaps?   │
+                   [CONFIRM]     │
+                      │ ─────────┘
+                      ▼
+              ┌─ implementation ──────────────────┐
+              │                                   │
+              │  /delegate → /review ──┐          │
+              │      ▲     fail (≤3x)  │          │
+              │      └─────────────────┘          │
+              └───────────────────────────────────┘
+                      │ pass
+                      ▼
+                 /synthesize → [CONFIRM] → completed
 ```
 
-Tasks execute concurrently via agent teams. Completed work is progressively stacked as PRs via Graphite. Review validates per-PR gates and stack coherence.
-
-| Command | Purpose |
-|---------|---------|
-| `/ideate` | Design exploration with trade-offs |
-| `/plan` | TDD task decomposition + stack ordering |
-| `/delegate` | Spawn agent teams, progressive PR stacking |
-| `/review` | Two-stage: spec compliance → code quality |
-| `/synthesize` | Enqueue stack in merge queue |
+| Phase | Command | Purpose |
+|-------|---------|---------|
+| Design | `/ideate` | Collaborative design exploration with trade-offs |
+| Plan | `/plan` | TDD task decomposition + stack ordering |
+| Plan review | — | Human approval checkpoint |
+| Delegate | `/delegate` | Spawn agent teams in worktrees, progressive PR stacking |
+| Review | `/review` | Two-stage: spec compliance → code quality |
+| Synthesize | `/synthesize` | Enqueue Graphite stack in merge queue |
 
 ### Debug Workflow
 
 ```
-/debug → Triage → Investigate → [Fix] → Validate → [CONFIRM] → merge
-                       │
-         ┌─────────────┼─────────────┐
-         │             │             │
-    --hotfix      (default)     --escalate
-    (15 min)     (full RCA)     → /ideate
+/debug → triage → investigate ─────┬──────────────────────────┐
+                                   │                          │
+                            thorough track               hotfix track
+                                   │                          │
+                     rca → design → implement        implement → validate
+                                       │                          │
+                              validate → review              completed
+                                           │
+                                      synthesize → completed
 ```
 
-**Single checkpoint:** Merge confirmation. Supports hotfix (fast) and thorough (RCA) tracks.
+| Track | Phases | Use when |
+|-------|--------|----------|
+| **Thorough** | RCA → design → implement → validate → review → synthesize | Root cause analysis needed |
+| **Hotfix** | implement → validate | Cause is known, quick fix |
 
 ### Refactor Workflow
 
 ```
-/refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
-                                    │
-                   ┌────────────────┼────────────────┐
-                   │                                 │
-              --polish                          (default)
-           (direct, ≤5 files)               (full delegation)
+/refactor → explore → brief ───────┬──────────────────────────────────┐
+                                   │                                  │
+                             polish track                       overhaul track
+                                   │                                  │
+                    implement → validate → docs       plan → delegate → review ──┐
+                                    │                          ▲    fail (≤3x)   │
+                               completed                      └─────────────────┘
+                                                                      │ pass
+                                                              docs → synthesize
+                                                                      │
+                                                                 completed
 ```
 
-**Single checkpoint:** Completion/merge. Polish track for small changes, overhaul track for migrations.
+| Track | Phases | Use when |
+|-------|--------|----------|
+| **Polish** | implement → validate → update docs → completed | Small changes, ≤5 files, direct edits |
+| **Overhaul** | plan → delegate → review → update docs → synthesize | Large restructuring, delegation required |
 
 ### TDD Iron Law
 
@@ -206,16 +225,6 @@ paths: '**/*.ts'
 # My project rule
 EOF
 ```
-
-## Troubleshooting
-
-**Commands not available**: Re-run `npx -y github:lvlup-sw/exarchos`
-
-**Missing MCP servers**: Re-run the installer — the wizard preserves previous selections.
-
-**Rules not applying**: Check frontmatter `paths` pattern matches your files.
-
-**Installer not interactive**: Ensure you're running in a TTY (not piped). Use `--yes` for CI/scripts.
 
 ## License
 
