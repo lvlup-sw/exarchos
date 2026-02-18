@@ -124,8 +124,6 @@ export class EventStore {
         if (cached) return cached;
       }
 
-      const filePath = this.getEventFilePath(streamId);
-
       // Initialize sequence from file if not cached
       if (!this.sequenceCounters.has(streamId)) {
         await this.initializeSequence(streamId);
@@ -153,42 +151,116 @@ export class EventStore {
         idempotencyKey: options?.idempotencyKey,
       });
 
-      // Ensure directory exists
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-      // Append as JSONL
-      await fs.appendFile(filePath, JSON.stringify(fullEvent) + '\n', 'utf-8');
-
-      // Write sequence counter atomically (best-effort: JSONL is source of truth)
-      const seqPath = this.getSeqFilePath(streamId);
-      const tmpPath = `${seqPath}.tmp`;
-      try {
-        await fs.writeFile(tmpPath, JSON.stringify({ sequence }), 'utf-8');
-        await fs.rename(tmpPath, seqPath);
-      } catch {
-        // Best-effort: JSONL is source of truth, .seq is just a cache
-        await fs.rm(tmpPath, { force: true }).catch(() => {});
-        await fs.rm(seqPath, { force: true }).catch(() => {});
-      }
-
-      // Cache the idempotency key after successful append
-      if (options?.idempotencyKey) {
-        let streamCache = this.idempotencyCache.get(streamId);
-        if (!streamCache) {
-          streamCache = new Map();
-          this.idempotencyCache.set(streamId, streamCache);
-        }
-        streamCache.set(options.idempotencyKey, fullEvent);
-
-        // FIFO eviction: remove oldest key when cache exceeds max
-        if (streamCache.size > EventStore.MAX_IDEMPOTENCY_KEYS) {
-          const oldest = streamCache.keys().next().value;
-          if (oldest) streamCache.delete(oldest);
-        }
-      }
+      await this.writeEvents(streamId, [fullEvent]);
+      this.cacheIdempotencyKey(streamId, fullEvent);
 
       return fullEvent;
     });
+  }
+
+  async batchAppend(
+    streamId: string,
+    events: Array<Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string; idempotencyKey?: string }>,
+  ): Promise<WorkflowEvent[]> {
+    return this.withLock(streamId, async () => {
+      // Rebuild idempotency cache if any event has an idempotency key
+      const hasIdempotencyKeys = events.some(e => e.idempotencyKey);
+      if (hasIdempotencyKeys && !this.idempotencyCacheInitialized.has(streamId)) {
+        await this.rebuildIdempotencyCache(streamId);
+      }
+
+      // Initialize sequence from file if not cached
+      if (!this.sequenceCounters.has(streamId)) {
+        await this.initializeSequence(streamId);
+      }
+
+      // Phase 1: Validate all events before writing any (atomic: all-or-nothing)
+      const toAppend: WorkflowEvent[] = [];
+      let nextSequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
+
+      for (const event of events) {
+        // Idempotency dedup within batch and against cache
+        if (event.idempotencyKey) {
+          const streamCache = this.idempotencyCache.get(streamId);
+          const cached = streamCache?.get(event.idempotencyKey);
+          if (cached) continue;
+
+          // Also check within this batch's toAppend list
+          const alreadyInBatch = toAppend.some(e => e.idempotencyKey === event.idempotencyKey);
+          if (alreadyInBatch) continue;
+        }
+
+        const fullEvent = WorkflowEventBase.parse({
+          ...event,
+          streamId,
+          sequence: nextSequence,
+          timestamp: event.timestamp || new Date().toISOString(),
+          idempotencyKey: event.idempotencyKey,
+        });
+        toAppend.push(fullEvent);
+        nextSequence++;
+      }
+
+      // Phase 2: Write all validated events in a single append
+      if (toAppend.length > 0) {
+        await this.writeEvents(streamId, toAppend);
+        for (const fullEvent of toAppend) {
+          this.cacheIdempotencyKey(streamId, fullEvent);
+        }
+      }
+
+      return toAppend;
+    });
+  }
+
+  // ─── Shared Helpers ────────────────────────────────────────────────────────
+
+  /** Writes events to JSONL and updates the .seq counter file. */
+  private async writeEvents(streamId: string, events: WorkflowEvent[]): Promise<void> {
+    if (events.length === 0) return;
+
+    const filePath = this.getEventFilePath(streamId);
+
+    // Ensure directory exists
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    // Append as JSONL
+    const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+    await fs.appendFile(filePath, lines, 'utf-8');
+
+    // Update in-memory sequence counter
+    const finalSequence = events[events.length - 1].sequence;
+    this.sequenceCounters.set(streamId, finalSequence);
+
+    // Write sequence counter atomically (best-effort: JSONL is source of truth)
+    const seqPath = this.getSeqFilePath(streamId);
+    const tmpPath = `${seqPath}.tmp`;
+    try {
+      await fs.writeFile(tmpPath, JSON.stringify({ sequence: finalSequence }), 'utf-8');
+      await fs.rename(tmpPath, seqPath);
+    } catch {
+      // Best-effort: JSONL is source of truth, .seq is just a cache
+      await fs.rm(tmpPath, { force: true }).catch(() => {});
+      await fs.rm(seqPath, { force: true }).catch(() => {});
+    }
+  }
+
+  /** Caches an event's idempotency key with FIFO eviction. */
+  private cacheIdempotencyKey(streamId: string, event: WorkflowEvent): void {
+    if (!event.idempotencyKey) return;
+
+    let streamCache = this.idempotencyCache.get(streamId);
+    if (!streamCache) {
+      streamCache = new Map();
+      this.idempotencyCache.set(streamId, streamCache);
+    }
+    streamCache.set(event.idempotencyKey, event);
+
+    // FIFO eviction: remove oldest key when cache exceeds max
+    if (streamCache.size > EventStore.MAX_IDEMPOTENCY_KEYS) {
+      const oldest = streamCache.keys().next().value;
+      if (oldest) streamCache.delete(oldest);
+    }
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
