@@ -371,7 +371,116 @@ export function extractModulesFromCwd(cwd: string): string[] {
   return modules;
 }
 
+// ─── Agent Team Detection ─────────────────────────────────────────────────
+
+/**
+ * Read native task list from a tasks directory.
+ * Each JSON file in the directory represents a task with id, title, and status.
+ * Returns empty array if the directory does not exist or is unreadable.
+ */
+export async function readNativeTaskList(
+  tasksDir: string,
+): Promise<Array<Record<string, unknown>>> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(tasksDir);
+  } catch {
+    return [];
+  }
+
+  const jsonFiles = entries.filter((f) => f.endsWith('.json'));
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const file of jsonFiles) {
+    try {
+      const raw = await fs.readFile(path.join(tasksDir, file), 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      results.push(parsed);
+    } catch {
+      // Skip unparseable files
+      continue;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Detect if the current SubagentStart event originates from a teammate's
+ * subprocess (sub-subagent). Detected by cwd being inside a `.worktrees/`
+ * directory during the delegate phase.
+ *
+ * Teammate sub-subagents (tests, formatting, etc.) inherit context from
+ * their parent teammate and should not receive additional injection.
+ */
+export function isTeammateSubSubagent(cwd: string, phase: string): boolean {
+  if (phase !== 'delegate') return false;
+
+  const normalized = cwd.replace(/\\/g, '/');
+  return normalized.includes('.worktrees/');
+}
+
+/**
+ * Check if the current workflow is running in agent-team mode.
+ * Agent-team mode is detected by the existence of a native team config at:
+ *   - `{teamsDir}/{featureId}/config.json` (directory-style)
+ *   - `{teamsDir}/{featureId}.json` (flat-file-style)
+ */
+export async function isAgentTeamMode(
+  featureId: string,
+  teamsDir: string,
+): Promise<boolean> {
+  // Check directory-style: {teamsDir}/{featureId}/config.json
+  try {
+    await fs.access(path.join(teamsDir, featureId, 'config.json'));
+    return true;
+  } catch {
+    // Not found, try flat-file
+  }
+
+  // Check flat-file-style: {teamsDir}/{featureId}.json
+  try {
+    await fs.access(path.join(teamsDir, `${featureId}.json`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Format live task status changes as a human-readable summary.
+ * Shows current task statuses from the native task list.
+ */
+function formatLiveTaskStatus(
+  tasks: Array<Record<string, unknown>>,
+): string {
+  if (tasks.length === 0) return '';
+
+  const lines: string[] = ['Live task statuses:'];
+
+  for (const task of tasks) {
+    const id = typeof task.id === 'string' ? task.id : 'unknown';
+    const title = typeof task.title === 'string' ? task.title : '';
+    const status = typeof task.status === 'string' ? task.status : 'unknown';
+    const label = title ? `${id} (${title})` : id;
+    lines.push(`- ${label}: ${status}`);
+  }
+
+  return lines.join('\n');
+}
+
 // ─── Command Handler ───────────────────────────────────────────────────────
+
+/**
+ * Resolve the home directory from environment.
+ */
+function resolveHomeDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
+  }
+  return home;
+}
 
 /**
  * Resolve the workflow state directory from environment or default.
@@ -380,11 +489,7 @@ function resolveStateDir(): string {
   const envDir = process.env.WORKFLOW_STATE_DIR;
   if (envDir) return envDir;
 
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
-  }
-  return path.join(home, '.claude', 'workflow-state');
+  return path.join(resolveHomeDir(), '.claude', 'workflow-state');
 }
 
 /**
@@ -481,8 +586,19 @@ async function formatTeamContext(
  * SubagentStart hook handler.
  *
  * Reads the active workflow's phase, filters tools by phase + teammate role,
- * and outputs plain-text guidance to stdout. Also enriches with historical
- * intelligence and team context.
+ * and outputs plain-text guidance to stdout.
+ *
+ * In agent-team mode (native team config exists):
+ *   - Skips historical intelligence (already in spawn prompt)
+ *   - Skips static team context (already in spawn prompt)
+ *   - Injects live task status changes (data that changed since spawn)
+ *   - Retains tool guidance (not in spawn prompt)
+ *
+ * In subagent mode (no team config):
+ *   - Retains all existing behavior (historical intelligence, team context, tool guidance)
+ *
+ * For teammate sub-subagents during delegate phase:
+ *   - Skips all injection (inherits context from parent teammate)
  *
  * Degrades gracefully: outputs empty fields if no active workflow exists.
  */
@@ -503,12 +619,38 @@ export async function handleSubagentContext(
     return { guidance: '', context: '', team: '' };
   }
 
-  // Existing: tool guidance
+  const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : '';
+
+  // Determine if we're in agent-team mode
+  const homeDir = resolveHomeDir();
+  const featureId = typeof activeState?.featureId === 'string'
+    ? activeState.featureId
+    : '';
+  const teamsDir = path.join(homeDir, '.claude', 'teams');
+  const teamMode = featureId.length > 0
+    ? await isAgentTeamMode(featureId, teamsDir)
+    : false;
+
+  // Skip all injection for teammate sub-subagents during delegate
+  if (teamMode && isTeammateSubSubagent(cwd, phase)) {
+    return { guidance: '', context: '', team: '' };
+  }
+
+  // Tool guidance — always present regardless of mode
   const { available, denied } = filterToolsForPhaseAndRole(phase, 'teammate');
   const guidance = formatToolGuidance(available, denied);
 
-  // Historical intelligence
-  const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : '';
+  if (teamMode) {
+    // Agent-team mode: skip historical intelligence and static team context,
+    // inject live task status instead
+    const tasksDir = path.join(homeDir, '.claude', 'tasks', featureId);
+    const nativeTasks = await readNativeTaskList(tasksDir);
+    const liveTaskStatus = formatLiveTaskStatus(nativeTasks);
+
+    return { guidance, context: '', team: '', liveTaskStatus };
+  }
+
+  // Subagent mode: retain all existing behavior
   const modules = extractModulesFromCwd(cwd);
   const events = await queryModuleHistory(stateDir, modules);
   const context = synthesizeIntelligence(events);
