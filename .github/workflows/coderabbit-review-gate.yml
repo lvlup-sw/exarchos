@@ -10,7 +10,9 @@ permissions:
 
 jobs:
   review-gate:
-    if: github.event.review.user.login == 'coderabbitai[bot]'
+    if: |
+      github.event.review.user.login == 'coderabbitai[bot]' &&
+      github.event.review.state != 'approved'
     runs-on: blacksmith-2vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
