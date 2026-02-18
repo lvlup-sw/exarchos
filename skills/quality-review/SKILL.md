@@ -120,6 +120,14 @@ Use the template from `references/review-report-template.md` to structure the re
 | **MEDIUM** | Should fix, may defer | SOLID violations, complexity |
 | **LOW** | Nice to have | Style preferences, minor refactors |
 
+### Priority Classification Rules
+
+- **HIGH:** security vulnerabilities, data loss risk, API contract breaks, uncaught exception paths
+- **MEDIUM:** SOLID violations (LSP, ISP), cyclomatic complexity >15, test coverage <70%
+- **LOW:** naming, code style, comment clarity, non-impactful performance
+
+If classification is ambiguous, default to MEDIUM and flag for human decision.
+
 ## Fix Loop for HIGH-Priority
 
 If HIGH-priority issues found:
