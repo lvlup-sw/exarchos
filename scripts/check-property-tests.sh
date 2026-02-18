@@ -78,13 +78,13 @@ done < <(
     # Use python3 for reliable JSON parsing (available on macOS and most Linux)
     python3 -c "
 import json, sys
-with open('$PLAN_FILE') as f:
+with open(sys.argv[1]) as f:
     plan = json.load(f)
 for task in plan.get('tasks', []):
     strategy = task.get('testingStrategy', {})
     if strategy.get('propertyTests', False):
         print(task.get('id', ''))
-" 2>/dev/null
+" "$PLAN_FILE" 2>/dev/null
 )
 
 if [[ ${#PBT_TASK_IDS[@]} -eq 0 ]]; then
