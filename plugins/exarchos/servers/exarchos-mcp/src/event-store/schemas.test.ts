@@ -154,7 +154,7 @@ describe('Team Event Data Schemas', () => {
 });
 
 describe('EventTypes', () => {
-  it('should include all 6 team event types', () => {
+  it('should include all 8 team event types', () => {
     const teamEventTypes = [
       'team.spawned',
       'team.task.assigned',
@@ -162,6 +162,8 @@ describe('EventTypes', () => {
       'team.task.failed',
       'team.disbanded',
       'team.context.injected',
+      'team.task.planned',
+      'team.teammate.dispatched',
     ];
     for (const eventType of teamEventTypes) {
       expect(EventTypes).toContain(eventType);
