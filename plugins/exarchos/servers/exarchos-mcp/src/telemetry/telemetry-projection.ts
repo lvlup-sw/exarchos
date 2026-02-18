@@ -1,6 +1,5 @@
 import type { ViewProjection } from '../views/materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { ToolCompletedData, ToolErroredData } from '../event-store/schemas.js';
 import { percentile } from './percentile.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
@@ -83,10 +82,10 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
   apply: (view, event) => {
     switch (event.type) {
       case 'tool.completed': {
-        const parsed = ToolCompletedData.safeParse(event.data);
-        if (!parsed.success) return view;
+        const data = event.data as { tool?: string; durationMs?: number; responseBytes?: number; tokenEstimate?: number } | undefined;
+        if (!data?.tool || typeof data.durationMs !== 'number') return view;
 
-        const { tool: toolName, durationMs, responseBytes, tokenEstimate } = parsed.data;
+        const { tool: toolName, durationMs, responseBytes = 0, tokenEstimate = 0 } = data;
 
         const existing = view.tools[toolName] ?? initToolMetrics();
 
@@ -120,9 +119,9 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
       }
 
       case 'tool.errored': {
-        const parsed = ToolErroredData.safeParse(event.data);
-        if (!parsed.success) return view;
-        const toolName = parsed.data.tool;
+        const errData = event.data as { tool?: string; durationMs?: number; errorMessage?: string } | undefined;
+        if (!errData?.tool) return view;
+        const toolName = errData.tool;
 
         const existing = view.tools[toolName] ?? initToolMetrics();
 

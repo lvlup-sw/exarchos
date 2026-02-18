@@ -190,6 +190,107 @@ describe('TelemetryProjection', () => {
       expect(state.totalTokens).toBe(2010);
     });
   });
+
+  // ─── T12: Zod removal from tool.completed handler ──────────────────────
+
+  describe('apply - tool.completed guard (T12)', () => {
+    it('Apply_ToolCompleted_ValidData_UpdatesMetrics', () => {
+      let state = telemetryProjection.init();
+      const event = makeEvent('tool.completed', {
+        tool: 'workflow_get',
+        durationMs: 15,
+        responseBytes: 400,
+        tokenEstimate: 100,
+      });
+      state = telemetryProjection.apply(state, event);
+
+      expect(state.tools['workflow_get']).toBeDefined();
+      expect(state.tools['workflow_get'].invocations).toBe(1);
+      expect(state.tools['workflow_get'].totalDurationMs).toBe(15);
+      expect(state.tools['workflow_get'].totalBytes).toBe(400);
+      expect(state.tools['workflow_get'].totalTokens).toBe(100);
+      expect(state.totalInvocations).toBe(1);
+      expect(state.totalTokens).toBe(100);
+    });
+
+    it('Apply_ToolCompleted_MissingFields_ReturnsViewUnchanged', () => {
+      const state = telemetryProjection.init();
+
+      // Missing 'tool' field
+      const noTool = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        durationMs: 15,
+        responseBytes: 400,
+        tokenEstimate: 100,
+      }));
+      expect(noTool).toBe(state);
+
+      // Missing 'durationMs' field
+      const noDuration = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        tool: 'workflow_get',
+        responseBytes: 400,
+        tokenEstimate: 100,
+      }));
+      expect(noDuration).toBe(state);
+
+      // durationMs is not a number
+      const badDuration = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        tool: 'workflow_get',
+        durationMs: 'not-a-number',
+        responseBytes: 400,
+        tokenEstimate: 100,
+      }));
+      expect(badDuration).toBe(state);
+
+      // No data at all
+      const noData = telemetryProjection.apply(state, {
+        streamId: 'telemetry',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'tool.completed',
+        schemaVersion: '1.0',
+      } as WorkflowEvent);
+      expect(noData).toBe(state);
+    });
+  });
+
+  // ─── T13: Zod removal from tool.errored handler ───────────────────────
+
+  describe('apply - tool.errored guard (T13)', () => {
+    it('Apply_ToolErrored_ValidData_UpdatesMetrics', () => {
+      let state = telemetryProjection.init();
+      const event = makeEvent('tool.errored', {
+        tool: 'workflow_set',
+        durationMs: 5,
+        errorMessage: 'TIMEOUT',
+      });
+      state = telemetryProjection.apply(state, event);
+
+      expect(state.tools['workflow_set']).toBeDefined();
+      expect(state.tools['workflow_set'].errors).toBe(1);
+      expect(state.tools['workflow_set'].invocations).toBe(0);
+    });
+
+    it('Apply_ToolErrored_MissingFields_ReturnsViewUnchanged', () => {
+      const state = telemetryProjection.init();
+
+      // Missing 'tool' field
+      const noTool = telemetryProjection.apply(state, makeEvent('tool.errored', {
+        durationMs: 5,
+        errorMessage: 'TIMEOUT',
+      }));
+      expect(noTool).toBe(state);
+
+      // No data at all
+      const noData = telemetryProjection.apply(state, {
+        streamId: 'telemetry',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'tool.errored',
+        schemaVersion: '1.0',
+      } as WorkflowEvent);
+      expect(noData).toBe(state);
+    });
+  });
 });
 
 // Helper to create a minimal WorkflowEvent
