@@ -154,7 +154,7 @@ export function getValidTransitions(
 
   // Add universal cleanup (completed) if not already present
   if (!seen.has('completed') && hsm.states['completed']) {
-    targets.push({ phase: 'completed', guard: { id: 'merge-verified', description: 'Merge must be verified by the orchestrator before cleanup' } });
+    targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description } });
   }
 
   return targets;

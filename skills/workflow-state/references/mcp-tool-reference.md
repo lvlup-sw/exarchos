@@ -10,7 +10,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Tool | Actions | When to Use |
 |------|---------|-------------|
-| `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows |
+| `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel`, `cleanup` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows, resolving merged workflows |
 | `mcp__exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
 | `mcp__exarchos__exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination and lifecycle |
 | `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
@@ -24,6 +24,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
 | `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
 | `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
+| `cleanup` | Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Requires `mergeVerified: true` — pass after verifying PRs are merged via GitHub API |
 
 **Hooks (automatic, no tool call needed):**
 - **SessionStart hook** — Discovers active workflows, restores context, determines next action, and verifies state on resume (replaces former `workflow_list`, `workflow_summary`, `workflow_next_action`, `workflow_reconcile` tools)
