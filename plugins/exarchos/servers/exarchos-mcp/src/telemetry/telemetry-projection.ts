@@ -82,10 +82,13 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
   apply: (view, event) => {
     switch (event.type) {
       case 'tool.completed': {
-        const data = event.data as { tool?: string; durationMs?: number; responseBytes?: number; tokenEstimate?: number } | undefined;
-        if (!data?.tool || typeof data.durationMs !== 'number') return view;
+        const data = event.data as { tool?: unknown; durationMs?: unknown; responseBytes?: unknown; tokenEstimate?: unknown } | undefined;
+        if (!data || typeof data.tool !== 'string' || typeof data.durationMs !== 'number') return view;
 
-        const { tool: toolName, durationMs, responseBytes = 0, tokenEstimate = 0 } = data;
+        const toolName = data.tool;
+        const durationMs = data.durationMs;
+        const responseBytes = typeof data.responseBytes === 'number' ? data.responseBytes : 0;
+        const tokenEstimate = typeof data.tokenEstimate === 'number' ? data.tokenEstimate : 0;
 
         const existing = view.tools[toolName] ?? initToolMetrics();
 
@@ -119,8 +122,8 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
       }
 
       case 'tool.errored': {
-        const errData = event.data as { tool?: string; durationMs?: number; errorMessage?: string } | undefined;
-        if (!errData?.tool) return view;
+        const errData = event.data as { tool?: unknown } | undefined;
+        if (!errData || typeof errData.tool !== 'string') return view;
         const toolName = errData.tool;
 
         const existing = view.tools[toolName] ?? initToolMetrics();

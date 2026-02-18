@@ -251,6 +251,29 @@ describe('TelemetryProjection', () => {
       } as WorkflowEvent);
       expect(noData).toBe(state);
     });
+
+    it('Apply_ToolCompleted_NonStringTool_ReturnsViewUnchanged', () => {
+      const state = telemetryProjection.init();
+
+      const numericTool = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        tool: 123,
+        durationMs: 15,
+      }));
+      expect(numericTool).toBe(state);
+    });
+
+    it('Apply_ToolCompleted_NonNumericOptionals_DefaultsToZero', () => {
+      let state = telemetryProjection.init();
+      state = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        tool: 'test_tool',
+        durationMs: 10,
+        responseBytes: 'garbage',
+        tokenEstimate: 'garbage',
+      }));
+
+      expect(state.tools['test_tool'].totalBytes).toBe(0);
+      expect(state.tools['test_tool'].totalTokens).toBe(0);
+    });
   });
 
   // ─── T13: Zod removal from tool.errored handler ───────────────────────
@@ -289,6 +312,16 @@ describe('TelemetryProjection', () => {
         schemaVersion: '1.0',
       } as WorkflowEvent);
       expect(noData).toBe(state);
+    });
+
+    it('Apply_ToolErrored_NonStringTool_ReturnsViewUnchanged', () => {
+      const state = telemetryProjection.init();
+
+      const numericTool = telemetryProjection.apply(state, makeEvent('tool.errored', {
+        tool: 42,
+        durationMs: 5,
+      }));
+      expect(numericTool).toBe(state);
     });
   });
 });
