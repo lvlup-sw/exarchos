@@ -35,6 +35,7 @@ export const EventTypes = [
   'team.context.injected',
   'team.task.planned',
   'team.teammate.dispatched',
+  'quality.regression',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -287,6 +288,16 @@ export const TeamTeammateDispatchedData = z.object({
   model: z.string(),
 });
 
+// ─── Quality Regression Event Data ──────────────────────────────────────────
+
+export const QualityRegressionData = z.object({
+  skill: z.string(),
+  gate: z.string(),
+  consecutiveFailures: z.number(),
+  firstFailureCommit: z.string(),
+  lastFailureCommit: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -322,6 +333,7 @@ export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
 export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
 export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
+export type QualityRegression = z.infer<typeof QualityRegressionData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
