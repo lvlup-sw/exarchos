@@ -5,12 +5,12 @@ Exarchos is local agent governance for Claude Code — event-sourced SDLC workfl
 ## Build & Test
 
 ```bash
-npm run build          # tsc + bun → dist/
+npm run build          # tsc + bun → dist/ (includes MCP server + CLI bundles)
 npm run test:run       # vitest single run
 npm run typecheck      # tsc --noEmit
 
-# MCP server
-cd plugins/exarchos/servers/exarchos-mcp && npm run build && npm run test:run
+# MCP server tests (build is handled by root `npm run build`)
+cd plugins/exarchos/servers/exarchos-mcp && npm run test:run
 ```
 
 ## Architecture
