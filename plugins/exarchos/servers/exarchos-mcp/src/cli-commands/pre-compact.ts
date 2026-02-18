@@ -28,6 +28,7 @@ export interface PreCompactResult extends CommandResult {
 // ─── Terminal Phases ────────────────────────────────────────────────────────
 
 const TERMINAL_PHASES = new Set(['completed', 'cancelled']);
+const DELEGATE_PHASES = new Set(['delegate', 'overhaul-delegate']);
 
 // ─── Inline Next-Action Computation ─────────────────────────────────────────
 
@@ -103,10 +104,10 @@ export async function handlePreCompact(
     const nextAction = computeNextAction(state.workflowType, state.phase);
     const summary = buildSummary(featureId, state.workflowType, state.phase, tasks);
 
-    // Include team composition snapshot for delegate phase when teamState exists
+    // Include team composition snapshot for delegate phases when teamState exists
     const stateRecord = state as unknown as Record<string, unknown>;
     const teamState =
-      state.phase === 'delegate' && stateRecord.teamState != null
+      DELEGATE_PHASES.has(state.phase) && stateRecord.teamState != null
         ? stateRecord.teamState
         : undefined;
 

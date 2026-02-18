@@ -404,6 +404,37 @@ describe('session-start command', () => {
       expect(workflow!.recovery!.remainingTasks).toBeGreaterThan(0);
     });
 
+    it('should include recovery info when overhaul-delegate phase has active teammates', async () => {
+      // Arrange
+      const checkpoint = createCheckpointFile({
+        featureId: 'overhaul-feature',
+        phase: 'overhaul-delegate',
+        teamState: {
+          teammates: [{ name: 'w1', status: 'active' }],
+        },
+        tasks: [
+          { id: 'T1', status: 'complete', title: 'Done task' },
+          { id: 'T2', status: 'in_progress', title: 'Active task' },
+        ],
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'overhaul-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.workflows).toBeDefined();
+      const workflow = result.workflows!.find((w) => w.featureId === 'overhaul-feature');
+      expect(workflow).toBeDefined();
+      expect(workflow!.recovery).toBeDefined();
+      expect(workflow!.recovery!.type).toBe('orphaned_team');
+      expect(workflow!.recovery!.completedTasks).toBe(1);
+      expect(workflow!.recovery!.remainingTasks).toBe(1);
+    });
+
     it('should not include recovery info when delegate phase has no teamState', async () => {
       // Arrange
       const checkpoint = createCheckpointFile({

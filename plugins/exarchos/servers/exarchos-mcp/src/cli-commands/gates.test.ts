@@ -47,7 +47,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 import { execSync } from 'node:child_process';
-import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState } from './gates.js';
+import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries } from './gates.js';
 import type { CommandResult } from '../cli.js';
 
 const mockExecSync = vi.mocked(execSync);
@@ -753,6 +753,422 @@ describe('Quality Gate Commands', () => {
       expect(result.error).toBeDefined();
       expect(result.error!.code).toBe('GATE_FAILED');
       expect(result.error!.message).toContain('test');
+    });
+  });
+
+  // ─── Task 8: Team Event Emission ────────────────────────────────────────────
+
+  describe('team event emission', () => {
+    let tempDir: string;
+    const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-event-test-'));
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+    });
+
+    afterEach(async () => {
+      process.env.WORKFLOW_STATE_DIR = originalEnv;
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    function createActiveState(overrides: {
+      taskId?: string;
+      taskStatus?: string;
+      cwdPath?: string;
+      startedAt?: string;
+    } = {}): Record<string, unknown> {
+      return {
+        featureId: 'event-test-workflow',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: overrides.taskId ?? 'task-evt-001',
+            title: 'Event test task',
+            status: overrides.taskStatus ?? 'in_progress',
+            branch: 'feat/event-test',
+            startedAt: overrides.startedAt ?? new Date(Date.now() - 5000).toISOString(),
+          },
+        ],
+        worktrees: {
+          'wt-evt-001': {
+            branch: 'feat/event-test',
+            status: 'active',
+            taskId: overrides.taskId ?? 'task-evt-001',
+            path: overrides.cwdPath ?? '/tmp/event-worktree',
+          },
+        },
+        _version: 1,
+      };
+    }
+
+    async function writeStateFile(state: Record<string, unknown>): Promise<void> {
+      await fsp.writeFile(
+        path.join(tempDir, `${state.featureId as string}.state.json`),
+        JSON.stringify(state),
+      );
+    }
+
+    async function readEventLines(): Promise<Record<string, unknown>[]> {
+      const eventFile = path.join(tempDir, 'event-test-workflow.events.jsonl');
+      try {
+        const content = await fsp.readFile(eventFile, 'utf-8');
+        return content
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+      } catch {
+        return [];
+      }
+    }
+
+    it('should emit team.task.completed event when quality checks pass', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
+      await writeStateFile(state);
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/event-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert
+      const events = await readEventLines();
+      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
+      expect(completedEvents).toHaveLength(1);
+
+      const event = completedEvents[0];
+      const data = event.data as Record<string, unknown>;
+      expect(data.taskId).toBe('task-evt-001');
+      expect(data.teammateName).toBe('worker-1');
+      expect(typeof data.durationMs).toBe('number');
+      expect((data.durationMs as number)).toBeGreaterThan(0);
+      expect(data.testsPassed).toBe(true);
+    });
+
+    it('should not emit team.task.completed event when quality checks fail', async () => {
+      // Arrange
+      const typecheckError = new Error('Type checking failed');
+      (typecheckError as NodeJS.ErrnoException).status = 1;
+      (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+      (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from('type error');
+
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+          throw typecheckError;
+        }
+        return Buffer.from('');
+      });
+
+      const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
+      await writeStateFile(state);
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/event-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert — no team.task.completed event should be written
+      const events = await readEventLines();
+      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
+      expect(completedEvents).toHaveLength(0);
+    });
+
+    it('should not emit event when no matching task for cwd', async () => {
+      // Arrange — state has a worktree at a different path
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = createActiveState({ cwdPath: '/tmp/other-worktree' });
+      await writeStateFile(state);
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/event-worktree',
+      };
+
+      // Act
+      const result = await handleTeammateGate(input);
+
+      // Assert — no event written, but gate still passes
+      const events = await readEventLines();
+      expect(events).toHaveLength(0);
+      expect(result.continue).toBe(true);
+    });
+
+    it('should include changed files in team.task.completed event', async () => {
+      // Arrange — git diff returns a string (encoding: 'utf-8'), quality checks return Buffer
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('git diff --name-only')) {
+          return 'src/auth/login.ts\nsrc/api/routes.ts\n';
+        }
+        return Buffer.from('');
+      });
+
+      const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
+      await writeStateFile(state);
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/event-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert
+      const events = await readEventLines();
+      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
+      expect(completedEvents).toHaveLength(1);
+
+      const data = completedEvents[0].data as Record<string, unknown>;
+      const filesChanged = data.filesChanged as string[];
+      expect(filesChanged).toContain('src/auth/login.ts');
+      expect(filesChanged).toContain('src/api/routes.ts');
+    });
+  });
+
+  // ─── Task 9: Follow-up Task Detection ──────────────────────────────────────
+
+  describe('follow-up task detection', () => {
+    it('should return dependents when completed task unblocks them', () => {
+      // Arrange
+      const tasks = [
+        { id: 'task-A', title: 'Task A', status: 'complete' },
+        { id: 'task-B', title: 'Task B', status: 'pending', blockedBy: ['task-A'] },
+      ];
+
+      // Act
+      const result = findUnblockedTasks(tasks, 'task-A');
+
+      // Assert
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('task-B');
+    });
+
+    it('should return empty when dependent is still blocked by another task', () => {
+      // Arrange
+      const tasks = [
+        { id: 'task-A', title: 'Task A', status: 'complete' },
+        { id: 'task-C', title: 'Task C', status: 'pending', blockedBy: ['task-A', 'task-D'] },
+        { id: 'task-D', title: 'Task D', status: 'in_progress' },
+      ];
+
+      // Act
+      const result = findUnblockedTasks(tasks, 'task-A');
+
+      // Assert
+      expect(result).toHaveLength(0);
+    });
+
+    it('should return empty when no tasks depend on completed task', () => {
+      // Arrange
+      const tasks = [
+        { id: 'task-A', title: 'Task A', status: 'complete' },
+        { id: 'task-B', title: 'Task B', status: 'pending' },
+      ];
+
+      // Act
+      const result = findUnblockedTasks(tasks, 'task-A');
+
+      // Assert
+      expect(result).toHaveLength(0);
+    });
+
+    it('should include unblockedTasks in handler result when tasks become unblocked', async () => {
+      // Arrange
+      const tempDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-unblock-test-'));
+      const originalEnv2 = process.env.WORKFLOW_STATE_DIR;
+      process.env.WORKFLOW_STATE_DIR = tempDir2;
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = {
+        featureId: 'unblock-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          { id: 'task-A', title: 'Task A', status: 'in_progress', branch: 'feat/a' },
+          { id: 'task-B', title: 'Task B', status: 'pending', branch: 'feat/b', blockedBy: ['task-A'] },
+        ],
+        worktrees: {
+          'wt-001': {
+            branch: 'feat/a',
+            status: 'active',
+            taskId: 'task-A',
+            path: '/tmp/unblock-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir2, 'unblock-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/unblock-worktree',
+      };
+
+      // Act
+      const result = await handleTeammateGate(input);
+
+      // Cleanup
+      process.env.WORKFLOW_STATE_DIR = originalEnv2;
+      await fsp.rm(tempDir2, { recursive: true, force: true });
+
+      // Assert
+      expect(result.continue).toBe(true);
+      const unblockedTasks = result.unblockedTasks as Array<{ id: string }>;
+      expect(unblockedTasks).toBeDefined();
+      expect(unblockedTasks).toHaveLength(1);
+      expect(unblockedTasks[0].id).toBe('task-B');
+    });
+  });
+
+  // ─── Task 14: Retry Circuit Breaker ──────────────────────────────────────────
+
+  describe('retry circuit breaker', () => {
+    let tempDir: string;
+    const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-circuit-test-'));
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+      // Reset the module-level retry counters between tests
+      resetQualityRetries('__all__');
+    });
+
+    afterEach(async () => {
+      process.env.WORKFLOW_STATE_DIR = originalEnv;
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    function makeQualityFail(): void {
+      const typecheckError = new Error('Type checking failed');
+      (typecheckError as NodeJS.ErrnoException).status = 1;
+      (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+      (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from('type error');
+
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+          throw typecheckError;
+        }
+        return Buffer.from('');
+      });
+    }
+
+    it('should trip circuit breaker after repeated failures', async () => {
+      // Arrange
+      makeQualityFail();
+      const state = {
+        featureId: 'circuit-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          { id: 'task-001', title: 'Circuit test task', status: 'in_progress', branch: 'feat/circuit' },
+        ],
+        worktrees: {
+          'wt-001': {
+            branch: 'feat/circuit',
+            status: 'active',
+            taskId: 'task-001',
+            path: '/tmp/circuit-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'circuit-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/circuit-worktree',
+      };
+
+      // Act — call 3 times (MAX_QUALITY_RETRIES)
+      await handleTeammateGate(input);
+      await handleTeammateGate(input);
+      const result = await handleTeammateGate(input);
+
+      // Assert — circuit should be open
+      expect(result.error).toBeDefined();
+      expect(result.circuitOpen).toBe(true);
+    });
+
+    it('should reset counter on success', async () => {
+      // Arrange — fail once, then succeed
+      const typecheckError = new Error('Type checking failed');
+      (typecheckError as NodeJS.ErrnoException).status = 1;
+      (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+      (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from('type error');
+
+      let callCount = 0;
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+          callCount++;
+          if (callCount <= 1) {
+            throw typecheckError;
+          }
+        }
+        return Buffer.from('');
+      });
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/circuit-reset-worktree',
+      };
+
+      // Act — fail once, then succeed
+      const failResult = await handleTeammateGate(input);
+      const passResult = await handleTeammateGate(input);
+
+      // Assert — circuit should NOT be tripped
+      expect(failResult.error).toBeDefined();
+      expect(passResult.error).toBeUndefined();
+      expect(passResult.circuitOpen).toBeUndefined();
+    });
+
+    it('should track different cwds independently', async () => {
+      // Arrange
+      makeQualityFail();
+
+      const inputA: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-1',
+        cwd: '/tmp/circuit-worktree-A',
+      };
+      const inputB: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-2',
+        cwd: '/tmp/circuit-worktree-B',
+      };
+
+      // Act — fail 2 times for A, 1 time for B
+      await handleTeammateGate(inputA);
+      await handleTeammateGate(inputA);
+      await handleTeammateGate(inputB);
+
+      // Neither should have tripped the circuit (A=2 < 3, B=1 < 3)
+      const resultA = await handleTeammateGate(inputA); // 3rd for A — should trip
+      const resultB = await handleTeammateGate(inputB); // 2nd for B — should NOT trip
+
+      // Assert
+      expect(resultA.circuitOpen).toBe(true);
+      expect(resultB.circuitOpen).toBeUndefined();
     });
   });
 });
