@@ -152,8 +152,21 @@ export class EventStore {
         throw new PidLockError(existingPid);
       }
 
-      // Stale lock — reclaim by overwriting
-      await fs.writeFile(this.lockFilePath, String(process.pid), 'utf-8');
+      // Stale lock — atomic reclaim: unlink then exclusive create
+      try {
+        await fs.unlink(this.lockFilePath);
+        const fd = openSync(this.lockFilePath, 'wx');
+        writeSync(fd, String(process.pid));
+        closeSync(fd);
+      } catch (reclaimErr) {
+        if ((reclaimErr as NodeJS.ErrnoException).code === 'EEXIST') {
+          // Another process reclaimed between unlink and open — re-read to report
+          const newContent = await fs.readFile(this.lockFilePath, 'utf-8');
+          const winnerPid = parseInt(newContent.trim(), 10);
+          throw new PidLockError(winnerPid);
+        }
+        throw reclaimErr;
+      }
     }
 
     // Register cleanup handler
