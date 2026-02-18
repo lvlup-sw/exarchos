@@ -1,3 +1,7 @@
+---
+title: Telemetry Awareness
+---
+
 # Telemetry Awareness
 
 When `telemetryHints` appear in session-start output, apply the suggested
