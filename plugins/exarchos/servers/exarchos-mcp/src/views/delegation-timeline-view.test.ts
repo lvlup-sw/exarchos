@@ -242,5 +242,56 @@ describe('DelegationTimelineView', () => {
       expect(state.bottleneck!.durationMs).toBe(5000);
       expect(state.bottleneck!.reason).toBe('longest_task');
     });
+
+    it('Apply_TaskEviction_BottleneckEvicted_BottleneckResetToNull', () => {
+      let state = delegationTimelineProjection.init();
+
+      // Assign and complete task-0 so it becomes the bottleneck (long duration)
+      state = delegationTimelineProjection.apply(
+        state,
+        makeEvent('team.task.assigned', {
+          taskId: 'task-0',
+          teammateName: 'worker-0',
+          worktreePath: '/tmp/wt-0',
+          modules: ['auth'],
+        }, 1),
+      );
+      state = delegationTimelineProjection.apply(
+        state,
+        makeEvent('team.task.completed', {
+          taskId: 'task-0',
+          teammateName: 'worker-0',
+          durationMs: 99999,
+          filesChanged: [],
+          testsPassed: true,
+          qualityGateResults: {},
+        }, 2),
+      );
+
+      // task-0 should now be the bottleneck
+      expect(state.bottleneck?.taskId).toBe('task-0');
+
+      // Assign tasks 1 through 209 — once we exceed MAX_TIMELINE_TASKS (200),
+      // task-0 (the current bottleneck) will be evicted from the bounded array
+      for (let i = 1; i <= 209; i++) {
+        state = delegationTimelineProjection.apply(
+          state,
+          makeEvent('team.task.assigned', {
+            taskId: `task-${i}`,
+            teammateName: `worker-${i}`,
+            worktreePath: `/tmp/wt-${i}`,
+            modules: ['auth'],
+          }, i + 2),
+        );
+      }
+
+      // 210 total tasks assigned → capped at 200, task-0 through task-9 evicted
+      expect(state.tasks).toHaveLength(200);
+      expect(state.tasks[0].taskId).toBe('task-10');
+      expect(state.hasMore).toBe(true);
+
+      // bottleneck referenced task-0 which was evicted — must be reset to null
+      expect(state.bottleneck).toBeNull();
+    });
   });
 });

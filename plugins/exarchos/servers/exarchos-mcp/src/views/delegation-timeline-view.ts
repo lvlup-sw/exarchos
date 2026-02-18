@@ -104,9 +104,15 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
           ? newTasks.slice(newTasks.length - MAX_TIMELINE_TASKS)
           : newTasks;
 
+        const bottleneckStillPresent =
+          view.bottleneck === null ||
+          boundedTasks.some((t) => t.taskId === view.bottleneck!.taskId);
+        const bottleneck = bottleneckStillPresent ? view.bottleneck : null;
+
         return {
           ...view,
           tasks: boundedTasks,
+          bottleneck,
           hasMore: view.hasMore || evicted,
         };
       }
