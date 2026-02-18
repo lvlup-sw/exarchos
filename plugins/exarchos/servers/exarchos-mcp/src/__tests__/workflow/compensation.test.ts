@@ -1046,27 +1046,50 @@ describe('Compensation', () => {
   });
 
   describe('ExecuteCompensation_ReturnsCheckpoint', () => {
-    it('should return a checkpoint with IDs of all executed and skipped actions', async () => {
+    it('should return null checkpoint when all actions succeed', async () => {
       const state = makeState({ phase: 'delegate' });
       const events = makeEvents(1);
 
       const result = await executeCompensation(state, 'delegate', events, 1, { dryRun: false });
 
-      // Result should include checkpoint
-      expect(result.checkpoint).toBeDefined();
-      expect(Array.isArray(result.checkpoint.completedActions)).toBe(true);
+      // All actions succeed — checkpoint should be null (cleanup signal)
+      expect(result.success).toBe(true);
+      expect(result.checkpoint).toBeNull();
+    });
+
+    it('should return a checkpoint with completed action IDs on partial failure', async () => {
+      const state = makeState({ phase: 'synthesize' });
+      const events = makeEvents(2);
+
+      // Make the close-pr command fail so we get a partial failure
+      mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+        const callback = typeof opts === 'function' ? opts : cb;
+        if (cmd === 'gh' && Array.isArray(args) && args.includes('close')) {
+          (callback as (err: Error) => void)(new Error('gh: command failed'));
+        } else {
+          (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        }
+        return undefined as never;
+      });
+
+      const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
+
+      // Partial failure — checkpoint should be returned
+      expect(result.success).toBe(false);
+      expect(result.checkpoint).not.toBeNull();
+      expect(Array.isArray(result.checkpoint!.completedActions)).toBe(true);
 
       // All actions that were executed or skipped should appear in checkpoint
       for (const action of result.actions) {
         if (action.status === 'executed' || action.status === 'skipped') {
-          expect(result.checkpoint.completedActions).toContain(action.actionId);
+          expect(result.checkpoint!.completedActions).toContain(action.actionId);
         }
       }
 
       // Failed actions should NOT appear in checkpoint
       const failedActions = result.actions.filter((a) => a.status === 'failed');
       for (const action of failedActions) {
-        expect(result.checkpoint.completedActions).not.toContain(action.actionId);
+        expect(result.checkpoint!.completedActions).not.toContain(action.actionId);
       }
     });
   });
@@ -1094,9 +1117,8 @@ describe('Compensation', () => {
       // Actions should still execute or be condition-skipped as normal
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // Checkpoint should be returned with all executed/skipped action IDs
-      expect(result.checkpoint).toBeDefined();
-      expect(result.checkpoint.completedActions.length).toBeGreaterThan(0);
+      // All actions succeeded — checkpoint should be null (cleanup signal)
+      expect(result.checkpoint).toBeNull();
     });
   });
 
@@ -1116,9 +1138,28 @@ describe('Compensation', () => {
       // Actions should still execute or be condition-skipped as normal
       expect(result.actions.length).toBeGreaterThan(0);
 
-      // Checkpoint should still be returned in the result
-      expect(result.checkpoint).toBeDefined();
-      expect(Array.isArray(result.checkpoint.completedActions)).toBe(true);
+      // All actions succeeded — checkpoint should be null (cleanup signal)
+      expect(result.checkpoint).toBeNull();
+    });
+  });
+
+  // ─── T4: Compensation checkpoint cleanup (ARCH-5) ──────────────────────────
+
+  describe('ExecuteCompensation_AllActionsSucceed_ReturnsNullCheckpoint', () => {
+    it('should return null checkpoint when all actions succeed', async () => {
+      // State with all resources present so actions actually execute (not just skip)
+      const state = makeState({ phase: 'synthesize' });
+      const events = makeEvents(2);
+
+      const result = await executeCompensation(state, 'synthesize', events, 2, { dryRun: false });
+
+      // All actions should succeed (executed or skipped — no failures)
+      expect(result.success).toBe(true);
+      const failedActions = result.actions.filter((a) => a.status === 'failed');
+      expect(failedActions.length).toBe(0);
+
+      // When all actions succeed, checkpoint should be null (cleanup signal)
+      expect(result.checkpoint).toBeNull();
     });
   });
 });

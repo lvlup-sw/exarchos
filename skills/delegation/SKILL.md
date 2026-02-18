@@ -90,8 +90,11 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 - Task description (full text, not file references)
 - File paths to modify
 - Test requirements (TDD phases)
+- Property-based testing patterns (conditional)
 - Success criteria
 - Working directory (worktree path)
+
+**Conditional PBT section:** When a task has `testingStrategy.propertyTests: true`, include the "Property-Based Testing Patterns" section from `references/pbt-patterns.md` in the implementer prompt. This section provides framework-specific patterns (fast-check for TypeScript, FsCheck for .NET) and integrates with the TDD RED phase. When `propertyTests: false`, omit the section entirely.
 
 ## Delegation Workflow
 
