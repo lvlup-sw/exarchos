@@ -65,6 +65,20 @@ You MUST follow strict Test-Driven Development:
 3. Run tests after each change
 4. **VERIFY tests stay green**
 
+## Property-Based Testing Patterns
+
+When this task has `testingStrategy.propertyTests: true`, write property tests alongside example tests during the RED phase. Use the patterns from `@skills/delegation/references/pbt-patterns.md`:
+
+- **Roundtrip:** For encode/decode pairs, verify `decode(encode(x)) === x` for all inputs
+- **Invariant:** For operations with business rules, verify bounds/constraints hold for all inputs
+- **Idempotence:** For normalization/formatting, verify `f(f(x)) === f(x)` for all inputs
+- **Commutativity:** For order-independent operations, verify `f(a, b) === f(b, a)` for all inputs
+
+**TypeScript:** Use `fast-check` with `fc.property`, `fc.assert`, or `it.prop`
+**C#:** Use `FsCheck` with `Prop.ForAll` or `[Property]` attribute
+
+Property tests complement example tests -- write both in the RED phase.
+
 ## Expected Test
 
 ```typescript

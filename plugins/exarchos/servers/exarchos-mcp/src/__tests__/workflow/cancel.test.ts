@@ -109,14 +109,7 @@ describe('handleCancel', () => {
             ],
             events: [],
             success: true,
-            checkpoint: {
-              completedActions: [
-                'synthesize:close-pr',
-                'delegate:delete-integration-branch',
-                'delegate:cleanup-worktrees',
-                'delegate:delete-feature-branches',
-              ],
-            },
+            checkpoint: null,
           };
         },
       );
@@ -144,7 +137,7 @@ describe('handleCancel', () => {
       };
       await writeRawState('ckpt-clear', rawState);
 
-      // Mock executeCompensation to return success
+      // Mock executeCompensation to return success (null checkpoint)
       const compensationModule = await import('../../workflow/compensation.js');
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
         actions: [
@@ -152,9 +145,7 @@ describe('handleCancel', () => {
         ],
         events: [],
         success: true,
-        checkpoint: {
-          completedActions: ['synthesize:close-pr', 'delegate:cleanup-worktrees'],
-        },
+        checkpoint: null,
       });
 
       // Act
@@ -166,6 +157,42 @@ describe('handleCancel', () => {
       // Assert: state file should NOT contain _compensationCheckpoint
       const stateAfter = await readRawState('ckpt-clear');
       expect(stateAfter._compensationCheckpoint).toBeUndefined();
+    });
+
+    // ─── T5: Clean _compensationCheckpoint from state after cancel (ARCH-5) ──
+
+    it('should set _compensationCheckpoint to null in state on successful compensation', async () => {
+      // Arrange: create a workflow with _compensationCheckpoint from a prior partial failure
+      await handleInit({ featureId: 'ckpt-null', workflowType: 'feature' }, tmpDir);
+
+      const rawState = await readRawState('ckpt-null');
+      rawState.phase = 'delegate';
+      rawState._history = { feature: 'delegate' };
+      rawState._compensationCheckpoint = {
+        completedActions: ['synthesize:close-pr'],
+      };
+      await writeRawState('ckpt-null', rawState);
+
+      // Mock executeCompensation to return success
+      const compensationModule = await import('../../workflow/compensation.js');
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+        actions: [
+          { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
+        ],
+        events: [],
+        success: true,
+        checkpoint: null,
+      });
+
+      // Act
+      const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir);
+
+      // Assert: cancel should succeed
+      expect(result.success).toBe(true);
+
+      // Assert: the raw state on disk should not have _compensationCheckpoint
+      const stateAfter = await readRawState('ckpt-null');
+      expect(stateAfter).not.toHaveProperty('_compensationCheckpoint');
     });
   });
 });
