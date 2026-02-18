@@ -10,6 +10,9 @@ import {
   queryModuleHistory,
   synthesizeIntelligence,
   extractModulesFromCwd,
+  readNativeTaskList,
+  isTeammateSubSubagent,
+  isAgentTeamMode,
   type FilteredComposite,
 } from './subagent-context.js';
 
@@ -572,6 +575,409 @@ describe('subagent-context', () => {
       expect(result.guidance).toBe('');
       expect(result.context).toBe('');
       expect(result.team).toBe('');
+    });
+  });
+
+  // ─── Task 005: Live Data Only (Deduplication) ──────────────────────────────
+
+  describe('readNativeTaskList', () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'native-tasks-'));
+    });
+
+    afterEach(async () => {
+      await cleanupDir(tempDir);
+    });
+
+    it('should return task statuses from existing tasks directory', async () => {
+      // Arrange — create a tasks directory with JSON files
+      const tasksDir = path.join(tempDir, 'my-feature');
+      await fs.mkdir(tasksDir, { recursive: true });
+      await fs.writeFile(
+        path.join(tasksDir, 'task-001.json'),
+        JSON.stringify({ id: 'task-001', title: 'Implement auth', status: 'complete' }),
+        'utf-8',
+      );
+      await fs.writeFile(
+        path.join(tasksDir, 'task-002.json'),
+        JSON.stringify({ id: 'task-002', title: 'Implement api', status: 'in_progress' }),
+        'utf-8',
+      );
+      await fs.writeFile(
+        path.join(tasksDir, 'task-003.json'),
+        JSON.stringify({ id: 'task-003', title: 'Implement ui', status: 'pending' }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await readNativeTaskList(tasksDir);
+
+      // Assert
+      expect(result).toHaveLength(3);
+      expect(result).toContainEqual(
+        expect.objectContaining({ id: 'task-001', status: 'complete' }),
+      );
+      expect(result).toContainEqual(
+        expect.objectContaining({ id: 'task-002', status: 'in_progress' }),
+      );
+      expect(result).toContainEqual(
+        expect.objectContaining({ id: 'task-003', status: 'pending' }),
+      );
+    });
+
+    it('should return empty array when tasks directory does not exist', async () => {
+      // Act
+      const result = await readNativeTaskList('/nonexistent/path/tasks');
+
+      // Assert
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('isTeammateSubSubagent', () => {
+    it('should return true when cwd contains .worktrees/ and phase is delegate', () => {
+      // Arrange
+      const cwd = '/Users/dev/project/.worktrees/wt-auth-service/src';
+      const phase = 'delegate';
+
+      // Act
+      const result = isTeammateSubSubagent(cwd, phase);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should return false when cwd does NOT contain .worktrees/', () => {
+      // Arrange — orchestrator cwd (no worktree)
+      const cwd = '/Users/dev/project/src';
+      const phase = 'delegate';
+
+      // Act
+      const result = isTeammateSubSubagent(cwd, phase);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+
+    it('should return false when cwd has .worktrees/ but phase is NOT delegate', () => {
+      // Arrange
+      const cwd = '/Users/dev/project/.worktrees/wt-auth-service/src';
+      const phase = 'review';
+
+      // Act
+      const result = isTeammateSubSubagent(cwd, phase);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('isAgentTeamMode', () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'teams-'));
+    });
+
+    afterEach(async () => {
+      await cleanupDir(tempDir);
+    });
+
+    it('should return true when team config directory exists', async () => {
+      // Arrange — create team config at {teamsDir}/{featureId}/config.json
+      const teamDir = path.join(tempDir, 'my-feature');
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await isAgentTeamMode('my-feature', tempDir);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should return true when team config flat file exists', async () => {
+      // Arrange — create team config at {teamsDir}/{featureId}.json
+      await fs.writeFile(
+        path.join(tempDir, 'my-feature.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await isAgentTeamMode('my-feature', tempDir);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should return false when no team config exists', async () => {
+      // Act — tempDir has no team config for this feature
+      const result = await isAgentTeamMode('nonexistent-feature', tempDir);
+
+      // Assert
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('handleSubagentContext agent-team mode', () => {
+    let tempDir: string;
+    let tempTeamsDir: string;
+    let tempTasksDir: string;
+    let originalStateDir: string | undefined;
+    let originalHome: string | undefined;
+
+    beforeEach(async () => {
+      tempDir = await createTempStateDir();
+      tempTeamsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'teams-'));
+      tempTasksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tasks-'));
+      originalStateDir = process.env.WORKFLOW_STATE_DIR;
+      originalHome = process.env.HOME;
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+      // We override HOME so the team/task resolution uses our temp dirs
+      // But the implementation uses HOME-based paths, so we set up the structure
+    });
+
+    afterEach(async () => {
+      if (originalStateDir !== undefined) {
+        process.env.WORKFLOW_STATE_DIR = originalStateDir;
+      } else {
+        delete process.env.WORKFLOW_STATE_DIR;
+      }
+      if (originalHome !== undefined) {
+        process.env.HOME = originalHome;
+      } else {
+        delete process.env.HOME;
+      }
+      await cleanupDir(tempDir);
+      await cleanupDir(tempTeamsDir);
+      await cleanupDir(tempTasksDir);
+    });
+
+    it('should not call queryModuleHistory in agent-team mode', async () => {
+      // Arrange — active workflow with team config present
+      const featureId = 'team-feature';
+      await writeStateFile(tempDir, featureId, 'delegate');
+
+      // Create team config directory structure under HOME
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Add JSONL events that would be found if queryModuleHistory were called
+      const jsonlContent = [
+        `{"streamId":"${featureId}","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"${featureId}"},"schemaVersion":"1.0"}`,
+      ].join('\n');
+      await fs.writeFile(
+        path.join(tempDir, `${featureId}.events.jsonl`),
+        jsonlContent,
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
+
+      // Assert — context should be empty because historical intelligence is skipped
+      expect(result.context).toBe('');
+
+      await cleanupDir(homeDir);
+    });
+
+    it('should not inject static team context in agent-team mode', async () => {
+      // Arrange — active workflow with team config AND workflow tasks
+      const featureId = 'team-feature-2';
+      const stateFile = path.join(tempDir, `${featureId}.state.json`);
+      const state = {
+        version: 2,
+        featureId,
+        workflowType: 'feature',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        phase: 'delegate',
+        artifacts: { design: null, plan: null, pr: null },
+        tasks: [
+          { id: 'task-1', title: 'Implement auth', status: 'in_progress', branch: 'auth' },
+          { id: 'task-2', title: 'Implement api', status: 'complete', branch: 'api' },
+        ],
+        worktrees: {},
+        reviews: {},
+        synthesis: {
+          integrationBranch: null, mergeOrder: [], mergedBranches: [],
+          prUrl: null, prFeedback: [],
+        },
+        _version: 1, _history: {},
+        _checkpoint: {
+          timestamp: new Date().toISOString(), phase: 'delegate',
+          summary: 'Test', operationsSince: 0, fixCycleCount: 0,
+          lastActivityTimestamp: new Date().toISOString(), staleAfterMinutes: 120,
+        },
+      };
+      await fs.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
+
+      // Create team config
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/some/path' });
+
+      // Assert — team field should be empty (static team context suppressed)
+      expect(result.team).toBe('');
+
+      await cleanupDir(homeDir);
+    });
+
+    it('should inject live task status changes in agent-team mode', async () => {
+      // Arrange — active workflow with team config + native task files
+      const featureId = 'team-feature-3';
+      await writeStateFile(tempDir, featureId, 'delegate');
+
+      // Create team config + native tasks under HOME
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+      const tasksDir = path.join(homeDir, '.claude', 'tasks', featureId);
+      await fs.mkdir(tasksDir, { recursive: true });
+      await fs.writeFile(
+        path.join(tasksDir, 'task-001.json'),
+        JSON.stringify({ id: 'task-001', title: 'Implement auth', status: 'complete' }),
+        'utf-8',
+      );
+      await fs.writeFile(
+        path.join(tasksDir, 'task-002.json'),
+        JSON.stringify({ id: 'task-002', title: 'Implement api', status: 'in_progress' }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/some/path' });
+
+      // Assert — liveTaskStatus field should contain task data
+      expect(result).toHaveProperty('liveTaskStatus');
+      expect(typeof result.liveTaskStatus).toBe('string');
+      expect((result.liveTaskStatus as string).length).toBeGreaterThan(0);
+      expect(result.liveTaskStatus as string).toContain('complete');
+
+      await cleanupDir(homeDir);
+    });
+
+    it('should retain historical intelligence in subagent mode (no team config)', async () => {
+      // Arrange — active workflow WITHOUT team config
+      const featureId = 'solo-feature';
+      await writeStateFile(tempDir, featureId, 'delegate');
+
+      // Ensure no team config exists
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+
+      // Add JSONL events that should be found
+      const jsonlContent = [
+        `{"streamId":"${featureId}","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"${featureId}"},"schemaVersion":"1.0"}`,
+      ].join('\n');
+      await fs.writeFile(
+        path.join(tempDir, `${featureId}.events.jsonl`),
+        jsonlContent,
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
+
+      // Assert — context should be non-empty (historical intelligence preserved in subagent mode)
+      expect(typeof result.context).toBe('string');
+      expect((result.context as string).length).toBeGreaterThan(0);
+      expect(result.context as string).toContain('fix cycle');
+
+      await cleanupDir(homeDir);
+    });
+
+    it('should always retain tool guidance regardless of mode', async () => {
+      // Arrange — active workflow WITH team config
+      const featureId = 'guided-feature';
+      await writeStateFile(tempDir, featureId, 'delegate');
+
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Act
+      const result = await handleSubagentContext({ cwd: '/some/path' });
+
+      // Assert — guidance should be present (tool filtering always applies)
+      expect(result).toHaveProperty('guidance');
+      expect(typeof result.guidance).toBe('string');
+      expect((result.guidance as string).length).toBeGreaterThan(0);
+
+      await cleanupDir(homeDir);
+    });
+
+    it('should skip all injection for teammate sub-subagents during delegate', async () => {
+      // Arrange — active workflow + team config + cwd in worktree + phase is delegate
+      const featureId = 'sub-sub-feature';
+      await writeStateFile(tempDir, featureId, 'delegate');
+
+      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
+      process.env.HOME = homeDir;
+      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      await fs.mkdir(teamDir, { recursive: true });
+      await fs.writeFile(
+        path.join(teamDir, 'config.json'),
+        JSON.stringify({ teamSize: 3 }),
+        'utf-8',
+      );
+
+      // Add JSONL events
+      const jsonlContent = [
+        `{"streamId":"${featureId}","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"${featureId}"},"schemaVersion":"1.0"}`,
+      ].join('\n');
+      await fs.writeFile(
+        path.join(tempDir, `${featureId}.events.jsonl`),
+        jsonlContent,
+        'utf-8',
+      );
+
+      // Act — cwd is inside a .worktrees/ directory (teammate sub-subagent)
+      const result = await handleSubagentContext({
+        cwd: '/Users/dev/project/.worktrees/wt-auth-service/src',
+      });
+
+      // Assert — all context should be empty (sub-subagent inherits from parent)
+      expect(result.guidance).toBe('');
+      expect(result.context).toBe('');
+      expect(result.team).toBe('');
+
+      await cleanupDir(homeDir);
     });
   });
 });
