@@ -92,6 +92,73 @@ export async function handleEventAppend(
   }
 }
 
+// ─── Batch Append Handler ───────────────────────────────────────────────────
+
+/** Handles the event batch_append tool: validates all events upfront, appends atomically, and returns EventAck[]. */
+export async function handleBatchAppend(
+  args: {
+    stream: string;
+    events: Array<Record<string, unknown>>;
+  },
+  stateDir: string,
+): Promise<ToolResult> {
+  if (!args.stream) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'stream is required' },
+    };
+  }
+
+  if (!args.events || args.events.length === 0) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'events array must be non-empty' },
+    };
+  }
+
+  // Validate all events have a type before passing to store
+  for (let i = 0; i < args.events.length; i++) {
+    const eventType = args.events[i]?.type as EventType | undefined;
+    if (!eventType) {
+      return {
+        success: false,
+        error: { code: 'INVALID_INPUT', message: `events[${i}].type is required` },
+      };
+    }
+  }
+
+  const store = getStore(stateDir);
+
+  try {
+    const storeEvents = args.events.map((event) => ({
+      type: event.type as EventType,
+      ...(event.data !== undefined && { data: event.data as Record<string, unknown> }),
+      ...(event.correlationId !== undefined && { correlationId: event.correlationId as string }),
+      ...(event.causationId !== undefined && { causationId: event.causationId as string }),
+      ...(event.agentId !== undefined && { agentId: event.agentId as string }),
+      ...(event.agentRole !== undefined && { agentRole: event.agentRole as string }),
+      ...(event.source !== undefined && { source: event.source as string }),
+      ...(event.timestamp !== undefined && { timestamp: event.timestamp as string }),
+      ...(event.idempotencyKey !== undefined && { idempotencyKey: event.idempotencyKey as string }),
+    }));
+
+    const appended = await store.batchAppend(args.stream, storeEvents);
+
+    return {
+      success: true,
+      data: appended.map(toEventAck),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'BATCH_APPEND_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 // ─── Event Query Handler ────────────────────────────────────────────────────
 
 /** Handles the event_query tool: validates input, queries events with optional filters and pagination. */

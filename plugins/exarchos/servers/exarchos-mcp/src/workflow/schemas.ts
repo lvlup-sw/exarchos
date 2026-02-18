@@ -123,6 +123,10 @@ export const TaskSchema = z.object({
   branch: z.string().optional(),
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
+  nativeTaskId: z.string().optional(),
+  teammateName: z.string().optional(),
+  blockedBy: z.array(z.string()).default([]),
+  worktreePath: z.string().optional(),
 });
 
 // ─── Worktree Schema ────────────────────────────────────────────────────────

@@ -580,6 +580,75 @@ describe('Workflow State Schemas', () => {
       const result = TaskSchema.safeParse(task);
       expect(result.success).toBe(false);
     });
+
+    it('TaskSchema_WithNativeTaskId_AcceptsOptionalString', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Implement schemas',
+        status: 'pending',
+        nativeTaskId: 'abc',
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.nativeTaskId).toBe('abc');
+      }
+    });
+
+    it('TaskSchema_WithTeammateName_AcceptsOptionalString', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Implement schemas',
+        status: 'pending',
+        teammateName: 'worker-1',
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.teammateName).toBe('worker-1');
+      }
+    });
+
+    it('TaskSchema_WithBlockedBy_AcceptsStringArray', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Implement schemas',
+        status: 'pending',
+        blockedBy: ['task-001'],
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.blockedBy).toEqual(['task-001']);
+      }
+    });
+
+    it('TaskSchema_WithBlockedBy_DefaultsToEmptyArray', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Implement schemas',
+        status: 'pending',
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.blockedBy).toEqual([]);
+      }
+    });
+
+    it('TaskSchema_WithWorktreePath_AcceptsOptionalString', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Implement schemas',
+        status: 'pending',
+        worktreePath: '/path/.worktrees/foo',
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.worktreePath).toBe('/path/.worktrees/foo');
+      }
+    });
   });
 
   describe('WorktreeSchema', () => {

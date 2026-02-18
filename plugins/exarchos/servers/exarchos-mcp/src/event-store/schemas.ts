@@ -33,6 +33,8 @@ export const EventTypes = [
   'team.task.failed',
   'team.disbanded',
   'team.context.injected',
+  'team.task.planned',
+  'team.teammate.dispatched',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -271,6 +273,20 @@ export const TeamContextInjectedData = z.object({
   historicalHints: z.array(z.string()),
 });
 
+export const TeamTaskPlannedData = z.object({
+  taskId: z.string(),
+  title: z.string(),
+  modules: z.array(z.string()),
+  blockedBy: z.array(z.string()),
+});
+
+export const TeamTeammateDispatchedData = z.object({
+  teammateName: z.string(),
+  worktreePath: z.string(),
+  assignedTaskIds: z.array(z.string()),
+  model: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -304,6 +320,8 @@ export type TeamTaskCompleted = z.infer<typeof TeamTaskCompletedData>;
 export type TeamTaskFailed = z.infer<typeof TeamTaskFailedData>;
 export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
 export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
+export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
+export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 

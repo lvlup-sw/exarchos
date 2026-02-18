@@ -3,12 +3,15 @@ import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
   EventTypes,
+  WorkflowEventBase,
   TeamSpawnedData,
   TeamTaskAssignedData,
   TeamTaskCompletedData,
   TeamTaskFailedData,
   TeamDisbandedData,
   TeamContextInjectedData,
+  TeamTaskPlannedData,
+  TeamTeammateDispatchedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -151,7 +154,7 @@ describe('Team Event Data Schemas', () => {
 });
 
 describe('EventTypes', () => {
-  it('should include all 6 team event types', () => {
+  it('should include all 8 team event types', () => {
     const teamEventTypes = [
       'team.spawned',
       'team.task.assigned',
@@ -159,9 +162,105 @@ describe('EventTypes', () => {
       'team.task.failed',
       'team.disbanded',
       'team.context.injected',
+      'team.task.planned',
+      'team.teammate.dispatched',
     ];
     for (const eventType of teamEventTypes) {
       expect(EventTypes).toContain(eventType);
     }
+  });
+});
+
+// ─── Task 002: team.task.planned and team.teammate.dispatched ────────────────
+
+describe('TeamTaskPlannedData', () => {
+  it('EventSchema_TeamTaskPlanned_ValidatesPayload', () => {
+    const result = TeamTaskPlannedData.safeParse({
+      taskId: 'task-001',
+      title: 'Implement event store',
+      modules: ['event-store', 'schemas'],
+      blockedBy: ['task-000'],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.taskId).toBe('task-001');
+      expect(result.data.title).toBe('Implement event store');
+      expect(result.data.modules).toEqual(['event-store', 'schemas']);
+      expect(result.data.blockedBy).toEqual(['task-000']);
+    }
+  });
+
+  it('EventSchema_TeamTaskPlanned_RejectsWithoutTaskId', () => {
+    const result = TeamTaskPlannedData.safeParse({
+      title: 'Implement event store',
+      modules: ['event-store'],
+      blockedBy: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchema_TeamTaskPlanned_IncludedInEventTypeUnion', () => {
+    expect(EventTypes).toContain('team.task.planned');
+  });
+
+  it('EventSchema_TeamTaskPlanned_ParsesAsBaseEvent', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'team.task.planned',
+      data: {
+        taskId: 'task-001',
+        title: 'Implement event store',
+        modules: ['event-store'],
+        blockedBy: [],
+      },
+    });
+    expect(event.success).toBe(true);
+  });
+});
+
+describe('TeamTeammateDispatchedData', () => {
+  it('EventSchema_TeamTeammateDispatched_ValidatesPayload', () => {
+    const result = TeamTeammateDispatchedData.safeParse({
+      teammateName: 'worker-1',
+      worktreePath: '/path/.worktrees/wt-001',
+      assignedTaskIds: ['task-001', 'task-002'],
+      model: 'claude-sonnet-4-20250514',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.teammateName).toBe('worker-1');
+      expect(result.data.worktreePath).toBe('/path/.worktrees/wt-001');
+      expect(result.data.assignedTaskIds).toEqual(['task-001', 'task-002']);
+      expect(result.data.model).toBe('claude-sonnet-4-20250514');
+    }
+  });
+
+  it('EventSchema_TeamTeammateDispatched_RejectsWithoutTeammateName', () => {
+    const result = TeamTeammateDispatchedData.safeParse({
+      worktreePath: '/path/.worktrees/wt-001',
+      assignedTaskIds: ['task-001'],
+      model: 'claude-sonnet-4-20250514',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchema_TeamTeammateDispatched_IncludedInEventTypeUnion', () => {
+    expect(EventTypes).toContain('team.teammate.dispatched');
+  });
+
+  it('EventSchema_TeamTeammateDispatched_ParsesAsBaseEvent', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'team.teammate.dispatched',
+      data: {
+        teammateName: 'worker-1',
+        worktreePath: '/tmp/wt',
+        assignedTaskIds: ['task-001'],
+        model: 'claude-sonnet-4-20250514',
+      },
+    });
+    expect(event.success).toBe(true);
   });
 });

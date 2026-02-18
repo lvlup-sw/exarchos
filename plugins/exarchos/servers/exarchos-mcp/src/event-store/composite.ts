@@ -1,7 +1,7 @@
 import type { ToolResult } from '../format.js';
-import { handleEventAppend, handleEventQuery } from './tools.js';
+import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 
-const VALID_ACTIONS = ['append', 'query'] as const;
+const VALID_ACTIONS = ['append', 'query', 'batch_append'] as const;
 type EventAction = (typeof VALID_ACTIONS)[number];
 
 /** Composite handler that routes `action` to the appropriate event-store handler. */
@@ -23,6 +23,13 @@ export async function handleEvent(
       const { action: _, ...rest } = args;
       return handleEventQuery(
         rest as Parameters<typeof handleEventQuery>[0],
+        stateDir,
+      );
+    }
+    case 'batch_append': {
+      const { action: _, ...rest } = args;
+      return handleBatchAppend(
+        rest as Parameters<typeof handleBatchAppend>[0],
         stateDir,
       );
     }
