@@ -835,6 +835,161 @@ describe('EventStore Idempotency Persistence', () => {
   });
 });
 
+// ─── T10/T11: Query Sequence Pre-filter ─────────────────────────────────────
+
+describe('EventStore Query Sequence Pre-filter', () => {
+  it('Query_WithSinceSequenceAndTypeFilter_ReturnsCorrectResults', async () => {
+    const store = new EventStore(tempDir);
+    // Append mixed event types
+    for (let i = 0; i < 100; i++) {
+      const type = i % 2 === 0 ? 'task.claimed' : 'task.assigned';
+      await store.append('my-workflow', { type });
+    }
+
+    // Combined sinceSequence + type filter should return correct results
+    // seq 51-100 are events at i=50..99; claimed at i=50,52,...,98 => seq 51,53,...,99 = 25 events
+    const events = await store.query('my-workflow', {
+      sinceSequence: 50,
+      type: 'task.claimed',
+    });
+    expect(events).toHaveLength(25);
+    expect(events.every(e => e.type === 'task.claimed')).toBe(true);
+    expect(events.every(e => e.sequence > 50)).toBe(true);
+  });
+
+  it('Query_SequenceRegex_HandlesMultiDigitSequences', async () => {
+    const store = new EventStore(tempDir);
+    // Append 1050 events to get multi-digit sequences
+    for (let i = 0; i < 1050; i++) {
+      const type = i % 3 === 0 ? 'task.completed' : 'task.assigned';
+      await store.append('my-workflow', { type });
+    }
+
+    // Query with sinceSequence=1000 and type filter
+    const events = await store.query('my-workflow', {
+      sinceSequence: 1000,
+      type: 'task.completed',
+    });
+
+    // Sequences 1001-1050: i=1000..1049; task.completed at i=1002,1005,...,1047,1050-1
+    // i=1000 (seq 1001): 1000%3=1 -> assigned
+    // i=1001 (seq 1002): 1001%3=2 -> assigned
+    // i=1002 (seq 1003): 1002%3=0 -> completed
+    // ... pattern: completed at i where i%3==0, seq=i+1
+    // From i=1000 to i=1049: completed at i=1002,1005,1008,...,1047,1050-1
+    // Wait, i=1002 -> seq 1003; last is i=1049 -> seq 1050
+    // completed: i%3==0 in [1000..1049] -> i=1002,1005,...,1047 = 16 events
+    // Plus i=1050 is not included (0..1049)
+    // Actually: 1002,1005,1008,...,1047 => (1047-1002)/3 + 1 = 45/3 + 1 = 16
+    expect(events.every(e => e.type === 'task.completed')).toBe(true);
+    expect(events.every(e => e.sequence > 1000)).toBe(true);
+    expect(events).toHaveLength(16);
+  });
+
+  it('Query_SequenceRegex_MalformedLine_FallsBackToFullParse', async () => {
+    // Arrange: write a JSONL file where the second line has "sequence":"NaN" (a string value).
+    // The SEQUENCE_REGEX only matches numeric digits so it will not extract a sequence from
+    // that line; the code must fall back to JSON.parse to evaluate the event.
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+
+    const line1 = JSON.stringify({
+      streamId: 'my-workflow', sequence: 1, type: 'workflow.started',
+      timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0',
+    });
+    // Non-numeric sequence string — regex will not match, fallback to JSON.parse
+    const line2 = `{"streamId":"my-workflow","sequence":"NaN","type":"task.assigned","timestamp":"2025-01-01T00:00:00.001Z","schemaVersion":"1.0"}`;
+    const line3 = JSON.stringify({
+      streamId: 'my-workflow', sequence: 3, type: 'task.completed',
+      timestamp: '2025-01-01T00:00:00.002Z', schemaVersion: '1.0',
+    });
+    await fs.writeFile(filePath, [line1, line2, line3].join('\n') + '\n', 'utf-8');
+
+    const store = new EventStore(tempDir);
+
+    // Act: combined sinceSequence + type filter — exercises the regex pre-filter path.
+    // Line 2 has a non-numeric sequence so the regex produces NaN; the code falls back to
+    // JSON.parse and then applies the type filter, which should exclude it.
+    const events = await store.query('my-workflow', {
+      sinceSequence: 1,
+      type: 'task.completed',
+    });
+
+    // Assert: only the task.completed event (sequence 3) should be returned.
+    expect(events).toHaveLength(1);
+    expect(events[0].sequence).toBe(3);
+    expect(events[0].type).toBe('task.completed');
+  });
+});
+
+// ─── T14/T15: Idempotency Cache Pre-filter ──────────────────────────────────
+
+describe('EventStore Idempotency Cache Pre-filter', () => {
+  it('RebuildIdempotencyCache_SkipsLinesWithoutIdempotencyKey', async () => {
+    const store1 = new EventStore(tempDir);
+
+    // Append events: some with idempotency keys, some without
+    await store1.append('my-workflow', { type: 'workflow.started' });
+    await store1.append('my-workflow', { type: 'task.assigned' });
+    const keyed = await store1.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-1' },
+    );
+    await store1.append('my-workflow', { type: 'task.progressed' });
+
+    // New instance triggers rebuild
+    const store2 = new EventStore(tempDir);
+
+    // Retry the keyed event — should be deduped (found in cache)
+    const retried = await store2.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'claim-1' },
+    );
+    expect(retried.sequence).toBe(keyed.sequence);
+
+    // Non-keyed events should not be affected
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(4); // still 4 events total
+  });
+
+  it('RebuildIdempotencyCache_AllKeyedEvents_FoundAfterPrefilter', async () => {
+    const store1 = new EventStore(tempDir);
+
+    // Append a mix of keyed and non-keyed events
+    const keyedEvents: Array<{ key: string; seq: number }> = [];
+    for (let i = 0; i < 20; i++) {
+      if (i % 3 === 0) {
+        const event = await store1.append(
+          'my-workflow',
+          { type: 'task.assigned' },
+          { idempotencyKey: `key-${i}` },
+        );
+        keyedEvents.push({ key: `key-${i}`, seq: event.sequence });
+      } else {
+        await store1.append('my-workflow', { type: 'task.progressed' });
+      }
+    }
+
+    // New instance — rebuild cache
+    const store2 = new EventStore(tempDir);
+
+    // All keyed events should be found in cache
+    for (const { key, seq } of keyedEvents) {
+      const retried = await store2.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: key },
+      );
+      expect(retried.sequence).toBe(seq);
+    }
+
+    // Total events should remain the same
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(20);
+  });
+});
+
 // ─── Blank-line Tolerance ───────────────────────────────────────────────────
 
 describe('query_BlankLineTolerance', () => {

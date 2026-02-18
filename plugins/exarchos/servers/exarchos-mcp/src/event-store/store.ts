@@ -66,6 +66,9 @@ export interface QueryFilters {
 
 const SAFE_STREAM_ID_PATTERN = /^[a-z0-9-]+$/;
 
+/** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
+const SEQUENCE_REGEX = /"sequence":(\d+)/;
+
 /** Validates that a stream ID matches the safe pattern (lowercase alphanumeric and hyphens). */
 function validateStreamId(streamId: string): void {
   if (!SAFE_STREAM_ID_PATTERN.test(streamId)) {
@@ -398,11 +401,20 @@ export class EventStore {
       // Fast skip: line N = sequence N, skip without parsing
       if (canFastSkip && lineCount <= filters!.sinceSequence!) continue;
 
+      // Pre-filter by sequence via regex before JSON.parse (combined filter optimization)
+      if (!canFastSkip && filters?.sinceSequence !== undefined) {
+        const seqMatch = SEQUENCE_REGEX.exec(line);
+        if (seqMatch) {
+          const extractedSeq = parseInt(seqMatch[1], 10);
+          if (!isNaN(extractedSeq) && extractedSeq <= filters.sinceSequence) continue;
+        }
+        // If regex fails (NaN or no match), fall through to JSON.parse
+      }
+
       const event = JSON.parse(line) as WorkflowEvent;
 
-      // Apply filters for non-fast-path (sinceSequence still needs checking when combined with other filters)
+      // Apply remaining filters for non-fast-path
       if (!canFastSkip) {
-        if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
         if (filters?.type && event.type !== filters.type) continue;
         if (filters?.since && event.timestamp < filters.since) continue;
         if (filters?.until && event.timestamp > filters.until) continue;
@@ -450,6 +462,8 @@ export class EventStore {
 
     for await (const line of rl) {
       if (!line.trim()) continue;
+      // Pre-filter: skip lines that don't contain an idempotency key (avoids JSON.parse)
+      if (!line.includes('"idempotencyKey"')) continue;
       const event = JSON.parse(line) as WorkflowEvent;
       if (event.idempotencyKey) {
         keyed.push({ key: event.idempotencyKey, event });
