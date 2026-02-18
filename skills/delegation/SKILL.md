@@ -78,7 +78,7 @@ The dispatch follows a saga pattern with compensable, pivot, and retryable trans
 
 **Step 1: Create Team** (COMPENSABLE)
 
-```
+```yaml
 # Emit event (source of truth)
 exarchos_event append:
   stream: {featureId}
@@ -101,7 +101,7 @@ Idempotency: before retrying, check if `~/.claude/teams/{featureId}/` already ex
 
 Emit ALL task planning events in a single batched call (1 MCP call instead of N):
 
-```
+```yaml
 # Emit ALL task events in one batch (source of truth)
 exarchos_event batch_append:
   stream: {featureId}
@@ -120,7 +120,7 @@ exarchos_event batch_append:
 
 Then create native tasks and wire dependencies:
 
-```
+```yaml
 # Execute side effects (one TaskCreate per task)
 TaskCreate:
   subject: {task.title}
@@ -138,7 +138,7 @@ Idempotency: before retrying, check `TaskList` for existing tasks with matching 
 
 After all tasks are created, store the correlation (orchestrator is the **sole writer** of `workflow.tasks[]`):
 
-```
+```yaml
 exarchos_workflow set:
   featureId: {featureId}
   updates:
@@ -151,7 +151,7 @@ exarchos_workflow set:
 
 For each teammate:
 
-```
+```yaml
 # Emit event (source of truth)
 exarchos_event append:
   stream: {featureId}
@@ -190,7 +190,7 @@ The orchestrator enters delegate mode (Shift+Tab). Hooks operate autonomously:
 Do NOT triple-read on every cycle. `delegation_timeline` replays the full event stream -- reserve for final summary or anomaly detection.
 
 When the orchestrator detects `team.task.completed` events, it updates `workflow.tasks[]`:
-```
+```yaml
 exarchos_workflow set:
   featureId: {featureId}
   updates:
@@ -201,7 +201,7 @@ exarchos_workflow set:
 
 When all tasks complete:
 
-```
+```yaml
 # Emit event
 exarchos_event append:
   stream: {featureId}
@@ -222,7 +222,7 @@ TeamDelete
 
 **Step 6: Transition** (RETRYABLE)
 
-```
+```yaml
 exarchos_workflow set:
   featureId: {featureId}
   phase: "review"
