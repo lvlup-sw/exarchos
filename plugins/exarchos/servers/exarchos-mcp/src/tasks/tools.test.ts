@@ -170,6 +170,17 @@ describe('handleTaskClaim (materialized view)', () => {
 // This lets us verify retry count and delay scheduling without waiting.
 
 describe('handleTaskClaim Exponential Backoff', () => {
+  // Math.random is mocked to 0 so jitter is eliminated and delay values
+  // become fully deterministic. setTimeout is spied to call fn() synchronously,
+  // avoiding real wall-clock waits while still recording requested delays.
+  beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('HandleTaskClaim_Retries_WithExponentialBackoff', async () => {
     // Arrange: seed the stream before installing the setTimeout spy
     const store = new EventStore(tempDir);
@@ -206,17 +217,14 @@ describe('handleTaskClaim Exponential Backoff', () => {
     // Assert: append was called once per attempt
     expect(appendCallCount).toBe(3);
 
-    // Assert: exponential backoff was requested (3 delays, one per attempt)
-    // attempt 0: delay = 50 * 2^0 + jitter = 50..100ms
-    // attempt 1: delay = 50 * 2^1 + jitter = 100..150ms
-    // attempt 2: delay = 50 * 2^2 + jitter = 200..250ms
+    // Assert: exponential backoff delays are deterministic (Math.random = 0, jitter = 0)
+    // attempt 0: 50 * 2^0 + 0 = 50ms
+    // attempt 1: 50 * 2^1 + 0 = 100ms
+    // attempt 2: 50 * 2^2 + 0 = 200ms
     expect(capturedDelays).toHaveLength(3);
-    expect(capturedDelays[0]).toBeGreaterThanOrEqual(50);
-    expect(capturedDelays[1]).toBeGreaterThanOrEqual(100);
-    expect(capturedDelays[2]).toBeGreaterThanOrEqual(200);
-    // Each successive delay is strictly larger (exponential growth)
-    expect(capturedDelays[1]).toBeGreaterThan(capturedDelays[0]);
-    expect(capturedDelays[2]).toBeGreaterThan(capturedDelays[1]);
+    expect(capturedDelays[0]).toBe(50);
+    expect(capturedDelays[1]).toBe(100);
+    expect(capturedDelays[2]).toBe(200);
   });
 
   it('HandleTaskClaim_StillReturnsClaimFailed_AfterRetries', async () => {
@@ -277,11 +285,10 @@ describe('handleTaskClaim Exponential Backoff', () => {
       tempDir,
     );
 
-    // Assert: total requested virtual delay should be well below a reasonable cap (< 500ms)
-    // With CLAIM_BASE_DELAY_MS=50: delays are 50*1+jitter and 50*2+jitter
-    // Max sum with full jitter: (50+50) + (100+50) = 250ms
+    // Assert: with Math.random mocked to 0, total delay is deterministic:
+    // 50 + 100 + 200 = 350ms, well below any reasonable cap
     const totalRequestedDelay = capturedDelays.reduce((sum, d) => sum + d, 0);
-    expect(totalRequestedDelay).toBeLessThan(500);
+    expect(totalRequestedDelay).toBe(350);
     expect(result.success).toBe(false);
   });
 });
