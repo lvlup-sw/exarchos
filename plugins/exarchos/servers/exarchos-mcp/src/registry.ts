@@ -310,6 +310,16 @@ const eventActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'batch_append',
+    description: 'Append multiple events to a stream atomically',
+    schema: z.object({
+      stream: z.string().min(1),
+      events: z.array(coercedRecord()),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
