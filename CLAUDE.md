@@ -2,6 +2,13 @@
 
 Exarchos is local agent governance for Claude Code — event-sourced SDLC workflows with agent team coordination. Installs commands, skills, rules, and MCP plugins to `~/.claude/` via symlinks. Workflows survive context compaction through persistent state and auto-resume.
 
+## Distribution
+
+Exarchos distributes as a **Claude Code plugin** via the lvlup-sw marketplace. Install from the marketplace for the standard experience, or use `claude --plugin-dir .` for development.
+
+- **Core plugin** — Exarchos MCP server + Graphite integration (marketplace)
+- **Dev companion** — GitHub, Serena, Context7, Microsoft Learn (`npx @lvlup-sw/exarchos-dev`)
+
 ## Build & Test
 
 ```bash
