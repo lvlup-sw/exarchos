@@ -59,7 +59,8 @@
           "primary-workflows.md",
           "mcp-tool-guidance.md",
           "skill-path-resolution.md",
-          "rm-safety.md"
+          "rm-safety.md",
+          "telemetry-awareness.md"
         ],
         "default": true
       }
