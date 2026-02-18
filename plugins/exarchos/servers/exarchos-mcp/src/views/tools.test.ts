@@ -222,5 +222,140 @@ describe('View Handlers', () => {
       expect(gates).toHaveProperty('typecheck');
       expect(gates).not.toHaveProperty('lint');
     });
+
+    it('HandleViewCodeQuality_WithSkillFilter_ReturnsOnlyMatchingSkill', async () => {
+      // Arrange: seed events with two different skills
+      const store = new EventStore(tmpDir);
+      await store.append('skill-wf', {
+        streamId: 'skill-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append('skill-wf', {
+        streamId: 'skill-wf',
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: true,
+          duration: 800,
+          details: { skill: 'synthesis' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act: filter to delegation skill only
+      const result = await handleViewCodeQuality({ workflowId: 'skill-wf', skill: 'delegation' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const skills = data.skills as Record<string, unknown>;
+      expect(Object.keys(skills)).toEqual(['delegation']);
+      expect(skills).not.toHaveProperty('synthesis');
+    });
+
+    it('HandleViewCodeQuality_WithGateFilter_ReturnsOnlyMatchingGate', async () => {
+      // Arrange: seed events with two different gates
+      const store = new EventStore(tmpDir);
+      await store.append('gate-wf', {
+        streamId: 'gate-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: {},
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append('gate-wf', {
+        streamId: 'gate-wf',
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: false,
+          duration: 800,
+          details: {},
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act: filter to typecheck gate only
+      const result = await handleViewCodeQuality({ workflowId: 'gate-wf', gate: 'typecheck' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const gates = data.gates as Record<string, unknown>;
+      expect(Object.keys(gates)).toEqual(['typecheck']);
+      expect(gates).not.toHaveProperty('lint');
+    });
+
+    it('HandleViewCodeQuality_WithLimit_LimitsArrays', async () => {
+      // Arrange: seed events that produce multiple benchmark entries
+      const store = new EventStore(tmpDir);
+      await store.append('limit-wf', {
+        streamId: 'limit-wf',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'benchmark.completed',
+        data: {
+          taskId: 'task-1',
+          results: [
+            { operation: 'op-a', metric: 'p99', value: 10, unit: 'ms', passed: true },
+            { operation: 'op-b', metric: 'p99', value: 20, unit: 'ms', passed: true },
+            { operation: 'op-c', metric: 'p99', value: 30, unit: 'ms', passed: true },
+          ],
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Also seed multiple gate failures to produce regressions
+      for (let i = 2; i <= 7; i++) {
+        await store.append('limit-wf', {
+          streamId: 'limit-wf',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: i <= 4 ? 'typecheck' : 'lint',
+            layer: 'build',
+            passed: false,
+            duration: 100,
+            details: { skill: 'delegation', commit: `commit-${i}`, reason: 'error' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act: limit to 1 entry
+      const result = await handleViewCodeQuality({ workflowId: 'limit-wf', limit: 1 }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const benchmarks = data.benchmarks as unknown[];
+      expect(benchmarks).toHaveLength(1);
+      const regressions = data.regressions as unknown[];
+      expect(regressions).toHaveLength(1);
+    });
   });
 });

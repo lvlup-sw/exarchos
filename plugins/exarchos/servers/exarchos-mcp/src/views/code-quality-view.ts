@@ -414,7 +414,7 @@ function fromInternal(state: InternalState): CodeQualityViewState {
 
 // ─── Event Handlers ────────────────────────────────────────────────────────
 
-function handleGateExecuted(state: InternalState, event: WorkflowEvent): InternalState {
+function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
   const data = event.data as {
     gateName?: string;
     layer?: string;
@@ -514,7 +514,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): Interna
   });
 }
 
-function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): InternalState {
+function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
   const data = event.data as {
     taskId?: string;
     results?: Array<{

@@ -360,7 +360,36 @@ export async function handleViewCodeQuality(
       events,
     );
 
-    return { success: true, data: view };
+    // Apply optional filters
+    let filtered: CodeQualityViewState = { ...view };
+
+    if (args.skill) {
+      const skillName = args.skill;
+      const matchingSkill = filtered.skills[skillName];
+      filtered = {
+        ...filtered,
+        skills: matchingSkill ? { [skillName]: matchingSkill } : {},
+      };
+    }
+
+    if (args.gate) {
+      const gateName = args.gate;
+      const matchingGate = filtered.gates[gateName];
+      filtered = {
+        ...filtered,
+        gates: matchingGate ? { [gateName]: matchingGate } : {},
+      };
+    }
+
+    if (args.limit !== undefined) {
+      filtered = {
+        ...filtered,
+        benchmarks: filtered.benchmarks.slice(0, args.limit),
+        regressions: filtered.regressions.slice(0, args.limit),
+      };
+    }
+
+    return { success: true, data: filtered };
   } catch (err) {
     return {
       success: false,
