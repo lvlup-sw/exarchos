@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import * as path from 'node:path';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
+import type { Outbox } from '../sync/outbox.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -119,9 +120,17 @@ export class EventStore {
   /** Path to the PID lock file */
   private lockFilePath: string;
 
+  /** Optional outbox for supplementary event replication */
+  private outbox?: Outbox;
+
   constructor(private readonly stateDir: string) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.maxIdempotencyKeys = parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
+  }
+
+  /** Configure an optional outbox for event replication. */
+  setOutbox(outbox: Outbox): void {
+    this.outbox = outbox;
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────
@@ -258,6 +267,16 @@ export class EventStore {
 
       await this.writeEvents(streamId, [fullEvent]);
       this.cacheIdempotencyKey(streamId, fullEvent);
+
+      // Outbox integration: write supplementary entry under the same lock
+      if (this.outbox) {
+        try {
+          await this.outbox.addEntry(streamId, fullEvent);
+        } catch (err) {
+          // Outbox is supplementary; log but don't fail the append
+          console.error(`Outbox entry failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
 
       return fullEvent;
     });

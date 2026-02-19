@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError, PidLockError } from './store.js';
+import { Outbox } from '../sync/outbox.js';
 
 let tempDir: string;
 
@@ -1261,5 +1262,67 @@ describe('EventStore Configurable Idempotency Cache', () => {
     } finally {
       delete process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
     }
+  });
+});
+
+// ─── EventStore Outbox Integration ────────────────────────────────────────
+
+describe('EventStore Outbox Integration', () => {
+  it('EventStoreAppend_OutboxConfigured_CreatesEntry', async () => {
+    const store = new EventStore(tempDir);
+    const outbox = new Outbox(tempDir);
+    const addEntrySpy = vi.spyOn(outbox, 'addEntry');
+
+    store.setOutbox(outbox);
+
+    const event = await store.append('my-workflow', {
+      type: 'workflow.started',
+      data: { featureId: 'test' },
+    });
+
+    expect(addEntrySpy).toHaveBeenCalledOnce();
+    expect(addEntrySpy).toHaveBeenCalledWith('my-workflow', event);
+  });
+
+  it('EventStoreAppend_NoOutbox_AppendsNormally', async () => {
+    const store = new EventStore(tempDir);
+
+    // No outbox configured — should succeed without error
+    const event = await store.append('my-workflow', {
+      type: 'workflow.started',
+      data: { featureId: 'test' },
+    });
+
+    expect(event.sequence).toBe(1);
+    expect(event.type).toBe('workflow.started');
+
+    // Verify JSONL was written
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content.trim().split('\n')).toHaveLength(1);
+  });
+
+  it('EventStoreAppend_OutboxFailure_DoesNotBreakAppend', async () => {
+    const store = new EventStore(tempDir);
+    const outbox = new Outbox(tempDir);
+    vi.spyOn(outbox, 'addEntry').mockRejectedValue(new Error('Outbox disk full'));
+
+    store.setOutbox(outbox);
+
+    // Append should succeed despite outbox failure
+    const event = await store.append('my-workflow', {
+      type: 'workflow.started',
+      data: { featureId: 'test' },
+    });
+
+    expect(event.sequence).toBe(1);
+    expect(event.type).toBe('workflow.started');
+
+    // Verify JSONL was still written successfully
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(content.trim());
+    expect(parsed.streamId).toBe('my-workflow');
+    expect(parsed.sequence).toBe(1);
   });
 });
