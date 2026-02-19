@@ -107,6 +107,15 @@ describe('Settings.json Generation (C3)', () => {
       expect(result.teammateMode).toBe('auto');
     });
 
+    it('generateSettings_DefaultSelections_IncludesAutoCompactOverride', () => {
+      const selections = createSelections();
+
+      const result = generateSettings(selections);
+
+      expect(result.env).toBeDefined();
+      expect(result.env!.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe('90');
+    });
+
     it('generateSettings_HooksStructure_PreservesEventEntries', () => {
       const selections = createSelections();
       const hooks = {
