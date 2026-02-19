@@ -272,10 +272,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 3 actions for task management', () => {
+    it('should have 4 actions for task management and review triage', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(3);
+      expect(composite!.actions).toHaveLength(4);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -283,6 +283,7 @@ describe('TOOL_REGISTRY', () => {
           'task_claim',
           'task_complete',
           'task_fail',
+          'review_triage',
         ]),
       );
     });
