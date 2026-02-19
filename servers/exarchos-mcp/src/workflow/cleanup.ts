@@ -13,6 +13,7 @@ import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import type { EventStore } from '../event-store/store.js';
 import type { EventType } from '../event-store/schemas.js';
+import type { SnapshotStore } from '../views/snapshot-store.js';
 import type { ToolResult } from '../format.js';
 import * as path from 'node:path';
 
@@ -28,10 +29,16 @@ function isEventSourced(state: Record<string, unknown>): boolean {
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
 
 let moduleEventStore: EventStore | null = null;
+let moduleSnapshotStore: SnapshotStore | null = null;
 
 /** Configure the EventStore instance used by cleanup handlers. */
 export function configureCleanupEventStore(store: EventStore | null): void {
   moduleEventStore = store;
+}
+
+/** Configure the SnapshotStore instance used by cleanup handlers. */
+export function configureCleanupSnapshotStore(store: SnapshotStore | null): void {
+  moduleSnapshotStore = store;
 }
 
 // ─── Event-First Emission ───────────────────────────────────────────────────

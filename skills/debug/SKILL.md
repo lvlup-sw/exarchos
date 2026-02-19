@@ -34,7 +34,7 @@ Activate this skill when:
 ## Workflow Overview
 
 ```
-                              /debug
+                              /exarchos:debug
                                  │
                             ┌────┴────┐
                             │ Triage  │
@@ -46,7 +46,7 @@ Activate this skill when:
                │                 │                 │
                ▼                 ▼                 ▼
       ┌────────────────┐  ┌─────────────┐   ┌──────────┐
-      │  Hotfix Track  │  │   Thorough  │   │ /ideate  │
+      │  Hotfix Track  │  │   Thorough  │   │ /exarchos:ideate  │
       │                │  │    Track    │   │ handoff  │
       └────────────────┘  └─────────────┘   └──────────┘
 ```
@@ -72,11 +72,11 @@ Activate this skill when:
 # Switch from hotfix to thorough (during investigation)
 /debug --switch-thorough
 
-# Escalate to /ideate (manual handoff)
-/debug --escalate "Reason for escalation"
+# Escalate to /exarchos:ideate (manual handoff)
+/exarchos:debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/resume  # (existing command works)
+/exarchos:resume  # (existing command works)
 ```
 
 ## Track Comparison
@@ -116,7 +116,7 @@ For detailed phase instructions, see `references/thorough-track.md`. For systema
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
-- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `/ideate`.
+- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `/exarchos:ideate`.
 
 For detailed switching logic, see `references/thorough-track.md`.
 
@@ -147,11 +147,11 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ## Integration Points
 
-### With /resume
+### With /exarchos:resume
 
 Debug workflows resume like feature workflows:
 ```bash
-/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ### With Existing Skills

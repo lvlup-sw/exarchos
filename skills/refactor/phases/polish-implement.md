@@ -203,7 +203,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 ```
 
 3. **Create worktree** (if not already in one)
-4. **Invoke `/plan`** - Extract remaining work into tasks
+4. **Invoke `/exarchos:plan`** - Extract remaining work into tasks
 5. **Continue via overhaul track**
 
 ### Output to User

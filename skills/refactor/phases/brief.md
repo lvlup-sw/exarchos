@@ -170,7 +170,7 @@ After brief is captured, auto-continue to next phase:
 2. Output: "Brief captured. Auto-continuing to planning..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
+   Skill({ skill: "exarchos:plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

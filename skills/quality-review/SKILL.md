@@ -216,7 +216,7 @@ scripts/review-verdict.sh --high <N> --medium <N> --low <N>
 ```
 
 **On exit 0 (APPROVED):** Proceed to synthesis.
-**On exit 1 (NEEDS_FIXES):** Route to `/delegate --fixes`.
+**On exit 1 (NEEDS_FIXES):** Route to `/exarchos:delegate --fixes`.
 **On exit 2 (BLOCKED):** Return to design phase.
 
 ## Transition
@@ -228,7 +228,7 @@ All transitions happen **immediately** without user confirmation:
 2. Output: "Quality review passed. Auto-continuing to synthesis..."
 3. Auto-invoke synthesize:
    ```typescript
-   Skill({ skill: "synthesize", args: "<feature-name>" })
+   Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
    ```
 
 ### If NEEDS_FIXES:
@@ -236,7 +236,7 @@ All transitions happen **immediately** without user confirmation:
 2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript
-   Skill({ skill: "delegate", args: "--fixes <plan-path>" })
+   Skill({ skill: "exarchos:delegate", args: "--fixes <plan-path>" })
    ```
 
 ### If BLOCKED:
@@ -244,7 +244,7 @@ All transitions happen **immediately** without user confirmation:
 2. Output: "Quality review blocked: [issue]. Returning to design..."
 3. Auto-invoke ideate for redesign:
    ```typescript
-   Skill({ skill: "ideate", args: "--redesign <feature-name>" })
+   Skill({ skill: "exarchos:ideate", args: "--redesign <feature-name>" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

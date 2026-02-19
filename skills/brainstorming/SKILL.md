@@ -149,7 +149,7 @@ Run the ideation artifact verification:
 scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/designs
 ```
 
-**On exit 0:** All completion criteria met — proceed to /plan.
+**On exit 0:** All completion criteria met — proceed to /exarchos:plan.
 **On exit 1:** Missing artifacts — review output and complete before continuing.
 
 ## Transition
@@ -158,10 +158,10 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 
 ### Pre-Chain Validation (MANDATORY)
 
-Before invoking `/plan`:
+Before invoking `/exarchos:plan`:
 1. Verify `artifacts.design` exists in workflow state
 2. Verify the design file exists on disk: `test -f "$DESIGN_PATH"`
-3. If either fails: "Design artifact not found, cannot auto-chain to /plan"
+3. If either fails: "Design artifact not found, cannot auto-chain to /exarchos:plan"
 
 ### Chain Steps
 
@@ -171,12 +171,12 @@ Before invoking `/plan`:
 
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "plan", args: "<design-path>" })
+   Skill({ skill: "exarchos:plan", args: "<design-path>" })
    ```
 
 This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan approval) and synthesize (merge confirmation).
 
-**Workflow continues:** `/ideate` -> `/plan` -> plan-review -> [HUMAN CHECKPOINT] -> `/delegate` -> `/review` -> `/synthesize` -> [HUMAN CHECKPOINT]
+**Workflow continues:** `/exarchos:ideate` -> `/exarchos:plan` -> plan-review -> [HUMAN CHECKPOINT] -> `/exarchos:delegate` -> `/exarchos:review` -> `/exarchos:synthesize` -> [HUMAN CHECKPOINT]
 
 ## Exarchos Integration
 

@@ -19,7 +19,7 @@ Create and manage isolated git worktrees for parallel development tasks.
 
 Activate this skill when:
 - Multiple tasks can run in parallel
-- User runs `/delegate` with parallelizable tasks
+- User runs `/exarchos:delegate` with parallelizable tasks
 - Need isolated environment for subagent work
 - User explicitly requests worktree setup
 

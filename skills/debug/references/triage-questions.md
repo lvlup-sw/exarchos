@@ -110,7 +110,7 @@ Select thorough when ANY of these apply:
 
 ### Escalation Criteria
 
-Escalate to `/ideate` when:
+Escalate to `/exarchos:ideate` when:
 - [ ] Fix requires architectural changes
 - [ ] Multiple systems/teams need coordination
 - [ ] Issue exposes design flaw requiring redesign

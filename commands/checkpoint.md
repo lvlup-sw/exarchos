@@ -8,7 +8,7 @@ Save current workflow progress for potential session handoff.
 
 ## When to Use
 
-Use `/checkpoint` when:
+Use `/exarchos:checkpoint` when:
 - Context is getting heavy (many tool calls, large outputs)
 - Before a long-running operation
 - At natural workflow boundaries
@@ -61,7 +61,7 @@ Fix any discrepancies.
 To continue this workflow in a new session:
 
 ```
-/resume ~/.claude/workflow-state/<feature>.state.json
+/exarchos:resume ~/.claude/workflow-state/<feature>.state.json
 ```
 
 Or start Claude Code fresh and run the resume command.
@@ -69,10 +69,10 @@ Or start Claude Code fresh and run the resume command.
 
 ## Auto-Checkpoint Triggers
 
-The orchestrator should suggest `/checkpoint` when:
+The orchestrator should suggest `/exarchos:checkpoint` when:
 
-1. **After `/delegate` completes** - All tasks done, before review
-2. **After PR created** - In `/synthesize`, before feedback loop
+1. **After `/exarchos:delegate` completes** - All tasks done, before review
+2. **After PR created** - In `/exarchos:synthesize`, before feedback loop
 3. **After 3+ feedback iterations** - Context accumulation risk
 4. **When user mentions context issues** - Proactive save
 
@@ -82,4 +82,4 @@ After checkpointing, provide:
 1. Confirmation that state is saved
 2. Summary of current progress
 3. Clear instructions for resuming
-4. The exact `/resume` command to use
+4. The exact `/exarchos:resume` command to use

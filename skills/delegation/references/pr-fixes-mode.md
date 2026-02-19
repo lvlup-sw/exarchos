@@ -147,7 +147,7 @@ gt modify -m "fix: address PR review feedback"
 gt submit --no-interactive
 ```
 
-Report to user: total fixes by priority, files modified. Then auto-chain to `/synthesize` for merge confirmation.
+Report to user: total fixes by priority, files modified. Then auto-chain to `/exarchos:synthesize` for merge confirmation.
 
 ### Handling Missing CodeRabbit Comments
 
