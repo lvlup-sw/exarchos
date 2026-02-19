@@ -13,6 +13,7 @@ import {
   handleTaskComplete,
   handleTaskFail,
 } from '../tasks/tools.js';
+import { handleReviewTriage } from '../review/tools.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: handleTaskClaim as ActionHandler,
   task_complete: handleTaskComplete as ActionHandler,
   task_fail: handleTaskFail as ActionHandler,
+  review_triage: handleReviewTriage as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
