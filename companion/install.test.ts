@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, existsSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -114,6 +114,46 @@ describe('Companion Installer', () => {
       expect(result.mcpServersAdded).toContain('microsoft-learn');
       const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
       expect(config.mcpServers['microsoft-learn']).toBeDefined();
+    });
+  });
+
+  describe('Content overlay installation', () => {
+    it('installCompanion_createsRuleSymlinks', () => {
+      const result = installCompanion(claudeHome, claudeJsonPath);
+      const rulePath = join(claudeHome, 'rules/mcp-tool-guidance.md');
+      expect(existsSync(rulePath)).toBe(true);
+      expect(lstatSync(rulePath).isSymbolicLink()).toBe(true);
+      expect(result.contentOverlays).toContain('rules/mcp-tool-guidance.md');
+    });
+
+    it('installCompanion_createsSkillOverlaySymlinks', () => {
+      const result = installCompanion(claudeHome, claudeJsonPath);
+      const overlayPath = join(claudeHome, 'skills/workflow-state/references/companion-mcp-reference.md');
+      expect(existsSync(overlayPath)).toBe(true);
+      expect(lstatSync(overlayPath).isSymbolicLink()).toBe(true);
+      expect(result.contentOverlays).toContain('skills/workflow-state/references/companion-mcp-reference.md');
+    });
+
+    it('installCompanion_contentOverlays_idempotent', () => {
+      installCompanion(claudeHome, claudeJsonPath);
+      const result = installCompanion(claudeHome, claudeJsonPath);
+
+      // Second run should report nothing new (symlinks already point to same source)
+      expect(result.contentOverlays).toHaveLength(0);
+    });
+
+    it('installCompanion_existingFile_skipsWithWarning', () => {
+      // Pre-create a non-symlink file at the target path
+      mkdirSync(join(claudeHome, 'rules'), { recursive: true });
+      writeFileSync(join(claudeHome, 'rules/mcp-tool-guidance.md'), 'existing content');
+
+      const result = installCompanion(claudeHome, claudeJsonPath);
+
+      // Should skip the rule overlay (file already exists and is not a symlink)
+      expect(result.contentOverlays).not.toContain('rules/mcp-tool-guidance.md');
+      // Original content should be preserved
+      const content = readFileSync(join(claudeHome, 'rules/mcp-tool-guidance.md'), 'utf-8');
+      expect(content).toBe('existing content');
     });
   });
 });

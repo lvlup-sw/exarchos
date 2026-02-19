@@ -46,19 +46,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — GitHub MCP:
-```typescript
-mcp__plugin_github_github__pull_request_read({
-  owner: "lvlup-sw",
-  repo: "exarchos",
-  pullNumber: <number>
-})
-```
-
-**Fallback** — gh CLI:
+**Primary method** — gh CLI:
 ```bash
 gh pr view <number> --json state,mergedAt,headRefName
 ```
+
+> Or use GitHub MCP `pull_request_read` if available.
 
 Collect from merged PRs:
 - `prUrl`: The PR URL (or array of URLs for stacked PRs)

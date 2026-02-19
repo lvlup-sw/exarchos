@@ -132,7 +132,12 @@ describe('[ComponentName]', () => {
 
 ## Code Exploration Tools
 
-For navigating and understanding code, prefer Serena MCP tools over grep/glob:
+For navigating and understanding code:
+- `Grep` — Search for patterns across the codebase
+- `Glob` — Find files by name pattern
+- `Read` — Read file contents (prefer targeted reads over full-file reads)
+
+When Serena MCP is available, prefer semantic tools for precision:
 - `mcp__plugin_serena_serena__find_symbol` — Locate classes, functions, methods by name
 - `mcp__plugin_serena_serena__get_symbols_overview` — Understand file structure without reading entire files
 - `mcp__plugin_serena_serena__search_for_pattern` — Regex search across the codebase

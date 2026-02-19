@@ -138,7 +138,9 @@ Invoke `/synthesize` skill:
 Skill({ skill: "synthesize", args: "<feature-name>" })
 ```
 
-Creates PR via Graphite, updates description via GitHub MCP. **Human checkpoint:** Confirm merge.
+Creates PR via Graphite, updates description via `gh pr edit`. **Human checkpoint:** Confirm merge.
+
+> Or use GitHub MCP `update_pull_request` if available.
 
 ## Auto-Chain
 

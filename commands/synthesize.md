@@ -105,14 +105,11 @@ After PR created:
 This is one of only TWO human checkpoints in the workflow.
 
 4. **On 'yes'** (yes, y, merge):
-   ```typescript
-   mcp__plugin_github_github__merge_pull_request({
-     owner: "<owner>",
-     repo: "<repo>",
-     pullNumber: <PR_NUMBER>,
-     merge_method: "merge"
-   })
+   ```bash
+   gh pr merge <PR_NUMBER> --squash --auto
    ```
+   > Or use GitHub MCP `merge_pull_request` if available.
+
    Update state: `.phase = "completed"`
 
 5. **On 'feedback'** (feedback, comments, fixes, changes, address):
