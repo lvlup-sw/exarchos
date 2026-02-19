@@ -66,6 +66,8 @@ reviews:
       - ".*"
     ignore_usernames:
       - "renovate[bot]"
+    labels:
+      - "!skip-coderabbit"
 
   pre_merge_checks:
     issue_assessment:

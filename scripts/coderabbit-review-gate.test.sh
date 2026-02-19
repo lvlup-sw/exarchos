@@ -128,7 +128,7 @@ if [[ "$1" == "api" ]]; then
             exit 0
         fi
     else
-        # REST API call (e.g., posting comments)
+        # REST API call (e.g., posting comments, querying labels)
         API_PATH="$1"
         shift
         # Capture request body if present
@@ -150,6 +150,17 @@ if [[ "$1" == "api" ]]; then
             esac
         done
         echo "REST|$API_PATH|$BODY" >> "$CALL_LOG"
+
+        # Check for label query responses
+        if echo "$API_PATH" | grep -q "labels"; then
+            if [[ -f "$RESPONSES_DIR/labels.json" ]]; then
+                cat "$RESPONSES_DIR/labels.json"
+                exit 0
+            fi
+            echo '[]'
+            exit 0
+        fi
+
         echo '{"id":1,"body":"comment"}'
         exit 0
     fi
@@ -189,6 +200,12 @@ write_threads_response() {
 write_mutation_response() {
     local json="$1"
     echo "$json" > "$MOCK_RESPONSES_DIR/mutation.json"
+}
+
+# Helper: write a mock response for label queries
+write_labels_response() {
+    local json="$1"
+    echo "$json" > "$MOCK_RESPONSES_DIR/labels.json"
 }
 
 # Helper: clear all mock responses and call log
@@ -712,6 +729,57 @@ if [[ "$REST_CALLS" -eq 0 ]]; then
     pass "DryRun_Approve_NoComment"
 else
     fail "DryRun_Approve_NoComment — expected 0 REST calls, got $REST_CALLS: $(get_call_log)"
+fi
+
+# ============================================================
+# TASK 10: --allow-skipped FLAG TESTS
+# ============================================================
+echo ""
+echo "=== Task 10: --allow-skipped Flag ==="
+
+# Test: allowSkipped_PRWithSkipLabel_NoReview_Approves
+# With --allow-skipped, PR with skip-coderabbit label and no CR review → approve
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+write_labels_response '[{"name":"skip-coderabbit"},{"name":"enhancement"}]'
+RESULT=$(run_script_full --owner testowner --repo testrepo --pr 100 --allow-skipped --dry-run)
+if echo "$RESULT" | grep -qF '**Action:** approve'; then
+    pass "allowSkipped_PRWithSkipLabel_NoReview_Approves"
+else
+    fail "allowSkipped_PRWithSkipLabel_NoReview_Approves — output: $RESULT"
+fi
+
+# Test: allowSkipped_PRWithSkipLabel_HasReview_NormalFlow
+# With --allow-skipped, PR with label BUT also has CR review → normal flow (don't skip)
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"author":{"login":"coderabbitai"},"submittedAt":"2026-01-15T10:00:00Z"}]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+  {"id":"T_1","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"body":"Active finding","author":{"login":"coderabbitai"}}]}}
+]}}}}}'
+write_labels_response '[{"name":"skip-coderabbit"},{"name":"enhancement"}]'
+RESULT=$(run_script_full --owner testowner --repo testrepo --pr 100 --allow-skipped --dry-run)
+# Round 1 with 1 active thread → should be wait (normal flow), not approve
+if echo "$RESULT" | grep -qF '**Action:** wait'; then
+    pass "allowSkipped_PRWithSkipLabel_HasReview_NormalFlow"
+else
+    fail "allowSkipped_PRWithSkipLabel_HasReview_NormalFlow — output: $RESULT"
+fi
+
+# Test: noAllowSkipped_PRWithSkipLabel_NoReview_Waits
+# Without --allow-skipped flag, PR with label but no review → default behavior (wait with 0 rounds, 0 threads = approve since round 0 < 1)
+# Actually: round count 0, active threads 0 → doesn't match any approve condition (round_count -eq 1 and active 0 → false since 0 != 1)
+# So this should be "wait"
+clear_mocks
+write_reviews_response '{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}'
+write_threads_response '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+write_labels_response '[{"name":"skip-coderabbit"},{"name":"enhancement"}]'
+RESULT=$(run_script_full --owner testowner --repo testrepo --pr 100 --dry-run)
+# Without --allow-skipped: round 0, 0 threads, no blockers → wait (0 rounds doesn't match any approve case)
+if echo "$RESULT" | grep -qF '**Action:** wait'; then
+    pass "noAllowSkipped_PRWithSkipLabel_NoReview_Waits"
+else
+    fail "noAllowSkipped_PRWithSkipLabel_NoReview_Waits — output: $RESULT"
 fi
 
 # ============================================================
