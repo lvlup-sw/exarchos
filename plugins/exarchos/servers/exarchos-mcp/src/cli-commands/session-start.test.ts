@@ -34,6 +34,7 @@ interface CheckpointData {
   readonly artifacts: Record<string, unknown>;
   readonly stateFile: string;
   readonly teamState?: unknown;
+  readonly contextFile?: string;
 }
 
 /** Minimal valid workflow state file for testing. */
@@ -369,6 +370,139 @@ describe('session-start command', () => {
 
       // Assert — the malformed file should NOT be deleted (skipped before unlink)
       await expect(fs.access(filePath)).resolves.toBeUndefined();
+    });
+
+    // ─── Context Document Injection Tests ──────────────────────────────────────
+
+    it('should include contextDocument when checkpoint has contextFile', async () => {
+      // Arrange
+      const contextContent = '## Workflow Context: test-feature\n**Phase:** delegate';
+      const contextPath = path.join(tmpDir, 'test-feature.context.md');
+      await fs.writeFile(contextPath, contextContent);
+
+      const checkpoint = createCheckpointFile({
+        featureId: 'test-feature',
+        contextFile: contextPath,
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeDefined();
+      expect(result.contextDocument).toContain('Workflow Context');
+    });
+
+    it('should not include contextDocument when checkpoint has no contextFile', async () => {
+      // Arrange — checkpoint without contextFile field
+      const checkpoint = createCheckpointFile({ featureId: 'test-feature' });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeUndefined();
+      expect(result.workflows).toBeDefined();
+      expect(result.workflows).toHaveLength(1);
+    });
+
+    it('should degrade gracefully when contextFile is referenced but missing', async () => {
+      // Arrange — checkpoint references context.md that doesn't exist
+      const checkpoint = createCheckpointFile({
+        featureId: 'test-feature',
+        contextFile: path.join(tmpDir, 'nonexistent.context.md'),
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeUndefined();
+      expect(result.workflows).toBeDefined();
+      // Should not crash — workflow info still present
+    });
+
+    it('should delete context.md after reading', async () => {
+      // Arrange
+      const contextPath = path.join(tmpDir, 'test-feature.context.md');
+      await fs.writeFile(contextPath, '## Workflow Context: test-feature');
+
+      const checkpoint = createCheckpointFile({
+        featureId: 'test-feature',
+        contextFile: contextPath,
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      await handleSessionStart({}, tmpDir);
+
+      // Assert — context.md should be deleted after reading
+      await expect(fs.access(contextPath)).rejects.toThrow();
+    });
+
+    it('should not include contextDocument when active workflow has no checkpoint', async () => {
+      // Arrange — state file but no checkpoint
+      const stateData = createValidStateFile();
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeUndefined();
+      expect(result.workflows).toBeDefined();
+    });
+
+    it('should combine context documents from multiple checkpoints', async () => {
+      // Arrange
+      const contextPath1 = path.join(tmpDir, 'feature-one.context.md');
+      const contextPath2 = path.join(tmpDir, 'feature-two.context.md');
+      await fs.writeFile(contextPath1, '## Workflow Context: feature-one');
+      await fs.writeFile(contextPath2, '## Workflow Context: feature-two');
+
+      const checkpoint1 = createCheckpointFile({
+        featureId: 'feature-one',
+        contextFile: contextPath1,
+      });
+      const checkpoint2 = createCheckpointFile({
+        featureId: 'feature-two',
+        contextFile: contextPath2,
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'feature-one.checkpoint.json'),
+        JSON.stringify(checkpoint1),
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'feature-two.checkpoint.json'),
+        JSON.stringify(checkpoint2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeDefined();
+      expect(result.contextDocument).toContain('feature-one');
+      expect(result.contextDocument).toContain('feature-two');
+      expect(result.contextDocument).toContain('---');  // separator between documents
     });
   });
 
