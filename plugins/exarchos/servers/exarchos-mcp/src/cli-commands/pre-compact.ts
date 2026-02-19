@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
 import { PHASE_ACTION_MAP, HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from '../cli.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ interface CheckpointData {
   readonly artifacts: Record<string, unknown>;
   readonly stateFile: string;
   readonly teamState?: unknown;
+  readonly contextFile?: string;
 }
 
 /** Result returned from the pre-compact handler. */
@@ -77,9 +79,11 @@ function buildSummary(
  * and return whether compaction should proceed.
  */
 export async function handlePreCompact(
-  _stdinData: Record<string, unknown>,
+  stdinData: Record<string, unknown>,
   stateDir: string,
 ): Promise<PreCompactResult> {
+  const trigger = typeof stdinData.type === 'string' ? stdinData.type : 'auto';
+
   // List all state files (listStateFiles handles missing directory gracefully)
   const allWorkflows = await listStateFiles(stateDir);
 
@@ -125,10 +129,28 @@ export async function handlePreCompact(
 
     const checkpointPath = path.join(stateDir, `${featureId}.checkpoint.json`);
     await fs.writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), 'utf-8');
+
+    // Generate context.md alongside the checkpoint
+    try {
+      const contextResult = await handleAssembleContext({ featureId }, stateDir);
+      if (contextResult.contextDocument) {
+        const contextPath = path.join(stateDir, `${featureId}.context.md`);
+        await fs.writeFile(contextPath, contextResult.contextDocument, 'utf-8');
+        // Re-write checkpoint with contextFile field
+        const updatedCheckpoint: CheckpointData = { ...checkpoint, contextFile: contextPath };
+        await fs.writeFile(checkpointPath, JSON.stringify(updatedCheckpoint, null, 2), 'utf-8');
+      }
+    } catch {
+      // Graceful degradation — checkpoint works without context.md
+    }
+  }
+
+  if (trigger === 'manual') {
+    return { continue: true };
   }
 
   return {
     continue: false,
-    stopReason: `Checkpoint saved for ${activeWorkflows.length} workflow(s). Run /resume to continue.`,
+    stopReason: `Context checkpoint saved. Type /clear to reload with fresh context.`,
   };
 }
