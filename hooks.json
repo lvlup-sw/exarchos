@@ -3,7 +3,7 @@
   "hooks": {
     "PreCompact": [
       {
-        "matcher": "auto",
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
@@ -16,7 +16,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume",
+        "matcher": "startup|resume|compact|clear",
         "hooks": [
           {
             "type": "command",
