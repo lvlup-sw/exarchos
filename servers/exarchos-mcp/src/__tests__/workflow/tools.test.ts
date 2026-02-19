@@ -14,11 +14,14 @@ import {
   handleCancel,
   handleCheckpoint,
   configureWorkflowEventStore,
+  configureWorkflowMaterializer,
   isEventSourced,
   CURRENT_ES_VERSION,
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
+import { ViewMaterializer } from '../../views/materializer.js';
+import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../../views/workflow-state-projection.js';
 import { configureQueryEventStore, reconcileTasks } from '../../workflow/query.js';
 import { configureNextActionEventStore } from '../../workflow/next-action.js';
 import type { WorkflowState } from '../../workflow/types.js';
@@ -31,6 +34,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   configureWorkflowEventStore(null);
+  configureWorkflowMaterializer(null);
   configureQueryEventStore(null);
   configureNextActionEventStore(null);
   await fs.rm(tmpDir, { recursive: true, force: true });
@@ -3088,5 +3092,126 @@ describe('IsEventSourced_Version1_ReturnsFalse', () => {
   it('should return false when state has _esVersion of 1', () => {
     const state = { _esVersion: 1 } as Record<string, unknown>;
     expect(isEventSourced(state)).toBe(false);
+  });
+});
+
+// ─── CQRS Read Path: handleGet with Event-Sourced Materialization ────────────
+
+describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
+  it('should materialize state from events for v2 workflows, not from state file', async () => {
+    // Arrange: Create an event store and materializer, configure both
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    // Init creates a v2 workflow (sets _esVersion: 2, emits workflow.started event)
+    await handleInit({ featureId: 'es-get-v2', workflowType: 'feature' }, tmpDir);
+
+    // Now tamper with the state file to set a different phase.
+    // If handleGet reads from events, it should return 'ideate' (from the workflow.started event).
+    // If handleGet reads from the state file, it will return 'plan' (the tampered value).
+    const stateFile = path.join(tmpDir, 'es-get-v2.state.json');
+    const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    rawState.phase = 'plan'; // Tamper the phase
+    await fs.writeFile(stateFile, JSON.stringify(rawState));
+
+    // Act: Call handleGet — should materialize from events, not from file
+    const result = await handleGet({ featureId: 'es-get-v2' }, tmpDir);
+
+    // Assert: Phase should be 'ideate' (from event materialization), NOT 'plan' (from tampered file)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('ideate');
+    expect(data.featureId).toBe('es-get-v2');
+    expect(data.workflowType).toBe('feature');
+  });
+});
+
+describe('HandleGet_EsVersion1_ReadsStateFileDirectly', () => {
+  it('should read from state file for legacy v1 workflows without _esVersion', async () => {
+    // Arrange: Create a workflow without event store (no _esVersion set — legacy path)
+    configureWorkflowEventStore(null);
+    await handleInit({ featureId: 'legacy-get', workflowType: 'debug' }, tmpDir);
+
+    // Verify it has no _esVersion (or at least not v2) — since no event store is configured,
+    // handleInit still writes _esVersion:2 but _eventSequence:0. However, when moduleEventStore
+    // is null during init, it still sets _esVersion:2.
+    // Let's manually create a truly legacy state file instead.
+    const stateFile = path.join(tmpDir, 'legacy-v1.state.json');
+    const legacyState = {
+      version: '1.1',
+      featureId: 'legacy-v1',
+      workflowType: 'debug',
+      phase: 'triage',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      integration: null,
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _version: 1,
+      _history: {},
+      _checkpoint: {
+        timestamp: new Date().toISOString(),
+        phase: 'triage',
+        summary: '',
+        operationsSince: 0,
+        fixCycleCount: 0,
+        lastActivityTimestamp: new Date().toISOString(),
+        staleAfterMinutes: 120,
+      },
+      // Note: no _esVersion — legacy workflow
+    };
+    await fs.writeFile(stateFile, JSON.stringify(legacyState));
+
+    // Act: Call handleGet on legacy workflow
+    const result = await handleGet({ featureId: 'legacy-v1' }, tmpDir);
+
+    // Assert: Should read directly from state file (legacy path)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('triage');
+    expect(data.featureId).toBe('legacy-v1');
+    expect(data.workflowType).toBe('debug');
+  });
+});
+
+describe('HandleGet_EsVersion2_FieldProjection_Works', () => {
+  it('should project only requested fields when materializing from events', async () => {
+    // Arrange: Create a v2 workflow with event store and materializer
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'es-fields', workflowType: 'feature' }, tmpDir);
+
+    // Act: Call handleGet with field projection
+    const result = await handleGet(
+      { featureId: 'es-fields', fields: ['phase', 'featureId'] },
+      tmpDir,
+    );
+
+    // Assert: Only the requested fields should be returned
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('ideate');
+    expect(data.featureId).toBe('es-fields');
+
+    // Should NOT contain other fields
+    expect(data.workflowType).toBeUndefined();
+    expect(data.tasks).toBeUndefined();
+    expect(data.createdAt).toBeUndefined();
   });
 });
