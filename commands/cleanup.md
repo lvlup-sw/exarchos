@@ -41,19 +41,11 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 ### Step 2: Verify PR Merge Status
 
 Query GitHub for merged PRs associated with this workflow:
-```typescript
-// For each PR URL in state
-mcp__plugin_github_github__pull_request_read({
-  owner: "lvlup-sw",
-  repo: "exarchos",
-  pullNumber: <number>
-})
+```bash
+gh pr view <number> --json state,mergedAt,headRefName,url
 ```
 
-Or use gh CLI as fallback:
-```bash
-gh pr view <number> --json state,mergedAt
-```
+> Or use GitHub MCP `pull_request_read` if available.
 
 Collect:
 - `prUrl` — PR URL(s) that were merged

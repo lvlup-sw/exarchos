@@ -21,7 +21,7 @@ If tests fail during synthesis (they passed in review):
 ### Merge Queue Rejection
 
 If the merge queue rejects a PR:
-1. Check CI status via GitHub MCP: `pull_request_read` with method `get_status`
+1. Check CI status via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
 2. Fix failing checks
 3. Push fixes and re-enqueue
 
@@ -34,10 +34,11 @@ If the user receives PR review comments:
    Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
    ```
 
-2. Delegate reads PR comments via GitHub MCP:
+2. Delegate reads PR comments via gh CLI:
+   ```bash
+   gh pr view <number> --json reviews,comments
    ```
-   mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber })
-   ```
+   > Or use GitHub MCP `pull_request_read` if available.
 
 3. Creates fix tasks from review comments
 4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive", "--publish", "--merge-when-ready"]`
