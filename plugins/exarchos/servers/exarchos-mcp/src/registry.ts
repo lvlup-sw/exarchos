@@ -217,6 +217,11 @@ const STACK_PHASES: ReadonlySet<string> = new Set([
   'overhaul-delegate',
   'debug-implement',
 ]);
+const REVIEW_PHASES: ReadonlySet<string> = new Set([
+  'review',
+  'overhaul-review',
+  'debug-review',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -358,6 +363,25 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
+  },
+  {
+    name: 'review_triage',
+    description: 'Score PRs by risk and dispatch to CodeRabbit or self-hosted review based on velocity',
+    schema: z.object({
+      featureId: z.string().min(1),
+      prs: z.array(z.object({
+        number: z.number().int().positive(),
+        paths: z.array(z.string()),
+        linesChanged: z.number().int().nonnegative(),
+        filesChanged: z.number().int().nonnegative(),
+        newFiles: z.number().int().nonnegative(),
+      })),
+      activeWorkflows: z.array(z.object({ phase: z.string() })).optional(),
+      pendingCodeRabbitReviews: z.number().int().nonnegative().optional(),
+      basileusConnected: z.boolean().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
   },
 ];
 
