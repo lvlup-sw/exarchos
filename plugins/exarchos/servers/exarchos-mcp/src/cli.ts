@@ -12,6 +12,7 @@ import { handleSessionStart } from './cli-commands/session-start.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { handleSubagentContext } from './cli-commands/subagent-context.js';
+import { handleAssembleContext } from './cli-commands/assemble-context.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ const KNOWN_COMMANDS = [
   'task-gate',
   'teammate-gate',
   'subagent-context',
+  'assemble-context',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -51,6 +53,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'task-gate': handleTaskGate,
   'teammate-gate': handleTeammateGate,
   'subagent-context': handleSubagentContext,
+  'assemble-context': async (stdinData) => handleAssembleContext(stdinData, resolveStateDir()),
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
