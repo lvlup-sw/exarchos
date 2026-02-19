@@ -67,6 +67,15 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
   return stripped;
 }
 
+// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
+
+export const CURRENT_ES_VERSION = 2;
+
+/** Check whether a workflow state uses the pure event-sourcing path. */
+export function isEventSourced(state: Record<string, unknown>): boolean {
+  return state._esVersion === CURRENT_ES_VERSION;
+}
+
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
 /**
@@ -133,7 +142,7 @@ export async function handleInit(
       stateDir,
       input.featureId,
       input.workflowType,
-      { _eventSequence: eventSequence },
+      { _eventSequence: eventSequence, _esVersion: CURRENT_ES_VERSION },
     );
 
     return {
