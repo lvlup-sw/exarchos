@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/validate-plugin.sh"
 PASS=0
 FAIL=0
+TMPDIRS=()
+cleanup() { for d in "${TMPDIRS[@]}"; do rm -rf "$d"; done; }
+trap cleanup EXIT
 
 # Helper
 assert_exit() {
@@ -28,6 +31,7 @@ echo
 
 # Test 1: Valid structure passes
 TMPDIR1=$(mktemp -d)
+TMPDIRS+=("$TMPDIR1")
 mkdir -p "$TMPDIR1/.claude-plugin" "$TMPDIR1/commands" "$TMPDIR1/skills" "$TMPDIR1/hooks"
 cat > "$TMPDIR1/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -61,10 +65,12 @@ assert_exit 0 bash "$SCRIPT" --repo-root "$TMPDIR1"
 
 # Test 2: Missing plugin.json fails
 TMPDIR2=$(mktemp -d)
+TMPDIRS+=("$TMPDIR2")
 assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR2"
 
 # Test 3: Missing hook types fails
 TMPDIR3=$(mktemp -d)
+TMPDIRS+=("$TMPDIR3")
 mkdir -p "$TMPDIR3/.claude-plugin" "$TMPDIR3/commands" "$TMPDIR3/skills" "$TMPDIR3/hooks"
 cat > "$TMPDIR3/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -94,6 +100,7 @@ assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR3"
 
 # Test 4: {{CLI_PATH}} in hooks fails
 TMPDIR4=$(mktemp -d)
+TMPDIRS+=("$TMPDIR4")
 mkdir -p "$TMPDIR4/.claude-plugin" "$TMPDIR4/commands" "$TMPDIR4/skills" "$TMPDIR4/hooks"
 cat > "$TMPDIR4/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -128,9 +135,6 @@ assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR4"
 # Test 5: No arguments uses current directory (should handle gracefully)
 # This tests that the script doesn't crash without --repo-root
 # We don't assert a specific exit code since it depends on cwd structure
-
-# Cleanup
-rm -rf "$TMPDIR1" "$TMPDIR2" "$TMPDIR3" "$TMPDIR4"
 
 echo
 echo "---"
