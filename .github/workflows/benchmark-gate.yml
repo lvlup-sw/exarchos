@@ -28,15 +28,15 @@ jobs:
 
       - name: Run benchmarks
         run: npm run bench -- --outputJson benchmark-results.json
-        working-directory: plugins/exarchos/servers/exarchos-mcp
+        working-directory: servers/exarchos-mcp
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: benchmark-results
-          path: plugins/exarchos/servers/exarchos-mcp/benchmark-results.json
+          path: servers/exarchos-mcp/benchmark-results.json
           retention-days: 7
 
       - name: Check for regressions
-        run: bash scripts/check-benchmark-regression.sh --results plugins/exarchos/servers/exarchos-mcp/benchmark-results.json --baselines plugins/exarchos/servers/exarchos-mcp/src/telemetry/benchmarks/baselines.json
+        run: bash scripts/check-benchmark-regression.sh --results servers/exarchos-mcp/benchmark-results.json --baselines servers/exarchos-mcp/src/telemetry/benchmarks/baselines.json

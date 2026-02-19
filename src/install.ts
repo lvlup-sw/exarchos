@@ -93,7 +93,7 @@ export async function configureMcpServers(
   config.mcpServers['exarchos'] = {
     type: 'stdio',
     command: 'node',
-    args: [join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/index.js')],
+    args: [join(repoRoot, 'servers/exarchos-mcp/dist/index.js')],
     ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
@@ -464,7 +464,7 @@ async function installDev(
   const resolvedHooks = resolveHooksForMode(
     repoRoot,
     manifest,
-    join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/cli.js'),
+    join(repoRoot, 'servers/exarchos-mcp/dist/cli.js'),
   );
 
   // 3. Generate and write settings.json

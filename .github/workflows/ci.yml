@@ -30,7 +30,7 @@ jobs:
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
             mcp:
-              - 'plugins/exarchos/servers/exarchos-mcp/**'
+              - 'servers/exarchos-mcp/**'
               - '.github/workflows/ci.yml'
 
   test-root:
@@ -59,7 +59,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     defaults:
       run:
-        working-directory: plugins/exarchos/servers/exarchos-mcp
+        working-directory: servers/exarchos-mcp
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +67,7 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: plugins/exarchos/servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: servers/exarchos-mcp/package-lock.json
 
       - run: npm ci
       - run: npx tsc --noEmit
