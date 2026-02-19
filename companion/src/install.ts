@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, symlinkSync, lstatSync, readlinkSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -32,17 +32,62 @@ const MCP_SERVERS_TO_ADD: Record<string, McpServerEntry> = {
   },
 };
 
+const CONTENT_OVERLAYS = [
+  { source: 'rules/mcp-tool-guidance.md', target: 'rules/mcp-tool-guidance.md' },
+  { source: 'skills/workflow-state/references/companion-mcp-reference.md', target: 'skills/workflow-state/references/companion-mcp-reference.md' },
+];
+
 export function installCompanion(
   claudeHome?: string,
   claudeJsonPath?: string,
-): { pluginsEnabled: string[]; mcpServersAdded: string[] } {
+): { pluginsEnabled: string[]; mcpServersAdded: string[]; contentOverlays: string[] } {
   const home = claudeHome ?? join(homedir(), '.claude');
   const configPath = claudeJsonPath ?? join(homedir(), '.claude.json');
 
   const pluginsEnabled = installPlugins(home);
   const mcpServersAdded = installMcpServers(configPath);
+  const contentOverlays = installContentOverlays(home);
 
-  return { pluginsEnabled, mcpServersAdded };
+  return { pluginsEnabled, mcpServersAdded, contentOverlays };
+}
+
+function installContentOverlays(claudeHome: string): string[] {
+  const companionRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const installed: string[] = [];
+
+  for (const overlay of CONTENT_OVERLAYS) {
+    const sourcePath = join(companionRoot, overlay.source);
+    const targetPath = join(claudeHome, overlay.target);
+
+    // Ensure target directory exists
+    mkdirSync(dirname(targetPath), { recursive: true });
+
+    // Skip if already symlinked to the same source
+    try {
+      const existing = lstatSync(targetPath);
+      if (existing.isSymbolicLink()) {
+        try {
+          const resolvedLink = realpathSync(targetPath);
+          const resolvedSource = realpathSync(sourcePath);
+          if (resolvedLink === resolvedSource) continue;
+        } catch {
+          // Resolution failed — treat as different, warn below
+        }
+      }
+      // Different file exists — warn but don't overwrite
+      process.stderr.write(`Warning: ${overlay.target} already exists, skipping.\n`);
+      continue;
+    } catch (err: unknown) {
+      if (!(err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT')) {
+        throw err;
+      }
+    }
+
+    symlinkSync(sourcePath, targetPath);
+    installed.push(overlay.target);
+  }
+
+  return installed;
 }
 
 function parseJsonFile<T extends object>(filePath: string, label: string): T {
@@ -121,4 +166,5 @@ if (isMainModule) {
   console.log('Exarchos Dev Tools installed:');
   result.pluginsEnabled.forEach(p => console.log(`  Plugin enabled: ${p}`));
   result.mcpServersAdded.forEach(s => console.log(`  MCP server added: ${s}`));
+  result.contentOverlays.forEach(o => console.log(`  Content overlay: ${o}`));
 }

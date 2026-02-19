@@ -10,24 +10,14 @@ The cleanup action trusts the `mergeVerified` flag — it does not query GitHub 
 
 ## Verification Methods
 
-### GitHub MCP (Preferred)
-
-```typescript
-const pr = await mcp__plugin_github_github__pull_request_read({
-  owner: "lvlup-sw",
-  repo: "exarchos",
-  pullNumber: 123
-});
-
-// Check: pr.state === "MERGED" or pr.merged === true
-```
-
-### gh CLI (Fallback)
+### gh CLI (Primary)
 
 ```bash
 gh pr view 123 --json state,mergedAt,headRefName
 # Check: .state == "MERGED" and .mergedAt is not null
 ```
+
+> Or use GitHub MCP `pull_request_read` if available for structured data.
 
 ### For Stacked PRs
 
