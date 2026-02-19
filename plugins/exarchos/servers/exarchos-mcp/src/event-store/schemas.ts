@@ -37,6 +37,9 @@ export const EventTypes = [
   'team.teammate.dispatched',
   'quality.regression',
   'workflow.cas-failed',
+  'review.routed',
+  'review.finding',
+  'review.escalated',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -203,6 +206,34 @@ export const WorkflowCasFailedData = z.object({
   retries: z.number().int(),
 });
 
+// ─── Review Event Data ─────────────────────────────────────────────────────
+
+export const ReviewRoutedData = z.object({
+  pr: z.number().int(),
+  riskScore: z.number(),
+  factors: z.array(z.string()),
+  destination: z.enum(['coderabbit', 'self-hosted', 'both']),
+  velocityTier: z.enum(['normal', 'elevated', 'high']),
+  semanticAugmented: z.boolean(),
+});
+
+export const ReviewFindingData = z.object({
+  pr: z.number().int(),
+  source: z.enum(['coderabbit', 'self-hosted']),
+  severity: z.enum(['critical', 'major', 'minor', 'suggestion']),
+  filePath: z.string(),
+  lineRange: z.tuple([z.number().int(), z.number().int()]).optional(),
+  message: z.string(),
+  rule: z.string().optional(),
+});
+
+export const ReviewEscalatedData = z.object({
+  pr: z.number().int(),
+  reason: z.string(),
+  originalScore: z.number(),
+  triggeringFinding: z.string(),
+});
+
 // ─── Telemetry Event Data ──────────────────────────────────────────────────
 
 export const ToolInvokedData = z.object({
@@ -343,6 +374,9 @@ export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
 export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
 export type QualityRegression = z.infer<typeof QualityRegressionData>;
+export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
+export type ReviewFinding = z.infer<typeof ReviewFindingData>;
+export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
