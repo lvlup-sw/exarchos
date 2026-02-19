@@ -1,0 +1,22 @@
+{
+  "name": "lvlup-sw",
+  "owner": {
+    "name": "Levelup Software",
+    "email": "oss@levelupsoftware.com"
+  },
+  "metadata": {
+    "description": "Production-quality agent governance tools for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "exarchos",
+      "source": "./",
+      "description": "Event-sourced SDLC workflows with agent team coordination",
+      "version": "2.0.0",
+      "author": { "name": "Levelup Software" },
+      "category": "productivity",
+      "tags": ["workflow", "sdlc", "governance", "graphite", "tdd"]
+    }
+  ]
+}

@@ -1,9 +1,15 @@
 {
-  "mcpServers": {
-    "exarchos": {
-      "type": "stdio",
-      "command": "bun",
-      "args": ["run", "./dist/exarchos-mcp.js"]
+  "exarchos": {
+    "type": "stdio",
+    "command": "bun",
+    "args": ["run", "${CLAUDE_PLUGIN_ROOT}/dist/exarchos-mcp.js"],
+    "env": {
+      "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
     }
+  },
+  "graphite": {
+    "type": "stdio",
+    "command": "gt",
+    "args": ["mcp"]
   }
 }
