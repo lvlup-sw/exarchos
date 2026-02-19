@@ -36,12 +36,12 @@ function findUnNamespacedSkillCalls(dir: string): string[] {
 }
 
 describe('Command namespacing', () => {
-  it('commandFiles_skillInvocations_useNamespacedPrefix', () => {
+  it('scanCommandFiles_UnNamespacedSkillInvocations_ReportsViolations', () => {
     const violations = findUnNamespacedSkillCalls(join(repoRoot, 'commands'));
     expect(violations, `Un-namespaced Skill() calls in commands:\n${violations.join('\n')}`).toHaveLength(0);
   });
 
-  it('skillFiles_skillInvocations_useNamespacedPrefix', () => {
+  it('scanSkillFiles_UnNamespacedSkillInvocations_ReportsViolations', () => {
     const violations = findUnNamespacedSkillCalls(join(repoRoot, 'skills'));
     expect(violations, `Un-namespaced Skill() calls in skills:\n${violations.join('\n')}`).toHaveLength(0);
   });

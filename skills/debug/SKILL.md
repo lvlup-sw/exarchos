@@ -68,15 +68,17 @@ Activate this skill when:
 
 ### Mid-Workflow Commands
 
+These are user-facing commands (the orchestrator resolves them to namespaced form internally):
+
 ```bash
 # Switch from hotfix to thorough (during investigation)
 /debug --switch-thorough
 
-# Escalate to /exarchos:ideate (manual handoff)
-/exarchos:debug --escalate "Reason for escalation"
+# Escalate to /ideate (manual handoff)
+/debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/exarchos:resume  # (existing command works)
+/resume
 ```
 
 ## Track Comparison
@@ -147,11 +149,11 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ## Integration Points
 
-### With /exarchos:resume
+### With /resume
 
 Debug workflows resume like feature workflows:
 ```bash
-/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ### With Existing Skills

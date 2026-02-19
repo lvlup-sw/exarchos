@@ -60,7 +60,7 @@ Fix any discrepancies.
 
 To continue this workflow in a new session:
 
-```
+```bash
 /exarchos:resume ~/.claude/workflow-state/<feature>.state.json
 ```
 

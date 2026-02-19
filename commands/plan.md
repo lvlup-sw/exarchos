@@ -8,7 +8,7 @@ Create implementation plan for: "$ARGUMENTS"
 
 ## Workflow Position
 
-```
+```text
 /exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
                        ▲▲▲▲▲▲▲▲▲▲▲▲▲▲       ↑
                   plan-review
@@ -103,7 +103,7 @@ After saving the implementation plan, **auto-continue to plan-review**:
 
 Plan-review performs delta analysis and **auto-loops** back to `/exarchos:plan` if gaps are found (similar to `/exarchos:review` → `/exarchos:delegate --fixes`):
 
-```
+```text
 /exarchos:plan → plan-review → [gaps?] → /exarchos:plan --revise (auto-loop)
                       ↓
                  [no gaps]
