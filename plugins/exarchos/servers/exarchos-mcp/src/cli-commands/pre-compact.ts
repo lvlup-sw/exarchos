@@ -97,8 +97,8 @@ export async function handlePreCompact(
     return { continue: true };
   }
 
-  // Checkpoint each active workflow
-  for (const { featureId, stateFile, state } of activeWorkflows) {
+  // Checkpoint all active workflows in parallel — each workflow's I/O is independent
+  await Promise.all(activeWorkflows.map(async ({ featureId, stateFile, state }) => {
     const tasks = (state.tasks ?? []).map((t) => ({
       id: t.id,
       status: t.status,
@@ -115,6 +115,18 @@ export async function handlePreCompact(
         ? stateRecord.teamState
         : undefined;
 
+    // Generate context.md first so checkpoint can include the contextFile path in a single write
+    let contextFile: string | undefined;
+    try {
+      const contextResult = await handleAssembleContext({ featureId }, stateDir);
+      if (contextResult.contextDocument) {
+        contextFile = path.join(stateDir, `${featureId}.context.md`);
+        await fs.writeFile(contextFile, contextResult.contextDocument, 'utf-8');
+      }
+    } catch {
+      // Graceful degradation — checkpoint works without context.md
+    }
+
     const checkpoint: CheckpointData = {
       featureId,
       timestamp: new Date().toISOString(),
@@ -125,25 +137,12 @@ export async function handlePreCompact(
       artifacts: state.artifacts as Record<string, unknown>,
       stateFile,
       ...(teamState !== undefined && { teamState }),
+      ...(contextFile !== undefined && { contextFile }),
     };
 
     const checkpointPath = path.join(stateDir, `${featureId}.checkpoint.json`);
     await fs.writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), 'utf-8');
-
-    // Generate context.md alongside the checkpoint
-    try {
-      const contextResult = await handleAssembleContext({ featureId }, stateDir);
-      if (contextResult.contextDocument) {
-        const contextPath = path.join(stateDir, `${featureId}.context.md`);
-        await fs.writeFile(contextPath, contextResult.contextDocument, 'utf-8');
-        // Re-write checkpoint with contextFile field
-        const updatedCheckpoint: CheckpointData = { ...checkpoint, contextFile: contextPath };
-        await fs.writeFile(checkpointPath, JSON.stringify(updatedCheckpoint, null, 2), 'utf-8');
-      }
-    } catch {
-      // Graceful degradation — checkpoint works without context.md
-    }
-  }
+  }));
 
   if (trigger === 'manual') {
     return { continue: true };

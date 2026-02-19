@@ -2,8 +2,11 @@ import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { handleViewWorkflowStatus, handleViewTasks } from '../views/tools.js';
-import { EventStore } from '../event-store/store.js';
+import { getOrCreateEventStore, getOrCreateMaterializer } from '../views/tools.js';
+import { WORKFLOW_STATUS_VIEW } from '../views/workflow-status-view.js';
+import type { WorkflowStatusViewState } from '../views/workflow-status-view.js';
+import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
+import type { TaskDetailViewState } from '../views/task-detail-view.js';
 import { PHASE_ACTION_MAP, HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
@@ -233,150 +236,109 @@ export async function handleAssembleContext(
   const featureId = rawFeatureId && /^[a-z0-9-]+$/.test(rawFeatureId) ? rawFeatureId : '';
 
   if (!featureId) {
-    return {
-      contextDocument: '',
-      featureId: '',
-      phase: '',
-      truncated: false,
-    };
+    return { contextDocument: '', featureId: '', phase: '', truncated: false };
   }
 
-  // 1. Query CQRS views for workflow status and tasks
-  const [statusResult, tasksResult] = await Promise.all([
-    handleViewWorkflowStatus({ workflowId: featureId }, stateDir),
-    handleViewTasks({ workflowId: featureId }, stateDir),
+  const store = getOrCreateEventStore(stateDir);
+  const materializer = getOrCreateMaterializer(stateDir);
+  const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
+
+  // 1a. Load snapshots first to learn high-water marks for query optimization
+  await Promise.all([
+    materializer.loadFromSnapshot(featureId, WORKFLOW_STATUS_VIEW).catch(() => false),
+    materializer.loadFromSnapshot(featureId, TASK_DETAIL_VIEW).catch(() => false),
   ]);
 
-  // If workflow status fails or has no data, return empty
-  if (!statusResult.success || !statusResult.data) {
-    return {
-      contextDocument: '',
-      featureId,
-      phase: '',
-      truncated: false,
-    };
-  }
+  // Compute sinceSequence from snapshot HWMs — skip parsing old events
+  const statusHwm = materializer.getState(featureId, WORKFLOW_STATUS_VIEW)?.highWaterMark ?? 0;
+  const tasksHwm = materializer.getState(featureId, TASK_DETAIL_VIEW)?.highWaterMark ?? 0;
+  const minHwm = Math.min(statusHwm, tasksHwm);
+  // Buffer MAX_EVENTS below the HWM so the "Recent Events" section has enough data
+  const sinceSequence = Math.max(0, minHwm - MAX_EVENTS);
+  const queryFilters = sinceSequence > 0 ? { sinceSequence } : undefined;
 
-  const status = statusResult.data as {
-    featureId: string;
-    workflowType: string;
-    phase: string;
-    startedAt: string;
-    tasksTotal: number;
-    tasksCompleted: number;
-    tasksFailed: number;
-  };
+  // 1b. Parallel I/O: single event query (with fast-skip), state file read, and git
+  const [events, stateFileRaw, gitState] = await Promise.all([
+    store.query(featureId, queryFilters).catch((): WorkflowEvent[] => []),
+    fs.readFile(stateFilePath, 'utf-8').catch((): null => null),
+    queryGitState(stateDir),
+  ]);
 
-  // Check if the workflow actually exists by verifying both the state file
-  // and that the CQRS view materialized meaningful data
-  const hasStateFile = await fs.access(path.join(stateDir, `${featureId}.state.json`))
-    .then(() => true)
-    .catch(() => false);
-
-  if (!hasStateFile && !status.featureId) {
-    return {
-      contextDocument: '',
-      featureId,
-      phase: '',
-      truncated: false,
-    };
-  }
-
-  // Use state file phase as authoritative (CQRS view might lag)
-  let phase = status.phase;
-  let workflowType = status.workflowType;
-
-  // Read state file directly for authoritative phase
+  // 2. Materialize both CQRS views from the single event query
+  let statusView: WorkflowStatusViewState | null = null;
   try {
-    const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
-    const raw = await fs.readFile(stateFilePath, 'utf-8');
-    const stateData = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof stateData.phase === 'string') {
-      phase = stateData.phase;
-    }
-    if (typeof stateData.workflowType === 'string') {
-      workflowType = stateData.workflowType;
-    }
-  } catch {
-    // Fall back to CQRS view data
+    statusView = materializer.materialize<WorkflowStatusViewState>(
+      featureId, WORKFLOW_STATUS_VIEW, events,
+    );
+  } catch { /* graceful degradation */ }
+
+  let taskView: TaskDetailViewState | null = null;
+  try {
+    taskView = materializer.materialize<TaskDetailViewState>(
+      featureId, TASK_DETAIL_VIEW, events,
+    );
+  } catch { /* graceful degradation */ }
+
+  // 3. Parse state file once — authoritative for phase, tasks fallback, and artifacts
+  let stateData: Record<string, unknown> | null = null;
+  if (stateFileRaw) {
+    try {
+      stateData = JSON.parse(stateFileRaw) as Record<string, unknown>;
+    } catch { /* corrupt state file */ }
   }
 
-  // 2. Build task rows from CQRS view
+  // Check if workflow exists
+  if (!stateData && !statusView?.featureId) {
+    return { contextDocument: '', featureId, phase: '', truncated: false };
+  }
+
+  // State file is authoritative for phase/workflowType (CQRS view might lag)
+  const phase = (typeof stateData?.phase === 'string' ? stateData.phase : statusView?.phase) ?? '';
+  const workflowType =
+    (typeof stateData?.workflowType === 'string' ? stateData.workflowType : statusView?.workflowType) ?? '';
+
+  // 4. Build task rows from CQRS view, fallback to state file
   const taskRows: TaskRow[] = [];
   let totalTaskCount = 0;
 
-  if (tasksResult.success && Array.isArray(tasksResult.data)) {
-    const tasks = tasksResult.data as Array<{
-      taskId: string;
-      title: string;
-      status: string;
-    }>;
+  if (taskView) {
+    const tasks = Object.values(taskView.tasks);
     totalTaskCount = tasks.length;
     for (const task of tasks) {
+      taskRows.push({ taskId: task.taskId, title: task.title, status: task.status });
+    }
+  }
+
+  if (taskRows.length === 0 && stateData && Array.isArray(stateData.tasks)) {
+    for (const t of stateData.tasks) {
+      const task = t as Record<string, unknown>;
       taskRows.push({
-        taskId: task.taskId,
-        title: task.title,
-        status: task.status,
+        taskId: String(task.id ?? task.taskId ?? ''),
+        title: String(task.title ?? ''),
+        status: String(task.status ?? ''),
       });
     }
+    totalTaskCount = taskRows.length;
   }
 
-  // Also check state file tasks if CQRS returned nothing
-  if (taskRows.length === 0) {
-    try {
-      const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
-      const raw = await fs.readFile(stateFilePath, 'utf-8');
-      const stateData = JSON.parse(raw) as Record<string, unknown>;
-      if (Array.isArray(stateData.tasks)) {
-        for (const t of stateData.tasks) {
-          const task = t as Record<string, unknown>;
-          taskRows.push({
-            taskId: String(task.id ?? task.taskId ?? ''),
-            title: String(task.title ?? ''),
-            status: String(task.status ?? ''),
-          });
-        }
-        totalTaskCount = taskRows.length;
-      }
-    } catch {
-      // No tasks available
-    }
-  }
-
-  // 3. Query recent events via EventStore
+  // 5. Format events section from the already-queried events (no additional I/O)
   let eventsSection = '';
-  try {
-    const store = new EventStore(stateDir);
-    const events = await store.query(featureId);
-    if (events.length > 0) {
-      // Take the last MAX_EVENTS events (most recent)
-      const recentEvents = events.slice(-MAX_EVENTS);
-      const eventLines = recentEvents.map(formatEventSummary);
-      eventsSection = ['### Recent Events', ...eventLines].join('\n');
-    }
-  } catch {
-    // Graceful degradation — skip events section
+  if (events.length > 0) {
+    const recentEvents = events.slice(-MAX_EVENTS);
+    const eventLines = recentEvents.map(formatEventSummary);
+    eventsSection = ['### Recent Events', ...eventLines].join('\n');
   }
 
-  // 4. Query git state asynchronously (run in stateDir context)
+  // 6. Format git section from the already-queried git state (no additional I/O)
   let gitSection = '';
-  try {
-    const gitState = await queryGitState(stateDir);
-    if (gitState) {
-      gitSection = formatGitState(gitState);
-    }
-  } catch {
-    // Skip git section on failure
+  if (gitState) {
+    gitSection = formatGitState(gitState);
   }
 
-  // 5. Read artifact first lines
+  // 7. Format artifacts from state data (already parsed — only artifact file reads are new I/O)
   let artifactsSection = '';
-  try {
-    const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
-    const raw = await fs.readFile(stateFilePath, 'utf-8');
-    const stateData = JSON.parse(raw) as Record<string, unknown>;
+  if (stateData) {
     const artifacts = stateData.artifacts as Record<string, string | null> | undefined;
-
     if (artifacts) {
       const refs = await Promise.all([
         formatArtifactRef('Design', artifacts.design),
@@ -387,24 +349,22 @@ export async function handleAssembleContext(
         artifactsSection = ['### Artifacts', ...validRefs].join('\n');
       }
     }
-  } catch {
-    // Skip artifacts section
   }
 
-  // 6. Compute next action
+  // 8. Compute next action
   const nextAction = computeNextAction(workflowType, phase);
   const nextActionSection = `### Next Action\n${nextAction}`;
 
-  // 7. Build header
+  // 9. Build header
   const header = [
     `## Workflow Context: ${featureId}`,
-    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** ${status.startedAt}`,
+    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** ${statusView?.startedAt ?? 'unknown'}`,
   ].join('\n');
 
-  // 8. Format task table
+  // 10. Format task table
   const taskTable = taskRows.length > 0 ? formatTaskTable(taskRows, totalTaskCount) : '';
 
-  // 9. Assemble and truncate to budget
+  // 11. Assemble and truncate to budget
   const sections: ContextSections = {
     header,
     taskTable,
@@ -416,10 +376,5 @@ export async function handleAssembleContext(
 
   const { document, truncated } = truncateToCharBudget(sections);
 
-  return {
-    contextDocument: document,
-    featureId,
-    phase,
-    truncated,
-  };
+  return { contextDocument: document, featureId, phase, truncated };
 }
