@@ -17,8 +17,8 @@ describe('Companion Plugin Structure', () => {
   it('companionMcp_microsoftLearn_registered', () => {
     const mcpPath = join(companionRoot, '.mcp.json');
     const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-    expect(mcp['microsoft-learn']).toBeDefined();
-    expect(mcp['microsoft-learn'].type).toBe('http');
+    expect(mcp.mcpServers['microsoft-learn']).toBeDefined();
+    expect(mcp.mcpServers['microsoft-learn'].type).toBe('http');
   });
 
   it('companionSettings_plugins_enabled', () => {
