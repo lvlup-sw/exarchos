@@ -80,6 +80,7 @@ PR_NUMBER=""
 DRY_RUN=false
 MAX_ROUNDS=4
 ALLOW_SKIPPED=false
+REVIEW_COUNT_TRUSTED=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -225,6 +226,7 @@ count_review_rounds() {
         }
     ' -f "owner=$OWNER" -f "repo=$REPO" -F "pr=$PR_NUMBER") || {
         echo -e "${YELLOW}WARNING${NC}: Failed to query reviews" >&2
+        REVIEW_COUNT_TRUSTED=false
         echo "0"
         return
     }
@@ -232,6 +234,7 @@ count_review_rounds() {
     # Validate response structure
     if ! echo "$reviews_json" | jq -e '.data.repository.pullRequest' > /dev/null 2>&1; then
         echo -e "${YELLOW}WARNING${NC}: Malformed reviews response" >&2
+        REVIEW_COUNT_TRUSTED=false
         echo "0"
         return
     fi
@@ -452,7 +455,7 @@ has_skip_label() {
 ROUND_COUNT=$(count_review_rounds)
 
 # 1a. Check for --allow-skipped short-circuit
-if [[ "$ALLOW_SKIPPED" == true && "$ROUND_COUNT" -eq 0 ]]; then
+if [[ "$ALLOW_SKIPPED" == true && "$ROUND_COUNT" -eq 0 && "$REVIEW_COUNT_TRUSTED" == true ]]; then
     if has_skip_label; then
         cat <<SUMMARY
 ## CodeRabbit Review Gate
