@@ -39,7 +39,7 @@ function createValidManifest(): Manifest {
           description: 'Workflow orchestration',
           required: true,
           type: 'bundled',
-          bundlePath: 'plugins/exarchos',
+          bundlePath: 'dist/exarchos-mcp.js',
         },
         {
           id: 'github',
@@ -114,7 +114,7 @@ describe('Manifest Type Definitions (A1)', () => {
     expect(bundled.name).toBe('Exarchos');
     expect(bundled.required).toBe(true);
     expect(bundled.type).toBe('bundled');
-    expect(bundled.bundlePath).toBe('plugins/exarchos');
+    expect(bundled.bundlePath).toBe('dist/exarchos-mcp.js');
 
     const external = manifest.components.mcpServers[1];
     expect(external.type).toBe('external');

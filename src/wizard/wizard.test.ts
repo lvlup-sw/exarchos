@@ -37,7 +37,7 @@ function createTestManifest(): Manifest {
           description: 'Core workflow server',
           required: true,
           type: 'bundled',
-          bundlePath: 'plugins/exarchos',
+          bundlePath: 'dist/exarchos-mcp.js',
         },
         {
           id: 'context7',
