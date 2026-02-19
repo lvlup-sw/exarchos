@@ -27,17 +27,21 @@ Activate this skill when:
 
 ### Dispatch Mode Selection
 
-| Mode | Mechanism | Visualization | Best for |
-|------|-----------|---------------|----------|
-| `subagent` (default) | `Task` tool with `run_in_background` | None — orchestrator polls `TaskOutput` | Quick tasks, CI, non-interactive |
-| `agent-team` | Natural language delegation to teammates | tmux split panes | Interactive sessions, complex coordination |
+| Mode | Mechanism | Best for |
+|------|-----------|----------|
+| `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
+| `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
-**Auto-detection logic:**
-- If inside tmux AND Agent Teams enabled → default to `agent-team`
-- Otherwise → default to `subagent`
-- User can override via `/delegate --mode subagent` or `/delegate --mode agent-team`
+**When to choose each mode:**
 
-> **Verification:** Agent Teams availability is controlled by the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` environment variable in your session settings. Check `~/.claude/settings.json` for the `env` block.
+| Criteria | Subagent | Agent Team |
+|----------|----------|------------|
+| Environment | Any terminal | tmux or iTerm2 required |
+| Task dependencies | Independent or simple chains | Complex dependency graphs (native `addBlockedBy`) |
+| Monitoring | Orchestrator polls `TaskOutput` | Visual split panes + tiered hook monitoring |
+| Coordination | Orchestrator-managed state | Event-first saga with hook-driven completion |
+
+**Auto-detection:** If inside tmux (`$TMUX` non-empty) AND `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set → `agent-team`. Otherwise → `subagent`. User can override via `/delegate --mode subagent|agent-team`.
 
 ### Task Tool (Subagents)
 
@@ -62,25 +66,21 @@ Task({
 
 ### Agent Teams (Teammates)
 
-**Use when:**
-- Running in tmux with Agent Teams enabled
-- Tasks benefit from visual monitoring
-- Complex coordination between tasks
-- Interactive development sessions
+Agent-team delegation follows a 6-step **event-first saga**: emit event → execute side effect. See "Delegation Workflow — Agent Team Mode" below.
 
-For detailed Agent Teams delegation saga, see `references/agent-teams-saga.md`.
-
+For event payload details and full YAML examples, see `references/agent-teams-saga.md`.
 For adaptive team composition using historical metrics, see `references/adaptive-orchestration.md`.
 
 ## Controller Responsibilities
 
 The orchestrator (you) MUST:
 
-1. **Extract tasks upfront** - Read plan, extract all task details
-2. **Provide full context** - Never make subagents read files for task info
-3. **Include TDD requirements** - Use implementer prompt template
-4. **Track progress** - Use TodoWrite for all tasks
-5. **Set up worktrees** - For parallel execution
+1. **Extract tasks upfront** — Read plan, extract all task details
+2. **Provide full context** — Never make subagents read files for task info
+3. **Include TDD requirements** — Use implementer prompt template
+4. **Track progress** — TodoWrite (subagent) or native TaskList (agent-team)
+5. **Set up worktrees** — For parallel execution
+6. **Single-writer discipline** (agent-team) — Only the orchestrator mutates `workflow.tasks[]`. Hooks emit events only.
 
 ## Implementer Prompt Template
 
@@ -96,17 +96,42 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 
 **Conditional PBT section:** When a task has `testingStrategy.propertyTests: true`, include the "Property-Based Testing Patterns" section from `references/pbt-patterns.md` in the implementer prompt. This section provides framework-specific patterns (fast-check for TypeScript, FsCheck for .NET) and integrates with the TDD RED phase. When `propertyTests: false`, omit the section entirely.
 
-## Delegation Workflow
+## Delegation Workflow — Subagent Mode
 
-1. Prepare worktrees -- `scripts/setup-worktree.sh`
+1. Prepare worktrees — `scripts/setup-worktree.sh`
 2. Extract task details from plan
 3. Create TodoWrite entries for tracking
 4. Dispatch parallel subagents via Task tool
 5. Monitor progress via TaskOutput
-6. Collect and verify -- `scripts/post-delegation-check.sh`
+6. Collect and verify — `scripts/post-delegation-check.sh`
 7. Schema sync if API files modified
 
 For detailed step instructions, see `references/workflow-steps.md`.
+
+## Delegation Workflow — Agent Team Mode (6-Step Saga)
+
+Follow the event-first saga: **emit event → execute side effect** at every step.
+
+| Step | Action | Type | Key API |
+|------|--------|------|---------|
+| Pre-flight | Read tasks, prepare worktrees | — | `exarchos_workflow get`, `setup-worktree.sh` |
+| 1 | Create team | Compensable | `exarchos_event append` → `TeamCreate` |
+| 2 | Create native tasks (batched) | Compensable | `exarchos_event batch_append` → `TaskCreate` x N |
+| 3 | Spawn teammates (**pivot**) | Point of no return | `exarchos_event append` → `Task(team_name)` x N |
+| 4 | Monitor | Retryable | `exarchos_view workflow_status` (tiered) |
+| 5 | Disband | Retryable | `SendMessage(shutdown_request)` → `TeamDelete` |
+| 6 | Transition | Retryable | `exarchos_workflow set phase: "review"` |
+
+**Critical rules:**
+- Emit `exarchos_event` BEFORE executing each native API call (event-first ordering)
+- Use `batch_append` in Step 2 to emit all `team.task.planned` events atomically
+- Store `nativeTaskId` in `workflow.tasks[]` after each `TaskCreate` return (Step 2)
+- Use `@skills/delegation/references/implementer-prompt.md` with Agent Teams sections **included** for spawn prompts (Step 3)
+- Do NOT set `mode` at spawn — teammates inherit the lead's permission mode
+- Do NOT use `exarchos_orchestrate task_complete` — TeammateIdle hook handles completion
+- On failure at any step: compensate in reverse order (Steps 1-2 are compensable; Step 3 is the pivot)
+
+For step-by-step instructions, idempotency checks, compensation protocol, tiered monitoring strategy, and event payloads, see `references/agent-teams-saga.md`.
 
 ## Parallel Execution Strategy
 
@@ -132,24 +157,26 @@ This skill tracks task progress in workflow state for context persistence.
 
 Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workflow` with `action: "get"` with `query: "tasks"`. For status checks during monitoring, use `fields: ["tasks"]` to reduce response size.
 
-### On Task Dispatch
+### Subagent Mode State
 
-Update task status when dispatched using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Update the task's status to "in_progress"
-- Set the task's startedAt timestamp
+**On Task Dispatch:** Update task status using `exarchos_workflow set`:
+- Set task status to "in_progress" and startedAt timestamp
+- If creating worktree, also set the worktree entry
 
-If creating worktree, also set the worktree entry with branch, status, and either taskId (single task) or tasks (multi-task).
+**On Task Complete:** Update task status using `exarchos_workflow set`:
+- Set task status to "complete" and completedAt timestamp
 
-### On Task Complete
+**On All Tasks Complete:** `exarchos_workflow set` → phase: "review"
 
-Update task status when subagent reports completion using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Update the task's status to "complete"
-- Set the task's completedAt timestamp
+### Agent Team Mode State (Single-Writer)
 
-### On All Tasks Complete
+Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow set`. Hooks emit events but never mutate state directly.
 
-Update phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Set `phase` to "review"
+- **Step 2:** Store `nativeTaskId` from each `TaskCreate` return value
+- **Step 4:** Read `team.task.completed` events during monitoring, update task status
+- **Staleness:** 30-60s projection lag is acceptable — native task dependency unblocking is automatic
+
+For the three-layer consistency model, drift recovery, and eventual consistency details, see `references/agent-teams-saga.md`.
 
 ## Fix Mode (--fixes)
 
@@ -228,7 +255,9 @@ When using subagent mode (`Task` tool), emit events at each delegation milestone
 
 ### Agent Team Mode Events
 
-When using agent-team mode, follow the delegation saga in `references/agent-teams-saga.md`. The saga prescribes the exact event sequence. Do NOT mix subagent-mode event patterns with agent-team-mode patterns.
+Follow the 6-step saga above. Do NOT mix subagent-mode patterns (e.g., `exarchos_orchestrate task_complete`) with agent-team mode — the TeammateIdle hook handles completion signaling.
+
+For event payload schemas and the full event catalog, see `references/agent-teams-saga.md`.
 
 ### Claim Guard (Subagent Mode Only)
 
