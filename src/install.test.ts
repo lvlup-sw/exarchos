@@ -173,7 +173,7 @@ describe('configureMcpServers', () => {
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['exarchos'].command).toBe('node');
     expect(config.mcpServers['exarchos'].args).toContain(
-      join(repoRoot, 'plugins/exarchos/servers/exarchos-mcp/dist/index.js')
+      join(repoRoot, 'servers/exarchos-mcp/dist/index.js')
     );
   });
 
@@ -491,7 +491,7 @@ describe('Install Orchestrator (E3)', () => {
             id: 'exarchos', name: 'Exarchos',
             description: 'Workflow orchestration',
             required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
-            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+            devEntryPoint: 'servers/exarchos-mcp/dist/index.js',
           },
           {
             id: 'graphite', name: 'Graphite',
@@ -745,7 +745,7 @@ describe('Install Orchestrator (E3)', () => {
     expect(exarchosEntry).toBeDefined();
     const argsJoined = exarchosEntry.args.join(' ');
     expect(argsJoined).toContain(fakeRepoRoot);
-    expect(argsJoined).toContain('plugins/exarchos/servers/exarchos-mcp/dist/index.js');
+    expect(argsJoined).toContain('servers/exarchos-mcp/dist/index.js');
   });
 
   it('install_DevMode_RecordsRepoPath', async () => {
@@ -1245,7 +1245,7 @@ describe('Install Orchestrator - Hooks Integration', () => {
             id: 'exarchos', name: 'Exarchos',
             description: 'Workflow orchestration',
             required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
-            devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+            devEntryPoint: 'servers/exarchos-mcp/dist/index.js',
             cliBundlePath: 'dist/exarchos-cli.js',
           },
           {
@@ -1369,7 +1369,7 @@ describe('Install Orchestrator - Hooks Integration', () => {
     // Dev mode should use repo path
     const cmd = settings.hooks.PreCompact[0].hooks[0].command;
     expect(cmd).toContain(fakeRepoRoot);
-    expect(cmd).toContain('plugins/exarchos/servers/exarchos-mcp/dist/cli.js');
+    expect(cmd).toContain('servers/exarchos-mcp/dist/cli.js');
     expect(cmd).not.toContain('{{CLI_PATH}}');
   });
 });
