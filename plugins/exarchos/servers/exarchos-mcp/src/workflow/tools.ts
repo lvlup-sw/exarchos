@@ -473,10 +473,20 @@ export async function handleSet(
     const checkpoint = mutableState._checkpoint as Record<string, unknown>;
     checkpoint.lastActivityTimestamp = new Date().toISOString();
 
-    // Write back to disk with CAS protection
+    // Write back to disk with CAS protection + schema validation
     try {
-      await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion, skipValidation: true });
+      await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion });
     } catch (err) {
+      // Validation failure — return structured error instead of corrupting state
+      if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.INVALID_INPUT,
+            message: err.message,
+          },
+        };
+      }
       if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
         // Re-read and retry on version conflict — events already appended
         // with idempotency key, so re-append on next iteration is safely
