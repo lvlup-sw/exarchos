@@ -9,7 +9,32 @@
 
 ---
 
-## Quick Start
+## Installation
+
+### From Claude Code Marketplace (Recommended)
+
+```
+claude plugin install exarchos@lvlup-sw
+```
+
+### For Development
+
+```bash
+git clone https://github.com/lvlup-sw/exarchos.git
+cd exarchos
+npm install && npm run build
+claude --plugin-dir .
+```
+
+### Dev Companion (Optional)
+
+Adds GitHub, Serena, Context7, and Microsoft Learn MCP for enhanced development:
+
+```bash
+npx @lvlup-sw/exarchos-dev
+```
+
+### Legacy Installer
 
 ```bash
 npx -y github:lvlup-sw/exarchos
@@ -25,25 +50,27 @@ The interactive wizard walks you through setup:
 ? Proceed with install?   Yes
 ```
 
-Commands work in any project immediately after install.
-
-### Other Install Modes
-
-```bash
-# Non-interactive (use defaults or previous selections)
-npx -y github:lvlup-sw/exarchos --yes
-
-# Dev mode (symlinks for contributors)
-npx -y github:lvlup-sw/exarchos --dev
-
-# Uninstall
-npx -y github:lvlup-sw/exarchos --uninstall
-```
-
 ### Prerequisites
 
 - **Node.js** >= 20
 - **Graphite CLI** (`gt`) — required for stacked PR workflows
+
+## Workflows
+
+| Task | Command |
+|------|---------|
+| New feature/design | `/exarchos:ideate` |
+| Bug fix | `/exarchos:debug` |
+| Code improvement | `/exarchos:refactor` |
+
+## Build & Test
+
+```bash
+npm run build          # tsc + bun → dist/
+npm run test:run       # vitest single run
+npm run typecheck      # tsc --noEmit
+npm run validate       # Validate plugin structure
+```
 
 ## Why Exarchos?
 
@@ -106,7 +133,7 @@ Configured during install via the interactive wizard:
 | **Serena** | Claude plugin | Semantic code analysis |
 | **Context7** | Claude plugin | Up-to-date library documentation |
 
-## Workflows
+## Workflow Details
 
 Three HSM-driven SDLC workflows with automatic state checkpointing. All workflows auto-resume on session start. Human checkpoints only at plan approval and merge confirmation.
 
