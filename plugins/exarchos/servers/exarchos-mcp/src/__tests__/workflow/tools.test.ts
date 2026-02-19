@@ -2900,31 +2900,69 @@ describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
   });
 });
 
-// ─── T17: handleSet passes skipValidation: true to writeStateFile ────────
+// ─── #532: handleSet validates merged state before writing ────────────────
 
-describe('HandleSet_WritesWithSkipValidation', () => {
-  it('should pass skipValidation: true to writeStateFile', async () => {
-    await handleInit({ featureId: 'skip-val-set', workflowType: 'feature' }, tmpDir);
+describe('HandleSet_ValidatesMergedState', () => {
+  it('should reject invalid enum values in field updates', async () => {
+    await handleInit({ featureId: 'validate-merge', workflowType: 'feature' }, tmpDir);
 
-    // Spy on writeStateFile to verify options are passed
-    const stateStoreMod = await import('../../workflow/state-store.js');
-    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile');
-
-    // Perform a field update
+    // Attempt to set an invalid worktree status
     const result = await handleSet(
-      { featureId: 'skip-val-set', updates: { 'artifacts.design': 'design.md' } },
+      {
+        featureId: 'validate-merge',
+        updates: {
+          'worktrees': { 'wt-foo': { path: '/tmp/wt', branch: 'feat', status: 'complete' } },
+        },
+      },
+      tmpDir,
+    );
+
+    // Should fail at write time, not corrupt the state
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('should not corrupt state file when validation fails', async () => {
+    await handleInit({ featureId: 'no-corrupt', workflowType: 'feature' }, tmpDir);
+
+    // Write a valid field first
+    await handleSet(
+      { featureId: 'no-corrupt', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Attempt invalid update
+    await handleSet(
+      {
+        featureId: 'no-corrupt',
+        updates: {
+          'worktrees': { 'wt-bad': { path: '/tmp/wt', branch: 'feat', status: 'bogus' } },
+        },
+      },
+      tmpDir,
+    );
+
+    // State should still be readable (not corrupted)
+    const state = await readStateFile(
+      (await import('node:path')).join(tmpDir, 'no-corrupt.state.json'),
+    );
+    expect(state.artifacts?.design).toBe('design.md');
+  });
+
+  it('should accept valid field updates', async () => {
+    await handleInit({ featureId: 'valid-update', workflowType: 'feature' }, tmpDir);
+
+    const result = await handleSet(
+      {
+        featureId: 'valid-update',
+        updates: {
+          'worktrees': { 'wt-ok': { branch: 'feat', taskId: 'task-1', status: 'active' } },
+        },
+      },
       tmpDir,
     );
 
     expect(result.success).toBe(true);
-
-    // Verify writeStateFile was called with skipValidation: true
-    expect(writeSpy).toHaveBeenCalled();
-    const lastCall = writeSpy.mock.calls[writeSpy.mock.calls.length - 1];
-    const options = lastCall[2] as { expectedVersion?: number; skipValidation?: boolean } | undefined;
-    expect(options?.skipValidation).toBe(true);
-
-    writeSpy.mockRestore();
   });
 });
 

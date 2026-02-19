@@ -221,7 +221,6 @@ export async function writeStateFile(
   } as WorkflowState;
 
   // Validate before writing to catch schema violations at write time (not deferred to read)
-  // Skip when caller guarantees state is already validated (e.g. handleSet reads then writes)
   if (!options?.skipValidation) {
     const validation = WorkflowStateSchema.safeParse(stateWithVersion);
     if (!validation.success) {
