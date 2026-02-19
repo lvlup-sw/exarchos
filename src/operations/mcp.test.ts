@@ -31,7 +31,7 @@ describe('MCP Config Management (C2)', () => {
       required: true,
       type: 'bundled',
       bundlePath: 'dist/exarchos-mcp.js',
-      devEntryPoint: 'plugins/exarchos/servers/exarchos-mcp/dist/index.js',
+      devEntryPoint: 'servers/exarchos-mcp/dist/index.js',
     };
   }
 

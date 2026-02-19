@@ -17,14 +17,14 @@ npm run test:run       # vitest single run
 npm run typecheck      # tsc --noEmit
 
 # MCP server tests (build is handled by root `npm run build`)
-cd plugins/exarchos/servers/exarchos-mcp && npm run test:run
+cd servers/exarchos-mcp && npm run test:run
 ```
 
 ## Architecture
 
 - **Installer** (`src/install.ts`) — Symlinks commands/skills/rules to `~/.claude/`, registers MCP servers in `~/.claude.json`
 - **Content layers** — Commands (`commands/*.md`), Skills (`skills/*/SKILL.md` with `references/`), Rules (`rules/*.md`). Structured Markdown, not executable code.
-- **MCP server** (`plugins/exarchos/servers/exarchos-mcp/`) — 5 composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`, `exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
+- **MCP server** (`servers/exarchos-mcp/`) — 5 composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`, `exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
 - **Validation scripts** (`scripts/`) — Deterministic bash replacing prose checklists. Pattern: `set -euo pipefail`, exit codes 0/1/2, co-located `.test.sh`.
 
 ## Workflows
