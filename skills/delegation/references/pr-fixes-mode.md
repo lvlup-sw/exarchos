@@ -15,21 +15,15 @@ When invoked with `--pr-fixes [PR_URL]`, delegation addresses human review feedb
 
 ### Step 1: Fetch All PR Feedback
 
-```typescript
-// Get full PR details including reviews and comments
-mcp__plugin_github_github__pull_request_read({
-  owner: "<owner>",
-  repo: "<repo>",
-  pullNumber: <number>
-})
+```bash
+# Get full PR details including reviews and comments
+gh pr view <number> --json title,body,state,files,reviewDecision,reviews,comments
 
-// Get issue-level comments (pre-merge check summaries)
-mcp__plugin_github_github__issue_read({
-  owner: "<owner>",
-  repo: "<repo>",
-  issueNumber: <number>
-})
+# Get issue-level comments (pre-merge check summaries)
+gh issue view <number> --json comments
 ```
+
+> Or use GitHub MCP `pull_request_read` and `issue_read` if available.
 
 ### Step 2: Parse CodeRabbit Feedback
 

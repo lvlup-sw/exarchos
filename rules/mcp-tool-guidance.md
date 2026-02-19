@@ -8,10 +8,9 @@ description: "Prefer specialized MCP tools over generic CLI approaches."
 Use specialized MCP tools over generic approaches:
 
 1. **Workflow state** — Exarchos MCP, never manual JSON
-2. **Code structure** — Serena (`find_symbol`, `get_symbols_overview`) over grep
-3. **GitHub operations** — GitHub MCP tools over `gh` CLI
-4. **PR creation** — Graphite MCP (`gt submit --no-interactive --publish --merge-when-ready`), never `gh pr create`
-5. **Library docs** — Context7 before web search
-6. **State management** — `exarchos_workflow` set/get, never edit JSON directly
+2. **PR creation** — Graphite MCP (`gt submit --no-interactive --publish --merge-when-ready`), never `gh pr create`
+3. **State management** — `exarchos_workflow` set/get, never edit JSON directly
+
+> Additional tool guidance (Serena, GitHub MCP, Context7) is provided by the exarchos-dev-tools companion. Install: `npx @lvlup-sw/exarchos-dev`
 
 See `@skills/workflow-state/references/mcp-tool-reference.md` for detailed mappings.
