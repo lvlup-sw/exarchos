@@ -2603,7 +2603,7 @@ describe('handleSet_EventFirst', () => {
     expect(transitions[0].idempotencyKey).toContain('ef-idem');
   });
 
-  it('should handle field-only updates without event emission', async () => {
+  it('should emit state.patched event for v2 field-only updates', async () => {
     const eventStore = new EventStore(tmpDir);
     configureWorkflowEventStore(eventStore);
 
@@ -2618,12 +2618,14 @@ describe('handleSet_EventFirst', () => {
     expect(result.success).toBe(true);
 
     const eventsAfter = await eventStore.query('ef-fields');
-    // No new events for field-only updates
-    expect(eventsAfter.length).toBe(eventsBefore.length);
+    // v2 workflows emit state.patched for field updates
+    expect(eventsAfter.length).toBe(eventsBefore.length + 1);
+    const patchedEvent = eventsAfter.find(e => e.type === 'state.patched');
+    expect(patchedEvent).toBeDefined();
 
-    // _eventSequence unchanged
+    // _eventSequence updated to include the state.patched event
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fields.state.json'), 'utf-8'));
-    expect(raw._eventSequence).toBe(1); // only from init
+    expect(raw._eventSequence).toBeGreaterThan(1);
   });
 
   it('should update _eventSequence after successful transition', async () => {
@@ -3213,5 +3215,191 @@ describe('HandleGet_EsVersion2_FieldProjection_Works', () => {
     expect(data.workflowType).toBeUndefined();
     expect(data.tasks).toBeUndefined();
     expect(data.createdAt).toBeUndefined();
+  });
+});
+
+// ─── Tasks 10+11: handleSet emits state.patched events for ES v2 ────────────
+
+describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
+  it('should emit a state.patched event when updating fields on a v2 workflow', async () => {
+    // Arrange: Create a v2 workflow with event store and materializer
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'es-set-patch', workflowType: 'feature' }, tmpDir);
+
+    // Act: Update fields via handleSet
+    const result = await handleSet(
+      {
+        featureId: 'es-set-patch',
+        updates: {
+          tasks: [{ id: 'task-1', title: 'Build API', status: 'pending' }],
+        },
+      },
+      tmpDir,
+    );
+
+    // Assert: Should succeed
+    expect(result.success).toBe(true);
+
+    // Assert: A state.patched event should appear in the event stream
+    const events = await eventStore.query('es-set-patch');
+    const patchedEvents = events.filter(e => e.type === 'state.patched');
+    expect(patchedEvents).toHaveLength(1);
+
+    const patchedData = patchedEvents[0].data as Record<string, unknown>;
+    expect(patchedData.featureId).toBe('es-set-patch');
+    expect(patchedData.fields).toEqual(['tasks']);
+    expect(patchedData.patch).toEqual({
+      tasks: [{ id: 'task-1', title: 'Build API', status: 'pending' }],
+    });
+  });
+});
+
+describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
+  it('should emit both workflow.transition and state.patched events when phase and fields change', async () => {
+    // Arrange: Create a v2 workflow with event store and materializer
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'es-set-both', workflowType: 'feature' }, tmpDir);
+
+    // Act: Set both phase and field updates
+    const result = await handleSet(
+      {
+        featureId: 'es-set-both',
+        phase: 'plan',
+        updates: {
+          'artifacts.design': 'design.md',
+        },
+      },
+      tmpDir,
+    );
+
+    // Assert: Should succeed
+    expect(result.success).toBe(true);
+
+    // Assert: Both event types should appear in the stream
+    const events = await eventStore.query('es-set-both');
+    const transitionEvents = events.filter(e => e.type === 'workflow.transition');
+    const patchedEvents = events.filter(e => e.type === 'state.patched');
+
+    expect(transitionEvents.length).toBeGreaterThanOrEqual(1);
+    expect(patchedEvents).toHaveLength(1);
+
+    // Verify the transition event
+    const lastTransition = transitionEvents[transitionEvents.length - 1];
+    const transitionData = lastTransition.data as Record<string, unknown>;
+    expect(transitionData.to).toBe('plan');
+
+    // Verify the patched event
+    const patchedData = patchedEvents[0].data as Record<string, unknown>;
+    expect(patchedData.fields).toEqual(['artifacts.design']);
+    expect(patchedData.patch).toEqual({ 'artifacts.design': 'design.md' });
+  });
+});
+
+describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
+  it('should write a state file that reflects materialized event state', async () => {
+    // Arrange: Create a v2 workflow with event store and materializer
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'es-set-snap', workflowType: 'feature' }, tmpDir);
+
+    // Act: Update tasks via handleSet
+    await handleSet(
+      {
+        featureId: 'es-set-snap',
+        updates: {
+          tasks: [{ id: 'task-1', title: 'Build API', status: 'pending' }],
+        },
+      },
+      tmpDir,
+    );
+
+    // Assert: Read the state file directly
+    const stateFile = path.join(tmpDir, 'es-set-snap.state.json');
+    const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+
+    // The state file should reflect the tasks from the state.patched event
+    expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
+
+    // Also verify by materializing independently and comparing key fields
+    const events = await eventStore.query('es-set-snap');
+    const freshMaterializer = new ViewMaterializer();
+    freshMaterializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    const materialized = freshMaterializer.materialize<Record<string, unknown>>(
+      'es-set-snap',
+      WORKFLOW_STATE_VIEW,
+      events,
+    );
+
+    expect(rawState.featureId).toBe(materialized.featureId);
+    expect(rawState.phase).toBe(materialized.phase);
+    expect(rawState.tasks).toEqual(materialized.tasks);
+  });
+});
+
+describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
+  it('should not emit duplicate state.patched events with the same idempotency key', async () => {
+    // Arrange: Create a v2 workflow with event store and materializer
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+    configureWorkflowMaterializer(materializer);
+
+    await handleInit({ featureId: 'es-set-idemp', workflowType: 'feature' }, tmpDir);
+
+    // Read the state to determine the expected version used in idempotency key
+    const stateFile = path.join(tmpDir, 'es-set-idemp.state.json');
+    const stateBeforeSet = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    const expectedVersion = stateBeforeSet._version ?? 1;
+    const fieldsHash = 'tasks';
+
+    // Pre-seed an event with the same idempotency key that handleSet would use
+    const idempotencyKey = `${stateBeforeSet.featureId}:patch:${expectedVersion}:${fieldsHash}`;
+    await eventStore.append('es-set-idemp', {
+      type: 'state.patched',
+      correlationId: 'es-set-idemp',
+      source: 'workflow',
+      data: {
+        featureId: 'es-set-idemp',
+        fields: ['tasks'],
+        patch: { tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }] },
+      },
+    }, { idempotencyKey });
+
+    // Act: Call handleSet with the same field — should hit idempotency dedup
+    await handleSet(
+      {
+        featureId: 'es-set-idemp',
+        updates: {
+          tasks: [{ id: 'task-1', title: 'Build API', status: 'pending' }],
+        },
+      },
+      tmpDir,
+    );
+
+    // Assert: Only ONE state.patched event should exist (the pre-seeded one, not a duplicate)
+    const events = await eventStore.query('es-set-idemp');
+    const patchedEvents = events.filter(e => e.type === 'state.patched');
+    expect(patchedEvents).toHaveLength(1);
+
+    // The event should be the pre-seeded one, not the handleSet one
+    const data = patchedEvents[0].data as Record<string, unknown>;
+    expect(data.patch).toEqual({
+      tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],
+    });
   });
 });
