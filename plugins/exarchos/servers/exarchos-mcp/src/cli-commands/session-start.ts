@@ -19,6 +19,7 @@ interface CheckpointData {
   readonly artifacts: Record<string, unknown>;
   readonly stateFile: string;
   readonly teamState?: unknown;
+  readonly contextFile?: string;
 }
 
 /** Recovery info attached when orphaned team state is detected. */
@@ -51,6 +52,7 @@ export interface SessionStartResult extends CommandResult {
   readonly workflows?: ReadonlyArray<WorkflowInfo>;
   readonly orphanedTeams?: ReadonlyArray<string>;
   readonly telemetryHints?: ReadonlyArray<string>;
+  readonly contextDocument?: string;
 }
 
 // ─── Terminal Phases ────────────────────────────────────────────────────────
@@ -117,6 +119,51 @@ async function readAndDeleteCheckpoints(stateDir: string): Promise<CheckpointDat
   }
 
   return results;
+}
+
+// ─── Context File Reader ────────────────────────────────────────────────────
+
+/**
+ * Read and delete a pre-computed context.md file.
+ * Returns the file content on success, or null if the file is missing or unreadable.
+ * Deletes the file before returning to ensure at-most-once delivery.
+ */
+async function readAndDeleteContextFile(contextPath: string): Promise<string | null> {
+  try {
+    const content = await fs.readFile(contextPath, 'utf-8');
+    await fs.unlink(contextPath);
+    return content;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Collect and combine context documents from checkpoints that have a contextFile field.
+ * Multiple context documents are joined with a `\n---\n` separator.
+ * Validates that contextFile paths are contained within stateDir to prevent path traversal.
+ * Returns undefined when no context documents are available.
+ */
+async function collectContextDocuments(
+  checkpoints: ReadonlyArray<CheckpointData>,
+  stateDir: string,
+): Promise<string | undefined> {
+  const contextDocuments: string[] = [];
+  const resolvedStateDir = path.resolve(stateDir);
+
+  for (const cp of checkpoints) {
+    if (!cp.contextFile) continue;
+    const resolvedPath = path.resolve(stateDir, cp.contextFile);
+    if (!resolvedPath.startsWith(resolvedStateDir + path.sep) && resolvedPath !== resolvedStateDir) continue;
+    const content = await readAndDeleteContextFile(resolvedPath);
+    if (content) {
+      contextDocuments.push(content);
+    }
+  }
+
+  return contextDocuments.length > 0
+    ? contextDocuments.join('\n---\n')
+    : undefined;
 }
 
 // ─── Orphaned Team Detection ────────────────────────────────────────────────
@@ -428,6 +475,9 @@ export async function handleSessionStart(
       };
     });
 
+    // Collect pre-computed context documents from checkpoint references
+    const contextDocument = await collectContextDocuments(checkpoints, stateDir);
+
     // Also check for active state files not covered by checkpoints
     try {
       const stateFiles = await listStateFiles(stateDir);
@@ -446,8 +496,16 @@ export async function handleSessionStart(
       // Non-critical: if listing fails, we still have checkpoint data
     }
 
-    if (teamsDir) return enrichWithTelemetryHints(await applyNativeTeamDetection(workflows, teamsDir), stateDir);
-    return enrichWithTelemetryHints({ workflows }, stateDir);
+    const baseResult: SessionStartResult = contextDocument
+      ? { workflows, contextDocument }
+      : { workflows };
+
+    if (teamsDir) {
+      const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
+      const merged = contextDocument ? { ...teamResult, contextDocument } : teamResult;
+      return enrichWithTelemetryHints(merged, stateDir);
+    }
+    return enrichWithTelemetryHints(baseResult, stateDir);
   }
 
   // Step 2: No checkpoints — discover active workflows from state files
