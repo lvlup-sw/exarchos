@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleSessionStart, detectNativeTeam, queryTelemetryHints } from './session-start.js';
+import { handleSessionStart, detectNativeTeam, queryTelemetryHints, detectGraphite } from './session-start.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1123,6 +1123,104 @@ describe('session-start command', () => {
 
       // Assert
       expect(result.telemetryHints).toBeUndefined();
+    });
+  });
+
+  // ─── Graphite Detection in handleSessionStart ─────────────────────────────
+
+  describe('handleSessionStart graphite detection', () => {
+    it('should include graphiteAvailable field in result with no workflows', async () => {
+      // Arrange — empty state dir (no checkpoints, no state files)
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert — field must exist and be a boolean
+      expect(result).toHaveProperty('graphiteAvailable');
+      expect(typeof result.graphiteAvailable).toBe('boolean');
+    });
+
+    it('should include graphiteAvailable field in result with checkpoint', async () => {
+      // Arrange — checkpoint exists
+      const checkpoint = createCheckpointFile();
+      await fs.writeFile(
+        path.join(tmpDir, `${checkpoint.featureId}.checkpoint.json`),
+        JSON.stringify(checkpoint),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result).toHaveProperty('graphiteAvailable');
+      expect(typeof result.graphiteAvailable).toBe('boolean');
+    });
+
+    it('should include graphiteAvailable field in result with active workflow', async () => {
+      // Arrange — state file but no checkpoint
+      const stateData = createValidStateFile();
+      await fs.writeFile(
+        path.join(tmpDir, 'test-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result).toHaveProperty('graphiteAvailable');
+      expect(typeof result.graphiteAvailable).toBe('boolean');
+    });
+
+    it('should include graphiteAvailable field when teamsDir is provided', async () => {
+      // Arrange
+      const teamsDir = path.join(tmpDir, 'teams');
+      await fs.mkdir(teamsDir, { recursive: true });
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir, teamsDir);
+
+      // Assert
+      expect(result).toHaveProperty('graphiteAvailable');
+      expect(typeof result.graphiteAvailable).toBe('boolean');
+    });
+
+    it('should include graphiteAvailable field when state dir does not exist', async () => {
+      // Arrange
+      const nonExistentDir = path.join(tmpDir, 'does-not-exist');
+
+      // Act
+      const result = await handleSessionStart({}, nonExistentDir);
+
+      // Assert
+      expect(result).toHaveProperty('graphiteAvailable');
+      expect(typeof result.graphiteAvailable).toBe('boolean');
+    });
+  });
+
+  // ─── Graphite CLI Detection ──────────────────────────────────────────────
+
+  describe('detectGraphite', () => {
+    it('should return true when gt is on PATH', () => {
+      // Arrange — mock exec that succeeds (gt is found)
+      const mockExec = (() => Buffer.from('/usr/local/bin/gt\n')) as unknown as typeof import('node:child_process').execSync;
+
+      // Act
+      const result = detectGraphite(mockExec);
+
+      // Assert
+      expect(result).toBe(true);
+    });
+
+    it('should return false when gt is not found', () => {
+      // Arrange — mock exec that throws (command not found)
+      const mockExec = (() => { throw new Error('command not found: gt'); }) as unknown as typeof import('node:child_process').execSync;
+
+      // Act
+      const result = detectGraphite(mockExec);
+
+      // Assert
+      expect(result).toBe(false);
     });
   });
 });
