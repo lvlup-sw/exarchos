@@ -386,8 +386,13 @@ const MAX_CAS_RETRIES = 3;
  * modified and an error is returned. Idempotency keys prevent duplicate
  * events on CAS retry: `${featureId}:${from}:${to}:${expectedVersion}`.
  *
- * For field-only updates (no phase change), no events are emitted and
- * `_eventSequence` is not modified.
+ * **ES v2 field updates:** For workflows with `_esVersion === 2`, field
+ * updates emit a `state.patched` event with the patch delta before
+ * writing. After the CAS write succeeds, the state file is overwritten
+ * with a snapshot re-materialized from the full event stream, ensuring
+ * the file is always a derived artifact.
+ *
+ * **Legacy v1 path:** Field-only updates write directly without events.
  */
 export async function handleSet(
   input: SetInput,
@@ -529,7 +534,40 @@ export async function handleSet(
       }
     }
 
-    // Update _eventSequence only when transition events were appended
+    // ─── Event-first: append state.patched event for v2 field updates ──
+    if (
+      isEventSourced(state as unknown as Record<string, unknown>)
+      && moduleEventStore
+      && input.updates
+    ) {
+      try {
+        const fieldsHash = Object.keys(input.updates).sort().join(',');
+        const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
+        const event = await moduleEventStore.append(input.featureId, {
+          type: 'state.patched' as import('../event-store/schemas.js').EventType,
+          correlationId: input.featureId,
+          source: 'workflow',
+          data: {
+            featureId: input.featureId,
+            fields: Object.keys(input.updates),
+            patch: input.updates,
+          },
+        }, { idempotencyKey });
+
+        highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
+      } catch (err) {
+        // Event-first: if event append fails, do NOT update state
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
+    }
+
+    // Update _eventSequence when any events were appended
     if (highestEventSequence !== undefined) {
       mutableState._eventSequence = highestEventSequence;
     }
@@ -584,6 +622,36 @@ export async function handleSet(
       }
 
       throw err;
+    }
+
+    // ─── Re-materialize state from events for v2 workflows ──────────
+    // After the CAS write succeeds, overwrite the state file with a
+    // snapshot derived from the full event stream. This ensures the
+    // state file is always a derived artifact of the event log.
+    if (
+      isEventSourced(state as unknown as Record<string, unknown>)
+      && moduleEventStore
+      && moduleViewMaterializer
+    ) {
+      const allEvents = await moduleEventStore.query(input.featureId);
+      const materialized = moduleViewMaterializer.materialize<WorkflowStateView>(
+        input.featureId,
+        WORKFLOW_STATE_VIEW,
+        allEvents,
+      );
+
+      // Merge materialized state with checkpoint/version metadata from the
+      // mutable state (checkpoint tracking is not event-sourced)
+      const snapshot = {
+        ...(materialized as unknown as Record<string, unknown>),
+        _version: (mutableState._version as number),
+        _eventSequence: mutableState._eventSequence,
+        _esVersion: CURRENT_ES_VERSION,
+        _checkpoint: mutableState._checkpoint,
+        updatedAt: mutableState.updatedAt,
+      };
+
+      await writeStateFile(stateFile, snapshot as unknown as WorkflowState, { skipValidation: true });
     }
 
     // Event-first: events already appended before CAS write with idempotency keys.
