@@ -1,6 +1,8 @@
 {
-  "microsoft-learn": {
-    "type": "http",
-    "url": "https://learn.microsoft.com/api/mcp"
+  "mcpServers": {
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    }
   }
 }

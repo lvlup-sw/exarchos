@@ -39,11 +39,12 @@ describe('Core Plugin Structure', () => {
     it('mcpConfig_servers_includesExarchosAndGraphite', () => {
       const mcpPath = join(repoRoot, '.mcp.json');
       const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-      expect(mcp).toHaveProperty('exarchos');
-      expect(mcp).toHaveProperty('graphite');
-      expect(mcp.exarchos.type).toBe('stdio');
-      expect(mcp.graphite.command).toBe('gt');
-      expect(mcp.graphite.args).toEqual(['mcp']);
+      expect(mcp).toHaveProperty('mcpServers');
+      expect(mcp.mcpServers).toHaveProperty('exarchos');
+      expect(mcp.mcpServers).toHaveProperty('graphite');
+      expect(mcp.mcpServers.exarchos.type).toBe('stdio');
+      expect(mcp.mcpServers.graphite.command).toBe('gt');
+      expect(mcp.mcpServers.graphite.args).toEqual(['mcp']);
     });
   });
 
