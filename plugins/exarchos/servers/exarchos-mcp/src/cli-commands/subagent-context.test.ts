@@ -90,19 +90,22 @@ describe('subagent-context', () => {
       expect(orchestrate!.actions).toContain('task_fail');
     });
 
-    it('should not have any denied orchestrate actions for delegate phase with teammate role', () => {
-      // Arrange — with team actions removed, only task actions remain (all teammate-accessible)
+    it('should deny review_triage orchestrate action for delegate phase with teammate role', () => {
+      // Arrange — task actions are teammate-accessible in delegate, but review_triage
+      // is lead-only and not in delegate phases
       const phase = 'delegate';
       const role = 'teammate';
 
       // Act
       const result = filterToolsForPhaseAndRole(phase, role);
 
-      // Assert — no orchestrate actions should be denied (all 3 remaining are teammate-accessible)
+      // Assert — review_triage should be denied (lead role + review phase only)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
-      expect(deniedOrchestrate).toBeUndefined();
+      expect(deniedOrchestrate).toBeDefined();
+      expect(deniedOrchestrate!.actions).toContain('review_triage');
+      expect(deniedOrchestrate!.actions).toHaveLength(1);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -144,13 +147,13 @@ describe('subagent-context', () => {
       // Act
       const result = filterToolsForPhaseAndRole(phase, role);
 
-      // Assert — all orchestrate actions should be denied (delegate phase only)
+      // Assert — all orchestrate actions should be denied:
+      // task_claim/task_complete/task_fail (delegate phase only) + review_triage (lead role only)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      // All 3 orchestrate actions should be denied in review phase
-      expect(deniedOrchestrate!.actions.length).toBe(3);
+      expect(deniedOrchestrate!.actions.length).toBe(4);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {
