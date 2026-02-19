@@ -45,8 +45,10 @@ cat > "$TMPDIR1/.claude-plugin/plugin.json" << 'EOF'
 EOF
 cat > "$TMPDIR1/.mcp.json" << 'EOF'
 {
-  "exarchos": { "type": "stdio", "command": "bun", "args": ["run", "dist/exarchos-mcp.js"] },
-  "graphite": { "type": "stdio", "command": "gt", "args": ["mcp"] }
+  "mcpServers": {
+    "exarchos": { "type": "stdio", "command": "bun", "args": ["run", "dist/exarchos-mcp.js"] },
+    "graphite": { "type": "stdio", "command": "gt", "args": ["mcp"] }
+  }
 }
 EOF
 cat > "$TMPDIR1/hooks/hooks.json" << 'HOOKEOF'
@@ -84,8 +86,10 @@ cat > "$TMPDIR3/.claude-plugin/plugin.json" << 'EOF'
 EOF
 cat > "$TMPDIR3/.mcp.json" << 'EOF'
 {
-  "exarchos": { "type": "stdio" },
-  "graphite": { "type": "stdio" }
+  "mcpServers": {
+    "exarchos": { "type": "stdio" },
+    "graphite": { "type": "stdio" }
+  }
 }
 EOF
 cat > "$TMPDIR3/hooks/hooks.json" << 'HOOKEOF'
@@ -114,8 +118,10 @@ cat > "$TMPDIR4/.claude-plugin/plugin.json" << 'EOF'
 EOF
 cat > "$TMPDIR4/.mcp.json" << 'EOF'
 {
-  "exarchos": { "type": "stdio" },
-  "graphite": { "type": "stdio" }
+  "mcpServers": {
+    "exarchos": { "type": "stdio" },
+    "graphite": { "type": "stdio" }
+  }
 }
 EOF
 cat > "$TMPDIR4/hooks/hooks.json" << 'HOOKEOF'
