@@ -17,6 +17,7 @@ import {
   configureWorkflowMaterializer,
   isEventSourced,
   CURRENT_ES_VERSION,
+  expandDotPaths,
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
@@ -3301,7 +3302,7 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
     // Verify the patched event
     const patchedData = patchedEvents[0].data as Record<string, unknown>;
     expect(patchedData.fields).toEqual(['artifacts.design']);
-    expect(patchedData.patch).toEqual({ 'artifacts.design': 'design.md' });
+    expect(patchedData.patch).toEqual({ artifacts: { design: 'design.md' } });
   });
 });
 
@@ -3401,5 +3402,40 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
     expect(data.patch).toEqual({
       tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],
     });
+  });
+});
+
+// ─── expandDotPaths ──────────────────────────────────────────────────────────
+
+describe('expandDotPaths', () => {
+  it('should expand simple dot-path keys into nested objects', () => {
+    const result = expandDotPaths({ 'artifacts.design': 'docs/design.md' });
+    expect(result).toEqual({ artifacts: { design: 'docs/design.md' } });
+  });
+
+  it('should expand multi-level dot-paths', () => {
+    const result = expandDotPaths({ 'a.b.c': 42 });
+    expect(result).toEqual({ a: { b: { c: 42 } } });
+  });
+
+  it('should expand bracket notation into arrays', () => {
+    const result = expandDotPaths({
+      'tasks[0]': { id: 't1', status: 'complete' },
+    });
+    expect(result.tasks).toBeDefined();
+    expect((result.tasks as unknown[])[0]).toEqual({ id: 't1', status: 'complete' });
+  });
+
+  it('should pass through top-level keys unchanged', () => {
+    const result = expandDotPaths({ planReview: { approved: true } });
+    expect(result).toEqual({ planReview: { approved: true } });
+  });
+
+  it('should merge multiple dot-paths into the same parent', () => {
+    const result = expandDotPaths({
+      'artifacts.design': 'design.md',
+      'artifacts.plan': 'plan.md',
+    });
+    expect(result).toEqual({ artifacts: { design: 'design.md', plan: 'plan.md' } });
   });
 });

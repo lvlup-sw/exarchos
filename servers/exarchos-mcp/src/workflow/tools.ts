@@ -78,6 +78,80 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
   return stripped;
 }
 
+// ─── Dot-Path Expansion ─────────────────────────────────────────────────────
+
+/**
+ * Expand flat dot-path keys into a nested object structure suitable for
+ * deep-merging. Handles bracket notation (e.g., "tasks[0]") by creating
+ * arrays with sparse indices.
+ *
+ * Example:
+ *   { 'artifacts.design': 'x', 'tasks[0]': {...} }
+ *   → { artifacts: { design: 'x' }, tasks: [{...}] }
+ */
+export function expandDotPaths(
+  updates: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [dotPath, value] of Object.entries(updates)) {
+    const segments = parseDotPath(dotPath);
+    setNestedValue(result, segments, value);
+  }
+
+  return result;
+}
+
+/** Parse a dot-path into string/number segments. */
+function parseDotPath(dotPath: string): Array<string | number> {
+  const segments: Array<string | number> = [];
+  for (const part of dotPath.split('.')) {
+    const bracketMatch = part.match(/^([^[]+)\[(\d+)\]$/);
+    if (bracketMatch) {
+      segments.push(bracketMatch[1]);
+      segments.push(parseInt(bracketMatch[2], 10));
+    } else {
+      segments.push(part);
+    }
+  }
+  return segments;
+}
+
+/** Set a value at a nested path, creating intermediate objects/arrays as needed. */
+function setNestedValue(
+  obj: Record<string, unknown>,
+  segments: Array<string | number>,
+  value: unknown,
+): void {
+  let current: unknown = obj;
+
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i];
+    const nextSeg = segments[i + 1];
+
+    if (typeof seg === 'number') {
+      const arr = current as unknown[];
+      if (arr[seg] === undefined) {
+        arr[seg] = typeof nextSeg === 'number' ? [] : {};
+      }
+      current = arr[seg];
+    } else {
+      const record = current as Record<string, unknown>;
+      if (record[seg] === undefined || record[seg] === null) {
+        record[seg] = typeof nextSeg === 'number' ? [] : {};
+      }
+      current = record[seg];
+    }
+  }
+
+  const lastSeg = segments[segments.length - 1];
+  if (typeof lastSeg === 'number') {
+    (current as unknown[])[lastSeg] = value;
+  } else {
+    (current as Record<string, unknown>)[lastSeg] = value;
+  }
+}
+
 // ─── Event-Sourcing Version Discriminator ───────────────────────────────────
 
 export const CURRENT_ES_VERSION = 2;
@@ -543,6 +617,7 @@ export async function handleSet(
       try {
         const fieldsHash = Object.keys(input.updates).sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
+        const expandedPatch = expandDotPaths(input.updates);
         const event = await moduleEventStore.append(input.featureId, {
           type: 'state.patched' as import('../event-store/schemas.js').EventType,
           correlationId: input.featureId,
@@ -550,7 +625,7 @@ export async function handleSet(
           data: {
             featureId: input.featureId,
             fields: Object.keys(input.updates),
-            patch: input.updates,
+            patch: expandedPatch,
           },
         }, { idempotencyKey });
 

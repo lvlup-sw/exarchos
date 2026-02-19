@@ -279,13 +279,20 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'review.escalated':
       case 'workflow.fix-cycle':
       case 'workflow.guard-failed':
+      case 'workflow.cancel':
+      case 'workflow.cleanup': {
+        // Cancel and cleanup events carry {from, to} transition data
+        // that must update the materialized phase.
+        const data = event.data as { to?: string } | undefined;
+        if (!data?.to) return view;
+        return { ...view, phase: data.to, updatedAt: event.timestamp };
+      }
+
       case 'workflow.compound-entry':
       case 'workflow.compound-exit':
       case 'workflow.compensation':
       case 'workflow.circuit-open':
       case 'workflow.cas-failed':
-      case 'workflow.cancel':
-      case 'workflow.cleanup':
       case 'stack.restacked':
       case 'stack.enqueued':
       case 'task.claimed':
