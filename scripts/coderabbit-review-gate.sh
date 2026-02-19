@@ -15,6 +15,7 @@
 #   --pr <number>        PR number to check (required)
 #   --dry-run            Suppress PR comments (show what would happen)
 #   --max-rounds <n>     Max review rounds before escalation (default: 4)
+#   --allow-skipped      Treat PRs with skip-coderabbit label and no CR review as approved
 #   --help               Show this help message
 #
 # Exit codes:
@@ -54,6 +55,7 @@ Options:
   --pr <number>        PR number to check (required)
   --dry-run            Suppress PR comments (show what would happen)
   --max-rounds <n>     Max review rounds before escalation (default: 4)
+  --allow-skipped      Treat PRs with skip-coderabbit label and no CR review as approved
   --help               Show this help message
 
 Exit codes:
@@ -77,6 +79,7 @@ REPO=""
 PR_NUMBER=""
 DRY_RUN=false
 MAX_ROUNDS=4
+ALLOW_SKIPPED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -106,6 +109,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --allow-skipped)
+            ALLOW_SKIPPED=true
             shift
             ;;
         --max-rounds)
@@ -424,11 +431,42 @@ COMMENT
 }
 
 # ============================================================
+# SKIP-LABEL CHECK
+# ============================================================
+
+# Check if PR has the skip-coderabbit label
+has_skip_label() {
+    local labels_json
+    labels_json=$(gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/labels" 2>/dev/null) || {
+        echo -e "${YELLOW}WARNING${NC}: Failed to query PR labels" >&2
+        return 1
+    }
+    echo "$labels_json" | jq -e '[.[] | select(.name == "skip-coderabbit")] | length > 0' > /dev/null 2>&1
+}
+
+# ============================================================
 # MAIN
 # ============================================================
 
 # 1. Count review rounds
 ROUND_COUNT=$(count_review_rounds)
+
+# 1a. Check for --allow-skipped short-circuit
+if [[ "$ALLOW_SKIPPED" == true && "$ROUND_COUNT" -eq 0 ]]; then
+    if has_skip_label; then
+        cat <<SUMMARY
+## CodeRabbit Review Gate
+
+- **PR:** ${OWNER}/${REPO}#${PR_NUMBER}
+- **Round:** 0
+- **Active Threads:** 0
+- **Blocking Findings:** false
+- **Action:** approve
+- **Skipped:** true (skip-coderabbit label, no CodeRabbit review)
+SUMMARY
+        exit 0
+    fi
+fi
 
 # 2. Query all review threads
 ALL_THREADS_JSON=$(query_all_threads)
