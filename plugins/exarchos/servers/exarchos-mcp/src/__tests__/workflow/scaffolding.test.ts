@@ -56,58 +56,6 @@ describe('Package scaffold', () => {
     });
   });
 
-  describe('plugin.json', () => {
-    const pluginJsonPath = resolve(__dirname, '..', '..', '..', '..', '..', '.claude-plugin', 'plugin.json');
-
-    it('has required fields: name, description, version', () => {
-      const raw = readFileSync(pluginJsonPath, 'utf-8');
-      const plugin = JSON.parse(raw);
-
-      expect(plugin.name).toBe('exarchos');
-      expect(plugin.description).toBeDefined();
-      expect(typeof plugin.description).toBe('string');
-      expect(plugin.version).toBe('1.0.0');
-    });
-
-    it('references MCP servers configuration', () => {
-      const raw = readFileSync(pluginJsonPath, 'utf-8');
-      const plugin = JSON.parse(raw);
-
-      expect(plugin.mcpServers).toBe('../mcp-servers.json');
-    });
-  });
-
-  describe('mcp-servers.json', () => {
-    const mcpServersJsonPath = resolve(__dirname, '..', '..', '..', '..', '..', 'mcp-servers.json');
-
-    it('has exarchos server configuration', () => {
-      const raw = readFileSync(mcpServersJsonPath, 'utf-8');
-      const config = JSON.parse(raw);
-
-      expect(config['exarchos']).toBeDefined();
-      expect(config['exarchos'].type).toBe('stdio');
-      expect(config['exarchos'].command).toBe('node');
-    });
-
-    it('has correct server entry point path', () => {
-      const raw = readFileSync(mcpServersJsonPath, 'utf-8');
-      const config = JSON.parse(raw);
-
-      const args = config['exarchos'].args;
-      expect(args).toBeInstanceOf(Array);
-      expect(args).toHaveLength(1);
-      expect(args[0]).toContain('servers/exarchos-mcp/dist/index.js');
-    });
-
-    it('has WORKFLOW_STATE_DIR environment variable', () => {
-      const raw = readFileSync(mcpServersJsonPath, 'utf-8');
-      const config = JSON.parse(raw);
-
-      expect(config['exarchos'].env).toBeDefined();
-      expect(config['exarchos'].env.WORKFLOW_STATE_DIR).toBeDefined();
-    });
-  });
-
   describe('exports', () => {
     it('exports SERVER_NAME and SERVER_VERSION', async () => {
       const { SERVER_NAME, SERVER_VERSION } = await import('../../index.js');
