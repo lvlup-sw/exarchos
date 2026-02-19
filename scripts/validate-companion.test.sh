@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$SCRIPT_DIR/validate-companion.sh"
 PASS=0
 FAIL=0
+TMPDIRS=()
+cleanup() { for d in "${TMPDIRS[@]}"; do rm -rf "$d"; done; }
+trap cleanup EXIT
 
 # Helper
 assert_exit() {
@@ -28,6 +31,7 @@ echo
 
 # Test 1: Valid companion structure passes
 TMPDIR1=$(mktemp -d)
+TMPDIRS+=("$TMPDIR1")
 mkdir -p "$TMPDIR1/companion/.claude-plugin"
 cat > "$TMPDIR1/companion/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -54,10 +58,12 @@ assert_exit 0 bash "$SCRIPT" --repo-root "$TMPDIR1"
 
 # Test 2: Missing companion directory fails
 TMPDIR2=$(mktemp -d)
+TMPDIRS+=("$TMPDIR2")
 assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR2"
 
 # Test 3: Missing settings.json fails
 TMPDIR3=$(mktemp -d)
+TMPDIRS+=("$TMPDIR3")
 mkdir -p "$TMPDIR3/companion/.claude-plugin"
 cat > "$TMPDIR3/companion/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -73,6 +79,7 @@ assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR3"
 
 # Test 4: settings.json without enabledPlugins fails
 TMPDIR4=$(mktemp -d)
+TMPDIRS+=("$TMPDIR4")
 mkdir -p "$TMPDIR4/companion/.claude-plugin"
 cat > "$TMPDIR4/companion/.claude-plugin/plugin.json" << 'EOF'
 {
@@ -91,6 +98,7 @@ assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR4"
 
 # Test 5: Invalid JSON in plugin.json fails
 TMPDIR5=$(mktemp -d)
+TMPDIRS+=("$TMPDIR5")
 mkdir -p "$TMPDIR5/companion/.claude-plugin"
 echo "not json" > "$TMPDIR5/companion/.claude-plugin/plugin.json"
 cat > "$TMPDIR5/companion/.mcp.json" << 'EOF'
@@ -100,9 +108,6 @@ cat > "$TMPDIR5/companion/settings.json" << 'EOF'
 { "enabledPlugins": {} }
 EOF
 assert_exit 1 bash "$SCRIPT" --repo-root "$TMPDIR5"
-
-# Cleanup
-rm -rf "$TMPDIR1" "$TMPDIR2" "$TMPDIR3" "$TMPDIR4" "$TMPDIR5"
 
 echo
 echo "---"
