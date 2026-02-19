@@ -207,6 +207,7 @@ const BaseWorkflowStateSchema = z.object({
     passed: z.boolean(),
   }).nullable().default(null),
   synthesis: SynthesisSchema,
+  _esVersion: z.number().int().positive().optional(),
   _version: z.number().int().positive().default(1),
   _history: z.record(z.string(), z.string()).default({}),
   // _events and _eventSequence removed — events now live in external JSONL store
