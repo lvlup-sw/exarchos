@@ -92,4 +92,28 @@ describe('Companion Installer', () => {
       expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
     });
   });
+
+  describe('Error recovery', () => {
+    it('companionInstall_malformedSettings_recoversGracefully', () => {
+      mkdirSync(claudeHome, { recursive: true });
+      writeFileSync(join(claudeHome, 'settings.json'), 'not valid json {{{');
+
+      const result = installCompanion(claudeHome, claudeJsonPath);
+
+      // Should succeed despite malformed settings
+      expect(result.pluginsEnabled).toHaveLength(3);
+      const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
+      expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
+    });
+
+    it('companionInstall_malformedMcpConfig_recoversGracefully', () => {
+      writeFileSync(claudeJsonPath, 'broken json');
+
+      const result = installCompanion(claudeHome, claudeJsonPath);
+
+      expect(result.mcpServersAdded).toContain('microsoft-learn');
+      const config = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
+      expect(config.mcpServers['microsoft-learn']).toBeDefined();
+    });
+  });
 });
