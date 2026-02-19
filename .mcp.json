@@ -3,7 +3,7 @@
     "exarchos": {
       "type": "stdio",
       "command": "bun",
-      "args": ["run", "${CLAUDE_PLUGIN_ROOT}/dist/exarchos-mcp.js"],
+      "args": ["run", "./dist/exarchos-mcp.js"],
       "env": {
         "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
       }
