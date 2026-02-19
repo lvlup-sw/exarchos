@@ -14,6 +14,9 @@ import {
   TeamTeammateDispatchedData,
   QualityRegressionData,
   WorkflowCasFailedData,
+  ReviewRoutedData,
+  ReviewFindingData,
+  ReviewEscalatedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -319,6 +322,115 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(34);
+    expect(EventTypes).toHaveLength(37);
+  });
+
+  it('EventTypes_IncludesReviewRouted', () => {
+    expect(EventTypes).toContain('review.routed');
+  });
+
+  it('EventTypes_IncludesReviewFinding', () => {
+    expect(EventTypes).toContain('review.finding');
+  });
+
+  it('EventTypes_IncludesReviewEscalated', () => {
+    expect(EventTypes).toContain('review.escalated');
+  });
+});
+
+// ─── T3: Review Event Schemas ───────────────────────────────────────────────
+
+describe('ReviewRoutedData', () => {
+  it('reviewRoutedEvent_ValidPayload_PassesValidation', () => {
+    const result = ReviewRoutedData.safeParse({
+      pr: 42,
+      riskScore: 0.75,
+      factors: ['large-diff', 'security-sensitive'],
+      destination: 'coderabbit',
+      velocityTier: 'normal',
+      semanticAugmented: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(42);
+      expect(result.data.riskScore).toBe(0.75);
+      expect(result.data.factors).toEqual(['large-diff', 'security-sensitive']);
+      expect(result.data.destination).toBe('coderabbit');
+      expect(result.data.velocityTier).toBe('normal');
+      expect(result.data.semanticAugmented).toBe(true);
+    }
+  });
+
+  it('reviewRoutedEvent_MissingFields_FailsValidation', () => {
+    const result = ReviewRoutedData.safeParse({
+      pr: 42,
+      riskScore: 0.75,
+      // missing factors, destination, velocityTier, semanticAugmented
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('ReviewFindingData', () => {
+  it('reviewFindingEvent_ValidPayload_PassesValidation', () => {
+    const result = ReviewFindingData.safeParse({
+      pr: 42,
+      source: 'coderabbit',
+      severity: 'major',
+      filePath: 'src/merge-gate.ts',
+      lineRange: [10, 20],
+      message: 'Function too complex',
+      rule: 'solid-srp',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(42);
+      expect(result.data.source).toBe('coderabbit');
+      expect(result.data.severity).toBe('major');
+      expect(result.data.filePath).toBe('src/merge-gate.ts');
+      expect(result.data.lineRange).toEqual([10, 20]);
+      expect(result.data.message).toBe('Function too complex');
+      expect(result.data.rule).toBe('solid-srp');
+    }
+  });
+
+  it('reviewFindingEvent_OptionalFieldsOmitted_PassesValidation', () => {
+    const result = ReviewFindingData.safeParse({
+      pr: 42,
+      source: 'self-hosted',
+      severity: 'minor',
+      filePath: 'src/utils.ts',
+      message: 'Consider renaming variable',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('reviewFindingEvent_InvalidSeverity_FailsValidation', () => {
+    const result = ReviewFindingData.safeParse({
+      pr: 42,
+      source: 'coderabbit',
+      severity: 'high',  // invalid — not in enum
+      filePath: 'src/merge-gate.ts',
+      message: 'Something wrong',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('ReviewEscalatedData', () => {
+  it('reviewEscalatedEvent_ValidPayload_PassesValidation', () => {
+    const result = ReviewEscalatedData.safeParse({
+      pr: 42,
+      reason: 'Self-hosted found major issue on velocity-triaged PR',
+      originalScore: 0.3,
+      triggeringFinding: 'Function too complex',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(42);
+      expect(result.data.reason).toBe('Self-hosted found major issue on velocity-triaged PR');
+      expect(result.data.originalScore).toBe(0.3);
+      expect(result.data.triggeringFinding).toBe('Function too complex');
+    }
   });
 });
