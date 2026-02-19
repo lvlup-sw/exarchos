@@ -94,9 +94,10 @@ export class ViewMaterializer {
     }
 
     // Update high-water mark to the max sequence seen
+    // Events are append-only and monotonically increasing, so the last element is the max
     const maxSequence =
       newEvents.length > 0
-        ? Math.max(...newEvents.map((e) => e.sequence))
+        ? newEvents[newEvents.length - 1].sequence
         : state.highWaterMark;
 
     const updatedState: ViewState<T> = {
