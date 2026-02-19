@@ -100,8 +100,8 @@ write_state_file "$STATE_FILE" '{
 }'
 
 write_event_stream "$EVENT_STREAM" \
-    '{"type":"review.routed","data":{"pr":100,"riskScore":0.5,"destination":["coderabbit","self-hosted"],"selfHosted":true}}' \
-    '{"type":"review.routed","data":{"pr":101,"riskScore":0.2,"destination":["self-hosted"],"selfHosted":true}}'
+    '{"type":"review.routed","data":{"pr":100,"riskScore":0.5,"destination":"both","factors":["large-diff","new-api"],"velocityTier":"normal","semanticAugmented":false}}' \
+    '{"type":"review.routed","data":{"pr":101,"riskScore":0.2,"destination":"self-hosted","factors":[],"velocityTier":"normal","semanticAugmented":false}}'
 
 EXIT_CODE=$(run_script_exit_code --state-file "$STATE_FILE" --event-stream "$EVENT_STREAM")
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -129,7 +129,7 @@ write_state_file "$STATE_FILE_MISSING" '{
 
 # Only PR 200 has a routed event — PR 201 is missing
 write_event_stream "$EVENT_STREAM_MISSING" \
-    '{"type":"review.routed","data":{"pr":200,"riskScore":0.3,"destination":["self-hosted"],"selfHosted":true}}'
+    '{"type":"review.routed","data":{"pr":200,"riskScore":0.3,"destination":"self-hosted","factors":[],"velocityTier":"normal","semanticAugmented":false}}'
 
 EXIT_CODE=$(run_script_exit_code --state-file "$STATE_FILE_MISSING" --event-stream "$EVENT_STREAM_MISSING")
 if [[ "$EXIT_CODE" -eq 1 ]]; then
@@ -157,8 +157,8 @@ write_state_file "$STATE_FILE_HIGHRISK" '{
 
 # PR 300 is high-risk (score >= 0.4) but only sent to self-hosted, not coderabbit
 write_event_stream "$EVENT_STREAM_HIGHRISK" \
-    '{"type":"review.routed","data":{"pr":300,"riskScore":0.6,"destination":["self-hosted"],"selfHosted":true}}' \
-    '{"type":"review.routed","data":{"pr":301,"riskScore":0.2,"destination":["self-hosted"],"selfHosted":true}}'
+    '{"type":"review.routed","data":{"pr":300,"riskScore":0.6,"destination":"self-hosted","factors":["large-diff"],"velocityTier":"normal","semanticAugmented":false}}' \
+    '{"type":"review.routed","data":{"pr":301,"riskScore":0.2,"destination":"self-hosted","factors":[],"velocityTier":"normal","semanticAugmented":false}}'
 
 EXIT_CODE=$(run_script_exit_code --state-file "$STATE_FILE_HIGHRISK" --event-stream "$EVENT_STREAM_HIGHRISK")
 if [[ "$EXIT_CODE" -eq 1 ]]; then

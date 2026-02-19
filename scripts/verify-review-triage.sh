@@ -7,7 +7,7 @@
 # Checks:
 #   1. All PRs in state file have a review.routed event in the event stream
 #   2. High-risk PRs (riskScore >= 0.4) were sent to CodeRabbit
-#   3. Self-hosted review ran for all PRs (selfHosted: true)
+#   3. Self-hosted review ran for all PRs (destination is "self-hosted" or "both")
 #   4. No PR is missing review routing
 #
 # Exit codes:
@@ -163,7 +163,7 @@ fi
 # Parse each line that is a review.routed event
 for pr in $PR_NUMBERS; do
     # Check 1: review.routed event exists for this PR
-    ROUTED_EVENT=$(jq -c "select(.type == \"review.routed\" and .data.pr == $pr)" "$EVENT_STREAM" 2>/dev/null | head -1)
+    ROUTED_EVENT=$(jq -c "select(.type == \"review.routed\" and .data.pr == $pr)" "$EVENT_STREAM" 2>/dev/null | tail -1)
 
     if [[ -z "$ROUTED_EVENT" ]]; then
         report_fail "PR #$pr: missing review.routed event"
@@ -177,7 +177,7 @@ for pr in $PR_NUMBERS; do
     IS_HIGH_RISK=$(echo "$RISK_SCORE" | jq -Rr 'tonumber >= 0.4')
 
     if [[ "$IS_HIGH_RISK" == "true" ]]; then
-        HAS_CODERABBIT=$(echo "$ROUTED_EVENT" | jq -r '[.data.destination[] | select(. == "coderabbit")] | length > 0')
+        HAS_CODERABBIT=$(echo "$ROUTED_EVENT" | jq -r '.data.destination == "coderabbit" or .data.destination == "both"')
         if [[ "$HAS_CODERABBIT" == "true" ]]; then
             report_pass "PR #$pr: high-risk (score=$RISK_SCORE) sent to CodeRabbit"
         else
@@ -186,7 +186,7 @@ for pr in $PR_NUMBERS; do
     fi
 
     # Check 3: Self-hosted review ran for all PRs
-    SELF_HOSTED=$(echo "$ROUTED_EVENT" | jq -r '.data.selfHosted // false')
+    SELF_HOSTED=$(echo "$ROUTED_EVENT" | jq -r '.data.destination == "self-hosted" or .data.destination == "both"')
     if [[ "$SELF_HOSTED" == "true" ]]; then
         report_pass "PR #$pr: self-hosted review enabled"
     else
