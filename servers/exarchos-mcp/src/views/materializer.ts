@@ -39,6 +39,15 @@ function parseEnvMaxCacheEntries(): number {
   return parsed;
 }
 
+/** Read EXARCHOS_SNAPSHOT_INTERVAL from env, falling back to default on invalid/missing. */
+function parseEnvSnapshotInterval(): number {
+  const raw = process.env.EXARCHOS_SNAPSHOT_INTERVAL;
+  if (raw === undefined) return DEFAULT_SNAPSHOT_INTERVAL;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0) return DEFAULT_SNAPSHOT_INTERVAL;
+  return parsed;
+}
+
 // ─── View Materializer ─────────────────────────────────────────────────────
 
 export class ViewMaterializer {
@@ -54,7 +63,7 @@ export class ViewMaterializer {
 
   constructor(options?: MaterializerOptions) {
     this.snapshotStore = options?.snapshotStore;
-    this.snapshotInterval = options?.snapshotInterval ?? DEFAULT_SNAPSHOT_INTERVAL;
+    this.snapshotInterval = options?.snapshotInterval ?? parseEnvSnapshotInterval();
     this.maxCacheEntries = options?.maxCacheEntries ?? parseEnvMaxCacheEntries();
   }
 

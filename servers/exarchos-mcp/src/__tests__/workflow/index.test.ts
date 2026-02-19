@@ -86,6 +86,7 @@ vi.mock('../../workflow/cancel.js', () => ({
 
 vi.mock('../../workflow/cleanup.js', () => ({
   configureCleanupEventStore: vi.fn(),
+  configureCleanupSnapshotStore: vi.fn(),
 }));
 
 vi.mock('../../workflow/query.js', () => ({
@@ -94,6 +95,10 @@ vi.mock('../../workflow/query.js', () => ({
 
 vi.mock('../../event-store/store.js', () => ({
   EventStore: vi.fn(),
+}));
+
+vi.mock('../../views/snapshot-store.js', () => ({
+  SnapshotStore: vi.fn(),
 }));
 
 // Mock telemetry middleware (pass-through by default)
