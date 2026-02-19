@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handlePreCompact } from './pre-compact.js';
+import { resetMaterializerCache } from '../views/tools.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -55,12 +56,32 @@ async function writeMockState(
   return stateFile;
 }
 
+async function writeMockEvents(
+  stateDir: string,
+  streamId: string,
+  events: Array<Record<string, unknown>>,
+): Promise<void> {
+  const lines = events.map((e, i) =>
+    JSON.stringify({
+      ...e,
+      streamId,
+      sequence: i + 1,
+      timestamp: e.timestamp || '2026-01-01T00:00:00Z',
+    }),
+  );
+  await fs.writeFile(
+    path.join(stateDir, `${streamId}.events.jsonl`),
+    lines.join('\n') + '\n',
+  );
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('pre-compact', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
+    resetMaterializerCache();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pre-compact-test-'));
   });
 
@@ -95,7 +116,7 @@ describe('pre-compact', () => {
 
       // Assert
       expect(result.continue).toBe(false);
-      expect(result.stopReason).toContain('1 workflow(s)');
+      expect(result.stopReason).toContain('/clear');
     });
 
     it('should write checkpoint with phase, tasks, and nextAction fields', async () => {
@@ -160,7 +181,7 @@ describe('pre-compact', () => {
 
       // Assert
       expect(result.continue).toBe(false);
-      expect(result.stopReason).toContain('2 workflow(s)');
+      expect(result.stopReason).toContain('/clear');
 
       const cp1Path = path.join(stateDir, 'feature-one.checkpoint.json');
       const cp2Path = path.join(stateDir, 'feature-two.checkpoint.json');
@@ -191,7 +212,7 @@ describe('pre-compact', () => {
 
       // Assert
       expect(result.continue).toBe(false);
-      expect(result.stopReason).toContain('1 workflow(s)');
+      expect(result.stopReason).toContain('/clear');
 
       const activeCp = path.join(stateDir, 'active-wf.checkpoint.json');
       const doneCp = path.join(stateDir, 'done-wf.checkpoint.json');
@@ -219,7 +240,7 @@ describe('pre-compact', () => {
       expect(result.continue).toBe(true);
     });
 
-    it('should handle manual trigger type the same as auto', async () => {
+    it('should return continue true for manual trigger', async () => {
       // Arrange
       const stateDir = tmpDir;
       await writeMockState(stateDir, 'test-feature');
@@ -228,7 +249,7 @@ describe('pre-compact', () => {
       const result = await handlePreCompact({ event: 'PreCompact', type: 'manual' }, stateDir);
 
       // Assert
-      expect(result.continue).toBe(false);
+      expect(result.continue).toBe(true);
     });
 
     it('should return continue true when state directory does not exist', async () => {
@@ -237,6 +258,129 @@ describe('pre-compact', () => {
 
       // Act
       const result = await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      expect(result.continue).toBe(true);
+    });
+  });
+
+  describe('context.md generation', () => {
+    it('should write context.md file when active workflow exists', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature');
+      await writeMockEvents(stateDir, 'test-feature', [
+        { type: 'workflow.started', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      ]);
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const contextPath = path.join(stateDir, 'test-feature.context.md');
+      const contextContent = await fs.readFile(contextPath, 'utf-8');
+      expect(contextContent).toContain('Workflow Context');
+    });
+
+    it('should include contextFile path in checkpoint', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature');
+      await writeMockEvents(stateDir, 'test-feature', [
+        { type: 'workflow.started', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      ]);
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.contextFile).toBeDefined();
+      expect(typeof checkpoint.contextFile).toBe('string');
+      expect(checkpoint.contextFile).toContain('context.md');
+    });
+
+    it('should not write context.md when no active workflows exist', async () => {
+      // Arrange — empty state dir
+      const stateDir = tmpDir;
+
+      // Act
+      const result = await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      expect(result.continue).toBe(true);
+      const files = await fs.readdir(stateDir).catch(() => []);
+      const contextFiles = (files as string[]).filter((f: string) => f.endsWith('.context.md'));
+      expect(contextFiles).toHaveLength(0);
+    });
+
+    it('should still write checkpoint and context.md for manual trigger', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature');
+      await writeMockEvents(stateDir, 'test-feature', [
+        { type: 'workflow.started', data: { featureId: 'test-feature', workflowType: 'feature' } },
+      ]);
+
+      // Act
+      const result = await handlePreCompact({ event: 'PreCompact', type: 'manual' }, stateDir);
+
+      // Assert
+      expect(result.continue).toBe(true);
+      // Checkpoint should still be written
+      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
+      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
+      expect(checkpoint.featureId).toBe('test-feature');
+      // Context.md should still be written
+      const contextPath = path.join(stateDir, 'test-feature.context.md');
+      await expect(fs.access(contextPath)).resolves.toBeUndefined();
+    });
+
+    it('should write context.md for each workflow when multiple active', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'feature-one', { phase: 'delegate' });
+      await writeMockState(stateDir, 'feature-two', { phase: 'review' });
+      await writeMockEvents(stateDir, 'feature-one', [
+        { type: 'workflow.started', data: { featureId: 'feature-one', workflowType: 'feature' } },
+      ]);
+      await writeMockEvents(stateDir, 'feature-two', [
+        { type: 'workflow.started', data: { featureId: 'feature-two', workflowType: 'feature' } },
+      ]);
+
+      // Act
+      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      const contextOne = path.join(stateDir, 'feature-one.context.md');
+      const contextTwo = path.join(stateDir, 'feature-two.context.md');
+      await expect(fs.access(contextOne)).resolves.toBeUndefined();
+      await expect(fs.access(contextTwo)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('trigger awareness', () => {
+    it('should return continue false for auto trigger', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature');
+
+      // Act
+      const result = await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+
+      // Assert
+      expect(result.continue).toBe(false);
+      expect(result.stopReason).toContain('/clear');
+    });
+
+    it('should return continue true for manual trigger', async () => {
+      // Arrange
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature');
+
+      // Act
+      const result = await handlePreCompact({ event: 'PreCompact', type: 'manual' }, stateDir);
 
       // Assert
       expect(result.continue).toBe(true);
