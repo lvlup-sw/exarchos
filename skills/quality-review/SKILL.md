@@ -44,8 +44,9 @@ gt diff main > /tmp/stack-diff.patch
 # Alternative: git diff for integration branch
 git diff main...integration-branch > /tmp/integration-diff.patch
 
-# Alternative: use GitHub MCP to get PR diff
-# mcp__plugin_github_github__pull_request_read({ owner, repo, pullNumber, method: "get_diff" })
+# Alternative: use gh CLI to get PR diff
+# gh pr diff <number>
+# Or use GitHub MCP pull_request_read with method "get_diff" if available
 ```
 
 This reduces context consumption by 80-90% while providing the complete picture.
@@ -244,7 +245,7 @@ This is NOT a human checkpoint - workflow continues autonomously.
 
 When Exarchos MCP tools are available, emit gate events during review:
 
-1. **Read CI status** via `pull_request_read` with `method: "get_status"`
+1. **Read CI status** via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
 2. **Emit gate events** via `exarchos_event` with `action: "append"`, type `gate.executed` (include `gateName`, `layer`, `passed`, `duration`)
 3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
 4. **When all per-PR gates pass**, apply `stack-ready` label to the PR

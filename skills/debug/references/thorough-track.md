@@ -132,13 +132,22 @@ mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd:
 mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
 ```
 
-Then update the PR description using GitHub MCP:
+Then update the PR description:
+```bash
+gh pr edit <number> --body "## Summary
+[Brief description]
+
+## Root Cause Analysis
+See: docs/rca/YYYY-MM-DD-<issue-slug>.md
+
+## Changes
+- [change 1]
+
+## Test Plan
+- [test approach]"
 ```
-mcp__plugin_github_github__update_pull_request({
-  owner, repo, pullNumber,
-  body: "## Summary\n[Brief description]\n\n## Root Cause Analysis\nSee: docs/rca/YYYY-MM-DD-<issue-slug>.md\n\n## Changes\n- [change 1]\n\n## Test Plan\n- [test approach]"
-})
-```
+
+> Or use GitHub MCP `update_pull_request` if available.
 
 **Human checkpoint:** Confirm merge.
 

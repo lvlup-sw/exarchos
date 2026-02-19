@@ -154,8 +154,8 @@ fi
 
 # --- Check 4: .mcp.json is valid JSON with exarchos and graphite entries ---
 if [[ -f "$MCP_FILE" ]] && jq empty "$MCP_FILE" 2>/dev/null; then
-  HAS_EXARCHOS=$(jq -e '.exarchos' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
-  HAS_GRAPHITE=$(jq -e '.graphite' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
+  HAS_EXARCHOS=$(jq -e '.mcpServers.exarchos' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
+  HAS_GRAPHITE=$(jq -e '.mcpServers.graphite' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
   if [[ "$HAS_EXARCHOS" == "true" && "$HAS_GRAPHITE" == "true" ]]; then
     check ".mcp.json contains exarchos and graphite entries" "true"
   else
