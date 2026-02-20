@@ -1,6 +1,6 @@
 {
   "name": "@lvlup-sw/exarchos-dev",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Developer convenience plugins for Exarchos — installs GitHub, Serena, Context7, and Microsoft Learn MCP",
   "type": "module",
   "bin": {
