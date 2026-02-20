@@ -13,4 +13,14 @@ Use specialized MCP tools over generic approaches:
 
 > Additional tool guidance (Serena, GitHub MCP, Context7) is provided by the exarchos-dev-tools companion. Install: `npx @lvlup-sw/exarchos-dev`
 
-See `@skills/workflow-state/references/mcp-tool-reference.md` for detailed mappings.
+## Quick Reference — `exarchos_workflow`
+
+Before calling, consult `@skills/workflow-state/references/mcp-tool-reference.md` for full action signatures, error handling, and anti-patterns.
+
+| Action | Key Parameters |
+|--------|---------------|
+| `get` | `featureId`, optional `query` (dot-path) or `fields` (string array for projection) |
+| `set` | `featureId`, `updates` (object), `phase` (string) — send both in one call for guarded transitions |
+| `init` | `featureId`, `workflowType` (`"feature"` / `"debug"` / `"refactor"`) |
+| `cleanup` | `featureId`, `mergeVerified: true`, `prUrl`, `mergedBranches` |
+| `cancel` | `featureId`, optional `dryRun: true` |

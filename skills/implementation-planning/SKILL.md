@@ -167,10 +167,13 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 ## State Management
 
-On plan save, update state via `mcp__exarchos__exarchos_workflow` `action: "set"`:
-- `artifacts.plan` -- plan file path
-- `tasks` -- array of objects: `id`, `title`, `status` ("pending"), `branch`
-- `phase` -- "plan-review"
+On plan save:
+```
+action: "set", featureId: "<id>", phase: "plan-review", updates: {
+  "artifacts": { "plan": "<plan-file-path>" },
+  "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
+}
+```
 
 ## Completion Criteria
 

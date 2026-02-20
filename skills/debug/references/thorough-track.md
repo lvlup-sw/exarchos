@@ -29,10 +29,12 @@ Triage -> Investigate -> RCA -> Design -> Implement -> Review -> Synthesize -> C
 
 Same as hotfix, but set track to "thorough":
 
+**Set track and advance to investigate:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "track": "thorough" }
-  phase: "investigate"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "track": "thorough"
+}, phase: "investigate"
 ```
 
 ### 2. Investigate Phase
@@ -52,10 +54,12 @@ Save to: `docs/rca/YYYY-MM-DD-<issue-slug>.md`
 
 Update state:
 
+**Record RCA artifact and advance to design:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "artifacts.rca": "docs/rca/YYYY-MM-DD-<issue-slug>.md" }
-  phase: "design"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "artifacts.rca": "docs/rca/YYYY-MM-DD-<issue-slug>.md"
+}, phase: "design"
 ```
 
 ### 4. Design Phase
@@ -64,10 +68,12 @@ Brief fix approach (NOT a full design document).
 
 2-3 paragraphs max in state file:
 
+**Record fix design and advance to implement:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "artifacts.fixDesign": "<fix approach description>" }
-  phase: "implement"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "artifacts.fixDesign": "<fix approach description>"
+}, phase: "implement"
 ```
 
 ### 5. Implement Phase
@@ -85,15 +91,15 @@ cd .worktrees/debug-<issue-slug> && npm install
 
 Update state:
 
+**Record worktree and advance to review:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "worktrees.\".worktrees/debug-<issue-slug>\"": {
-      "branch": "feature/debug-<issue-slug>",
-      "status": "active"
-    }
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "worktrees.\".worktrees/debug-<issue-slug>\"": {
+    "branch": "feature/debug-<issue-slug>",
+    "status": "active"
   }
-  phase: "review"
+}, phase: "review"
 ```
 
 ### 6. Review Phase
@@ -115,9 +121,10 @@ Additionally verify:
 
 Update state:
 
+**Advance to synthesize:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "synthesize"
+action: "set", featureId: "debug-<issue-slug>", phase: "synthesize"
 ```
 
 ### 7. Synthesize Phase
@@ -157,12 +164,13 @@ See: docs/rca/YYYY-MM-DD-<issue-slug>.md
 
 When `scripts/investigation-timer.sh` exits with code 1 (budget exceeded), switch to thorough track:
 
+**Switch to thorough track:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "track": "thorough",
-    "investigation.findings": ["Switched to thorough track: root cause not found in 15 min"]
-  }
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "track": "thorough",
+  "investigation.findings": ["Switched to thorough track: root cause not found in 15 min"]
+}
 ```
 
 Continue investigation without time constraint.
@@ -171,10 +179,12 @@ Continue investigation without time constraint.
 
 If fix requires architectural changes:
 
+**Escalate to blocked:**
+
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "investigation.findings": ["Escalated: requires architectural changes"] }
-  phase: "blocked"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation.findings": ["Escalated: requires architectural changes"]
+}, phase: "blocked"
 ```
 
 Output to user:

@@ -138,10 +138,9 @@ triage → investigate → rca → design → implement → review → synthesiz
 
 ## State Management
 
-Initialize debug workflow using `mcp__exarchos__exarchos_workflow` with `action: "init"`:
-
-```text
-Use mcp__exarchos__exarchos_workflow with action: "init", featureId `debug-<issue-slug>`, and workflowType `debug`.
+Initialize debug workflow:
+```
+action: "init", featureId: "debug-<issue-slug>", workflowType: "debug"
 ```
 
 See `@skills/debug/references/state-schema.md` for full schema.

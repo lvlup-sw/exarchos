@@ -8,12 +8,16 @@ You are a subagent with isolated context. Read your own context from files rathe
 
 If given a state file path, read task details using MCP tools:
 
-```text
-# Get your task
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".tasks[] | select(.id == \"<task-id>\")"
+**Get your task:**
 
-# Get plan path
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".artifacts.plan"
+```
+action: "get", featureId: "<feature-id>", query: ".tasks[] | select(.id == \"<task-id>\")"
+```
+
+**Get plan path:**
+
+```
+action: "get", featureId: "<feature-id>", query: ".artifacts.plan"
 ```
 
 Then read the specific task section:
@@ -34,11 +38,15 @@ If reviewing, read the diff instead of full files:
 
 If you need design context:
 
-```text
-# Get design path from state
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".artifacts.design"
+**Get design path from state:**
 
-# Then read the design file
+```
+action: "get", featureId: "<feature-id>", query: ".artifacts.design"
+```
+
+Then read the design file:
+
+```bash
 Read({ file_path: "<design-path>" })
 ```
 
