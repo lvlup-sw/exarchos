@@ -241,6 +241,22 @@ When Exarchos MCP tools are available:
 3. **On approval request:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
 4. **On completion:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
 
+## Troubleshooting
+
+| Issue | Cause | Resolution |
+|-------|-------|------------|
+| CI check stuck in pending | GitHub Actions queue delay | Wait 5 min, re-check. If still pending, re-trigger via `gh run rerun <id>` |
+| CodeRabbit not reviewing | PR too large or rate-limited | Check `scripts/check-coderabbit.sh` output. Wait 10 min or split PR |
+| Stack base branch wrong | Rebase drift after fixes | `mcp__graphite__run_gt_cmd` with `["restack"]`, then resubmit |
+| Iteration limit exceeded | Persistent flaky test or review loop | Report blockers to user with iteration history |
+| Resubmit creates draft PRs | Missing `--publish` flag | Always use `--publish --merge-when-ready` together |
+
+## Performance Notes
+
+- Check all PR dimensions in parallel (CI, CodeRabbit, reviews) rather than sequentially
+- Use `--json` flag on `gh pr checks` and `gh pr view` to reduce parsing overhead
+- Limit iteration state recording to changed fields (don't re-record entire history each iteration)
+
 ## Transition
 
 After approval is granted and PRs merge:

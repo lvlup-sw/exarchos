@@ -29,6 +29,8 @@ Activate this skill when:
 - User mentions "refactor", "restructure", "clean up", "migrate"
 - User asks to "move", "extract", "rename", or "reorganize" code
 
+**Disambiguation:** If the user says "fix" or "clean up" — use `/refactor` when the code *works* but needs structural improvement. Use `/debug` when something is *broken* (error, crash, wrong behavior).
+
 ## Workflow Overview
 
 ```
