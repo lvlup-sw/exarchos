@@ -94,7 +94,7 @@ Activate this skill when:
 
 Fix production issues ASAP. Speed over ceremony.
 
-**Phases:** Triage -> Investigate (15 min max) -> Implement (no worktree) -> Validate -> Merge
+**Phases:** Triage (see `references/triage-questions.md`) -> Investigate (15 min max) -> Implement (no worktree) -> Validate -> Merge
 
 ### Investigation Timer
 
@@ -111,7 +111,7 @@ Fix bugs with proper rigor. Full RCA documentation.
 
 **Phases:** Triage -> Investigate -> RCA -> Design -> Implement (worktree + TDD) -> Review -> Synthesize -> Merge
 
-For detailed phase instructions, see `references/thorough-track.md`.
+For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
 
 ### Track Switching
 
@@ -179,7 +179,7 @@ Extended to support:
 
 ### Thorough Complete
 
-- [ ] Full RCA documented in docs/rca/
+- [ ] Full RCA documented in docs/rca/ (use `references/rca-template.md`)
 - [ ] Fix matches RCA findings
 - [ ] TDD implementation with tests
 - [ ] Spec review passed

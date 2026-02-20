@@ -97,6 +97,7 @@ The script runs lint, typecheck, and quality-check (if available), distinguishin
 Assess each modified file against the quality checklists:
 - Consult `references/code-quality-checklist.md` for code quality, SOLID, DRY, and structural criteria
 - Consult `references/security-checklist.md` for security review criteria
+- Consult `references/typescript-standards.md` for TypeScript-specific conventions (file organization, naming, patterns)
 
 ### Step 2.5: Security Scan (Automated)
 

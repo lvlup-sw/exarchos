@@ -44,6 +44,8 @@ State files are gitignored - they persist locally but are not committed.
 
 ## State Operations
 
+For full MCP tool signatures, error handling, and anti-patterns, see `references/mcp-tool-reference.md`.
+
 ### Initialize State
 
 At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
