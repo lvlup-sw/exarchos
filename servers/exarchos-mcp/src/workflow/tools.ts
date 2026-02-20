@@ -29,6 +29,8 @@ import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
 import type { EventStore } from '../event-store/store.js';
+import type { ViewMaterializer } from '../views/materializer.js';
+import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../views/workflow-state-projection.js';
 import * as path from 'node:path';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
@@ -38,6 +40,15 @@ let moduleEventStore: EventStore | null = null;
 /** Configure the EventStore instance used by workflow tool handlers. */
 export function configureWorkflowEventStore(store: EventStore | null): void {
   moduleEventStore = store;
+}
+
+// ─── Module-Level ViewMaterializer Configuration ─────────────────────────────
+
+let moduleViewMaterializer: ViewMaterializer | null = null;
+
+/** Configure the ViewMaterializer instance used by handleGet for ES v2 workflows. */
+export function configureWorkflowMaterializer(materializer: ViewMaterializer | null): void {
+  moduleViewMaterializer = materializer;
 }
 
 // Re-export from dedicated modules for backward compatibility
@@ -65,6 +76,15 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
     delete stripped[field];
   }
   return stripped;
+}
+
+// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
+
+export const CURRENT_ES_VERSION = 2;
+
+/** Check whether a workflow state uses the pure event-sourcing path. */
+export function isEventSourced(state: Record<string, unknown>): boolean {
+  return state._esVersion === CURRENT_ES_VERSION;
 }
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
@@ -133,7 +153,7 @@ export async function handleInit(
       stateDir,
       input.featureId,
       input.workflowType,
-      { _eventSequence: eventSequence },
+      { _eventSequence: eventSequence, _esVersion: CURRENT_ES_VERSION },
     );
 
     return {
@@ -189,7 +209,9 @@ export async function handleGet(
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
-  // Fast path for simple top-level scalar queries — skips Zod validation
+  // Fast path for simple top-level scalar queries — skips Zod validation.
+  // The state file is kept in sync for v2 workflows, so fast path is safe
+  // for both legacy and ES v2 workflows.
   if (input.query && FAST_PATH_FIELDS.has(input.query)) {
     try {
       const { value, checkpoint } = await readFieldFast(stateFile, input.query);
@@ -206,6 +228,7 @@ export async function handleGet(
     }
   }
 
+  // Read state file — needed for version check and as fallback for legacy path
   let state: WorkflowState;
   try {
     state = await readStateFile(stateFile);
@@ -222,14 +245,63 @@ export async function handleGet(
     throw err;
   }
 
-  const meta = buildCheckpointMeta(state._checkpoint);
+  // Version discriminator: ES v2 workflows materialize from events
+  const useEventSource = isEventSourced(state as unknown as Record<string, unknown>)
+    && moduleEventStore !== null
+    && moduleViewMaterializer !== null;
 
-  // Fields projection: return only requested fields (skips internal fields)
+  if (useEventSource) {
+    return handleGetFromEvents(input, state);
+  }
+
+  // Legacy path: read directly from state file
+  return handleGetFromStateFile(input, state);
+}
+
+/**
+ * ES v2 read path: materialize state from events via ViewMaterializer.
+ */
+async function handleGetFromEvents(
+  input: GetInput,
+  fileState: WorkflowState,
+): Promise<ToolResult> {
+  const events = await moduleEventStore!.query(input.featureId);
+  const materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
+    input.featureId,
+    WORKFLOW_STATE_VIEW,
+    events,
+  );
+
+  const materializedRecord = materialized as unknown as Record<string, unknown>;
+  // Checkpoint meta comes from state file (not materialized) since it's the
+  // authoritative source for checkpoint tracking.
+  const meta = buildCheckpointMeta(fileState._checkpoint);
+  return projectState(input, materializedRecord, meta);
+}
+
+/**
+ * Legacy read path: read directly from state file (v1 workflows or missing dependencies).
+ */
+function handleGetFromStateFile(
+  input: GetInput,
+  state: WorkflowState,
+): ToolResult {
+  const meta = buildCheckpointMeta(state._checkpoint);
+  return projectState(input, state as unknown as Record<string, unknown>, meta);
+}
+
+/**
+ * Shared projection logic: apply field projection, strip internals, or resolve dot-path query.
+ */
+function projectState(
+  input: GetInput,
+  stateObj: Record<string, unknown>,
+  meta: ReturnType<typeof buildCheckpointMeta>,
+): ToolResult {
+  // Fields projection
   if (input.fields && !input.query) {
-    const stateObj = state as unknown as Record<string, unknown>;
     const projected: Record<string, unknown> = {};
     for (const field of input.fields) {
-      // Skip internal fields
       if (field.startsWith('_')) continue;
       const value = resolveDotPath(stateObj, field);
       if (value !== undefined) {
@@ -239,8 +311,9 @@ export async function handleGet(
     return { success: true, data: projected, _meta: meta };
   }
 
+  // Full state (no query, no fields)
   if (!input.query) {
-    const strippedState = stripInternalFields(state as unknown as Record<string, unknown>);
+    const strippedState = stripInternalFields(stateObj);
     return {
       success: true,
       data: strippedState,
@@ -248,8 +321,8 @@ export async function handleGet(
     };
   }
 
-  // Resolve dot-path query against the state object
-  const value = resolveDotPath(state as unknown as Record<string, unknown>, input.query);
+  // Dot-path query
+  const value = resolveDotPath(stateObj, input.query);
   return {
     success: true,
     data: value,
