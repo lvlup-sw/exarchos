@@ -21,7 +21,7 @@ The script validates all readiness conditions:
 - All tests pass (`npm run test:run && npm run typecheck`)
 
 **On exit 0:** All checks passed -- proceed to Step 2.
-**On exit 1:** Output identifies the failing check. Return to `/review` or `/delegate` as appropriate.
+**On exit 1:** Output identifies the failing check. Return to `/exarchos:review` or `/exarchos:delegate` as appropriate.
 
 Use `--skip-tests` if tests were already verified in review phase. Use `--skip-stack` to defer stack check to Step 2.
 
@@ -52,7 +52,7 @@ npm run test:run
 npm run typecheck
 ```
 
-If these fail, return to `/review` or `/delegate` to resolve.
+If these fail, return to `/exarchos:review` or `/exarchos:delegate` to resolve.
 
 ## Step 4: Check CodeRabbit Review State
 
@@ -72,7 +72,7 @@ The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit r
 **On exit 0:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
 **On exit 1:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
 ```typescript
-Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
 ```
 After fixes are applied, return to Step 4 to re-check.
 

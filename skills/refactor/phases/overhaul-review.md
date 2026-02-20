@@ -279,7 +279,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 2. Output: "Overhaul review passed. All goals achieved, behavior preserved. Auto-continuing to synthesis..."
 3. Auto-invoke:
    ```typescript
-   Skill({ skill: "synthesize", args: "<feature-name>" })
+   Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
    ```
 
 ### If NEEDS_FIXES:
@@ -287,7 +287,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 2. Output: "Overhaul review found issues. Auto-continuing to fixes..."
 3. Auto-invoke:
    ```typescript
-   Skill({ skill: "delegate", args: "--fixes <plan-path>" })
+   Skill({ skill: "exarchos:delegate", args: "--fixes <plan-path>" })
    ```
 
 ### If BLOCKED:

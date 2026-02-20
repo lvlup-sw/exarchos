@@ -138,7 +138,7 @@ mcp__exarchos__exarchos_workflow({
 |-------|------------|
 | Use cleanup as escape hatch during implementation | Only use after PRs are merged |
 | Skip merge verification | Always verify via GitHub API |
-| Manually navigate HSM guards post-merge | Use /cleanup |
+| Manually navigate HSM guards post-merge | Use /exarchos:cleanup |
 | Leave worktrees after cleanup | Include worktree removal in process |
 
 ## Exarchos Integration
