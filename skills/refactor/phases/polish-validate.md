@@ -35,9 +35,10 @@ If tests fail:
 
 Review each goal from the brief and verify completion:
 
-```text
-# Read goals from state using mcp__exarchos__exarchos_workflow with action: "get"
-Use mcp__exarchos__exarchos_workflow with action: "get" with featureId and query: ".brief.goals"
+**Read goals:**
+
+```
+action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
 ```
 
 **For each goal:**
@@ -45,11 +46,12 @@ Use mcp__exarchos__exarchos_workflow with action: "get" with featureId and query
 - [ ] Evidence of completion is clear (code change, metric improvement, etc.)
 - [ ] Goal was not partially implemented
 
-Document verified goals in state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Record verified goals:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "validation.goalsVerified": ["<goal text>"] }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation.goalsVerified": ["<goal text>"]
+}
 ```
 
 Note: For array values, subsequent calls can append additional goals.
@@ -111,10 +113,10 @@ Manual review of key changes:
 
 ### Record Validation Start
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
+**Initialize validation state:**
 
-```text
-updates: {
+```
+action: "set", featureId: "refactor-<slug>", updates: {
   "validation": {
     "startedAt": "<ISO8601>",
     "testsPass": null,
@@ -126,30 +128,22 @@ updates: {
 
 ### Record Validation Results
 
-On successful validation:
+**On successful validation:**
 
-```text
-# First call: Record results
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "validation.testsPass": true,
-    "validation.completedAt": "<ISO8601>"
-  }
-
-# Second call: Transition phase
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "polish-update-docs"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation.testsPass": true,
+  "validation.completedAt": "<ISO8601>"
+}, phase: "polish-update-docs"
 ```
 
-On failed validation:
+**On failed validation:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "validation.testsPass": false,
-    "validation.failureReason": "<reason>"
-  }
-  phase: "implement"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation.testsPass": false,
+  "validation.failureReason": "<reason>"
+}, phase: "implement"
 ```
 
 ## Pass/Fail Handling

@@ -106,18 +106,13 @@ If any answer is "no" -> switch to thorough track.
 
 ### Switching to Thorough Track
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to update state:
+**Switch track and record findings:**
 
-```text
-# Update track
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "track": "thorough" }
-
-# Record investigation findings so far
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "investigation.findings": ["Investigated for 15 min, narrowed to auth module but root cause unclear"]
-  }
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "track": "thorough",
+  "investigation.findings": ["Investigated for 15 min, narrowed to auth module but root cause unclear"]
+}
 ```
 
 ## Investigation Tools
@@ -174,26 +169,28 @@ git blame -L 50,60 src/auth/login.ts
 
 ## Recording Findings
 
-Update state with investigation progress using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Add finding:**
 
-```text
-# Add finding
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "investigation.findings": ["Error occurs in handleLogin when session is null"]
-  }
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation.findings": ["Error occurs in handleLogin when session is null"]
+}
+```
 
-# Record root cause when found
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "investigation.rootCause": "Session cookie not being set due to SameSite attribute mismatch"
-  }
+**Record root cause:**
 
-# Mark investigation complete
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "investigation.completedAt": "2026-01-27T10:30:00Z"
-  }
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation.rootCause": "Session cookie not being set due to SameSite attribute mismatch"
+}
+```
+
+**Mark investigation complete:**
+
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation.completedAt": "2026-01-27T10:30:00Z"
+}
 ```
 
 ## Common Bug Patterns
