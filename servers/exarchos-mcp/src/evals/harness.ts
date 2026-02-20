@@ -64,6 +64,23 @@ export async function discoverSuites(
 }
 
 /**
+ * Duck-typed event store interface to avoid circular dependencies.
+ * Only requires the append method needed for event emission.
+ */
+export interface EvalEventStore {
+  append(streamId: string, event: Record<string, unknown>): Promise<void>;
+}
+
+/**
+ * Options for event emission during suite runs.
+ */
+export interface RunSuiteOptions {
+  eventStore?: EvalEventStore;
+  streamId?: string;
+  trigger?: 'ci' | 'local' | 'scheduled';
+}
+
+/**
  * Run all cases in a suite against the registered graders.
  */
 export async function runSuite(
@@ -71,14 +88,41 @@ export async function runSuite(
   _evalsDir: string,
   suiteDir: string,
   graderRegistry: GraderRegistry,
+  options?: RunSuiteOptions,
 ): Promise<RunSummary> {
   const startTime = Date.now();
+  const runId = crypto.randomUUID();
   const allResults: EvalResult[] = [];
+  const eventStore = options?.eventStore;
+  const streamId = options?.streamId ?? 'default';
+  const trigger = options?.trigger ?? 'local';
 
-  for (const [_datasetName, datasetRef] of Object.entries(suite.datasets)) {
+  // Count total cases across all datasets for the started event
+  let totalCaseCount = 0;
+  const datasetEntries = Object.entries(suite.datasets);
+  const loadedDatasets: Array<{ datasetRef: { path: string; description: string }; cases: Awaited<ReturnType<typeof loadDataset>> }> = [];
+
+  for (const [_datasetName, datasetRef] of datasetEntries) {
     const datasetPath = path.resolve(suiteDir, datasetRef.path);
     const cases = await loadDataset(datasetPath);
+    totalCaseCount += cases.length;
+    loadedDatasets.push({ datasetRef, cases });
+  }
 
+  // Emit eval.run.started
+  if (eventStore) {
+    await eventStore.append(streamId, {
+      type: 'eval.run.started',
+      data: {
+        runId,
+        suiteId: suite.metadata.skill,
+        trigger,
+        caseCount: totalCaseCount,
+      },
+    });
+  }
+
+  for (const { cases } of loadedDatasets) {
     for (const evalCase of cases) {
       const caseStart = Date.now();
       const assertionResults: AssertionResult[] = [];
@@ -111,6 +155,7 @@ export async function runSuite(
         scoredAssertions.length > 0
           ? scoredAssertions.reduce((sum, a) => sum + a.score, 0) / scoredAssertions.length
           : 1.0;
+      const caseDuration = Date.now() - caseStart;
 
       allResults.push({
         caseId: evalCase.id,
@@ -118,8 +163,30 @@ export async function runSuite(
         passed: casePassed,
         score: caseScore,
         assertions: assertionResults,
-        duration: Date.now() - caseStart,
+        duration: caseDuration,
       });
+
+      // Emit eval.case.completed
+      if (eventStore) {
+        await eventStore.append(streamId, {
+          type: 'eval.case.completed',
+          data: {
+            runId,
+            caseId: evalCase.id,
+            suiteId: suite.metadata.skill,
+            passed: casePassed,
+            score: caseScore,
+            assertions: assertionResults.map((a) => ({
+              name: a.name,
+              type: a.type,
+              passed: a.passed,
+              score: a.score,
+              reason: a.reason,
+            })),
+            duration: caseDuration,
+          },
+        });
+      }
     }
   }
 
@@ -133,8 +200,8 @@ export async function runSuite(
       ? allResults.reduce((sum, r) => sum + r.score, 0) / allResults.length
       : 0;
 
-  return {
-    runId: crypto.randomUUID(),
+  const summary: RunSummary = {
+    runId,
     suiteId: suite.metadata.skill,
     total: allResults.length,
     passed: totalPassed,
@@ -144,6 +211,25 @@ export async function runSuite(
     duration: Date.now() - startTime,
     results: allResults,
   };
+
+  // Emit eval.run.completed
+  if (eventStore) {
+    await eventStore.append(streamId, {
+      type: 'eval.run.completed',
+      data: {
+        runId,
+        suiteId: suite.metadata.skill,
+        total: summary.total,
+        passed: summary.passed,
+        failed: summary.failed,
+        avgScore: summary.avgScore,
+        duration: summary.duration,
+        regressions: [],
+      },
+    });
+  }
+
+  return summary;
 }
 
 /**
@@ -151,13 +237,13 @@ export async function runSuite(
  */
 export async function runAll(
   evalsDir: string,
-  options?: { skill?: string; dataset?: string },
+  options?: { skill?: string; dataset?: string } & RunSuiteOptions,
 ): Promise<RunSummary[]> {
   const discovered = await discoverSuites(evalsDir, { skill: options?.skill });
   const summaries: RunSummary[] = [];
 
   for (const { config, suiteDir } of discovered) {
-    const summary = await runSuite(config, evalsDir, suiteDir, createDefaultRegistry());
+    const summary = await runSuite(config, evalsDir, suiteDir, createDefaultRegistry(), options);
     summaries.push(summary);
   }
 

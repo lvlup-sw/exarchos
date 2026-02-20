@@ -9,6 +9,7 @@ import {
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
   handleViewCodeQuality,
+  handleViewEvalResults,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 
@@ -356,6 +357,107 @@ describe('View Handlers', () => {
       expect(benchmarks).toHaveLength(1);
       const regressions = data.regressions as unknown[];
       expect(regressions).toHaveLength(1);
+    });
+  });
+
+  // ─── T10: handleViewEvalResults ────────────────────────────────────────────
+
+  describe('handleViewEvalResults', () => {
+    it('handleViewEvalResults_NoEvents_ReturnsEmptyState', async () => {
+      // Act
+      const result = await handleViewEvalResults({}, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      expect(data).toHaveProperty('runs');
+      expect(data).toHaveProperty('regressions');
+      expect(data.skills).toEqual({});
+      expect(data.runs).toEqual([]);
+      expect(data.regressions).toEqual([]);
+    });
+
+    it('handleViewEvalResults_WithSkillFilter_FiltersResults', async () => {
+      // Arrange: seed eval events for two skills
+      const store = new EventStore(tmpDir);
+      await store.append('eval-stream', {
+        streamId: 'eval-stream',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        data: {
+          runId: 'run-001',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 8,
+          failed: 2,
+          avgScore: 0.8,
+          duration: 5000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append('eval-stream', {
+        streamId: 'eval-stream',
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        data: {
+          runId: 'run-002',
+          suiteId: 'quality-review',
+          total: 5,
+          passed: 5,
+          failed: 0,
+          avgScore: 1.0,
+          duration: 3000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act: filter to delegation skill only
+      const result = await handleViewEvalResults({ workflowId: 'eval-stream', skill: 'delegation' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const skills = data.skills as Record<string, unknown>;
+      expect(Object.keys(skills)).toEqual(['delegation']);
+      expect(skills).not.toHaveProperty('quality-review');
+    });
+
+    it('handleViewEvalResults_WithLimit_LimitsRunsAndRegressions', async () => {
+      // Arrange: seed multiple eval runs
+      const store = new EventStore(tmpDir);
+      for (let i = 1; i <= 5; i++) {
+        await store.append('eval-limit', {
+          streamId: 'eval-limit',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'eval.run.completed',
+          data: {
+            runId: `run-${String(i).padStart(3, '0')}`,
+            suiteId: 'delegation',
+            total: 10,
+            passed: 10 - i,
+            failed: i,
+            avgScore: (10 - i) / 10,
+            duration: 5000,
+            regressions: [],
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act: limit to 2 entries
+      const result = await handleViewEvalResults({ workflowId: 'eval-limit', limit: 2 }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const runs = data.runs as unknown[];
+      expect(runs).toHaveLength(2);
     });
   });
 });

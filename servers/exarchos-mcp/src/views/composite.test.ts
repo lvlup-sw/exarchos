@@ -9,6 +9,7 @@ vi.mock('./tools.js', () => ({
   handleViewDelegationTimeline: vi.fn(),
   handleViewCodeQuality: vi.fn(),
   handleViewQualityHints: vi.fn(),
+  handleViewEvalResults: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -31,6 +32,7 @@ import {
   handleViewDelegationTimeline,
   handleViewCodeQuality,
   handleViewQualityHints,
+  handleViewEvalResults,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -343,8 +345,31 @@ describe('handleView', () => {
     });
   });
 
+  describe('eval_results', () => {
+    it('handleView_EvalResultsAction_DispatchesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: {}, runs: [], regressions: [] },
+      };
+      vi.mocked(handleViewEvalResults).mockResolvedValue(expected);
+      const args = { action: 'eval_results', workflowId: 'eval-wf', skill: 'delegation', limit: 5 };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewEvalResults).toHaveBeenCalledWith(
+        { workflowId: 'eval-wf', skill: 'delegation', limit: 5 },
+        STATE_DIR,
+      );
+    });
+  });
+
   describe('unknown action', () => {
-    it('HandleView_UnknownAction_IncludesCodeQualityAndQualityHints', async () => {
+    it('HandleView_UnknownAction_IncludesEvalResultsAndCodeQuality', async () => {
       // Arrange
       const args = { action: 'nonexistent' };
 
@@ -357,6 +382,7 @@ describe('handleView', () => {
       const validTargets = (result.error as Record<string, unknown>)?.validTargets as string[];
       expect(validTargets).toContain('code_quality');
       expect(validTargets).toContain('quality_hints');
+      expect(validTargets).toContain('eval_results');
     });
 
     it('should return error for unknown action', async () => {

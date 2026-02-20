@@ -12,6 +12,7 @@ import {
   handleViewDelegationTimeline,
   handleViewCodeQuality,
   handleViewQualityHints,
+  handleViewEvalResults,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -109,6 +110,16 @@ export async function handleView(
         stateDir,
       );
 
+    case 'eval_results':
+      return handleViewEvalResults(
+        rest as {
+          workflowId?: string;
+          skill?: string;
+          limit?: number;
+        },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -126,6 +137,7 @@ export async function handleView(
             'delegation_timeline',
             'code_quality',
             'quality_hints',
+            'eval_results',
           ] as const,
         },
       };

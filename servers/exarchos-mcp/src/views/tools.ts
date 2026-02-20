@@ -45,6 +45,11 @@ import {
 } from './code-quality-view.js';
 import type { CodeQualityViewState } from './code-quality-view.js';
 import {
+  evalResultsProjection,
+  EVAL_RESULTS_VIEW,
+} from './eval-results-view.js';
+import type { EvalResultsViewState } from './eval-results-view.js';
+import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
 } from './workflow-state-projection.js';
@@ -62,6 +67,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection);
   materializer.register(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection);
   materializer.register(CODE_QUALITY_VIEW, codeQualityProjection);
+  materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   return materializer;
 }
@@ -390,6 +396,60 @@ export async function handleViewCodeQuality(
       filtered = {
         ...filtered,
         benchmarks: filtered.benchmarks.slice(0, args.limit),
+        regressions: filtered.regressions.slice(0, args.limit),
+      };
+    }
+
+    return { success: true, data: filtered };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Eval Results Handler ──────────────────────────────────────────────
+
+export async function handleViewEvalResults(
+  args: {
+    workflowId?: string;
+    skill?: string;
+    limit?: number;
+  },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    await materializer.loadFromSnapshot(streamId, EVAL_RESULTS_VIEW);
+    const events = await store.query(streamId);
+    const view = materializer.materialize<EvalResultsViewState>(
+      streamId,
+      EVAL_RESULTS_VIEW,
+      events,
+    );
+
+    // Apply optional filters
+    let filtered: EvalResultsViewState = { ...view };
+
+    if (args.skill) {
+      const matchingSkill = filtered.skills[args.skill];
+      filtered = {
+        ...filtered,
+        skills: matchingSkill ? { [args.skill]: matchingSkill } : {},
+      };
+    }
+
+    if (args.limit !== undefined) {
+      filtered = {
+        ...filtered,
+        runs: filtered.runs.slice(0, args.limit),
         regressions: filtered.regressions.slice(0, args.limit),
       };
     }
