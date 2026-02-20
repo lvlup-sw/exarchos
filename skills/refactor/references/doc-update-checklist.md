@@ -72,14 +72,13 @@ Additionally:
 
 ## State Update
 
-After documentation is updated, use `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Record updated docs:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "validation.docsUpdated": true,
-    "artifacts.updatedDocs": ["<doc1>", "<doc2>"]
-  }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation.docsUpdated": true,
+  "artifacts.updatedDocs": ["<doc1>", "<doc2>"]
+}
 ```
 
 ## If No Docs Need Updating
@@ -91,12 +90,13 @@ If `docsToUpdate` is empty, verify this is correct:
 3. Confirm no architectural changes made
 4. Document verification in state:
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "validation.docsUpdated": true,
-    "artifacts.updatedDocs": []
-  }
+**Confirm no docs needed:**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation.docsUpdated": true,
+  "artifacts.updatedDocs": []
+}
 ```
 
 ## Common Mistakes

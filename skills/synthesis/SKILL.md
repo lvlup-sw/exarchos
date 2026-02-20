@@ -63,24 +63,36 @@ See `references/troubleshooting.md` for test failures, PR check failures, and me
 
 ## State Management
 
-This skill tracks synthesis progress in workflow state using `mcp__exarchos__exarchos_workflow` with `action: "get"` and `mcp__exarchos__exarchos_workflow` with `action: "set"`.
+Call `mcp__exarchos__exarchos_workflow` for all state operations. Full parameter reference: `@skills/workflow-state/SKILL.md` § Update State.
 
 ### Read Task State
 
-Get task branch info from state:
-- Query `tasks` to get the list of task branches
+```
+action: "get", featureId: "<id>", fields: ["tasks", "synthesis"]
+```
 
 ### On PR Created
 
-Set `artifacts.pr` and `synthesis.prUrl` to the PR URL.
+```
+action: "set", featureId: "<id>", updates: {
+  "artifacts": { "pr": ["<url1>", "<url2>"] },
+  "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
+}
+```
 
 ### On PR Feedback Received
 
-Append feedback objects to `synthesis.prFeedback` array.
+```
+action: "set", featureId: "<id>", updates: {
+  "synthesis": { "prFeedback": [{ "pr": "<url>", "reviewer": "<name>", "status": "<status>" }] }
+}
+```
 
 ### On Merge Complete
 
-Set `phase` to "completed".
+```
+action: "cleanup", featureId: "<id>", mergeVerified: true, prUrl: ["<url>", ...], mergedBranches: ["<branch>", ...]
+```
 
 ## Completion Criteria
 
@@ -99,7 +111,7 @@ Route to `/delegate --pr-fixes [PR_URL]` for automated fix dispatch. See `refere
 
 After stacked PRs enqueued in merge queue, this is a **human checkpoint**:
 
-1. Update state with PR URLs (from `gt log --short`)
+1. Update state: `action: "set", featureId: "<id>", updates: { "synthesis": { "prUrl": ["<urls>"] }, "artifacts": { "pr": ["<urls>"] } }`
 2. Output: "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue."
 3. **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
