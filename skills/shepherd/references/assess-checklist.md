@@ -18,9 +18,14 @@ mcp__graphite__run_gt_cmd({ args: ["log"] })
 
 ## 2. CI Check Status
 
-For each PR:
-```bash
-gh pr checks <number> --json name,state
+For each PR, use GitHub MCP:
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_status",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 ```
 
 Classification:
@@ -38,10 +43,14 @@ Classification:
 
 ## 3. Formal Review Status
 
-Check for formal reviews (APPROVED, CHANGES_REQUESTED, etc.):
-```bash
-gh api repos/<owner>/<repo>/pulls/<number>/reviews \
-  --jq '.[] | {user: .user.login, state: .state}'
+Check for formal reviews (APPROVED, CHANGES_REQUESTED, etc.) via GitHub MCP:
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_reviews",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 ```
 
 Review classification:
@@ -61,10 +70,14 @@ Review classification:
 
 **This is the most commonly missed dimension.** Sentry, Graphite agent, and other bots leave inline review comments that are independent of formal review status. A PR can show "no reviews" while having 10 unaddressed inline comments.
 
-**Read ALL inline review comments for each PR:**
-```bash
-gh api repos/<owner>/<repo>/pulls/<number>/comments \
-  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id, created_at}'
+**Read ALL inline review comments for each PR via GitHub MCP:**
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_review_comments",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 ```
 
 **Identify comment sources:**
@@ -111,10 +124,16 @@ mcp__graphite__run_gt_cmd({ args: ["restack"] })
 
 ## 6. Merge Readiness
 
-Check if `--merge-when-ready` is active:
-```bash
-gh pr view <number> --json autoMergeRequest
+Check if `--merge-when-ready` is active via GitHub MCP:
 ```
+mcp__plugin_github_github__pull_request_read({
+  method: "get",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
+```
+The response includes `autoMergeRequest` — if null, merge-when-ready is not set.
 
 If `autoMergeRequest` is null, merge-when-ready is not set. Re-enable:
 ```
