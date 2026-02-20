@@ -137,9 +137,9 @@ This creates a state file tracked by the MCP server.
 
 ### On Design Save (after Phase 3)
 
-Update state with design artifact using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-- Set `artifacts.design` to the design path
-- Set `phase` to "plan"
+```
+action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+```
 
 ## Completion Verification
 
@@ -165,9 +165,7 @@ Before invoking `/plan`:
 
 ### Chain Steps
 
-1. Update state with design path and phase using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-   - Set `artifacts.design` to the design path
-   - Set `phase` to "plan"
+1. Update state: `action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
 
 2. Output: "Design saved. Auto-continuing to implementation planning..."
 
@@ -184,4 +182,4 @@ This is NOT a human checkpoint. The human checkpoint occurs at plan-review (plan
 
 When Exarchos MCP tools are available:
 
-1. **At workflow start:** Call `mcp__exarchos__exarchos_event` with `action: "append"` and event type `workflow.started` including featureId and workflowType
+1. **At workflow start:** Auto-emitted by `exarchos_workflow` `action: "init"` — do NOT manually append `workflow.started`

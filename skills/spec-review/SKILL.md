@@ -172,24 +172,20 @@ If an issue spans multiple tasks:
 
 ## State Management
 
-Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`.
-
 ### On Review Complete
 
-```text
-# Update task review status - for pass
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "tasks[id=<task-id>].reviewStatus.specReview": "pass" }
+**Pass:**
+```
+action: "set", featureId: "<id>", updates: {
+  "reviews": { "spec": { "status": "pass", "summary": "...", "issues": [] } }
+}
+```
 
-# Or if failed:
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "tasks[id=<task-id>].reviewStatus.specReview": "fail" }
-
-# Add review details
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "reviews.<task-id>.specReview": {"status": "pass", "issues": []}
-  }
+**Fail:**
+```
+action: "set", featureId: "<id>", updates: {
+  "reviews": { "spec": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
+}
 ```
 
 ## Transition

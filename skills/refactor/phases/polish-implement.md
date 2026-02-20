@@ -33,19 +33,25 @@ If any condition is violated, switch to overhaul track.
 
 ## Entry Conditions
 
-Before starting implementation, verify using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
+Before starting implementation, verify prerequisites:
 
-```text
-# Read state to confirm prerequisites
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".track"
-# Must return: "polish"
-
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".phase"
-# Must return: "implement"
-
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".brief.goals"
-# Must return: populated array
+**Check track:**
 ```
+action: "get", featureId: "refactor-<slug>", query: ".track"
+```
+Must return: `"polish"`
+
+**Check phase:**
+```
+action: "get", featureId: "refactor-<slug>", query: ".phase"
+```
+Must return: `"implement"`
+
+**Check goals:**
+```
+action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
+```
+Must return: populated array
 
 ### State Requirements
 
@@ -71,17 +77,16 @@ npm run test:run
 
 **Gate:** Tests must pass. If tests fail before implementation, stop and investigate. Do not implement on top of a failing test suite.
 
-Capture baseline in state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Record baseline:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "implement": {
-      "startedAt": "<ISO8601>",
-      "baselineTestsPass": true,
-      "changesLog": []
-    }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "implement": {
+    "startedAt": "<ISO8601>",
+    "baselineTestsPass": true,
+    "changesLog": []
   }
+}
 ```
 
 ### Step 2: Make Changes Incrementally
@@ -110,13 +115,12 @@ gt submit --no-interactive --publish --stack
 
 **NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
-Log the change using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Log change:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
-  }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
+}
 ```
 
 ### Step 3: Test After Each Change
@@ -133,9 +137,8 @@ Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
 
 After all changes, verify each goal from brief:
 
-```text
-# Read goals
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".brief.goals"
+```
+action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
 ```
 
 For each goal, confirm it's addressed. If a goal cannot be addressed within polish scope, trigger track switch.
@@ -189,20 +192,14 @@ echo "Switching to overhaul track recommended."
 ### Switch Protocol
 
 1. **Commit current work** - Don't lose progress
-2. **Update state** using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+2. **Record switch and change track:**
 
-```text
-# First call: Record switch info
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "implement.switchReason": "<reason for switch>",
-    "implement.switchedAt": "<ISO8601>"
-  }
-
-# Second call: Change track and phase
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "track": "overhaul" }
-  phase: "overhaul-plan"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "implement.switchReason": "<reason for switch>",
+  "implement.switchedAt": "<ISO8601>",
+  "track": "overhaul"
+}, phase: "overhaul-plan"
 ```
 
 3. **Create worktree** (if not already in one)
@@ -227,10 +224,10 @@ Current progress has been committed. Continue? (Y/n)
 
 ### Implementation Start
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
+**Record baseline:**
 
-```text
-updates: {
+```
+action: "set", featureId: "refactor-<slug>", updates: {
   "implement": {
     "startedAt": "<ISO8601>",
     "baselineTestsPass": true,
@@ -241,8 +238,10 @@ updates: {
 
 ### After Each Change
 
-```text
-updates: {
+**Log change:**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
   "implement.changesLog": [
     {"file": "<path>", "description": "<what changed>", "commitSha": "<short-sha>"}
   ]
@@ -253,30 +252,26 @@ Note: For array appends, the MCP tool handles merging with existing array entrie
 
 ### Implementation Complete
 
-```text
-# First call: Update completion info
-updates: {
+**Record completion and advance to validate:**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
   "implement.completedAt": "<ISO8601>",
   "implement.totalFiles": <count>,
   "implement.totalCommits": <count>
-}
-
-# Second call: Transition phase
-phase: "polish-validate"
+}, phase: "polish-validate"
 ```
 
 ### Track Switch (if needed)
 
-```text
-# First call: Record switch
-updates: {
-  "implement.switchReason": "<reason>",
-  "implement.switchedAt": "<ISO8601>"
-}
+**Record switch and change track:**
 
-# Second call: Change track and phase
-updates: { "track": "overhaul" }
-phase: "overhaul-plan"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "implement.switchReason": "<reason>",
+  "implement.switchedAt": "<ISO8601>",
+  "track": "overhaul"
+}, phase: "overhaul-plan"
 ```
 
 ## Exit Conditions
@@ -290,9 +285,10 @@ Implementation phase exits when:
 - No scope expansion occurred
 - Less than or equal to 5 files changed
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "polish-validate"
+**Advance to validate:**
+
+```
+action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 ```
 
 Next action: `AUTO:refactor-validate`
@@ -303,10 +299,12 @@ Next action: `AUTO:refactor-validate`
 - Track switched to overhaul
 - Current work committed
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "track": "overhaul" }
-  phase: "overhaul-plan"
+**Switch to overhaul track:**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "track": "overhaul"
+}, phase: "overhaul-plan"
 ```
 
 Next action: `AUTO:overhaul-plan`

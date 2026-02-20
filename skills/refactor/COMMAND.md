@@ -54,10 +54,10 @@ The command triggers the refactor skill which:
 
 ## State Initialization
 
-When invoked, initializes refactor workflow state using `mcp__exarchos__exarchos_workflow` with `action: "init"`:
+**Initialize refactor workflow:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "init", featureId `refactor-<feature-id>` and workflowType `refactor`.
+```
+action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 ```
 
 ## See Also

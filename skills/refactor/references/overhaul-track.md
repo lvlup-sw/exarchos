@@ -27,17 +27,45 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 - Identify documentation that will need updates
 - Map dependencies and impact
 
-Update state using MCP tools:
-1. Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track to "overhaul", phase, and explore scope assessment
+**Initialize workflow:**
+```
+action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
+```
 
-On completion, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `explore.completedAt` and `phase` to "brief".
+**Set track and scope assessment:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "track": "overhaul",
+  "explore": {
+    "startedAt": "<ISO8601>",
+    "scopeAssessment": {
+      "filesAffected": ["<paths>"],
+      "modulesAffected": ["<modules>"],
+      "testCoverage": "good | gaps | none",
+      "recommendedTrack": "overhaul"
+    }
+  }
+}, phase: "brief"
+```
 
 ### 2. Brief Phase
 
 Detailed capture of refactor intent (more thorough than polish).
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set the `brief` object and `phase` to "overhaul-plan".
+**Save brief and advance:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "brief": {
+    "problem": "<problem statement>",
+    "goals": ["<goal1>", "<goal2>"],
+    "approach": "<approach>",
+    "affectedAreas": ["<areas>"],
+    "outOfScope": ["<items>"],
+    "successCriteria": ["<criteria>"],
+    "docsToUpdate": ["<doc paths>"]
+  }
+}, phase: "overhaul-plan"
+```
 
 Then auto-invoke plan:
 ```typescript
@@ -58,7 +86,13 @@ The `/plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `artifacts.plan` and `phase` to "overhaul-delegate".
+**Save plan and advance:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "artifacts": { "plan": "<plan-file-path>" },
+  "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
+}, phase: "overhaul-delegate"
+```
 
 > **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` -> `overhaul-delegate`.
 
@@ -82,7 +116,10 @@ The `/delegate` skill:
 - Parallel execution where dependencies allow
 - Tracks progress in state file
 
-Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "overhaul-review".
+**Advance to review:**
+```
+action: "set", featureId: "refactor-<slug>", phase: "overhaul-review"
+```
 
 Then auto-invoke review:
 ```typescript
@@ -102,7 +139,10 @@ The `/review` skill:
 - Refactors are high regression risk
 - Verifies structure matches brief goals
 
-Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "overhaul-update-docs".
+**Advance to doc updates:**
+```
+action: "set", featureId: "refactor-<slug>", phase: "overhaul-update-docs"
+```
 
 ### 6. Update Docs Phase
 
@@ -123,7 +163,13 @@ For overhaul, typically includes:
 - Migration guides if public interfaces changed
 - Updated diagrams
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "synthesize".
+**Mark docs updated and advance:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation": { "docsUpdated": true },
+  "artifacts": { "updatedDocs": ["<doc paths>"] }
+}, phase: "synthesize"
+```
 
 Then auto-invoke synthesize:
 ```typescript

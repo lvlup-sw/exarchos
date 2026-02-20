@@ -76,20 +76,25 @@ See `overhaul-review.md` for detailed criteria.
 
 ## State Updates
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId for state updates:
+**After delegation complete:**
 
-```text
-# After delegation complete
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  phase: "review"
+```
+action: "set", featureId: "refactor-<slug>", phase: "review"
+```
 
-# After review passes
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  phase: "update-docs"
+**After review passes:**
 
-# After review fails - dispatch fix tasks, loop back
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  updates: { "reviews.<id>.status": "failed", "reviews.<id>.findings": ["<issue1>"] }
+```
+action: "set", featureId: "refactor-<slug>", phase: "update-docs"
+```
+
+**After review fails (dispatch fix tasks, loop back):**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "reviews.<id>.status": "failed",
+  "reviews.<id>.findings": ["<issue1>"]
+}
 ```
 
 ## Auto-Chain Behavior
