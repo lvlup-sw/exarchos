@@ -67,11 +67,33 @@ describe('AssertionConfigSchema', () => {
   });
 
   it('Parse_AllTypes_Succeeds', () => {
-    for (const type of ['exact-match', 'schema', 'tool-call', 'trace-pattern']) {
+    for (const type of ['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']) {
       expect(() =>
         AssertionConfigSchema.parse({ type, name: 'test' })
       ).not.toThrow();
     }
+  });
+
+  it('AssertionConfigSchema_LlmRubricType_ParsesValid', () => {
+    const result = AssertionConfigSchema.parse({
+      type: 'llm-rubric',
+      name: 'rubric-check',
+      threshold: 0.7,
+      config: { rubric: 'Is the output complete?' },
+    });
+    expect(result.type).toBe('llm-rubric');
+    expect(result.threshold).toBe(0.7);
+  });
+
+  it('AssertionConfigSchema_LlmSimilarityType_ParsesValid', () => {
+    const result = AssertionConfigSchema.parse({
+      type: 'llm-similarity',
+      name: 'similarity-check',
+      threshold: 0.8,
+      config: { expected: 'reference text' },
+    });
+    expect(result.type).toBe('llm-similarity');
+    expect(result.threshold).toBe(0.8);
   });
 
   it('Parse_UnknownType_Rejects', () => {
@@ -141,6 +163,31 @@ describe('AssertionResultSchema', () => {
     expect(() =>
       AssertionResultSchema.parse({ name: 'x', type: 'schema' })
     ).toThrow();
+  });
+
+  it('Parse_SkippedDefault_IsFalse', () => {
+    const result = AssertionResultSchema.parse({
+      name: 'check-1',
+      type: 'exact-match',
+      passed: true,
+      score: 1.0,
+      reason: 'Matched',
+      threshold: 0.9,
+    });
+    expect(result.skipped).toBe(false);
+  });
+
+  it('Parse_SkippedTrue_Succeeds', () => {
+    const result = AssertionResultSchema.parse({
+      name: 'check-1',
+      type: 'llm-rubric',
+      passed: true,
+      score: 0,
+      reason: 'Skipped',
+      threshold: 0.7,
+      skipped: true,
+    });
+    expect(result.skipped).toBe(true);
   });
 });
 
@@ -312,6 +359,22 @@ describe('RunSummarySchema', () => {
     });
     expect(result.total).toBe(10);
     expect(result.avgScore).toBe(0.85);
+    expect(result.skipped).toBe(0);
+  });
+
+  it('Parse_WithSkipped_Succeeds', () => {
+    const result = RunSummarySchema.parse({
+      runId: 'run-123',
+      suiteId: 'suite-1',
+      total: 10,
+      passed: 8,
+      failed: 0,
+      skipped: 2,
+      avgScore: 0.85,
+      duration: 5000,
+      results: [],
+    });
+    expect(result.skipped).toBe(2);
   });
 
   it('Parse_NegativeCounts_Rejects', () => {
@@ -376,7 +439,9 @@ describe('Schema Property Tests', () => {
     'exact-match' as const,
     'schema' as const,
     'tool-call' as const,
-    'trace-pattern' as const
+    'trace-pattern' as const,
+    'llm-rubric' as const,
+    'llm-similarity' as const
   );
 
   const arbAssertionConfig = fc.record({
