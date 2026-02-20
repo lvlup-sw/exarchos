@@ -1,9 +1,9 @@
 ---
 name: shepherd
-description: "Shepherd PRs through CI checks and code reviews to merge readiness. Use after /synthesize to monitor CI, address CodeRabbit/Graphite feedback, fix failures, restack, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd. Do NOT use before PRs are published — run /synthesize first."
+description: "Shepherd PRs through CI checks and code reviews to merge readiness. Use after /synthesize to monitor CI, address ALL review feedback (CodeRabbit, Graphite, Sentry, humans), fix failures, restack, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd. Do NOT use before PRs are published — run /synthesize first."
 metadata:
   author: exarchos
-  version: 1.0.0
+  version: 1.1.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: synthesize
@@ -13,7 +13,7 @@ metadata:
 
 ## Overview
 
-Iterative loop that shepherds published PRs through CI checks and automated code reviews to merge readiness. Runs after `/synthesize` (or `/review` if PRs already exist). Monitors CI, addresses CodeRabbit and Graphite agent feedback, fixes failures, restacks as needed, and requests approval when everything is green.
+Iterative loop that shepherds published PRs through CI checks and **all** code reviews to merge readiness. Runs after `/synthesize` (or `/review` if PRs already exist). Monitors CI, reads and addresses feedback from **every reviewer** (CodeRabbit, Graphite agent, Sentry, human reviewers, and any other bots), fixes failures, restacks as needed, and requests approval when everything is green.
 
 **Position in workflow:**
 ```
@@ -32,7 +32,7 @@ Activate this skill when:
 
 - Active workflow with PRs published (PR URLs in `synthesis.prUrl` or `artifacts.pr`)
 - Graphite stack submitted (`gt submit` already ran)
-- User has `gh` CLI authenticated
+- GitHub MCP tools available (preferred) or `gh` CLI authenticated
 
 ## Process
 
@@ -47,42 +47,64 @@ Gather the current state of all PRs in the stack. See `references/assess-checkli
 mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
 ```
 
-**For each PR, check three dimensions:**
+**For each PR, check four dimensions:**
 
 | Dimension | Tool | Pass condition |
 |-----------|------|----------------|
-| CI checks | `gh pr checks <number>` | All checks pass |
-| CodeRabbit | `scripts/check-coderabbit.sh --owner <owner> --repo <repo> --json <numbers>` | All APPROVED or NONE |
-| Other reviews | `gh pr view <number> --json reviews,reviewRequests` | No CHANGES_REQUESTED |
+| CI checks | GitHub MCP `pull_request_read` or `gh pr checks` | All checks pass |
+| Formal reviews | GitHub MCP `pull_request_read` (reviews) | No CHANGES_REQUESTED |
+| Inline review comments | `gh api repos/{owner}/{repo}/pulls/{number}/comments` | All addressed (replied to or resolved) |
+| Stack health | `mcp__graphite__run_gt_cmd({ args: ["log"] })` | Correct base targeting, no conflicts |
 
-**Check stack health:**
-```
-mcp__graphite__run_gt_cmd({ args: ["log"] })
+**CRITICAL — Inline review comments are the most commonly missed dimension.** Formal review status (APPROVED/CHANGES_REQUESTED) only captures reviews submitted through GitHub's review workflow. Many automated reviewers — Sentry, Graphite agent, and others — leave **inline comments** that do NOT affect formal review status. You MUST read the full comment list for every PR.
+
+**Read ALL inline review comments:**
+```bash
+gh api repos/<owner>/<repo>/pulls/<number>/comments \
+  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id, created_at}'
 ```
 
-Verify base branch targeting is correct and stack is not in a broken state.
+Categorize comments by source:
+- **sentry[bot]** — Bug predictions, security findings
+- **graphite-app[bot]** — Architectural concerns, code quality rules
+- **coderabbitai[bot]** — Code review suggestions, refactoring
+- **github-actions[bot]** — Automated gate checks (usually informational)
+- **Human reviewers** — Direct feedback requiring response
+
+For each comment thread, check if it has been **replied to** (has child comments with `in_reply_to_id` matching). Unreplied threads are unaddressed.
 
 **Report status to user:**
 ```markdown
 ## PR Status — Iteration <N>
 
-| PR | CI | CodeRabbit | Reviews | Base |
-|----|-----|-----------|---------|------|
-| #123 | pass | APPROVED | pending | main |
-| #124 | fail | CHANGES_REQUESTED | — | #123 |
+| PR | CI | Reviews | Comments | Stack |
+|----|-----|---------|----------|-------|
+| #123 | pass | approved | 2 Sentry (replied), 1 Graphite (unaddressed) | healthy |
+| #124 | fail | pending | 3 CodeRabbit (replied) | healthy |
+
+### Unaddressed Comments
+- **PR #123** — Graphite: `resolveEvalsDir` should use injected config (eval-run.ts:14)
 ```
 
 ### 2. Evaluate
 
 If ALL dimensions pass for ALL PRs → skip to step 5 (Request Approval).
 
+**"All dimensions pass" means:**
+- All CI checks succeed
+- No CHANGES_REQUESTED formal reviews
+- Every inline review comment has been addressed (replied to, fixed, or acknowledged)
+- Stack health is good
+
 Otherwise, categorize issues:
 
 | Issue type | Action |
 |------------|--------|
 | CI failure | Investigate logs, fix directly or dispatch |
-| CodeRabbit feedback | Read comments, address feedback |
-| Graphite/human review feedback | Read comments, address feedback |
+| Unaddressed Sentry comments | Read bug predictions, fix real bugs, acknowledge false positives |
+| Unaddressed Graphite comments | Read architectural feedback, fix or respond with rationale |
+| Unaddressed CodeRabbit comments | Read suggestions, fix or respond with rationale |
+| Unaddressed human comments | Read carefully, fix required changes, answer questions |
 | Base branch wrong | Restack via `gt restack` |
 | Stack broken | Reconstruct via `scripts/reconstruct-stack.sh` |
 
@@ -90,15 +112,26 @@ Otherwise, categorize issues:
 
 Address issues based on type. See `references/fix-strategies.md` for detailed strategies.
 
-**For review feedback (CodeRabbit, Graphite agent, human):**
-1. Read PR comments: `gh api repos/<owner>/<repo>/pulls/<number>/comments`
-2. Read review comments: `gh pr view <number> --json reviews`
-3. Categorize feedback: actionable fix vs. style nit vs. question to answer
-4. For actionable fixes: apply changes directly (if small) or dispatch via delegation
-5. For questions: respond on the PR via `gh pr comment` or `gh api`
+**For ALL inline review comments (any source):**
+1. Read ALL PR review comments: `gh api repos/<owner>/<repo>/pulls/<number>/comments`
+2. Group by author to identify each reviewer's concerns
+3. For each unaddressed comment thread:
+   - **Actionable bug/fix**: Apply code change, reply confirming fix
+   - **Valid suggestion (defer)**: Reply acknowledging with rationale for deferring
+   - **Intentional design choice**: Reply explaining the design decision
+   - **False positive**: Reply explaining why the concern doesn't apply
+   - **Already fixed (outdated)**: Reply confirming which commit addressed it
+4. Reply using GitHub MCP `add_reply_to_pull_request_comment` tool:
+   ```
+   mcp__plugin_github_github__add_reply_to_pull_request_comment({
+     owner, repo, pullNumber, commentId: <numeric_id>, body: "<response>"
+   })
+   ```
+
+**Every comment must get a reply.** Do not skip comments from any reviewer. The goal is that a human scanning the PR sees every thread has a response.
 
 **For CI failures:**
-1. Read check details: `gh pr checks <number> --json name,status,conclusion,detailsUrl`
+1. Read check details: `gh pr checks <number> --json name,state`
 2. Identify failure cause from logs
 3. Fix directly (if small) or dispatch via delegation
 4. Push fixes to the appropriate stack branch
@@ -129,7 +162,7 @@ When all checks and reviews are green:
    ```markdown
    ## Ready for Approval
 
-   All CI checks pass. All automated reviews approved.
+   All CI checks pass. All review comments addressed.
    Approval requested from: <approvers>
 
    PRs:
@@ -182,12 +215,15 @@ mcp__exarchos__exarchos_workflow({
           "iteration": <N>,
           "assessedAt": "<ISO8601>",
           "ciStatus": "pass | fail | pending",
-          "reviewStatus": {
-            "coderabbit": "APPROVED | CHANGES_REQUESTED | PENDING | NONE",
-            "otherReviews": "approved | changes_requested | pending | none"
+          "reviewComments": {
+            "sentry": { "total": 2, "addressed": 2 },
+            "graphite": { "total": 3, "addressed": 1 },
+            "coderabbit": { "total": 5, "addressed": 5 },
+            "human": { "total": 0, "addressed": 0 }
           },
+          "formalReviews": "approved | changes_requested | pending | none",
           "stackHealth": "healthy | needs-restack | broken",
-          "actions": ["fixed lint error in src/foo.ts", "addressed CodeRabbit feedback on PR #123"],
+          "actions": ["fixed Sentry bug in trace-pattern.ts", "replied to Graphite DI concern on PR #624"],
           "result": "all-green | fixes-applied | blocked"
         }
       ]
@@ -215,8 +251,8 @@ mcp__exarchos__exarchos_workflow({
 ## Completion Criteria
 
 - [ ] All CI checks pass on all PRs
-- [ ] CodeRabbit: APPROVED or NONE on all PRs
-- [ ] No CHANGES_REQUESTED from any reviewer
+- [ ] No CHANGES_REQUESTED from any formal reviewer
+- [ ] **Every inline review comment on every PR has a reply** (Sentry, Graphite, CodeRabbit, humans, any other bot)
 - [ ] Stack is healthy (correct base branches, no conflicts)
 - [ ] Approval requested from required reviewers
 - [ ] State updated with shepherd history
@@ -226,11 +262,14 @@ mcp__exarchos__exarchos_workflow({
 | Don't | Do Instead |
 |-------|------------|
 | Force-merge with failing CI | Fix the failures first |
-| Dismiss CodeRabbit reviews without reading | Address or acknowledge each comment |
+| Only check CodeRabbit and ignore other reviewers | Read ALL inline comments from every source |
+| Treat formal review status as the only signal | Inline comments exist independently of review status |
+| Dismiss comments without reading | Address or acknowledge each comment with a reply |
 | Skip restack when base branch changes | Always verify stack health |
 | Loop indefinitely | Respect iteration limits, escalate to user |
 | Fix issues without recording in state | Track every iteration for resumability |
 | Push directly to main | All fixes go through the stack branches |
+| Report "all green" without checking comments | Verify zero unaddressed inline comments first |
 
 ## Exarchos Integration
 
@@ -250,11 +289,12 @@ When Exarchos MCP tools are available:
 | Stack base branch wrong | Rebase drift after fixes | `mcp__graphite__run_gt_cmd` with `["restack"]`, then resubmit |
 | Iteration limit exceeded | Persistent flaky test or review loop | Report blockers to user with iteration history |
 | Resubmit creates draft PRs | Missing `--publish` flag | Always use `--publish --merge-when-ready` together |
+| Sentry/Graphite comments missed | Only checked formal review status | Always read `pulls/{number}/comments` for inline threads |
 
 ## Performance Notes
 
-- Check all PR dimensions in parallel (CI, CodeRabbit, reviews) rather than sequentially
-- Use `--json` flag on `gh pr checks` and `gh pr view` to reduce parsing overhead
+- Check all PR dimensions in parallel (CI, formal reviews, inline comments, stack health) rather than sequentially
+- Use `--jq` filters to reduce API response size when reading comments
 - Limit iteration state recording to changed fields (don't re-record entire history each iteration)
 
 ## Transition

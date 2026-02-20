@@ -19,7 +19,7 @@ How to address common issues found during shepherd assessment.
 
 1. Read the failure details:
    ```bash
-   gh pr checks <number> --json name,conclusion,detailsUrl
+   gh pr checks <number> --json name,state
    ```
 2. Checkout the failing branch:
    ```
@@ -63,51 +63,118 @@ If a test passes locally but fails in CI:
 2. Re-run CI: `gh pr checks <number> --watch` (or push an empty commit to retrigger)
 3. If consistently flaky, fix the test or mark it with a skip annotation and create a follow-up issue
 
-## Review Feedback
+## Addressing Inline Review Comments
 
-### CodeRabbit Comments
+**Every inline review comment on every PR must be addressed with a reply.** This applies to ALL sources — Sentry, Graphite, CodeRabbit, humans, and any other bot that leaves comments.
 
-1. Read all CodeRabbit comments:
-   ```bash
-   gh api repos/<owner>/<repo>/pulls/<number>/comments --jq '.[] | select(.user.login | test("coderabbit")) | {path: .path, line: .line, body: .body}'
-   ```
-2. Also check the review body (summary comments):
-   ```bash
-   gh api repos/<owner>/<repo>/pulls/<number>/reviews --jq '.[] | select(.user.login | test("coderabbit")) | {state: .state, body: .body}'
-   ```
-3. Categorize each comment:
+### Reading Comments
 
-   | Category | Action |
-   |----------|--------|
-   | Bug/correctness issue | Must fix |
-   | Security concern | Must fix |
-   | Style/naming suggestion | Fix if reasonable, otherwise acknowledge |
-   | Performance suggestion | Fix if low-effort, otherwise note for later |
-   | False positive | Dismiss with explanation |
+Read all inline review comments for a PR:
+```bash
+gh api repos/<owner>/<repo>/pulls/<number>/comments \
+  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id}'
+```
 
-4. Apply fixes to the appropriate branch
-5. Respond to CodeRabbit if needed (it re-reviews automatically on push)
+Filter to find unaddressed root comments (threads with no replies):
+- Root comments have `in_reply_to_id: null`
+- A thread is addressed if any comment has `in_reply_to_id` equal to the root comment's `id`
+
+### Replying to Comments
+
+Use GitHub MCP tools to reply:
+```
+mcp__plugin_github_github__add_reply_to_pull_request_comment({
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>,
+  commentId: <numeric_comment_id>,
+  body: "<response>"
+})
+```
+
+### Response Categories
+
+For each comment, determine the appropriate response:
+
+| Category | Action | Reply template |
+|----------|--------|---------------|
+| Real bug | Fix the code, then reply | "Fixed — [description of fix]. Test added: `TestName`." |
+| Valid suggestion (implement) | Apply the change, then reply | "Fixed — [description of change]." |
+| Valid suggestion (defer) | Reply with rationale | "Acknowledged — [rationale]. Tracked for Phase N / follow-up." |
+| Intentional design choice | Reply explaining | "Intentional — [explanation of why the current approach is correct]." |
+| Already fixed (outdated) | Reply confirming | "Fixed in [commit/PR description] — [brief explanation]." |
+| False positive | Reply explaining | "[Explanation of why this doesn't apply in this context]." |
+
+### Sentry Comments
+
+Sentry's `[bot]` leaves **bug predictions** — AI-generated analysis of potential runtime issues. These appear as inline review comments with severity tags (CRITICAL, MEDIUM, etc.).
+
+**Sentry comments deserve careful attention because they often identify real bugs** (field name mismatches, type coercion issues, null reference risks).
+
+How to handle:
+1. Read the full comment body — Sentry includes a "Suggested Fix" section
+2. Evaluate whether the bug is real:
+   - Check if the code path is actually reachable
+   - Check if the field names/types match what the data actually provides
+   - Check existing tests — does any test exercise this path?
+3. If real: fix the bug, add a test, reply confirming
+4. If false positive: reply explaining why (e.g., "This path is guarded by X" or "The field is validated at Y before reaching this code")
+
+**Common Sentry findings:**
+- Field name mismatches between producers and consumers
+- Missing null checks on optional fields
+- Type mismatches (string vs. enum, array vs. object)
+- Unreachable error paths due to upstream validation
 
 ### Graphite Agent Comments
 
-Same approach as CodeRabbit. Graphite agent reviews tend to focus on:
-- PR description quality
-- Commit message format
+Graphite's `app[bot]` reviews are based on **custom org-level rules** (architectural rules, code quality standards). They focus on structural concerns rather than line-level bugs.
+
+How to handle:
+1. Read the full comment — Graphite often cites which custom rule triggered the finding
+2. Evaluate against the project's phase and scope:
+   - Is this a valid concern that should be fixed now?
+   - Is this a valid concern better addressed in a later phase?
+   - Does the code follow existing patterns in the codebase?
+3. If fixing now: apply the change, reply confirming
+4. If deferring: reply with rationale — cite existing patterns, phase boundaries, or follow-up tracking
+
+**Common Graphite findings:**
+- Dependency injection / configuration patterns
+- O(n²) or performance concerns
+- Unused parameters or dead code
 - Breaking change detection
-- Dependency impact
+- PR description quality
+
+### CodeRabbit Comments
+
+CodeRabbit leaves detailed code review suggestions with severity indicators. It re-reviews automatically on push, so code fixes may auto-resolve threads.
+
+How to handle:
+1. Read all CodeRabbit comments, noting severity (Critical, Major, Minor)
+2. Critical/Major: Must address — fix or provide strong rationale for not fixing
+3. Minor: Fix if low-effort, otherwise acknowledge
+4. CodeRabbit marks threads as "Addressed in commits" when it detects the code changed — but always verify with a reply
+
+**Common CodeRabbit findings:**
+- Error handling gaps (missing try/catch, bare catches)
+- Code duplication (DRY violations)
+- Style/naming suggestions
+- Performance optimizations
+- Security concerns
 
 ### Human Reviewer Comments
 
-1. Read comments carefully
-2. For each comment, determine if it's:
-   - A required change (fix it)
-   - A question (answer it on the PR)
-   - A suggestion (discuss or implement)
-   - An approval with minor nits (fix nits, note the approval)
-3. Respond to the reviewer on the PR:
-   ```bash
-   gh pr comment <number> --body "Addressed feedback: <summary of changes>"
-   ```
+Human comments require the most careful handling:
+1. Read comments carefully — understand the full context
+2. For required changes: fix the code, reply confirming
+3. For questions: answer directly on the PR
+4. For suggestions: discuss or implement, reply with decision
+5. For approval with minor nits: fix nits, note the approval
+
+### GitHub Actions Bot Comments
+
+`github-actions[bot]` typically posts automated gate results (review-gate, CI summaries). These are usually **informational** and don't require replies. However, if the gate check shows a failure, investigate the cause.
 
 ## Stack Issues
 
@@ -171,21 +238,20 @@ When making fixes to stack branches:
 
 ## Responding on PRs
 
-When addressing feedback, communicate clearly:
+When addressing feedback, reply to each comment thread individually using the GitHub MCP `add_reply_to_pull_request_comment` tool. This ensures:
+- Each reviewer sees their specific feedback was acknowledged
+- GitHub marks threads as having replies
+- The PR audit trail shows every concern was addressed
 
+For bulk summaries after a round of fixes, also post a general PR comment:
 ```bash
-# Reply to a specific review comment
-gh api repos/<owner>/<repo>/pulls/<number>/comments/<comment-id>/replies \
-  -f body="Fixed in <commit-sha>. <brief explanation>"
-
-# General PR comment summarizing all fixes
 gh pr comment <number> --body "$(cat <<'EOF'
 Addressed review feedback:
-- Fixed lint error in `src/foo.ts` (unused import)
-- Extracted helper function per CodeRabbit suggestion
-- Added missing error handling in `bar.ts`
+- Fixed Sentry bug: trace field name mismatch in `trace-pattern.ts`
+- Replied to Graphite DI concern with Phase 2 deferral rationale
+- Fixed CodeRabbit suggestion: consolidated reduce calls in `cli-reporter.ts`
 
-All CI checks should pass on the next run.
+All inline review threads have replies.
 EOF
 )"
 ```
