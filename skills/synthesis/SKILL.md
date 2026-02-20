@@ -45,7 +45,8 @@ Since delegation creates Graphite stack branches and review validates them, synt
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
 5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure
 6. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
-7. **Cleanup after merge** -- `gt sync` + remove worktrees
+7. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
+8. **Cleanup after merge** -- `gt sync` + remove worktrees
 
 For detailed step instructions, see `references/synthesis-steps.md`.
 

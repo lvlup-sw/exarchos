@@ -40,8 +40,15 @@ export interface QualityRegression {
   readonly detectedAt: string;
 }
 
+export interface ModelQualityMetrics {
+  readonly model: string;
+  readonly totalExecutions: number;
+  readonly gatePassRate: number;
+}
+
 export interface CodeQualityViewState {
   readonly skills: Record<string, SkillQualityMetrics>;
+  readonly models: Record<string, ModelQualityMetrics>;
   readonly gates: Record<string, GateMetrics>;
   readonly regressions: ReadonlyArray<QualityRegression>;
   readonly benchmarks: ReadonlyArray<BenchmarkTrend>;
@@ -90,6 +97,14 @@ function defaultSkillMetrics(skill: string): SkillQualityMetrics {
     selfCorrectionRate: 0,
     avgRemediationAttempts: 0,
     topFailureCategories: [],
+  };
+}
+
+function defaultModelMetrics(model: string): ModelQualityMetrics {
+  return {
+    model,
+    totalExecutions: 0,
+    gatePassRate: 0,
   };
 }
 
@@ -172,6 +187,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const duration = data.duration ?? 0;
   const details = data.details ?? {};
   const skill = typeof details.skill === 'string' ? details.skill : undefined;
+  const model = typeof details.model === 'string' ? details.model : undefined;
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
 
@@ -203,6 +219,23 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
         ...prevSkill,
         totalExecutions: newExec,
         gatePassRate: skillPassCount / newExec,
+      },
+    };
+  }
+
+  // Update model metrics if model is present
+  let updatedModels = state.models;
+  if (model) {
+    const prevModel = state.models[model] ?? defaultModelMetrics(model);
+    const newModelExec = prevModel.totalExecutions + 1;
+    const modelPassCount = Math.round(prevModel.gatePassRate * prevModel.totalExecutions) + (passed ? 1 : 0);
+
+    updatedModels = {
+      ...state.models,
+      [model]: {
+        ...prevModel,
+        totalExecutions: newModelExec,
+        gatePassRate: modelPassCount / newModelExec,
       },
     };
   }
@@ -249,6 +282,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     ...state,
     gates: { ...state.gates, [gateName]: updatedGate },
     skills: updatedSkills,
+    models: updatedModels,
     regressions: updatedRegressions,
     _failureTrackers: updatedTrackers,
   });
@@ -312,6 +346,7 @@ function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): C
 export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
   init: (): CodeQualityViewState => ({
     skills: {},
+    models: {},
     gates: {},
     regressions: [],
     benchmarks: [],
