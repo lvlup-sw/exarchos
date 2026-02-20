@@ -174,7 +174,7 @@ export const SynthesisSchema = z.object({
   mergedBranches: z.array(z.string()),
   prUrl: z.union([z.string(), z.array(z.string())]).nullable(),
   prFeedback: z.array(z.unknown()),
-});
+}).passthrough();
 
 // ─── Artifacts Schema ───────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ export const ArtifactsSchema = z.object({
   design: z.string().nullable(),
   plan: z.string().nullable(),
   pr: z.union([z.string(), z.array(z.string())]).nullable(),
-});
+}).passthrough();
 
 // ─── Feature ID Schema ──────────────────────────────────────────────────────
 

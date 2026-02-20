@@ -1,5 +1,56 @@
 import { describe, it, expect } from 'vitest';
+import { ArtifactsSchema, SynthesisSchema } from './schemas.js';
 import { z } from 'zod';
+
+// ─── Schema Passthrough Tests ──────────────────────────────────────────────
+
+describe('ArtifactsSchema passthrough', () => {
+  it('ArtifactsSchema_UnknownFields_PreservedThroughParse', () => {
+    const input = {
+      design: 'design.md',
+      plan: 'plan.md',
+      pr: null,
+      rca: 'rca-doc.md',
+    };
+    const result = ArtifactsSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).rca).toBe('rca-doc.md');
+    }
+  });
+
+  it('ArtifactsSchema_FixDesignField_PreservedThroughParse', () => {
+    const input = {
+      design: null,
+      plan: null,
+      pr: null,
+      fixDesign: 'fix-design.md',
+    };
+    const result = ArtifactsSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).fixDesign).toBe('fix-design.md');
+    }
+  });
+});
+
+describe('SynthesisSchema passthrough', () => {
+  it('SynthesisSchema_UnknownFields_PreservedThroughParse', () => {
+    const input = {
+      integrationBranch: null,
+      mergeOrder: [],
+      mergedBranches: [],
+      prUrl: null,
+      prFeedback: [],
+      customField: 'value',
+    };
+    const result = SynthesisSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).customField).toBe('value');
+    }
+  });
+});
 
 // T1: TestingStrategySchema and PerformanceSLASchema tests
 describe('PerformanceSLASchema', () => {
