@@ -2,9 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { discoverSuites, runSuite, runAll, type DiscoveredSuite } from './harness.js';
 import { createDefaultRegistry, GraderRegistry } from './graders/index.js';
 import type { EvalSuiteConfig, EvalCase } from './types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Resolve the repo-root evals/ directory (servers/exarchos-mcp/src/evals -> ../../../../evals)
+const REPO_EVALS_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'evals');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -290,5 +295,67 @@ describe('runAll', () => {
     // Assert
     expect(summaries).toHaveLength(1);
     expect(summaries[0].suiteId).toContain('delegation');
+  });
+});
+
+// ─── Integration Tests ──────────────────────────────────────────────────────
+
+describe('Integration — Real Eval Suites', () => {
+  it('Integration_DelegationSuite_LoadsAndValidates', async () => {
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegation' });
+
+    // Assert
+    expect(suites).toHaveLength(1);
+    expect(suites[0].config.metadata.skill).toBe('delegation');
+    expect(suites[0].config.description).toBe('Delegation skill evaluation suite');
+    expect(Object.keys(suites[0].config.datasets)).toContain('regression');
+    expect(Object.keys(suites[0].config.datasets)).toContain('capability');
+    expect(suites[0].suiteDir).toContain('delegation');
+  });
+
+  it('Integration_DelegationSuite_RunsWithoutError', async () => {
+    // Arrange
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegation' });
+    const { config, suiteDir } = suites[0];
+    const reg = createDefaultRegistry();
+
+    // Act
+    const summary = await runSuite(config, REPO_EVALS_DIR, suiteDir, reg);
+
+    // Assert
+    expect(summary.total).toBeGreaterThan(0);
+    expect(summary.suiteId).toBe('delegation');
+    expect(summary.runId).toBeTruthy();
+    expect(summary.passed + summary.failed).toBe(summary.total);
+  });
+
+  it('Integration_QualityReviewSuite_LoadsAndValidates', async () => {
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'quality-review' });
+
+    // Assert
+    expect(suites).toHaveLength(1);
+    expect(suites[0].config.metadata.skill).toBe('quality-review');
+    expect(suites[0].config.description).toBe('Quality review skill evaluation suite');
+    expect(Object.keys(suites[0].config.datasets)).toContain('regression');
+    expect(Object.keys(suites[0].config.datasets)).toContain('defect-detection');
+    expect(suites[0].suiteDir).toContain('quality-review');
+  });
+
+  it('Integration_QualityReviewSuite_RunsWithoutError', async () => {
+    // Arrange
+    const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'quality-review' });
+    const { config, suiteDir } = suites[0];
+    const reg = createDefaultRegistry();
+
+    // Act
+    const summary = await runSuite(config, REPO_EVALS_DIR, suiteDir, reg);
+
+    // Assert
+    expect(summary.total).toBeGreaterThan(0);
+    expect(summary.suiteId).toBe('quality-review');
+    expect(summary.runId).toBeTruthy();
+    expect(summary.passed + summary.failed).toBe(summary.total);
   });
 });

@@ -23,7 +23,7 @@ export class TracePatternGrader implements IGrader {
     expected: Record<string, unknown>,
     config?: Record<string, unknown>
   ): Promise<GradeResult> {
-    const trace = (output.trace ?? []) as TraceEvent[];
+    const trace = (output.trace_events ?? []) as TraceEvent[];
     const patterns = (expected.patterns ?? []) as TracePattern[];
     const ordered = config?.ordered === true;
     const threshold = (config?.threshold as number | undefined) ?? 1.0;
