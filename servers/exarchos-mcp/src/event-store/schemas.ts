@@ -10,6 +10,7 @@ export const EventTypes = [
   'task.completed',
   'task.failed',
   'gate.executed',
+  'state.patched',
   'stack.position-filled',
   'stack.restacked',
   'stack.enqueued',

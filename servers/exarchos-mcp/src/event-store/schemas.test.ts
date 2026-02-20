@@ -322,7 +322,23 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(37);
+    expect(EventTypes).toHaveLength(38);
+  });
+
+  it('EventTypes_StatePatchedType_IsValidEventType', () => {
+    expect(EventTypes).toContain('state.patched');
+  });
+
+  it('EventTypes_StatePatchedType_ParsesAsBaseEvent', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'my-workflow',
+      sequence: 1,
+      type: 'state.patched',
+      data: {
+        fields: { 'tasks[0].status': 'complete' },
+      },
+    });
+    expect(event.success).toBe(true);
   });
 
   it('EventTypes_IncludesReviewRouted', () => {
