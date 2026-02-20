@@ -3,6 +3,8 @@ import { ExactMatchGrader } from './exact-match.js';
 import { SchemaGrader } from './schema-grader.js';
 import { ToolCallGrader } from './tool-call.js';
 import { TracePatternGrader } from './trace-pattern.js';
+import { LlmRubricGrader } from './llm-rubric.js';
+import { LlmSimilarityGrader } from './llm-similarity.js';
 
 /**
  * Registry for grader instances, keyed by assertion type.
@@ -38,5 +40,7 @@ export function createDefaultRegistry(): GraderRegistry {
   registry.register('schema', new SchemaGrader());
   registry.register('tool-call', new ToolCallGrader());
   registry.register('trace-pattern', new TracePatternGrader());
+  registry.register('llm-rubric', new LlmRubricGrader());
+  registry.register('llm-similarity', new LlmSimilarityGrader());
   return registry;
 }
