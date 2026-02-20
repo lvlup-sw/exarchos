@@ -32,8 +32,9 @@ export function formatCIReport(summaries: RunSummary[]): string {
 
     // Notice annotation for suite summary
     const scorePct = (summary.avgScore * 100).toFixed(1);
+    const skippedSuffix = summary.skipped > 0 ? `, ${summary.skipped} LLM skipped` : '';
     lines.push(
-      `::notice title=Eval: ${summary.suiteId}::${summary.passed}/${summary.total} passed (${scorePct}%)`,
+      `::notice title=Eval: ${summary.suiteId}::${summary.passed}/${summary.total} passed (${scorePct}%)${skippedSuffix}`,
     );
   }
 
