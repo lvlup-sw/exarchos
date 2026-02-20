@@ -536,10 +536,10 @@ describe('generateQualityHints', () => {
       const warningIdx = hints.findIndex(h => h.severity === 'warning');
       const infoIdx = hints.findIndex(h => h.severity === 'info');
 
-      // If both exist, warnings should come first
-      if (warningIdx !== -1 && infoIdx !== -1) {
-        expect(warningIdx).toBeLessThan(infoIdx);
-      }
+      // Both should exist given the state configuration
+      expect(warningIdx).not.toBe(-1);
+      expect(infoIdx).not.toBe(-1);
+      expect(warningIdx).toBeLessThan(infoIdx);
     });
 
     it('should filter to targetSkill only', () => {
