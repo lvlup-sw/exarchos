@@ -208,7 +208,7 @@ Before invoking quality-review:
 2. Output: "Spec review found [N] issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript
-   Skill({ skill: "delegate", args: "--fixes <plan-path>" })
+   Skill({ skill: "exarchos:delegate", args: "--fixes <plan-path>" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

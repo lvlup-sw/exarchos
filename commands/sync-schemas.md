@@ -60,7 +60,7 @@ Run this command after modifying:
 
 ## Auto-Invocation
 
-This command is auto-invoked by `/delegate` when subagents modify API files. You typically only need to run it manually when:
+This command is auto-invoked by `/exarchos:delegate` when subagents modify API files. You typically only need to run it manually when:
 - CI schema-check fails
 - Making quick backend changes outside the workflow
 - Verifying types after pulling changes

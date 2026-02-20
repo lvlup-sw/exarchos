@@ -21,10 +21,10 @@ delegate → review → [update-docs OR delegate --fixes]
 Invoke the delegation skill with explicit Skill tool call:
 
 ```typescript
-Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
-The `/delegate` skill handles:
+The `/exarchos:delegate` skill handles:
 - Creating worktrees for each task
 - Dispatching subagents via Task tool with `model: "opus"`
 - Using the implementer prompt template
@@ -115,7 +115,7 @@ After all tasks complete, auto-continue to review:
 2. Output: "All tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "review", args: "~/.claude/workflow-state/<feature>.state.json" })
+   Skill({ skill: "exarchos:review", args: "~/.claude/workflow-state/<feature>.state.json" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.
@@ -131,6 +131,6 @@ This is NOT a human checkpoint - workflow continues autonomously.
 - Review failures documented
 - Fix tasks dispatched via `--fixes`:
   ```typescript
-  Skill({ skill: "delegate", args: "--fixes ~/.claude/workflow-state/<feature>.state.json" })
+  Skill({ skill: "exarchos:delegate", args: "--fixes ~/.claude/workflow-state/<feature>.state.json" })
   ```
 - Loop until review passes

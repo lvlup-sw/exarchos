@@ -21,6 +21,15 @@ function assertSafeId(value: string, label: string): void {
   }
 }
 
+/** Unlink a file, ignoring ENOENT (file-not-found) errors. */
+async function unlinkIfExists(filePath: string): Promise<void> {
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
 // ─── Snapshot Store ────────────────────────────────────────────────────────
 
 export class SnapshotStore {
@@ -98,5 +107,48 @@ export class SnapshotStore {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Delete a specific snapshot file.
+   * Idempotent: does not throw if the file does not exist.
+   */
+  async delete(streamId: string, viewName: string): Promise<void> {
+    const filePath = this.getSnapshotPath(streamId, viewName);
+    await unlinkIfExists(filePath);
+  }
+
+  /**
+   * Delete ALL snapshots for a given stream.
+   * Uses exact prefix matching (`${streamId}.` with trailing dot) to avoid
+   * false positives (e.g., "my-feature" vs "my-feature-2").
+   * Returns array of deleted file names.
+   */
+  async deleteAllForStream(streamId: string): Promise<string[]> {
+    assertSafeId(streamId, 'streamId');
+
+    const prefix = `${streamId}.`;
+    const suffix = '.snapshot.json';
+    const deleted: string[] = [];
+
+    let files: string[];
+    try {
+      files = await fs.readdir(this.stateDir);
+    } catch {
+      return deleted;
+    }
+
+    const matching = files.filter((f) => f.startsWith(prefix) && f.endsWith(suffix));
+
+    for (const file of matching) {
+      try {
+        await unlinkIfExists(path.join(this.stateDir, file));
+        deleted.push(file);
+      } catch {
+        // Skip files that couldn't be deleted (e.g., permission denied)
+      }
+    }
+
+    return deleted;
   }
 }

@@ -11,8 +11,8 @@ Begin brainstorming session for: "$ARGUMENTS"
 This command is the **entry point** of the development workflow:
 
 ```
-/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
-  ▲▲▲▲     (auto)      ↑         (auto)    (auto)     (auto)           │
+/exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
+  ▲▲▲▲▲▲▲▲▲▲▲▲▲▲     (auto)            ↑             (auto)              (auto)             (auto)                     │
                         │                     ▲                         │
                         │   ON FAIL ──────────┤                         │
                         │   --pr-fixes ───────┴─────────────────────────┘
@@ -20,8 +20,8 @@ This command is the **entry point** of the development workflow:
 ```
 
 **Confirmation points:**
-- After `/plan` (plan-review): User confirms implementation plan before delegation begins
-- After `/synthesize`: User confirms before PR is merged (or requests feedback fixes)
+- After `/exarchos:plan` (plan-review): User confirms implementation plan before delegation begins
+- After `/exarchos:synthesize`: User confirms before PR is merged (or requests feedback fixes)
 
 ## Skill Reference
 
@@ -74,9 +74,9 @@ After saving the design document, **auto-continue to planning** (no user confirm
 
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "plan", args: "$DESIGN_PATH" })
+   Skill({ skill: "exarchos:plan", args: "$DESIGN_PATH" })
    ```
 
 This is NOT a human checkpoint. The human checkpoint occurs after plan review (plan-design delta analysis), before delegation.
 
-**Workflow continues:** `/ideate` → `/plan` → plan-review → [HUMAN CHECKPOINT] → `/delegate`
+**Workflow continues:** `/exarchos:ideate` → `/exarchos:plan` → plan-review → [HUMAN CHECKPOINT] → `/exarchos:delegate`
