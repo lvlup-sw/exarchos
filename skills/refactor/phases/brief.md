@@ -108,27 +108,21 @@ Based on exploration, preparing brief for <polish|overhaul> track.
 
 ## State Update
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
+**Save brief and advance:**
 
 ```
-# First call: Set brief data
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  updates: {
-    "brief": {
-      "problem": "<problem statement>",
-      "goals": ["<goal 1>", "<goal 2>"],
-      "approach": "<approach description>",
-      "affectedAreas": ["<from explore>"],
-      "outOfScope": ["<exclusion 1>"],
-      "successCriteria": ["<criterion 1>"],
-      "docsToUpdate": ["<from explore>"],
-      "capturedAt": "<ISO8601>"
-    }
+action: "set", featureId: "refactor-<slug>", updates: {
+  "brief": {
+    "problem": "<problem statement>",
+    "goals": ["<goal 1>", "<goal 2>"],
+    "approach": "<approach description>",
+    "affectedAreas": ["<from explore>"],
+    "outOfScope": ["<exclusion 1>"],
+    "successCriteria": ["<criterion 1>"],
+    "docsToUpdate": ["<from explore>"],
+    "capturedAt": "<ISO8601>"
   }
-
-# Second call: Transition phase
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  phase: "<implement|plan>"
+}, phase: "<implement|plan>"
 ```
 
 Phase transitions:

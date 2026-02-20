@@ -102,7 +102,10 @@ For detailed phase instructions, skill invocations, and auto-chain behavior, see
 
 ## State Management
 
-Initialize refactor workflow using `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`.
+Initialize refactor workflow:
+```
+action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
+```
 
 Full state schema:
 ```json

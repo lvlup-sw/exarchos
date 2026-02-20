@@ -57,19 +57,17 @@ bash scripts/assess-refactor-scope.sh --state-file <path>
 
 ## Output
 
-After exploration, update state with scope assessment using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Save assessment and advance to brief:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "explore.scopeAssessment": {
-      "filesAffected": ["<list>"],
-      "modulesAffected": ["<list>"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "polish | overhaul"
-    },
-    "track": "<selected-track>",
-    "explore.completedAt": "<ISO8601>"
-  }
-  phase: "brief"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "explore.scopeAssessment": {
+    "filesAffected": ["<list>"],
+    "modulesAffected": ["<list>"],
+    "testCoverage": "good | gaps | none",
+    "recommendedTrack": "polish | overhaul"
+  },
+  "track": "<selected-track>",
+  "explore.completedAt": "<ISO8601>"
+}, phase: "brief"
 ```

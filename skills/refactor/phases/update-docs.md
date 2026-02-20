@@ -30,10 +30,10 @@ The `docsToUpdate` field in the brief identifies documents requiring updates. If
 
 ### Step 1: Review Documentation List
 
-Read the brief's `docsToUpdate` field using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
+**Read docs list:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "get", featureId and query: ".brief.docsToUpdate"
+```
+action: "get", featureId: "refactor-<slug>", query: ".brief.docsToUpdate"
 ```
 
 If the list is empty, proceed to Step 4 (Verification).
@@ -134,24 +134,22 @@ Update when:
 
 ## State Updates
 
-Record updated documents using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Record docs and advance (polish track):**
 
-```text
-# Add each updated document
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "artifacts.updatedDocs": ["docs/architecture/modules.md"] }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "artifacts.updatedDocs": ["docs/architecture/modules.md"],
+  "validation.docsUpdated": true
+}, phase: "completed"
+```
 
-# Mark docs updated
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "validation.docsUpdated": true }
+**Record docs and advance (overhaul track):**
 
-# Update phase - Polish track
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "completed"
-
-# Update phase - Overhaul track
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "synthesize"
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "artifacts.updatedDocs": ["docs/architecture/modules.md"],
+  "validation.docsUpdated": true
+}, phase: "synthesize"
 ```
 
 ## Exit Conditions
@@ -187,9 +185,10 @@ After completing documentation updates:
 3. State updated with `docsUpdated = true`
 4. **Auto-chain to synthesize phase**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  phase: "synthesize"
+**Advance to synthesize:**
+
+```
+action: "set", featureId: "refactor-<slug>", phase: "synthesize"
 ```
 
 5. Auto-invoke synthesize immediately:
