@@ -99,6 +99,8 @@ Each task follows the TDD format in `references/task-template.md`.
 - One test = one behavior
 - Prefer many small tasks over few large ones
 
+Assign a `testingStrategy` to each task using `references/testing-strategy-guide.md` to control which verification techniques agents apply.
+
 **Task Ordering:**
 1. Foundation first (types, interfaces, data structures)
 2. Core behaviors second

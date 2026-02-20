@@ -43,8 +43,9 @@ Since delegation creates Graphite stack branches and review validates them, synt
 2. **REQUIRED: Verify/reconstruct Graphite stack** -- Run `scripts/reconstruct-stack.sh` before PR creation. If exit 1: stop and report error.
 3. **Quick test verification** -- `npm run test:run && npm run typecheck`
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
-5. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
-6. **Cleanup after merge** -- `gt sync` + remove worktrees
+5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure
+6. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
+7. **Cleanup after merge** -- `gt sync` + remove worktrees
 
 For detailed step instructions, see `references/synthesis-steps.md`.
 

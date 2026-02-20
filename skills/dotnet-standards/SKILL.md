@@ -9,7 +9,7 @@ metadata:
 
 # .NET Standards Skill
 
-Validates and enforces Levelup Software C# project standards across repositories.
+Validates and enforces Levelup Software C# project standards across repositories. For detailed C# coding conventions (naming, file organization, patterns), see `references/csharp-standards.md`.
 
 ## Commands
 

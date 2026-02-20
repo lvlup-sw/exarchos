@@ -125,7 +125,7 @@ Full state schema:
       "recommendedTrack": "polish | overhaul"
     }
   },
-  "brief": {
+  "brief": {  // See references/brief-template.md for field descriptions
     "problem": "string",
     "goals": ["string"],
     "approach": "string",
@@ -176,9 +176,9 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 
 | Don't | Do Instead |
 |-------|------------|
-| Skip exploration | Always assess scope first |
+| Skip exploration | Always assess scope first (see `references/explore-checklist.md`) |
 | Use polish for large changes | Switch to overhaul when scope expands |
-| Skip doc updates | Documentation is mandatory |
+| Skip doc updates | Documentation is mandatory (see `references/doc-update-checklist.md`) |
 | Add features during refactor | Scope creep - stick to brief goals |
 | Skip tests because "just moving code" | Refactors need test verification |
 | Create design document for polish | Use brief in state file instead |

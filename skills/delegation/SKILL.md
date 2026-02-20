@@ -195,7 +195,7 @@ When invoked with `--fixes`, delegation handles review failures instead of initi
 
 **Arguments:** `--fixes <state-file-path>` where `<state-file-path>` is the workflow state JSON containing review results in `.reviews.<taskId>.specReview` or `.reviews.<taskId>.qualityReview`.
 
-For detailed fix mode process, task structure, and transition flow, see `@skills/delegation/references/fix-mode.md`.
+Uses `references/fixer-prompt.md` as template for fix task prompts. For detailed fix mode process, task structure, and transition flow, see `@skills/delegation/references/fix-mode.md`. For PR feedback workflows (`--pr-fixes`), see `references/pr-fixes-mode.md`.
 
 ## Completion Criteria
 
