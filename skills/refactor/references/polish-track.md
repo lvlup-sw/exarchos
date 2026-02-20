@@ -29,11 +29,26 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 - Documentation that needs updates
 - Confirm polish is appropriate
 
-Update state using MCP tools:
-1. Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with featureId `refactor-<slug>` and workflowType `refactor`
-2. Use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set track, phase, and explore scope assessment
+**Initialize workflow:**
+```
+action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
+```
 
-On completion, use `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `explore.completedAt` and `phase` to "brief".
+**Set track and scope assessment:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "track": "polish",
+  "explore": {
+    "startedAt": "<ISO8601>",
+    "scopeAssessment": {
+      "filesAffected": ["<paths>"],
+      "modulesAffected": ["<modules>"],
+      "testCoverage": "good | gaps | none",
+      "recommendedTrack": "polish"
+    }
+  }
+}, phase: "brief"
+```
 
 ### 2. Brief Phase
 
@@ -47,7 +62,20 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set the `brief` object and `phase` to "polish-implement".
+**Save brief and advance:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "brief": {
+    "problem": "<problem statement>",
+    "goals": ["<goal1>", "<goal2>"],
+    "approach": "<approach>",
+    "affectedAreas": ["<areas>"],
+    "outOfScope": ["<items>"],
+    "successCriteria": ["<criteria>"],
+    "docsToUpdate": ["<doc paths>"]
+  }
+}, phase: "polish-implement"
+```
 
 ### 3. Implement Phase
 
@@ -63,7 +91,10 @@ When done, commit via Graphite:
 mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
 ```
 
-Update state on completion using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `phase` to "polish-validate".
+**Advance to validation:**
+```
+action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
+```
 
 ### 4. Validate Phase
 
@@ -85,7 +116,12 @@ bash scripts/validate-refactor.sh --repo-root <path>
 **On Exit 0:** All checks pass (tests, lint, typecheck).
 **On Exit 1:** One or more checks failed — fix before proceeding.
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation` object and `phase` to "polish-update-docs".
+**Save validation results and advance:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation": { "testsPass": true, "goalsVerified": ["<verified goals>"] }
+}, phase: "polish-update-docs"
+```
 
 ### 5. Update Docs Phase
 
@@ -99,7 +135,13 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 
 If `docsToUpdate` is empty, verify no docs need updating.
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"` to set `validation.docsUpdated` to true, `artifacts.updatedDocs` array, and `phase` to "completed".
+**Mark docs updated and complete:**
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "validation": { "docsUpdated": true },
+  "artifacts": { "updatedDocs": ["<doc paths>"] }
+}, phase: "completed"
+```
 
 > **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
 

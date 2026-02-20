@@ -52,26 +52,20 @@ List documentation files that need updating after refactor.
 
 ## State Update
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
+**Save brief and advance:**
 
-```text
-# First call: Set brief data
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  updates: {
-    "brief": {
-      "problem": "<problem statement>",
-      "goals": ["<goal 1>", "<goal 2>"],
-      "approach": "<approach description>",
-      "affectedAreas": ["<area 1>", "<area 2>"],
-      "outOfScope": ["<exclusion 1>", "<exclusion 2>"],
-      "successCriteria": ["<criterion 1>", "<criterion 2>"],
-      "docsToUpdate": ["<doc 1>", "<doc 2>"]
-    }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "brief": {
+    "problem": "<problem statement>",
+    "goals": ["<goal 1>", "<goal 2>"],
+    "approach": "<approach description>",
+    "affectedAreas": ["<area 1>", "<area 2>"],
+    "outOfScope": ["<exclusion 1>", "<exclusion 2>"],
+    "successCriteria": ["<criterion 1>", "<criterion 2>"],
+    "docsToUpdate": ["<doc 1>", "<doc 2>"]
   }
-
-# Second call: Transition phase
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  phase: "polish-implement" (polish) or "overhaul-plan" (overhaul)
+}, phase: "polish-implement | overhaul-plan"
 ```
 
 ## Polish vs Overhaul Brief Depth
