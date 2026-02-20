@@ -20,44 +20,28 @@ mcp__graphite__run_gt_cmd({ args: ["log"] })
 
 For each PR:
 ```bash
-gh pr checks <number> --json name,status,conclusion,detailsUrl
+gh pr checks <number> --json name,state
 ```
 
 Classification:
-| conclusion | Status |
-|------------|--------|
+| state | Status |
+|-------|--------|
 | `SUCCESS` | pass |
 | `NEUTRAL`, `SKIPPED` | pass (ignorable) |
-| `FAILURE`, `TIMED_OUT` | fail |
-| `ACTION_REQUIRED` | needs attention |
-| `null` (still running) | pending |
+| `FAILURE`, `ERROR` | fail |
+| `EXPECTED` | pass (status check) |
+| `PENDING` | pending |
 
-**Aggregate rule:** ALL checks must be `SUCCESS`, `NEUTRAL`, or `SKIPPED` for CI to pass. Any `FAILURE` or `TIMED_OUT` → CI fails.
+**Aggregate rule:** ALL checks must pass. Any `FAILURE` or `ERROR` → CI fails.
 
 **Wait for pending:** If checks are still running, inform the user and suggest waiting. Do NOT treat pending as failure unless it has been pending for an unreasonable time (>30 minutes).
 
-## 3. CodeRabbit Review Status
+## 3. Formal Review Status
 
-Use the existing script:
+Check for formal reviews (APPROVED, CHANGES_REQUESTED, etc.):
 ```bash
-scripts/check-coderabbit.sh --owner <owner> --repo <repo> --json <pr-numbers...>
-```
-
-Output (JSON mode):
-```json
-[
-  {"pr": "123", "state": "APPROVED", "verdict": "pass"},
-  {"pr": "124", "state": "CHANGES_REQUESTED", "verdict": "fail"}
-]
-```
-
-**If CHANGES_REQUESTED:** Read the specific comments to understand what needs fixing.
-
-## 4. Other Review Status
-
-Check for reviews from Graphite agent, human reviewers, or other bots:
-```bash
-gh pr view <number> --json reviews,reviewRequests
+gh api repos/<owner>/<repo>/pulls/<number>/reviews \
+  --jq '.[] | {user: .user.login, state: .state}'
 ```
 
 Review classification:
@@ -66,10 +50,46 @@ Review classification:
 | `APPROVED` | Reviewer approved |
 | `CHANGES_REQUESTED` | Reviewer wants changes |
 | `COMMENTED` | Non-blocking comment |
-| `PENDING` | Review requested but not submitted |
+| `PENDING` | Review started but not submitted |
 | `DISMISSED` | Review was dismissed |
 
 **Aggregate rule:** No `CHANGES_REQUESTED` reviews from any reviewer. `COMMENTED` and `PENDING` are non-blocking.
+
+**NOTE:** Formal review status alone is INSUFFICIENT. Many automated reviewers (Sentry, Graphite agent) leave inline comments without submitting a formal review. You MUST also check inline review comments (step 4).
+
+## 4. Inline Review Comments (CRITICAL)
+
+**This is the most commonly missed dimension.** Sentry, Graphite agent, and other bots leave inline review comments that are independent of formal review status. A PR can show "no reviews" while having 10 unaddressed inline comments.
+
+**Read ALL inline review comments for each PR:**
+```bash
+gh api repos/<owner>/<repo>/pulls/<number>/comments \
+  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id, created_at}'
+```
+
+**Identify comment sources:**
+
+| Bot login | Reviewer | What they flag |
+|-----------|----------|----------------|
+| `sentry[bot]` | Sentry | Bug predictions, security vulnerabilities, runtime errors |
+| `graphite-app[bot]` | Graphite Agent | Architectural concerns, custom rule violations, code quality |
+| `coderabbitai[bot]` | CodeRabbit | Code review suggestions, refactoring, best practices |
+| `github-actions[bot]` | CI/Gate checks | Usually informational (review-gate results) — often safe to skip |
+| Any other login | Human reviewer | Direct feedback requiring response |
+
+**Determine which comments are addressed:**
+
+A comment thread is "addressed" if it has at least one reply (another comment with `in_reply_to_id` matching the original comment's `id`).
+
+Build a per-source summary:
+```
+sentry: 2 total, 2 replied
+graphite: 3 total, 1 replied  ← 2 UNADDRESSED
+coderabbit: 5 total, 5 replied
+human: 0 total
+```
+
+**Any unaddressed comment = assessment fails.** Every thread needs a reply — either confirming a fix, explaining a design decision, or acknowledging for a future phase.
 
 ## 5. Stack Health
 
@@ -103,22 +123,29 @@ mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "-
 
 ## 7. Aggregate and Report
 
-Build the status table:
+Build the status table covering ALL dimensions:
 
 ```markdown
 ## PR Status — Iteration <N>
 
-| PR | CI | CodeRabbit | Reviews | Stack | Merge Queue |
-|----|-----|-----------|---------|-------|-------------|
-| #123 | pass | APPROVED | 1 approved | healthy | enqueued |
-| #124 | fail (lint) | CHANGES_REQUESTED | pending | healthy | blocked |
+| PR | CI | Formal Reviews | Inline Comments | Stack | Merge Queue |
+|----|-----|---------------|-----------------|-------|-------------|
+| #621 | pass | none | 1 Sentry (replied) | healthy | enqueued |
+| #622 | pass | none | — | healthy | enqueued |
+| #623 | pass | CR: commented | 1 CodeRabbit (replied) | healthy | enqueued |
+| #624 | fail (lint) | CR: commented | 3 Graphite (2 unaddressed), 4 CodeRabbit (replied) | healthy | blocked |
+| #625 | pass | none | 2 Sentry (unaddressed) | healthy | enqueued |
 
-### Issues Found
-1. **PR #124 CI:** Lint failure in `src/foo.ts:42` — unused import
-2. **PR #124 CodeRabbit:** Suggests extracting helper function in `bar.ts`
+### Unaddressed Comments
+1. **PR #624 — Graphite:** `resolveEvalsDir` should use injected config (eval-run.ts:14)
+2. **PR #624 — Graphite:** unused `dataset` parameter (eval-run.ts:48)
+3. **PR #625 — Sentry:** TracePatternGrader reads wrong field (trace-pattern.ts:26)
+4. **PR #625 — Sentry:** exact-match structural mismatch (suite.json:22)
 
 ### Recommended Actions
-1. Fix lint error in `src/foo.ts`
-2. Address CodeRabbit feedback on `bar.ts`
-3. Resubmit stack after fixes
+1. Fix Sentry bugs in #625 (trace field name, exact-match config)
+2. Reply to Graphite DI concern on #624 with Phase 2 rationale
+3. Reply to Graphite dataset param concern as intentional forward-compat
+4. Fix lint error in #624
+5. Resubmit stack after fixes
 ```
