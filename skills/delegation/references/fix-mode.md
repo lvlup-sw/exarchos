@@ -9,7 +9,7 @@ When invoked with `--fixes`, delegation handles review failures instead of initi
 ## Trigger
 
 ```bash
-/delegate --fixes docs/plans/YYYY-MM-DD-feature.md
+/exarchos:delegate --fixes docs/plans/YYYY-MM-DD-feature.md
 ```
 
 Or auto-invoked after review failures.
@@ -46,7 +46,7 @@ Or auto-invoked after review failures.
 5. **Re-review after fixes**:
    After all fix tasks complete, auto-invoke review phase:
    ```typescript
-   Skill({ skill: "review", args: "<state-file>" })
+   Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
 
 ## Fix Task Structure
@@ -68,7 +68,7 @@ Fix mode goes back to the integration phase after fixes are applied,
 then re-enters review to re-integrate and re-verify:
 
 ```text
-/delegate --fixes -> [fixes applied] -> re-integrate -> /review
+/exarchos:delegate --fixes -> [fixes applied] -> re-integrate -> /exarchos:review
 ```
 
 This ensures fixed code is re-verified.

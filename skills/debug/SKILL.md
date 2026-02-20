@@ -34,7 +34,7 @@ Activate this skill when:
 ## Workflow Overview
 
 ```
-                              /debug
+                              /exarchos:debug
                                  │
                             ┌────┴────┐
                             │ Triage  │
@@ -46,7 +46,7 @@ Activate this skill when:
                │                 │                 │
                ▼                 ▼                 ▼
       ┌────────────────┐  ┌─────────────┐   ┌──────────┐
-      │  Hotfix Track  │  │   Thorough  │   │ /ideate  │
+      │  Hotfix Track  │  │   Thorough  │   │ /exarchos:ideate  │
       │                │  │    Track    │   │ handoff  │
       └────────────────┘  └─────────────┘   └──────────┘
 ```
@@ -68,6 +68,8 @@ Activate this skill when:
 
 ### Mid-Workflow Commands
 
+These are user-facing commands (the orchestrator resolves them to namespaced form internally):
+
 ```bash
 # Switch from hotfix to thorough (during investigation)
 /debug --switch-thorough
@@ -76,7 +78,7 @@ Activate this skill when:
 /debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/resume  # (existing command works)
+/resume
 ```
 
 ## Track Comparison
@@ -116,7 +118,7 @@ For detailed phase instructions, see `references/thorough-track.md`. For systema
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
-- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `/ideate`.
+- **Thorough -> Escalate:** When fix requires architectural changes. Hand off to `/exarchos:ideate`.
 
 For detailed switching logic, see `references/thorough-track.md`.
 

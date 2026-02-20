@@ -20,7 +20,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Action | When to Use |
 |--------|-------------|
-| `init` | Starting any `/ideate`, `/debug`, or `/refactor` workflow |
+| `init` | Starting any `/exarchos:ideate`, `/exarchos:debug`, or `/exarchos:refactor` workflow |
 | `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
 | `set` | Updating phase (`phase: "delegate"`), recording artifacts, marking tasks complete. Use `updates` for field changes and `phase` for transitions |
 | `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
@@ -83,7 +83,7 @@ Stacked PR management and merge queue. **Use for all PR stacking and submission.
 | Manual rebasing | `gt restack` (rebases all PRs in the stack) |
 | `git checkout <branch>` | `gt checkout` (interactive branch selection) |
 
-**Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/delegate` with multiple tasks), use `mcp__graphite__run_gt_cmd` for stack management rather than raw git commands or `gh pr create`.
+**Proactive use:** When the workflow involves stacked PRs or progressive merging (e.g., `/exarchos:delegate` with multiple tasks), use `mcp__graphite__run_gt_cmd` for stack management rather than raw git commands or `gh pr create`.
 
 ## Microsoft Learn (`mcp__microsoft-learn__*`)
 > Available with exarchos-dev-tools companion. Fallback: use WebSearch.
