@@ -159,14 +159,25 @@ Instead of re-parsing plan, read task list using `mcp__exarchos__exarchos_workfl
 
 ### Subagent Mode State
 
-**On Task Dispatch:** Update task status using `exarchos_workflow set`:
-- Set task status to "in_progress" and startedAt timestamp
-- If creating worktree, also set the worktree entry
+**On Task Dispatch:**
+```
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": { "status": "in_progress", "startedAt": "<ISO timestamp>" },
+  "worktrees.<wt-id>": { "branch": "<branch>", "taskId": "<taskId>", "status": "active" }
+}
+```
 
-**On Task Complete:** Update task status using `exarchos_workflow set`:
-- Set task status to "complete" and completedAt timestamp
+**On Task Complete:**
+```
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": { "status": "complete", "completedAt": "<ISO timestamp>" }
+}
+```
 
-**On All Tasks Complete:** `exarchos_workflow set` → phase: "review"
+**On All Tasks Complete:**
+```
+action: "set", featureId: "<id>", phase: "review"
+```
 
 ### Agent Team Mode State (Single-Writer)
 
@@ -211,7 +222,7 @@ Before invoking `/review`:
 
 ### Chain Steps
 
-1. Update state: `.phase = "review"`, mark all tasks complete
+1. Update state: `action: "set", featureId: "<id>", phase: "review"` (tasks already marked complete during monitoring)
 2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript

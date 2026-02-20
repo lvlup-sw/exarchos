@@ -79,24 +79,22 @@ Significant doc updates → overhaul track indicator.
 
 ## Output
 
-Update workflow state with assessment using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**Save assessment and advance to brief:**
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "explore": {
-      "filesAffected": <count>,
-      "filesList": ["<path1>", "<path2>"],
-      "modulesAffected": ["<module1>"],
-      "concerns": ["<concern1>", "<concern2>"],
-      "crossModule": <true|false>,
-      "testCoverage": "<good|gaps|none>",
-      "docsImpacted": ["<doc1>"],
-      "recommendedTrack": "<polish|overhaul>",
-      "completedAt": "<ISO8601>"
-    }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "explore": {
+    "filesAffected": <count>,
+    "filesList": ["<path1>", "<path2>"],
+    "modulesAffected": ["<module1>"],
+    "concerns": ["<concern1>", "<concern2>"],
+    "crossModule": <true|false>,
+    "testCoverage": "<good|gaps|none>",
+    "docsImpacted": ["<doc1>"],
+    "recommendedTrack": "<polish|overhaul>",
+    "completedAt": "<ISO8601>"
   }
-  phase: "brief"
+}, phase: "brief"
 ```
 
 ## Exit Conditions

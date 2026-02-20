@@ -39,24 +39,21 @@ scripts/select-debug-track.sh --urgency <critical|high|medium|low> --root-cause-
 **On exit 0:** Hotfix track selected.
 **On exit 1:** Thorough track selected.
 
-Update state using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "triage": {
-      "symptom": "<symptom>",
-      "reproduction": "<steps>",
-      "affectedArea": "<area>",
-      "impact": "<impact>"
-    },
-    "urgency": {
-      "level": "<level>",
-      "justification": "<justification>"
-    },
-    "track": "<hotfix|thorough>"
-  }
-  phase: "investigate"
+**Save triage results and advance:**
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "triage": {
+    "symptom": "<symptom>",
+    "reproduction": "<steps>",
+    "affectedArea": "<area>",
+    "impact": "<impact>"
+  },
+  "urgency": {
+    "level": "<level>",
+    "justification": "<justification>"
+  },
+  "track": "hotfix"
+}, phase: "investigate"
 ```
 
 ### 2. Investigate Phase (15 min max)
@@ -72,22 +69,21 @@ scripts/investigation-timer.sh --state-file <state-file>
 **On exit 0:** Within budget -- continue investigation.
 **On exit 1:** Budget exceeded -- escalate to thorough track.
 
-Record findings using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
-
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "investigation.findings": ["<finding>"] }
+**Record findings:**
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation": { "findings": ["<finding>"] }
+}
 ```
 
-When root cause found:
-
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: {
-    "investigation.rootCause": "<root cause>",
-    "investigation.completedAt": "<ISO8601>"
+**When root cause found:**
+```
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "investigation": {
+    "rootCause": "<root cause>",
+    "completedAt": "<ISO8601>"
   }
-  phase: "implement"
+}, phase: "implement"
 ```
 
 ### 3. Implement Phase
@@ -98,9 +94,9 @@ Apply minimal fix directly (no worktree):
 - Record fix approach in state
 
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "artifacts.fixDesign": "<brief fix description>" }
-  phase: "validate"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "artifacts": { "fixDesign": "<brief fix description>" }
+}, phase: "validate"
 ```
 
 ### 4. Validate Phase
@@ -113,9 +109,9 @@ npm run test:run -- <affected-test-files>
 If tests pass:
 
 ```
-Use mcp__exarchos__exarchos_workflow with action: "set", featureId:
-  updates: { "followUp.rcaRequired": true }
-  phase: "completed"
+action: "set", featureId: "debug-<issue-slug>", updates: {
+  "followUp": { "rcaRequired": true }
+}, phase: "completed"
 ```
 
 Create follow-up task for proper RCA:

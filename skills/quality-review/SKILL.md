@@ -185,10 +185,17 @@ If an issue spans multiple tasks:
 
 ## State Management
 
-Update workflow state with review results using `mcp__exarchos__exarchos_workflow` with `action: "set"`:
+**On review complete:**
+```
+action: "set", featureId: "<id>", updates: {
+  "reviews": { "quality": { "status": "pass", "summary": "...", "issues": [...] } }
+}
+```
 
-- **On review complete:** Set `tasks[id=<task-id>].reviewStatus.qualityReview` to `"approved"` or `"needs_fixes"`, and add review details to `reviews.<task-id>.qualityReview`
-- **On all reviews pass:** Set `phase: "synthesize"` to advance the workflow
+**On all reviews pass — advance to synthesis:**
+```
+action: "set", featureId: "<id>", phase: "synthesize"
+```
 
 ## Completion Criteria
 
@@ -216,7 +223,7 @@ scripts/review-verdict.sh --high <N> --medium <N> --low <N>
 All transitions happen **immediately** without user confirmation:
 
 ### If APPROVED:
-1. Update state: `.phase = "synthesize"`
+1. Update state: `action: "set", featureId: "<id>", phase: "synthesize"`
 2. Output: "Quality review passed. Auto-continuing to synthesis..."
 3. Auto-invoke synthesize:
    ```typescript
@@ -224,7 +231,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If NEEDS_FIXES:
-1. Update state with failed issues
+1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality": { "status": "fail", "issues": [...] } } }`
 2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript
@@ -232,7 +239,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If BLOCKED:
-1. Update state: `.phase = "blocked"`
+1. Update state: `action: "set", featureId: "<id>", phase: "blocked"`
 2. Output: "Quality review blocked: [issue]. Returning to design..."
 3. Auto-invoke ideate for redesign:
    ```typescript

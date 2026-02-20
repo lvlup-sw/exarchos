@@ -239,37 +239,37 @@ Every goal from the brief must be verified as achieved.
 
 ### On Review Complete
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with the featureId:
+**Record review results:**
 
-```text
-# Record review results
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  updates: {
-    "reviews.overhaul": {
-      "status": "approved",
-      "behaviorPreserved": true,
-      "goalsVerified": true,
-      "regressionRisk": "low",
-      "timestamp": "<timestamp>"
-    }
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "reviews.overhaul": {
+    "status": "approved",
+    "behaviorPreserved": true,
+    "goalsVerified": true,
+    "regressionRisk": "low",
+    "timestamp": "<timestamp>"
   }
+}
 ```
 
 ### On Approval
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  phase: "synthesize"
+**Advance to synthesize:**
+
+```
+action: "set", featureId: "refactor-<slug>", phase: "synthesize"
 ```
 
 ### On Needs Fixes
 
-```text
-Use mcp__exarchos__exarchos_workflow with action: "set":
-  updates: {
-    "reviews.overhaul.status": "needs_fixes",
-    "reviews.overhaul.issues": ["<issue1>", "<issue2>"]
-  }
+**Record issues for fix cycle:**
+
+```
+action: "set", featureId: "refactor-<slug>", updates: {
+  "reviews.overhaul.status": "needs_fixes",
+  "reviews.overhaul.issues": ["<issue1>", "<issue2>"]
+}
 ```
 
 ## Transition
