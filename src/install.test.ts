@@ -471,7 +471,7 @@ describe('Install Orchestrator (E3)', () => {
     mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
     writeFileSync(join(fakeRepoRoot, 'rules', 'coding-standards.md'), '# Coding Standards');
     writeFileSync(join(fakeRepoRoot, 'rules', 'tdd.md'), '# TDD');
-    writeFileSync(join(fakeRepoRoot, 'rules', 'orchestrator-constraints.md'), '# Orch');
+    writeFileSync(join(fakeRepoRoot, 'rules', 'pr-descriptions.md'), '# PR Descriptions');
 
     // Create fake bundle file
     mkdirSync(join(fakeRepoRoot, 'dist'), { recursive: true });
@@ -505,7 +505,7 @@ describe('Install Orchestrator (E3)', () => {
         ],
         ruleSets: [
           { id: 'coding-standards', name: 'Coding Standards', description: 'Coding standards and TDD rules', files: ['coding-standards.md', 'tdd.md'], default: true },
-          { id: 'workflow', name: 'Workflow', description: 'Workflow rules', files: ['orchestrator-constraints.md'], default: true },
+          { id: 'workflow', name: 'Workflow', description: 'Workflow rules', files: ['pr-descriptions.md'], default: true },
         ],
       },
       defaults: { model: 'claude-opus-4-6', mode: 'standard' },
@@ -568,7 +568,7 @@ describe('Install Orchestrator (E3)', () => {
     expect(existsSync(join(claudeHome, 'rules', 'coding-standards.md'))).toBe(true);
     expect(existsSync(join(claudeHome, 'rules', 'tdd.md'))).toBe(true);
     // Workflow rules should NOT be copied (not selected)
-    expect(existsSync(join(claudeHome, 'rules', 'orchestrator-constraints.md'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'rules', 'pr-descriptions.md'))).toBe(false);
   });
 
   it('install_StandardMode_InstallsMcpBundle', async () => {

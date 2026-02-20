@@ -28,43 +28,13 @@ Activate this skill when:
 
 ## Monorepo Detection
 
-This skill works in the **ares-elite-platform** monorepo. Before running, detect the monorepo root:
-
-```bash
-# Find monorepo root (contains azure.yaml and apps/ directory)
-MONOREPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-
-# Verify it's the right monorepo
-if [[ ! -f "$MONOREPO_ROOT/azure.yaml" ]] || [[ ! -d "$MONOREPO_ROOT/apps" ]]; then
-  echo "ERROR: Not in ares-elite-platform monorepo"
-  exit 1
-fi
-```
-
-## API File Patterns
-
-Schema sync is needed after modifying API files matching patterns in the Configuration section below.
+Detect monorepo root and verify `azure.yaml` + `apps/` exist. Handle worktrees. See `references/configuration.md` for detection script and API file trigger patterns.
 
 ## Process
 
 ### Step 1: Detect Working Directory
 
-```bash
-# Get current directory and monorepo root
-CURRENT_DIR=$(pwd)
-MONOREPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-
-# Handle worktree case
-if [[ "$CURRENT_DIR" == *".worktrees"* ]]; then
-  # In a worktree - find the actual monorepo root
-  WORKTREE_ROOT=$(pwd)
-  # Worktrees are clones, so monorepo root is the worktree root
-  MONOREPO_ROOT="$WORKTREE_ROOT"
-fi
-
-echo "Monorepo root: $MONOREPO_ROOT"
-cd "$MONOREPO_ROOT"
-```
+Find monorepo root via `git rev-parse --show-toplevel`. Handle `.worktrees` paths. See `references/configuration.md`.
 
 ### Step 2: Run Schema Sync
 
@@ -102,42 +72,7 @@ Typecheck: PASS
 
 ## Auto-Detection for Delegation
 
-When delegation completes a task, check if schema sync is needed:
-
-```bash
-# Check if any API files were modified in the task
-git diff --name-only HEAD~1 | grep -E "(Endpoints|Models|Requests|Responses|Dtos).*\.cs$"
-
-# If matches found, schema sync is needed
-if [[ $? -eq 0 ]]; then
-  echo "API files modified - running schema sync..."
-  npm run sync:schemas
-fi
-```
-
-## Configuration (Project-Specific: ares-elite-platform)
-
-### API File Trigger Patterns
-
-| Pattern | Description |
-|---------|-------------|
-| `apps/aegis-api/src/**/*Endpoints.cs` | API endpoint definitions |
-| `apps/aegis-api/src/**/Models/*.cs` | Request/response DTOs |
-| `apps/aegis-api/src/**/Requests/*.cs` | Request models |
-| `apps/aegis-api/src/**/Responses/*.cs` | Response models |
-| `apps/aegis-api/src/**/Dtos/*.cs` | Data transfer objects |
-| `apps/black-gate/src/**/*.ts` | Black Gate route definitions |
-
-### Generated Files
-
-| File | Purpose |
-|------|---------|
-| `apps/aegis-api/openapi.json` | OpenAPI specification |
-| `shared/types/src/generated/aegis.ts` | TypeScript types |
-| `shared/validation/src/generated/aegis.zod.ts` | Zod validation schemas |
-| `shared/validation/src/generated/black-gate.zod.ts` | Black Gate Zod validation schemas |
-| `shared/validation/src/generated/schemas/black-gate/` | Black Gate component schemas |
-| `apps/ares-elite-web/src/api/generated/aegis.schemas.ts` | TypeScript schema types |
+After delegation tasks that modify API files, auto-detect and run sync. See `references/configuration.md` for detection script, trigger patterns, and generated file mapping.
 
 ## Failure Recovery
 
@@ -167,30 +102,7 @@ If CI fails on schema-check, run `/sync-schemas` locally and commit the results.
 
 ## Usage Examples
 
-### Manual Invocation
-```
-/sync-schemas
-```
-
-### After Backend Changes
-```bash
-# After editing PatientEndpoints.cs
-/sync-schemas
-
-# Verify and commit via Graphite
-git add shared/ apps/ares-elite-web/src/api/generated/
-gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
-gt submit --no-interactive --publish
-```
-
-**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
-
-### In Worktree
-```bash
-cd .worktrees/task-001
-# ... make backend changes ...
-/sync-schemas
-```
+See `references/configuration.md` for manual, post-backend-change, and worktree usage examples.
 
 ## Completion Criteria
 

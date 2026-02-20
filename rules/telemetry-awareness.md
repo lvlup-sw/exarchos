@@ -1,5 +1,6 @@
 ---
-title: Telemetry Awareness
+name: telemetry-awareness
+description: "Apply telemetryHints from session-start output to subsequent MCP tool calls."
 ---
 
 # Telemetry Awareness

@@ -212,3 +212,18 @@ Before invoking quality-review:
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.
+
+## Troubleshooting
+
+| Issue | Cause | Resolution |
+|-------|-------|------------|
+| Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
+| Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
+| TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
+| Diff too large for context | Many tasks with large changes | Use `review-diff.sh` with `--per-task` flag to review incrementally |
+
+## Performance Notes
+
+- Use the integrated diff (`review-diff.sh`) instead of reading full files — reduces context by 80-90%
+- Review per-task when the combined diff exceeds 2,000 lines
+- Run TDD compliance check (`scripts/check-tdd-compliance.sh`) in parallel with spec tracing
