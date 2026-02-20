@@ -31,6 +31,8 @@ Activate this skill when:
 - User needs to investigate an error
 - User says "fix this bug" or similar
 
+**Disambiguation:** If the user says "fix" or "clean up" — use `/debug` when something is *broken* (error, crash, wrong behavior). Use `/refactor` when the code *works* but needs structural improvement.
+
 ## Workflow Overview
 
 ```

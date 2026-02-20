@@ -52,11 +52,9 @@
       {
         "id": "workflow",
         "name": "Workflow & Orchestration",
-        "description": "Orchestrator constraints, PR descriptions, primary workflows",
+        "description": "PR descriptions, MCP tool guidance, safety, and path resolution",
         "files": [
-          "orchestrator-constraints.md",
           "pr-descriptions.md",
-          "primary-workflows.md",
           "mcp-tool-guidance.md",
           "skill-path-resolution.md",
           "rm-safety.md",
