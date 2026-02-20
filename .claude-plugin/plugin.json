@@ -16,8 +16,8 @@
   "mcpServers": {
     "exarchos": {
       "type": "stdio",
-      "command": "bun",
-      "args": ["run", "./dist/exarchos-mcp.js"],
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/exarchos-mcp.js"],
       "env": {
         "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
       }

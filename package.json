@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc && bun run build:mcp && bun run build:cli",
     "build:cli": "bun build servers/exarchos-mcp/src/cli.ts --outfile dist/exarchos-cli.js --target node",
-    "build:mcp": "bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target bun --minify",
+    "build:mcp": "bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target node --minify",
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",
