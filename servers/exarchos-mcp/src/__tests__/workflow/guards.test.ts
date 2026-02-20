@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { guards, type GuardResult } from '../../workflow/guards.js';
+import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult } from '../../workflow/guards.js';
 
 // ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
 
@@ -41,6 +41,102 @@ describe('Guard Null Safety', () => {
       expect(typeof result).toBe('object');
       const obj = result as { passed: false; reason: string };
       expect(obj.passed).toBe(false);
+    });
+  });
+});
+
+// ─── Guard Fallback: Top-level artifact fields ──────────────────────────────
+
+describe('Guard Artifact Fallback', () => {
+  describe('designArtifactExists_TopLevelDesign_Passes', () => {
+    it('should pass when state.design exists but state.artifacts.design is null', () => {
+      const state = {
+        design: 'path/to/design.md',
+        artifacts: { design: null, plan: null, pr: null },
+      } as Record<string, unknown>;
+
+      const result = guards.designArtifactExists.evaluate(state);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('planArtifactExists_TopLevelPlan_Passes', () => {
+    it('should pass when state.plan exists but state.artifacts.plan is null', () => {
+      const state = {
+        plan: 'path/to/plan.md',
+        artifacts: { design: null, plan: null, pr: null },
+      } as Record<string, unknown>;
+
+      const result = guards.planArtifactExists.evaluate(state);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('designArtifactExists_NestedArtifact_StillPasses', () => {
+    it('should still pass with canonical artifacts.design path (regression check)', () => {
+      const state = {
+        artifacts: { design: 'path/to/design.md', plan: null, pr: null },
+      } as Record<string, unknown>;
+
+      const result = guards.designArtifactExists.evaluate(state);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('planArtifactExists_NestedArtifact_StillPasses', () => {
+    it('should still pass with canonical artifacts.plan path (regression check)', () => {
+      const state = {
+        artifacts: { design: null, plan: 'path/to/plan.md', pr: null },
+      } as Record<string, unknown>;
+
+      const result = guards.planArtifactExists.evaluate(state);
+      expect(result).toBe(true);
+    });
+  });
+});
+
+// ─── Review Status: fixes-applied ───────────────────────────────────────────
+
+describe('Review Status fixes-applied', () => {
+  describe('allReviewsPassed_FixesApplied_Passes', () => {
+    it('should pass when review status is fixes-applied', () => {
+      const state = {
+        reviews: {
+          codeReview: { status: 'fixes-applied' },
+        },
+      } as Record<string, unknown>;
+
+      const result = guards.allReviewsPassed.evaluate(state);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('anyReviewFailed_FixesApplied_DoesNotTrigger', () => {
+    it('should NOT consider fixes-applied as failed', () => {
+      const state = {
+        reviews: {
+          codeReview: { status: 'fixes-applied' },
+        },
+      } as Record<string, unknown>;
+
+      const result = guards.anyReviewFailed.evaluate(state);
+      // anyReviewFailed should NOT pass — fixes-applied is not a failure
+      expect(result).not.toBe(true);
+      expect(typeof result).toBe('object');
+      const obj = result as { passed: false; reason: string };
+      expect(obj.passed).toBe(false);
+    });
+  });
+
+  describe('PASSED_STATUSES_IncludesFixesApplied', () => {
+    it('should include fixes-applied in PASSED_STATUSES', () => {
+      expect(PASSED_STATUSES.has('fixes-applied')).toBe(true);
+    });
+  });
+
+  describe('FAILED_STATUSES_ExcludesFixesApplied', () => {
+    it('should NOT include fixes-applied in FAILED_STATUSES', () => {
+      expect(FAILED_STATUSES.has('fixes-applied')).toBe(false);
     });
   });
 });
