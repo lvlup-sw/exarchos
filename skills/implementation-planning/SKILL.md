@@ -99,7 +99,7 @@ Each task follows the TDD format in `references/task-template.md`.
 - One test = one behavior
 - Prefer many small tasks over few large ones
 
-Assign a `testingStrategy` to each task using `references/testing-strategy-guide.md` to control which verification techniques agents apply.
+Assign a `testingStrategy` to each task using `references/testing-strategy-guide.md` to control which verification techniques agents apply. Auto-determine `propertyTests` and `benchmarks` flags by matching each task's description and file paths against the category tables — do not leave these for the implementer to decide.
 
 **Task Ordering:**
 1. Foundation first (types, interfaces, data structures)

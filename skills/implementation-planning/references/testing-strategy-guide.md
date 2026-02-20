@@ -49,6 +49,40 @@ When `propertyTests: true`, provide guidance strings in the `properties` array d
 }
 ```
 
+## Benchmark Requirements
+
+Assign `benchmarks: true` when the task involves any of these categories:
+
+| Category | Example Code | What to Measure |
+|---|---|---|
+| **Event store operations** | Append, query, snapshot | Throughput (ops/sec), p99 latency |
+| **View materialization** | Projection apply, cold-start rebuild | Events/sec, cold-start time |
+| **Serialization hot paths** | JSON parse/stringify, schema validation | Throughput, memory allocation |
+| **Query-heavy reads** | CQRS projections, aggregations | Query latency under load |
+
+Assign `benchmarks: false` when the task is:
+- Pure wiring, configuration, or DI registration
+- Content-only changes (Markdown, documentation)
+- Test infrastructure (test helpers, fixtures)
+- UI components or styling
+
+When `benchmarks: true`, populate `performanceSLAs` with targets:
+
+```json
+{
+  "exampleTests": true,
+  "propertyTests": false,
+  "benchmarks": true,
+  "performanceSLAs": [
+    { "operation": "event-append", "metric": "p99_ms", "threshold": 10 }
+  ]
+}
+```
+
+## Auto-Determination
+
+The planner MUST auto-determine `propertyTests` and `benchmarks` for each task based on the category tables above. Do NOT leave these fields for the implementer to decide. Analyze each task's description and file paths to match against the categories. When uncertain, default to `false`.
+
 ## Reference
 
 See [Autonomous Code Verification design](../../../docs/designs/2026-02-15-autonomous-code-verification.md#when-to-require-property-based-tests) for the full rationale and category taxonomy.
