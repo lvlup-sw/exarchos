@@ -19,7 +19,8 @@
     {
       "type": "exact-match",
       "name": "finding-structure",
-      "threshold": 0.8
+      "threshold": 0.8,
+      "config": { "fields": ["review_result"] }
     }
   ],
   "datasets": {
