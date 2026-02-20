@@ -1,33 +1,28 @@
 {
   "name": "@lvlup-sw/exarchos",
-  "version": "2.0.0",
-  "description": "CLI installer for Exarchos SDLC workflow automation",
+  "version": "2.0.2",
+  "description": "Governed SDLC workflows for Claude Code — agent orchestration, quality gates, and Graphite stacked PRs",
   "type": "module",
   "bin": {
-    "exarchos": "./dist/install.js"
+    "exarchos-cli": "./dist/exarchos-cli.js"
   },
   "files": [
-    "dist",
+    "dist/exarchos-mcp.js",
+    "dist/exarchos-cli.js",
     "commands",
     "skills",
     "rules",
     "scripts",
-    "docs",
-    "servers",
-    "manifest.json",
-    "hooks.json",
+    "hooks",
     "settings.json",
-    ".claude",
     ".mcp.json",
     ".claude-plugin",
-    "hooks",
-    "companion",
     "CLAUDE.md.template",
     "AGENTS.md",
-    "!**/node_modules",
-    "!**/.terraform",
+    "!**/*.test.sh",
     "!**/*.test.ts",
-    "!**/src"
+    "!**/test-fixtures",
+    "!**/trigger-tests"
   ],
   "scripts": {
     "build": "tsc && bun run build:mcp && bun run build:cli",
@@ -52,10 +47,7 @@
     "code-review"
   ],
   "author": "lvlup-sw",
-  "license": "MIT",
-  "dependencies": {
-    "@inquirer/prompts": "^7.3.0"
-  },
+  "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.0.0",
