@@ -11,17 +11,25 @@ export interface Guard {
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
 
 function hasArtifact(field: string): Guard {
+  const id = `${field}-artifact-exists`;
   return {
-    id: `${field}-exists`,
-    description: `${field} artifact must exist`,
+    id,
+    description: `${capitalize(field)} artifact must exist`,
     evaluate: (state: Record<string, unknown>) => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      return artifacts != null && artifacts[field] != null;
+      if (artifacts != null && artifacts[field] != null) return true;
+      // Fallback: check top-level field
+      if (state[field] != null) return true;
+      return { passed: false, reason: `${id} not satisfied` };
     },
   };
 }
 
-export const PASSED_STATUSES = new Set(['pass', 'passed', 'approved']);
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export const PASSED_STATUSES = new Set(['pass', 'passed', 'approved', 'fixes-applied']);
 export const FAILED_STATUSES = new Set(['fail', 'failed', 'needs_fixes']);
 
 /**
@@ -63,25 +71,9 @@ export function collectReviewStatuses(
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
 export const guards = {
-  designArtifactExists: {
-    id: 'design-artifact-exists',
-    description: 'Design artifact must exist',
-    evaluate: (state: Record<string, unknown>): GuardResult => {
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts != null && artifacts.design != null) return true;
-      return { passed: false, reason: 'design-artifact-exists not satisfied' };
-    },
-  },
+  designArtifactExists: hasArtifact('design'),
 
-  planArtifactExists: {
-    id: 'plan-artifact-exists',
-    description: 'Plan artifact must exist',
-    evaluate: (state: Record<string, unknown>): GuardResult => {
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts != null && artifacts.plan != null) return true;
-      return { passed: false, reason: 'plan-artifact-exists not satisfied' };
-    },
-  },
+  planArtifactExists: hasArtifact('plan'),
 
   allTasksComplete: {
     id: 'all-tasks-complete',
