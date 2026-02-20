@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -357,5 +357,153 @@ describe('Integration — Real Eval Suites', () => {
     expect(summary.suiteId).toBe('quality-review');
     expect(summary.runId).toBeTruthy();
     expect(summary.passed + summary.failed).toBe(summary.total);
+  });
+});
+
+// ─── T08: Event Emission Tests ───────────────────────────────────────────────
+
+const createMockEventStore = () => ({
+  append: vi.fn().mockResolvedValue(undefined),
+  query: vi.fn().mockResolvedValue([]),
+});
+
+describe('runSuite — event emission', () => {
+  it('runSuite_WithEventStore_EmitsRunStartedEvent', async () => {
+    // Arrange
+    const cases = [makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } })];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('event-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+      trigger: 'local',
+    });
+
+    // Assert
+    const startedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.started',
+    );
+    expect(startedCalls).toHaveLength(1);
+    const startedEvent = startedCalls[0][1] as Record<string, unknown>;
+    const data = startedEvent.data as Record<string, unknown>;
+    expect(data.suiteId).toBe('delegation');
+    expect(data.caseCount).toBe(1);
+    expect(data.trigger).toBe('local');
+  });
+
+  it('runSuite_WithEventStore_EmitsCaseCompletedPerCase', async () => {
+    // Arrange
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' } }),
+      makeEvalCase('c-3', { input: { value: 'c' }, expected: { value: 'c' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('case-events', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert
+    const caseCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.case.completed',
+    );
+    expect(caseCalls).toHaveLength(3);
+  });
+
+  it('runSuite_WithEventStore_EmitsRunCompletedWithSummary', async () => {
+    // Arrange
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'different' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('completed-events', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert
+    const completedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
+    );
+    expect(completedCalls).toHaveLength(1);
+    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.total).toBe(2);
+    expect(data.passed).toBe(1);
+    expect(data.failed).toBe(1);
+  });
+
+  it('runSuite_WithEventStore_EventsInCorrectOrder', async () => {
+    // Arrange
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('order-events', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert
+    const types = mockStore.append.mock.calls.map(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type,
+    );
+    expect(types[0]).toBe('eval.run.started');
+    expect(types[types.length - 1]).toBe('eval.run.completed');
+    const middleTypes = types.slice(1, -1);
+    expect(middleTypes.every((t: unknown) => t === 'eval.case.completed')).toBe(true);
+  });
+
+  it('runSuite_WithoutEventStore_NoEventsEmitted', async () => {
+    // Arrange
+    const cases = [makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } })];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('no-events', config, { main: cases });
+
+    // Act — no eventStore in options
+    const summary = await runSuite(config, tmpDir, suiteDir, registry);
+
+    // Assert — should still work and return a valid summary
+    expect(summary.total).toBe(1);
+    expect(summary.passed).toBe(1);
+  });
+
+  it('runSuite_WithTriggerOption_PassesTriggerInStartedEvent', async () => {
+    // Arrange
+    const cases = [makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } })];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('trigger-events', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+      trigger: 'ci',
+    });
+
+    // Assert
+    const startedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.started',
+    );
+    const data = (startedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.trigger).toBe('ci');
   });
 });
