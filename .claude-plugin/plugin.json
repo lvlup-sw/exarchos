@@ -1,14 +1,14 @@
 {
   "name": "exarchos",
-  "description": "Agent governance for Claude Code — event-sourced SDLC workflows with team coordination, quality gates, and progressive stacking via Graphite.",
+  "description": "SDLC workflows for Claude Code with agent team coordination, quality gates, and Graphite stacked PRs.",
   "version": "2.0.3",
   "author": { "name": "Levelup Software" },
   "homepage": "https://github.com/lvlup-sw/exarchos",
   "repository": "https://github.com/lvlup-sw/exarchos",
   "license": "Apache-2.0",
   "keywords": [
-    "workflow", "sdlc", "governance", "graphite",
-    "event-sourcing", "tdd", "code-review", "teams"
+    "workflow", "sdlc", "graphite", "stacked-prs",
+    "event-sourcing", "tdd", "code-review", "agent-teams"
   ],
   "commands": "./commands/",
   "skills": "./skills/",
