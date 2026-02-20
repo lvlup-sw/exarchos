@@ -67,11 +67,33 @@ describe('AssertionConfigSchema', () => {
   });
 
   it('Parse_AllTypes_Succeeds', () => {
-    for (const type of ['exact-match', 'schema', 'tool-call', 'trace-pattern']) {
+    for (const type of ['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']) {
       expect(() =>
         AssertionConfigSchema.parse({ type, name: 'test' })
       ).not.toThrow();
     }
+  });
+
+  it('AssertionConfigSchema_LlmRubricType_ParsesValid', () => {
+    const result = AssertionConfigSchema.parse({
+      type: 'llm-rubric',
+      name: 'rubric-check',
+      threshold: 0.7,
+      config: { rubric: 'Is the output complete?' },
+    });
+    expect(result.type).toBe('llm-rubric');
+    expect(result.threshold).toBe(0.7);
+  });
+
+  it('AssertionConfigSchema_LlmSimilarityType_ParsesValid', () => {
+    const result = AssertionConfigSchema.parse({
+      type: 'llm-similarity',
+      name: 'similarity-check',
+      threshold: 0.8,
+      config: { expected: 'reference text' },
+    });
+    expect(result.type).toBe('llm-similarity');
+    expect(result.threshold).toBe(0.8);
   });
 
   it('Parse_UnknownType_Rejects', () => {
@@ -376,7 +398,9 @@ describe('Schema Property Tests', () => {
     'exact-match' as const,
     'schema' as const,
     'tool-call' as const,
-    'trace-pattern' as const
+    'trace-pattern' as const,
+    'llm-rubric' as const,
+    'llm-similarity' as const
   );
 
   const arbAssertionConfig = fc.record({

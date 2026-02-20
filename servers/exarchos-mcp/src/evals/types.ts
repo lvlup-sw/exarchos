@@ -18,7 +18,7 @@ export type GradeResult = z.infer<typeof GradeResultSchema>;
 // ─── AssertionConfig ────────────────────────────────────────────────────
 
 export const AssertionConfigSchema = z.object({
-  type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern']),
+  type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']),
   name: z.string(),
   threshold: ScoreSchema.default(1.0),
   config: z.record(z.unknown()).optional(),
