@@ -44,6 +44,10 @@ import {
   CODE_QUALITY_VIEW,
 } from './code-quality-view.js';
 import type { CodeQualityViewState } from './code-quality-view.js';
+import {
+  workflowStateProjection,
+  WORKFLOW_STATE_VIEW,
+} from './workflow-state-projection.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -58,6 +62,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(TEAM_PERFORMANCE_VIEW, teamPerformanceProjection);
   materializer.register(DELEGATION_TIMELINE_VIEW, delegationTimelineProjection);
   materializer.register(CODE_QUALITY_VIEW, codeQualityProjection);
+  materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   return materializer;
 }
 
