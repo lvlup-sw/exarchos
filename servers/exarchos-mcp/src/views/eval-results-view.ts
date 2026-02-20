@@ -230,7 +230,11 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
     ? prevHistory.firstFailedRunId
     : runId;
 
-  if (wasPreviouslyPassing || prevConsecutiveFailures > 0) {
+  const hadRegression = state.regressions.some(
+    (r) => r.caseId === caseId && r.suiteId === suiteId,
+  );
+
+  if (wasPreviouslyPassing || hadRegression) {
     // This is a regression (was passing) or ongoing regression (already failing)
     // Remove existing regression entry for this case
     updatedRegressions = updatedRegressions.filter(
