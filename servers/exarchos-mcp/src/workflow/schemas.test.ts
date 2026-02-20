@@ -158,6 +158,123 @@ describe('TaskSchema with testingStrategy', () => {
   });
 });
 
+// ─── _esVersion field tests ───────────────────────────────────────────────
+
+describe('WorkflowStateSchema _esVersion field', () => {
+  it('WorkflowStateSchema_EsVersionField_AcceptsVersion2', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      version: '1.1',
+      workflowType: 'feature',
+      featureId: 'test-feature',
+      phase: 'ideate',
+      createdAt: '2026-02-19T00:00:00Z',
+      updatedAt: '2026-02-19T00:00:00Z',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      integration: null,
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _esVersion: 2,
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data._esVersion).toBe(2);
+    }
+  });
+
+  it('WorkflowStateSchema_EsVersionField_OptionalForLegacy', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      version: '1.1',
+      workflowType: 'feature',
+      featureId: 'test-feature',
+      phase: 'ideate',
+      createdAt: '2026-02-19T00:00:00Z',
+      updatedAt: '2026-02-19T00:00:00Z',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      integration: null,
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data._esVersion).toBeUndefined();
+    }
+  });
+
+  it('WorkflowStateSchema_EsVersionField_RejectsNonInteger', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      version: '1.1',
+      workflowType: 'feature',
+      featureId: 'test-feature',
+      phase: 'ideate',
+      createdAt: '2026-02-19T00:00:00Z',
+      updatedAt: '2026-02-19T00:00:00Z',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      integration: null,
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _esVersion: 1.5,
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowStateSchema_EsVersionField_RejectsZero', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      version: '1.1',
+      workflowType: 'feature',
+      featureId: 'test-feature',
+      phase: 'ideate',
+      createdAt: '2026-02-19T00:00:00Z',
+      updatedAt: '2026-02-19T00:00:00Z',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      integration: null,
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _esVersion: 0,
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+});
+
 // T3: WorkflowState integration validation
 describe('WorkflowState integration', () => {
   it('WorkflowState_TasksWithTestingStrategy_Parses', async () => {
