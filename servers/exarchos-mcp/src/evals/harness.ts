@@ -92,7 +92,8 @@ export async function runSuite(
           assertion.config,
         );
 
-        const passed = gradeResult.score >= assertion.threshold;
+        const isSkipped = gradeResult.details?.['skipped'] === true;
+        const passed = isSkipped || gradeResult.score >= assertion.threshold;
         assertionResults.push({
           name: assertion.name,
           type: assertion.type,
@@ -100,13 +101,15 @@ export async function runSuite(
           score: gradeResult.score,
           reason: gradeResult.reason,
           threshold: assertion.threshold,
+          skipped: isSkipped,
         });
       }
 
       const casePassed = assertionResults.every((a) => a.passed);
+      const scoredAssertions = assertionResults.filter((a) => !a.skipped);
       const caseScore =
-        assertionResults.length > 0
-          ? assertionResults.reduce((sum, a) => sum + a.score, 0) / assertionResults.length
+        scoredAssertions.length > 0
+          ? scoredAssertions.reduce((sum, a) => sum + a.score, 0) / scoredAssertions.length
           : 1.0;
 
       allResults.push({
@@ -122,6 +125,9 @@ export async function runSuite(
 
   const totalPassed = allResults.filter((r) => r.passed).length;
   const totalFailed = allResults.filter((r) => !r.passed).length;
+  const totalSkipped = allResults.reduce(
+    (sum, r) => sum + r.assertions.filter((a) => a.skipped).length, 0,
+  );
   const avgScore =
     allResults.length > 0
       ? allResults.reduce((sum, r) => sum + r.score, 0) / allResults.length
@@ -133,6 +139,7 @@ export async function runSuite(
     total: allResults.length,
     passed: totalPassed,
     failed: totalFailed,
+    skipped: totalSkipped,
     avgScore,
     duration: Date.now() - startTime,
     results: allResults,

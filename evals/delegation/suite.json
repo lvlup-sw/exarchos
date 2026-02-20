@@ -3,7 +3,7 @@
   "metadata": {
     "skill": "delegation",
     "phaseAffinity": "delegate",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "assertions": [
     {
@@ -24,6 +24,15 @@
       "config": {
         "ordered": true
       }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "task-decomposition-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the delegation trace shows a comprehensive task decomposition. Score 1 if the tasks cover all major components of the design (API, data model, tests, integration). Score 0 if major components are missing from the task list. Give partial credit for partial coverage.",
+        "outputPath": "tasks"
+      }
     }
   ],
   "datasets": {
@@ -34,6 +43,10 @@
     "capability": {
       "path": "./datasets/golden.jsonl",
       "description": "Complex decomposition scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded task decomposition quality scenarios"
     }
   }
 }

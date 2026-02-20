@@ -18,7 +18,7 @@ export type GradeResult = z.infer<typeof GradeResultSchema>;
 // ─── AssertionConfig ────────────────────────────────────────────────────
 
 export const AssertionConfigSchema = z.object({
-  type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern']),
+  type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']),
   name: z.string(),
   threshold: ScoreSchema.default(1.0),
   config: z.record(z.unknown()).optional(),
@@ -35,6 +35,7 @@ export const AssertionResultSchema = z.object({
   score: ScoreSchema,
   reason: z.string(),
   threshold: z.number(),
+  skipped: z.boolean().default(false),
 });
 
 export type AssertionResult = z.infer<typeof AssertionResultSchema>;
@@ -93,6 +94,7 @@ export const RunSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   passed: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative().default(0),
   avgScore: ScoreSchema,
   duration: z.number().int().nonnegative(),
   results: z.array(EvalResultSchema),
