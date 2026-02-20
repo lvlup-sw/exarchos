@@ -42,6 +42,9 @@ export const EventTypes = [
   'review.finding',
   'review.escalated',
   'quality.hint.generated',
+  'eval.run.started',
+  'eval.case.completed',
+  'eval.run.completed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -348,6 +351,43 @@ export const QualityHintGeneratedData = z.object({
   generatedAt: z.string().datetime(),
 });
 
+// ─── Eval Event Data ────────────────────────────────────────────────────────
+
+export const EvalRunStartedData = z.object({
+  runId: z.string().uuid(),
+  suiteId: z.string(),
+  layer: z.enum(['regression', 'capability', 'reliability']).optional(),
+  trigger: z.enum(['ci', 'local', 'scheduled']),
+  caseCount: z.number().int().nonnegative(),
+});
+
+export const EvalCaseCompletedData = z.object({
+  runId: z.string().uuid(),
+  caseId: z.string(),
+  suiteId: z.string(),
+  passed: z.boolean(),
+  score: z.number().min(0).max(1),
+  assertions: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    passed: z.boolean(),
+    score: z.number().min(0).max(1),
+    reason: z.string(),
+  })),
+  duration: z.number().int().nonnegative(),
+});
+
+export const EvalRunCompletedData = z.object({
+  runId: z.string().uuid(),
+  suiteId: z.string(),
+  total: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  avgScore: z.number().min(0).max(1),
+  duration: z.number().int().nonnegative(),
+  regressions: z.array(z.string()),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -389,6 +429,9 @@ export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
 export type QualityHintGenerated = z.infer<typeof QualityHintGeneratedData>;
+export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
+export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
+export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 

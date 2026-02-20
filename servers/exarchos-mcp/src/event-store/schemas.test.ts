@@ -18,6 +18,9 @@ import {
   ReviewFindingData,
   ReviewEscalatedData,
   QualityHintGeneratedData,
+  EvalRunStartedData,
+  EvalCaseCompletedData,
+  EvalRunCompletedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -323,7 +326,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(39);
+    expect(EventTypes).toHaveLength(42);
   });
 
   it('EventTypes_StatePatchedType_IsValidEventType', () => {
@@ -494,5 +497,182 @@ describe('QualityHintGeneratedData', () => {
 describe('EventTypes', () => {
   it('EventTypes_IncludesQualityHintGenerated', () => {
     expect(EventTypes).toContain('quality.hint.generated');
+  });
+});
+
+// ─── T07: Eval Event Type Schemas ──────────────────────────────────────────
+
+describe('EvalRunStartedData', () => {
+  it('EvalRunStartedData_ValidPayload_Parses', () => {
+    const result = EvalRunStartedData.safeParse({
+      runId: crypto.randomUUID(),
+      suiteId: 'delegation',
+      trigger: 'local',
+      caseCount: 10,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('EvalRunStartedData_MissingRunId_Fails', () => {
+    const result = EvalRunStartedData.safeParse({
+      suiteId: 'delegation',
+      trigger: 'local',
+      caseCount: 10,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EvalRunStartedData_InvalidTrigger_Fails', () => {
+    const result = EvalRunStartedData.safeParse({
+      runId: crypto.randomUUID(),
+      suiteId: 'delegation',
+      trigger: 'unknown',
+      caseCount: 10,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EvalRunStartedData_WithOptionalLayer_Parses', () => {
+    const result = EvalRunStartedData.safeParse({
+      runId: crypto.randomUUID(),
+      suiteId: 'delegation',
+      trigger: 'local',
+      caseCount: 10,
+      layer: 'regression',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.layer).toBe('regression');
+    }
+  });
+});
+
+describe('EvalCaseCompletedData', () => {
+  it('EvalCaseCompletedData_ValidPayload_Parses', () => {
+    const result = EvalCaseCompletedData.safeParse({
+      runId: crypto.randomUUID(),
+      caseId: 'case-001',
+      suiteId: 'delegation',
+      passed: true,
+      score: 0.95,
+      assertions: [
+        { name: 'check-output', type: 'exact-match', passed: true, score: 0.95, reason: 'matched' },
+      ],
+      duration: 1200,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('EvalCaseCompletedData_ScoreOutOfRange_Fails', () => {
+    const result = EvalCaseCompletedData.safeParse({
+      runId: crypto.randomUUID(),
+      caseId: 'case-001',
+      suiteId: 'delegation',
+      passed: true,
+      score: 1.5,
+      assertions: [],
+      duration: 1200,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EvalCaseCompletedData_EmptyAssertions_Parses', () => {
+    const result = EvalCaseCompletedData.safeParse({
+      runId: crypto.randomUUID(),
+      caseId: 'case-001',
+      suiteId: 'delegation',
+      passed: true,
+      score: 1.0,
+      assertions: [],
+      duration: 500,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.assertions).toEqual([]);
+    }
+  });
+});
+
+describe('EvalRunCompletedData', () => {
+  it('EvalRunCompletedData_ValidPayload_Parses', () => {
+    const result = EvalRunCompletedData.safeParse({
+      runId: crypto.randomUUID(),
+      suiteId: 'delegation',
+      total: 10,
+      passed: 8,
+      failed: 2,
+      avgScore: 0.85,
+      duration: 5000,
+      regressions: ['case-003'],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('EvalRunCompletedData_NegativeFailed_Fails', () => {
+    const result = EvalRunCompletedData.safeParse({
+      runId: crypto.randomUUID(),
+      suiteId: 'delegation',
+      total: 10,
+      passed: 8,
+      failed: -1,
+      avgScore: 0.85,
+      duration: 5000,
+      regressions: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('WorkflowEventBase — eval event types', () => {
+  it('WorkflowEventBase_EvalRunStartedType_Parses', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'eval-stream',
+      sequence: 1,
+      type: 'eval.run.started',
+      data: {
+        runId: crypto.randomUUID(),
+        suiteId: 'delegation',
+        trigger: 'local',
+        caseCount: 5,
+      },
+    });
+    expect(event.success).toBe(true);
+  });
+
+  it('WorkflowEventBase_EvalCaseCompletedType_Parses', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'eval-stream',
+      sequence: 2,
+      type: 'eval.case.completed',
+      data: {
+        runId: crypto.randomUUID(),
+        caseId: 'case-001',
+        suiteId: 'delegation',
+        passed: true,
+        score: 1.0,
+        assertions: [],
+        duration: 100,
+      },
+    });
+    expect(event.success).toBe(true);
+  });
+
+  it('WorkflowEventBase_EvalRunCompletedType_Parses', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'eval-stream',
+      sequence: 3,
+      type: 'eval.run.completed',
+      data: {
+        runId: crypto.randomUUID(),
+        suiteId: 'delegation',
+        total: 5,
+        passed: 5,
+        failed: 0,
+        avgScore: 1.0,
+        duration: 3000,
+        regressions: [],
+      },
+    });
+    expect(event.success).toBe(true);
   });
 });
