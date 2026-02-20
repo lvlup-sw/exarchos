@@ -860,15 +860,15 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(2); // workflow.started + workflow.transition
+      expect(events.length).toBe(3); // workflow.started + state.patched + workflow.transition
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(2);
+      expect(raw._eventSequence).toBe(3);
 
       // Checkpoint
       await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(3); // + workflow.checkpoint
+      expect(events.length).toBe(4); // + workflow.checkpoint
 
       // Another phase transition (plan -> plan-review)
       await handleSet(
@@ -878,10 +878,10 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(4); // + another workflow.transition
+      expect(events.length).toBe(6); // + state.patched + workflow.transition
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(4);
+      expect(raw._eventSequence).toBe(6);
 
       // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
