@@ -46,71 +46,13 @@ Activate this skill when:
 
 **Goal:** Present 2-3 distinct approaches with trade-offs.
 
-**Format for each approach:**
-```markdown
-### Option [N]: [Name]
-
-**Approach:** [2-3 sentence description]
-
-**Pros:**
-- [Benefit 1]
-- [Benefit 2]
-
-**Cons:**
-- [Drawback 1]
-- [Drawback 2]
-
-**Best when:** [Scenario where this option excels]
-```
-
-**Rules:**
-- Present genuinely different approaches (not variations of same idea)
-- Be honest about trade-offs
-- Include at least one "simple but limited" option
-- Include at least one "flexible but complex" option
-- Recommend one option but explain why
-
-### Exploration Quality Gate
-
-Stop Phase 2 when ALL are true:
-- [ ] 2-3 approaches documented
-- [ ] Each answers design questions from Phase 1
-- [ ] Approaches differ in at least 2 of: {data structure, API design, complexity}
-- [ ] Trade-offs are honest and specific
-- [ ] One approach recommended with rationale
+Use the approach format from `references/design-template.md`. Present genuinely different approaches with honest trade-offs. Recommend one option with rationale.
 
 ### Phase 3: Design Presentation
 
 **Goal:** Document the chosen approach in detail.
 
-**Format:**
-- Sections of 200-300 words maximum
-- Use diagrams (ASCII or Mermaid) for complex flows
-- Include concrete examples
-- Reference existing codebase patterns
-
-**Design Document Structure:**
-```markdown
-# Design: [Feature Name]
-
-## Problem Statement
-[What we're solving and why]
-
-## Chosen Approach
-[Selected option with rationale]
-
-## Technical Design
-[Implementation details, data structures, APIs]
-
-## Integration Points
-[How this connects to existing code]
-
-## Testing Strategy
-[How we'll verify it works]
-
-## Open Questions
-[Decisions deferred or needing input]
-```
+Document the chosen approach using the structure in `references/design-template.md`. Sections of 200-300 words max. Use diagrams for complex flows.
 
 **Save Location:** `docs/designs/YYYY-MM-DD-<feature>.md`
 

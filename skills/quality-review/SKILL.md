@@ -79,6 +79,19 @@ This enables catching:
 
 ## Review Process
 
+### Step 0: Verify Spec Review Passed (MANDATORY)
+
+Before proceeding, confirm spec review passed for all tasks:
+
+```
+action: "get", featureId: "<id>", query: "reviews"
+```
+
+If ANY task has `specReview.status !== "pass"`, STOP and return:
+```json
+{ "verdict": "blocked", "summary": "Spec review not passed — run spec-review first" }
+```
+
 ### Step 1: Static Analysis
 
 Run the static analysis gate:

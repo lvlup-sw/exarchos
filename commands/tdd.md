@@ -1,5 +1,6 @@
 ---
-description: Plan implementation following strict TDD (Red-Green-Refactor)
+name: tdd
+description: "Plan implementation following strict TDD (Red-Green-Refactor)."
 ---
 
 # TDD Implementation Plan
@@ -12,7 +13,7 @@ Follow the implementation-planning skill: `@skills/implementation-planning/SKILL
 
 ## TDD Workflow Reference
 
-Follow the strict TDD workflow from @docs/prompts/tdd-workflow.mdc
+Follow the strict TDD workflow from `rules/tdd.md`. For test code patterns, see `@skills/delegation/references/testing-patterns.md`.
 
 ## Plan Requirements
 
@@ -44,36 +45,6 @@ Generate a step-by-step implementation plan where:
 
 ### Step 4: [RED] Write failing test for [next behavior]
 ...
-```
-
-## Test Patterns
-
-### TypeScript (Vitest)
-```typescript
-describe('Component', () => {
-  it('should do expected behavior when condition', async () => {
-    // Arrange
-    const input = createTestData();
-    // Act
-    const result = await component.method(input);
-    // Assert
-    expect(result).toBe(expected);
-  });
-});
-```
-
-### C# (TUnit)
-```csharp
-[Test]
-public async Task Method_Scenario_Outcome()
-{
-    // Arrange
-    var sut = new SystemUnderTest();
-    // Act
-    var result = sut.Method();
-    // Assert (MUST await)
-    await Assert.That(result).IsEqualTo(expected);
-}
 ```
 
 ## Deliverables

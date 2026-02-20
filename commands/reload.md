@@ -1,3 +1,8 @@
+---
+name: reload
+description: "Manually trigger context reload to recover from context degradation."
+---
+
 # Reload Context
 
 Manually trigger a context reload to recover from context degradation.

@@ -217,6 +217,15 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
 
 On plan completion, auto-emitted by `exarchos_workflow` `set` when phase transitions — emits `workflow.transition` from plan to plan-review. No manual `exarchos_event` append needed.
 
+## Troubleshooting
+
+| Issue | Cause | Resolution |
+|-------|-------|------------|
+| `verify-plan-coverage.sh` exit 1 | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
+| `spec-coverage-check.sh` exit 1 | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
+| `generate-traceability.sh` exit 1 | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
+| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/ideate --redesign` |
+
 ## Performance Notes
 
 - Complete each step fully before advancing — quality over speed
