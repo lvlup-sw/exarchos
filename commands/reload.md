@@ -29,4 +29,4 @@ Type `/clear` in the chat. The SessionStart hook will:
 - Context feels degraded (agent forgets workflow state, repeats questions)
 - After long sessions with many tool calls
 - Before complex operations that need full context
-- The auto-compact threshold (90%) will trigger this automatically, but you can manually trigger it anytime
+- The auto-compact threshold (95%) will trigger this automatically, but you can manually trigger it anytime
