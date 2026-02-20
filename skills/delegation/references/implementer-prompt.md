@@ -2,6 +2,10 @@
 
 Use this template when dispatching tasks via the Task tool.
 
+## Quality Hints Integration
+
+Before dispatch, query `exarchos_view` with `action: 'quality_hints'` and `skill: '<skill-name>'` to retrieve quality signals for the target skill. If the returned `hints` array is non-empty, include the **Quality Signals** section in the prompt. If empty, omit it entirely.
+
 ## Template
 
 ```markdown
@@ -129,6 +133,19 @@ describe('[ComponentName]', () => {
 {historicalIntelligence}
 
 > This data is injected at spawn time. The SubagentStart hook provides only live coordination updates.
+
+## Quality Signals
+<!-- Populated at dispatch time by orchestrator when quality hints are available. -->
+<!-- Query: exarchos_view with action: 'quality_hints' and skill: '<skill-name>' -->
+<!-- If hints array is non-empty, include this section. If empty, omit entirely. -->
+
+Based on historical quality data for this skill:
+
+{{#each hints}}
+- **{{category}}** ({{severity}}): {{hint}}
+{{/each}}
+
+Use these signals to guide your implementation. Address warnings proactively.
 
 ## Code Exploration Tools
 
