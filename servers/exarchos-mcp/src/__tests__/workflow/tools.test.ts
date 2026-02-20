@@ -14,6 +14,8 @@ import {
   handleCancel,
   handleCheckpoint,
   configureWorkflowEventStore,
+  isEventSourced,
+  CURRENT_ES_VERSION,
 } from '../../workflow/tools.js';
 import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
@@ -3033,5 +3035,58 @@ describe('HandleSet CAS Diagnostic', () => {
     expect(casFailedData.retries).toBeDefined();
 
     writeSpy.mockRestore();
+  });
+});
+
+// ─── _esVersion on handleInit and isEventSourced helper ──────────────────────
+
+describe('HandleInit_NewWorkflow_SetsEsVersion2', () => {
+  it('should set _esVersion to 2 on newly created workflows', async () => {
+    await handleInit({ featureId: 'esv-test', workflowType: 'feature' }, tmpDir);
+
+    const state = await readStateFile(path.join(tmpDir, 'esv-test.state.json'));
+    const stateRecord = state as unknown as Record<string, unknown>;
+    expect(stateRecord._esVersion).toBe(2);
+  });
+});
+
+describe('HandleInit_NewWorkflow_PreservesExistingFields', () => {
+  it('should preserve all standard init fields alongside _esVersion', async () => {
+    await handleInit({ featureId: 'esv-fields', workflowType: 'debug' }, tmpDir);
+
+    const state = await readStateFile(path.join(tmpDir, 'esv-fields.state.json'));
+    const stateRecord = state as unknown as Record<string, unknown>;
+
+    // Core fields still present
+    expect(state.featureId).toBe('esv-fields');
+    expect(state.workflowType).toBe('debug');
+    expect(state.phase).toBe('triage');
+    expect(state.tasks).toEqual([]);
+    expect(state.createdAt).toBeDefined();
+    expect(state.updatedAt).toBeDefined();
+
+    // _esVersion is also present
+    expect(stateRecord._esVersion).toBe(2);
+  });
+});
+
+describe('IsEventSourced_Version2_ReturnsTrue', () => {
+  it('should return true when state has _esVersion equal to CURRENT_ES_VERSION', () => {
+    const state = { _esVersion: CURRENT_ES_VERSION } as Record<string, unknown>;
+    expect(isEventSourced(state)).toBe(true);
+  });
+});
+
+describe('IsEventSourced_NoVersion_ReturnsFalse', () => {
+  it('should return false when state has no _esVersion field', () => {
+    const state = {} as Record<string, unknown>;
+    expect(isEventSourced(state)).toBe(false);
+  });
+});
+
+describe('IsEventSourced_Version1_ReturnsFalse', () => {
+  it('should return false when state has _esVersion of 1', () => {
+    const state = { _esVersion: 1 } as Record<string, unknown>;
+    expect(isEventSourced(state)).toBe(false);
   });
 });
