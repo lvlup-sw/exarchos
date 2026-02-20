@@ -535,13 +535,14 @@ export async function handleSet(
     }
 
     // ─── Event-first: append state.patched event for v2 field updates ──
+    const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
       isEventSourced(state as unknown as Record<string, unknown>)
       && moduleEventStore
-      && input.updates
+      && updateKeys.length > 0
     ) {
       try {
-        const fieldsHash = Object.keys(input.updates).sort().join(',');
+        const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
         const event = await moduleEventStore.append(input.featureId, {
           type: 'state.patched' as import('../event-store/schemas.js').EventType,
@@ -549,7 +550,7 @@ export async function handleSet(
           source: 'workflow',
           data: {
             featureId: input.featureId,
-            fields: Object.keys(input.updates),
+            fields: updateKeys,
             patch: input.updates,
           },
         }, { idempotencyKey });
@@ -587,6 +588,8 @@ export async function handleSet(
     // Write back to disk with CAS protection + schema validation
     try {
       await writeStateFile(stateFile, mutableState as WorkflowState, { expectedVersion });
+      // writeStateFile increments _version on disk; sync mutableState to match
+      (mutableState as Record<string, unknown>)._version = expectedVersion + 1;
     } catch (err) {
       // Validation failure — return structured error instead of corrupting state
       if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) {
@@ -642,16 +645,31 @@ export async function handleSet(
 
       // Merge materialized state with checkpoint/version metadata from the
       // mutable state (checkpoint tracking is not event-sourced)
+      const latestSequence = allEvents.length
+        ? allEvents[allEvents.length - 1].sequence
+        : mutableState._eventSequence;
       const snapshot = {
         ...(materialized as unknown as Record<string, unknown>),
         _version: (mutableState._version as number),
-        _eventSequence: mutableState._eventSequence,
+        _eventSequence: latestSequence,
         _esVersion: CURRENT_ES_VERSION,
         _checkpoint: mutableState._checkpoint,
         updatedAt: mutableState.updatedAt,
       };
 
-      await writeStateFile(stateFile, snapshot as unknown as WorkflowState, { skipValidation: true });
+      try {
+        await writeStateFile(
+          stateFile,
+          snapshot as unknown as WorkflowState,
+          { expectedVersion: mutableState._version as number, skipValidation: true },
+        );
+      } catch (err) {
+        if (err instanceof VersionConflictError) {
+          // Another writer updated the state after our CAS write; skip rematerialization
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Event-first: events already appended before CAS write with idempotency keys.
