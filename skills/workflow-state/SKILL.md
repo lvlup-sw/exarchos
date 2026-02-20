@@ -25,10 +25,10 @@ State files store: task details, worktree locations, PR URLs, and review status.
 ## Triggers
 
 Activate this skill when:
-- Starting a new workflow (`/ideate`)
+- Starting a new workflow (`/exarchos:ideate`)
 - Transitioning between workflow phases
-- Restoring context after summarization (`/resume`)
-- Saving progress for later continuation (`/checkpoint`)
+- Restoring context after summarization (`/exarchos:resume`)
+- Saving progress for later continuation (`/exarchos:checkpoint`)
 
 ## Phase Transitions
 
@@ -48,7 +48,7 @@ For full MCP tool signatures, error handling, and anti-patterns, see `references
 
 ### Initialize State
 
-At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
+At the start of `/exarchos:ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
 - `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
 
@@ -97,7 +97,7 @@ scripts/reconcile-state.sh --state-file <state-file> --repo-root <repo-root>
 
 | Event | State Update |
 |-------|--------------|
-| `/ideate` starts | Create state file |
+| `/exarchos:ideate` starts | Create state file |
 | Design saved | Set `artifacts.design`, phase = "plan" |
 | Plan saved | Set `artifacts.plan`, populate tasks, phase = "plan-review" |
 | Plan-review gaps found | Set `planReview.gaps`, auto-loop to plan |

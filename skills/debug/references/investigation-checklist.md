@@ -208,7 +208,7 @@ Quick reference for common root causes:
 
 ## Escalation Triggers
 
-During investigation, escalate to `/ideate` if you discover:
+During investigation, escalate to `/exarchos:ideate` if you discover:
 
 - [ ] Fundamental design flaw requiring architectural change
 - [ ] Multiple interconnected bugs requiring coordinated fix

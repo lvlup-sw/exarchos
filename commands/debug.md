@@ -11,13 +11,13 @@ Start debug workflow for: "$ARGUMENTS"
 Debug workflows are **investigation-first**: understand the problem before fixing it.
 
 ```
-/debug → Triage → Investigate → [Fix] → Validate → [CONFIRM] → merge
-                       │
-         ┌─────────────┼─────────────┐
-         │             │             │
-    --hotfix      (default)     --escalate
-         │             │             │
-    Fast path    Thorough path   → /ideate
+/exarchos:debug → Triage → Investigate → [Fix] → Validate → [CONFIRM] → merge
+                              │
+                ┌─────────────┼─────────────┐
+                │             │             │
+           --hotfix      (default)     --escalate
+                │             │             │
+           Fast path    Thorough path   → /exarchos:ideate
     (15 min)     (full RCA)
 ```
 
@@ -51,7 +51,7 @@ Time-boxed investigation (15 min), minimal ceremony.
 /debug --escalate "This requires redesigning the auth system"
 ```
 
-Hands off to `/ideate` with preserved context.
+Hands off to `/exarchos:ideate` with preserved context.
 
 ### Mid-Workflow: Switch to Thorough
 
@@ -106,7 +106,7 @@ Select track based on urgency and complexity.
 |----------|--------|
 | `<description>` | Bug description for triage context |
 | `--hotfix` | Select hotfix track (P0 urgency) |
-| `--escalate` | Hand off to /ideate workflow |
+| `--escalate` | Hand off to /exarchos:ideate workflow |
 | `--switch-thorough` | Switch from hotfix to thorough mid-workflow |
 
 ## State Management
@@ -134,7 +134,7 @@ Debug workflows auto-chain through phases with ONE human checkpoint.
 Debug workflows resume like feature workflows:
 
 ```bash
-/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ## Related

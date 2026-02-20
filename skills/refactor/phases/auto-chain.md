@@ -239,24 +239,24 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 | AUTO:polish-implement | Continue to implement phase (inline - orchestrator implements) |
 | AUTO:refactor-validate | Continue to validate phase (inline) |
 | AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
-| AUTO:overhaul-plan | `Skill({ skill: "plan", args: "--refactor <state-file>" })` |
-| AUTO:refactor-delegate | `Skill({ skill: "delegate", args: "<state-file>" })` |
-| AUTO:refactor-delegate:--fixes | `Skill({ skill: "delegate", args: "--fixes <state-file>" })` |
-| AUTO:refactor-review | `Skill({ skill: "review", args: "<state-file>" })` |
-| AUTO:refactor-synthesize | `Skill({ skill: "synthesize", args: "<feature-name>" })` |
+| AUTO:overhaul-plan | `Skill({ skill: "exarchos:plan", args: "--refactor <state-file>" })` |
+| AUTO:refactor-delegate | `Skill({ skill: "exarchos:delegate", args: "<state-file>" })` |
+| AUTO:refactor-delegate:--fixes | `Skill({ skill: "exarchos:delegate", args: "--fixes <state-file>" })` |
+| AUTO:refactor-review | `Skill({ skill: "exarchos:review", args: "<state-file>" })` |
+| AUTO:refactor-synthesize | `Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })` |
 
 ### Example Overhaul Chain
 
 ```typescript
 // After brief complete
-Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/refactor-auth.state.json" })
+Skill({ skill: "exarchos:plan", args: "--refactor ~/.claude/workflow-state/refactor-auth.state.json" })
 
-// After plan complete (invoked by /plan skill)
-Skill({ skill: "delegate", args: "~/.claude/workflow-state/refactor-auth.state.json" })
+// After plan complete (invoked by /exarchos:plan skill)
+Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/refactor-auth.state.json" })
 
-// After all tasks complete (invoked by /delegate skill)
-Skill({ skill: "review", args: "~/.claude/workflow-state/refactor-auth.state.json" })
+// After all tasks complete (invoked by /exarchos:delegate skill)
+Skill({ skill: "exarchos:review", args: "~/.claude/workflow-state/refactor-auth.state.json" })
 
 // After review passes, update-docs runs inline, then:
-Skill({ skill: "synthesize", args: "refactor-auth" })
+Skill({ skill: "exarchos:synthesize", args: "refactor-auth" })
 ```

@@ -11,7 +11,7 @@ Start refactor workflow for: "$ARGUMENTS"
 Refactor workflows are **exploration-first**: understand scope before committing to a track.
 
 ```
-/refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
+/exarchos:refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
                                     │
                    ┌────────────────┼────────────────┐
                    │                                 │
@@ -87,11 +87,11 @@ Select track based on scope assessment.
 
 **Overhaul Track:**
 - Brief (detailed goals and approach)
-- Plan (extract tasks via `/plan`)
-- Delegate (TDD in worktrees via `/delegate`)
-- Review (quality review via `/review`)
+- Plan (extract tasks via `/exarchos:plan`)
+- Delegate (TDD in worktrees via `/exarchos:delegate`)
+- Review (quality review via `/exarchos:review`)
 - Update docs
-- Synthesize (PR via `/synthesize`)
+- Synthesize (PR via `/exarchos:synthesize`)
 - Merge checkpoint
 
 ## Arguments
@@ -135,5 +135,5 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 Refactor workflows resume like other workflows:
 
 ```bash
-/resume ~/.claude/workflow-state/refactor-<slug>.state.json
+/exarchos:resume ~/.claude/workflow-state/refactor-<slug>.state.json
 ```

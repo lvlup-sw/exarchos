@@ -20,7 +20,7 @@ Submit Graphite stack as pull requests after review phase completes.
 - All reviews (spec + quality) passed — integration must be complete and passing
 - Graphite stack exists with task branches (the integration branch already exists from delegation)
 
-Requires BOTH spec-review PASS AND quality-review APPROVED. If either review is incomplete or failed, do NOT proceed — return to /review.
+Requires BOTH spec-review PASS AND quality-review APPROVED. If either review is incomplete or failed, do NOT proceed — return to /exarchos:review.
 
 ## Triggers
 
@@ -57,7 +57,7 @@ See `references/troubleshooting.md` for test failures, PR check failures, and me
 
 | Don't | Do Instead |
 |-------|------------|
-| Skip review phase | Always run `/review` first |
+| Skip review phase | Always run `/exarchos:review` first |
 | Force push stack branches | Use normal push |
 | Delete worktrees before PR approval | Wait for merge confirmation |
 | Create PR with failing tests | Ensure review phase passes first |
@@ -106,7 +106,7 @@ action: "cleanup", featureId: "<id>", mergeVerified: true, prUrl: ["<url>", ...]
 
 ## Handling PR Feedback
 
-Route to `/delegate --pr-fixes [PR_URL]` for automated fix dispatch. See `references/troubleshooting.md` for details.
+Route to `/exarchos:delegate --pr-fixes [PR_URL]` for automated fix dispatch. See `references/troubleshooting.md` for details.
 
 ## Transition
 
@@ -120,8 +120,8 @@ This is one of only TWO human checkpoints in the workflow.
 
 Options:
 - **'yes'**: Merge PR, update state to "completed"
-- **'feedback'**: Auto-continue to `/delegate --pr-fixes` to address comments, then return here
-- **'no'**: Pause workflow, can resume later with `/resume`
+- **'feedback'**: Auto-continue to `/exarchos:delegate --pr-fixes` to address comments, then return here
+- **'no'**: Pause workflow, can resume later with `/exarchos:resume`
 
 ## Troubleshooting
 

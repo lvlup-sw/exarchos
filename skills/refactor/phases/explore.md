@@ -6,7 +6,7 @@ Assess refactoring scope to determine appropriate track (polish vs overhaul).
 
 ## Entry Conditions
 
-- Refactor workflow initiated via `/refactor`
+- Refactor workflow initiated via `/exarchos:refactor`
 - Target area identified (file, directory, or module)
 
 ## Process

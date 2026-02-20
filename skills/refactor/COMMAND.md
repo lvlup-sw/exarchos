@@ -62,6 +62,6 @@ action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 
 ## See Also
 
-- `/debug` - For bug fixes
-- `/ideate` - For new features
-- `/plan` - For implementation planning (used by overhaul track)
+- `/exarchos:debug` - For bug fixes
+- `/exarchos:ideate` - For new features
+- `/exarchos:plan` - For implementation planning (used by overhaul track)

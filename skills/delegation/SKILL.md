@@ -216,7 +216,7 @@ After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 ### Pre-Chain Validation (MANDATORY)
 
-Before invoking `/review`:
+Before invoking `/exarchos:review`:
 1. Verify all `tasks[].status === 'complete'` in workflow state
 2. If incomplete tasks exist: "Not all tasks complete, cannot proceed to review"
 
@@ -226,7 +226,7 @@ Before invoking `/review`:
 2. Output: "All [N] tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "review", args: "<plan-path>" })
+   Skill({ skill: "exarchos:review", args: "<plan-path>" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.
@@ -235,7 +235,7 @@ State is saved, enabling recovery after context compaction.
 ## Known Limitations
 
 **Agent Teams mode:**
-- No session resumption with in-process teammates (`/resume` doesn't restore them)
+- No session resumption with in-process teammates (`/exarchos:resume` doesn't restore them)
 - Task status can lag — teammates sometimes fail to mark tasks complete
 - One team per session
 - No nested teams (teammates can't spawn sub-teammates)

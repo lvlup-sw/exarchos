@@ -9,8 +9,8 @@ Create final PR for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                                       ▲▲▲▲▲▲▲▲▲▲
+/exarchos:ideate → [CONFIRM] → /exarchos:plan → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
+                                                                                          ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 ```
 
 This command is the **exit point** of the development workflow. After creating the PR, asks for confirmation before merging.
@@ -56,7 +56,7 @@ git worktree prune
 ## Handling Failures
 
 - **PR checks fail:** Push fixes to feature branch
-- **Review feedback:** Use `/delegate --pr-fixes` to address comments
+- **Review feedback:** Use `/exarchos:delegate --pr-fixes` to address comments
 
 ## Output
 
@@ -115,8 +115,8 @@ This is one of only TWO human checkpoints in the workflow.
 5. **On 'feedback'** (feedback, comments, fixes, changes, address):
    Auto-continue to fixes:
    ```typescript
-   Skill({ skill: "delegate", args: "--pr-fixes [PR_URL]" })
+   Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
    ```
    After fixes complete, workflow returns here automatically.
 
-6. **On 'no'**: "Workflow paused. Run `/resume` to continue later."
+6. **On 'no'**: "Workflow paused. Run `/exarchos:resume` to continue later."

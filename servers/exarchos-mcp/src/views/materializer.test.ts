@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ViewMaterializer, type ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
@@ -379,5 +379,111 @@ describe('ViewMaterializer WorkflowStateProjection Registration', () => {
     expect(view.createdAt).toBe('2026-02-19T10:00:00.000Z');
     expect(view.updatedAt).toBe('2026-02-19T10:10:00.000Z');
     expect(view.artifacts.design).toBe('docs/design.md');
+  });
+});
+
+// ─── Configurable Snapshot Interval via Env Var ──────────────────────────────
+
+describe('ViewMaterializer Configurable Snapshot Interval', () => {
+  const VIEW_NAME = 'counter';
+  const originalEnv = process.env.EXARCHOS_SNAPSHOT_INTERVAL;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.EXARCHOS_SNAPSHOT_INTERVAL;
+    } else {
+      process.env.EXARCHOS_SNAPSHOT_INTERVAL = originalEnv;
+    }
+  });
+
+  it('parseEnvSnapshotInterval_ValidEnvVar_ReturnsValue', () => {
+    process.env.EXARCHOS_SNAPSHOT_INTERVAL = '100';
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events50 = Array.from({ length: 50 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events50);
+    expect(snapshotStore.save).not.toHaveBeenCalled();
+
+    const events100 = Array.from({ length: 100 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events100);
+    expect(snapshotStore.save).toHaveBeenCalled();
+  });
+
+  it('parseEnvSnapshotInterval_MissingEnvVar_ReturnsDefault', () => {
+    delete process.env.EXARCHOS_SNAPSHOT_INTERVAL;
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events50 = Array.from({ length: 50 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events50);
+    expect(snapshotStore.save).toHaveBeenCalled();
+  });
+
+  it('parseEnvSnapshotInterval_InvalidEnvVar_ReturnsDefault', () => {
+    process.env.EXARCHOS_SNAPSHOT_INTERVAL = 'abc';
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events50 = Array.from({ length: 50 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events50);
+    expect(snapshotStore.save).toHaveBeenCalled();
+  });
+
+  it('parseEnvSnapshotInterval_NegativeEnvVar_ReturnsDefault', () => {
+    process.env.EXARCHOS_SNAPSHOT_INTERVAL = '-1';
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events50 = Array.from({ length: 50 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events50);
+    expect(snapshotStore.save).toHaveBeenCalled();
+  });
+
+  it('constructor_WithOption_OverridesEnvVar', () => {
+    process.env.EXARCHOS_SNAPSHOT_INTERVAL = '100';
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+    const materializer = new ViewMaterializer({ snapshotStore, snapshotInterval: 30 });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events30 = Array.from({ length: 30 }, (_, i) =>
+      makeEvent(i + 1, `stream-1`),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events30);
+    expect(snapshotStore.save).toHaveBeenCalled();
   });
 });
