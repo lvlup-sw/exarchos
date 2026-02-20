@@ -71,7 +71,11 @@ rm -f ~/.claude/hooks.json
 rm -f ~/.claude/exarchos.json
 ```
 
-**Remove MCP server entries** from `~/.claude.json`:
+**Remove legacy hooks from `~/.claude/settings.json`:**
+
+The legacy installer wrote hooks directly into settings.json with hardcoded paths. Open `~/.claude/settings.json` and remove the entire `"hooks"` key (it contains `SessionStart`, `PreCompact`, `PreToolUse`, `TaskCompleted`, `TeammateIdle`, `SubagentStart` entries pointing to `~/.claude/mcp-servers/exarchos-cli.js`). The plugin provides its own hooks via `hooks/hooks.json`.
+
+**Remove MCP server entries from `~/.claude.json`:**
 
 Open `~/.claude.json` and remove the `exarchos` and `graphite` entries from `mcpServers`. If you used the dev companion, also remove `microsoft-learn`.
 
