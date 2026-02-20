@@ -23,6 +23,7 @@ describe('CodeQualityView', () => {
       const state = codeQualityProjection.init();
       expect(state).toEqual({
         skills: {},
+        models: {},
         gates: {},
         regressions: [],
         benchmarks: [],
@@ -215,6 +216,70 @@ describe('CodeQualityView', () => {
       }
 
       expect(state.regressions).toHaveLength(0);
+    });
+  });
+
+  // ─── Per-model attribution ──────────────────────────────────────────────
+
+  describe('apply - per-model attribution', () => {
+    it('Apply_GateExecuted_WithModel_UpdatesModelMetrics', () => {
+      const state = codeQualityProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        duration: 1200,
+        details: { model: 'claude-opus-4-6' },
+      });
+
+      const next = codeQualityProjection.apply(state, event);
+      expect(next.models['claude-opus-4-6']).toBeDefined();
+      expect(next.models['claude-opus-4-6'].totalExecutions).toBe(1);
+      expect(next.models['claude-opus-4-6'].gatePassRate).toBe(1);
+    });
+
+    it('Apply_GateExecuted_WithoutModel_DoesNotCreateModelEntry', () => {
+      const state = codeQualityProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        duration: 1200,
+        details: {},
+      });
+
+      const next = codeQualityProjection.apply(state, event);
+      expect(next.models).toEqual({});
+    });
+
+    it('Apply_GateExecuted_MultipleModels_TracksIndependently', () => {
+      let state = codeQualityProjection.init();
+
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        duration: 1000,
+        details: { model: 'claude-opus-4-6' },
+      }, 1));
+
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 800,
+        details: { model: 'claude-sonnet-4-6', reason: 'TS2345' },
+      }, 2));
+
+      expect(state.models['claude-opus-4-6'].totalExecutions).toBe(1);
+      expect(state.models['claude-opus-4-6'].gatePassRate).toBe(1);
+      expect(state.models['claude-sonnet-4-6'].totalExecutions).toBe(1);
+      expect(state.models['claude-sonnet-4-6'].gatePassRate).toBe(0);
+    });
+
+    it('Init_IncludesEmptyModelsRecord', () => {
+      const state = codeQualityProjection.init();
+      expect(state.models).toEqual({});
     });
   });
 
