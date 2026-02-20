@@ -216,6 +216,21 @@ describe('CLI Framework', () => {
       expect(result).toHaveProperty('guidance');
     });
 
+    it('RouteCommand_EvalRun_CallsHandler', async () => {
+      // Act — eval-run with no evals dir will use resolveEvalsDir()
+      // which should find the repo's evals/ directory
+      const result = await routeCommand('eval-run', {});
+
+      // Assert — should return a result (either suites or NO_SUITES error)
+      expect(result).toBeDefined();
+      // It will either find suites or return NO_SUITES — both are valid routing
+      if (result.error) {
+        expect(result.error.code).toBe('NO_SUITES');
+      } else {
+        expect(result).toHaveProperty('summaries');
+      }
+    });
+
     it('should return error for unknown command', async () => {
       // Act
       const result = await routeCommand('nonexistent', {});
