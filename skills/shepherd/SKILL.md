@@ -3,7 +3,7 @@ name: shepherd
 description: "Shepherd PRs through CI checks and code reviews to merge readiness. Use after /synthesize to monitor CI, address ALL review feedback (CodeRabbit, Graphite, Sentry, humans), fix failures, restack, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd. Do NOT use before PRs are published — run /synthesize first."
 metadata:
   author: exarchos
-  version: 1.1.0
+  version: 1.2.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: synthesize
@@ -53,15 +53,19 @@ mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["s
 |-----------|------|----------------|
 | CI checks | GitHub MCP `pull_request_read` or `gh pr checks` | All checks pass |
 | Formal reviews | GitHub MCP `pull_request_read` (reviews) | No CHANGES_REQUESTED |
-| Inline review comments | `gh api repos/{owner}/{repo}/pulls/{number}/comments` | All addressed (replied to or resolved) |
+| Inline review comments | GitHub MCP `pull_request_read` (review comments) | All addressed (replied to or resolved) |
 | Stack health | `mcp__graphite__run_gt_cmd({ args: ["log"] })` | Correct base targeting, no conflicts |
 
 **CRITICAL — Inline review comments are the most commonly missed dimension.** Formal review status (APPROVED/CHANGES_REQUESTED) only captures reviews submitted through GitHub's review workflow. Many automated reviewers — Sentry, Graphite agent, and others — leave **inline comments** that do NOT affect formal review status. You MUST read the full comment list for every PR.
 
-**Read ALL inline review comments:**
-```bash
-gh api repos/<owner>/<repo>/pulls/<number>/comments \
-  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id, created_at}'
+**Read ALL inline review comments via GitHub MCP:**
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_review_comments",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 ```
 
 Categorize comments by source:
@@ -113,7 +117,12 @@ Otherwise, categorize issues:
 Address issues based on type. See `references/fix-strategies.md` for detailed strategies.
 
 **For ALL inline review comments (any source):**
-1. Read ALL PR review comments: `gh api repos/<owner>/<repo>/pulls/<number>/comments`
+1. Read ALL PR review comments via GitHub MCP:
+   ```
+   mcp__plugin_github_github__pull_request_read({
+     method: "get_review_comments", owner: "<owner>", repo: "<repo>", pullNumber: <number>
+   })
+   ```
 2. Group by author to identify each reviewer's concerns
 3. For each unaddressed comment thread:
    - **Actionable bug/fix**: Apply code change, reply confirming fix
@@ -131,7 +140,12 @@ Address issues based on type. See `references/fix-strategies.md` for detailed st
 **Every comment must get a reply.** Do not skip comments from any reviewer. The goal is that a human scanning the PR sees every thread has a response.
 
 **For CI failures:**
-1. Read check details: `gh pr checks <number> --json name,state`
+1. Read check details via GitHub MCP:
+   ```
+   mcp__plugin_github_github__pull_request_read({
+     method: "get_status", owner: "<owner>", repo: "<repo>", pullNumber: <number>
+   })
+   ```
 2. Identify failure cause from logs
 3. Fix directly (if small) or dispatch via delegation
 4. Push fixes to the appropriate stack branch
@@ -154,10 +168,14 @@ Return to step 1 (Assess) for the next iteration.
 When all checks and reviews are green:
 
 1. Identify required approvers (repo settings or user-specified)
-2. Request review:
-   ```bash
-   gh pr edit <number> --add-reviewer <approver>
+2. Request review via GitHub MCP:
    ```
+   mcp__plugin_github_github__update_pull_request({
+     owner: "<owner>", repo: "<repo>", pullNumber: <number>,
+     reviewers: ["<approver>"]
+   })
+   ```
+   Fallback (if MCP token lacks write scope): `gh pr edit <number> --add-reviewer <approver>`
 3. Report to user:
    ```markdown
    ## Ready for Approval
