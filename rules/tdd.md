@@ -153,7 +153,7 @@ await mock.DidNotReceive().DeleteAsync(Arg.Any<Guid>());
 ### Import
 
 ```typescript
-import { fc } from '@fast-check/vitest';
+import { it, fc } from '@fast-check/vitest';
 ```
 
 ### Basic Usage
