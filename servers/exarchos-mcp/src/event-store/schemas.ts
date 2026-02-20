@@ -41,6 +41,7 @@ export const EventTypes = [
   'review.routed',
   'review.finding',
   'review.escalated',
+  'quality.hint.generated',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -338,6 +339,15 @@ export const QualityRegressionData = z.object({
   detectedAt: z.string().datetime(),
 });
 
+// ─── Quality Hint Event Data ─────────────────────────────────────────────
+
+export const QualityHintGeneratedData = z.object({
+  skill: z.string(),
+  hintCount: z.number().int().nonnegative(),
+  categories: z.array(z.string()),
+  generatedAt: z.string().datetime(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -378,6 +388,7 @@ export type QualityRegression = z.infer<typeof QualityRegressionData>;
 export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
+export type QualityHintGenerated = z.infer<typeof QualityHintGeneratedData>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 

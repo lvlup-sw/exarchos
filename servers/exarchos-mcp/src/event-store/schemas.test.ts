@@ -17,6 +17,7 @@ import {
   ReviewRoutedData,
   ReviewFindingData,
   ReviewEscalatedData,
+  QualityHintGeneratedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -322,7 +323,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(38);
+    expect(EventTypes).toHaveLength(39);
   });
 
   it('EventTypes_StatePatchedType_IsValidEventType', () => {
@@ -448,5 +449,50 @@ describe('ReviewEscalatedData', () => {
       expect(result.data.originalScore).toBe(0.3);
       expect(result.data.triggeringFinding).toBe('Function too complex');
     }
+  });
+});
+
+// ─── T5: quality.hint.generated Event Type ──────────────────────────────────
+
+describe('QualityHintGeneratedData', () => {
+  it('QualityHintGeneratedData_ValidData_PassesValidation', () => {
+    const result = QualityHintGeneratedData.safeParse({
+      skill: 'delegation',
+      hintCount: 3,
+      categories: ['gate', 'pbt', 'benchmark'],
+      generatedAt: '2026-02-20T00:00:00.000Z',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skill).toBe('delegation');
+      expect(result.data.hintCount).toBe(3);
+      expect(result.data.categories).toEqual(['gate', 'pbt', 'benchmark']);
+      expect(result.data.generatedAt).toBe('2026-02-20T00:00:00.000Z');
+    }
+  });
+
+  it('QualityHintGeneratedData_ZeroHints_PassesValidation', () => {
+    const result = QualityHintGeneratedData.safeParse({
+      skill: 'quality-review',
+      hintCount: 0,
+      categories: [],
+      generatedAt: '2026-02-20T00:00:00.000Z',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('QualityHintGeneratedData_MissingSkill_FailsValidation', () => {
+    const result = QualityHintGeneratedData.safeParse({
+      hintCount: 1,
+      categories: ['gate'],
+      generatedAt: '2026-02-20T00:00:00.000Z',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('EventTypes', () => {
+  it('EventTypes_IncludesQualityHintGenerated', () => {
+    expect(EventTypes).toContain('quality.hint.generated');
   });
 });
