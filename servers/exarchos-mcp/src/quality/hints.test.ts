@@ -461,4 +461,158 @@ describe('generateQualityHints', () => {
       expect(pbtHint).toBeUndefined();
     });
   });
+
+  // ─── T4: Hint cap, severity prioritization, and targetSkill filter ──────
+
+  describe('hint cap and prioritization', () => {
+    it('should return at most 5 hints when more are generated', () => {
+      // Create 3 skills that each trigger multiple rules to exceed 5 hints
+      const state = makeState({
+        skills: {
+          'skill-a': {
+            skill: 'skill-a',
+            totalExecutions: 20,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.40,
+            avgRemediationAttempts: 3,
+            topFailureCategories: [{ category: 'lint', count: 10 }],
+          },
+          'skill-b': {
+            skill: 'skill-b',
+            totalExecutions: 20,
+            gatePassRate: 0.60,
+            selfCorrectionRate: 0.35,
+            avgRemediationAttempts: 2,
+            topFailureCategories: [{ category: 'test', count: 8 }],
+          },
+          'skill-c': {
+            skill: 'skill-c',
+            totalExecutions: 20,
+            gatePassRate: 0.55,
+            selfCorrectionRate: 0.50,
+            avgRemediationAttempts: 4,
+            topFailureCategories: [{ category: 'build', count: 9 }],
+          },
+        },
+        benchmarks: [
+          {
+            operation: 'event-append',
+            metric: 'latency-ms',
+            values: [{ value: 10, commit: 'a', timestamp: '2024-01-01T00:00:00Z' }],
+            trend: 'degrading',
+          },
+        ],
+        gates: {
+          'check-property-tests': {
+            gate: 'check-property-tests',
+            executionCount: 20,
+            passRate: 0.70,
+            avgDuration: 100,
+            failureReasons: [{ reason: 'violation', count: 6 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state);
+      expect(hints.length).toBeLessThanOrEqual(5);
+    });
+
+    it('should prioritize warnings over info hints', () => {
+      // Skill that triggers both a warning (low gate pass rate) and info (high self-correction)
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 20,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.40,
+            avgRemediationAttempts: 3,
+            topFailureCategories: [{ category: 'lint', count: 10 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state);
+      const warningIdx = hints.findIndex(h => h.severity === 'warning');
+      const infoIdx = hints.findIndex(h => h.severity === 'info');
+
+      // Both should exist given the state configuration
+      expect(warningIdx).not.toBe(-1);
+      expect(infoIdx).not.toBe(-1);
+      expect(warningIdx).toBeLessThan(infoIdx);
+    });
+
+    it('should filter to targetSkill only', () => {
+      const state = makeState({
+        skills: {
+          'skill-a': {
+            skill: 'skill-a',
+            totalExecutions: 10,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+          'skill-b': {
+            skill: 'skill-b',
+            totalExecutions: 10,
+            gatePassRate: 0.60,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'test', count: 4 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state, 'skill-a');
+      expect(hints.every(h => h.skill === 'skill-a')).toBe(true);
+      expect(hints.length).toBeGreaterThan(0);
+    });
+
+    it('should return empty array when targetSkill is not in state', () => {
+      const state = makeState({
+        skills: {
+          'skill-a': {
+            skill: 'skill-a',
+            totalExecutions: 10,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state, 'nonexistent-skill');
+      expect(hints).toEqual([]);
+    });
+
+    it('should return hints for all skills when no targetSkill provided', () => {
+      const state = makeState({
+        skills: {
+          'skill-a': {
+            skill: 'skill-a',
+            totalExecutions: 10,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+          'skill-b': {
+            skill: 'skill-b',
+            totalExecutions: 10,
+            gatePassRate: 0.60,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'test', count: 4 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state);
+      const skillsInHints = new Set(hints.map(h => h.skill));
+      expect(skillsInHints.has('skill-a')).toBe(true);
+      expect(skillsInHints.has('skill-b')).toBe(true);
+    });
+  });
 });

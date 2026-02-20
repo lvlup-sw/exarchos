@@ -95,6 +95,16 @@ const globalRules: readonly QualityHintRule[] = [
   },
 ];
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const MAX_HINTS = 5;
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function severityOrder(severity: QualityHint['severity']): number {
+  return severity === 'warning' ? 0 : 1;
+}
+
 // ─── Generator ──────────────────────────────────────────────────────────────
 
 export function generateQualityHints(
@@ -121,5 +131,6 @@ export function generateQualityHints(
     }
   }
 
-  return hints;
+  hints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
+  return hints.slice(0, MAX_HINTS);
 }

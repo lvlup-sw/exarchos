@@ -8,6 +8,7 @@ vi.mock('./tools.js', () => ({
   handleViewTeamPerformance: vi.fn(),
   handleViewDelegationTimeline: vi.fn(),
   handleViewCodeQuality: vi.fn(),
+  handleViewQualityHints: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -29,6 +30,7 @@ import {
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
   handleViewCodeQuality,
+  handleViewQualityHints,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -274,8 +276,75 @@ describe('handleView', () => {
     });
   });
 
+  describe('quality_hints', () => {
+    it('handleView_QualityHintsAction_ReturnsHints', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          hints: [{ skill: 'my-skill', category: 'gate', severity: 'warning', hint: 'test hint' }],
+          generatedAt: '2024-01-01T00:00:00.000Z',
+        },
+      };
+      vi.mocked(handleViewQualityHints).mockResolvedValue(expected);
+      const args = { action: 'quality_hints', workflowId: 'wf-6' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewQualityHints).toHaveBeenCalledWith(
+        { workflowId: 'wf-6' },
+        STATE_DIR,
+      );
+    });
+
+    it('handleView_QualityHintsWithSkillFilter_ReturnsFilteredHints', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          hints: [{ skill: 'target-skill', category: 'gate', severity: 'warning', hint: 'filtered hint' }],
+          generatedAt: '2024-01-01T00:00:00.000Z',
+        },
+      };
+      vi.mocked(handleViewQualityHints).mockResolvedValue(expected);
+      const args = { action: 'quality_hints', workflowId: 'wf-7', skill: 'target-skill' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewQualityHints).toHaveBeenCalledWith(
+        { workflowId: 'wf-7', skill: 'target-skill' },
+        STATE_DIR,
+      );
+    });
+
+    it('handleView_QualityHintsNoData_ReturnsEmptyArray', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { hints: [], generatedAt: '2024-01-01T00:00:00.000Z' },
+      };
+      vi.mocked(handleViewQualityHints).mockResolvedValue(expected);
+      const args = { action: 'quality_hints' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect((result.data as { hints: unknown[] }).hints).toEqual([]);
+    });
+  });
+
   describe('unknown action', () => {
-    it('HandleView_UnknownAction_IncludesCodeQuality', async () => {
+    it('HandleView_UnknownAction_IncludesCodeQualityAndQualityHints', async () => {
       // Arrange
       const args = { action: 'nonexistent' };
 
@@ -287,6 +356,7 @@ describe('handleView', () => {
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
       const validTargets = (result.error as Record<string, unknown>)?.validTargets as string[];
       expect(validTargets).toContain('code_quality');
+      expect(validTargets).toContain('quality_hints');
     });
 
     it('should return error for unknown action', async () => {
