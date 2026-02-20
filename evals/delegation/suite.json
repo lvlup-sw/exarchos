@@ -1,0 +1,39 @@
+{
+  "description": "Delegation skill evaluation suite",
+  "metadata": {
+    "skill": "delegation",
+    "phaseAffinity": "delegate",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "set" },
+          { "tool": "exarchos_orchestrate", "action": "team_spawn" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good delegation traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Complex decomposition scenarios"
+    }
+  }
+}

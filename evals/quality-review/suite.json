@@ -1,0 +1,35 @@
+{
+  "description": "Quality review skill evaluation suite",
+  "metadata": {
+    "skill": "quality-review",
+    "phaseAffinity": "review",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "review-tool-calls",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "get" }
+        ]
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "finding-structure",
+      "threshold": 0.8
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good review traces that must not regress"
+    },
+    "defect-detection": {
+      "path": "./datasets/defect-detection.jsonl",
+      "description": "Seeded defect scenarios for review capability testing"
+    }
+  }
+}
