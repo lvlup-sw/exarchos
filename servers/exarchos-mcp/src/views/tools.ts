@@ -406,6 +406,43 @@ export async function handleViewCodeQuality(
   }
 }
 
+// ─── View Quality Hints Handler ─────────────────────────────────────────────
+
+export async function handleViewQualityHints(
+  args: { workflowId?: string; skill?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    await materializer.loadFromSnapshot(streamId, CODE_QUALITY_VIEW);
+    const events = await store.query(streamId);
+    const view = materializer.materialize<CodeQualityViewState>(
+      streamId,
+      CODE_QUALITY_VIEW,
+      events,
+    );
+
+    const { generateQualityHints } = await import('../quality/hints.js');
+    const hints = generateQualityHints(view, args.skill);
+
+    return {
+      success: true,
+      data: { hints, generatedAt: new Date().toISOString() },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
