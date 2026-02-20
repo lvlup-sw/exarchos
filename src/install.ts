@@ -282,7 +282,7 @@ function resolveHooksForMode(
   manifest: Manifest,
   cliPath: string,
 ): Record<string, unknown[]> | undefined {
-  const hooksPath = join(repoRoot, 'hooks.json');
+  const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
   if (!fs.existsSync(hooksPath)) return undefined;
 
   const server = manifest.components.mcpServers.find(

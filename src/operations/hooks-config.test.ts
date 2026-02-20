@@ -9,20 +9,18 @@ describe('hooks.json configuration', () => {
   let hooksConfig: Record<string, unknown>;
 
   beforeAll(async () => {
-    const hooksPath = path.resolve(__dirname, '../../hooks.json');
+    const hooksPath = path.resolve(__dirname, '../../hooks/hooks.json');
     const content = await fs.readFile(hooksPath, 'utf-8');
     hooksConfig = JSON.parse(content);
   });
 
-  it('hooksJson_PreCompactMatcher_IsEmptyForAllEvents', () => {
+  it('hooksJson_PreCompactMatcher_IsAutoForAllEvents', () => {
     const preCompact = (hooksConfig as { hooks: { PreCompact: Array<{ matcher: string }> } }).hooks.PreCompact[0];
-    expect(preCompact.matcher).toBe('');
+    expect(preCompact.matcher).toBe('auto');
   });
 
-  it('hooksJson_SessionStartMatcher_IncludesCompactAndClear', () => {
+  it('hooksJson_SessionStartMatcher_IncludesStartupAndResume', () => {
     const sessionStart = (hooksConfig as { hooks: { SessionStart: Array<{ matcher: string }> } }).hooks.SessionStart[0];
-    expect(sessionStart.matcher).toContain('compact');
-    expect(sessionStart.matcher).toContain('clear');
     expect(sessionStart.matcher).toContain('startup');
     expect(sessionStart.matcher).toContain('resume');
   });

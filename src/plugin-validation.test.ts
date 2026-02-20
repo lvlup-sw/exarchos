@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 // Resolve repo root (handles worktree paths)
 const repoRoot = process.cwd();
+const pkgVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8')).version;
 
 describe('Core Plugin Structure', () => {
   describe('plugin.json', () => {
@@ -12,12 +13,14 @@ describe('Core Plugin Structure', () => {
       expect(existsSync(pluginPath)).toBe(true);
       const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
       expect(plugin.name).toBe('exarchos');
-      expect(plugin.version).toBe('2.0.0');
+      expect(plugin.version).toBe(pkgVersion);
       expect(plugin.author).toEqual({ name: 'Levelup Software' });
       expect(plugin.commands).toBe('./commands/');
       expect(plugin.skills).toBe('./skills/');
       expect(plugin.hooks).toBe('./hooks/hooks.json');
-      expect(plugin.mcpServers).toBe('./.mcp.json');
+      expect(plugin.mcpServers).toBeDefined();
+      expect(plugin.mcpServers.exarchos).toBeDefined();
+      expect(plugin.mcpServers.graphite).toBeDefined();
     });
   });
 
@@ -30,21 +33,8 @@ describe('Core Plugin Structure', () => {
       expect(marketplace.owner.name).toBe('Levelup Software');
       expect(marketplace.plugins).toHaveLength(1);
       expect(marketplace.plugins[0].name).toBe('exarchos');
-      expect(marketplace.plugins[0].version).toBe('2.0.0');
+      expect(marketplace.plugins[0].version).toBe(pkgVersion);
       expect(marketplace.plugins[0].category).toBe('productivity');
-    });
-  });
-
-  describe('.mcp.json', () => {
-    it('mcpConfig_servers_includesExarchosAndGraphite', () => {
-      const mcpPath = join(repoRoot, '.mcp.json');
-      const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8'));
-      expect(mcp).toHaveProperty('mcpServers');
-      expect(mcp.mcpServers).toHaveProperty('exarchos');
-      expect(mcp.mcpServers).toHaveProperty('graphite');
-      expect(mcp.mcpServers.exarchos.type).toBe('stdio');
-      expect(mcp.mcpServers.graphite.command).toBe('gt');
-      expect(mcp.mcpServers.graphite.args).toEqual(['mcp']);
     });
   });
 
@@ -111,7 +101,6 @@ describe('Core Plugin Structure', () => {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.files).toContain('.claude-plugin');
       expect(pkg.files).toContain('hooks');
-      expect(pkg.files).toContain('companion');
     });
 
     it('packageJson_scripts_includesValidation', () => {

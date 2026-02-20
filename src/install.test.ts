@@ -9,13 +9,13 @@ const repoRoot = join(__dirname, '..');
 
 describe('Project Configuration', () => {
   describe('package.json', () => {
-    it('should have bin entry pointing to dist/install.js', () => {
+    it('should have bin entry pointing to dist/exarchos-cli.js', () => {
       const pkgPath = join(repoRoot, 'package.json');
       expect(existsSync(pkgPath)).toBe(true);
 
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.bin).toBeDefined();
-      expect(pkg.bin['exarchos']).toBe('./dist/install.js');
+      expect(pkg.bin['exarchos-cli']).toBe('./dist/exarchos-cli.js');
     });
 
     it('should be type module', () => {
@@ -36,10 +36,9 @@ describe('Project Configuration', () => {
       expect(pkg.scripts['build:cli']).toContain('exarchos-cli.js');
     });
 
-    it('should have correct name and version', () => {
+    it('should have correct name', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
       expect(pkg.name).toBe('@lvlup-sw/exarchos');
-      expect(pkg.version).toBe('2.0.0');
     });
   });
 
@@ -1103,7 +1102,7 @@ describe('printHelp', () => {
 });
 
 describe('hooks.json', () => {
-  const hooksPath = join(repoRoot, 'hooks.json');
+  const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
 
   it('hooksJson_IsValidJson', () => {
     expect(existsSync(hooksPath)).toBe(true);
@@ -1123,24 +1122,24 @@ describe('hooks.json', () => {
     expect(eventTypes).toHaveLength(6);
   });
 
-  it('hooksJson_AllCommandsReferenceCliPath', () => {
+  it('hooksJson_AllCommandsReferencePluginRoot', () => {
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     for (const [eventType, entries] of Object.entries(hooks.hooks)) {
       for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
         for (const hook of entry.hooks) {
-          expect(hook.command, `${eventType} hook command should reference {{CLI_PATH}}`).toContain('{{CLI_PATH}}');
+          expect(hook.command, `${eventType} hook command should reference CLAUDE_PLUGIN_ROOT`).toContain('${CLAUDE_PLUGIN_ROOT}');
         }
       }
     }
   });
 
-  it('hooksJson_AllCommands_UseCliPathPlaceholder', () => {
+  it('hooksJson_AllCommands_UsePluginRootVariable', () => {
     const hooksContent = readFileSync(hooksPath, 'utf-8');
 
-    // Should use placeholder
-    expect(hooksContent).toContain('{{CLI_PATH}}');
-    // Should NOT contain old hardcoded path
-    expect(hooksContent).not.toContain('${CLAUDE_PLUGIN_ROOT}');
+    // Should use plugin root variable
+    expect(hooksContent).toContain('${CLAUDE_PLUGIN_ROOT}');
+    // Should NOT contain old installer placeholder
+    expect(hooksContent).not.toContain('{{CLI_PATH}}');
   });
 });
 
@@ -1279,7 +1278,8 @@ describe('Install Orchestrator - Hooks Integration', () => {
     writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
 
     // Create hooks.json with placeholder
-    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+    mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
       hooks: {
         PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
       },
@@ -1309,7 +1309,8 @@ describe('Install Orchestrator - Hooks Integration', () => {
 
     // Create CLI bundle and hooks.json
     writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
-    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+    mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
       hooks: {
         PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
       },
@@ -1343,7 +1344,8 @@ describe('Install Orchestrator - Hooks Integration', () => {
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
     // Create hooks.json in fake repo
-    writeFileSync(join(fakeRepoRoot, 'hooks.json'), JSON.stringify({
+    mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
+    writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
       hooks: {
         PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
       },
