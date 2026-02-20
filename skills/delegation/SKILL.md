@@ -96,15 +96,28 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 
 **Conditional PBT section:** When a task has `testingStrategy.propertyTests: true`, include the "Property-Based Testing Patterns" section from `references/pbt-patterns.md` in the implementer prompt. This section provides framework-specific patterns (fast-check for TypeScript, FsCheck for .NET) and integrates with the TDD RED phase. When `propertyTests: false`, omit the section entirely.
 
+## Benchmark Label (Automatic)
+
+After extracting tasks from the plan, check if ANY task has `testingStrategy.benchmarks: true`. If so, apply the `has-benchmarks` label to the PR after synthesis. Record this in workflow state:
+
+```
+action: "set", featureId: "<id>", updates: {
+  "verification.hasBenchmarks": true
+}
+```
+
+The `/synthesize` skill reads `verification.hasBenchmarks` and applies the label via `gh pr edit <number> --add-label has-benchmarks`. This label triggers conditional benchmark CI gates.
+
 ## Delegation Workflow — Subagent Mode
 
 1. Prepare worktrees — `scripts/setup-worktree.sh`
 2. Extract task details from plan
-3. Create TodoWrite entries for tracking
-4. Dispatch parallel subagents via Task tool
-5. Monitor progress via TaskOutput
-6. Collect and verify — `scripts/post-delegation-check.sh`
-7. Schema sync if API files modified
+3. Check for benchmark tasks and set `verification.hasBenchmarks` in state
+4. Create TodoWrite entries for tracking
+5. Dispatch parallel subagents via Task tool
+6. Monitor progress via TaskOutput
+7. Collect and verify — `scripts/post-delegation-check.sh`
+8. Schema sync if API files modified
 
 For detailed step instructions, see `references/workflow-steps.md`.
 
