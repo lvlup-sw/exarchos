@@ -70,11 +70,12 @@ function buildAllowResult(): CommandResult {
 
 /**
  * Extract the workflow identifier from tool input.
- * Workflow tools use `featureId`, event tools use `streamId`.
+ * Workflow tools use `featureId`, orchestrate tools use `streamId`,
+ * event tools use `stream`.
  * Returns null if no identifier is present.
  */
 function extractWorkflowId(toolInput: Record<string, unknown>): string | null {
-  const id = toolInput.featureId ?? toolInput.streamId;
+  const id = toolInput.featureId ?? toolInput.streamId ?? toolInput.stream;
   return typeof id === 'string' ? id : null;
 }
 
