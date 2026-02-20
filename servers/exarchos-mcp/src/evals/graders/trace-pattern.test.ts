@@ -16,7 +16,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.started' },
           { type: 'task.completed' },
           { type: 'workflow.done' },
@@ -40,7 +40,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'anything.here' },
         ],
       },
@@ -55,7 +55,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.completed' },
           { type: 'task.started' },
         ],
@@ -71,7 +71,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [{ type: 'workflow.started' }],
+        trace_events: [{ type: 'workflow.started' }],
       },
       {
         patterns: [{ type: 'task.*' }],
@@ -86,7 +86,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.completed' },
           { type: 'task.completed' },
           { type: 'task.completed' },
@@ -103,7 +103,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.completed' },
           { type: 'task.completed' },
         ],
@@ -121,7 +121,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.started' },
           { type: 'task.completed' },
         ],
@@ -142,7 +142,7 @@ describe('TracePatternGrader', () => {
   it('Grade_EmptyTrace_ReturnsScoreZero', async () => {
     const result = await grader.grade(
       {},
-      { trace: [] },
+      { trace_events: [] },
       { patterns: [{ type: 'task.started' }] }
     );
     expect(result.score).toBe(0.0);
@@ -153,7 +153,7 @@ describe('TracePatternGrader', () => {
   it('Grade_EmptyPatterns_ReturnsScoreOne', async () => {
     const result = await grader.grade(
       {},
-      { trace: [{ type: 'task.started' }] },
+      { trace_events: [{ type: 'task.started' }] },
       { patterns: [] }
     );
     expect(result.score).toBe(1.0);
@@ -166,7 +166,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'a' },
           { type: 'extra' },
           { type: 'b' },
@@ -187,7 +187,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'c' },
           { type: 'a' },
           { type: 'b' },
@@ -208,7 +208,7 @@ describe('TracePatternGrader', () => {
     const result = await grader.grade(
       {},
       {
-        trace: [
+        trace_events: [
           { type: 'task.started' },
         ],
       },
@@ -233,6 +233,26 @@ describe('TracePatternGrader', () => {
     expect(result.score).toBe(0.0);
   });
 
+  // ─── Field name: trace_events ─────────────────────────────────────
+
+  it('Grade_ReadsTraceEventsField_NotTraceField', async () => {
+    // Output has events under "trace" (wrong field) — should score 0
+    const wrongField = await grader.grade(
+      {},
+      { trace: [{ type: 'task.started' }] },
+      { patterns: [{ type: 'task.started' }] }
+    );
+    expect(wrongField.score).toBe(0.0);
+
+    // Output has events under "trace_events" (correct field) — should score 1
+    const correctField = await grader.grade(
+      {},
+      { trace_events: [{ type: 'task.started' }] },
+      { patterns: [{ type: 'task.started' }] }
+    );
+    expect(correctField.score).toBe(1.0);
+  });
+
   // ─── Property tests ────────────────────────────────────────────────
 
   describe('Property Tests', () => {
@@ -247,7 +267,7 @@ describe('TracePatternGrader', () => {
         fc.asyncProperty(arbTrace, arbPatterns, async (trace, patterns) => {
           const result = await grader.grade(
             {},
-            { trace },
+            { trace_events: trace },
             { patterns }
           );
           expect(result.score).toBeGreaterThanOrEqual(0);
@@ -262,7 +282,7 @@ describe('TracePatternGrader', () => {
           if (trace.length === 0) return; // skip empty trace
           const result = await grader.grade(
             {},
-            { trace },
+            { trace_events: trace },
             { patterns: [{ type: '*' }] }
           );
           expect(result.score).toBe(1.0);
