@@ -23,8 +23,17 @@ Then update the installed plugin:
 If the companion also needs updating:
 
 ```bash
+# Publish new version
 cd companion && npm run build && npm publish --access public
-npx @lvlup-sw/exarchos-dev
+
+# Install from npm (MUST run from outside the exarchos repo to avoid local resolution)
+cd /tmp && npx --yes @lvlup-sw/exarchos-dev@latest
+```
+
+For local dev (no publish needed):
+
+```bash
+node companion/dist/install.js
 ```
 
 Report the result to the user.
