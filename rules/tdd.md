@@ -137,3 +137,33 @@ mock.GetOrderAsync(Arg.Any<Guid>()).Returns(Result<Order>.Success(order));
 await mock.Received(1).GetOrderAsync(expectedId);
 await mock.DidNotReceive().DeleteAsync(Arg.Any<Guid>());
 ```
+
+---
+
+## Property-Based Testing (fast-check)
+
+### When to Use
+
+- Data transformations (encode/decode, serialize/deserialize) → Roundtrip
+- State machines (transitions, guards) → Invariant
+- Collections/ordering (sort, filter, pagination) → Idempotence
+- Mathematical operations (scoring, budgets) → Bounds/constraints
+- Concurrency (optimistic locking) → Linearizability
+
+### Import
+
+```typescript
+import { it, fc } from '@fast-check/vitest';
+```
+
+### Basic Usage
+
+```typescript
+it.prop([fc.array(fc.integer())], (arr) => {
+  expect(sort(sort(arr))).toEqual(sort(arr));
+});
+```
+
+See `@skills/delegation/references/pbt-patterns.md` for roundtrip, invariant, idempotence, and commutativity pattern templates.
+
+Property tests are written alongside example tests in the RED phase. They complement, not replace, example tests.
