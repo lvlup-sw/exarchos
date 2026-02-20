@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Create detailed implementation plans for large refactors with emphasis on incremental, working-state changes. This phase integrates with the existing `/plan` skill while adding refactor-specific constraints that ensure safety and reversibility.
+Create detailed implementation plans for large refactors with emphasis on incremental, working-state changes. This phase integrates with the existing `/exarchos:plan` skill while adding refactor-specific constraints that ensure safety and reversibility.
 
 **Key principle:** Every task leaves the codebase in a working state. No task should break tests or functionality.
 
@@ -13,20 +13,20 @@ Create detailed implementation plans for large refactors with emphasis on increm
 - State file has `.track = "overhaul"` and `.phase = "brief"` complete
 - Refactoring goals documented in brief
 
-## Integration with /plan
+## Integration with /exarchos:plan
 
-The overhaul track leverages the existing `/plan` skill with additional refactor context.
+The overhaul track leverages the existing `/exarchos:plan` skill with additional refactor context.
 
 ### Invocation
 
 ```bash
 # Auto-invocation from brief phase
-Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 ### Context Passing
 
-The `/plan` skill receives refactor context from the brief:
+The `/exarchos:plan` skill receives refactor context from the brief:
 
 1. **Scope boundaries** - Which files/modules are affected
 2. **Refactoring goals** - What improvements are targeted
@@ -35,7 +35,7 @@ The `/plan` skill receives refactor context from the brief:
 
 ### Plan Modifications
 
-When `/plan` receives refactor context, it applies these additional rules:
+When `/exarchos:plan` receives refactor context, it applies these additional rules:
 
 | Standard Plan | Refactor Plan |
 |---------------|---------------|
@@ -296,7 +296,7 @@ After plan completion, auto-continue to delegate:
 2. Output: "Refactor plan created with [N] tasks and [M] rollback points. Auto-continuing to delegation..."
 3. Invoke immediately:
    ```typescript
-   Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
+   Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
    ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

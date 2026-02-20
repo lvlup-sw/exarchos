@@ -9,10 +9,10 @@ Review implementation for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                           ▲▲▲▲▲▲
-              ON BLOCKED ──────────────────────┘
-              ON FAIL → /delegate --fixes (auto)
+/exarchos:ideate → [CONFIRM] → /exarchos:plan → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
+                                                                        ▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                            ON BLOCKED ──────────────────────────────────────┘
+                            ON FAIL → /exarchos:delegate --fixes (auto)
 ```
 
 Review runs AFTER delegation completes -- reviews the Graphite stack diff.
@@ -44,8 +44,8 @@ Track the feature name and plan path as `$FEATURE_NAME` and `$PLAN_PATH`.
 
 All transitions happen **immediately** without user confirmation:
 
-- **ON PASS:** Update state `.phase = "synthesize"`, invoke `Skill({ skill: "synthesize", args: "$FEATURE_NAME" })`
-- **ON FAIL:** Update state with failed review details, invoke `Skill({ skill: "delegate", args: "--fixes $PLAN_PATH" })`
-- **ON BLOCKED:** Update state `.phase = "blocked"`, invoke `Skill({ skill: "ideate", args: "--redesign $FEATURE_NAME" })`
+- **ON PASS:** Update state `.phase = "synthesize"`, invoke `Skill({ skill: "exarchos:synthesize", args: "$FEATURE_NAME" })`
+- **ON FAIL:** Update state with failed review details, invoke `Skill({ skill: "exarchos:delegate", args: "--fixes $PLAN_PATH" })`
+- **ON BLOCKED:** Update state `.phase = "blocked"`, invoke `Skill({ skill: "exarchos:ideate", args: "--redesign $FEATURE_NAME" })`
 
 **No pause for user input** -- this is not a human checkpoint.

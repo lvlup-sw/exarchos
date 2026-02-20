@@ -69,18 +69,18 @@ action: "set", featureId: "refactor-<slug>", updates: {
 
 Then auto-invoke plan:
 ```typescript
-Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 ### 3. Plan Phase
 
-Invoke `/plan` skill with explicit Skill tool call:
+Invoke `/exarchos:plan` skill with explicit Skill tool call:
 
 ```typescript
-Skill({ skill: "plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:plan", args: "--refactor ~/.claude/workflow-state/<feature>.state.json" })
 ```
 
-The `/plan` skill:
+The `/exarchos:plan` skill:
 - Extracts tasks from the brief
 - Focuses on incremental, testable changes
 - Each task leaves code in working state
@@ -98,18 +98,18 @@ action: "set", featureId: "refactor-<slug>", updates: {
 
 Then auto-invoke delegate:
 ```typescript
-Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 ### 4. Delegate Phase
 
-Invoke `/delegate` skill for TDD implementation in worktrees:
+Invoke `/exarchos:delegate` skill for TDD implementation in worktrees:
 
 ```typescript
-Skill({ skill: "delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
-The `/delegate` skill:
+The `/exarchos:delegate` skill:
 - Creates worktrees for each task
 - Dispatches subagents via Task tool with `model: "opus"`
 - Uses implementer prompt template for full context
@@ -123,18 +123,18 @@ action: "set", featureId: "refactor-<slug>", phase: "overhaul-review"
 
 Then auto-invoke review:
 ```typescript
-Skill({ skill: "review", args: "~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:review", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
 ### 5. Review Phase
 
-Invoke `/review` skill with emphasis on quality:
+Invoke `/exarchos:review` skill with emphasis on quality:
 
 ```typescript
-Skill({ skill: "review", args: "~/.claude/workflow-state/<feature>.state.json" })
+Skill({ skill: "exarchos:review", args: "~/.claude/workflow-state/<feature>.state.json" })
 ```
 
-The `/review` skill:
+The `/exarchos:review` skill:
 - Quality review is emphasized for refactors
 - Refactors are high regression risk
 - Verifies structure matches brief goals
@@ -173,15 +173,15 @@ action: "set", featureId: "refactor-<slug>", updates: {
 
 Then auto-invoke synthesize:
 ```typescript
-Skill({ skill: "synthesize", args: "<feature-name>" })
+Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
 ```
 
 ### 7. Synthesize Phase
 
-Invoke `/synthesize` skill:
+Invoke `/exarchos:synthesize` skill:
 
 ```typescript
-Skill({ skill: "synthesize", args: "<feature-name>" })
+Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
 ```
 
 Creates PR via Graphite, updates description via `gh pr edit`. **Human checkpoint:** Confirm merge.

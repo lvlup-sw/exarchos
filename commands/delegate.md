@@ -9,14 +9,14 @@ Delegate tasks for: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge
-                                 ▲▲▲▲▲▲▲▲                                │
+/exarchos:ideate → [CONFIRM] → /exarchos:plan → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
+                                                       ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲                                            │
                                     │                                    │
                       ON FAIL ──────┤                                    │
                       --pr-fixes ───┴────────────────────────────────────┘
 ```
 
-Auto-invokes `/review` after tasks complete (or `/synthesize` for `--pr-fixes` mode).
+Auto-invokes `/exarchos:review` after tasks complete (or `/exarchos:synthesize` for `--pr-fixes` mode).
 
 ## Invocation Modes
 
@@ -50,7 +50,7 @@ Before delegating, check task status:
 
 After all delegated tasks complete, **auto-continue immediately** (no user confirmation needed).
 
-- **Normal / --fixes mode:** Set phase to "review", invoke `Skill({ skill: "review", args: "$STATE_FILE" })`
-- **--pr-fixes mode:** Set phase to "synthesize", invoke `Skill({ skill: "synthesize", args: "$PR_URL" })`
+- **Normal / --fixes mode:** Set phase to "review", invoke `Skill({ skill: "exarchos:review", args: "$STATE_FILE" })`
+- **--pr-fixes mode:** Set phase to "synthesize", invoke `Skill({ skill: "exarchos:synthesize", args: "$PR_URL" })`
 
 This is NOT a human checkpoint. State is saved automatically for recovery after context compaction.

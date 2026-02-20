@@ -262,4 +262,95 @@ describe('SnapshotStore', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  // ─── 15. delete_ExistingSnapshot_RemovesFile ──────────────────────────────
+
+  describe('delete_ExistingSnapshot_RemovesFile', () => {
+    it('should remove an existing snapshot file so load returns undefined', async () => {
+      await store.save('del-stream', 'myview', { x: 1 }, 5);
+
+      // Confirm it exists
+      const before = await store.load('del-stream', 'myview');
+      expect(before).toBeDefined();
+
+      // Delete it
+      await store.delete('del-stream', 'myview');
+
+      // Confirm it's gone
+      const after = await store.load('del-stream', 'myview');
+      expect(after).toBeUndefined();
+    });
+  });
+
+  // ─── 16. delete_NonExistentSnapshot_NoError ───────────────────────────────
+
+  describe('delete_NonExistentSnapshot_NoError', () => {
+    it('should not throw when deleting a snapshot that does not exist', async () => {
+      // Should be idempotent — no error
+      await expect(
+        store.delete('nonexistent-stream', 'noview'),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  // ─── 17. deleteAllForStream_MultipleSnapshots_RemovesAll ──────────────────
+
+  describe('deleteAllForStream_MultipleSnapshots_RemovesAll', () => {
+    it('should remove all snapshots for a given stream across different views', async () => {
+      await store.save('multi-stream', 'viewa', { a: 1 }, 1);
+      await store.save('multi-stream', 'viewb', { b: 2 }, 2);
+      await store.save('multi-stream', 'viewc', { c: 3 }, 3);
+
+      await store.deleteAllForStream('multi-stream');
+
+      expect(await store.load('multi-stream', 'viewa')).toBeUndefined();
+      expect(await store.load('multi-stream', 'viewb')).toBeUndefined();
+      expect(await store.load('multi-stream', 'viewc')).toBeUndefined();
+    });
+  });
+
+  // ─── 18. deleteAllForStream_DoesNotTouchOtherStreams ───────────────────────
+
+  describe('deleteAllForStream_DoesNotTouchOtherStreams', () => {
+    it('should not delete snapshots belonging to other streams', async () => {
+      await store.save('stream-a', 'myview', { a: 1 }, 1);
+      await store.save('stream-b', 'myview', { b: 2 }, 2);
+
+      await store.deleteAllForStream('stream-a');
+
+      expect(await store.load('stream-a', 'myview')).toBeUndefined();
+      expect(await store.load('stream-b', 'myview')).toBeDefined();
+    });
+  });
+
+  // ─── 19. deleteAllForStream_ReturnsDeletedFileNames ───────────────────────
+
+  describe('deleteAllForStream_ReturnsDeletedFileNames', () => {
+    it('should return the array of deleted file names', async () => {
+      await store.save('ret-stream', 'viewa', { a: 1 }, 1);
+      await store.save('ret-stream', 'viewb', { b: 2 }, 2);
+
+      const deleted = await store.deleteAllForStream('ret-stream');
+
+      expect(deleted).toHaveLength(2);
+      expect(deleted.sort()).toEqual([
+        'ret-stream.viewa.snapshot.json',
+        'ret-stream.viewb.snapshot.json',
+      ]);
+    });
+  });
+
+  // ─── 20. deleteAllForStream_ExactPrefixMatch_NoFalsePositives ─────────────
+
+  describe('deleteAllForStream_ExactPrefixMatch_NoFalsePositives', () => {
+    it('should not delete snapshots for streams with a matching prefix but different id', async () => {
+      await store.save('my-feature', 'myview', { a: 1 }, 1);
+      await store.save('my-feature-2', 'myview', { b: 2 }, 2);
+
+      await store.deleteAllForStream('my-feature');
+
+      expect(await store.load('my-feature', 'myview')).toBeUndefined();
+      expect(await store.load('my-feature-2', 'myview')).toBeDefined();
+    });
+  });
 });

@@ -193,7 +193,7 @@ action: "set", featureId: "refactor-<slug>", phase: "synthesize"
 
 5. Auto-invoke synthesize immediately:
 ```typescript
-Skill({ skill: "synthesize", args: "<feature-name>" })
+Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
 ```
 
 This is NOT a human checkpoint - workflow continues autonomously.

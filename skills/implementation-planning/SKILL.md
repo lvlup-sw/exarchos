@@ -22,7 +22,7 @@ Activate this skill when:
 - User wants to break down a design into tasks
 - A design document exists and needs implementation steps
 - User says "plan the implementation" or similar
-- Auto-chained from `/ideate` after design completion
+- Auto-chained from `/exarchos:ideate` after design completion
 - Auto-chained from plan-review with `--revise` flag (gaps found)
 
 ## Revision Mode (--revise flag)
@@ -36,7 +36,7 @@ Max revisions: 3 per plan.
 After 3 failed revisions:
 1. Set `planReview.revisionsExhausted = true`
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
-3. Escalate: Suggest `/ideate --redesign` to revisit design
+3. Escalate: Suggest `/exarchos:ideate --redesign` to revisit design
 
 ## The Iron Law
 
@@ -207,11 +207,11 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
 
 1. Set `.phase = "plan-review"` and populate tasks in state
 2. Run plan-review: compare design sections against planned tasks
-   - Gaps found: set `.planReview.gaps`, auto-loop back to `/plan --revise`
+   - Gaps found: set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
    - No gaps: present to user for approval (human checkpoint)
-   - On approval: set `.planReview.approved = true`, invoke `/delegate`
+   - On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
 
-**REQUIRED:** Run `scripts/verify-plan-coverage.sh --design-file <design> --plan-file <plan>`. If exit code 1: auto-invoke `Skill({ skill: "plan", args: "--revise <design>" })`. If exit code 0: proceed to delegation.
+**REQUIRED:** Run `scripts/verify-plan-coverage.sh --design-file <design> --plan-file <plan>`. If exit code 1: auto-invoke `Skill({ skill: "exarchos:plan", args: "--revise <design>" })`. If exit code 0: proceed to delegation.
 
 ## Exarchos Integration
 

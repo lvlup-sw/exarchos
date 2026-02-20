@@ -20,9 +20,10 @@ import { handleSync } from './sync/composite.js';
 import { configureWorkflowEventStore } from './workflow/tools.js';
 import { configureNextActionEventStore } from './workflow/next-action.js';
 import { configureCancelEventStore } from './workflow/cancel.js';
-import { configureCleanupEventStore } from './workflow/cleanup.js';
+import { configureCleanupEventStore, configureCleanupSnapshotStore } from './workflow/cleanup.js';
 import { configureQueryEventStore } from './workflow/query.js';
 import { EventStore } from './event-store/store.js';
+import { SnapshotStore } from './views/snapshot-store.js';
 
 // Telemetry middleware
 import { withTelemetry } from './telemetry/middleware.js';
@@ -58,6 +59,7 @@ export function createServer(stateDir: string): McpServer {
   configureNextActionEventStore(eventStore);
   configureCancelEventStore(eventStore);
   configureCleanupEventStore(eventStore);
+  configureCleanupSnapshotStore(new SnapshotStore(stateDir));
   configureQueryEventStore(eventStore);
 
   // Register composite tools from registry

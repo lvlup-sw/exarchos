@@ -8,9 +8,9 @@ Create implementation plan for: "$ARGUMENTS"
 
 ## Workflow Position
 
-```
-/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM] → merge
-           ▲▲▲▲       ↑
+```text
+/exarchos:ideate → /exarchos:plan → [CONFIRM] → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge
+                       ▲▲▲▲▲▲▲▲▲▲▲▲▲▲       ↑
                   plan-review
 ```
 
@@ -101,16 +101,16 @@ After saving the implementation plan, **auto-continue to plan-review**:
 
 ## Plan Review: Auto-Loop on Gaps
 
-Plan-review performs delta analysis and **auto-loops** back to `/plan` if gaps are found (similar to `/review` → `/delegate --fixes`):
+Plan-review performs delta analysis and **auto-loops** back to `/exarchos:plan` if gaps are found (similar to `/exarchos:review` → `/exarchos:delegate --fixes`):
 
-```
-/plan → plan-review → [gaps?] → /plan --revise (auto-loop)
-              ↓
-         [no gaps]
-              ↓
-    [HUMAN: approve?] ← checkpoint
-              ↓
-         /delegate
+```text
+/exarchos:plan → plan-review → [gaps?] → /exarchos:plan --revise (auto-loop)
+                      ↓
+                 [no gaps]
+                      ↓
+            [HUMAN: approve?] ← checkpoint
+                      ↓
+                 /exarchos:delegate
 ```
 
 ### On Gaps Found (Auto-Loop)
@@ -123,7 +123,7 @@ If plan-review finds missing coverage:
 
 2. Auto-invoke:
    ```typescript
-   Skill({ skill: "plan", args: "--revise $DESIGN_PATH" })
+   Skill({ skill: "exarchos:plan", args: "--revise $DESIGN_PATH" })
    ```
 
 The `--revise` flag provides gap context for targeted plan updates.
@@ -144,7 +144,7 @@ If plan-review finds complete coverage:
 
    Then invoke:
    ```typescript
-   Skill({ skill: "delegate", args: "$PLAN_PATH" })
+   Skill({ skill: "exarchos:delegate", args: "$PLAN_PATH" })
    ```
 
 From here, workflow runs autonomously until PR merge confirmation.
