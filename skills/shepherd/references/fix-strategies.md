@@ -17,9 +17,11 @@ How to address common issues found during shepherd assessment.
 
 ### Lint / Format
 
-1. Read the failure details:
-   ```bash
-   gh pr checks <number> --json name,state
+1. Read the failure details via GitHub MCP:
+   ```
+   mcp__plugin_github_github__pull_request_read({
+     method: "get_status", owner: "<owner>", repo: "<repo>", pullNumber: <number>
+   })
    ```
 2. Checkout the failing branch:
    ```
@@ -69,10 +71,14 @@ If a test passes locally but fails in CI:
 
 ### Reading Comments
 
-Read all inline review comments for a PR:
-```bash
-gh api repos/<owner>/<repo>/pulls/<number>/comments \
-  --jq '.[] | {id, user: .user.login, path, line: .original_line, body: (.body | split("\n")[0:3] | join("\n")), in_reply_to_id}'
+Read all inline review comments for a PR via GitHub MCP:
+```
+mcp__plugin_github_github__pull_request_read({
+  method: "get_review_comments",
+  owner: "<owner>",
+  repo: "<repo>",
+  pullNumber: <number>
+})
 ```
 
 Filter to find unaddressed root comments (threads with no replies):
@@ -243,15 +249,13 @@ When addressing feedback, reply to each comment thread individually using the Gi
 - GitHub marks threads as having replies
 - The PR audit trail shows every concern was addressed
 
-For bulk summaries after a round of fixes, also post a general PR comment:
-```bash
-gh pr comment <number> --body "$(cat <<'EOF'
-Addressed review feedback:
-- Fixed Sentry bug: trace field name mismatch in `trace-pattern.ts`
-- Replied to Graphite DI concern with Phase 2 deferral rationale
-- Fixed CodeRabbit suggestion: consolidated reduce calls in `cli-reporter.ts`
-
-All inline review threads have replies.
-EOF
-)"
+For bulk summaries after a round of fixes, post a general PR comment via GitHub MCP:
 ```
+mcp__plugin_github_github__add_issue_comment({
+  owner: "<owner>",
+  repo: "<repo>",
+  issue_number: <number>,
+  body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to Graphite DI concern...\n\nAll inline review threads have replies."
+})
+```
+Fallback (if MCP token lacks write scope): `gh pr comment <number> --body "..."`
