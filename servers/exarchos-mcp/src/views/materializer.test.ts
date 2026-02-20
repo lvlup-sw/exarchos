@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ViewMaterializer, type ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import {
+  workflowStateProjection,
+  WORKFLOW_STATE_VIEW,
+} from './workflow-state-projection.js';
+import type { WorkflowStateView } from './workflow-state-projection.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -325,5 +330,54 @@ describe('ViewMaterializer Configurable Cache', () => {
     // stream-1 evicted at default 100 limit
     expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
     expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
+  });
+});
+
+// ─── WorkflowStateProjection Registration ─────────────────────────────────
+
+describe('ViewMaterializer WorkflowStateProjection Registration', () => {
+  it('ViewMaterializer_WorkflowStateView_MaterializesFromEvents', () => {
+    const materializer = new ViewMaterializer();
+    materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+
+    const events: WorkflowEvent[] = [
+      {
+        streamId: 'my-feature',
+        sequence: 1,
+        timestamp: '2026-02-19T10:00:00.000Z',
+        type: 'workflow.started',
+        schemaVersion: '1.0',
+        data: { featureId: 'my-feature', workflowType: 'feature' },
+      } as WorkflowEvent,
+      {
+        streamId: 'my-feature',
+        sequence: 2,
+        timestamp: '2026-02-19T10:05:00.000Z',
+        type: 'state.patched',
+        schemaVersion: '1.0',
+        data: { patch: { artifacts: { design: 'docs/design.md' } } },
+      } as WorkflowEvent,
+      {
+        streamId: 'my-feature',
+        sequence: 3,
+        timestamp: '2026-02-19T10:10:00.000Z',
+        type: 'workflow.transition',
+        schemaVersion: '1.0',
+        data: { from: 'ideate', to: 'plan', trigger: 'next', featureId: 'my-feature' },
+      } as WorkflowEvent,
+    ];
+
+    const view = materializer.materialize<WorkflowStateView>(
+      'my-feature',
+      WORKFLOW_STATE_VIEW,
+      events,
+    );
+
+    expect(view.featureId).toBe('my-feature');
+    expect(view.workflowType).toBe('feature');
+    expect(view.phase).toBe('plan');
+    expect(view.createdAt).toBe('2026-02-19T10:00:00.000Z');
+    expect(view.updatedAt).toBe('2026-02-19T10:10:00.000Z');
+    expect(view.artifacts.design).toBe('docs/design.md');
   });
 });
