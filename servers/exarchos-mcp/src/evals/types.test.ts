@@ -164,6 +164,31 @@ describe('AssertionResultSchema', () => {
       AssertionResultSchema.parse({ name: 'x', type: 'schema' })
     ).toThrow();
   });
+
+  it('Parse_SkippedDefault_IsFalse', () => {
+    const result = AssertionResultSchema.parse({
+      name: 'check-1',
+      type: 'exact-match',
+      passed: true,
+      score: 1.0,
+      reason: 'Matched',
+      threshold: 0.9,
+    });
+    expect(result.skipped).toBe(false);
+  });
+
+  it('Parse_SkippedTrue_Succeeds', () => {
+    const result = AssertionResultSchema.parse({
+      name: 'check-1',
+      type: 'llm-rubric',
+      passed: true,
+      score: 0,
+      reason: 'Skipped',
+      threshold: 0.7,
+      skipped: true,
+    });
+    expect(result.skipped).toBe(true);
+  });
 });
 
 // ─── EvalCaseSchema ─────────────────────────────────────────────────────
@@ -334,6 +359,22 @@ describe('RunSummarySchema', () => {
     });
     expect(result.total).toBe(10);
     expect(result.avgScore).toBe(0.85);
+    expect(result.skipped).toBe(0);
+  });
+
+  it('Parse_WithSkipped_Succeeds', () => {
+    const result = RunSummarySchema.parse({
+      runId: 'run-123',
+      suiteId: 'suite-1',
+      total: 10,
+      passed: 8,
+      failed: 0,
+      skipped: 2,
+      avgScore: 0.85,
+      duration: 5000,
+      results: [],
+    });
+    expect(result.skipped).toBe(2);
   });
 
   it('Parse_NegativeCounts_Rejects', () => {

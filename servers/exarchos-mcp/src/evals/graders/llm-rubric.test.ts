@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LlmRubricGrader } from './llm-rubric.js';
 
 // Mock promptfoo module
@@ -12,10 +12,20 @@ vi.mock('promptfoo', () => ({
 
 describe('LlmRubricGrader', () => {
   let grader: LlmRubricGrader;
+  const originalApiKey = process.env['ANTHROPIC_API_KEY'];
 
   beforeEach(() => {
     grader = new LlmRubricGrader();
     mockMatchesLlmRubric.mockReset();
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env['ANTHROPIC_API_KEY'] = originalApiKey;
+    } else {
+      delete process.env['ANTHROPIC_API_KEY'];
+    }
   });
 
   it('LlmRubricGrader_HasCorrectNameAndType', () => {
@@ -107,10 +117,12 @@ describe('LlmRubricGrader', () => {
     );
   });
 
-  it('LlmRubricGrader_NoRubricInConfig_ThrowsError', async () => {
-    await expect(
-      grader.grade({}, { text: 'test' }, {}, {}),
-    ).rejects.toThrow('llm-rubric grader requires config.rubric string');
+  it('LlmRubricGrader_NoRubricInConfig_ReturnsFailedGradeResult', async () => {
+    const result = await grader.grade({}, { text: 'test' }, {}, {});
+
+    expect(result.passed).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('requires config.rubric string');
   });
 
   it('LlmRubricGrader_NullScore_DefaultsBasedOnPass', async () => {
@@ -130,6 +142,59 @@ describe('LlmRubricGrader', () => {
     expect(result.passed).toBe(true);
     expect(result.score).toBe(1.0);
     expect(result.reason).toBe('Passed rubric');
+  });
+
+  it('LlmRubricGrader_ApiKeyError_ReturnsSkippedGracefully', async () => {
+    mockMatchesLlmRubric.mockRejectedValue(
+      new Error('API key is not set. Set the OPENAI_API_KEY environment variable'),
+    );
+
+    const result = await grader.grade(
+      {},
+      { text: 'test' },
+      {},
+      { rubric: 'Is it valid?', outputPath: 'text' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('API key');
+    expect(result.details?.['skipped']).toBe(true);
+  });
+
+  it('LlmRubricGrader_UnexpectedError_ReturnsFailedWithMessage', async () => {
+    mockMatchesLlmRubric.mockRejectedValue(new Error('Network timeout'));
+
+    const result = await grader.grade(
+      {},
+      { text: 'test' },
+      {},
+      { rubric: 'Is it valid?', outputPath: 'text' },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('LLM grader error');
+    expect(result.reason).toContain('Network timeout');
+  });
+
+  it('LlmRubricGrader_NoApiKey_ReturnsSkipped', async () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+
+    const result = await grader.grade(
+      {},
+      { text: 'test' },
+      {},
+      { rubric: 'Is it valid?', outputPath: 'text' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('ANTHROPIC_API_KEY');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesLlmRubric).not.toHaveBeenCalled();
   });
 });
 

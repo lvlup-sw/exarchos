@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LlmSimilarityGrader } from './llm-similarity.js';
 
 // Mock promptfoo module
@@ -12,10 +12,20 @@ vi.mock('promptfoo', () => ({
 
 describe('LlmSimilarityGrader', () => {
   let grader: LlmSimilarityGrader;
+  const originalApiKey = process.env['ANTHROPIC_API_KEY'];
 
   beforeEach(() => {
     grader = new LlmSimilarityGrader();
     mockMatchesSimilarity.mockReset();
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env['ANTHROPIC_API_KEY'] = originalApiKey;
+    } else {
+      delete process.env['ANTHROPIC_API_KEY'];
+    }
   });
 
   it('LlmSimilarityGrader_HasCorrectNameAndType', () => {
@@ -152,5 +162,23 @@ describe('LlmSimilarityGrader', () => {
       false,
       { provider: undefined },
     );
+  });
+
+  it('LlmSimilarityGrader_NoApiKey_ReturnsSkipped', async () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+
+    const result = await grader.grade(
+      {},
+      { text: 'output text' },
+      { text: 'expected text' },
+      { outputPath: 'text', expectedPath: 'text' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('ANTHROPIC_API_KEY');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesSimilarity).not.toHaveBeenCalled();
   });
 });

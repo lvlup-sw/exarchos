@@ -4,6 +4,7 @@ import { extractOutputText } from './output-extractor.js';
 /**
  * LLM-based rubric grader that wraps Promptfoo's matchesLlmRubric assertion.
  * Uses dynamic import to avoid loading promptfoo during normal MCP server operation.
+ * Returns a skipped result (passed=true, score=0) when API keys are missing.
  */
 export class LlmRubricGrader implements IGrader {
   readonly name = 'llm-rubric';
@@ -17,7 +18,22 @@ export class LlmRubricGrader implements IGrader {
   ): Promise<GradeResult> {
     const rubric = config?.rubric;
     if (typeof rubric !== 'string') {
-      throw new Error('llm-rubric grader requires config.rubric string');
+      return {
+        passed: false,
+        score: 0,
+        reason: 'Invalid config: llm-rubric grader requires config.rubric string',
+        details: { error: 'missing rubric' },
+      };
+    }
+
+    // Skip if no API key available
+    if (!process.env['ANTHROPIC_API_KEY']) {
+      return {
+        passed: true,
+        score: 0,
+        reason: 'Skipped: ANTHROPIC_API_KEY not set',
+        details: { skipped: true },
+      };
     }
 
     const model = config?.model as string | undefined;
@@ -25,9 +41,30 @@ export class LlmRubricGrader implements IGrader {
 
     // Dynamic import to avoid loading promptfoo when not needed
     const { assertions } = await import('promptfoo');
-    const result = await assertions.matchesLlmRubric(rubric, outputText, {
-      provider: model ? `anthropic:messages:${model}` : undefined,
-    });
+
+    let result: { pass: boolean; score?: number; reason?: string };
+    try {
+      result = await assertions.matchesLlmRubric(rubric, outputText, {
+        provider: model ? `anthropic:messages:${model}` : undefined,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isApiKeyError = message.includes('API key') || message.includes('apiKey');
+      if (isApiKeyError) {
+        return {
+          passed: true,
+          score: 0,
+          reason: `Skipped: ${message}`,
+          details: { model, rubric, error: message, skipped: true },
+        };
+      }
+      return {
+        passed: false,
+        score: 0,
+        reason: `LLM grader error: ${message}`,
+        details: { model, rubric, error: message },
+      };
+    }
 
     return {
       passed: result.pass,

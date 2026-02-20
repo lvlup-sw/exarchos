@@ -29,15 +29,46 @@ export class LlmSimilarityGrader implements IGrader {
       expectedText = extractOutputText(expected, config?.expectedPath as string | undefined);
     }
 
+    // Skip if no API key available
+    if (!process.env['ANTHROPIC_API_KEY']) {
+      return {
+        passed: true,
+        score: 0,
+        reason: 'Skipped: ANTHROPIC_API_KEY not set',
+        details: { skipped: true },
+      };
+    }
+
     // Dynamic import to avoid loading promptfoo when not needed
     const { assertions } = await import('promptfoo');
-    const result = await assertions.matchesSimilarity(
-      expectedText,
-      outputText,
-      threshold,
-      false,
-      { provider: model ? `anthropic:messages:${model}` : undefined },
-    );
+
+    let result: { pass: boolean; score?: number; reason?: string };
+    try {
+      result = await assertions.matchesSimilarity(
+        expectedText,
+        outputText,
+        threshold,
+        false,
+        { provider: model ? `anthropic:messages:${model}` : undefined },
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isApiKeyError = message.includes('API key') || message.includes('apiKey');
+      if (isApiKeyError) {
+        return {
+          passed: true,
+          score: 0,
+          reason: `Skipped: ${message}`,
+          details: { model, threshold, expectedText, error: message, skipped: true },
+        };
+      }
+      return {
+        passed: false,
+        score: 0,
+        reason: `LLM grader error: ${message}`,
+        details: { model, threshold, expectedText, error: message },
+      };
+    }
 
     return {
       passed: result.pass,
