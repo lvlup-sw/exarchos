@@ -3,25 +3,25 @@
 
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-  **Governed SDLC workflows for Claude Code**<br>
-  Agent orchestration · Quality gates · Graphite stacked PRs · Event-sourced auditability
+  **SDLC workflows for Claude Code**<br>
+  Agent teams · Quality gates · Graphite stacked PRs · Event-sourced state
 </div>
 
 ---
 
 ## Why Exarchos?
 
-AI agents are reshaping software development. The work is shifting — from writing every line to designing systems, directing agent teams, and verifying outcomes. But structured development processes haven't kept pace. Agents operate without workflow discipline, produce unverified output, lose context mid-task, and leave no audit trail.
+Claude Code doesn't have workflow structure out of the box. Agents lose context mid-task, skip tests, produce monolithic PRs, and leave you reconstructing what happened after the fact.
 
-Exarchos brings governed SDLC workflows to Claude Code. You direct the process — ideate, plan, delegate, review, ship — while agent teams execute in parallel, each working in isolated git worktrees with independent context. Every phase has quality gates. Every transition is recorded.
+Exarchos adds SDLC process to Claude Code. Three workflows (feature, debug, refactor) move through defined phases with human checkpoints at design and merge. Between those checkpoints, agent teams work in parallel git worktrees while the orchestrator manages state, enforces review gates, and logs every transition.
 
-- **Structured workflows** — Three complete SDLC workflows (feature, debug, refactor) with human checkpoints at design decisions and merge only. Everything between is automated.
-- **Multi-agent orchestration** — Delegate tasks to agent teams working in parallel worktrees. The orchestrator directs; teammates implement, review, and coordinate.
-- **Quality gates at every phase** — Two-stage code review (spec compliance, then code quality), TDD enforcement, and deterministic validation scripts. Work that doesn't pass doesn't merge.
-- **Graphite stacked PRs** — Completed work ships as progressively stacked PRs with merge queue integration. No monolithic PRs, no manual branch management.
-- **Full auditability** — Every workflow transition, task completion, and agent interaction is recorded in an append-only event log. You can trace exactly what happened, when, and why.
-- **Token efficient** — Composite MCP tools and on-demand content loading minimize context overhead, leaving more of Claude's context window for your actual work.
-- **Session resilient** — Workflows survive context compaction and session interruptions. Pick up exactly where you left off, even across days or machines.
+- **Three SDLC workflows.** Feature, debug, and refactor tracks with defined phases. You approve at design and merge; everything else auto-continues.
+- **Parallel agent teams.** Delegate implementation to teammates working in isolated git worktrees with independent context.
+- **Two-stage code review.** Spec compliance first, then code quality. TDD enforcement and deterministic validation scripts gate every merge.
+- **Graphite stacked PRs.** Work ships as incremental stacked PRs through merge queue. No monolithic diffs, no manual branch management.
+- **Append-only event log.** Every workflow transition, task completion, and agent interaction is recorded. Trace what happened, when, and why.
+- **Low context overhead.** Composite MCP tools and on-demand content loading keep token usage minimal.
+- **Persistent state.** Workflows survive context compaction and session restarts. Pick up where you left off across sessions and machines.
 
 ## Installation
 
@@ -37,7 +37,7 @@ Exarchos brings governed SDLC workflows to Claude Code. You direct the process �
 
 This installs the Exarchos MCP server, Graphite MCP integration, all workflow commands and skills, lifecycle hooks, and validation scripts.
 
-**Dev companion** (optional) — adds GitHub, Serena, Context7, and Microsoft Learn MCP: `npx @lvlup-sw/exarchos-dev`
+**Dev companion** (optional): adds GitHub, Serena, Context7, and Microsoft Learn MCP servers. `npx @lvlup-sw/exarchos-dev`
 
 ### For Development
 
@@ -137,7 +137,7 @@ Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoin
 
 ## How It Works
 
-Your Claude Code session becomes an orchestrator. Exarchos manages the workflow state while you direct the process at each decision point. Agent teammates execute tasks in isolated git worktrees — each with independent context, working in parallel.
+Your Claude Code session acts as the orchestrator. Exarchos manages workflow state; you make decisions at each checkpoint. Agent teammates execute tasks in isolated git worktrees, each with independent context, working in parallel.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
