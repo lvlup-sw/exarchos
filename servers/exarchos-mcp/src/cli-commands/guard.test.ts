@@ -481,6 +481,74 @@ describe('guard command', () => {
     });
   });
 
+  // ─── Event Stream Scoping ───────────────────────────────────────────
+
+  describe('event stream scoping', () => {
+    it('should scope batch_append to targeted stream workflow, not fallback', async () => {
+      // Arrange — target workflow "my-stream" is in delegate (batch_append allowed),
+      // but a more recently updated workflow "other" is in synthesize (batch_append denied).
+      // Without proper stream extraction, guard falls back to "other" and blocks.
+      await fs.writeFile(
+        path.join(tmpDir, 'my-stream.state.json'),
+        makeStateJson('my-stream', 'delegate', '2025-01-01T00:00:00.000Z'),
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'other.state.json'),
+        makeStateJson('other', 'synthesize', '2025-06-01T00:00:00.000Z'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_event', 'batch_append',
+        { stream: 'my-stream', events: [{ type: 'task.assigned', data: {} }] },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — should check "my-stream" (delegate), not "other" (synthesize)
+      expect(result).toEqual({});
+    });
+
+    it('should scope append to targeted stream workflow', async () => {
+      // Arrange — stream workflow in ideate, fallback would be delegate
+      await fs.writeFile(
+        path.join(tmpDir, 'event-target.state.json'),
+        makeStateJson('event-target', 'ideate', '2025-01-01T00:00:00.000Z'),
+      );
+      await fs.writeFile(
+        path.join(tmpDir, 'newer-workflow.state.json'),
+        makeStateJson('newer-workflow', 'delegate', '2025-06-01T00:00:00.000Z'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_event', 'append',
+        { stream: 'event-target', event: { type: 'test', data: {} } },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert — append is ALL_PHASES, so allowed regardless, but should scope to event-target
+      expect(result).toEqual({});
+    });
+
+    it('should scope query to targeted stream workflow', async () => {
+      // Arrange — stream workflow in delegate, unrelated in ideate
+      await fs.writeFile(
+        path.join(tmpDir, 'query-stream.state.json'),
+        makeStateJson('query-stream', 'delegate', '2025-01-01T00:00:00.000Z'),
+      );
+      const input = makePreToolUseInput(
+        'mcp__exarchos__exarchos_event', 'query',
+        { stream: 'query-stream' },
+      );
+
+      // Act
+      const result = await handleGuard(input, tmpDir);
+
+      // Assert
+      expect(result).toEqual({});
+    });
+  });
+
   // ─── Deterministic Workflow Selection ─────────────────────────────────
 
   describe('deterministic workflow selection', () => {

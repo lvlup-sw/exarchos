@@ -189,6 +189,6 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
 
 Output to user:
 > This issue requires architectural changes that exceed bug fix scope.
-> Recommend running `/ideate` to design the solution properly.
+> Recommend running `/exarchos:ideate` to design the solution properly.
 >
 > Context preserved in: `<state-file>`

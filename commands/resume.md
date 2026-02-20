@@ -77,19 +77,19 @@ After displaying context, ask:
 ### Resume Specific Workflow
 
 ```
-/resume ~/.claude/workflow-state/user-authentication.state.json
+/exarchos:resume ~/.claude/workflow-state/user-authentication.state.json
 ```
 
 ### List and Choose
 
 ```
-/resume
+/exarchos:resume
 ```
 
 Lists available workflows, then:
 
 ```
-/resume ~/.claude/workflow-state/<chosen-feature>.state.json
+/exarchos:resume ~/.claude/workflow-state/<chosen-feature>.state.json
 ```
 
 ## Context Efficiency

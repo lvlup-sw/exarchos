@@ -32,7 +32,7 @@ Activate this skill when:
 ## Workflow Overview
 
 ```
-                              /refactor
+                              /exarchos:refactor
                                   |
                             +-----+-----+
                             |  Explore  |
@@ -68,10 +68,10 @@ Activate this skill when:
 
 ```bash
 # Switch from polish to overhaul (during explore/brief)
-/refactor --switch-overhaul
+/exarchos:refactor --switch-overhaul
 
 # Resume after context compaction
-/resume
+/exarchos:resume
 ```
 
 ## Track Comparison
@@ -167,10 +167,10 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 
 | Skill | Invocation | Usage |
 |-------|------------|-------|
-| `/plan` | `Skill({ skill: "plan", args: "--refactor <state-file>" })` | Task extraction from brief |
-| `/delegate` | `Skill({ skill: "delegate", args: "<state-file>" })` | Subagent dispatch for TDD |
-| `/review` | `Skill({ skill: "review", args: "<state-file>" })` | Quality review |
-| `/synthesize` | `Skill({ skill: "synthesize", args: "<feature>" })` | PR creation |
+| `/exarchos:plan` | `Skill({ skill: "exarchos:plan", args: "--refactor <state-file>" })` | Task extraction from brief |
+| `/exarchos:delegate` | `Skill({ skill: "exarchos:delegate", args: "<state-file>" })` | Subagent dispatch for TDD |
+| `/exarchos:review` | `Skill({ skill: "exarchos:review", args: "<state-file>" })` | Quality review |
+| `/exarchos:synthesize` | `Skill({ skill: "exarchos:synthesize", args: "<feature>" })` | PR creation |
 
 ## Anti-Patterns
 

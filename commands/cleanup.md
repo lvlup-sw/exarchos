@@ -9,8 +9,8 @@ Resolve merged workflow: "$ARGUMENTS"
 ## Workflow Position
 
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /review → /synthesize → [CONFIRM] → merge → /cleanup
-                                                                                        ▲▲▲▲▲▲▲
+/exarchos:ideate → [CONFIRM] → /exarchos:plan → /exarchos:delegate → /exarchos:review → /exarchos:synthesize → [CONFIRM] → merge → /exarchos:cleanup
+                                                                                                                                                                       ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 ```
 
 This command is the **post-merge cleanup** entry point. Use after PR stack has merged to resolve workflow state to `completed`.
