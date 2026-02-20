@@ -32,6 +32,64 @@ describe('generateQualityHints', () => {
     });
   });
 
+  describe('targetSkill filtering', () => {
+    it('should scope hints to targetSkill only', () => {
+      const state = makeState({
+        skills: {
+          alpha: {
+            skill: 'alpha',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'lint', count: 1 }],
+          },
+          beta: {
+            skill: 'beta',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'test', count: 1 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state, 'alpha');
+      const skillHints = hints.filter(h => h.category === 'gate');
+      expect(skillHints).toHaveLength(1);
+      expect(skillHints[0].skill).toBe('alpha');
+    });
+
+    it('should return hints for all skills when no targetSkill', () => {
+      const state = makeState({
+        skills: {
+          alpha: {
+            skill: 'alpha',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'lint', count: 1 }],
+          },
+          beta: {
+            skill: 'beta',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [{ category: 'test', count: 1 }],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state);
+      const gateHints = hints.filter(h => h.category === 'gate');
+      expect(gateHints).toHaveLength(2);
+      expect(gateHints.map(h => h.skill).sort()).toEqual(['alpha', 'beta']);
+    });
+  });
+
   describe('gate pass rate rule', () => {
     it('should return warning hint when gate pass rate is below threshold', () => {
       const state = makeState({
