@@ -90,7 +90,8 @@ export function detectGraphite(
   exec: (cmd: string, opts?: Record<string, unknown>) => Buffer = execSync,
 ): boolean {
   try {
-    exec('which gt', { stdio: 'pipe' });
+    const cmd = process.platform === 'win32' ? 'where gt' : 'which gt';
+    exec(cmd, { stdio: 'pipe' });
     return true;
   } catch {
     return false;
