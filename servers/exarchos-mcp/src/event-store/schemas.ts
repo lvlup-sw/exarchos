@@ -129,6 +129,7 @@ export const StackPositionFilledData = z.object({
   prUrl: z.string().optional(),
 });
 
+/** @planned — not yet emitted in production */
 export const StackRestackedData = z.object({
   affectedPositions: z.array(z.number().int()),
 });
@@ -224,6 +225,7 @@ export const ReviewRoutedData = z.object({
   semanticAugmented: z.boolean(),
 });
 
+/** @planned — not yet emitted in production */
 export const ReviewFindingData = z.object({
   pr: z.number().int(),
   source: z.enum(['coderabbit', 'self-hosted']),
@@ -234,6 +236,7 @@ export const ReviewFindingData = z.object({
   rule: z.string().optional(),
 });
 
+/** @planned — not yet emitted in production */
 export const ReviewEscalatedData = z.object({
   pr: z.number().int(),
   reason: z.string(),
@@ -307,12 +310,14 @@ export const TeamTaskFailedData = z.object({
   gateResults: z.record(z.string(), z.unknown()),
 });
 
+/** @planned — not yet emitted in production */
 export const TeamDisbandedData = z.object({
   totalDurationMs: z.number(),
   tasksCompleted: z.number().int(),
   tasksFailed: z.number().int(),
 });
 
+/** @planned — not yet emitted in production */
 export const TeamContextInjectedData = z.object({
   phase: z.string(),
   toolsAvailable: z.number().int(),
@@ -335,6 +340,7 @@ export const TeamTeammateDispatchedData = z.object({
 
 // ─── Quality Regression Event Data ──────────────────────────────────────────
 
+/** @planned — not yet emitted in production */
 export const QualityRegressionData = z.object({
   skill: z.string(),
   gate: z.string(),
@@ -346,6 +352,7 @@ export const QualityRegressionData = z.object({
 
 // ─── Quality Hint Event Data ─────────────────────────────────────────────
 
+/** @planned — not yet emitted in production */
 export const QualityHintGeneratedData = z.object({
   skill: z.string(),
   hintCount: z.number().int().nonnegative(),
