@@ -3075,6 +3075,59 @@ describe('HandleSet CAS Diagnostic', () => {
 
     writeSpy.mockRestore();
   });
+
+  it('HandleSet_CASExhaustedAfterMaxRetries_EmitsWorkflowCasFailedEvent', async () => {
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    // Arrange: Create workflow and set design artifact
+    await handleInit({ featureId: 'cas-shape', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'cas-shape', updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+    );
+
+    // Mock writeStateFile to always throw VersionConflictError (exhaust retries)
+    const stateStoreMod = await import('../../workflow/state-store.js');
+    const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
+      async (_stateFile, _state, options) => {
+        if (options?.expectedVersion !== undefined) {
+          throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
+        }
+        throw new Error('Unexpected non-CAS write');
+      },
+    );
+
+    try {
+      // Act: Trigger CAS exhaustion
+      try {
+        await handleSet({ featureId: 'cas-shape', phase: 'plan' }, tmpDir);
+      } catch (err) {
+        // Expected: handleSet throws VersionConflictError after CAS exhaustion
+        expect(err).toBeInstanceOf(Error);
+      }
+
+      // Assert: Validate the event shape matches WorkflowCasFailedData
+      const { WorkflowCasFailedData } = await import('../../event-store/schemas.js');
+      const events = await eventStore.query('cas-shape');
+      const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
+      expect(casFailedEvents).toHaveLength(1);
+
+      const data = casFailedEvents[0].data as Record<string, unknown>;
+
+      // Shape validation: parse through the Zod schema to confirm compliance
+      const parseResult = WorkflowCasFailedData.safeParse(data);
+      expect(parseResult.success).toBe(true);
+
+      // Verify specific field values
+      expect(data.featureId).toBe('cas-shape');
+      expect(typeof data.phase).toBe('string');
+      expect(typeof data.retries).toBe('number');
+      expect(data.retries).toBe(3);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
 });
 
 // ─── _esVersion on handleInit and isEventSourced helper ──────────────────────
