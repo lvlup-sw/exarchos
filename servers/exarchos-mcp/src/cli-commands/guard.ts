@@ -102,7 +102,7 @@ async function findActiveWorkflowPhase(
 ): Promise<string | null> {
   let stateFiles;
   try {
-    stateFiles = await listStateFiles(stateDir);
+    stateFiles = (await listStateFiles(stateDir)).valid;
   } catch {
     // State directory doesn't exist or is unreadable
     return null;

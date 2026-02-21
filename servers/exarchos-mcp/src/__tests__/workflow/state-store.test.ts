@@ -203,21 +203,23 @@ describe('State Store', () => {
 
       const results = await listStateFiles(tmpDir);
 
-      expect(results).toHaveLength(3);
-      const featureIds = results.map((r) => r.featureId).sort();
+      expect(results.valid).toHaveLength(3);
+      const featureIds = results.valid.map((r) => r.featureId).sort();
       expect(featureIds).toEqual(['feature-a', 'feature-b', 'feature-c']);
 
       // Each entry should have stateFile and state
-      for (const entry of results) {
+      for (const entry of results.valid) {
         expect(entry.stateFile).toContain('.state.json');
         expect(entry.state).toBeDefined();
         expect(entry.state.featureId).toBe(entry.featureId);
       }
+      expect(results.corrupt).toHaveLength(0);
     });
 
     it('should return empty array for empty directory', async () => {
       const results = await listStateFiles(tmpDir);
-      expect(results).toEqual([]);
+      expect(results.valid).toEqual([]);
+      expect(results.corrupt).toEqual([]);
     });
 
     it('should ignore non-state files', async () => {
@@ -226,8 +228,8 @@ describe('State Store', () => {
       await fs.writeFile(path.join(tmpDir, 'readme.md'), '# Notes', 'utf-8');
 
       const results = await listStateFiles(tmpDir);
-      expect(results).toHaveLength(1);
-      expect(results[0].featureId).toBe('real-state');
+      expect(results.valid).toHaveLength(1);
+      expect(results.valid[0].featureId).toBe('real-state');
     });
   });
 
@@ -353,11 +355,13 @@ describe('State Store', () => {
       );
 
       const results = await listStateFiles(tmpDir);
-      expect(results).toHaveLength(1);
-      expect(results[0].featureId).toBe('valid-feature');
+      expect(results.valid).toHaveLength(1);
+      expect(results.valid[0].featureId).toBe('valid-feature');
+      expect(results.corrupt).toHaveLength(1);
+      expect(results.corrupt[0].featureId).toBe('corrupt');
     });
 
-    it('should return empty array when all state files are corrupt', async () => {
+    it('should return empty valid array when all state files are corrupt', async () => {
       await fs.writeFile(
         path.join(tmpDir, 'bad1.state.json'),
         '{not valid}}}',
@@ -370,16 +374,18 @@ describe('State Store', () => {
       );
 
       const results = await listStateFiles(tmpDir);
-      expect(results).toHaveLength(0);
+      expect(results.valid).toHaveLength(0);
+      expect(results.corrupt).toHaveLength(2);
     });
   });
 
   describe('listStateFiles_ENOENT_ReturnsEmptyArray', () => {
-    it('should return empty array when directory does not exist', async () => {
+    it('should return empty arrays when directory does not exist', async () => {
       const nonExistentDir = path.join(tmpDir, 'does-not-exist');
 
       const results = await listStateFiles(nonExistentDir);
-      expect(results).toEqual([]);
+      expect(results.valid).toEqual([]);
+      expect(results.corrupt).toEqual([]);
     });
   });
 
@@ -397,6 +403,89 @@ describe('State Store', () => {
         expect(err).toBeInstanceOf(StateStoreError);
         expect((err as StateStoreError).code).toBe(ErrorCode.FILE_IO_ERROR);
       }
+    });
+  });
+
+  describe('listStateFiles_CorruptFileReporting', () => {
+    it('ListStateFiles_CorruptFile_ReportsInCorruptArray', async () => {
+      await initStateFile(tmpDir, 'valid-feature', 'feature');
+      await fs.writeFile(
+        path.join(tmpDir, 'corrupt.state.json'),
+        'invalid json{{{',
+        'utf-8',
+      );
+
+      const result = await listStateFiles(tmpDir);
+      expect(result.valid).toHaveLength(1);
+      expect(result.valid[0].featureId).toBe('valid-feature');
+      expect(result.corrupt).toHaveLength(1);
+      expect(result.corrupt[0].featureId).toBe('corrupt');
+      expect(result.corrupt[0].stateFile).toContain('corrupt.state.json');
+      expect(result.corrupt[0].error).toBeTruthy();
+    });
+
+    it('ListStateFiles_MixedFiles_SeparatesValidAndCorrupt', async () => {
+      await initStateFile(tmpDir, 'good-one', 'feature');
+      await initStateFile(tmpDir, 'good-two', 'debug');
+      await fs.writeFile(
+        path.join(tmpDir, 'bad.state.json'),
+        '{not valid}}}',
+        'utf-8',
+      );
+
+      const result = await listStateFiles(tmpDir);
+      expect(result.valid).toHaveLength(2);
+      expect(result.corrupt).toHaveLength(1);
+      expect(result.corrupt[0].featureId).toBe('bad');
+    });
+
+    it('ListStateFiles_AllCorrupt_ReturnsEmptyValidNonEmptyCorrupt', async () => {
+      await fs.writeFile(path.join(tmpDir, 'bad1.state.json'), '{{{', 'utf-8');
+      await fs.writeFile(path.join(tmpDir, 'bad2.state.json'), '', 'utf-8');
+
+      const result = await listStateFiles(tmpDir);
+      expect(result.valid).toHaveLength(0);
+      expect(result.corrupt).toHaveLength(2);
+    });
+  });
+
+  describe('listStateFiles_OrphanedTempCleanup', () => {
+    it('ListStateFiles_OrphanedTmpFromDeadPid_CleansUp', async () => {
+      // Create an orphaned temp file with a dead PID
+      const tmpFile = path.join(tmpDir, 'test.state.json.tmp.999999');
+      await fs.writeFile(tmpFile, '{}', 'utf-8');
+
+      await listStateFiles(tmpDir);
+
+      // Verify temp file was cleaned up
+      await expect(fs.access(tmpFile)).rejects.toThrow();
+    });
+
+    it('ListStateFiles_TmpFromLivePid_Preserved', async () => {
+      // Create a temp file with our own PID (alive)
+      const tmpFile = path.join(tmpDir, `test.state.json.tmp.${process.pid}`);
+      await fs.writeFile(tmpFile, '{}', 'utf-8');
+
+      await listStateFiles(tmpDir);
+
+      // Verify temp file was NOT cleaned up
+      await expect(fs.access(tmpFile)).resolves.toBeUndefined();
+    });
+
+    it('ListStateFiles_InitTmpFromDeadPid_CleansUp', async () => {
+      const tmpFile = path.join(tmpDir, 'test.state.json.init.999999');
+      await fs.writeFile(tmpFile, '{}', 'utf-8');
+
+      await listStateFiles(tmpDir);
+
+      await expect(fs.access(tmpFile)).rejects.toThrow();
+    });
+
+    it('ListStateFiles_NoTmpFiles_NoError', async () => {
+      await initStateFile(tmpDir, 'valid-feature', 'feature');
+
+      const result = await listStateFiles(tmpDir);
+      expect(result.valid).toHaveLength(1);
     });
   });
 
