@@ -19,7 +19,7 @@ TASK_ID="${2:-}"
 
 if [ -z "$PLAN" ] || [ -z "$TASK_ID" ]; then
     echo "Usage: extract-task.sh <plan-path> <task-id>" >&2
-    exit 1
+    exit 2
 fi
 
 if [ ! -f "$PLAN" ]; then

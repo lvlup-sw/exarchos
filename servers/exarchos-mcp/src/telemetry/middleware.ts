@@ -1,10 +1,24 @@
 import { EventStore } from '../event-store/store.js';
 import type { McpToolResult } from '../format.js';
+import { telemetryLogger } from '../logger.js';
 import { TELEMETRY_STREAM } from './constants.js';
+import type { ToolMetrics } from './telemetry-projection.js';
+import { matchCorrection, applyCorrections } from './auto-correction.js';
+import type { Correction } from './auto-correction.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<McpToolResult>;
+
+/** Optional configuration for auto-correction behavior in withTelemetry. */
+export interface AutoCorrectionOptions {
+  /** The action being performed (e.g., 'tasks', 'query', 'get'). */
+  readonly action: string;
+  /** Returns current metrics for the tool. */
+  readonly getMetrics: () => ToolMetrics;
+  /** Number of consecutive threshold breaches. */
+  readonly consecutiveBreaches: number;
+}
 
 // ─── Perf Injection ─────────────────────────────────────────────────────────
 
@@ -32,6 +46,25 @@ function injectPerf(result: McpToolResult, perf: PerfMetrics): McpToolResult {
   }
 }
 
+/** Injects `_autoCorrection` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
+function injectAutoCorrection(result: McpToolResult, applied: Correction[]): McpToolResult {
+  if (applied.length === 0) return result;
+
+  const entry = result.content[0];
+  if (!entry?.text) return result;
+
+  try {
+    const parsed = JSON.parse(entry.text) as Record<string, unknown>;
+    parsed._autoCorrection = { applied };
+    return {
+      ...result,
+      content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
+    };
+  } catch {
+    return result;
+  }
+}
+
 // ─── withTelemetry HOF ──────────────────────────────────────────────────────
 
 /**
@@ -40,14 +73,32 @@ function injectPerf(result: McpToolResult, perf: PerfMetrics): McpToolResult {
  * Emits `tool.invoked` before execution, `tool.completed` after success (with
  * duration, response size, and token estimate), or `tool.errored` on failure.
  *
+ * When `autoCorrectionOptions` is provided, applies auto-correction rules before
+ * calling the handler and injects `_autoCorrection` metadata into the response.
+ *
  * Telemetry failures are swallowed — they never break the underlying handler.
  */
 export function withTelemetry(
   handler: ToolHandler,
   toolName: string,
   eventStore: EventStore,
+  autoCorrectionOptions?: AutoCorrectionOptions,
 ): ToolHandler {
   return async (args) => {
+    // ─── Auto-Correction ───────────────────────────────────────────────
+    let correctedArgs = args;
+    let appliedCorrections: Correction[] = [];
+
+    if (autoCorrectionOptions) {
+      const { action, getMetrics, consecutiveBreaches } = autoCorrectionOptions;
+      const metrics = getMetrics();
+      const correction = matchCorrection(toolName, action, args, metrics, consecutiveBreaches);
+      const corrections = correction ? [correction] : [];
+      const result = applyCorrections(args, corrections);
+      correctedArgs = result.args;
+      appliedCorrections = result.applied;
+    }
+
     // Emit invoked (fire-and-forget, swallow failures)
     const invokePromise = eventStore
       .append(TELEMETRY_STREAM, {
@@ -59,7 +110,7 @@ export function withTelemetry(
     const start = performance.now();
 
     try {
-      const result = await handler(args);
+      const result = await handler(correctedArgs);
       const durationMs = Math.round(performance.now() - start);
       const responseText = result.content[0]?.text ?? '';
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
@@ -76,7 +127,30 @@ export function withTelemetry(
         })
         .catch(() => {});
 
-      return injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
+      // Emit quality.hint.generated when auto-correction was applied
+      if (appliedCorrections.length > 0) {
+        await eventStore
+          .append(TELEMETRY_STREAM, {
+            type: 'quality.hint.generated',
+            data: {
+              skill: toolName,
+              hintCount: appliedCorrections.length,
+              categories: ['auto-correction'],
+              generatedAt: new Date().toISOString(),
+            },
+          })
+          .catch((err: unknown) => {
+            telemetryLogger.error(
+              { err, tool: toolName, hintCount: appliedCorrections.length },
+              'Failed to emit quality.hint.generated event',
+            );
+          });
+      }
+
+      let finalResult = injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
+      finalResult = injectAutoCorrection(finalResult, appliedCorrections);
+
+      return finalResult;
     } catch (error) {
       const durationMs = Math.round(performance.now() - start);
 
