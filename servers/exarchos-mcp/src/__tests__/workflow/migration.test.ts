@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { migrateState, CURRENT_VERSION } from '../../workflow/migration.js';
+import { readStateFile } from '../../workflow/state-store.js';
+import * as path from 'node:path';
+import { mkdtemp, rm, writeFile, readFile, access } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 // Helper: minimal v1.0 state (no _history, _checkpoint)
 function makeV1_0State() {
@@ -126,5 +130,91 @@ describe('Migration', () => {
     it('should export CURRENT_VERSION as 1.1', () => {
       expect(CURRENT_VERSION).toBe('1.1');
     });
+  });
+});
+
+describe('readStateFile backup integration', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'state-backup-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('ReadStateFile_V1_0State_CreatesBackupBeforeMigration', async () => {
+    const stateFile = path.join(tempDir, 'test-feature.state.json');
+    const v1_0State = {
+      version: '1.0',
+      featureId: 'test-feature',
+      workflowType: 'feature',
+      createdAt: '2025-01-15T10:00:00Z',
+      updatedAt: '2025-01-15T10:30:00Z',
+      phase: 'ideate',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _version: 1,
+    };
+    await writeFile(stateFile, JSON.stringify(v1_0State), 'utf-8');
+
+    await readStateFile(stateFile);
+
+    // Backup should exist with original v1.0 content
+    const backupPath = `${stateFile}.bak`;
+    await expect(access(backupPath)).resolves.toBeUndefined();
+    const backupContent = JSON.parse(await readFile(backupPath, 'utf-8'));
+    expect(backupContent.version).toBe('1.0');
+  });
+
+  it('ReadStateFile_V1_1State_NoBackupCreated', async () => {
+    const stateFile = path.join(tempDir, 'test-feature.state.json');
+    const v1_1State = {
+      version: '1.1',
+      featureId: 'test-feature',
+      workflowType: 'feature',
+      createdAt: '2025-01-15T10:00:00Z',
+      updatedAt: '2025-01-15T10:30:00Z',
+      phase: 'ideate',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _version: 1,
+      _history: {},
+      _checkpoint: {
+        timestamp: '2025-01-15T10:30:00Z',
+        phase: 'ideate',
+        summary: '',
+        operationsSince: 0,
+        fixCycleCount: 0,
+        lastActivityTimestamp: '2025-01-15T10:30:00Z',
+        staleAfterMinutes: 120,
+      },
+    };
+    await writeFile(stateFile, JSON.stringify(v1_1State), 'utf-8');
+
+    await readStateFile(stateFile);
+
+    // No backup should be created for current version
+    const backupPath = `${stateFile}.bak`;
+    await expect(access(backupPath)).rejects.toThrow();
   });
 });
