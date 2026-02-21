@@ -128,7 +128,11 @@ Four focused improvements identified during Phase 2 review: connect the event pi
 
 All 4 streams are independent:
 
+<<<<<<< Updated upstream
 ```text
+=======
+```
+>>>>>>> Stashed changes
 Stream A (EventStore wiring)  ─── T:A1 → T:A2
 Stream B (LLM helper DRY)     ─── T:B1
 Stream C (CI exit code)        ─── T:C1
