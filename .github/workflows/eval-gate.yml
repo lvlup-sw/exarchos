@@ -1,0 +1,47 @@
+name: Eval Gate
+
+on:
+  pull_request:
+    paths:
+      - 'skills/**'
+      - 'commands/**'
+      - 'rules/**'
+      - 'servers/exarchos-mcp/src/**'
+      - 'evals/**'
+      - '.github/workflows/eval-gate.yml'
+
+jobs:
+  eval-regression:
+    name: Eval Regression Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: eval-gate-${{ github.head_ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
+
+      - name: Build
+        working-directory: servers/exarchos-mcp
+        run: npm run build
+
+      - name: Run Regression Evals
+        working-directory: servers/exarchos-mcp
+        run: |
+          echo '{"ci": true}' | node dist/cli.js eval-run
+        env:
+          # Optional: LLM graders (llm-rubric, llm-similarity) skip gracefully when not set
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVALS_DIR: ../../evals
