@@ -1177,7 +1177,7 @@ describe('State Store', () => {
 
     // ─── T8: Phase reconciliation check (ARCH-7) ───────────────────────────
 
-    it('should use event-derived phase when state.phase mismatches last transition after replay', async () => {
+    it('should use event-derived phase when delta contains a transition after state tampering', async () => {
       // Arrange: create state, do a normal reconciliation to 'plan'
       await initStateFile(tmpDir, 'mismatch-test', 'feature');
       await eventStore.append('mismatch-test', {
@@ -1199,19 +1199,19 @@ describe('State Store', () => {
       rawState.phase = 'ideate'; // Corrupt: events say 'plan', state says 'ideate'
       await fs.writeFile(stateFile, JSON.stringify(rawState, null, 2), 'utf-8');
 
-      // Append a new event (not a transition) so reconcile has work to do
+      // Append a new transition event so the delta scan picks it up
       await eventStore.append('mismatch-test', {
-        type: 'workflow.checkpoint',
-        data: { counter: 0, phase: 'plan', featureId: 'mismatch-test' },
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'mismatch-test' },
       });
 
-      // Act: reconcile should detect the phase mismatch and correct it
+      // Act: reconcile should correct the phase from the delta transition
       const result = await reconcileFromEvents(tmpDir, 'mismatch-test', eventStore);
       expect(result.reconciled).toBe(true);
 
-      // Assert: the final state should have phase 'plan' from events, not 'ideate'
+      // Assert: phase comes from the last delta transition ('delegate'), not the corrupted 'ideate'
       const state = await readStateFile(stateFile);
-      expect(state.phase).toBe('plan');
+      expect(state.phase).toBe('delegate');
     });
 
     it('should not correct phase when state matches last transition', async () => {
