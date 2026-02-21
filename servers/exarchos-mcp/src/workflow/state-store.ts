@@ -1,5 +1,5 @@
 import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
-import { migrateState, CURRENT_VERSION } from './migration.js';
+import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -156,6 +156,12 @@ export async function readStateFile(stateFile: string): Promise<WorkflowState> {
       ErrorCode.STATE_CORRUPT,
       `Invalid JSON in state file: ${stateFile}`,
     );
+  }
+
+  // Backup state file before migration if version differs
+  const parsedObj = parsed as Record<string, unknown>;
+  if (parsedObj.version && parsedObj.version !== CURRENT_VERSION) {
+    await backupStateFile(stateFile);
   }
 
   // Run migration if needed
