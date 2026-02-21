@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { SnapshotStore } from '../../views/snapshot-store.js';
 import type { SnapshotData } from '../../views/snapshot-store.js';
+import { EVENT_SCHEMA_VERSION } from '../../event-store/event-migration.js';
 
 // ─── Snapshot Store Tests ──────────────────────────────────────────────────
 
@@ -351,6 +352,66 @@ describe('SnapshotStore', () => {
 
       expect(await store.load('my-feature', 'myview')).toBeUndefined();
       expect(await store.load('my-feature-2', 'myview')).toBeDefined();
+    });
+  });
+
+  // ─── Schema Version Invalidation ─────────────────────────────────────────
+
+  describe('save_IncludesSchemaVersion', () => {
+    it('should include schemaVersion field matching EVENT_SCHEMA_VERSION in saved snapshot', async () => {
+      await store.save('version-stream', 'myview', { data: 'test' }, 5);
+
+      const filePath = path.join(tempDir, 'version-stream.myview.snapshot.json');
+      const content = await readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(content);
+
+      expect(parsed.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
+    });
+  });
+
+  describe('load_SnapshotWithCurrentSchemaVersion_ReturnsData', () => {
+    it('should load snapshot when schemaVersion matches current', async () => {
+      await store.save('current-ver', 'myview', { x: 1 }, 10);
+
+      const loaded = await store.load('current-ver', 'myview');
+
+      expect(loaded).toBeDefined();
+      expect(loaded!.view).toEqual({ x: 1 });
+      expect(loaded!.highWaterMark).toBe(10);
+    });
+  });
+
+  describe('load_SnapshotWithStaleSchemaVersion_ReturnsUndefined', () => {
+    it('should return undefined when snapshot has a different schemaVersion', async () => {
+      const filePath = path.join(tempDir, 'stale-ver.myview.snapshot.json');
+      const staleSnapshot = {
+        view: { stale: true },
+        highWaterMark: 5,
+        savedAt: new Date().toISOString(),
+        schemaVersion: '0.9', // Intentionally stale
+      };
+      await writeFile(filePath, JSON.stringify(staleSnapshot), 'utf-8');
+
+      const loaded = await store.load('stale-ver', 'myview');
+
+      expect(loaded).toBeUndefined();
+    });
+  });
+
+  describe('load_SnapshotMissingSchemaVersion_ReturnsUndefined', () => {
+    it('should return undefined when snapshot lacks schemaVersion field (legacy)', async () => {
+      const filePath = path.join(tempDir, 'no-ver.myview.snapshot.json');
+      const legacySnapshot = {
+        view: { legacy: true },
+        highWaterMark: 3,
+        savedAt: new Date().toISOString(),
+        // No schemaVersion field — legacy snapshot
+      };
+      await writeFile(filePath, JSON.stringify(legacySnapshot), 'utf-8');
+
+      const loaded = await store.load('no-ver', 'myview');
+
+      expect(loaded).toBeUndefined();
     });
   });
 });
