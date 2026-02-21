@@ -277,6 +277,61 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 8: NoTasks_EmptyPlan_ExitsOne
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Problem Statement
+
+We need a full system.
+
+## Technical Design
+
+### Widget Component
+
+Renders the main UI.
+
+### API Client
+
+Handles data fetching.
+
+## Testing Strategy
+
+Unit tests needed.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Overview
+
+This plan covers the widget system build-out.
+
+## Schedule
+
+Week 1: Design review
+Week 2: Implementation
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "NoTasks_EmptyPlan_ExitsOne"
+else
+    fail "NoTasks_EmptyPlan_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify error message mentions no tasks found
+if echo "$OUTPUT" | grep -qi "No.*Task.*headers"; then
+    pass "NoTasks_ErrorMessageMentionsTasks"
+else
+    fail "NoTasks_ErrorMessageMentionsTasks (expected 'No Task headers' in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================

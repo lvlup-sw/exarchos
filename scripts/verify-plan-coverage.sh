@@ -138,6 +138,12 @@ while IFS= read -r line; do
     fi
 done < "$PLAN_FILE"
 
+# Validate we found tasks
+if [[ ${#PLAN_TASKS[@]} -eq 0 ]]; then
+    echo "ERROR: No '### Task' headers found in plan file: $PLAN_FILE" >&2
+    exit 1
+fi
+
 # Also read the full plan content for free-text matching
 PLAN_CONTENT="$(cat "$PLAN_FILE")"
 
@@ -154,7 +160,7 @@ for section in "${DESIGN_SECTIONS[@]}"; do
     # Check if any task title or plan content references this design section
     MATCHED_TASKS=()
 
-    for task in "${PLAN_TASKS[@]}"; do
+    for task in "${PLAN_TASKS[@]+${PLAN_TASKS[@]}}"; do
         # Case-insensitive substring match
         if echo "$task" | grep -qiF "$section"; then
             MATCHED_TASKS+=("$task")
