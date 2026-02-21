@@ -6,7 +6,7 @@
 #
 # Exit codes:
 #   0 = complete coverage (every Technical Design subsection maps to >= 1 task)
-#   1 = gaps found (unmapped sections)
+#   1 = gaps found (unmapped sections) or no '### Task' headers found in plan
 #   2 = usage error (missing required args, empty design, missing files)
 
 set -euo pipefail
