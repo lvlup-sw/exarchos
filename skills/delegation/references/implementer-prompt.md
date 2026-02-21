@@ -175,6 +175,7 @@ npm run typecheck
 This regenerates TypeScript types from the OpenAPI spec. Include generated files in your commit.
 
 ## Commit Strategy
+<!-- REQUIRED in both Agent Teams and Subagent modes. Never omit this section. -->
 
 After completing each logical task within your assignment:
 
@@ -308,7 +309,7 @@ describe('validateEmail', () => {
 
 ## Agent Teams vs Subagent Mode
 
-The template sections marked "Agent Teams mode only" (Coordination, Workflow Intelligence, Team Context, Historical Context) should be **included only when dispatching via Agent Teams mode** (`Task` with `team_name`). When dispatching via subagent mode (`Task` with `run_in_background`), omit these sections -- the SubagentStart hook handles context injection for subagents.
+The table below shows which sections to include per dispatch mode. Unmarked sections (TDD Requirements, Files, Success Criteria, Completion) are **always included** in both modes.
 
 | Section | Agent Teams Mode | Subagent Mode |
 |---------|-----------------|---------------|
@@ -316,6 +317,10 @@ The template sections marked "Agent Teams mode only" (Coordination, Workflow Int
 | Workflow Intelligence (Exarchos MCP) | Include in spawn prompt | Omit (hook injects) |
 | Team Context | Include -- populated at spawn time | Omit (hook injects) |
 | Historical Context | Include -- populated at spawn time | Omit (hook injects) |
+| Quality Signals | Conditional -- include if hints non-empty | Conditional -- include if hints non-empty |
+| Code Exploration Tools | Include | Include |
+| Schema Sync | Include if task modifies API files | Include if task modifies API files |
+| **Commit Strategy** | **Include -- REQUIRED** | **Include -- REQUIRED** |
 
 ## MCP Auto-Loading
 
