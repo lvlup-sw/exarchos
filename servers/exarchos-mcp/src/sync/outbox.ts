@@ -3,17 +3,27 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
+import type { StorageBackend } from '../storage/backend.js';
 
 // ─── Stream ID Validation ────────────────────────────────────────────────────
 
 const SAFE_STREAM_ID = /^[A-Za-z0-9._-]+$/;
 
+// ─── Outbox Options ─────────────────────────────────────────────────────────
+
+export interface OutboxOptions {
+  backend?: StorageBackend;
+}
+
 // ─── Outbox ──────────────────────────────────────────────────────────────────
 
 export class Outbox {
   private readonly locks = new Map<string, Promise<void>>();
+  private readonly backend?: StorageBackend;
 
-  constructor(private readonly stateDir: string) {}
+  constructor(private readonly stateDir: string, options?: OutboxOptions) {
+    this.backend = options?.backend;
+  }
 
   // ─── Per-Stream Locking ─────────────────────────────────────────────────
 
@@ -54,22 +64,43 @@ export class Outbox {
       );
     }
 
-    return this.withLock(streamId, async () => {
-      const entry: OutboxEntry = {
-        id: crypto.randomUUID(),
+    // Delegate to backend if available
+    if (this.backend) {
+      const id = this.backend.addOutboxEntry(streamId, event);
+      return {
+        id,
         streamId,
         event,
         status: 'pending',
         attempts: 0,
         createdAt: new Date().toISOString(),
       };
+    }
 
-      const entries = await this.loadEntries(streamId);
-      entries.push(entry);
-      await this.saveEntries(streamId, entries);
-
-      return entry;
+    return this.withLock(streamId, async () => {
+      return this.addEntryToJsonFile(streamId, event);
     });
+  }
+
+  /** Add entry to JSON file (fallback when no backend). */
+  private async addEntryToJsonFile(
+    streamId: string,
+    event: WorkflowEvent,
+  ): Promise<OutboxEntry> {
+    const entry: OutboxEntry = {
+      id: crypto.randomUUID(),
+      streamId,
+      event,
+      status: 'pending',
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    const entries = await this.loadEntries(streamId);
+    entries.push(entry);
+    await this.saveEntries(streamId, entries);
+
+    return entry;
   }
 
   // ─── Load Entries ───────────────────────────────────────────────────────
@@ -130,6 +161,12 @@ export class Outbox {
     streamId: string,
     batchSize: number = 50,
   ): Promise<{ sent: number; failed: number }> {
+    // Delegate to backend if available
+    if (this.backend) {
+      const result = this.backend.drainOutbox(streamId, client, batchSize);
+      return { sent: result.sent, failed: result.failed };
+    }
+
     return this.withLock(streamId, async () => {
       const entries = await this.loadEntries(streamId);
       const pending = entries
