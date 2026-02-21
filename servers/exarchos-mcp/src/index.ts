@@ -7,6 +7,7 @@ import * as path from 'node:path';
 
 import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from './registry.js';
 import { formatResult, type ToolResult } from './format.js';
+import { logger } from './logger.js';
 
 // Composite handlers
 import { handleWorkflow } from './workflow/composite.js';
@@ -117,7 +118,7 @@ const isDirectExecution =
 
 if (isDirectExecution) {
   main().catch((err) => {
-    console.error('Fatal error:', err);
+    logger.fatal({ err }, 'MCP server fatal error');
     process.exit(1);
   });
 }
