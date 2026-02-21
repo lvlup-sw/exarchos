@@ -206,6 +206,39 @@ describe('Core Tools', () => {
     });
   });
 
+  describe('HandleList_CorruptFiles_IncludesWarnings', () => {
+    it('should include warnings for corrupt state files', async () => {
+      // Create a valid workflow
+      await handleInit({ featureId: 'good-wf', workflowType: 'feature' }, tmpDir);
+
+      // Create a corrupt state file
+      const corruptFile = path.join(tmpDir, 'corrupt-wf.state.json');
+      await fs.writeFile(corruptFile, 'invalid json{{{', 'utf-8');
+
+      const result = await handleList({}, tmpDir);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Array<Record<string, unknown>>;
+      expect(data).toHaveLength(1);
+      expect(data[0].featureId).toBe('good-wf');
+
+      // Verify warnings are included
+      const warnings = result.warnings as string[];
+      expect(warnings).toBeDefined();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('corrupt-wf');
+    });
+
+    it('should not include warnings when no corrupt files', async () => {
+      await handleInit({ featureId: 'clean-wf', workflowType: 'feature' }, tmpDir);
+
+      const result = await handleList({}, tmpDir);
+
+      expect(result.success).toBe(true);
+      expect(result.warnings).toBeUndefined();
+    });
+  });
+
   // ─── ToolGet ────────────────────────────────────────────────────────────────
 
   describe('ToolGet_DotPathQuery_ReturnsValue', () => {

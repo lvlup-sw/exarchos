@@ -185,7 +185,7 @@ export async function handleList(
   _input: ListInput,
   stateDir: string,
 ): Promise<ToolResult> {
-  const entries = await listStateFiles(stateDir);
+  const { valid: entries, corrupt } = await listStateFiles(stateDir);
 
   const data = entries.map((entry) => ({
     featureId: entry.featureId,
@@ -198,6 +198,9 @@ export async function handleList(
   return {
     success: true,
     data,
+    ...(corrupt.length > 0 && {
+      warnings: corrupt.map((c) => `Corrupt state file: ${c.featureId} — ${c.error}`),
+    }),
   };
 }
 
