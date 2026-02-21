@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { deepMerge, isPlainObject } from './state-store.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { deepMerge, isPlainObject, initStateFile, reconcileFromEvents } from './state-store.js';
+import { EventStore } from '../event-store/store.js';
 
 describe('deepMerge', () => {
   it('DeepMerge_NestedObjects_MergesRecursively', () => {
@@ -77,5 +81,104 @@ describe('isPlainObject', () => {
 
   it('IsPlainObject_Undefined_ReturnsFalse', () => {
     expect(isPlainObject(undefined)).toBe(false);
+  });
+});
+
+// ─── reconcileFromEvents Query Efficiency ─────────────────────────────────
+
+describe('reconcileFromEvents query efficiency', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-reconcile-query-'));
+    eventStore = new EventStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('reconcileFromEvents_WithDeltaEvents_QueriesStreamOnce', async () => {
+    // Arrange: create state file and append events so we have a delta path
+    await initStateFile(tmpDir, 'query-test', 'feature');
+    await eventStore.append('query-test', {
+      type: 'workflow.started',
+      data: { featureId: 'query-test', workflowType: 'feature' },
+    });
+    await eventStore.append('query-test', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'query-test' },
+    });
+
+    // First reconciliation to establish _eventSequence
+    await reconcileFromEvents(tmpDir, 'query-test', eventStore);
+
+    // Append a new transition event to create delta work
+    await eventStore.append('query-test', {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'query-test' },
+    });
+
+    // Spy on eventStore.query
+    const querySpy = vi.spyOn(eventStore, 'query');
+
+    // Act: reconcile with delta events
+    const result = await reconcileFromEvents(tmpDir, 'query-test', eventStore);
+
+    // Assert: reconciliation happened
+    expect(result.reconciled).toBe(true);
+    expect(result.eventsApplied).toBe(1);
+
+    // Assert: eventStore.query should be called at most once for the delta path
+    // (the code currently calls it twice: once for delta, once for phase reconciliation)
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(querySpy).toHaveBeenCalledWith('query-test', { sinceSequence: 2 });
+
+    querySpy.mockRestore();
+  });
+
+  it('reconcileFromEvents_PhaseReconciliation_UsesLastTransitionFromDelta', async () => {
+    // Arrange: create state and do initial reconciliation
+    await initStateFile(tmpDir, 'delta-phase', 'feature');
+    await eventStore.append('delta-phase', {
+      type: 'workflow.started',
+      data: { featureId: 'delta-phase', workflowType: 'feature' },
+    });
+    await eventStore.append('delta-phase', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'delta-phase' },
+    });
+
+    // First reconciliation
+    await reconcileFromEvents(tmpDir, 'delta-phase', eventStore);
+
+    // Append multiple events including transitions in the delta
+    await eventStore.append('delta-phase', {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'delta-phase' },
+    });
+    await eventStore.append('delta-phase', {
+      type: 'workflow.checkpoint',
+      data: { counter: 0, phase: 'delegate', featureId: 'delta-phase' },
+    });
+
+    // Spy on eventStore.query to verify no redundant full-stream read
+    const querySpy = vi.spyOn(eventStore, 'query');
+
+    // Act
+    const result = await reconcileFromEvents(tmpDir, 'delta-phase', eventStore);
+
+    // Assert: phase is correct from delta events, no full-stream re-read needed
+    expect(result.reconciled).toBe(true);
+
+    const stateFile = path.join(tmpDir, 'delta-phase.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    expect(raw.phase).toBe('delegate');
+
+    // Should only query once (delta), not twice (delta + full)
+    expect(querySpy).toHaveBeenCalledTimes(1);
+
+    querySpy.mockRestore();
   });
 });
