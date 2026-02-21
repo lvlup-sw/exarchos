@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { EVENT_SCHEMA_VERSION } from '../event-store/event-migration.js';
 
 // ─── Snapshot Data ─────────────────────────────────────────────────────────
 
@@ -7,6 +8,7 @@ export interface SnapshotData<T = unknown> {
   readonly view: T;
   readonly highWaterMark: number;
   readonly savedAt: string;
+  readonly schemaVersion: string;
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────
@@ -75,6 +77,7 @@ export class SnapshotStore {
       view,
       highWaterMark,
       savedAt: new Date().toISOString(),
+      schemaVersion: EVENT_SCHEMA_VERSION,
     };
 
     await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
@@ -98,7 +101,8 @@ export class SnapshotStore {
       if (
         data.view === undefined ||
         data.highWaterMark === undefined ||
-        typeof data.highWaterMark !== 'number'
+        typeof data.highWaterMark !== 'number' ||
+        data.schemaVersion !== EVENT_SCHEMA_VERSION
       ) {
         return undefined;
       }
