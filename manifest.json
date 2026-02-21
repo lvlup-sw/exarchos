@@ -1,10 +1,25 @@
 {
-  "version": "2.0.3",
+  "version": "2.0.4",
   "components": {
     "core": [
-      { "id": "commands", "source": "commands", "target": "commands", "type": "directory" },
-      { "id": "skills", "source": "skills", "target": "skills", "type": "directory" },
-      { "id": "scripts", "source": "scripts", "target": "scripts", "type": "directory" }
+      {
+        "id": "commands",
+        "source": "commands",
+        "target": "commands",
+        "type": "directory"
+      },
+      {
+        "id": "skills",
+        "source": "skills",
+        "target": "skills",
+        "type": "directory"
+      },
+      {
+        "id": "scripts",
+        "source": "scripts",
+        "target": "scripts",
+        "type": "directory"
+      }
     ],
     "mcpServers": [
       {
@@ -24,7 +39,9 @@
         "required": true,
         "type": "external",
         "command": "gt",
-        "args": ["mcp"],
+        "args": [
+          "mcp"
+        ],
         "prerequisite": "gt"
       },
       {
@@ -37,16 +54,37 @@
       }
     ],
     "plugins": [
-      { "id": "github@claude-plugins-official", "name": "GitHub", "description": "PRs, issues, code search", "required": false, "default": true },
-      { "id": "serena@claude-plugins-official", "name": "Serena", "description": "Semantic code analysis", "required": false, "default": true },
-      { "id": "context7@claude-plugins-official", "name": "Context7", "description": "Library documentation", "required": false, "default": true }
+      {
+        "id": "github@claude-plugins-official",
+        "name": "GitHub",
+        "description": "PRs, issues, code search",
+        "required": false,
+        "default": true
+      },
+      {
+        "id": "serena@claude-plugins-official",
+        "name": "Serena",
+        "description": "Semantic code analysis",
+        "required": false,
+        "default": true
+      },
+      {
+        "id": "context7@claude-plugins-official",
+        "name": "Context7",
+        "description": "Library documentation",
+        "required": false,
+        "default": true
+      }
     ],
     "ruleSets": [
       {
         "id": "coding-standards",
         "name": "Coding Standards",
         "description": "SOLID, control flow, error handling, and language-specific conventions for TypeScript and C#",
-        "files": ["coding-standards.md", "tdd.md"],
+        "files": [
+          "coding-standards.md",
+          "tdd.md"
+        ],
         "default": true
       },
       {

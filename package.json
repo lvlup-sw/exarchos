@@ -32,6 +32,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
+    "version:sync": "bash scripts/sync-versions.sh",
+    "version:check": "bash scripts/sync-versions.sh --check",
     "validate": "bash scripts/validate-plugin.sh",
     "validate:companion": "bash scripts/validate-companion.sh"
   },
@@ -54,5 +56,8 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1"
   }
 }
