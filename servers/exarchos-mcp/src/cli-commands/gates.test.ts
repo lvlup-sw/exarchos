@@ -1141,6 +1141,64 @@ describe('Quality Gate Commands', () => {
       expect(passResult.circuitOpen).toBeUndefined();
     });
 
+    it('EmitTeamTaskEvent_CircuitBreakerOpened_EmitsTeamTaskFailedEvent', async () => {
+      // Arrange
+      makeQualityFail();
+      const state = {
+        featureId: 'circuit-event-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          { id: 'task-cb-001', title: 'Circuit breaker event task', status: 'in_progress', branch: 'feat/cb' },
+        ],
+        worktrees: {
+          'wt-cb-001': {
+            branch: 'feat/cb',
+            status: 'active',
+            taskId: 'task-cb-001',
+            path: '/tmp/circuit-event-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'circuit-event-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-cb',
+        cwd: '/tmp/circuit-event-worktree',
+      };
+
+      // Act — call 3 times to trip the circuit breaker
+      await handleTeammateGate(input);
+      await handleTeammateGate(input);
+      const result = await handleTeammateGate(input);
+
+      // Assert — circuit should be open
+      expect(result.circuitOpen).toBe(true);
+
+      // Assert — team.task.failed event should be emitted with correct shape
+      const eventFile = path.join(tempDir, 'circuit-event-test.events.jsonl');
+      const content = await fsp.readFile(eventFile, 'utf-8');
+      const events = content.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const failedEvents = events.filter((e: Record<string, unknown>) => e.type === 'team.task.failed');
+      expect(failedEvents).toHaveLength(1);
+
+      // Verify shape matches TeamTaskFailedData schema
+      const data = failedEvents[0].data as Record<string, unknown>;
+      expect(typeof data.taskId).toBe('string');
+      expect(typeof data.teammateName).toBe('string');
+      expect(typeof data.failureReason).toBe('string');
+      expect(data.gateResults).toBeDefined();
+      expect(typeof data.gateResults).toBe('object');
+
+      // Verify actual values
+      expect(data.teammateName).toBe('worker-cb');
+      expect(data.failureReason).toContain('typecheck');
+    });
+
     it('should track different cwds independently', async () => {
       // Arrange
       makeQualityFail();

@@ -102,6 +102,42 @@ describe('handleReviewTriage', () => {
     expect(events[0].data.semanticAugmented).toBe(false);
   });
 
+  it('HandleReviewTriage_DispatchedPR_EmitsReviewRoutedEvent', async () => {
+    const handleReviewTriage = await importHandler();
+    const args = {
+      featureId: 'test-routed-shape',
+      prs: [highRiskPR(42)],
+      activeWorkflows: [],
+      pendingCodeRabbitReviews: 0,
+      basileusConnected: false,
+    };
+
+    await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+
+    // Read the emitted events
+    const eventsPath = path.join(tmpDir, 'test-routed-shape.events.jsonl');
+    const content = await fs.readFile(eventsPath, 'utf-8');
+    const events = content.trim().split('\n').map(line => JSON.parse(line));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('review.routed');
+
+    // Validate shape matches ReviewRoutedData schema
+    const { ReviewRoutedData } = await import('../event-store/schemas.js');
+    const data = events[0].data as Record<string, unknown>;
+    const parseResult = ReviewRoutedData.safeParse(data);
+    expect(parseResult.success).toBe(true);
+
+    // Verify specific field values
+    expect(data.pr).toBe(42);
+    expect(typeof data.riskScore).toBe('number');
+    expect(Array.isArray(data.factors)).toBe(true);
+    expect(['coderabbit', 'self-hosted', 'both']).toContain(data.destination);
+    expect(['normal', 'elevated', 'high']).toContain(data.velocityTier);
+    expect(typeof data.semanticAugmented).toBe('boolean');
+    expect(data.semanticAugmented).toBe(false);
+  });
+
   it('should filter coderabbit for low-risk PRs at high velocity', async () => {
     const handleReviewTriage = await importHandler();
     const args = {
