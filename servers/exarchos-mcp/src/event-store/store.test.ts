@@ -5,6 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError, PidLockError } from './store.js';
 import { Outbox } from '../sync/outbox.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
+import type { StorageBackend } from '../storage/backend.js';
 
 let tempDir: string;
 
@@ -1364,5 +1366,109 @@ describe('EventStore Query with Event Migration', () => {
     expect(events[0].type).toBe('task.assigned');
     // Event should pass through migrateEvent identity path
     expect(events[0].streamId).toBe('migration-transform');
+  });
+});
+
+// ─── Task 9: EventStore StorageBackend Integration ────────────────────────────
+
+describe('EventStore StorageBackend Integration', () => {
+  it('EventStore_query_DelegatesToBackend', async () => {
+    const backend = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend });
+
+    // Append an event through the store (writes to JSONL and backend)
+    await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+
+    // Query should delegate to the backend
+    const querySpy = vi.spyOn(backend, 'queryEvents');
+    const events = await store.query('my-workflow');
+
+    expect(querySpy).toHaveBeenCalledWith('my-workflow', undefined);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('workflow.started');
+  });
+
+  it('EventStore_query_WithBackend_DoesNotReadJSONL', async () => {
+    const backend = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend });
+
+    await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+
+    // Delete the JSONL file — if query tried to read it, it would return empty
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    await rm(filePath);
+
+    // Query should still succeed via backend (not JSONL)
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('workflow.started');
+  });
+
+  it('EventStore_query_WithoutBackend_FallsBackToJSONL', async () => {
+    // No backend — existing behavior
+    const store = new EventStore(tempDir);
+
+    await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+
+    const events = await store.query('my-workflow');
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('workflow.started');
+
+    // Verify JSONL file was created (proof of file-based storage)
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content.trim().split('\n')).toHaveLength(1);
+  });
+
+  it('EventStore_append_WritesToJSONLAndBackend', async () => {
+    const backend = new InMemoryBackend();
+    const appendSpy = vi.spyOn(backend, 'appendEvent');
+    const store = new EventStore(tempDir, { backend });
+
+    const event = await store.append('my-workflow', { type: 'workflow.started', data: { featureId: 'test' } });
+
+    // Backend should have received the event
+    expect(appendSpy).toHaveBeenCalledWith('my-workflow', event);
+
+    // JSONL file should also have the event
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content.trim().split('\n')).toHaveLength(1);
+  });
+
+  it('EventStore_getSequence_DelegatesToBackend', async () => {
+    const backend = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend });
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.transition' });
+
+    const seqSpy = vi.spyOn(backend, 'getSequence');
+
+    // Create a new store with the same backend (simulating restart)
+    const store2 = new EventStore(tempDir, { backend });
+    const event = await store2.append('my-workflow', { type: 'task.claimed' });
+
+    // Backend's getSequence should have been used for initialization
+    expect(seqSpy).toHaveBeenCalledWith('my-workflow');
+    expect(event.sequence).toBe(4);
+  });
+
+  it('EventStore_query_WithBackend_PassesFilters', async () => {
+    const backend = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend });
+
+    await store.append('my-workflow', { type: 'workflow.started' });
+    await store.append('my-workflow', { type: 'task.assigned' });
+    await store.append('my-workflow', { type: 'workflow.transition' });
+
+    const querySpy = vi.spyOn(backend, 'queryEvents');
+    const filters = { type: 'task.assigned' };
+    const events = await store.query('my-workflow', filters);
+
+    expect(querySpy).toHaveBeenCalledWith('my-workflow', filters);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('task.assigned');
   });
 });
