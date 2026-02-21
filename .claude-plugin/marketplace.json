@@ -11,12 +11,24 @@
   "plugins": [
     {
       "name": "exarchos",
-      "source": { "source": "npm", "package": "@lvlup-sw/exarchos", "version": "2.0.3" },
+      "source": {
+        "source": "npm",
+        "package": "@lvlup-sw/exarchos",
+        "version": "2.0.4"
+      },
       "description": "SDLC workflows with agent team coordination, quality gates, and Graphite stacked PRs",
-      "version": "2.0.3",
-      "author": { "name": "Levelup Software" },
+      "version": "2.0.4",
+      "author": {
+        "name": "Levelup Software"
+      },
       "category": "productivity",
-      "tags": ["workflow", "sdlc", "graphite", "stacked-prs", "tdd"]
+      "tags": [
+        "workflow",
+        "sdlc",
+        "graphite",
+        "stacked-prs",
+        "tdd"
+      ]
     }
   ]
 }
