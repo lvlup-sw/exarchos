@@ -140,7 +140,7 @@ while IFS= read -r commit_hash; do
     [[ -n "$commit_hash" ]] && COMMITS+=("$commit_hash")
 done < <(git log --reverse --format="%H" "${BASE_BRANCH}..${BRANCH}" 2>/dev/null)
 
-if [[ ${#COMMITS[@]} -eq 0 ]]; then
+if [[ -z "${COMMITS+x}" ]] || [[ ${#COMMITS[@]} -eq 0 ]]; then
     echo "## TDD Compliance Report"
     echo ""
     echo "**Branch:** $BRANCH"
@@ -243,7 +243,7 @@ for result in "${RESULTS[@]}"; do
 done
 echo ""
 
-if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+if [[ -n "${VIOLATIONS+x}" ]] && [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
     echo "### Violations"
     echo ""
     for v in "${VIOLATIONS[@]}"; do

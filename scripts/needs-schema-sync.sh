@@ -157,7 +157,7 @@ done <<< "$CHANGED_FILES"
 # OUTPUT
 # ============================================================
 
-if [[ ${#API_FILES[@]} -eq 0 ]]; then
+if [[ -z "${API_FILES+x}" ]] || [[ ${#API_FILES[@]} -eq 0 ]]; then
     echo "## Schema Sync Check"
     echo ""
     echo "**Result: No sync needed** — No API files modified"

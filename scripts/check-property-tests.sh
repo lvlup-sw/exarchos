@@ -87,7 +87,7 @@ for task in plan.get('tasks', []):
 " "$PLAN_FILE" 2>/dev/null
 )
 
-if [[ ${#PBT_TASK_IDS[@]} -eq 0 ]]; then
+if [[ -z "${PBT_TASK_IDS+x}" ]] || [[ ${#PBT_TASK_IDS[@]} -eq 0 ]]; then
     echo "## PBT Check: PASS"
     echo "No tasks require property-based tests."
     exit 0
@@ -126,7 +126,7 @@ done < <(
 # ─── Cross-Reference ───────────────────────────────────────────────────────
 
 HAS_PBT=false
-if [[ ${#PBT_FILES[@]} -gt 0 ]]; then
+if [[ -n "${PBT_FILES+x}" ]] && [[ ${#PBT_FILES[@]} -gt 0 ]]; then
     HAS_PBT=true
     echo "Found PBT patterns in:"
     for f in "${PBT_FILES[@]}"; do
@@ -150,7 +150,7 @@ fi
 
 # ─── Result ─────────────────────────────────────────────────────────────────
 
-if [[ ${#UNCOVERED_TASKS[@]} -gt 0 ]]; then
+if [[ -n "${UNCOVERED_TASKS+x}" ]] && [[ ${#UNCOVERED_TASKS[@]} -gt 0 ]]; then
     echo "## PBT Check: FAIL"
     echo ""
     echo "The following tasks require property-based tests but none were found:"

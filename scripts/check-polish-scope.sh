@@ -182,7 +182,7 @@ for f in "${MODIFIED_FILES[@]}"; do
     fi
 done
 
-if [[ ${#MISSING_TESTS[@]} -eq 0 ]]; then
+if [[ -z "${MISSING_TESTS+x}" ]] || [[ ${#MISSING_TESTS[@]} -eq 0 ]]; then
     check_pass "Test coverage OK (all impl files have test counterparts)"
 else
     check_fail "New test files needed" "${#MISSING_TESTS[@]} impl files without tests: ${MISSING_TESTS[*]}"
@@ -231,7 +231,7 @@ echo ""
 echo "---"
 echo ""
 
-if [[ ${#TRIGGERS_FIRED[@]} -eq 0 ]]; then
+if [[ -z "${TRIGGERS_FIRED+x}" ]] || [[ ${#TRIGGERS_FIRED[@]} -eq 0 ]]; then
     echo "**Result: SCOPE OK** — All within polish limits"
     exit 0
 else

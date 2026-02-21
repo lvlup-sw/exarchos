@@ -237,7 +237,7 @@ reconstruct_stack() {
         expected_branches+=("$branch")
     done < <(get_expected_branches)
 
-    if [[ ${#expected_branches[@]} -eq 0 ]]; then
+    if [[ -z "${expected_branches+x}" ]] || [[ ${#expected_branches[@]} -eq 0 ]]; then
         echo -e "${YELLOW}No task branches to reconstruct${NC}"
         return 0
     fi
@@ -373,7 +373,7 @@ main() {
     DETECTED_MISSING=()
     detect_problems "$gt_log_output"
 
-    if [[ ${#DETECTED_PROBLEMS[@]} -eq 0 ]]; then
+    if [[ -z "${DETECTED_PROBLEMS+x}" ]] || [[ ${#DETECTED_PROBLEMS[@]} -eq 0 ]]; then
         echo -e "${GREEN}Stack is healthy${NC} — all ${task_count} task branches tracked and clean"
         exit 0
     fi
@@ -384,13 +384,13 @@ main() {
     done
     echo ""
 
-    if [[ ${#DETECTED_DIVERGED[@]} -gt 0 ]]; then
+    if [[ -n "${DETECTED_DIVERGED+x}" ]] && [[ ${#DETECTED_DIVERGED[@]} -gt 0 ]]; then
         echo "Diverged branches: ${DETECTED_DIVERGED[*]}"
     fi
-    if [[ ${#DETECTED_RESTACK[@]} -gt 0 ]]; then
+    if [[ -n "${DETECTED_RESTACK+x}" ]] && [[ ${#DETECTED_RESTACK[@]} -gt 0 ]]; then
         echo "Needs restack: ${DETECTED_RESTACK[*]}"
     fi
-    if [[ ${#DETECTED_MISSING[@]} -gt 0 ]]; then
+    if [[ -n "${DETECTED_MISSING+x}" ]] && [[ ${#DETECTED_MISSING[@]} -gt 0 ]]; then
         echo "Missing from stack: ${DETECTED_MISSING[*]}"
     fi
     echo ""
@@ -415,7 +415,7 @@ main() {
     VALIDATION_ISSUES=()
     validate_stack "$post_gt_log"
 
-    if [[ ${#VALIDATION_ISSUES[@]} -eq 0 ]]; then
+    if [[ -z "${VALIDATION_ISSUES+x}" ]] || [[ ${#VALIDATION_ISSUES[@]} -eq 0 ]]; then
         echo -e "${GREEN}Validation passed${NC} — stack is clean after reconstruction"
         exit 0
     fi

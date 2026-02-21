@@ -196,7 +196,7 @@ check_required_sections() {
         fi
     done
 
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    if [[ -z "${missing+x}" ]] || [[ ${#missing[@]} -eq 0 ]]; then
         check_pass "Required sections present (${#REQUIRED_SECTIONS[@]}/${#REQUIRED_SECTIONS[@]})"
         return 0
     else
