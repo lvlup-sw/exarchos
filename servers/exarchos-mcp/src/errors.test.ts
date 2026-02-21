@@ -48,4 +48,20 @@ describe('Error Taxonomy', () => {
     const { ErrorCode: OriginalErrorCode } = await import('./workflow/schemas.js');
     expect(ErrorCode).toEqual(OriginalErrorCode);
   });
+
+  it('GetErrorCategory_EventMigrationFailed_ReturnsStateLifecycle', async () => {
+    const { getErrorCategory } = await import('./errors.js');
+    expect(getErrorCategory('EVENT_MIGRATION_FAILED')).toBe('state-lifecycle');
+  });
+
+  it('GetRecoveryStrategy_EventMigrationFailed_ReturnsGuidance', async () => {
+    const { getRecoveryStrategy } = await import('./errors.js');
+    const strategy = getRecoveryStrategy('EVENT_MIGRATION_FAILED');
+    expect(strategy).toContain('schemaVersion');
+  });
+
+  it('IsRetryable_EventMigrationFailed_ReturnsFalse', async () => {
+    const { isRetryable } = await import('./errors.js');
+    expect(isRetryable('EVENT_MIGRATION_FAILED')).toBe(false);
+  });
 });
