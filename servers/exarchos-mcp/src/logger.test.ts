@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 describe('Logger Factory', () => {
   beforeEach(() => {
@@ -60,3 +62,49 @@ describe('Logger Factory', () => {
     expect(bindings.subsystem).toBe('telemetry');
   });
 });
+
+describe('No Console in Production Code', () => {
+  it('NoConsoleInProduction_SourceFilesClean', async () => {
+    // Scan production source files for console.error/console.warn/console.log
+    const srcDir = path.resolve(import.meta.dirname, '.');
+    const files = await getProductionFiles(srcDir);
+
+    const violations: string[] = [];
+    for (const file of files) {
+      const content = await fs.readFile(file, 'utf-8');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/console\.(log|error|warn|info|debug)\s*\(/.test(line) && !line.trimStart().startsWith('//')) {
+          violations.push(`${path.relative(srcDir, file)}:${i + 1}: ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+});
+
+/** Recursively find .ts production files (exclude tests, logger itself, node_modules). */
+async function getProductionFiles(dir: string): Promise<string[]> {
+  const results: string[] = [];
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === '__tests__' || entry.name === 'evals') continue;
+      results.push(...await getProductionFiles(fullPath));
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.endsWith('.test.ts') &&
+      !entry.name.endsWith('.property.test.ts') &&
+      entry.name !== 'logger.ts' &&
+      !entry.name.includes('benchmark')
+    ) {
+      results.push(fullPath);
+    }
+  }
+
+  return results;
+}

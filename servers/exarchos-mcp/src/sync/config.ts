@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SyncConfig } from './types.js';
 import { SyncConfigSchema } from './types.js';
+import { syncLogger } from '../logger.js';
 
 // ─── Default Config ──────────────────────────────────────────────────────────
 
@@ -30,14 +31,11 @@ export function loadSyncConfig(stateDir: string): SyncConfig {
     if (parseResult.success) {
       parsedConfig = parseResult.data;
     } else {
-      console.warn(
-        `Invalid config in ${configPath}:`,
-        parseResult.error.issues,
-      );
+      syncLogger.warn({ configPath, issues: parseResult.error.issues }, 'Invalid sync config');
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      console.warn(`Failed to load config from ${configPath}:`, err);
+      syncLogger.warn({ configPath, err }, 'Config load failed');
     }
   }
 

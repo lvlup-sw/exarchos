@@ -6,6 +6,7 @@ import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
 import { migrateEvent } from './event-migration.js';
+import { storeLogger } from '../logger.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -275,7 +276,7 @@ export class EventStore {
           await this.outbox.addEntry(streamId, fullEvent);
         } catch (err) {
           // Outbox is supplementary; log but don't fail the append
-          console.error(`Outbox entry failed: ${err instanceof Error ? err.message : String(err)}`);
+          storeLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Outbox entry failed');
         }
       }
 

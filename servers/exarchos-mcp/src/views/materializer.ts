@@ -1,5 +1,6 @@
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { SnapshotStore } from './snapshot-store.js';
+import { viewLogger } from '../logger.js';
 
 // ─── View Projection Interface ─────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ export class ViewMaterializer {
         this.lastSnapshotHwm.set(stateKey, maxSequence);
         // Fire and forget - snapshot is async but we don't block materialization
         this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
-          console.error(`Failed to save snapshot: ${err instanceof Error ? err.message : String(err)}`);
+          viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
         });
       }
     }
