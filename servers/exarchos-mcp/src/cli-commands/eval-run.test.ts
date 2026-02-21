@@ -150,7 +150,7 @@ describe('handleEvalRun', () => {
     // Arrange
     const summaries = [makeSummary({ suiteId: 'delegation' })];
     mockRunAll.mockResolvedValue(summaries);
-    const mockStore = { append: vi.fn() };
+    const mockStore = { append: vi.fn().mockResolvedValue({}) };
     mockGetOrCreateEventStore.mockReturnValue(mockStore as any);
 
     // Act
@@ -159,10 +159,15 @@ describe('handleEvalRun', () => {
     // Assert
     const callArgs = mockRunAll.mock.calls[0];
     expect(callArgs[1]).toMatchObject({
-      eventStore: mockStore,
       streamId: 'evals',
       trigger: 'local',
     });
+    // eventStore is wrapped in an adapter — verify it delegates to the underlying store
+    const adapter = callArgs[1].eventStore;
+    expect(adapter).toBeDefined();
+    expect(typeof adapter.append).toBe('function');
+    await adapter.append('test-stream', { type: 'workflow.started' });
+    expect(mockStore.append).toHaveBeenCalledWith('test-stream', { type: 'workflow.started' });
   });
 
   it('HandleEvalRun_CiMode_PassesTriggerCi', async () => {

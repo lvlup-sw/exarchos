@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { runAll } from '../evals/harness.js';
 import { formatMultiSuiteReport } from '../evals/reporters/cli-reporter.js';
 import { getOrCreateEventStore } from '../views/tools.js';
+import type { EvalEventStore } from '../evals/harness.js';
 import type { RunSummary } from '../evals/types.js';
 import type { CommandResult } from '../cli.js';
 
@@ -54,7 +55,10 @@ export async function handleEvalRun(
 
   // Wire up EventStore for event emission during eval runs
   const stateDir = process.env.WORKFLOW_STATE_DIR ?? path.join(os.homedir(), '.claude', 'workflow-state');
-  const eventStore = getOrCreateEventStore(stateDir);
+  const store = getOrCreateEventStore(stateDir);
+  const eventStore: EvalEventStore = {
+    append: async (streamId, event) => { await store.append(streamId, event as Parameters<typeof store.append>[1]); },
+  };
   const trigger = ciMode ? 'ci' as const : 'local' as const;
 
   let summaries: RunSummary[];
