@@ -520,6 +520,30 @@ describe('WorkflowEventBase multi-tenant fields', () => {
     }
   });
 
+  it('WorkflowEventBase_EmptyTenantId_RejectsValidation', () => {
+    const event = {
+      streamId: 'test-stream',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'workflow.started',
+      tenantId: '',
+    };
+    const result = WorkflowEventBase.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_EmptyOrganizationId_RejectsValidation', () => {
+    const event = {
+      streamId: 'test-stream',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'workflow.started',
+      organizationId: '',
+    };
+    const result = WorkflowEventBase.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
   it('WorkflowEventBase_WithoutTenantId_ParsesSuccessfully', () => {
     const event = {
       streamId: 'test-stream',
