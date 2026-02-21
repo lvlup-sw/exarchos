@@ -1,4 +1,13 @@
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
+import {
+  VIEW_TASKS_BYTES_THRESHOLD,
+  WORKFLOW_GET_BYTES_THRESHOLD,
+  EVENT_QUERY_BYTES_THRESHOLD,
+  WORKFLOW_SET_DURATION_THRESHOLD,
+  EVENT_QUERY_INVOCATION_THRESHOLD,
+  ERROR_RATE_THRESHOLD,
+  TEAM_STATUS_INVOCATION_THRESHOLD,
+} from './constants.js';
 
 // ─── Hint Interface ──────────────────────────────────────────────────────────
 
@@ -6,16 +15,6 @@ export interface Hint {
   readonly tool: string;
   readonly hint: string;
 }
-
-// ─── Threshold Constants ─────────────────────────────────────────────────────
-
-const VIEW_TASKS_BYTES_THRESHOLD = 1200;
-const WORKFLOW_GET_BYTES_THRESHOLD = 600;
-const EVENT_QUERY_BYTES_THRESHOLD = 2000;
-const WORKFLOW_SET_DURATION_THRESHOLD = 200;
-const EVENT_QUERY_INVOCATION_THRESHOLD = 20;
-const ERROR_RATE_THRESHOLD = 0.2;
-const TEAM_STATUS_INVOCATION_THRESHOLD = 10;
 
 // ─── Rule Type ───────────────────────────────────────────────────────────────
 
