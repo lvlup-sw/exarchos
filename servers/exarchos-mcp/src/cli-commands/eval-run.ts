@@ -44,6 +44,7 @@ export async function handleEvalRun(
   evalsDir: string,
 ): Promise<CommandResult> {
   const options: { skill?: string; dataset?: string } = {};
+  const ciMode = stdinData['ci'] === true;
 
   if (typeof stdinData['skill'] === 'string') {
     options.skill = stdinData['skill'];
@@ -70,15 +71,32 @@ export async function handleEvalRun(
     };
   }
 
-  // Write formatted report to stderr so it's visible in terminal
-  const report = formatMultiSuiteReport(summaries);
-  process.stderr.write(report + '\n');
+  if (ciMode) {
+    // CI mode: GitHub Actions annotations to stderr
+    const { formatCIReport } = await import('../evals/reporters/ci-reporter.js');
+    const ciOutput = formatCIReport(summaries);
+    if (ciOutput) {
+      process.stderr.write(ciOutput + '\n');
+    }
+  } else {
+    // Local mode: rich terminal output to stderr
+    const report = formatMultiSuiteReport(summaries);
+    process.stderr.write(report + '\n');
+  }
 
   const totalCases = summaries.reduce((sum, s) => sum + s.total, 0);
   const totalFailures = summaries.reduce((sum, s) => sum + s.failed, 0);
   const allPassed = totalFailures === 0;
 
   return {
+    ...(allPassed
+      ? {}
+      : {
+          error: {
+            code: 'EVAL_FAILED',
+            message: `${totalFailures}/${totalCases} eval cases failed`,
+          },
+        }),
     summaries,
     passed: allPassed,
     total: totalCases,
