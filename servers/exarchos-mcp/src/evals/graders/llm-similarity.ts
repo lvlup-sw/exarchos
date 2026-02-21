@@ -1,5 +1,6 @@
 import type { GradeResult, IGrader } from '../types.js';
 import { extractOutputText } from './output-extractor.js';
+import { callLlmAssertion } from './llm-helper.js';
 
 const DEFAULT_THRESHOLD = 0.8;
 
@@ -29,52 +30,22 @@ export class LlmSimilarityGrader implements IGrader {
       expectedText = extractOutputText(expected, config?.expectedPath as string | undefined);
     }
 
-    // Skip if no API key available
-    if (!process.env['ANTHROPIC_API_KEY']) {
-      return {
-        passed: true,
-        score: 0,
-        reason: 'Skipped: ANTHROPIC_API_KEY not set',
-        details: { skipped: true },
-      };
-    }
+    const options = { provider: model ? `anthropic:messages:${model}` : undefined };
 
-    // Dynamic import to avoid loading promptfoo when not needed
-    const { assertions } = await import('promptfoo');
-
-    let result: { pass: boolean; score?: number; reason?: string };
-    try {
-      result = await assertions.matchesSimilarity(
-        expectedText,
-        outputText,
-        threshold,
-        false,
-        { provider: model ? `anthropic:messages:${model}` : undefined },
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      const isApiKeyError = message.includes('API key') || message.includes('apiKey');
-      if (isApiKeyError) {
-        return {
-          passed: true,
-          score: 0,
-          reason: `Skipped: ${message}`,
-          details: { model, threshold, expectedText, error: message, skipped: true },
-        };
-      }
-      return {
-        passed: false,
-        score: 0,
-        reason: `LLM grader error: ${message}`,
-        details: { model, threshold, expectedText, error: message },
-      };
-    }
-
-    return {
-      passed: result.pass,
-      score: result.score ?? (result.pass ? 1.0 : 0.0),
-      reason: result.reason ?? (result.pass ? 'Passed similarity' : 'Failed similarity'),
-      details: { model, threshold, expectedText },
-    };
+    return callLlmAssertion(
+      async (exp: unknown, out: unknown, thr: unknown, inv: unknown, opts: unknown) => {
+        const { assertions } = await import('promptfoo');
+        return assertions.matchesSimilarity(
+          exp as string,
+          out as string,
+          thr as number,
+          inv as boolean,
+          opts as Record<string, unknown>,
+        );
+      },
+      [expectedText, outputText, threshold, false, options],
+      { model, threshold, expectedText },
+      { passReason: 'Passed similarity', failReason: 'Failed similarity' },
+    );
   }
 }
