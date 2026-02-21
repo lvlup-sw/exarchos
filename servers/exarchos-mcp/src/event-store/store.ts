@@ -7,6 +7,7 @@ import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
 import { migrateEvent } from './event-migration.js';
 import { storeLogger } from '../logger.js';
+import { isPidAlive } from '../utils/process.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -32,18 +33,6 @@ export class PidLockError extends Error {
       `Event store is locked by live process PID ${existingPid}`,
     );
     this.name = 'PidLockError';
-  }
-}
-
-// ─── PID Helpers ─────────────────────────────────────────────────────────────
-
-/** Check if a process with the given PID is alive. */
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
   }
 }
 

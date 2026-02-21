@@ -85,7 +85,7 @@ export async function handlePreCompact(
   const trigger = typeof stdinData.type === 'string' ? stdinData.type : 'auto';
 
   // List all state files (listStateFiles handles missing directory gracefully)
-  const allWorkflows = await listStateFiles(stateDir);
+  const allWorkflows = (await listStateFiles(stateDir)).valid;
 
   // Filter to active (non-terminal) workflows
   const activeWorkflows = allWorkflows.filter(
