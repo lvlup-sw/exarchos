@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchCorrection, applyCorrections } from './auto-correction.js';
+import { matchCorrection, applyCorrections, ConsistencyTracker } from './auto-correction.js';
 import type { ToolMetrics } from './telemetry-projection.js';
 import { initToolMetrics } from './telemetry-projection.js';
 
@@ -107,5 +107,43 @@ describe('applyCorrections', () => {
     expect(result.args).toEqual({ action: 'tasks', fields: ['id', 'title'] });
     expect(result.applied).toHaveLength(1);
     expect(result.applied[0].param).toBe('fields');
+  });
+});
+
+describe('ConsistencyTracker', () => {
+  it('ConsistencyTracker_RecordBreach_TracksConsecutiveCount', () => {
+    // Arrange
+    const tracker = new ConsistencyTracker();
+    const key = 'exarchos_view:tasks:p95Bytes';
+
+    // Act — record 3 breaches, then a non-breach, then 2 more breaches
+    expect(tracker.record(key, true)).toBe(1);
+    expect(tracker.record(key, true)).toBe(2);
+    expect(tracker.record(key, true)).toBe(3);
+
+    // Non-breach resets the counter
+    expect(tracker.record(key, false)).toBe(0);
+
+    // Starts counting again from 1
+    expect(tracker.record(key, true)).toBe(1);
+    expect(tracker.record(key, true)).toBe(2);
+  });
+
+  it('ConsistencyTracker_BelowWindowSize_NoCorrection', () => {
+    // Arrange
+    const tracker = new ConsistencyTracker();
+    const key = 'exarchos_view:tasks:p95Bytes';
+
+    // Act — record 4 breaches (below CONSISTENCY_WINDOW_SIZE of 5)
+    for (let i = 0; i < 4; i++) {
+      tracker.record(key, true);
+    }
+
+    // Assert — not yet at the window size
+    expect(tracker.shouldCorrect(key)).toBe(false);
+
+    // 5th breach crosses the threshold
+    tracker.record(key, true);
+    expect(tracker.shouldCorrect(key)).toBe(true);
   });
 });
