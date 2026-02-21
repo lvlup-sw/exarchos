@@ -62,7 +62,9 @@ export class SnapshotStore {
   }
 
   /**
-   * Save a view snapshot to disk.
+   * Save a view snapshot to disk atomically using tmp+rename.
+   * Writes to a temporary file first, then renames to the target path.
+   * This ensures the target file is never left in a partially-written state.
    */
   async save<T>(
     streamId: string,
@@ -71,6 +73,7 @@ export class SnapshotStore {
     highWaterMark: number,
   ): Promise<void> {
     const filePath = this.getSnapshotPath(streamId, viewName);
+    const tmpPath = `${filePath}.tmp.${Date.now()}`;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
 
     const data: SnapshotData<T> = {
@@ -80,7 +83,8 @@ export class SnapshotStore {
       schemaVersion: EVENT_SCHEMA_VERSION,
     };
 
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(tmpPath, filePath);
   }
 
   /**
