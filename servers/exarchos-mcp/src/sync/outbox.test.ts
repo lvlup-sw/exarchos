@@ -78,3 +78,61 @@ describe('Outbox drain idempotencyKey propagation', () => {
     expect(sentEvents[0][0].idempotencyKey).toBeUndefined();
   });
 });
+
+// ─── Outbox drain batch I/O tests ───────────────────────────────────────────
+
+describe('Outbox drain batch I/O', () => {
+  let tempDir: string;
+  let outbox: Outbox;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'outbox-batch-test-'));
+    outbox = new Outbox(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('drain_BatchOfN_LoadsEntriesOnce', async () => {
+    // Arrange: add 3 pending entries
+    for (let i = 1; i <= 3; i++) {
+      await outbox.addEntry('test-stream', makeEvent({ sequence: i }));
+    }
+
+    const mockClient: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
+    };
+
+    // Spy on loadEntries to count calls during drain
+    const loadSpy = vi.spyOn(outbox, 'loadEntries');
+
+    // Act
+    await outbox.drain(mockClient, 'test-stream');
+
+    // Assert: loadEntries should be called exactly once (batch load at start)
+    // The current O(n²) implementation calls it once at start + once per entry via _updateEntry
+    expect(loadSpy.mock.calls.length).toBe(1);
+  });
+
+  it('drain_BatchOfN_SavesEntriesOnce', async () => {
+    // Arrange: add 3 pending entries
+    for (let i = 1; i <= 3; i++) {
+      await outbox.addEntry('test-stream', makeEvent({ sequence: i }));
+    }
+
+    const mockClient: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
+    };
+
+    // Spy on saveEntries (private method, accessed via prototype)
+    const saveSpy = vi.spyOn(outbox as never, 'saveEntries' as never);
+
+    // Act
+    await outbox.drain(mockClient, 'test-stream');
+
+    // Assert: saveEntries should be called exactly once (batch save at end)
+    // The current O(n²) implementation calls it once per entry via _updateEntry
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+  });
+});

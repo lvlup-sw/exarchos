@@ -144,6 +144,7 @@ export class Outbox {
       let failed = 0;
 
       for (const entry of pending) {
+        const index = entries.findIndex((e) => e.id === entry.id);
         try {
           await client.appendEvents(streamId, [
             {
@@ -162,32 +163,43 @@ export class Outbox {
             },
           ]);
 
-          await this._updateEntry(streamId, entry.id, {
-            status: 'confirmed',
-            attempts: entry.attempts + 1,
-            lastAttemptAt: new Date().toISOString(),
-          });
+          if (index >= 0) {
+            entries[index] = {
+              ...entries[index],
+              status: 'confirmed',
+              attempts: entry.attempts + 1,
+              lastAttemptAt: new Date().toISOString(),
+            };
+          }
           sent++;
         } catch (err) {
           const attempts = entry.attempts + 1;
           const maxRetries = 10;
 
-          if (attempts >= maxRetries) {
-            await this._updateEntry(streamId, entry.id, {
-              status: 'dead-letter',
-              error: err instanceof Error ? err.message : String(err),
-              lastAttemptAt: new Date().toISOString(),
-            });
-          } else {
-            await this._updateEntry(streamId, entry.id, {
-              attempts,
-              lastAttemptAt: new Date().toISOString(),
-              nextRetryAt: this.calculateNextRetry(attempts),
-              error: err instanceof Error ? err.message : String(err),
-            });
+          if (index >= 0) {
+            if (attempts >= maxRetries) {
+              entries[index] = {
+                ...entries[index],
+                status: 'dead-letter',
+                error: err instanceof Error ? err.message : String(err),
+                lastAttemptAt: new Date().toISOString(),
+              };
+            } else {
+              entries[index] = {
+                ...entries[index],
+                attempts,
+                lastAttemptAt: new Date().toISOString(),
+                nextRetryAt: this.calculateNextRetry(attempts),
+                error: err instanceof Error ? err.message : String(err),
+              };
+            }
           }
           failed++;
         }
+      }
+
+      if (pending.length > 0) {
+        await this.saveEntries(streamId, entries);
       }
 
       return { sent, failed };
