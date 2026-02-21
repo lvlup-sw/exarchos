@@ -64,6 +64,7 @@ export interface StorageBackend {
   appendEvent(streamId: string, event: WorkflowEvent): void;
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[];
   getSequence(streamId: string): number;
+  listStreams(): string[];
 
   // State operations
   getState(featureId: string): WorkflowState | null;

@@ -104,6 +104,10 @@ export class InMemoryBackend implements StorageBackend {
     return stream[stream.length - 1].sequence;
   }
 
+  listStreams(): string[] {
+    return Array.from(this.events.keys());
+  }
+
   // ─── State Operations ───────────────────────────────────────────────────
 
   getState(featureId: string): WorkflowState | null {

@@ -474,6 +474,18 @@ export class EventStore {
     return events;
   }
 
+  /**
+   * List all known stream IDs.
+   * Delegates to backend when available; returns null otherwise
+   * (caller should fall back to directory scanning).
+   */
+  listStreams(): string[] | null {
+    if (this.backend) {
+      return this.backend.listStreams();
+    }
+    return null;
+  }
+
   async refreshSequence(streamId: string): Promise<void> {
     await this.initializeSequence(streamId);
   }

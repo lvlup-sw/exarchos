@@ -15,6 +15,7 @@ import {
   handleViewEvalResults,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
 
 describe('Singleton Cache', () => {
   beforeEach(() => {
@@ -697,5 +698,132 @@ describe('Skip loadFromSnapshot on warm calls', () => {
     expect(loadSpy).toHaveBeenCalledWith('wf-cold', expect.any(String));
 
     loadSpy.mockRestore();
+  });
+});
+
+// ─── Task 12: Backend Integration Tests ──────────────────────────────────────
+
+describe('Backend Integration (Task 12)', () => {
+  let tmpDir: string;
+  let backend: InMemoryBackend;
+  let store: EventStore;
+
+  beforeEach(async () => {
+    resetMaterializerCache();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-backend-test-'));
+    backend = new InMemoryBackend();
+    store = new EventStore(tmpDir, { backend });
+  });
+
+  afterEach(async () => {
+    resetMaterializerCache();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handleViewWorkflowStatus_WithBackend_QueriesSQLite', async () => {
+    // Arrange: seed events through the store (dual-writes to backend)
+    await store.append('wf-backend', {
+      type: 'workflow.started',
+      data: { featureId: 'backend-feature', workflowType: 'feature' },
+    });
+    await store.append('wf-backend', {
+      type: 'workflow.transition',
+      data: { from: 'started', to: 'delegating', trigger: 'auto', featureId: 'backend-feature' },
+    });
+
+    // Spy on backend.queryEvents to verify delegation
+    const querySpy = vi.spyOn(backend, 'queryEvents');
+
+    // Inject our backend-aware store into the module
+    resetMaterializerCache();
+    // Use registerViewTools-style injection by setting module store
+    // We need handleViewWorkflowStatus to use our backend-aware store
+    // Set up the module-level event store by calling getOrCreateEventStore
+    // after injecting via the exported setter
+    const { registerViewTools } = await import('./tools.js');
+    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
+    registerViewTools(mockServer, tmpDir, store);
+
+    // Act
+    const result = await handleViewWorkflowStatus({ workflowId: 'wf-backend' }, tmpDir);
+
+    // Assert
+    expect(result.success).toBe(true);
+    expect(querySpy).toHaveBeenCalled();
+    const queryCallStreamId = querySpy.mock.calls[0][0];
+    expect(queryCallStreamId).toBe('wf-backend');
+
+    querySpy.mockRestore();
+  });
+
+  it('handleViewPipeline_WithBackend_DiscoverStreamsFromBackend', async () => {
+    // Arrange: seed events for two streams via the store (dual-writes to backend)
+    await store.append('wf-one', {
+      type: 'workflow.started',
+      data: { featureId: 'feature-one', workflowType: 'feature' },
+    });
+    await store.append('wf-two', {
+      type: 'workflow.started',
+      data: { featureId: 'feature-two', workflowType: 'feature' },
+    });
+
+    // Spy on backend.listStreams to verify it's used for discovery
+    const listStreamsSpy = vi.spyOn(backend, 'listStreams');
+
+    // Inject our backend-aware store
+    resetMaterializerCache();
+    const { registerViewTools } = await import('./tools.js');
+    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
+    registerViewTools(mockServer, tmpDir, store);
+
+    // Act
+    const result = await handleViewPipeline({}, tmpDir);
+
+    // Assert
+    expect(result.success).toBe(true);
+    // discoverStreams should use backend.listStreams() instead of fs.readdir
+    expect(listStreamsSpy).toHaveBeenCalled();
+
+    // Verify both workflows are discovered
+    const data = result.data as { workflows: unknown[]; total: number };
+    expect(data.total).toBe(2);
+
+    listStreamsSpy.mockRestore();
+  });
+
+  it('handleViewTasks_WithBackend_QueriesSQLite', async () => {
+    // Arrange: seed task events through the store (dual-writes to backend)
+    await store.append('wf-tasks-backend', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Build auth', branch: 'feat/auth' },
+    });
+    await store.append('wf-tasks-backend', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Build UI', branch: 'feat/ui' },
+    });
+
+    // Spy on backend.queryEvents
+    const querySpy = vi.spyOn(backend, 'queryEvents');
+
+    // Inject our backend-aware store
+    resetMaterializerCache();
+    const { registerViewTools } = await import('./tools.js');
+    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
+    registerViewTools(mockServer, tmpDir, store);
+
+    // Act
+    const result = await handleViewTasks({ workflowId: 'wf-tasks-backend' }, tmpDir);
+
+    // Assert
+    expect(result.success).toBe(true);
+    expect(querySpy).toHaveBeenCalled();
+    const queryCallStreamId = querySpy.mock.calls[0][0];
+    expect(queryCallStreamId).toBe('wf-tasks-backend');
+
+    // Verify tasks are returned from the backend-delegated query
+    const data = result.data as Array<Record<string, unknown>>;
+    expect(data).toHaveLength(2);
+
+    querySpy.mockRestore();
   });
 });
