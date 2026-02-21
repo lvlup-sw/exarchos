@@ -38,7 +38,8 @@ export function formatRunSummary(summary: RunSummary): string {
   const caseLines = summary.results.map(formatCaseResult);
 
   const avgPct = (summary.avgScore * 100).toFixed(0);
-  const footer = `${summary.total} cases: ${summary.passed} passed, ${summary.failed} failed | avg score: ${avgPct}% | ${summary.duration}ms`;
+  const skippedSuffix = summary.skipped > 0 ? ` (${summary.skipped} LLM assertions skipped)` : '';
+  const footer = `${summary.total} cases: ${summary.passed} passed, ${summary.failed} failed | avg score: ${avgPct}% | ${summary.duration}ms${skippedSuffix}`;
 
   const sections = [headerLine];
   if (caseLines.length > 0) {
