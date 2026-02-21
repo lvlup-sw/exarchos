@@ -1165,4 +1165,119 @@ describe('State Store', () => {
       expect(state.phase).toBe('plan');
     });
   });
+
+  // ─── Task 5: applyDotPath Sparse Array Bounds Guard ─────────────────────
+
+  describe('applyDotPath_SparseArrayBounds', () => {
+    it('ApplyDotPath_SparseArrayIndex_ThrowsInvalidInput', () => {
+      const obj: Record<string, unknown> = { tasks: [] };
+      expect(() => applyDotPath(obj, 'tasks[50].name', 'x')).toThrow(ErrorCode.INVALID_INPUT);
+    });
+
+    it('ApplyDotPath_AppendIndex_Succeeds', () => {
+      const obj: Record<string, unknown> = { tasks: ['a', 'b'] };
+      applyDotPath(obj, 'tasks[2]', 'c');
+      expect((obj.tasks as string[])[2]).toBe('c');
+    });
+
+    it('ApplyDotPath_NextGapIndex_Succeeds', () => {
+      const obj: Record<string, unknown> = { tasks: ['a'] };
+      // index 2 when length is 1 → gap of 1 → allowed
+      applyDotPath(obj, 'tasks[2]', 'c');
+      expect((obj.tasks as unknown[])[2]).toBe('c');
+    });
+
+    it('ApplyDotPath_IntermediateSparseArray_ThrowsInvalidInput', () => {
+      const obj: Record<string, unknown> = {};
+      // 'items' doesn't exist → auto-created as empty array → index 100 >> length 0
+      expect(() => applyDotPath(obj, 'items[100].name', 'x')).toThrow(ErrorCode.INVALID_INPUT);
+    });
+
+    it('ApplyDotPath_FinalSparseIndex_ThrowsInvalidInput', () => {
+      const obj: Record<string, unknown> = { items: [1, 2] };
+      expect(() => applyDotPath(obj, 'items[50]', 99)).toThrow(ErrorCode.INVALID_INPUT);
+    });
+  });
+
+  // ─── Task 6: writeStateFile CAS Corrupt File Handling ───────────────────
+
+  describe('writeStateFile_CASCorruptHandling', () => {
+    it('WriteStateFile_CorruptExistingFile_ThrowsStateCorrupt', async () => {
+      const stateFile = path.join(tmpDir, 'corrupt.state.json');
+      await fs.writeFile(stateFile, 'invalid json{{{', 'utf-8');
+
+      const { state } = await initStateFile(tmpDir, 'test-feature', 'feature');
+
+      await expect(
+        writeStateFile(stateFile, state, { expectedVersion: 1 }),
+      ).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+    });
+
+    it('WriteStateFile_MissingFile_CASDefaultsToVersion1', async () => {
+      const stateFile = path.join(tmpDir, 'nonexistent.state.json');
+      const { state } = await initStateFile(tmpDir, 'test-feature', 'feature');
+
+      // Should not throw — ENOENT defaults to version 1, expectedVersion=1 matches
+      await expect(
+        writeStateFile(stateFile, state, { expectedVersion: 1 }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('WriteStateFile_ValidFile_CASSucceeds', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'test-feature', 'feature');
+      // initStateFile writes with _version: 1
+
+      await expect(
+        writeStateFile(stateFile, state, { expectedVersion: 1 }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('WriteStateFile_ValidFile_CASConflict_ThrowsVersionConflict', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'test-feature', 'feature');
+      // State is at version 1, but we claim version 5
+
+      await expect(
+        writeStateFile(stateFile, state, { expectedVersion: 5 }),
+      ).rejects.toThrow('VERSION_CONFLICT');
+    });
+  });
+
+  // ─── Task 7: initStateFile Crash Safety (temp+link) ─────────────────────
+
+  describe('initStateFile_CrashSafety', () => {
+    it('InitStateFile_Success_NoTempFileRemains', async () => {
+      await initStateFile(tmpDir, 'test-feature', 'feature');
+
+      // Verify no .init.PID temp files remain
+      const entries = await fs.readdir(tmpDir);
+      const initTmpFiles = entries.filter((f) => f.includes('.init.'));
+      expect(initTmpFiles).toHaveLength(0);
+    });
+
+    it('InitStateFile_ExistingFile_ThrowsAlreadyExists', async () => {
+      await initStateFile(tmpDir, 'test-feature', 'feature');
+
+      // Second init should fail with STATE_ALREADY_EXISTS
+      await expect(
+        initStateFile(tmpDir, 'test-feature', 'feature'),
+      ).rejects.toThrow(ErrorCode.STATE_ALREADY_EXISTS);
+    });
+
+    it('InitStateFile_ConcurrentInit_OneSucceedsOneFailsEEXIST', async () => {
+      // Launch two inits concurrently
+      const results = await Promise.allSettled([
+        initStateFile(tmpDir, 'race-feature', 'feature'),
+        initStateFile(tmpDir, 'race-feature', 'feature'),
+      ]);
+
+      const successes = results.filter((r) => r.status === 'fulfilled');
+      const failures = results.filter((r) => r.status === 'rejected');
+
+      expect(successes).toHaveLength(1);
+      expect(failures).toHaveLength(1);
+
+      const failureReason = (failures[0] as PromiseRejectedResult).reason;
+      expect(failureReason.message).toContain(ErrorCode.STATE_ALREADY_EXISTS);
+    });
+  });
 });
