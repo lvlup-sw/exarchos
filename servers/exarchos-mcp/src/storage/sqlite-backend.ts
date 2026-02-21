@@ -107,6 +107,9 @@ export class SqliteBackend implements StorageBackend {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
 
+    // Enable memory-mapped I/O (256 MB) for read-heavy workloads
+    this.db.pragma('mmap_size = 268435456');
+
     // Execute schema DDL
     this.db.exec(SCHEMA_DDL);
 
@@ -257,6 +260,13 @@ export class SqliteBackend implements StorageBackend {
   getSequence(streamId: string): number {
     const row = this.stmts.selectSequence.get(streamId) as { sequence: number } | undefined;
     return row ? row.sequence : 0;
+  }
+
+  listStreams(): string[] {
+    const rows = this.db
+      .prepare('SELECT DISTINCT streamId FROM sequences ORDER BY streamId')
+      .all() as Array<{ streamId: string }>;
+    return rows.map((row) => row.streamId);
   }
 
   // ─── State Operations ───────────────────────────────────────────────────
