@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { withTelemetry, createInstrumentedRegistrar } from './middleware.js';
 import { EventStore } from '../event-store/store.js';
 import { TELEMETRY_STREAM } from './constants.js';
+import { initToolMetrics } from './telemetry-projection.js';
+import type { ToolMetrics } from './telemetry-projection.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -177,5 +179,119 @@ describe('createInstrumentedRegistrar', () => {
     expect(registeredHandler).toBeDefined();
     // The registered handler should NOT be the original (it's wrapped)
     expect(registeredHandler).not.toBe(originalHandler);
+  });
+});
+
+describe('auto-correction integration', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autocorrect-test-'));
+    eventStore = new EventStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Helper: creates ToolMetrics with specified overrides. */
+  function makeMetrics(overrides: Partial<ToolMetrics> = {}): ToolMetrics {
+    return { ...initToolMetrics(), ...overrides };
+  }
+
+  it('WithTelemetry_ThresholdExceeded_AppliesAutoCorrection', async () => {
+    // Arrange
+    let receivedArgs: Record<string, unknown> | undefined;
+    const handler = async (args: Record<string, unknown>) => {
+      receivedArgs = args;
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
+        isError: false,
+      };
+    };
+
+    const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
+
+    const wrapped = withTelemetry(handler, 'exarchos_view', eventStore, {
+      action: 'tasks',
+      getMetrics: metricsGetter,
+      consecutiveBreaches: 5,
+    });
+
+    // Act
+    const result = await wrapped({ action: 'tasks' });
+
+    // Assert — handler should receive corrected args with fields injected
+    expect(receivedArgs).toBeDefined();
+    expect(receivedArgs!.fields).toEqual(['id', 'title', 'status', 'assignee']);
+
+    // Response should include _autoCorrection metadata
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed._autoCorrection).toBeDefined();
+    expect(parsed._autoCorrection.applied).toHaveLength(1);
+    expect(parsed._autoCorrection.applied[0].param).toBe('fields');
+  });
+
+  it('WithTelemetry_SkipAutoCorrection_BypassesCorrection', async () => {
+    // Arrange
+    let receivedArgs: Record<string, unknown> | undefined;
+    const handler = async (args: Record<string, unknown>) => {
+      receivedArgs = args;
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
+        isError: false,
+      };
+    };
+
+    const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
+
+    const wrapped = withTelemetry(handler, 'exarchos_view', eventStore, {
+      action: 'tasks',
+      getMetrics: metricsGetter,
+      consecutiveBreaches: 5,
+    });
+
+    // Act
+    const result = await wrapped({ action: 'tasks', skipAutoCorrection: true });
+
+    // Assert — handler should receive original args unchanged
+    expect(receivedArgs).toBeDefined();
+    expect(receivedArgs!.fields).toBeUndefined();
+    expect(receivedArgs!.skipAutoCorrection).toBe(true);
+
+    // Response should not include _autoCorrection
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed._autoCorrection).toBeUndefined();
+  });
+
+  it('WithTelemetry_AutoCorrectionApplied_EmitsQualityHintGenerated', async () => {
+    // Arrange
+    const handler = async () => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
+      isError: false,
+    });
+
+    const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
+
+    const wrapped = withTelemetry(handler, 'exarchos_view', eventStore, {
+      action: 'tasks',
+      getMetrics: metricsGetter,
+      consecutiveBreaches: 5,
+    });
+
+    // Act
+    await wrapped({ action: 'tasks' });
+
+    // Assert — quality.hint.generated event should be emitted
+    const events = await eventStore.query(TELEMETRY_STREAM);
+    const hintEvents = events.filter((e) => e.type === 'quality.hint.generated');
+    expect(hintEvents).toHaveLength(1);
+
+    const hintData = hintEvents[0].data as Record<string, unknown>;
+    expect(hintData.skill).toBe('exarchos_view');
+    expect(hintData.hintCount).toBe(1);
+    expect(hintData.categories).toEqual(['auto-correction']);
+    expect(hintData.generatedAt).toBeDefined();
   });
 });
