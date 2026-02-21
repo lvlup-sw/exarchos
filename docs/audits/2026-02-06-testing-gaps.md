@@ -4,7 +4,7 @@
 **Scope:** Full codebase audit of `plugins/workflow-state/servers/workflow-state-mcp/`
 **Motivation:** Bugs like shallow-merge overwrites and Zod field stripping should never reach production. This audit identifies testing gaps that allowed them, and recommends highest-impact tests to close those gaps.
 
-**Status:** Gaps 1, 2, 3, 5 fixed + 6 pre-existing failures resolved. See [Fixes Applied](#fixes-applied) section.
+**Status:** Gaps 1-3, 5-9 fixed + 6 pre-existing failures resolved. Gap 4 partially addressed (CAS versioning added, file-level locking deferred). See [Fixes Applied](#fixes-applied) section.
 
 ---
 
@@ -184,6 +184,7 @@ ExecuteTransition_GuardWithMissingNestedField_ReturnsGuardFailed
 
 **Severity:** MEDIUM — Users don't know a workflow is broken
 **Category:** Error reporting
+**Status:** FIXED — `listStateFiles()` now returns `{ valid, corrupt }` with corrupt file metadata instead of silently dropping. Orphaned temp files cleaned up automatically. See io-hardening PR.
 
 ```typescript
 // state-store.ts:306
@@ -208,6 +209,7 @@ ListStateFiles_CorruptFile_ReportsInResult
 
 **Severity:** MEDIUM — Corrupt data can be written to disk
 **Category:** Defensive validation
+**Status:** FIXED — Write-time Zod validation added in `writeStateFile()` (lines 223-232). Invalid state rejected before write with `INVALID_INPUT` error code.
 
 `writeStateFile()` accepts a `WorkflowState` parameter (TypeScript type) but does not validate it against the Zod schema before writing. If the caller passes an object that satisfies the TypeScript type but not the Zod schema (e.g., missing a required field added after the type was generated), the corrupt data is persisted.
 
@@ -227,6 +229,7 @@ WriteStateFile_InvalidState_RejectsBeforeWrite
 
 **Severity:** MEDIUM — Creates unexpected data shapes
 **Category:** Input validation
+**Status:** FIXED — `applyDotPath()` now enforces `MAX_ARRAY_GAP = 1` bounds check. Indices beyond `array.length + 1` throw `INVALID_INPUT`. See io-hardening PR.
 
 ```typescript
 applyDotPath({}, 'tasks[5].status', 'complete');
@@ -253,6 +256,7 @@ ApplyDotPath_TypeMismatch_ArrayAsObject
 
 **Severity:** MEDIUM — Unhandled exceptions on corrupt state files
 **Category:** Error handling
+**Status:** FIXED — `handleNextAction()` now reads state via `readStateFile()` which validates through Zod schema. Guard evaluation wrapped in try/catch, returns structured `GUARD_FAILED` error.
 
 `handleNextAction()` at `tools.ts:735` reads the state file as raw JSON and passes it directly to guard evaluation without schema validation. If the file is manually edited or corrupted, guard functions receive unexpected types and throw unhandled exceptions.
 
@@ -283,22 +287,22 @@ HandleNextAction_MissingGuardField_ReturnsWait
 | 2 | Update 6 failing tests for `plan-review` phase | 6 pre-existing failures | Small — update transition paths | DONE |
 | 3 | Add module-boundary integration tests (handleSet → handleGet round-trips) | Gap 2 | Medium — 4-6 tests | DONE (7 tests) |
 
-### Tier 2: Prevent Silent Corruption — PARTIALLY DONE
+### Tier 2: Prevent Silent Corruption — ALL DONE
 
 | # | Test | Fixes | Effort | Status |
 |---|------|-------|--------|--------|
 | 4 | Guard exception handling tests | Gap 5 | Small — 2-3 tests + try/catch | DONE |
 | 5 | handleSet deep copy + concurrent mutation tests | Gap 3 | Medium — requires refactoring shallow copy | DONE |
-| 6 | writeStateFile pre-write validation | Gap 7 | Small — add Zod parse before write | Open |
-| 7 | listStateFiles error reporting | Gap 6 | Small — return errors alongside results | Open |
+| 6 | writeStateFile pre-write validation | Gap 7 | Small — add Zod parse before write | DONE |
+| 7 | listStateFiles error reporting | Gap 6 | Small — return errors alongside results | DONE |
 
-### Tier 3: Hardening
+### Tier 3: Hardening — PARTIALLY DONE
 
-| # | Test | Fixes | Effort |
-|---|------|-------|--------|
-| 8 | File-level concurrency tests | Gap 4 | Large — needs locking mechanism |
-| 9 | applyDotPath edge cases (sparse arrays, type mismatches) | Gap 8 | Medium — validation + 3-4 tests |
-| 10 | handleNextAction corrupt state handling | Gap 9 | Small — 2 tests + error handling |
+| # | Test | Fixes | Effort | Status |
+|---|------|-------|--------|--------|
+| 8 | File-level concurrency tests | Gap 4 | Large — needs locking mechanism | PARTIAL — CAS versioning with retry loop added; file-level locking deferred until remote agent protocol designed |
+| 9 | applyDotPath edge cases (sparse arrays, type mismatches) | Gap 8 | Medium — validation + 3-4 tests | DONE |
+| 10 | handleNextAction corrupt state handling | Gap 9 | Small — 2 tests + error handling | DONE |
 
 ---
 
@@ -347,7 +351,7 @@ Scaffolding Tests (existing, good)
   └── scaffolding.test.ts    — MCP tool registration
 ```
 
-The primary gap was the **integration test layer**. This has been addressed with `boundary.test.ts` (7 cross-module tests) and fixes to `integration.test.ts` (8 tests, all passing). Remaining gaps (4, 6-9) are lower severity and tracked for future work.
+The primary gap was the **integration test layer**. This has been addressed with `boundary.test.ts` (7 cross-module tests) and fixes to `integration.test.ts` (8 tests, all passing). Gaps 6-9 fixed in the io-hardening PR. Gap 4 partially addressed with CAS versioning and retry loop; file-level locking deferred until remote agent protocol is designed.
 
 ---
 

@@ -8,6 +8,9 @@ import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 
+/** Maximum gap between array length and new index. Allows append (gap 0) and one-past-end (gap 1). */
+export const MAX_ARRAY_GAP = 1;
+
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
 
 const INITIAL_PHASE: Record<WorkflowType, string> = {
@@ -93,13 +96,20 @@ export async function initStateFile(
   // Ensure directory exists
   await fs.mkdir(stateDir, { recursive: true });
 
-  // Write atomically with exclusive flag (fails if file exists)
-  // This avoids TOCTOU race condition — no separate existence check needed
+  // Write via temp file + atomic link for crash safety.
+  // link() fails with EEXIST if target exists, preserving exclusive-create semantics.
+  // On crash before link(), only the temp file remains — no corrupt state file.
+  const tmpPath = `${stateFile}.init.${process.pid}`;
   try {
-    await fs.writeFile(stateFile, JSON.stringify(state, null, 2), {
-      encoding: 'utf-8',
-      flag: 'wx', // exclusive create - fails with EEXIST if file exists
-    });
+    await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (err) {
+    throw new StateStoreError(
+      ErrorCode.FILE_IO_ERROR,
+      `Failed to write temp state file: ${stateFile} — ${(err as Error).message}`,
+    );
+  }
+  try {
+    await fs.link(tmpPath, stateFile);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new StateStoreError(
@@ -109,8 +119,11 @@ export async function initStateFile(
     }
     throw new StateStoreError(
       ErrorCode.FILE_IO_ERROR,
-      `Failed to write state file: ${stateFile} — ${(err as Error).message}`,
+      `Failed to create state file: ${stateFile} — ${(err as Error).message}`,
     );
+  } finally {
+    // Always clean up temp file (link created a second hard link to same inode)
+    await fs.unlink(tmpPath).catch(() => {});
   }
 
   return { stateFile, state };
@@ -210,10 +223,27 @@ export async function writeStateFile(
     let currentVersion = 1;
     try {
       const raw = await fs.readFile(stateFile, 'utf-8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
-    } catch {
-      // If file doesn't exist or is unreadable, default to version 1
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
+      } catch {
+        // File exists but has invalid JSON — surface corruption instead of masking it
+        throw new StateStoreError(
+          ErrorCode.STATE_CORRUPT,
+          `Cannot perform CAS check — state file has invalid JSON: ${stateFile}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof StateStoreError) throw err; // re-throw STATE_CORRUPT
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // File doesn't exist — version 1 is correct for first write
+        currentVersion = 1;
+      } else {
+        throw new StateStoreError(
+          ErrorCode.FILE_IO_ERROR,
+          `Cannot read state file for CAS check: ${stateFile}`,
+        );
+      }
     }
 
     if (options.expectedVersion !== currentVersion) {
@@ -315,6 +345,23 @@ function parsePath(dotPath: string): Array<string | number> {
   return segments;
 }
 
+/**
+ * Guard against sparse array creation. Throws if the index exceeds the
+ * array length by more than MAX_ARRAY_GAP.
+ */
+function assertArrayBounds(
+  arr: unknown[],
+  index: number,
+  dotPath: string,
+): void {
+  if (index > arr.length + MAX_ARRAY_GAP) {
+    throw new StateStoreError(
+      ErrorCode.INVALID_INPUT,
+      `Array index ${index} exceeds length ${arr.length} by more than ${MAX_ARRAY_GAP} in path ${dotPath}`,
+    );
+  }
+}
+
 export function applyDotPath(
   obj: Record<string, unknown>,
   dotPath: string,
@@ -345,6 +392,7 @@ export function applyDotPath(
           `Expected array at index ${segment} in path ${dotPath}`,
         );
       }
+      assertArrayBounds(current, segment, dotPath);
       if (current[segment] === undefined) {
         // Create intermediate object or array based on next segment
         current[segment] = typeof nextSegment === 'number' ? [] : {};
@@ -370,6 +418,7 @@ export function applyDotPath(
         `Expected array for final index ${lastSegment} in path ${dotPath}`,
       );
     }
+    assertArrayBounds(current, lastSegment, dotPath);
     current[lastSegment] = value;
   } else {
     const record = current as Record<string, unknown>;
