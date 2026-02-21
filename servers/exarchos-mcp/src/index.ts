@@ -223,6 +223,20 @@ async function main() {
     registerBackendCleanup(backend);
   }
 
+  // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
+  import('./storage/lifecycle.js')
+    .then(({ checkCompaction, rotateTelemetry, DEFAULT_LIFECYCLE_POLICY }) => {
+      checkCompaction(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Lifecycle compaction failed');
+      });
+      rotateTelemetry(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Telemetry rotation failed');
+      });
+    })
+    .catch((err) => {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
+    });
+
   const server = createServer(stateDir, { backend });
   const transport = new StdioServerTransport();
   await server.connect(transport);
