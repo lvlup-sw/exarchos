@@ -8,12 +8,16 @@ on:
       - 'rules/**'
       - 'servers/exarchos-mcp/src/**'
       - 'evals/**'
+      - '.github/workflows/eval-gate.yml'
 
 jobs:
   eval-regression:
     name: Eval Regression Check
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: eval-gate-${{ github.head_ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

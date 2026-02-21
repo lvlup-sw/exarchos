@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCIReport, formatFailedAssertions } from './ci-reporter.js';
+import { formatCIReport, formatFailedAssertions, escapeCommandValue, escapeCommandProperty } from './ci-reporter.js';
 import type { RunSummary, EvalResult } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ describe('formatCIReport', () => {
     expect(output).toContain('delegate-task-routing');
     const errorLine = output.split('\n').find((l) => l.startsWith('::error'));
     expect(errorLine).toBeDefined();
-    expect(errorLine).toContain('title=Eval Regression: delegate-task-routing');
+    expect(errorLine).toContain('title=Eval Regression%3A delegate-task-routing');
   });
 
   it('formatCIReport_ErrorAnnotation_IncludesFailedAssertionReasons', () => {
@@ -220,6 +220,22 @@ describe('formatCIReport', () => {
 // ─── formatFailedAssertions ─────────────────────────────────────────────────
 
 describe('formatFailedAssertions', () => {
+  it('formatFailedAssertions_NoFailures_ReturnsDefaultMessage', () => {
+    // Arrange
+    const result = makeResult({
+      caseId: 'c-1',
+      passed: false,
+      score: 0.0,
+      assertions: [],
+    });
+
+    // Act
+    const output = formatFailedAssertions(result);
+
+    // Assert
+    expect(output).toBe('No assertion details');
+  });
+
   it('formatFailedAssertions_SingleFailure_FormatsReason', () => {
     // Arrange
     const result = makeResult({
@@ -257,5 +273,64 @@ describe('formatFailedAssertions', () => {
     // Assert
     expect(output).toBe('exact-match: Field mismatch; schema: Invalid structure');
     expect(output).not.toContain('passing-one');
+  });
+});
+
+// ─── escapeCommandValue ─────────────────────────────────────────────────────
+
+describe('escapeCommandValue', () => {
+  it('escapeCommandValue_SpecialChars_EscapesPercentsAndNewlines', () => {
+    expect(escapeCommandValue('50% done\nline2\rend')).toBe('50%25 done%0Aline2%0Dend');
+  });
+
+  it('escapeCommandValue_PlainText_ReturnsUnchanged', () => {
+    expect(escapeCommandValue('hello world')).toBe('hello world');
+  });
+});
+
+// ─── escapeCommandProperty ──────────────────────────────────────────────────
+
+describe('escapeCommandProperty', () => {
+  it('escapeCommandProperty_ColonsAndCommas_EscapesPropertyChars', () => {
+    expect(escapeCommandProperty('key:value,item')).toBe('key%3Avalue%2Citem');
+  });
+
+  it('escapeCommandProperty_AllSpecialChars_EscapesEverything', () => {
+    expect(escapeCommandProperty('a:b,c%d\ne')).toBe('a%3Ab%2Cc%25d%0Ae');
+  });
+});
+
+// ─── formatCIReport escaping ────────────────────────────────────────────────
+
+describe('formatCIReport escaping', () => {
+  it('formatCIReport_SpecialCharsInCaseId_EscapesAnnotationTitle', () => {
+    // Arrange
+    const summaries = [
+      makeSummary({
+        suiteId: 'test:suite',
+        avgScore: 0.0,
+        results: [
+          makeResult({
+            caseId: 'case:with,special%chars',
+            passed: false,
+            score: 0.0,
+            assertions: [
+              { name: 'check', type: 'exact-match', passed: false, score: 0.0, reason: 'fail\nreason', threshold: 1.0 },
+            ],
+          }),
+        ],
+      }),
+    ];
+
+    // Act
+    const output = formatCIReport(summaries);
+
+    // Assert
+    const errorLine = output.split('\n').find((l) => l.startsWith('::error'));
+    expect(errorLine).toBeDefined();
+    expect(errorLine).toContain('case%3Awith%2Cspecial%25chars');
+    expect(errorLine).toContain('fail%0Areason');
+    const noticeLine = output.split('\n').find((l) => l.startsWith('::notice'));
+    expect(noticeLine).toContain('test%3Asuite');
   });
 });

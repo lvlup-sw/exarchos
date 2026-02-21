@@ -33,6 +33,7 @@ function makeSummary(overrides: Partial<RunSummary> & { suiteId: string }): RunS
     total: 2,
     passed: 2,
     failed: 0,
+    skipped: 0,
     avgScore: 1.0,
     duration: 100,
     results: [],
@@ -107,7 +108,7 @@ describe('handleEvalRun', () => {
     expect(result.failures).toBe(0);
   });
 
-  it('HandleEvalRun_HasFailures_ReturnsResultWithFailures', async () => {
+  it('HandleEvalRun_HasFailures_ReturnsErrorWithFailures', async () => {
     // Arrange
     const summaries = [
       makeSummary({ suiteId: 'suite-a', total: 5, passed: 3, failed: 2 }),
@@ -121,6 +122,9 @@ describe('handleEvalRun', () => {
     expect(result.passed).toBe(false);
     expect(result.total).toBe(5);
     expect(result.failures).toBe(2);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVAL_FAILED');
+    expect(result.error?.message).toContain('2/5');
   });
 
   it('HandleEvalRun_RunAllThrows_ReturnsRunFailedError', async () => {
@@ -176,7 +180,7 @@ describe('handleEvalRun CI mode', () => {
     expect(result.passed).toBe(true);
   });
 
-  it('HandleEvalRun_CiFlag_Failures_ReturnsPassedFalse', async () => {
+  it('HandleEvalRun_CiFlag_Failures_ReturnsErrorWithPassedFalse', async () => {
     // Arrange
     const summaries = [makeSummary({ suiteId: 'suite-a', total: 5, passed: 3, failed: 2 })];
     mockRunAll.mockResolvedValue(summaries);
@@ -186,6 +190,8 @@ describe('handleEvalRun CI mode', () => {
 
     // Assert
     expect(result.passed).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVAL_FAILED');
   });
 
   it('HandleEvalRun_NoCiFlag_UsesCliReporter', async () => {

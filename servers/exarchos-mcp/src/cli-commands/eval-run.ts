@@ -89,6 +89,14 @@ export async function handleEvalRun(
   const allPassed = totalFailures === 0;
 
   return {
+    ...(allPassed
+      ? {}
+      : {
+          error: {
+            code: 'EVAL_FAILED',
+            message: `${totalFailures}/${totalCases} eval cases failed`,
+          },
+        }),
     summaries,
     passed: allPassed,
     total: totalCases,
