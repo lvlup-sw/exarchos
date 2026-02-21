@@ -3,6 +3,7 @@ import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { isPidAlive } from '../utils/process.js';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -386,15 +387,20 @@ export function applyDotPath(
 
 // ─── List State Files ──────────────────────────────────────────────────────
 
+export interface ListStateFilesResult {
+  valid: Array<{ featureId: string; stateFile: string; state: WorkflowState }>;
+  corrupt: Array<{ featureId: string; stateFile: string; error: string }>;
+}
+
 export async function listStateFiles(
   stateDir: string,
-): Promise<Array<{ featureId: string; stateFile: string; state: WorkflowState }>> {
+): Promise<ListStateFilesResult> {
   let entries: string[];
   try {
     entries = await fs.readdir(stateDir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return [];
+      return { valid: [], corrupt: [] };
     }
     throw new StateStoreError(
       ErrorCode.FILE_IO_ERROR,
@@ -403,21 +409,39 @@ export async function listStateFiles(
   }
 
   const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
-  const results: Array<{ featureId: string; stateFile: string; state: WorkflowState }> = [];
+
+  // Clean up orphaned temp files from crashed writes
+  const tmpPattern = /\.(tmp|init)\.(\d+)$/;
+  const tmpFiles = entries.filter((f) => tmpPattern.test(f));
+  for (const tmpFile of tmpFiles) {
+    const match = tmpFile.match(tmpPattern);
+    if (match) {
+      const pid = parseInt(match[2], 10);
+      if (!isNaN(pid) && !isPidAlive(pid)) {
+        await fs.unlink(path.join(stateDir, tmpFile)).catch(() => {});
+      }
+    }
+  }
+
+  const valid: ListStateFilesResult['valid'] = [];
+  const corrupt: ListStateFilesResult['corrupt'] = [];
 
   for (const file of stateFiles) {
     const stateFile = path.join(stateDir, file);
     const featureId = file.replace('.state.json', '');
     try {
       const state = await readStateFile(stateFile);
-      results.push({ featureId, stateFile, state });
-    } catch {
-      // Skip corrupt or unreadable state files
-      continue;
+      valid.push({ featureId, stateFile, state });
+    } catch (err) {
+      corrupt.push({
+        featureId,
+        stateFile,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  return results;
+  return { valid, corrupt };
 }
 
 // ─── Apply Event to State (pure helper) ─────────────────────────────────────

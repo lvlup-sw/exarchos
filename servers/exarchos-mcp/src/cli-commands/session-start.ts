@@ -529,7 +529,7 @@ export async function handleSessionStart(
 
     // Also check for active state files not covered by checkpoints
     try {
-      const stateFiles = await listStateFiles(stateDir);
+      const stateFiles = (await listStateFiles(stateDir)).valid;
       for (const entry of stateFiles) {
         if (checkpointFeatureIds.has(entry.featureId)) continue;
         if (TERMINAL_PHASES.has(entry.state.phase)) continue;
@@ -559,7 +559,7 @@ export async function handleSessionStart(
 
   // Step 2: No checkpoints — discover active workflows from state files
   try {
-    const stateFiles = await listStateFiles(stateDir);
+    const stateFiles = (await listStateFiles(stateDir)).valid;
     const activeWorkflows = stateFiles.filter(
       (entry) => !TERMINAL_PHASES.has(entry.state.phase),
     );
