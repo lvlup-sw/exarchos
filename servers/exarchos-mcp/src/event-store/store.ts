@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
+import { migrateEvent } from './event-migration.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -430,7 +431,8 @@ export class EventStore {
         // If regex fails (NaN or no match), fall through to JSON.parse
       }
 
-      const event = JSON.parse(line) as WorkflowEvent;
+      const parsed = JSON.parse(line);
+      const event = migrateEvent(parsed) as WorkflowEvent;
 
       // Apply remaining filters for non-fast-path
       if (!canFastSkip) {
