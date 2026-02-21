@@ -6,6 +6,7 @@ import {
   WORKFLOW_STATE_VIEW,
 } from './workflow-state-projection.js';
 import type { WorkflowStateView } from './workflow-state-projection.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -485,5 +486,98 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
     );
     materializer.materialize('stream-1', VIEW_NAME, events30);
     expect(snapshotStore.save).toHaveBeenCalled();
+  });
+});
+
+// ─── Task 11: ViewMaterializer StorageBackend Integration ────────────────────
+
+describe('ViewMaterializer StorageBackend Integration', () => {
+  const VIEW_NAME = 'counter';
+
+  it('ViewMaterializer_loadFromSnapshot_WithBackend_ReadsFromViewCache', async () => {
+    const backend = new InMemoryBackend();
+    // Pre-populate the backend view cache
+    backend.setViewCache('stream-1', VIEW_NAME, 42, 10);
+
+    const materializer = new ViewMaterializer({ backend });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const getCacheSpy = vi.spyOn(backend, 'getViewCache');
+    const loaded = await materializer.loadFromSnapshot('stream-1', VIEW_NAME);
+
+    expect(loaded).toBe(true);
+    expect(getCacheSpy).toHaveBeenCalledWith('stream-1', VIEW_NAME);
+
+    const state = materializer.getState<number>('stream-1', VIEW_NAME);
+    expect(state?.view).toBe(42);
+    expect(state?.highWaterMark).toBe(10);
+  });
+
+  it('ViewMaterializer_materialize_WithBackend_SavesViewCacheOnInterval', () => {
+    const backend = new InMemoryBackend();
+    const setCacheSpy = vi.spyOn(backend, 'setViewCache');
+
+    // Set snapshot interval to 5 so we hit it quickly
+    const materializer = new ViewMaterializer({ backend, snapshotInterval: 5 });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize 5 events — should trigger cache save at interval=5
+    const events = Array.from({ length: 5 }, (_, i) =>
+      makeEvent(i + 1, 'stream-1'),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events);
+
+    expect(setCacheSpy).toHaveBeenCalledWith('stream-1', VIEW_NAME, 5, 5);
+  });
+
+  it('ViewMaterializer_materialize_WithBackend_SkipsSnapshotStore', () => {
+    const backend = new InMemoryBackend();
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Both backend and snapshotStore provided — backend should be preferred
+    const materializer = new ViewMaterializer({
+      backend,
+      snapshotStore,
+      snapshotInterval: 5,
+    });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const events = Array.from({ length: 5 }, (_, i) =>
+      makeEvent(i + 1, 'stream-1'),
+    );
+    materializer.materialize('stream-1', VIEW_NAME, events);
+
+    // SnapshotStore.save should NOT be called when backend is available
+    expect(snapshotStore.save).not.toHaveBeenCalled();
+  });
+
+  it('ViewMaterializer_loadFromSnapshot_WithBackend_ReturnsFalseWhenNoCache', async () => {
+    const backend = new InMemoryBackend();
+    const materializer = new ViewMaterializer({ backend });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // No cache exists for this stream
+    const loaded = await materializer.loadFromSnapshot('nonexistent', VIEW_NAME);
+    expect(loaded).toBe(false);
+  });
+
+  it('ViewMaterializer_loadFromSnapshot_WithoutBackend_FallsBackToSnapshotStore', async () => {
+    const snapshotStore = {
+      save: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue({ view: 99, highWaterMark: 20, savedAt: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
+      delete: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // No backend — should use snapshotStore
+    const materializer = new ViewMaterializer({ snapshotStore });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    const loaded = await materializer.loadFromSnapshot('stream-1', VIEW_NAME);
+    expect(loaded).toBe(true);
+    expect(snapshotStore.load).toHaveBeenCalledWith('stream-1', VIEW_NAME);
   });
 });
