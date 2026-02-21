@@ -3,10 +3,30 @@ import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { StorageBackend } from '../storage/backend.js';
 import { isPidAlive } from '../utils/process.js';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
+
+// ─── Module-Level StorageBackend ──────────────────────────────────────────────
+
+/** Module-level storage backend. When set, state operations delegate here. */
+let _stateStoreBackend: StorageBackend | undefined;
+
+/**
+ * Configure the module-level storage backend for state operations.
+ * Pass `undefined` to reset to file-based mode.
+ */
+export function configureStateStoreBackend(backend: StorageBackend | undefined): void {
+  _stateStoreBackend = backend;
+}
+
+/** Extract featureId from a state file path (e.g., "/dir/my-feature.state.json" -> "my-feature"). */
+function extractFeatureIdFromPath(stateFile: string): string {
+  const basename = path.basename(stateFile);
+  return basename.replace('.state.json', '');
+}
 
 /** Maximum gap between array length and new index. Allows append (gap 0) and one-past-end (gap 1). */
 export const MAX_ARRAY_GAP = 1;
@@ -93,6 +113,24 @@ export async function initStateFile(
 
   const state = parseResult.data;
 
+  // Delegate to backend if available
+  if (_stateStoreBackend) {
+    // Use version 0 as expectedVersion for exclusive-create semantics:
+    // setState with expectedVersion=0 only succeeds if no state exists yet
+    try {
+      _stateStoreBackend.setState(featureId, state, 0);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'VersionConflictError') {
+        throw new StateStoreError(
+          ErrorCode.STATE_ALREADY_EXISTS,
+          `State already exists in backend for featureId: ${featureId}`,
+        );
+      }
+      throw err;
+    }
+    return { stateFile, state };
+  }
+
   // Ensure directory exists
   await fs.mkdir(stateDir, { recursive: true });
 
@@ -132,6 +170,19 @@ export async function initStateFile(
 // ─── Read and Validate a State File (with Migration) ───────────────────────
 
 export async function readStateFile(stateFile: string): Promise<WorkflowState> {
+  // Delegate to backend if available
+  if (_stateStoreBackend) {
+    const featureId = extractFeatureIdFromPath(stateFile);
+    const state = _stateStoreBackend.getState(featureId);
+    if (!state) {
+      throw new StateStoreError(
+        ErrorCode.STATE_NOT_FOUND,
+        `State not found in backend for featureId: ${featureId}`,
+      );
+    }
+    return state;
+  }
+
   let raw: string;
 
   try {
@@ -218,6 +269,48 @@ export async function writeStateFile(
   state: WorkflowState,
   options?: { expectedVersion?: number; skipValidation?: boolean },
 ): Promise<void> {
+  // Delegate to backend if available
+  if (_stateStoreBackend) {
+    const featureId = extractFeatureIdFromPath(stateFile);
+
+    // Auto-increment _version before writing
+    const stateWithVersion = {
+      ...state,
+      _version: getStateVersion(state) + 1,
+    } as WorkflowState;
+
+    // Validate before writing
+    if (!options?.skipValidation) {
+      const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+      if (!validation.success) {
+        throw new StateStoreError(
+          ErrorCode.INVALID_INPUT,
+          `Write-time validation failed: ${validation.error.message}`,
+        );
+      }
+    }
+
+    try {
+      _stateStoreBackend.setState(featureId, stateWithVersion, options?.expectedVersion);
+    } catch (err) {
+      // Re-throw backend version conflicts as state-store VersionConflictErrors
+      if (err instanceof Error && err.name === 'VersionConflictError') {
+        const message = err.message;
+        // Parse expected and actual from the error message
+        const match = message.match(/expected (\d+), actual (\d+)/);
+        if (match) {
+          throw new VersionConflictError(parseInt(match[1], 10), parseInt(match[2], 10));
+        }
+        throw new VersionConflictError(
+          options?.expectedVersion ?? 0,
+          0,
+        );
+      }
+      throw err;
+    }
+    return;
+  }
+
   // CAS check: if expectedVersion is provided, verify it matches the current file
   if (options?.expectedVersion !== undefined) {
     let currentVersion = 1;
@@ -444,6 +537,19 @@ export interface ListStateFilesResult {
 export async function listStateFiles(
   stateDir: string,
 ): Promise<ListStateFilesResult> {
+  // Delegate to backend if available
+  if (_stateStoreBackend) {
+    const states = _stateStoreBackend.listStates();
+    return {
+      valid: states.map(({ featureId, state }) => ({
+        featureId,
+        stateFile: path.join(stateDir, `${featureId}.state.json`),
+        state,
+      })),
+      corrupt: [],
+    };
+  }
+
   let entries: string[];
   try {
     entries = await fs.readdir(stateDir);
