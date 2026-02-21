@@ -61,7 +61,7 @@ When using `--mode agent-team`:
 1. **Pre-delegation intelligence:** Query `exarchos_view team_performance` for historical metrics
 2. **Team creation:** Create team with named teammates, each assigned to a worktree
 3. **Task list setup:** Create native Claude Code tasks with dependency annotations
-4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content
+4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content (MUST include Commit Strategy section with Graphite `gt create`/`gt submit` instructions)
 5. **Event emission:** Append `team.spawned` event with teamSize, teammateNames, taskCount
 
 Teammates self-coordinate via shared task list. No `Task()` calls needed.
