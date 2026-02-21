@@ -114,7 +114,7 @@ while IFS= read -r line; do
 done < "$DESIGN_FILE"
 
 # Validate we found sections
-if [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
+if [[ -z "${DESIGN_SECTIONS+x}" ]] || [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
     echo "Error: No Technical Design subsections found in design document" >&2
     echo "Expected ### headers under '## Technical Design'" >&2
     exit 2
@@ -139,7 +139,7 @@ while IFS= read -r line; do
 done < "$PLAN_FILE"
 
 # Validate we found tasks
-if [[ ${#PLAN_TASKS[@]} -eq 0 ]]; then
+if [[ -z "${PLAN_TASKS+x}" ]] || [[ ${#PLAN_TASKS[@]} -eq 0 ]]; then
     echo "ERROR: No '### Task' headers found in plan file: $PLAN_FILE" >&2
     exit 1
 fi
@@ -168,13 +168,13 @@ for section in "${DESIGN_SECTIONS[@]}"; do
     done
 
     # If no task title matches, check the full plan content for the section name
-    if [[ ${#MATCHED_TASKS[@]} -eq 0 ]]; then
+    if [[ -z "${MATCHED_TASKS+x}" ]] || [[ ${#MATCHED_TASKS[@]} -eq 0 ]]; then
         if echo "$PLAN_CONTENT" | grep -qiF "$section"; then
             MATCHED_TASKS+=("(referenced in plan body)")
         fi
     fi
 
-    if [[ ${#MATCHED_TASKS[@]} -gt 0 ]]; then
+    if [[ -n "${MATCHED_TASKS+x}" ]] && [[ ${#MATCHED_TASKS[@]} -gt 0 ]]; then
         task_list="$(printf '%s, ' "${MATCHED_TASKS[@]}")"
         task_list="${task_list%, }"
         MATRIX_ROWS+=("| $section | $task_list | Covered |")
@@ -213,7 +213,7 @@ echo "- Covered: $CHECK_PASS"
 echo "- Gaps: $CHECK_FAIL"
 echo ""
 
-if [[ ${#GAPS[@]} -gt 0 ]]; then
+if [[ -n "${GAPS+x}" ]] && [[ ${#GAPS[@]} -gt 0 ]]; then
     echo "### Unmapped Sections"
     echo ""
     for gap in "${GAPS[@]}"; do

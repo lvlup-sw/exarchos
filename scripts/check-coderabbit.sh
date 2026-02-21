@@ -136,7 +136,7 @@ if [[ -z "$REPO" ]]; then
 fi
 validate_github_name "$REPO" "repo"
 
-if [[ ${#PR_NUMBERS[@]} -eq 0 ]]; then
+if [[ -z "${PR_NUMBERS+x}" ]] || [[ ${#PR_NUMBERS[@]} -eq 0 ]]; then
     echo -e "${RED}ERROR${NC}: At least one PR number is required" >&2
     usage >&2
     exit 2

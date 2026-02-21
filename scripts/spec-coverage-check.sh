@@ -143,7 +143,7 @@ done < "$PLAN_FILE"
 # CHECK: Test files referenced in plan
 # ============================================================
 
-if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+if [[ -z "${TEST_FILES+x}" ]] || [[ ${#TEST_FILES[@]} -eq 0 ]]; then
     check_fail "Test files in plan" "No test files referenced in plan document"
 fi
 
@@ -201,7 +201,7 @@ echo "- Found on disk: $FOUND"
 echo "- Missing: $MISSING"
 echo ""
 
-if [[ ${#MISSING_LIST[@]} -gt 0 ]]; then
+if [[ -n "${MISSING_LIST+x}" ]] && [[ ${#MISSING_LIST[@]} -gt 0 ]]; then
     echo "### Missing Test Files"
     echo ""
     for f in "${MISSING_LIST[@]}"; do

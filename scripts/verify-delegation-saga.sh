@@ -198,10 +198,10 @@ done <<< "$TEAM_EVENTS"
 # RULE 3: All dispatched task IDs must have been planned
 # ============================================================
 
-if [[ ${#DISPATCHED_TASK_IDS[@]} -gt 0 ]]; then
+if [[ -n "${DISPATCHED_TASK_IDS+x}" ]] && [[ ${#DISPATCHED_TASK_IDS[@]} -gt 0 ]]; then
     for dispatched_id in "${DISPATCHED_TASK_IDS[@]}"; do
         found=false
-        if [[ ${#PLANNED_TASK_IDS[@]} -gt 0 ]]; then
+        if [[ -n "${PLANNED_TASK_IDS+x}" ]] && [[ ${#PLANNED_TASK_IDS[@]} -gt 0 ]]; then
             for planned_id in "${PLANNED_TASK_IDS[@]}"; do
                 if [[ "$dispatched_id" == "$planned_id" ]]; then
                     found=true
@@ -219,7 +219,7 @@ fi
 # OUTPUT AND EXIT
 # ============================================================
 
-if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+if [[ -n "${VIOLATIONS+x}" ]] && [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
     echo "## Delegation Saga Validation"
     echo ""
     echo "**Status:** FAILED for feature \`$FEATURE_ID\`"

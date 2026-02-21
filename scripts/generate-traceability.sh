@@ -117,7 +117,7 @@ while IFS= read -r line; do
     fi
 done < "$DESIGN_FILE"
 
-if [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
+if [[ -z "${DESIGN_SECTIONS+x}" ]] || [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
     echo "Error: No ## or ### headers found in design document" >&2
     exit 1
 fi
@@ -173,14 +173,14 @@ generate_table() {
         done
 
         # Also check plan body
-        if [[ ${#matched_ids[@]} -eq 0 ]]; then
+        if [[ -z "${matched_ids+x}" ]] || [[ ${#matched_ids[@]} -eq 0 ]]; then
             if echo "$PLAN_CONTENT" | grep -qiF "$section"; then
                 matched_ids+=("?")
             fi
         fi
 
         # Format output
-        if [[ ${#matched_ids[@]} -gt 0 ]]; then
+        if [[ -n "${matched_ids+x}" ]] && [[ ${#matched_ids[@]} -gt 0 ]]; then
             ids="$(printf '%s, ' "${matched_ids[@]}")"
             ids="${ids%, }"
             echo "| $section | (to be filled) | $ids | Covered |"

@@ -213,7 +213,7 @@ check_phase_readiness() {
             ;;
     esac
 
-    if [[ ${#missing[@]} -gt 0 ]]; then
+    if [[ -n "${missing+x}" ]] && [[ ${#missing[@]} -gt 0 ]]; then
         local detail
         detail="Phase is '$phase', need ${#missing[@]} transition(s):"
         for m in "${missing[@]}"; do

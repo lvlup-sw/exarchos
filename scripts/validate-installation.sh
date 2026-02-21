@@ -89,7 +89,7 @@ fi
 
 echo "=== Installation Validation: ${PASS_COUNT}/${TOTAL} skills passed ==="
 
-if [[ ${#ERRORS[@]} -gt 0 ]]; then
+if [[ -n "${ERRORS+x}" ]] && [[ ${#ERRORS[@]} -gt 0 ]]; then
   echo ""
   echo "Errors:"
   for err in "${ERRORS[@]}"; do

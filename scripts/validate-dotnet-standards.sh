@@ -218,7 +218,7 @@ check_no_inline_versions() {
         fi
     done < <(find "$src_dir" -name '*.csproj' -type f 2>/dev/null)
 
-    if [[ ${#violations[@]} -eq 0 ]]; then
+    if [[ -z "${violations+x}" ]] || [[ ${#violations[@]} -eq 0 ]]; then
         check_pass "No inline package versions in .csproj files"
         return 0
     else

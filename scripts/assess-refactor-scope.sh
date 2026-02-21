@@ -192,7 +192,7 @@ for f in "${FILE_LIST[@]}"; do
 done
 
 # For scope assessment purposes, having test counterparts is informational
-if [[ ${#MISSING_TESTS[@]} -eq 0 ]]; then
+if [[ -z "${MISSING_TESTS+x}" ]] || [[ ${#MISSING_TESTS[@]} -eq 0 ]]; then
     check_pass "Test coverage assessment (all source files have known patterns)"
 else
     # This is informational, not a hard fail for track decision

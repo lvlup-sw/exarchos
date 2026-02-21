@@ -84,7 +84,7 @@ while IFS= read -r target; do
   fi
 done <<< "$TARGETS"
 
-if [[ ${#BLOCKED_PATHS[@]} -gt 0 ]]; then
+if [[ -n "${BLOCKED_PATHS+x}" ]] && [[ ${#BLOCKED_PATHS[@]} -gt 0 ]]; then
   echo "BLOCKED: rm targets paths outside current directory ($CWD):" >&2
   printf "  - %s\n" "${BLOCKED_PATHS[@]}" >&2
   exit 2

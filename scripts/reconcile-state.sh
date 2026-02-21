@@ -215,7 +215,7 @@ check_task_branches() {
         fi
     done <<< "$task_branches"
 
-    if [[ ${#missing_branches[@]} -eq 0 ]]; then
+    if [[ -z "${missing_branches+x}" ]] || [[ ${#missing_branches[@]} -eq 0 ]]; then
         check_pass "Task branches exist ($branches_checked branches verified)"
         return 0
     else
@@ -261,7 +261,7 @@ check_worktrees_exist() {
         fi
     done <<< "$worktree_paths"
 
-    if [[ ${#missing_worktrees[@]} -eq 0 ]]; then
+    if [[ -z "${missing_worktrees+x}" ]] || [[ ${#missing_worktrees[@]} -eq 0 ]]; then
         check_pass "Worktrees exist ($worktrees_checked worktrees verified)"
         return 0
     else
@@ -296,7 +296,7 @@ check_task_status_consistency() {
         inconsistencies+=("Task $task_id is in-progress but has no branch")
     done <<< "$in_progress_no_branch"
 
-    if [[ ${#inconsistencies[@]} -eq 0 ]]; then
+    if [[ -z "${inconsistencies+x}" ]] || [[ ${#inconsistencies[@]} -eq 0 ]]; then
         check_pass "Task status consistency ($task_count tasks checked)"
         return 0
     else
