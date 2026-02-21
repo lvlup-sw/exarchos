@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SyncConfig } from './types.js';
+import { SyncConfigSchema } from './types.js';
 
 // ─── Default Config ──────────────────────────────────────────────────────────
 
@@ -16,43 +17,32 @@ export function getDefaultConfig(): SyncConfig {
 // ─── Load Sync Config ────────────────────────────────────────────────────────
 
 export function loadSyncConfig(stateDir: string): SyncConfig {
-  const defaults = getDefaultConfig();
-
   // Try loading from bridge-config.json in parent directory
   const configPath = path.join(stateDir, '..', 'bridge-config.json');
-  let fileConfig: Partial<SyncConfig> = {};
+  let parsedConfig: SyncConfig | undefined;
 
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
-    fileConfig = JSON.parse(content) as Partial<SyncConfig>;
+    const rawJson: unknown = JSON.parse(content);
+
+    // Validate with Zod — applies defaults for missing fields
+    const parseResult = SyncConfigSchema.safeParse(rawJson);
+    if (parseResult.success) {
+      parsedConfig = parseResult.data;
+    } else {
+      console.warn(
+        `Invalid config in ${configPath}:`,
+        parseResult.error.issues,
+      );
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.warn(`Failed to load config from ${configPath}:`, err);
     }
   }
 
-  // Default remote config values
-  const remoteDefaults = {
-    apiBaseUrl: 'http://localhost:5000',
-    exarchosId: 'default',
-    timeoutMs: 5000,
-  };
-
-  // Merge file config over defaults, normalizing remote with defaults
-  const config: SyncConfig = {
-    mode: fileConfig.mode ?? defaults.mode,
-    syncIntervalMs: fileConfig.syncIntervalMs ?? defaults.syncIntervalMs,
-    batchSize: fileConfig.batchSize ?? defaults.batchSize,
-    maxRetries: fileConfig.maxRetries ?? defaults.maxRetries,
-    remote: fileConfig.remote?.apiToken
-      ? {
-          apiToken: fileConfig.remote.apiToken,
-          apiBaseUrl: fileConfig.remote.apiBaseUrl ?? remoteDefaults.apiBaseUrl,
-          exarchosId: fileConfig.remote.exarchosId ?? remoteDefaults.exarchosId,
-          timeoutMs: fileConfig.remote.timeoutMs ?? remoteDefaults.timeoutMs,
-        }
-      : undefined,
-  };
+  // Fall back to defaults if file was missing or invalid
+  const config: SyncConfig = parsedConfig ?? getDefaultConfig();
 
   // Fall back to environment variables for remote config if not in file
   if (!config.remote) {

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── Remote Configuration ────────────────────────────────────────────────────
@@ -9,6 +10,13 @@ export interface RemoteConfig {
   timeoutMs: number;
 }
 
+export const RemoteConfigSchema = z.object({
+  apiToken: z.string().min(1),
+  apiBaseUrl: z.string().default('http://localhost:5000'),
+  exarchosId: z.string().default('default'),
+  timeoutMs: z.number().int().positive().default(5000),
+});
+
 // ─── Sync Configuration ─────────────────────────────────────────────────────
 
 export interface SyncConfig {
@@ -18,6 +26,14 @@ export interface SyncConfig {
   maxRetries: number;
   remote?: RemoteConfig;
 }
+
+export const SyncConfigSchema = z.object({
+  mode: z.enum(['local', 'remote', 'dual']).default('local'),
+  syncIntervalMs: z.number().int().positive().default(30000),
+  batchSize: z.number().int().positive().default(50),
+  maxRetries: z.number().int().nonnegative().default(10),
+  remote: RemoteConfigSchema.optional(),
+});
 
 // ─── Sync State ──────────────────────────────────────────────────────────────
 
