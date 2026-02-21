@@ -16,14 +16,20 @@ vi.mock('../evals/reporters/ci-reporter.js', () => ({
   formatCIReport: vi.fn().mockReturnValue('::notice title=Eval: mock::1/1 passed (100.0%)'),
 }));
 
+vi.mock('../views/tools.js', () => ({
+  getOrCreateEventStore: vi.fn().mockReturnValue({ append: vi.fn() }),
+}));
+
 import { handleEvalRun, resolveEvalsDir } from './eval-run.js';
 import { runAll } from '../evals/harness.js';
 import { formatMultiSuiteReport } from '../evals/reporters/cli-reporter.js';
 import { formatCIReport } from '../evals/reporters/ci-reporter.js';
+import { getOrCreateEventStore } from '../views/tools.js';
 
 const mockRunAll = vi.mocked(runAll);
 const mockFormatMultiSuiteReport = vi.mocked(formatMultiSuiteReport);
 const mockFormatCIReport = vi.mocked(formatCIReport);
+const mockGetOrCreateEventStore = vi.mocked(getOrCreateEventStore);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -64,7 +70,7 @@ describe('handleEvalRun', () => {
     const result = await handleEvalRun({}, '/fake/evals');
 
     // Assert
-    expect(mockRunAll).toHaveBeenCalledWith('/fake/evals', {});
+    expect(mockRunAll).toHaveBeenCalledWith('/fake/evals', expect.objectContaining({}));
     expect(result).toHaveProperty('summaries');
     expect(result).toHaveProperty('passed', true);
   });
@@ -77,7 +83,7 @@ describe('handleEvalRun', () => {
     await handleEvalRun({ skill: 'delegation' }, '/fake/evals');
 
     // Assert
-    expect(mockRunAll).toHaveBeenCalledWith('/fake/evals', { skill: 'delegation' });
+    expect(mockRunAll).toHaveBeenCalledWith('/fake/evals', expect.objectContaining({ skill: 'delegation' }));
   });
 
   it('HandleEvalRun_NoSuitesFound_ReturnsError', async () => {
@@ -138,6 +144,45 @@ describe('handleEvalRun', () => {
     expect(result.error).toBeDefined();
     expect(result.error?.code).toBe('RUN_FAILED');
     expect(result.error?.message).toContain('disk full');
+  });
+
+  it('HandleEvalRun_WithDefaults_PassesEventStoreOptionsToRunAll', async () => {
+    // Arrange
+    const summaries = [makeSummary({ suiteId: 'delegation' })];
+    mockRunAll.mockResolvedValue(summaries);
+    const mockStore = { append: vi.fn().mockResolvedValue({}) };
+    mockGetOrCreateEventStore.mockReturnValue(mockStore as any);
+
+    // Act
+    await handleEvalRun({}, '/fake/evals');
+
+    // Assert
+    const callArgs = mockRunAll.mock.calls[0];
+    expect(callArgs[1]).toMatchObject({
+      streamId: 'evals',
+      trigger: 'local',
+    });
+    // eventStore is wrapped in an adapter — verify it delegates to the underlying store
+    const adapter = callArgs[1].eventStore;
+    expect(adapter).toBeDefined();
+    expect(typeof adapter.append).toBe('function');
+    await adapter.append('test-stream', { type: 'workflow.started' });
+    expect(mockStore.append).toHaveBeenCalledWith('test-stream', { type: 'workflow.started' });
+  });
+
+  it('HandleEvalRun_CiMode_PassesTriggerCi', async () => {
+    // Arrange
+    const summaries = [makeSummary({ suiteId: 'delegation' })];
+    mockRunAll.mockResolvedValue(summaries);
+
+    // Act
+    await handleEvalRun({ ci: true }, '/fake/evals');
+
+    // Assert
+    const callArgs = mockRunAll.mock.calls[0];
+    expect(callArgs[1]).toMatchObject({
+      trigger: 'ci',
+    });
   });
 });
 
