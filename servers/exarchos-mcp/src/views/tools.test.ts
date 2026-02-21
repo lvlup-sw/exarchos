@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -6,6 +6,9 @@ import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
   resetMaterializerCache,
+  handleViewWorkflowStatus,
+  handleViewTasks,
+  handleViewPipeline,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
   handleViewCodeQuality,
@@ -459,5 +462,240 @@ describe('View Handlers', () => {
       const runs = data.runs as unknown[];
       expect(runs).toHaveLength(2);
     });
+  });
+});
+
+// ─── Task 1: sinceSequence Delta Queries ─────────────────────────────────────
+
+describe('Delta Query (sinceSequence)', () => {
+  let tmpDir: string;
+  let store: EventStore;
+
+  beforeEach(async () => {
+    resetMaterializerCache();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-delta-test-'));
+    store = new EventStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    resetMaterializerCache();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handleViewWorkflowStatus_WarmCall_QueriesOnlyDeltaEvents', async () => {
+    // Arrange: seed events and do a first (cold) call
+    await store.append('wf-delta', {
+      type: 'workflow.started',
+      data: { featureId: 'delta-feature', workflowType: 'feature' },
+    });
+    await store.append('wf-delta', {
+      type: 'workflow.transition',
+      data: { from: 'started', to: 'delegating', trigger: 'auto', featureId: 'delta-feature' },
+    });
+
+    // Cold call to populate materializer state
+    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir);
+    expect(coldResult.success).toBe(true);
+
+    // Add more events
+    await store.append('wf-delta', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Build login', branch: 'feat/login' },
+    });
+
+    // Spy on the cached store
+    const cachedStore = getOrCreateEventStore(tmpDir);
+    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+
+    // Act: warm call
+    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir);
+    expect(warmResult.success).toBe(true);
+
+    // Assert: store.query was called with sinceSequence filter
+    expect(storeQuerySpy).toHaveBeenCalledWith(
+      'wf-delta',
+      expect.objectContaining({ sinceSequence: expect.any(Number) }),
+    );
+    const callArgs = storeQuerySpy.mock.calls[0];
+    expect(callArgs[1]).toHaveProperty('sinceSequence');
+    expect((callArgs[1] as { sinceSequence: number }).sinceSequence).toBeGreaterThan(0);
+
+    storeQuerySpy.mockRestore();
+  });
+
+  it('handleViewTasks_WarmCall_QueriesOnlyDeltaEvents', async () => {
+    // Arrange: seed events and do a first (cold) call
+    await store.append('wf-delta-tasks', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+
+    // Cold call
+    await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir);
+
+    // Add more events
+    await store.append('wf-delta-tasks', {
+      type: 'task.assigned',
+      data: { taskId: 't2', title: 'Task 2', branch: 'feat/t2' },
+    });
+
+    // Spy on the cached store
+    const cachedStore = getOrCreateEventStore(tmpDir);
+    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+
+    // Act: warm call
+    const warmResult = await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir);
+    expect(warmResult.success).toBe(true);
+
+    // Assert: store.query was called with sinceSequence filter
+    expect(storeQuerySpy).toHaveBeenCalledWith(
+      'wf-delta-tasks',
+      expect.objectContaining({ sinceSequence: expect.any(Number) }),
+    );
+
+    storeQuerySpy.mockRestore();
+  });
+
+  it('handleViewPipeline_WarmCall_QueriesOnlyDeltaEvents', async () => {
+    // Arrange: seed events and do a first (cold) call
+    await store.append('wf-delta-pipe', {
+      type: 'workflow.started',
+      data: { featureId: 'pipe-feature', workflowType: 'feature' },
+    });
+
+    // Cold call
+    await handleViewPipeline({}, tmpDir);
+
+    // Add more events
+    await store.append('wf-delta-pipe', {
+      type: 'task.assigned',
+      data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
+    });
+
+    // Spy on the cached store
+    const cachedStore = getOrCreateEventStore(tmpDir);
+    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+
+    // Act: warm call
+    const warmResult = await handleViewPipeline({}, tmpDir);
+    expect(warmResult.success).toBe(true);
+
+    // Assert: store.query was called with sinceSequence filter for the stream
+    expect(storeQuerySpy).toHaveBeenCalledWith(
+      'wf-delta-pipe',
+      expect.objectContaining({ sinceSequence: expect.any(Number) }),
+    );
+
+    storeQuerySpy.mockRestore();
+  });
+
+  it('handleViewTeamPerformance_WarmCall_QueriesOnlyDeltaEvents', async () => {
+    // Arrange: seed events and do a first (cold) call
+    await store.append('wf-delta-team', {
+      type: 'team.task.completed',
+      data: {
+        taskId: 'task-1',
+        teammateName: 'worker-1',
+        durationMs: 5000,
+        filesChanged: ['src/auth/login.ts'],
+        testsPassed: true,
+        qualityGateResults: {},
+      },
+    });
+
+    // Cold call
+    await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir);
+
+    // Add more events
+    await store.append('wf-delta-team', {
+      type: 'team.task.completed',
+      data: {
+        taskId: 'task-2',
+        teammateName: 'worker-2',
+        durationMs: 3000,
+        filesChanged: ['src/auth/signup.ts'],
+        testsPassed: true,
+        qualityGateResults: {},
+      },
+    });
+
+    // Spy on the cached store
+    const cachedStore = getOrCreateEventStore(tmpDir);
+    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+
+    // Act: warm call
+    const warmResult = await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir);
+    expect(warmResult.success).toBe(true);
+
+    // Assert: store.query was called with sinceSequence filter
+    expect(storeQuerySpy).toHaveBeenCalledWith(
+      'wf-delta-team',
+      expect.objectContaining({ sinceSequence: expect.any(Number) }),
+    );
+
+    storeQuerySpy.mockRestore();
+  });
+});
+
+// ─── Task 2: Skip loadFromSnapshot on Warm Calls ────────────────────────────
+
+describe('Skip loadFromSnapshot on warm calls', () => {
+  let tmpDir: string;
+  let store: EventStore;
+
+  beforeEach(async () => {
+    resetMaterializerCache();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-snap-test-'));
+    store = new EventStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    resetMaterializerCache();
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handleViewWorkflowStatus_WarmCall_SkipsSnapshotLoad', async () => {
+    // Arrange: seed events and do a first (cold) call
+    await store.append('wf-snap', {
+      type: 'workflow.started',
+      data: { featureId: 'snap-feature', workflowType: 'feature' },
+    });
+
+    // Cold call to populate materializer state
+    await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir);
+
+    // Spy on materializer.loadFromSnapshot for warm call
+    const materializer = getOrCreateMaterializer(tmpDir);
+    const loadSpy = vi.spyOn(materializer, 'loadFromSnapshot');
+
+    // Act: warm call (materializer already has state)
+    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir);
+    expect(warmResult.success).toBe(true);
+
+    // Assert: loadFromSnapshot should NOT have been called
+    expect(loadSpy).not.toHaveBeenCalled();
+
+    loadSpy.mockRestore();
+  });
+
+  it('handleViewWorkflowStatus_ColdCall_LoadsSnapshot', async () => {
+    // Arrange: seed events
+    await store.append('wf-cold', {
+      type: 'workflow.started',
+      data: { featureId: 'cold-feature', workflowType: 'feature' },
+    });
+
+    // Spy on materializer.loadFromSnapshot BEFORE the cold call
+    const materializer = getOrCreateMaterializer(tmpDir);
+    const loadSpy = vi.spyOn(materializer, 'loadFromSnapshot');
+
+    // Act: cold call (no cached state)
+    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-cold' }, tmpDir);
+    expect(coldResult.success).toBe(true);
+
+    // Assert: loadFromSnapshot SHOULD have been called (cold = no cached state)
+    expect(loadSpy).toHaveBeenCalledWith('wf-cold', expect.any(String));
+
+    loadSpy.mockRestore();
   });
 });
