@@ -153,7 +153,17 @@ async function queryDeltaEvents(
 
 // ─── Helper: discover all event stream files ───────────────────────────────
 
-async function discoverStreams(stateDir: string): Promise<string[]> {
+async function discoverStreams(stateDir: string, store?: EventStore): Promise<string[]> {
+  // When a storage backend is available, use it for stream discovery
+  // (equivalent to SELECT DISTINCT streamId FROM events)
+  if (store) {
+    const backendStreams = store.listStreams();
+    if (backendStreams !== null) {
+      return backendStreams;
+    }
+  }
+
+  // Fallback: scan directory for .events.jsonl files
   try {
     const files = await fs.readdir(stateDir);
     return files
@@ -273,7 +283,7 @@ export async function handleViewPipeline(
     const materializer = getOrCreateMaterializer(stateDir);
 
     // Discover all streams and paginate IDs before materialization
-    const streamIds = await discoverStreams(stateDir);
+    const streamIds = await discoverStreams(stateDir, store);
     const total = streamIds.length;
     const start = args.offset ?? 0;
     const end = args.limit !== undefined ? start + args.limit : undefined;
