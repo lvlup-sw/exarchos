@@ -4,6 +4,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/review-diff.sh"
+
+# Precondition checks (exit 2 = missing prerequisites)
+if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
+    echo "review-diff.sh not found at: $SCRIPT_UNDER_TEST" >&2
+    exit 2
+fi
+if ! command -v git >/dev/null 2>&1; then
+    echo "git is required to run these tests" >&2
+    exit 2
+fi
+
 PASS=0
 FAIL=0
 
@@ -37,6 +48,8 @@ teardown() {
         rm -rf "$TMPDIR_ROOT"
     fi
 }
+
+trap teardown EXIT
 
 # Helper to create a git repo with a main branch and a feature branch with changes
 create_repo_with_change() {
@@ -130,6 +143,13 @@ if echo "$OUTPUT" | grep -q "## Review Diff"; then
 else
     fail "ReviewDiff_NoChanges_HasStructure (missing '## Review Diff')"
     echo "  Output: $OUTPUT"
+fi
+# Verify no actual diff content is present
+if echo "$OUTPUT" | grep -Eq '^(diff --git|@@)'; then
+    fail "ReviewDiff_NoChanges_HasNoDiffContent (unexpected diff markers)"
+    echo "  Output: $OUTPUT"
+else
+    pass "ReviewDiff_NoChanges_HasNoDiffContent"
 fi
 teardown
 
