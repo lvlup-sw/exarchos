@@ -60,6 +60,8 @@ export const WorkflowEventBase = z.object({
   causationId: z.string().optional(),
   agentId: z.string().optional(),
   agentRole: z.string().optional(),
+  tenantId: z.string().optional(),
+  organizationId: z.string().optional(),
   source: z.string().optional(),
   schemaVersion: z.string().default('1.0'),
   data: z.record(z.string(), z.unknown()).optional(),

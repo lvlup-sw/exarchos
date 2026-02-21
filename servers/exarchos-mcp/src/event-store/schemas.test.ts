@@ -500,6 +500,42 @@ describe('EventTypes', () => {
   });
 });
 
+// ─── T07: WorkflowEventBase multi-tenant fields ──────────────────────────────
+
+describe('WorkflowEventBase multi-tenant fields', () => {
+  it('WorkflowEventBase_WithTenantId_ParsesSuccessfully', () => {
+    const event = {
+      streamId: 'test-stream',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'workflow.started',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+    };
+    const result = WorkflowEventBase.safeParse(event);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tenantId).toBe('tenant-123');
+      expect(result.data.organizationId).toBe('org-456');
+    }
+  });
+
+  it('WorkflowEventBase_WithoutTenantId_ParsesSuccessfully', () => {
+    const event = {
+      streamId: 'test-stream',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'workflow.started',
+    };
+    const result = WorkflowEventBase.safeParse(event);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.tenantId).toBeUndefined();
+      expect(result.data.organizationId).toBeUndefined();
+    }
+  });
+});
+
 // ─── T07: Eval Event Type Schemas ──────────────────────────────────────────
 
 describe('EvalRunStartedData', () => {
