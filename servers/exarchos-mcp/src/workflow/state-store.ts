@@ -609,10 +609,11 @@ export async function reconcileFromEvents(
     return { reconciled: false, eventsApplied: 0 };
   }
 
-  // Apply each event to the state
+  // Apply each event to the state, tracking the last transition for phase reconciliation
   const stateRecord = state as unknown as Record<string, unknown>;
   let eventsApplied = 0;
   let maxSequence = currentSeq;
+  let lastTransition: WorkflowEvent | undefined;
 
   for (const event of newEvents) {
     const applied = applyEventToState(stateRecord, event);
@@ -622,17 +623,18 @@ export async function reconcileFromEvents(
     if (event.sequence > maxSequence) {
       maxSequence = event.sequence;
     }
+    if (event.type === 'workflow.transition') {
+      lastTransition = event;
+    }
   }
 
   // Update _eventSequence
   stateRecord._eventSequence = maxSequence;
 
-  // Phase reconciliation: compare state.phase against last workflow.transition event.
-  // This catches corrupted state files where the phase is out of sync with events.
-  const allEvents = await eventStore.query(featureId);
-  const lastTransition = [...allEvents]
-    .reverse()
-    .find((e) => e.type === 'workflow.transition');
+  // Phase reconciliation: compare state.phase against last workflow.transition
+  // event from the delta. applyEventToState already sets the phase during the
+  // scan loop, so this is a consistency check using the tracked transition
+  // rather than issuing a redundant full-stream query.
   if (lastTransition?.data) {
     const eventPhase = (lastTransition.data as Record<string, unknown>).to as string | undefined;
     if (eventPhase && stateRecord.phase !== eventPhase) {
