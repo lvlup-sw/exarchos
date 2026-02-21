@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
-import { handleEventQuery, handleBatchAppend, resetModuleEventStore } from './tools.js';
+import { handleEventAppend, handleEventQuery, handleBatchAppend, resetModuleEventStore } from './tools.js';
 
 let tempDir: string;
 
@@ -263,5 +263,55 @@ describe('handleBatchAppend', () => {
     expect(batch1Seqs[2] - batch1Seqs[1]).toBe(1);
     expect(batch2Seqs[1] - batch2Seqs[0]).toBe(1);
     expect(batch2Seqs[2] - batch2Seqs[1]).toBe(1);
+  });
+});
+
+// ─── Multi-tenant field passthrough ──────────────────────────────────────────
+
+describe('tenant field passthrough', () => {
+  it('handleEventAppend_WithTenantFields_PassesThroughToStore', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'tenant-test',
+        event: {
+          type: 'workflow.started',
+          tenantId: 'tenant-abc',
+          organizationId: 'org-xyz',
+          data: { feature: 'test' },
+        },
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    const query = await handleEventQuery({ stream: 'tenant-test' }, tempDir);
+    const events = query.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0].tenantId).toBe('tenant-abc');
+    expect(events[0].organizationId).toBe('org-xyz');
+  });
+
+  it('handleBatchAppend_WithTenantFields_PassesThroughToStore', async () => {
+    const result = await handleBatchAppend(
+      {
+        stream: 'tenant-batch',
+        events: [
+          { type: 'task.assigned', tenantId: 'tenant-1', organizationId: 'org-1', data: { taskId: 't1' } },
+          { type: 'task.assigned', tenantId: 'tenant-1', data: { taskId: 't2' } },
+        ],
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    const query = await handleEventQuery({ stream: 'tenant-batch' }, tempDir);
+    const events = query.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(2);
+    expect(events[0].tenantId).toBe('tenant-1');
+    expect(events[0].organizationId).toBe('org-1');
+    expect(events[1].tenantId).toBe('tenant-1');
+    expect(events[1].organizationId).toBeUndefined();
   });
 });
