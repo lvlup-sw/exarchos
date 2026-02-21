@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+
 export const CURRENT_VERSION = '1.1';
 
 interface Migration {
@@ -45,6 +47,22 @@ const migrations: readonly Migration[] = [
 ];
 
 /**
+ * Create a backup copy of the state file before migration.
+ * Returns the path to the backup file.
+ */
+export async function backupStateFile(stateFile: string): Promise<string> {
+  const backupPath = `${stateFile}.bak`;
+  await fs.copyFile(stateFile, backupPath);
+  return backupPath;
+}
+
+export interface MigrationRecord {
+  readonly from: string;
+  readonly to: string;
+  readonly timestamp: string;
+}
+
+/**
  * Migrate a raw state object to the current schema version.
  * Applies migration chain from the detected version to CURRENT_VERSION.
  * Throws with 'MIGRATION_FAILED' message for unknown or missing versions.
@@ -71,6 +89,7 @@ export function migrateState(raw: unknown): unknown {
 
   const maxIterations = migrations.length + 1;
   let iterations = 0;
+  const records: MigrationRecord[] = [];
 
   while (currentVersion !== CURRENT_VERSION) {
     if (iterations >= maxIterations) {
@@ -87,8 +106,13 @@ export function migrateState(raw: unknown): unknown {
     }
 
     current = migration.migrate(current);
+    records.push({ from: migration.from, to: migration.to, timestamp: new Date().toISOString() });
     currentVersion = migration.to;
     iterations++;
+  }
+
+  if (records.length > 0) {
+    current._migrationHistory = records;
   }
 
   return current;
