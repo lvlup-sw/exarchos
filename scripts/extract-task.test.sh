@@ -139,23 +139,23 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 3: ExtractTask_MissingArgs_ExitsOne
+# Test 3: ExtractTask_MissingArgs_ExitsTwo (usage error → exit 2)
 # --------------------------------------------------
 setup
 # No arguments at all
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 1 ]]; then
-    pass "ExtractTask_MissingArgs_ExitsOne"
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "ExtractTask_MissingArgs_ExitsTwo"
 else
-    fail "ExtractTask_MissingArgs_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    fail "ExtractTask_MissingArgs_ExitsTwo (exit=$EXIT_CODE, expected 2)"
     echo "  Output: $OUTPUT"
 fi
 # Also test with plan path but no task ID
 OUTPUT2="$(bash "$SCRIPT_UNDER_TEST" "$PLAN_FILE" 2>&1)" && EXIT_CODE2=$? || EXIT_CODE2=$?
-if [[ $EXIT_CODE2 -eq 1 ]]; then
-    pass "ExtractTask_MissingTaskId_ExitsOne"
+if [[ $EXIT_CODE2 -eq 2 ]]; then
+    pass "ExtractTask_MissingTaskId_ExitsTwo"
 else
-    fail "ExtractTask_MissingTaskId_ExitsOne (exit=$EXIT_CODE2, expected 1)"
+    fail "ExtractTask_MissingTaskId_ExitsTwo (exit=$EXIT_CODE2, expected 2)"
     echo "  Output: $OUTPUT2"
 fi
 teardown
