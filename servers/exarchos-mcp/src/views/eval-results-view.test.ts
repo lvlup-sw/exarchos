@@ -344,4 +344,145 @@ describe('EvalResultsView', () => {
       expect(EVAL_RESULTS_VIEW).toBe('eval-results');
     });
   });
+
+  // ─── Integration: CLI event sequence materializes into view state ──────────
+
+  describe('integration — CLI eval event sequences', () => {
+    it('EvalResultsView_AfterEvalRunEvents_MaterializesSkillMetrics', () => {
+      // Arrange: simulate full eval run event sequence as emitted by CLI harness
+      let state = evalResultsProjection.init();
+      const events: WorkflowEvent[] = [
+        makeEvent('eval.run.started', {
+          runId: 'run-abc',
+          suiteId: 'delegation',
+          trigger: 'local',
+          caseCount: 3,
+        }, 1),
+        makeEvent('eval.case.completed', {
+          runId: 'run-abc',
+          caseId: 'case-1',
+          suiteId: 'delegation',
+          passed: true,
+          score: 1.0,
+          assertions: [{ name: 'schema', type: 'schema', passed: true, score: 1.0, reason: 'ok' }],
+          duration: 50,
+        }, 2),
+        makeEvent('eval.case.completed', {
+          runId: 'run-abc',
+          caseId: 'case-2',
+          suiteId: 'delegation',
+          passed: true,
+          score: 0.8,
+          assertions: [{ name: 'schema', type: 'schema', passed: true, score: 0.8, reason: 'ok' }],
+          duration: 60,
+        }, 3),
+        makeEvent('eval.case.completed', {
+          runId: 'run-abc',
+          caseId: 'case-3',
+          suiteId: 'delegation',
+          passed: false,
+          score: 0.3,
+          assertions: [{ name: 'schema', type: 'schema', passed: false, score: 0.3, reason: 'mismatch' }],
+          duration: 70,
+        }, 4),
+        makeEvent('eval.run.completed', {
+          runId: 'run-abc',
+          suiteId: 'delegation',
+          total: 3,
+          passed: 2,
+          failed: 1,
+          avgScore: 0.7,
+          duration: 180,
+          regressions: [],
+        }, 5),
+      ];
+
+      // Act: apply all events in sequence (as the materializer would)
+      for (const event of events) {
+        state = evalResultsProjection.apply(state, event);
+      }
+
+      // Assert: skill metrics are materialized with correct values
+      expect(state.skills['delegation']).toBeDefined();
+      expect(state.skills['delegation'].latestScore).toBe(0.7);
+      expect(state.skills['delegation'].lastRunId).toBe('run-abc');
+      expect(state.skills['delegation'].totalRuns).toBe(1);
+      expect(state.skills['delegation'].capabilityPassRate).toBeCloseTo(2 / 3, 5);
+
+      // Assert: run record is present
+      expect(state.runs).toHaveLength(1);
+      expect(state.runs[0].runId).toBe('run-abc');
+      expect(state.runs[0].total).toBe(3);
+      expect(state.runs[0].passed).toBe(2);
+      expect(state.runs[0].failed).toBe(1);
+    });
+
+    it('EvalResultsView_MultipleRuns_TracksRegression', () => {
+      // Arrange: first run — case-1 passes; second run — case-1 fails
+      let state = evalResultsProjection.init();
+
+      // Run 1: case-1 passes
+      const run1Events: WorkflowEvent[] = [
+        makeEvent('eval.case.completed', {
+          runId: 'run-001',
+          caseId: 'case-1',
+          suiteId: 'quality-review',
+          passed: true,
+          score: 1.0,
+          assertions: [],
+          duration: 50,
+        }, 1),
+        makeEvent('eval.run.completed', {
+          runId: 'run-001',
+          suiteId: 'quality-review',
+          total: 1,
+          passed: 1,
+          failed: 0,
+          avgScore: 1.0,
+          duration: 50,
+          regressions: [],
+        }, 2),
+      ];
+
+      // Run 2: same case-1 fails (regression)
+      const run2Events: WorkflowEvent[] = [
+        makeEvent('eval.case.completed', {
+          runId: 'run-002',
+          caseId: 'case-1',
+          suiteId: 'quality-review',
+          passed: false,
+          score: 0.0,
+          assertions: [],
+          duration: 60,
+        }, 3),
+        makeEvent('eval.run.completed', {
+          runId: 'run-002',
+          suiteId: 'quality-review',
+          total: 1,
+          passed: 0,
+          failed: 1,
+          avgScore: 0.0,
+          duration: 60,
+          regressions: [],
+        }, 4),
+      ];
+
+      // Act: apply all events across both runs
+      for (const event of [...run1Events, ...run2Events]) {
+        state = evalResultsProjection.apply(state, event);
+      }
+
+      // Assert: regression detected for case-1
+      expect(state.regressions).toHaveLength(1);
+      expect(state.regressions[0].caseId).toBe('case-1');
+      expect(state.regressions[0].suiteId).toBe('quality-review');
+      expect(state.regressions[0].firstFailedRunId).toBe('run-002');
+      expect(state.regressions[0].consecutiveFailures).toBe(1);
+
+      // Assert: two runs tracked
+      expect(state.runs).toHaveLength(2);
+      expect(state.skills['quality-review'].totalRuns).toBe(2);
+      expect(state.skills['quality-review'].latestScore).toBe(0.0);
+    });
+  });
 });

@@ -1,8 +1,10 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { runAll } from '../evals/harness.js';
 import { formatMultiSuiteReport } from '../evals/reporters/cli-reporter.js';
+import { getOrCreateEventStore } from '../views/tools.js';
 import type { RunSummary } from '../evals/types.js';
 import type { CommandResult } from '../cli.js';
 
@@ -50,9 +52,14 @@ export async function handleEvalRun(
     options.skill = stdinData['skill'];
   }
 
+  // Wire up EventStore for event emission during eval runs
+  const stateDir = process.env.WORKFLOW_STATE_DIR ?? path.join(os.homedir(), '.claude', 'workflow-state');
+  const eventStore = getOrCreateEventStore(stateDir);
+  const trigger = ciMode ? 'ci' as const : 'local' as const;
+
   let summaries: RunSummary[];
   try {
-    summaries = await runAll(evalsDir, options);
+    summaries = await runAll(evalsDir, { ...options, eventStore, streamId: 'evals', trigger });
   } catch (err: unknown) {
     return {
       error: {
