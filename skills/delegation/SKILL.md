@@ -91,6 +91,40 @@ Follow the event-first saga: **emit event → execute side effect** at every ste
 
 For step-by-step instructions, idempotency checks, compensation protocol, and event payloads, see `references/agent-teams-saga.md`.
 
+## Event Emission Contract (Agent Teams)
+
+| Saga Step | Exarchos Call | Event Type | Required Data |
+|-----------|-------------|-----------|---------------|
+| 1. Create team | `exarchos_event append` | `team.spawned` | teamName, teamSize, taskCount |
+| 2. Create tasks | `exarchos_event batch_append` | `team.task.planned` (per task) | taskId, title, modules |
+| 3. Spawn agents | `exarchos_event append` (per agent) | `team.teammate.dispatched` | teammateName, worktreePath, assignedTaskIds |
+| 4. Monitor | `exarchos_workflow set` | (state update) | tasks[N].status, completedAt |
+| 5. Disband | `exarchos_event append` | `team.disbanded` | totalDurationMs, tasksCompleted, tasksFailed |
+| 6. Transition | `exarchos_workflow set` (phase: review) | `workflow.transition` (auto) | -- |
+
+**CRITICAL:** Steps 1-3 MUST emit events BEFORE executing the Claude Code side effect (TeamCreate, TaskCreate, Task).
+For full payload shapes, see `references/agent-teams-saga.md`.
+
+## State Synchronization
+
+Claude Code TaskList and exarchos workflow state are INDEPENDENT systems.
+After each task completion:
+1. `TaskUpdate` (Claude Code) -- marks native task complete
+2. `exarchos_workflow set` -- updates `tasks[N].status: "complete"` in workflow state
+
+Before transitioning to review phase, ALL workflow state tasks must show `status: "complete"`.
+The `all-tasks-complete` guard checks exarchos workflow state, NOT Claude Code TaskList.
+
+## Context Compaction Recovery
+
+If context compaction occurs during delegation:
+1. Read team config: `~/.claude/teams/{featureId}/config.json` -- discover active teammates
+2. Query workflow state: `exarchos_workflow get` (featureId, fields: [tasks, phase]) -- check task progress
+3. Check teammate inboxes: `SendMessage` to each teammate -- ask for status
+4. Reconcile: `exarchos_workflow reconcile` (featureId) -- patches task state from event stream
+
+Do NOT re-create branches or re-dispatch agents until you have confirmed they are lost.
+
 ## Parallel Execution Strategy
 
 Dispatch parallel tasks in a single message with multiple Task calls. See `references/parallel-strategy.md` for group identification, dispatching patterns, and model selection.
