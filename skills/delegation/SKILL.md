@@ -118,10 +118,10 @@ The `all-tasks-complete` guard checks exarchos workflow state, NOT Claude Code T
 ## Context Compaction Recovery
 
 If context compaction occurs during delegation:
-1. Read team config: `~/.claude/teams/{featureId}/config.json` -- discover active teammates
-2. Query workflow state: `exarchos_workflow get` (featureId, fields: [tasks, phase]) -- check task progress
-3. Check teammate inboxes: `SendMessage` to each teammate -- ask for status
-4. Reconcile: `exarchos_workflow reconcile` (featureId) -- patches task state from event stream
+1. Read team config: `~/.claude/teams/{featureId}/config.json` — discover active teammates
+2. Query workflow state: `exarchos_workflow` with `action: "get"`, `query: "tasks"` — check task progress
+3. Check teammate inboxes: `SendMessage` to each teammate — ask for status
+4. Reconcile: `exarchos_workflow` with `action: "reconcile"` — replays event stream and patches stale task state (CAS-protected)
 
 Do NOT re-create branches or re-dispatch agents until you have confirmed they are lost.
 
