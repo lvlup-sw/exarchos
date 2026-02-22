@@ -1,5 +1,6 @@
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { SnapshotStore } from './snapshot-store.js';
+import type { StorageBackend } from '../storage/backend.js';
 import { viewLogger } from '../logger.js';
 
 // ─── View Projection Interface ─────────────────────────────────────────────
@@ -24,6 +25,7 @@ export interface MaterializerOptions {
   readonly snapshotStore?: SnapshotStore;
   readonly snapshotInterval?: number;
   readonly maxCacheEntries?: number;
+  readonly backend?: StorageBackend;
 }
 
 // ─── Default Snapshot Interval ─────────────────────────────────────────────
@@ -61,11 +63,13 @@ export class ViewMaterializer {
   private readonly snapshotStore?: SnapshotStore;
   private readonly snapshotInterval: number;
   private readonly maxCacheEntries: number;
+  private readonly backend?: StorageBackend;
 
   constructor(options?: MaterializerOptions) {
     this.snapshotStore = options?.snapshotStore;
     this.snapshotInterval = options?.snapshotInterval ?? parseEnvSnapshotInterval();
     this.maxCacheEntries = options?.maxCacheEntries ?? parseEnvMaxCacheEntries();
+    this.backend = options?.backend;
   }
 
   /**
@@ -122,15 +126,24 @@ export class ViewMaterializer {
     // Evict least recently used if over limit
     this.evictIfNeeded();
 
-    // Trigger snapshot if interval crossed
-    if (this.snapshotStore && newEvents.length > 0) {
+    // Trigger cache/snapshot save if interval crossed
+    if (newEvents.length > 0) {
       const lastSnapHwm = this.lastSnapshotHwm.get(stateKey) ?? 0;
       if (maxSequence - lastSnapHwm >= this.snapshotInterval) {
         this.lastSnapshotHwm.set(stateKey, maxSequence);
-        // Fire and forget - snapshot is async but we don't block materialization
-        this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
-          viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
-        });
+
+        if (this.backend) {
+          try {
+            this.backend.setViewCache(streamId, viewName, currentView, maxSequence);
+          } catch (err) {
+            viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Backend view cache save failed');
+          }
+        } else if (this.snapshotStore) {
+          // Fire and forget - snapshot is async but we don't block materialization
+          this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
+            viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
+          });
+        }
       }
     }
 
@@ -142,6 +155,21 @@ export class ViewMaterializer {
    * Falls back to default init state if snapshot is missing or corrupt.
    */
   async loadFromSnapshot(streamId: string, viewName: string): Promise<boolean> {
+    // Prefer backend view cache when available
+    if (this.backend) {
+      const cached = this.backend.getViewCache(streamId, viewName);
+      if (!cached) return false;
+
+      const stateKey = `${viewName}:${streamId}`;
+      this.states.set(stateKey, {
+        view: cached.state,
+        highWaterMark: cached.highWaterMark,
+      });
+      this.lastSnapshotHwm.set(stateKey, cached.highWaterMark);
+      this.evictIfNeeded();
+      return true;
+    }
+
     if (!this.snapshotStore) return false;
 
     const snapshot = await this.snapshotStore.load(streamId, viewName);
