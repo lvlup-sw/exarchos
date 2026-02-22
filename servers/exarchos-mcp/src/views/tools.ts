@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
@@ -129,9 +130,40 @@ export function resetMaterializerCache(): void {
   moduleEventStore = null;
 }
 
+// ─── Helper: query delta events using materializer high-water mark ──────────
+
+async function queryDeltaEvents(
+  store: EventStore,
+  materializer: ViewMaterializer,
+  streamId: string,
+  viewName: string,
+): Promise<WorkflowEvent[]> {
+  const cachedState = materializer.getState(streamId, viewName);
+  if (cachedState) {
+    // Warm call: only fetch events past the high-water mark
+    const hwm = cachedState.highWaterMark;
+    return hwm > 0
+      ? store.query(streamId, { sinceSequence: hwm })
+      : store.query(streamId);
+  }
+  // Cold call: load snapshot then query all events
+  await materializer.loadFromSnapshot(streamId, viewName);
+  return store.query(streamId);
+}
+
 // ─── Helper: discover all event stream files ───────────────────────────────
 
-async function discoverStreams(stateDir: string): Promise<string[]> {
+async function discoverStreams(stateDir: string, store?: EventStore): Promise<string[]> {
+  // When a storage backend is available, use it for stream discovery
+  // (equivalent to SELECT DISTINCT streamId FROM events)
+  if (store) {
+    const backendStreams = store.listStreams();
+    if (backendStreams !== null) {
+      return backendStreams;
+    }
+  }
+
+  // Fallback: scan directory for .events.jsonl files
   try {
     const files = await fs.readdir(stateDir);
     return files
@@ -153,8 +185,7 @@ export async function handleViewWorkflowStatus(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, WORKFLOW_STATUS_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATUS_VIEW);
     const view = materializer.materialize<WorkflowStatusViewState>(
       streamId,
       WORKFLOW_STATUS_VIEW,
@@ -190,8 +221,7 @@ export async function handleViewTasks(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, TASK_DETAIL_VIEW);
     const view = materializer.materialize<TaskDetailViewState>(
       streamId,
       TASK_DETAIL_VIEW,
@@ -253,7 +283,7 @@ export async function handleViewPipeline(
     const materializer = getOrCreateMaterializer(stateDir);
 
     // Discover all streams and paginate IDs before materialization
-    const streamIds = await discoverStreams(stateDir);
+    const streamIds = await discoverStreams(stateDir, store);
     const total = streamIds.length;
     const start = args.offset ?? 0;
     const end = args.limit !== undefined ? start + args.limit : undefined;
@@ -263,8 +293,7 @@ export async function handleViewPipeline(
     const workflows: PipelineViewState[] = [];
 
     for (const streamId of paginatedIds) {
-      await materializer.loadFromSnapshot(streamId, PIPELINE_VIEW);
-      const events = await store.query(streamId);
+      const events = await queryDeltaEvents(store, materializer, streamId, PIPELINE_VIEW);
       const view = materializer.materialize<PipelineViewState>(
         streamId,
         PIPELINE_VIEW,
@@ -296,8 +325,7 @@ export async function handleViewTeamPerformance(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, TEAM_PERFORMANCE_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, TEAM_PERFORMANCE_VIEW);
     const view = materializer.materialize<TeamPerformanceViewState>(
       streamId,
       TEAM_PERFORMANCE_VIEW,
@@ -327,8 +355,7 @@ export async function handleViewDelegationTimeline(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, DELEGATION_TIMELINE_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW);
     const view = materializer.materialize<DelegationTimelineViewState>(
       streamId,
       DELEGATION_TIMELINE_VIEW,
@@ -363,8 +390,7 @@ export async function handleViewCodeQuality(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, CODE_QUALITY_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
     const view = materializer.materialize<CodeQualityViewState>(
       streamId,
       CODE_QUALITY_VIEW,
@@ -427,8 +453,7 @@ export async function handleViewEvalResults(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, EVAL_RESULTS_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
     const view = materializer.materialize<EvalResultsViewState>(
       streamId,
       EVAL_RESULTS_VIEW,
@@ -477,8 +502,7 @@ export async function handleViewQualityHints(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    await materializer.loadFromSnapshot(streamId, CODE_QUALITY_VIEW);
-    const events = await store.query(streamId);
+    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
     const view = materializer.materialize<CodeQualityViewState>(
       streamId,
       CODE_QUALITY_VIEW,

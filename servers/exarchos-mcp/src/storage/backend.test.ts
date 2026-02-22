@@ -12,6 +12,7 @@ describe('StorageBackend Interface Contract', () => {
       appendEvent: (_streamId: string, _event: WorkflowEvent): void => {},
       queryEvents: (_streamId: string, _filters?: QueryFilters): WorkflowEvent[] => [],
       getSequence: (_streamId: string): number => 0,
+      listStreams: (): string[] => [],
       getState: (_featureId: string): WorkflowState | null => null,
       setState: (_featureId: string, _state: WorkflowState, _expectedVersion?: number): void => {},
       listStates: (): Array<{ featureId: string; state: WorkflowState }> => [],
@@ -23,10 +24,11 @@ describe('StorageBackend Interface Contract', () => {
       close: (): void => {},
     };
 
-    // Verify all 12 methods exist
+    // Verify all 13 methods exist
     expect(typeof backend.appendEvent).toBe('function');
     expect(typeof backend.queryEvents).toBe('function');
     expect(typeof backend.getSequence).toBe('function');
+    expect(typeof backend.listStreams).toBe('function');
     expect(typeof backend.getState).toBe('function');
     expect(typeof backend.setState).toBe('function');
     expect(typeof backend.listStates).toBe('function');
