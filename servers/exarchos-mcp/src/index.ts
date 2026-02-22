@@ -88,6 +88,9 @@ export async function initializeBackend(
       backend.initialize();
       return backend;
     } catch (initErr) {
+      // Close the failed backend to release file handles before deleting
+      try { backend.close(); } catch { /* ignore close error on failed backend */ }
+
       // Corrupt DB: delete and retry once (self-healing from JSONL source of truth)
       logger.warn(
         { err: initErr instanceof Error ? initErr.message : String(initErr) },
@@ -224,11 +227,12 @@ async function main() {
   if (backend) {
     // Hydrate SQLite from JSONL source of truth and migrate legacy files
     const { hydrateAll } = await import('./storage/hydration.js');
-    const { migrateLegacyStateFiles, migrateLegacyOutbox } = await import('./storage/migration.js');
+    const { migrateLegacyStateFiles, migrateLegacyOutbox, cleanupLegacyFiles } = await import('./storage/migration.js');
 
     await hydrateAll(backend, stateDir);
     await migrateLegacyStateFiles(backend, stateDir);
     await migrateLegacyOutbox(backend, stateDir);
+    await cleanupLegacyFiles(stateDir);
 
     registerBackendCleanup(backend);
   }
