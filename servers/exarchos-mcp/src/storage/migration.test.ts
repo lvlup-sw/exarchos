@@ -188,6 +188,10 @@ describe('migrateLegacyOutbox', () => {
     };
     const result = backend.drainOutbox('my-stream', mockSender);
     expect(result.sent).toBe(2);
+
+    // Assert: original file renamed to .migrated
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
   });
 
   it('migrateLegacyOutbox_NoOutboxFiles_NoOps', async () => {
@@ -212,11 +216,11 @@ describe('cleanupLegacyFiles', () => {
   });
 
   it('cleanupLegacyFiles_RemovesSeqAndSnapshotAndOutboxFiles', async () => {
-    // Arrange: create various legacy files
+    // Arrange: create various legacy files (post-migration state)
     fs.writeFileSync(path.join(tempDir, 'stream-a.seq'), '{"sequence":5}', 'utf-8');
     fs.writeFileSync(path.join(tempDir, 'stream-a.snapshot.json'), '{}', 'utf-8');
     fs.writeFileSync(path.join(tempDir, 'stream-a.state.json.migrated'), '{}', 'utf-8');
-    fs.writeFileSync(path.join(tempDir, 'stream-a.outbox.json'), '[]', 'utf-8');
+    fs.writeFileSync(path.join(tempDir, 'stream-a.outbox.json.migrated'), '[]', 'utf-8');
 
     // Also create a file that should NOT be removed
     fs.writeFileSync(path.join(tempDir, 'stream-a.events.jsonl'), '', 'utf-8');
@@ -228,7 +232,7 @@ describe('cleanupLegacyFiles', () => {
     expect(fs.existsSync(path.join(tempDir, 'stream-a.seq'))).toBe(false);
     expect(fs.existsSync(path.join(tempDir, 'stream-a.snapshot.json'))).toBe(false);
     expect(fs.existsSync(path.join(tempDir, 'stream-a.state.json.migrated'))).toBe(false);
-    expect(fs.existsSync(path.join(tempDir, 'stream-a.outbox.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, 'stream-a.outbox.json.migrated'))).toBe(false);
 
     // Assert: events file is still there
     expect(fs.existsSync(path.join(tempDir, 'stream-a.events.jsonl'))).toBe(true);

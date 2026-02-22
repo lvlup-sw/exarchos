@@ -6,6 +6,7 @@ import { WorkflowEventBase, type WorkflowEvent } from '../event-store/schemas.js
 import { WorkflowStateSchema } from '../workflow/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { StorageBackend } from './backend.js';
+import { logger } from '../logger.js';
 
 // ─── Legacy File Patterns ───────────────────────────────────────────────────
 
@@ -13,7 +14,7 @@ const LEGACY_CLEANUP_PATTERNS = [
   '.seq',
   '.snapshot.json',
   '.state.json.migrated',
-  '.outbox.json',
+  '.outbox.json.migrated',
 ];
 
 // ─── State Migration ────────────────────────────────────────────────────────
@@ -54,14 +55,14 @@ export async function migrateLegacyStateFiles(
     try {
       const content = readFileSync(filePath, 'utf-8');
       raw = JSON.parse(content);
-    } catch {
-      // Corrupt file — skip
+    } catch (err) {
+      logger.warn({ file, err: err instanceof Error ? err.message : String(err) }, 'Skipping corrupt legacy state file');
       continue;
     }
 
     const parsed = WorkflowStateSchema.safeParse(raw);
     if (!parsed.success) {
-      // Invalid state — skip
+      logger.warn({ file, error: parsed.error.message }, 'Skipping invalid legacy state file');
       continue;
     }
     const state: WorkflowState = parsed.data;
@@ -103,19 +104,23 @@ export async function migrateLegacyOutbox(
     try {
       const content = readFileSync(filePath, 'utf-8');
       raw = JSON.parse(content);
-    } catch {
-      // Corrupt file — skip
+    } catch (err) {
+      logger.warn({ file, err: err instanceof Error ? err.message : String(err) }, 'Skipping corrupt legacy outbox file');
       continue;
     }
 
     const parsed = z.array(WorkflowEventBase).safeParse(raw);
     if (!parsed.success) {
+      logger.warn({ file, error: parsed.error.message }, 'Skipping invalid legacy outbox file');
       continue;
     }
 
     for (const event of parsed.data) {
       backend.addOutboxEntry(streamId, event);
     }
+
+    // Mark as migrated to prevent duplicate replays
+    await rename(filePath, filePath + '.migrated');
   }
 }
 

@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { StorageBackend } from './backend.js';
 import { logger } from '../logger.js';
+import { WorkflowStateSchema } from '../workflow/schemas.js';
 import { TELEMETRY_STREAM } from '../telemetry/constants.js';
 
 // ─── Lifecycle Policy ───────────────────────────────────────────────────────
@@ -114,12 +115,23 @@ export async function compactWorkflow(
     throw err;
   }
 
-  let state: Record<string, unknown>;
+  let rawJson: unknown;
   try {
-    state = JSON.parse(stateRaw) as Record<string, unknown>;
+    rawJson = JSON.parse(stateRaw);
   } catch {
-    return; // Corrupt state, skip
+    logger.warn({ featureId, file: stateFile }, 'Skipping compaction — corrupt JSON in state file');
+    return;
   }
+
+  const parsed = WorkflowStateSchema.safeParse(rawJson);
+  if (!parsed.success) {
+    logger.warn(
+      { featureId, file: stateFile, error: parsed.error.message },
+      'Skipping compaction — state file fails schema validation',
+    );
+    return;
+  }
+  const state = parsed.data;
 
   const phase = state.phase as string | undefined;
   const updatedAt = state.updatedAt as string | undefined;

@@ -171,11 +171,9 @@ describe('Atomic Archive Writes', () => {
     renameFailOnce = true;
     writeFileCalls.length = 0;
 
-    try {
-      await compactWorkflow(undefined, stateDir, featureId, policy);
-    } catch {
-      // Expected: rename fails
-    }
+    await expect(
+      compactWorkflow(undefined, stateDir, featureId, policy),
+    ).rejects.toThrow('Simulated crash during rename');
 
     // Assert — pre-existing archive should NOT be corrupted
     const afterRaw = await readFile(archivePath, 'utf-8');

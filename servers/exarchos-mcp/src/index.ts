@@ -96,13 +96,20 @@ export async function initializeBackend(
 
       try {
         fs.unlinkSync(dbPath);
-      } catch {
-        // DB file may not exist; ignore
+      } catch (delErr) {
+        if ((delErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn({ err: delErr instanceof Error ? delErr.message : String(delErr) }, 'Failed to delete corrupt DB file');
+        }
       }
 
       // Also clean up WAL and SHM files
-      try { fs.unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
-      try { fs.unlinkSync(dbPath + '-shm'); } catch { /* ignore */ }
+      for (const suffix of ['-wal', '-shm']) {
+        try { fs.unlinkSync(dbPath + suffix); } catch (delErr) {
+          if ((delErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+            logger.warn({ err: delErr instanceof Error ? delErr.message : String(delErr) }, `Failed to delete ${suffix} file`);
+          }
+        }
+      }
 
       try {
         const retryBackend = new SqliteBackend(dbPath);
@@ -136,8 +143,8 @@ export function registerBackendCleanup(backend: StorageBackend): void {
   process.on('exit', () => {
     try {
       backend.close();
-    } catch {
-      // Best-effort cleanup on exit
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to close storage backend on exit');
     }
   });
 }
@@ -227,12 +234,12 @@ async function main() {
   }
 
   // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
-  import('./storage/lifecycle.js')
+  void import('./storage/lifecycle.js')
     .then(({ checkCompaction, rotateTelemetry, DEFAULT_LIFECYCLE_POLICY }) => {
-      checkCompaction(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+      void checkCompaction(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Lifecycle compaction failed');
       });
-      rotateTelemetry(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+      void rotateTelemetry(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Telemetry rotation failed');
       });
     })
