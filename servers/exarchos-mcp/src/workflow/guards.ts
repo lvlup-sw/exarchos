@@ -92,15 +92,33 @@ export function collectReviewStatuses(
   return results;
 }
 
+const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
 /**
  * Builds an expectedShape for failed reviews, listing each failed path with { status: 'pass' }.
+ * Handles dotted paths (e.g. "A1.specReview") by building nested objects.
  */
 function buildFailedReviewsExpectedShape(
   notPassed: Array<{ path: string; status: string }>,
 ): Record<string, unknown> {
-  const reviewEntries: Record<string, unknown> = {};
+  const reviewEntries: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const s of notPassed) {
-    reviewEntries[s.path] = { status: 'pass' };
+    const parts = s.path.split('.');
+    let cursor: Record<string, unknown> = reviewEntries;
+    let skip = false;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const key = parts[i];
+      if (UNSAFE_KEYS.has(key)) { skip = true; break; }
+      if (typeof cursor[key] !== 'object' || cursor[key] === null) {
+        cursor[key] = Object.create(null) as Record<string, unknown>;
+      }
+      cursor = cursor[key] as Record<string, unknown>;
+    }
+    if (skip) continue;
+    const leafKey = parts[parts.length - 1];
+    if (!UNSAFE_KEYS.has(leafKey)) {
+      cursor[leafKey] = { status: 'pass' };
+    }
   }
   return { reviews: reviewEntries };
 }
