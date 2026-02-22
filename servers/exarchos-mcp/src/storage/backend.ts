@@ -64,6 +64,7 @@ export interface StorageBackend {
   appendEvent(streamId: string, event: WorkflowEvent): void;
   queryEvents(streamId: string, filters?: QueryFilters): WorkflowEvent[];
   getSequence(streamId: string): number;
+  listStreams(): string[];
 
   // State operations
   getState(featureId: string): WorkflowState | null;
@@ -77,6 +78,11 @@ export interface StorageBackend {
   // View cache operations
   getViewCache(streamId: string, viewName: string): ViewCacheEntry | null;
   setViewCache(streamId: string, viewName: string, state: unknown, hwm: number): void;
+
+  // Cleanup operations (used by lifecycle compaction/rotation)
+  deleteStream(streamId: string): void;
+  deleteState(featureId: string): void;
+  pruneEvents(streamId: string, beforeTimestamp: string): number;
 
   // Lifecycle
   initialize(): void;

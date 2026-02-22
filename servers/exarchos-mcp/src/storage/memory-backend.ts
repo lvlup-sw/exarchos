@@ -104,6 +104,10 @@ export class InMemoryBackend implements StorageBackend {
     return stream[stream.length - 1].sequence;
   }
 
+  listStreams(): string[] {
+    return Array.from(this.events.keys());
+  }
+
   // ─── State Operations ───────────────────────────────────────────────────
 
   getState(featureId: string): WorkflowState | null {
@@ -197,6 +201,32 @@ export class InMemoryBackend implements StorageBackend {
   setViewCache(streamId: string, viewName: string, state: unknown, hwm: number): void {
     const key = `${streamId}:${viewName}`;
     this.viewCache.set(key, { state, highWaterMark: hwm });
+  }
+
+  // ─── Cleanup Operations ─────────────────────────────────────────────────
+
+  deleteStream(streamId: string): void {
+    this.events.delete(streamId);
+  }
+
+  deleteState(featureId: string): void {
+    this.states.delete(featureId);
+  }
+
+  pruneEvents(streamId: string, beforeTimestamp: string): number {
+    const stream = this.events.get(streamId);
+    if (!stream) return 0;
+
+    const kept = stream.filter((e) => e.timestamp >= beforeTimestamp);
+    const pruned = stream.length - kept.length;
+
+    if (kept.length === 0) {
+      this.events.delete(streamId);
+    } else {
+      this.events.set(streamId, kept);
+    }
+
+    return pruned;
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
