@@ -12,6 +12,7 @@ describe('StorageBackend Interface Contract', () => {
       appendEvent: (_streamId: string, _event: WorkflowEvent): void => {},
       queryEvents: (_streamId: string, _filters?: QueryFilters): WorkflowEvent[] => [],
       getSequence: (_streamId: string): number => 0,
+      listStreams: (): string[] => [],
       getState: (_featureId: string): WorkflowState | null => null,
       setState: (_featureId: string, _state: WorkflowState, _expectedVersion?: number): void => {},
       listStates: (): Array<{ featureId: string; state: WorkflowState }> => [],
@@ -19,14 +20,18 @@ describe('StorageBackend Interface Contract', () => {
       drainOutbox: (_streamId: string, _sender: EventSender, _batchSize?: number): DrainResult => ({ sent: 0, failed: 0 }),
       getViewCache: (_streamId: string, _viewName: string): ViewCacheEntry | null => null,
       setViewCache: (_streamId: string, _viewName: string, _state: unknown, _hwm: number): void => {},
+      deleteStream: (_streamId: string): void => {},
+      deleteState: (_featureId: string): void => {},
+      pruneEvents: (_streamId: string, _beforeTimestamp: string): number => 0,
       initialize: (): void => {},
       close: (): void => {},
     };
 
-    // Verify all 12 methods exist
+    // Verify all 16 methods exist
     expect(typeof backend.appendEvent).toBe('function');
     expect(typeof backend.queryEvents).toBe('function');
     expect(typeof backend.getSequence).toBe('function');
+    expect(typeof backend.listStreams).toBe('function');
     expect(typeof backend.getState).toBe('function');
     expect(typeof backend.setState).toBe('function');
     expect(typeof backend.listStates).toBe('function');
@@ -34,6 +39,9 @@ describe('StorageBackend Interface Contract', () => {
     expect(typeof backend.drainOutbox).toBe('function');
     expect(typeof backend.getViewCache).toBe('function');
     expect(typeof backend.setViewCache).toBe('function');
+    expect(typeof backend.deleteStream).toBe('function');
+    expect(typeof backend.deleteState).toBe('function');
+    expect(typeof backend.pruneEvents).toBe('function');
     expect(typeof backend.initialize).toBe('function');
     expect(typeof backend.close).toBe('function');
   });

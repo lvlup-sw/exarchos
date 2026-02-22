@@ -53,6 +53,31 @@ function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   } as WorkflowState;
 }
 
+// ─── Event Operations ───────────────────────────────────────────────────────
+
+describe('InMemoryBackend Event Operations', () => {
+  it('InMemoryBackend_listStreams_ReturnsEmpty_WhenNoEvents', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    expect(backend.listStreams()).toEqual([]);
+  });
+
+  it('InMemoryBackend_listStreams_ReturnsDistinctStreamIds', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    backend.appendEvent('stream-a', makeEvent({ streamId: 'stream-a', sequence: 1 }));
+    backend.appendEvent('stream-a', makeEvent({ streamId: 'stream-a', sequence: 2 }));
+    backend.appendEvent('stream-b', makeEvent({ streamId: 'stream-b', sequence: 1 }));
+
+    const streams = backend.listStreams();
+    expect(streams).toHaveLength(2);
+    expect(streams).toContain('stream-a');
+    expect(streams).toContain('stream-b');
+  });
+});
+
 // ─── State Operations ───────────────────────────────────────────────────────
 
 describe('InMemoryBackend State Operations', () => {
