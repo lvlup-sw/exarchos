@@ -1,5 +1,340 @@
 import { describe, it, expect } from 'vitest';
-import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult } from '../../workflow/guards.js';
+import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult, type GuardFailure } from '../../workflow/guards.js';
+
+// ─── Task 1: GuardFailure type extension ─────────────────────────────────────
+
+describe('GuardFailure Type', () => {
+  describe('GuardFailure_WithExpectedShape_IncludesFieldInResult', () => {
+    it('should allow expectedShape in a GuardResult failure', () => {
+      const failure: GuardFailure = {
+        passed: false,
+        reason: 'test guard failed',
+        expectedShape: { tasks: [{ id: '<task-id>', status: 'complete' }] },
+      };
+      const result: GuardResult = failure;
+      expect(result).toEqual({
+        passed: false,
+        reason: 'test guard failed',
+        expectedShape: { tasks: [{ id: '<task-id>', status: 'complete' }] },
+      });
+    });
+  });
+
+  describe('GuardFailure_WithSuggestedFix_IncludesFieldInResult', () => {
+    it('should allow suggestedFix in a GuardResult failure', () => {
+      const failure: GuardFailure = {
+        passed: false,
+        reason: 'test guard failed',
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId: 'f1' },
+        },
+      };
+      const result: GuardResult = failure;
+      expect(result).toEqual({
+        passed: false,
+        reason: 'test guard failed',
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId: 'f1' },
+        },
+      });
+    });
+  });
+});
+
+// ─── Task 2: allTasksComplete structured failure ─────────────────────────────
+
+describe('AllTasksComplete Structured Failure', () => {
+  describe('AllTasksComplete_WithIncompleteTasks_ReturnsSuggestedFix', () => {
+    it('should return expectedShape and suggestedFix with incomplete task IDs', () => {
+      const state = {
+        featureId: 'feat-123',
+        tasks: [
+          { id: '1', status: 'complete' },
+          { id: '2', status: 'pending' },
+          { id: '3', status: 'in-progress' },
+        ],
+      } as Record<string, unknown>;
+
+      const result = guards.allTasksComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toEqual({
+        tasks: [{ id: '<task-id>', status: 'complete' }],
+      });
+      expect(obj.suggestedFix).toBeDefined();
+      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
+      const params = obj.suggestedFix!.params as Record<string, unknown>;
+      expect(params.action).toBe('set');
+      expect(params.featureId).toBe('feat-123');
+      const updates = params.updates as { tasks: Array<{ id: string; status: string }> };
+      expect(updates.tasks).toHaveLength(2);
+      expect(updates.tasks.map((t) => t.id).sort()).toEqual(['2', '3']);
+      expect(updates.tasks.every((t) => t.status === 'complete')).toBe(true);
+    });
+  });
+
+  describe('AllTasksComplete_NoFeatureId_UsesFallback', () => {
+    it('should use "<featureId>" placeholder when featureId is not in state', () => {
+      const state = {
+        tasks: [{ id: '1', status: 'pending' }],
+      } as Record<string, unknown>;
+
+      const result = guards.allTasksComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      const params = obj.suggestedFix!.params as Record<string, unknown>;
+      expect(params.featureId).toBe('<featureId>');
+    });
+  });
+});
+
+// ─── Task 3: allReviewsPassed / anyReviewFailed expectedShape ────────────────
+
+describe('AllReviewsPassed Expected Shape', () => {
+  describe('AllReviewsPassed_NoReviews_ReturnsExpectedShape', () => {
+    it('should include expectedShape when reviews is missing', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.allReviewsPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toEqual({
+        reviews: { '<name>': { status: 'pass' } },
+      });
+    });
+
+    it('should include expectedShape when reviews is null', () => {
+      const state = { reviews: null } as unknown as Record<string, unknown>;
+
+      const result = guards.allReviewsPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        reviews: { '<name>': { status: 'pass' } },
+      });
+    });
+  });
+
+  describe('AllReviewsPassed_FailedReviews_ListsFailedPaths', () => {
+    it('should include expectedShape listing failed review paths', () => {
+      const state = {
+        reviews: {
+          codeReview: { status: 'pass' },
+          secReview: { status: 'fail' },
+          perfReview: { status: 'needs_fixes' },
+        },
+      } as Record<string, unknown>;
+
+      const result = guards.allReviewsPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toBeDefined();
+      const shape = obj.expectedShape as Record<string, unknown>;
+      const reviews = shape.reviews as Record<string, unknown>;
+      expect(reviews['secReview']).toEqual({ status: 'pass' });
+      expect(reviews['perfReview']).toEqual({ status: 'pass' });
+    });
+  });
+});
+
+describe('AnyReviewFailed Expected Shape', () => {
+  describe('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
+    it('should include expectedShape when reviews is missing', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.anyReviewFailed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toEqual({
+        reviews: { '<name>': { status: 'pass' } },
+      });
+    });
+  });
+});
+
+// ─── Task 4: Artifact guards and phase-specific guards ───────────────────────
+
+describe('Artifact Guard Structured Failures', () => {
+  describe('DesignArtifactExists_Missing_ReturnsSuggestedFix', () => {
+    it('should return expectedShape and suggestedFix when design artifact missing', () => {
+      const state = { featureId: 'feat-42' } as Record<string, unknown>;
+
+      const result = guards.designArtifactExists.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toEqual({
+        artifacts: { design: '<path-or-content>' },
+      });
+      expect(obj.suggestedFix).toBeDefined();
+      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
+      const params = obj.suggestedFix!.params as Record<string, unknown>;
+      expect(params.action).toBe('set');
+      expect(params.featureId).toBe('feat-42');
+      const updates = params.updates as Record<string, unknown>;
+      expect(updates.artifacts).toEqual({ design: '<path-or-content>' });
+    });
+  });
+
+  describe('PlanArtifactExists_Missing_ReturnsSuggestedFix', () => {
+    it('should return expectedShape and suggestedFix when plan artifact missing', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.planArtifactExists.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        artifacts: { plan: '<path-or-content>' },
+      });
+      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
+    });
+  });
+
+  describe('RcaDocumentComplete_Missing_ReturnsSuggestedFix', () => {
+    it('should return expectedShape and suggestedFix when rca artifact missing', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.rcaDocumentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        artifacts: { rca: '<path-or-content>' },
+      });
+      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
+    });
+  });
+
+  describe('FixDesignComplete_Missing_ReturnsSuggestedFix', () => {
+    it('should return expectedShape and suggestedFix when fixDesign artifact missing', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.fixDesignComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        artifacts: { fixDesign: '<path-or-content>' },
+      });
+      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
+    });
+  });
+});
+
+describe('Phase-Specific Guard Expected Shapes', () => {
+  describe('TriageComplete_MissingSymptom_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing triage.symptom is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.triageComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      expect(obj.expectedShape).toEqual({
+        triage: { symptom: '<description>' },
+      });
+    });
+  });
+
+  describe('RootCauseFound_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing investigation.rootCause is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.rootCauseFound.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        investigation: { rootCause: '<description>' },
+      });
+    });
+  });
+
+  describe('ScopeAssessmentComplete_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing explore.scopeAssessment is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        explore: { scopeAssessment: '<assessment>' },
+      });
+    });
+  });
+
+  describe('BriefComplete_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing brief.goals is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.briefComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        brief: { goals: '<goals-array-or-description>' },
+      });
+    });
+  });
+
+  describe('DocsUpdated_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing validation.docsUpdated is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.docsUpdated.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        validation: { docsUpdated: true },
+      });
+    });
+  });
+
+  describe('GoalsVerified_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing validation.testsPass is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.goalsVerified.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        validation: { testsPass: true },
+      });
+    });
+  });
+
+  describe('ValidationPassed_Missing_ReturnsExpectedShape', () => {
+    it('should return expectedShape showing validation.testsPass is needed', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.validationPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.expectedShape).toEqual({
+        validation: { testsPass: true },
+      });
+    });
+  });
+});
 
 // ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
 
