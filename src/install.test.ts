@@ -516,7 +516,7 @@ describe('Install Orchestrator (E3)', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('install_StandardMode_CopiesAllCoreComponents', async () => {
+  it('install_StandardMode_CopiesCompanionOnlyCoreComponents', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
@@ -538,10 +538,11 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // All core directories should be copied
-    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
-    expect(existsSync(join(claudeHome, 'skills', 'brainstorming.md'))).toBe(true);
+    // Companion-only core dirs should be copied
     expect(existsSync(join(claudeHome, 'scripts', 'run.sh'))).toBe(true);
+    // Plugin-provided dirs should NOT be copied
+    expect(existsSync(join(claudeHome, 'commands'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'skills'))).toBe(false);
   });
 
   it('install_StandardMode_CopiesSelectedRuleSets', async () => {
@@ -570,7 +571,7 @@ describe('Install Orchestrator (E3)', () => {
     expect(existsSync(join(claudeHome, 'rules', 'pr-descriptions.md'))).toBe(false);
   });
 
-  it('install_StandardMode_InstallsMcpBundle', async () => {
+  it('install_StandardMode_SkipsMcpBundles', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
@@ -588,30 +589,8 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // Bundle should be installed
-    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(true);
-  });
-
-  it('install_StandardMode_ThrowsOnMissingBundle', async () => {
-    const { install } = await import('./install.js');
-    const { MockPromptAdapter } = await import('./wizard/prompts.js');
-
-    // Remove the fake bundle file
-    rmSync(join(fakeRepoRoot, 'dist', 'exarchos-mcp.js'));
-
-    const prompts = new MockPromptAdapter([
-      'standard', ['github@claude-plugins-official'],
-      ['typescript'], true,
-    ]);
-
-    await expect(install({
-      claudeHome,
-      repoRoot: fakeRepoRoot,
-      manifestPath,
-      claudeConfigPath,
-      prompts,
-      args: { action: 'install' },
-    })).rejects.toThrow(/bundle not found/i);
+    // Plugin handles bundles — installer should not install them
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'))).toBe(false);
   });
 
   it('install_StandardMode_GeneratesSettings', async () => {
@@ -640,7 +619,7 @@ describe('Install Orchestrator (E3)', () => {
     expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
   });
 
-  it('install_StandardMode_MergesMcpConfig', async () => {
+  it('install_StandardMode_SkipsPluginProvidedMcpServers', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
@@ -664,8 +643,9 @@ describe('Install Orchestrator (E3)', () => {
     });
 
     const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
-    expect(config.mcpServers['exarchos']).toBeDefined();
-    expect(config.mcpServers['graphite']).toBeDefined();
+    // Plugin-provided servers should NOT be written by installer
+    expect(config.mcpServers['exarchos']).toBeUndefined();
+    expect(config.mcpServers['graphite']).toBeUndefined();
     // User server preserved
     expect(config.mcpServers['user-server']).toBeDefined();
   });
@@ -696,7 +676,7 @@ describe('Install Orchestrator (E3)', () => {
     expect(config.selections).toBeDefined();
   });
 
-  it('install_DevMode_CreatesSymlinks', async () => {
+  it('install_DevMode_SymlinksCompanionOnly', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
@@ -714,13 +694,15 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // Core dirs should be symlinks, not copies
-    expect(lstatSync(join(claudeHome, 'commands')).isSymbolicLink()).toBe(true);
-    expect(lstatSync(join(claudeHome, 'skills')).isSymbolicLink()).toBe(true);
+    // Companion-only dirs should be symlinked
     expect(lstatSync(join(claudeHome, 'scripts')).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(claudeHome, 'rules')).isSymbolicLink()).toBe(true);
+    // Plugin-provided dirs should NOT be symlinked
+    expect(existsSync(join(claudeHome, 'commands'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'skills'))).toBe(false);
   });
 
-  it('install_DevMode_PointsMcpToRepo', async () => {
+  it('install_DevMode_SkipsPluginProvidedMcpServers', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
@@ -738,13 +720,12 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
-    // In dev mode, exarchos MCP should point to repo's devEntryPoint path
-    const exarchosEntry = config.mcpServers['exarchos'];
-    expect(exarchosEntry).toBeDefined();
-    const argsJoined = exarchosEntry.args.join(' ');
-    expect(argsJoined).toContain(fakeRepoRoot);
-    expect(argsJoined).toContain('servers/exarchos-mcp/dist/index.js');
+    // Plugin-provided MCP servers (bundled/external) should NOT be in ~/.claude.json
+    if (existsSync(claudeConfigPath)) {
+      const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
+      expect(config.mcpServers?.['exarchos']).toBeUndefined();
+      expect(config.mcpServers?.['graphite']).toBeUndefined();
+    }
   });
 
   it('install_DevMode_RecordsRepoPath', async () => {
@@ -804,8 +785,8 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // Files should still exist
-    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    // Companion-only files should still exist
+    expect(existsSync(join(claudeHome, 'scripts', 'run.sh'))).toBe(true);
     expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(true);
   });
 
@@ -813,7 +794,7 @@ describe('Install Orchestrator (E3)', () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
-    // Create v1 symlinks
+    // Create v1 symlinks (legacy — migration removes these)
     symlinkSync(join(fakeRepoRoot, 'skills'), join(claudeHome, 'skills'));
     symlinkSync(join(fakeRepoRoot, 'commands'), join(claudeHome, 'commands'));
 
@@ -831,11 +812,9 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install' },
     });
 
-    // After install, should have real copies, not symlinks
-    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
-    expect(existsSync(join(claudeHome, 'skills', 'brainstorming.md'))).toBe(true);
-    // In standard mode the dirs should NOT be symlinks
-    expect(lstatSync(join(claudeHome, 'commands')).isSymbolicLink()).toBe(false);
+    // After install, companion-only content should exist
+    expect(existsSync(join(claudeHome, 'scripts', 'run.sh'))).toBe(true);
+    expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(true);
   });
 
   it('install_NonInteractive_UsesDefaults', async () => {
@@ -853,8 +832,8 @@ describe('Install Orchestrator (E3)', () => {
       args: { action: 'install', nonInteractive: true },
     });
 
-    // Should still install with defaults
-    expect(existsSync(join(claudeHome, 'commands', 'ideate.md'))).toBe(true);
+    // Should still install companion-only content with defaults
+    expect(existsSync(join(claudeHome, 'scripts', 'run.sh'))).toBe(true);
     expect(existsSync(join(claudeHome, 'exarchos.json'))).toBe(true);
   });
 });
@@ -1053,16 +1032,14 @@ describe('Uninstall Orchestrator (E4)', () => {
     expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(false);
   });
 
-  it('uninstall_DevMode_RemovesSymlinks', async () => {
+  it('uninstall_DevMode_RemovesCompanionSymlinks', async () => {
     const { uninstall } = await import('./install.js');
 
-    // Create dev-mode symlinks
-    mkdirSync(join(fakeRepoRoot, 'commands'), { recursive: true });
-    mkdirSync(join(fakeRepoRoot, 'skills'), { recursive: true });
+    // Create companion-only symlinks (new dev mode)
     mkdirSync(join(fakeRepoRoot, 'scripts'), { recursive: true });
-    symlinkSync(join(fakeRepoRoot, 'commands'), join(claudeHome, 'commands'));
-    symlinkSync(join(fakeRepoRoot, 'skills'), join(claudeHome, 'skills'));
+    mkdirSync(join(fakeRepoRoot, 'rules'), { recursive: true });
     symlinkSync(join(fakeRepoRoot, 'scripts'), join(claudeHome, 'scripts'));
+    symlinkSync(join(fakeRepoRoot, 'rules'), join(claudeHome, 'rules'));
 
     const config = {
       version: '2.0.0',
@@ -1081,9 +1058,33 @@ describe('Uninstall Orchestrator (E4)', () => {
 
     await uninstall({ claudeHome, claudeConfigPath });
 
-    expect(existsSync(join(claudeHome, 'commands'))).toBe(false);
-    expect(existsSync(join(claudeHome, 'skills'))).toBe(false);
     expect(existsSync(join(claudeHome, 'scripts'))).toBe(false);
+    expect(existsSync(join(claudeHome, 'rules'))).toBe(false);
+  });
+
+  it('uninstall_DevMode_GracefullySkipsPluginProvidedDirs', async () => {
+    const { uninstall } = await import('./install.js');
+
+    // Legacy install might have commands/skills symlinks — uninstall skips missing ones
+    const config = {
+      version: '2.0.0',
+      installedAt: new Date().toISOString(),
+      mode: 'dev' as const,
+      repoPath: fakeRepoRoot,
+      selections: {
+        mcpServers: ['exarchos'],
+        plugins: [],
+        ruleSets: [],
+        model: 'claude-opus-4-6',
+      },
+      hashes: {},
+    };
+    writeFileSync(join(claudeHome, 'exarchos.json'), JSON.stringify(config));
+
+    // No symlinks exist at all — should not throw
+    await expect(
+      uninstall({ claudeHome, claudeConfigPath }),
+    ).resolves.not.toThrow();
   });
 });
 
@@ -1270,44 +1271,11 @@ describe('Install Orchestrator - Hooks Integration', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('install_StandardMode_InstallsCliBundleWhenCliBundlePath', async () => {
+  it('install_StandardMode_SkipsBundlesAndHooks', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
-    // Create CLI bundle
-    writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
-
-    // Create hooks.json with placeholder
-    mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
-    writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
-      hooks: {
-        PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command', command: 'node "{{CLI_PATH}}" pre-compact' }] }],
-      },
-    }));
-
-    const prompts = new MockPromptAdapter([
-      'standard', ['github@claude-plugins-official'],
-      ['typescript'], true,
-    ]);
-
-    await install({
-      claudeHome,
-      repoRoot: fakeRepoRoot,
-      manifestPath,
-      claudeConfigPath,
-      prompts,
-      args: { action: 'install' },
-    });
-
-    // CLI bundle should be installed alongside MCP bundle
-    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(true);
-  });
-
-  it('install_StandardMode_SettingsContainsHooksWithBundlePaths', async () => {
-    const { install } = await import('./install.js');
-    const { MockPromptAdapter } = await import('./wizard/prompts.js');
-
-    // Create CLI bundle and hooks.json
+    // Create CLI bundle and hooks.json (should be ignored — plugin handles both)
     writeFileSync(join(fakeRepoRoot, 'dist', 'exarchos-cli.js'), 'console.log("cli")');
     mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
     writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
@@ -1330,20 +1298,18 @@ describe('Install Orchestrator - Hooks Integration', () => {
       args: { action: 'install' },
     });
 
+    // Plugin handles bundles — installer should not install them
+    expect(existsSync(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'))).toBe(false);
+    // Plugin handles hooks — settings.json should not contain hooks
     const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
-    expect(settings.hooks).toBeDefined();
-    expect(settings.hooks.PreCompact).toBeDefined();
-    // The CLI path should be the installed bundle path
-    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
-    expect(cmd).toContain(join(claudeHome, 'mcp-servers', 'exarchos-cli.js'));
-    expect(cmd).not.toContain('{{CLI_PATH}}');
+    expect(settings.hooks).toBeUndefined();
   });
 
-  it('install_DevMode_SettingsContainsHooksWithRepoPaths', async () => {
+  it('install_DevMode_SettingsOmitsHooks', async () => {
     const { install } = await import('./install.js');
     const { MockPromptAdapter } = await import('./wizard/prompts.js');
 
-    // Create hooks.json in fake repo
+    // Create hooks.json in fake repo (should be ignored — plugin handles hooks)
     mkdirSync(join(fakeRepoRoot, 'hooks'), { recursive: true });
     writeFileSync(join(fakeRepoRoot, 'hooks', 'hooks.json'), JSON.stringify({
       hooks: {
@@ -1366,13 +1332,8 @@ describe('Install Orchestrator - Hooks Integration', () => {
     });
 
     const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
-    expect(settings.hooks).toBeDefined();
-    expect(settings.hooks.PreCompact).toBeDefined();
-    // Dev mode should use repo path
-    const cmd = settings.hooks.PreCompact[0].hooks[0].command;
-    expect(cmd).toContain(fakeRepoRoot);
-    expect(cmd).toContain('servers/exarchos-mcp/dist/cli.js');
-    expect(cmd).not.toContain('{{CLI_PATH}}');
+    // Hooks should NOT be in settings.json — plugin.json handles hooks
+    expect(settings.hooks).toBeUndefined();
   });
 });
 

@@ -3,18 +3,17 @@
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadManifest } from './manifest/loader.js';
-import type { Manifest, McpServerComponent } from './manifest/types.js';
+import type { Manifest } from './manifest/types.js';
 import { readConfig, writeConfig } from './operations/config.js';
 import type { ExarchosConfig, WizardSelections } from './operations/config.js';
-import { copyDirectory, smartCopyDirectory } from './operations/copy.js';
+import { smartCopyDirectory } from './operations/copy.js';
 import { createSymlink as symlinkCreate, removeSymlink as symlinkRemove } from './operations/symlink.js';
-import { readMcpConfig, writeMcpConfig, mergeMcpServers, removeMcpServers, generateMcpEntry } from './operations/mcp.js';
+import { readMcpConfig, writeMcpConfig, mergeMcpServers, removeMcpServers } from './operations/mcp.js';
 import { generateSettings } from './operations/settings.js';
-import { installBundle } from './operations/bundle.js';
 import { detectV1Install, migrateV1 } from './operations/migration.js';
 import { detectRuntime } from './wizard/prerequisites.js';
 import { runWizard, runNonInteractive } from './wizard/wizard.js';
@@ -273,26 +272,6 @@ export function resolveHooks(
   return (parsed as { hooks: Record<string, unknown[]> }).hooks;
 }
 
-/**
- * Resolve hooks from hooks.json for the given install mode.
- * Returns undefined if hooks.json doesn't exist or no bundled server has cliBundlePath.
- */
-function resolveHooksForMode(
-  repoRoot: string,
-  manifest: Manifest,
-  cliPath: string,
-): Record<string, unknown[]> | undefined {
-  const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
-  if (!fs.existsSync(hooksPath)) return undefined;
-
-  const server = manifest.components.mcpServers.find(
-    (s) => s.type === 'bundled' && s.cliBundlePath,
-  );
-  if (!server?.cliBundlePath) return undefined;
-
-  return resolveHooks(hooksPath, cliPath);
-}
-
 // ─── Install dependencies interface ────────────────────────────────────────
 
 export interface InstallDeps {
@@ -341,8 +320,9 @@ async function installStandard(
   const existingHashes = existingConfig?.hashes ?? {};
   const allHashes: Record<string, string> = {};
 
-  // 1. Copy core components (directories and files)
+  // 1. Copy companion-only core components (skip plugin-provided: commands, skills)
   for (const core of manifest.components.core) {
+    if (PLUGIN_PROVIDED_CORE.has(core.id)) continue;
     const source = join(repoRoot, core.source);
     const target = join(claudeHome, core.target);
     if (core.type === 'file') {
@@ -354,13 +334,12 @@ async function installStandard(
     }
   }
 
-  // 2. Copy selected rule files
+  // 2. Copy selected rule files (companion-only, not in plugin.json)
   const selectedRuleFiles = getSelectedRuleFiles(manifest, selections.ruleSets);
   const rulesSource = join(repoRoot, 'rules');
   const rulesTarget = join(claudeHome, 'rules');
   fs.mkdirSync(rulesTarget, { recursive: true });
 
-  // Copy only selected rule files
   for (const fileName of selectedRuleFiles) {
     const srcPath = join(rulesSource, fileName);
     const tgtPath = join(rulesTarget, fileName);
@@ -371,63 +350,30 @@ async function installStandard(
     }
   }
 
-  // 3. Install MCP bundles
-  const bundledServers = manifest.components.mcpServers.filter(
-    (s) => s.type === 'bundled' && s.bundlePath,
-  );
-  for (const server of bundledServers) {
-    const bundlePath = join(repoRoot, server.bundlePath!);
-    if (!fs.existsSync(bundlePath)) {
-      throw new Error(
-        `MCP server bundle not found: ${bundlePath}\n` +
-        `Run 'npm run build' to generate the bundle before installing.`,
-      );
-    }
-    installBundle(bundlePath, claudeHome);
-  }
-
-  // 3a. Install CLI bundles
-  for (const server of bundledServers) {
-    if (server.cliBundlePath) {
-      const cliBundlePath = join(repoRoot, server.cliBundlePath);
-      if (!fs.existsSync(cliBundlePath)) {
-        throw new Error(
-          `CLI bundle not found: ${cliBundlePath}\n` +
-          `Run 'npm run build' to generate the bundle before installing.`,
-        );
-      }
-      installBundle(cliBundlePath, claudeHome);
-    }
-  }
-
-  // 3b. Resolve hooks
-  const exarchosServer = manifest.components.mcpServers.find(
-    (s) => s.type === 'bundled' && s.cliBundlePath,
-  );
-  const resolvedHooks = exarchosServer?.cliBundlePath
-    ? resolveHooksForMode(repoRoot, manifest, join(claudeHome, 'mcp-servers', basename(exarchosServer.cliBundlePath)))
-    : undefined;
-
-  // 4. Generate and write settings.json
-  const settings = generateSettings(selections, resolvedHooks);
+  // 3. Generate and write settings.json (without hooks — plugin handles those)
+  const settings = generateSettings(selections);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
-  // 5. Merge MCP config
-  let runtime: string;
-  try {
-    runtime = detectRuntime();
-  } catch {
-    runtime = 'node';
-  }
-  const selectedServers = manifest.components.mcpServers.filter(
-    (s) => selections.mcpServers.includes(s.id),
+  // 4. Configure companion-only MCP servers (skip bundled/external — plugin handles those)
+  const companionServers = manifest.components.mcpServers.filter(
+    (s) => selections.mcpServers.includes(s.id) && s.type === 'remote',
   );
-  const mcpConfig = readMcpConfig(claudeConfigPath);
-  const mergedConfig = mergeMcpServers(mcpConfig, selectedServers, runtime, claudeHome);
-  writeMcpConfig(claudeConfigPath, mergedConfig);
 
-  // 6. Write exarchos config
+  if (companionServers.length > 0) {
+    let runtime: string;
+    try {
+      runtime = detectRuntime();
+    } catch {
+      runtime = 'node';
+    }
+
+    const mcpConfig = readMcpConfig(claudeConfigPath);
+    const mergedConfig = mergeMcpServers(mcpConfig, companionServers, runtime, claudeHome);
+    writeMcpConfig(claudeConfigPath, mergedConfig);
+  }
+
+  // 5. Write exarchos config
   const config: ExarchosConfig = {
     version: manifest.version,
     installedAt: new Date().toISOString(),
@@ -441,6 +387,10 @@ async function installStandard(
 /**
  * Dev mode installation: create symlinks to repo.
  */
+// Core component IDs provided by the plugin system (plugin.json).
+// The companion installer skips these to avoid conflicts.
+const PLUGIN_PROVIDED_CORE = new Set(['commands', 'skills']);
+
 async function installDev(
   manifest: Manifest,
   selections: WizardSelections,
@@ -448,65 +398,41 @@ async function installDev(
   repoRoot: string,
   claudeConfigPath: string,
 ): Promise<void> {
-  // 1. Create symlinks for core directories
+  // 1. Symlink companion-only core directories (skip plugin-provided: commands, skills)
   for (const core of manifest.components.core) {
+    if (PLUGIN_PROVIDED_CORE.has(core.id)) continue;
     const source = join(repoRoot, core.source);
     const target = join(claudeHome, core.target);
     symlinkCreate(source, target);
   }
 
-  // 2. Symlink rules directory
+  // 2. Symlink rules directory (companion-only, not in plugin.json)
   const rulesSource = join(repoRoot, 'rules');
   const rulesTarget = join(claudeHome, 'rules');
   symlinkCreate(rulesSource, rulesTarget);
 
-  // 2a. Resolve hooks for dev mode
-  const resolvedHooks = resolveHooksForMode(
-    repoRoot,
-    manifest,
-    join(repoRoot, 'servers/exarchos-mcp/dist/cli.js'),
-  );
-
-  // 3. Generate and write settings.json
-  const settings = generateSettings(selections, resolvedHooks);
+  // 3. Generate and write settings.json (without hooks — plugin handles those)
+  const settings = generateSettings(selections);
   const settingsPath = join(claudeHome, 'settings.json');
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 
-  // 4. Configure MCP servers pointing to repo
-  let runtime: string;
-  try {
-    runtime = detectRuntime();
-  } catch {
-    runtime = 'node';
-  }
+  // 4. Configure companion-only MCP servers (skip bundled/external — plugin handles those)
+  const companionServers = manifest.components.mcpServers.filter(
+    (s) => selections.mcpServers.includes(s.id) && s.type === 'remote',
+  );
 
-  // For dev mode, create custom entries that point to the repo
-  const mcpConfig = readMcpConfig(claudeConfigPath);
-  const mcpServers = { ...mcpConfig.mcpServers ?? {} };
-
-  // Override bundled servers to point to repo
-  for (const server of manifest.components.mcpServers) {
-    if (selections.mcpServers.includes(server.id)) {
-      if (server.type === 'bundled') {
-        const entryPoint = server.devEntryPoint ?? server.bundlePath;
-        if (!entryPoint) {
-          throw new Error(`Bundled MCP server '${server.id}' has no devEntryPoint or bundlePath`);
-        }
-        mcpServers[server.id] = {
-          type: 'stdio',
-          command: runtime,
-          args: ['run', join(repoRoot, entryPoint)],
-          env: {
-            WORKFLOW_STATE_DIR: join(claudeHome, 'workflow-state'),
-          },
-        };
-      } else {
-        mcpServers[server.id] = generateMcpEntry(server, runtime, claudeHome);
-      }
+  if (companionServers.length > 0) {
+    let runtime: string;
+    try {
+      runtime = detectRuntime();
+    } catch {
+      runtime = 'node';
     }
-  }
 
-  writeMcpConfig(claudeConfigPath, { ...mcpConfig, mcpServers });
+    const mcpConfig = readMcpConfig(claudeConfigPath);
+    const mergedConfig = mergeMcpServers(mcpConfig, companionServers, runtime, claudeHome);
+    writeMcpConfig(claudeConfigPath, mergedConfig);
+  }
 
   // 5. Write exarchos config
   const config: ExarchosConfig = {
