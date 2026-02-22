@@ -55,6 +55,13 @@
     ],
     "plugins": [
       {
+        "id": "exarchos@lvlup-sw",
+        "name": "Exarchos",
+        "description": "Workflow orchestration, event sourcing, team coordination (self)",
+        "required": true,
+        "default": true
+      },
+      {
         "id": "github@claude-plugins-official",
         "name": "GitHub",
         "description": "PRs, issues, code search",
