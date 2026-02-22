@@ -5,7 +5,7 @@ import { guards, PASSED_STATUSES, FAILED_STATUSES, type GuardResult, type GuardF
 
 describe('GuardFailure Type', () => {
   describe('GuardFailure_WithExpectedShape_IncludesFieldInResult', () => {
-    it('should allow expectedShape in a GuardResult failure', () => {
+    it('GuardFailure_WithExpectedShape_IncludesFieldInResult', () => {
       const failure: GuardFailure = {
         passed: false,
         reason: 'test guard failed',
@@ -21,7 +21,7 @@ describe('GuardFailure Type', () => {
   });
 
   describe('GuardFailure_WithSuggestedFix_IncludesFieldInResult', () => {
-    it('should allow suggestedFix in a GuardResult failure', () => {
+    it('GuardFailure_WithSuggestedFix_IncludesFieldInResult', () => {
       const failure: GuardFailure = {
         passed: false,
         reason: 'test guard failed',
@@ -47,7 +47,7 @@ describe('GuardFailure Type', () => {
 
 describe('AllTasksComplete Structured Failure', () => {
   describe('AllTasksComplete_WithIncompleteTasks_ReturnsSuggestedFix', () => {
-    it('should return expectedShape and suggestedFix with incomplete task IDs', () => {
+    it('AllTasksComplete_WithIncompleteTasks_ReturnsSuggestedFix', () => {
       const state = {
         featureId: 'feat-123',
         tasks: [
@@ -78,7 +78,7 @@ describe('AllTasksComplete Structured Failure', () => {
   });
 
   describe('AllTasksComplete_NoFeatureId_UsesFallback', () => {
-    it('should use "<featureId>" placeholder when featureId is not in state', () => {
+    it('AllTasksComplete_NoFeatureId_UsesFallbackPlaceholder', () => {
       const state = {
         tasks: [{ id: '1', status: 'pending' }],
       } as Record<string, unknown>;
@@ -97,7 +97,7 @@ describe('AllTasksComplete Structured Failure', () => {
 
 describe('AllReviewsPassed Expected Shape', () => {
   describe('AllReviewsPassed_NoReviews_ReturnsExpectedShape', () => {
-    it('should include expectedShape when reviews is missing', () => {
+    it('AllReviewsPassed_MissingReviews_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.allReviewsPassed.evaluate(state);
@@ -110,7 +110,7 @@ describe('AllReviewsPassed Expected Shape', () => {
       });
     });
 
-    it('should include expectedShape when reviews is null', () => {
+    it('AllReviewsPassed_NullReviews_ReturnsExpectedShape', () => {
       const state = { reviews: null } as unknown as Record<string, unknown>;
 
       const result = guards.allReviewsPassed.evaluate(state);
@@ -124,7 +124,7 @@ describe('AllReviewsPassed Expected Shape', () => {
   });
 
   describe('AllReviewsPassed_FailedReviews_ListsFailedPaths', () => {
-    it('should include expectedShape listing failed review paths', () => {
+    it('AllReviewsPassed_FailedReviews_ListsFailedPaths', () => {
       const state = {
         reviews: {
           codeReview: { status: 'pass' },
@@ -147,9 +147,44 @@ describe('AllReviewsPassed Expected Shape', () => {
   });
 });
 
+describe('AllReviewsPassed Nested Review Paths', () => {
+  describe('AllReviewsPassed_NestedFailedReviews_BuildsNestedExpectedShape', () => {
+    it('AllReviewsPassed_NestedFailedReviews_BuildsNestedExpectedShape', () => {
+      const state = {
+        reviews: {
+          A1: {
+            specReview: { status: 'pass' },
+            qualityReview: { status: 'fail' },
+          },
+          A2: {
+            specReview: { status: 'needs_fixes' },
+          },
+        },
+      } as Record<string, unknown>;
+
+      const result = guards.allReviewsPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj.passed).toBe(false);
+      // The expectedShape should have nested structure, not dotted keys
+      const shape = obj.expectedShape as Record<string, unknown>;
+      const reviews = shape.reviews as Record<string, unknown>;
+      // A1.qualityReview should be nested: { A1: { qualityReview: { status: 'pass' } } }
+      const a1 = reviews['A1'] as Record<string, unknown>;
+      expect(a1).toBeDefined();
+      expect(a1['qualityReview']).toEqual({ status: 'pass' });
+      // A2.specReview should be nested: { A2: { specReview: { status: 'pass' } } }
+      const a2 = reviews['A2'] as Record<string, unknown>;
+      expect(a2).toBeDefined();
+      expect(a2['specReview']).toEqual({ status: 'pass' });
+    });
+  });
+});
+
 describe('AnyReviewFailed Expected Shape', () => {
   describe('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
-    it('should include expectedShape when reviews is missing', () => {
+    it('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.anyReviewFailed.evaluate(state);
@@ -168,7 +203,7 @@ describe('AnyReviewFailed Expected Shape', () => {
 
 describe('Artifact Guard Structured Failures', () => {
   describe('DesignArtifactExists_Missing_ReturnsSuggestedFix', () => {
-    it('should return expectedShape and suggestedFix when design artifact missing', () => {
+    it('DesignArtifactExists_Missing_ReturnsSuggestedFix', () => {
       const state = { featureId: 'feat-42' } as Record<string, unknown>;
 
       const result = guards.designArtifactExists.evaluate(state);
@@ -190,7 +225,7 @@ describe('Artifact Guard Structured Failures', () => {
   });
 
   describe('PlanArtifactExists_Missing_ReturnsSuggestedFix', () => {
-    it('should return expectedShape and suggestedFix when plan artifact missing', () => {
+    it('PlanArtifactExists_Missing_ReturnsSuggestedFix', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.planArtifactExists.evaluate(state);
@@ -205,7 +240,7 @@ describe('Artifact Guard Structured Failures', () => {
   });
 
   describe('RcaDocumentComplete_Missing_ReturnsSuggestedFix', () => {
-    it('should return expectedShape and suggestedFix when rca artifact missing', () => {
+    it('RcaDocumentComplete_Missing_ReturnsSuggestedFix', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.rcaDocumentComplete.evaluate(state);
@@ -220,7 +255,7 @@ describe('Artifact Guard Structured Failures', () => {
   });
 
   describe('FixDesignComplete_Missing_ReturnsSuggestedFix', () => {
-    it('should return expectedShape and suggestedFix when fixDesign artifact missing', () => {
+    it('FixDesignComplete_Missing_ReturnsSuggestedFix', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.fixDesignComplete.evaluate(state);
@@ -237,7 +272,7 @@ describe('Artifact Guard Structured Failures', () => {
 
 describe('Phase-Specific Guard Expected Shapes', () => {
   describe('TriageComplete_MissingSymptom_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing triage.symptom is needed', () => {
+    it('TriageComplete_MissingSymptom_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.triageComplete.evaluate(state);
@@ -252,7 +287,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('RootCauseFound_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing investigation.rootCause is needed', () => {
+    it('RootCauseFound_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.rootCauseFound.evaluate(state);
@@ -266,7 +301,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('ScopeAssessmentComplete_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing explore.scopeAssessment is needed', () => {
+    it('ScopeAssessmentComplete_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.scopeAssessmentComplete.evaluate(state);
@@ -280,7 +315,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('BriefComplete_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing brief.goals is needed', () => {
+    it('BriefComplete_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.briefComplete.evaluate(state);
@@ -294,7 +329,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('DocsUpdated_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing validation.docsUpdated is needed', () => {
+    it('DocsUpdated_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.docsUpdated.evaluate(state);
@@ -308,7 +343,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('GoalsVerified_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing validation.testsPass is needed', () => {
+    it('GoalsVerified_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.goalsVerified.evaluate(state);
@@ -322,7 +357,7 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 
   describe('ValidationPassed_Missing_ReturnsExpectedShape', () => {
-    it('should return expectedShape showing validation.testsPass is needed', () => {
+    it('ValidationPassed_Missing_ReturnsExpectedShape', () => {
       const state = {} as Record<string, unknown>;
 
       const result = guards.validationPassed.evaluate(state);
