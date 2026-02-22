@@ -1,6 +1,16 @@
 // ─── Guard Types ────────────────────────────────────────────────────────────
 
-export type GuardResult = boolean | { readonly passed: false; readonly reason: string };
+export interface GuardFailure {
+  readonly passed: false;
+  readonly reason: string;
+  readonly expectedShape?: Record<string, unknown>;
+  readonly suggestedFix?: {
+    readonly tool: string;
+    readonly params: Record<string, unknown>;
+  };
+}
+
+export type GuardResult = true | GuardFailure;
 
 export interface Guard {
   readonly id: string;
@@ -10,27 +20,41 @@ export interface Guard {
 
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
 
-function hasArtifact(field: string): Guard {
-  const id = `${field}-artifact-exists`;
+function makeArtifactGuard(field: string, description: string, customId?: string): Guard {
+  const id = customId ?? `${field}-artifact-exists`;
   return {
     id,
-    description: `${capitalize(field)} artifact must exist`,
-    evaluate: (state: Record<string, unknown>) => {
+    description,
+    evaluate: (state: Record<string, unknown>): GuardResult => {
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
       if (artifacts != null && artifacts[field] != null) return true;
       // Fallback: check top-level field
       if (state[field] != null) return true;
-      return { passed: false, reason: `${id} not satisfied` };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `${id} not satisfied`,
+        expectedShape: { artifacts: { [field]: '<path-or-content>' } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: {
+            action: 'set',
+            featureId,
+            updates: { artifacts: { [field]: '<path-or-content>' } },
+          },
+        },
+      };
     },
   };
 }
 
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 export const PASSED_STATUSES = new Set(['pass', 'passed', 'approved', 'fixes-applied']);
 export const FAILED_STATUSES = new Set(['fail', 'failed', 'needs_fixes']);
+
+/** Review expectedShape constant used by multiple guards. */
+const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
+  reviews: { '<name>': { status: 'pass' } },
+};
 
 /**
  * Collects all `status` field values from a reviews object, handling both flat
@@ -68,22 +92,53 @@ export function collectReviewStatuses(
   return results;
 }
 
+/**
+ * Builds an expectedShape for failed reviews, listing each failed path with { status: 'pass' }.
+ */
+function buildFailedReviewsExpectedShape(
+  notPassed: Array<{ path: string; status: string }>,
+): Record<string, unknown> {
+  const reviewEntries: Record<string, unknown> = {};
+  for (const s of notPassed) {
+    reviewEntries[s.path] = { status: 'pass' };
+  }
+  return { reviews: reviewEntries };
+}
+
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
 export const guards = {
-  designArtifactExists: hasArtifact('design'),
+  designArtifactExists: makeArtifactGuard('design', 'Design artifact must exist'),
 
-  planArtifactExists: hasArtifact('plan'),
+  planArtifactExists: makeArtifactGuard('plan', 'Plan artifact must exist'),
 
   allTasksComplete: {
     id: 'all-tasks-complete',
     description: 'All tasks must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const tasks = state.tasks as Array<{ status: string }> | undefined;
+      const tasks = state.tasks as Array<{ id?: string; status: string }> | undefined;
       if (!tasks || tasks.length === 0) return true;
       if (tasks.every((t) => t.status === 'complete')) return true;
       const incomplete = tasks.filter((t) => t.status !== 'complete');
-      return { passed: false, reason: `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete` };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete`,
+        expectedShape: { tasks: [{ id: '<task-id>', status: 'complete' }] },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: {
+            action: 'set',
+            featureId,
+            updates: {
+              tasks: incomplete.map((t) => ({
+                id: t.id ?? '<task-id>',
+                status: 'complete',
+              })),
+            },
+          },
+        },
+      };
     },
   },
 
@@ -97,6 +152,7 @@ export const guards = {
           passed: false,
           reason:
             'state.reviews is missing — set reviews.{name} with status: "pass" or "approved"',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
       const statuses = collectReviewStatuses(reviews);
@@ -105,6 +161,7 @@ export const guards = {
           passed: false,
           reason:
             'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
       const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
@@ -112,6 +169,7 @@ export const guards = {
         return {
           passed: false,
           reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+          expectedShape: buildFailedReviewsExpectedShape(notPassed),
         };
       }
       return true;
@@ -127,11 +185,16 @@ export const guards = {
         return {
           passed: false,
           reason: 'state.reviews is missing — cannot determine if any review failed',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
       const statuses = collectReviewStatuses(reviews);
       if (statuses.length === 0) {
-        return { passed: false, reason: 'state.reviews has no recognizable review entries' };
+        return {
+          passed: false,
+          reason: 'state.reviews has no recognizable review entries',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
+        };
       }
       const hasFailed = statuses.some((s) => FAILED_STATUSES.has(s.status));
       if (!hasFailed) {
@@ -171,7 +234,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const triage = state.triage as Record<string, unknown> | undefined;
       if (triage != null && triage.symptom != null) return true;
-      return { passed: false, reason: 'triage-complete not satisfied' };
+      return {
+        passed: false,
+        reason: 'triage-complete not satisfied',
+        expectedShape: { triage: { symptom: '<description>' } },
+      };
     },
   },
 
@@ -181,7 +248,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const investigation = state.investigation as Record<string, unknown> | undefined;
       if (investigation != null && investigation.rootCause != null) return true;
-      return { passed: false, reason: 'root-cause-found not satisfied' };
+      return {
+        passed: false,
+        reason: 'root-cause-found not satisfied',
+        expectedShape: { investigation: { rootCause: '<description>' } },
+      };
     },
   },
 
@@ -203,30 +274,14 @@ export const guards = {
     },
   },
 
-  rcaDocumentComplete: {
-    id: 'rca-document-complete',
-    description: 'RCA document must be complete',
-    evaluate: (state: Record<string, unknown>): GuardResult => {
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts?.rca != null) return true;
-      return { passed: false, reason: 'rca-document-complete not satisfied' };
-    },
-  },
+  rcaDocumentComplete: makeArtifactGuard('rca', 'RCA document must be complete', 'rca-document-complete'),
 
-  fixDesignComplete: {
-    id: 'fix-design-complete',
-    description: 'Fix design must be complete',
-    evaluate: (state: Record<string, unknown>): GuardResult => {
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts?.fixDesign != null) return true;
-      return { passed: false, reason: 'fix-design-complete not satisfied' };
-    },
-  },
+  fixDesignComplete: makeArtifactGuard('fixDesign', 'Fix design must be complete', 'fix-design-complete'),
 
   implementationComplete: {
     id: 'implementation-complete',
     description: 'Implementation must be complete',
-    evaluate: () => true,
+    evaluate: () => true as GuardResult,
   },
 
   validationPassed: {
@@ -235,7 +290,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
       if (validation != null && validation.testsPass === true) return true;
-      return { passed: false, reason: 'validation-passed not satisfied' };
+      return {
+        passed: false,
+        reason: 'validation-passed not satisfied',
+        expectedShape: { validation: { testsPass: true } },
+      };
     },
   },
 
@@ -249,6 +308,7 @@ export const guards = {
           passed: false,
           reason:
             'state.reviews is missing — set reviews.{name} with status: "pass" or "approved"',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
       const statuses = collectReviewStatuses(reviews);
@@ -257,6 +317,7 @@ export const guards = {
           passed: false,
           reason:
             'state.reviews has no recognizable review entries — each review needs a status field',
+          expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
       const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
@@ -264,6 +325,7 @@ export const guards = {
         return {
           passed: false,
           reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+          expectedShape: buildFailedReviewsExpectedShape(notPassed),
         };
       }
       return true;
@@ -276,7 +338,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const explore = state.explore as Record<string, unknown> | undefined;
       if (explore?.scopeAssessment != null) return true;
-      return { passed: false, reason: 'scope-assessment-complete not satisfied' };
+      return {
+        passed: false,
+        reason: 'scope-assessment-complete not satisfied',
+        expectedShape: { explore: { scopeAssessment: '<assessment>' } },
+      };
     },
   },
 
@@ -286,7 +352,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const brief = state.brief as Record<string, unknown> | undefined;
       if (brief != null && brief.goals != null) return true;
-      return { passed: false, reason: 'brief-complete not satisfied' };
+      return {
+        passed: false,
+        reason: 'brief-complete not satisfied',
+        expectedShape: { brief: { goals: '<goals-array-or-description>' } },
+      };
     },
   },
 
@@ -314,7 +384,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
       if (validation?.docsUpdated === true) return true;
-      return { passed: false, reason: 'docs-updated not satisfied' };
+      return {
+        passed: false,
+        reason: 'docs-updated not satisfied',
+        expectedShape: { validation: { docsUpdated: true } },
+      };
     },
   },
 
@@ -324,7 +398,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const validation = state.validation as Record<string, unknown> | undefined;
       if (validation?.testsPass === true) return true;
-      return { passed: false, reason: 'goals-verified not satisfied' };
+      return {
+        passed: false,
+        reason: 'goals-verified not satisfied',
+        expectedShape: { validation: { testsPass: true } },
+      };
     },
   },
 
@@ -366,6 +444,6 @@ export const guards = {
   always: {
     id: 'always',
     description: 'Always passes',
-    evaluate: () => true,
+    evaluate: () => true as GuardResult,
   },
 } as const satisfies Record<string, Guard>;
