@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
+import type { StorageBackend } from '../storage/backend.js';
 import { migrateEvent } from './event-migration.js';
 import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
@@ -79,10 +80,19 @@ function parseEnvInt(envVar: string, defaultValue: number): number {
   return parsed;
 }
 
+// ─── Event Store Options ────────────────────────────────────────────────────
+
+export interface EventStoreOptions {
+  backend?: StorageBackend;
+}
+
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
  * Append-only event store backed by JSONL files with .seq sequence caches.
+ *
+ * When an optional `StorageBackend` is provided, reads (query, getSequence)
+ * delegate to the backend while writes still go to JSONL first (dual-write).
  *
  * Uses in-memory promise-chain locks that only protect within a single Node.js process.
  * Multiple EventStore instances sharing the same stateDir will corrupt data.
@@ -114,9 +124,13 @@ export class EventStore {
   /** Optional outbox for supplementary event replication */
   private outbox?: Outbox;
 
-  constructor(private readonly stateDir: string) {
+  /** Optional storage backend for delegating reads */
+  private readonly backend?: StorageBackend;
+
+  constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.maxIdempotencyKeys = parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
+    this.backend = options?.backend;
   }
 
   /** Configure an optional outbox for event replication. */
@@ -259,6 +273,11 @@ export class EventStore {
       await this.writeEvents(streamId, [fullEvent]);
       this.cacheIdempotencyKey(streamId, fullEvent);
 
+      // Backend dual-write: replicate to backend if available
+      if (this.backend) {
+        this.backend.appendEvent(streamId, fullEvent);
+      }
+
       // Outbox integration: write supplementary entry under the same lock
       if (this.outbox) {
         try {
@@ -380,6 +399,11 @@ export class EventStore {
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
+    // Delegate to backend if available
+    if (this.backend) {
+      return this.backend.queryEvents(streamId, filters);
+    }
+
     const filePath = this.getEventFilePath(streamId);
 
     // Check if file exists
@@ -450,6 +474,18 @@ export class EventStore {
     return events;
   }
 
+  /**
+   * List all known stream IDs.
+   * Delegates to backend when available; returns null otherwise
+   * (caller should fall back to directory scanning).
+   */
+  listStreams(): string[] | null {
+    if (this.backend) {
+      return this.backend.listStreams();
+    }
+    return null;
+  }
+
   async refreshSequence(streamId: string): Promise<void> {
     await this.initializeSequence(streamId);
   }
@@ -494,6 +530,13 @@ export class EventStore {
   }
 
   private async initializeSequence(streamId: string): Promise<void> {
+    // Delegate to backend if available
+    if (this.backend) {
+      const seq = this.backend.getSequence(streamId);
+      this.sequenceCounters.set(streamId, seq);
+      return;
+    }
+
     // Try .seq file first (O(1))
     const seqPath = this.getSeqFilePath(streamId);
     // Clean up orphaned .seq.tmp files left by crashed atomic writes
