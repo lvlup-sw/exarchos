@@ -165,7 +165,7 @@ polish:implement → [scope expands] → overhaul:plan
 Auto-chain handles this via MCP tools:
 
 ```text
-# When scope expands during implement, use mcp__exarchos__exarchos_workflow with action: "set":
+# When scope expands during implement, use mcp__plugin_exarchos_exarchos__exarchos_workflow with action: "set":
 # 1. First call: Set updates
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
 

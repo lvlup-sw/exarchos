@@ -2,7 +2,7 @@
 
 Detailed tool usage, methods, and anti-patterns for all installed MCP servers.
 
-## Exarchos (`mcp__exarchos__*`)
+## Exarchos (`mcp__plugin_exarchos_exarchos__*`)
 
 Unified MCP server for workflow orchestration, event sourcing, CQRS views, and task coordination. **Always use for workflow tracking.** Exposes 5 composite tools with action discriminators. Note: inter-agent messaging uses Claude Code's native Agent Teams, not Exarchos.
 
@@ -10,11 +10,11 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Tool | Actions | When to Use |
 |------|---------|-------------|
-| `mcp__exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel`, `cleanup` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows, resolving merged workflows |
-| `mcp__exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
-| `mcp__exarchos__exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination and lifecycle |
-| `mcp__exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
-| `mcp__exarchos__exarchos_sync` | `now` | Force sync of materialized views |
+| `mcp__plugin_exarchos_exarchos__exarchos_workflow` | `init`, `get`, `set`, `cancel`, `cleanup` | Workflow CRUD: starting workflows, reading/updating state, cancelling abandoned workflows, resolving merged workflows |
+| `mcp__plugin_exarchos_exarchos__exarchos_event` | `append`, `query` | Event sourcing: recording workflow events, reading event history |
+| `mcp__plugin_exarchos_exarchos__exarchos_orchestrate` | `task_claim`, `task_complete`, `task_fail` | Task coordination and lifecycle |
+| `mcp__plugin_exarchos_exarchos__exarchos_view` | `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place` | CQRS materialized views for read-optimized queries |
+| `mcp__plugin_exarchos_exarchos__exarchos_sync` | `now` | Force sync of materialized views |
 
 ### Workflow Tool Actions
 
@@ -104,7 +104,7 @@ A compound state's fix cycle limit was reached. Escalate to user or cancel the w
 | Don't | Do Instead |
 |-------|------------|
 | Use `gh pr create` or `create_pull_request` | Use Graphite `gt submit --no-interactive --publish --merge-when-ready` for ALL PR creation |
-| Manually edit workflow state JSON | Use `mcp__exarchos__exarchos_workflow` with `action: "set"` |
+| Manually edit workflow state JSON | Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` |
 | Use `git commit` or `git push` | Use `gt create` + `gt submit --no-interactive --publish --merge-when-ready` |
 | Skip state reconciliation on resume | The SessionStart hook handles reconciliation automatically |
 

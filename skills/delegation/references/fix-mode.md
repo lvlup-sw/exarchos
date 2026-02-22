@@ -16,7 +16,7 @@ Or auto-invoked after review failures.
 
 ## Fix Mode Process
 
-1. **Read failure details** from state using `mcp__exarchos__exarchos_workflow` with `action: "get"`:
+1. **Read failure details** from state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"`:
    - Query `reviews` for review failures
 
 2. **Extract fix tasks** from failure reports:

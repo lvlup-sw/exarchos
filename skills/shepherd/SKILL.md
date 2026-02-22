@@ -44,7 +44,7 @@ Gather the current state of all PRs in the stack. See `references/assess-checkli
 
 **Read PR URLs from workflow state:**
 ```
-mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
 ```
 
 **For each PR, check four dimensions:**
@@ -203,7 +203,7 @@ Track shepherd progress in the workflow state under the `shepherd` field.
 ### Initialize Shepherd
 
 ```
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set",
   featureId: "<id>",
   updates: {
@@ -222,7 +222,7 @@ mcp__exarchos__exarchos_workflow({
 
 After each assess cycle:
 ```
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set",
   featureId: "<id>",
   updates: {
@@ -253,7 +253,7 @@ mcp__exarchos__exarchos_workflow({
 ### Record Approval Request
 
 ```
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set",
   featureId: "<id>",
   updates: {
@@ -293,10 +293,10 @@ mcp__exarchos__exarchos_workflow({
 
 When Exarchos MCP tools are available:
 
-1. **On shepherd start:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.started` with PR URLs and iteration count
-2. **On each iteration:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.iteration` with assessment results and actions taken
-3. **On approval request:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
-4. **On completion:** `mcp__exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
+1. **On shepherd start:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.started` with PR URLs and iteration count
+2. **On each iteration:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.iteration` with assessment results and actions taken
+3. **On approval request:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
+4. **On completion:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
 
 ## Troubleshooting
 

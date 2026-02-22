@@ -77,15 +77,15 @@ If the user receives PR review comments:
 ## MCP Tool Call Failed
 If an Exarchos MCP tool returns an error:
 1. Check the error message -- it usually contains specific guidance
-2. Verify the workflow state exists: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
+2. Verify the workflow state exists: call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and the featureId
 3. If "version mismatch": another process updated state -- retry the operation
-4. If state is corrupted: call `mcp__exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+4. If state is corrupted: call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
 
 ## State Desync
 If workflow state doesn't match git reality:
 1. The SessionStart hook runs reconciliation automatically on resume
 2. If manual check needed: compare state file with `git log` and branch state
-3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
 ## PR Creation Failed
 If `gt submit` fails:
@@ -104,9 +104,9 @@ If `gt restack` encounters conflicts:
 
 When Exarchos MCP tools are available:
 
-1. **After stack submission:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
+1. **After stack submission:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
 2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
-3. **On successful merge:** Call `mcp__exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
+3. **On successful merge:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
 
 ## Performance Notes
 

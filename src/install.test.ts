@@ -33,7 +33,7 @@ describe('Project Configuration', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
 
       expect(pkg.scripts['build:cli']).toBeDefined();
-      expect(pkg.scripts['build:cli']).toContain('exarchos-cli.js');
+      expect(pkg.scripts['build:cli']).toContain('build-cli');
     });
 
     it('should have correct name', () => {

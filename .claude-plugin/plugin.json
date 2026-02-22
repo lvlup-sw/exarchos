@@ -31,13 +31,6 @@
       "env": {
         "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
       }
-    },
-    "graphite": {
-      "type": "stdio",
-      "command": "gt",
-      "args": [
-        "mcp"
-      ]
     }
   }
 }

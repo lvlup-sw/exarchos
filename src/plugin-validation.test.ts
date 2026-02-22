@@ -20,7 +20,8 @@ describe('Core Plugin Structure', () => {
       expect(plugin.hooks).toBe('./hooks/hooks.json');
       expect(plugin.mcpServers).toBeDefined();
       expect(plugin.mcpServers.exarchos).toBeDefined();
-      expect(plugin.mcpServers.graphite).toBeDefined();
+      // Graphite is a required external dependency, not bundled in plugin
+      expect(plugin.mcpServers.graphite).toBeUndefined();
     });
   });
 
@@ -65,7 +66,7 @@ describe('Core Plugin Structure', () => {
 
       expect(hooks.hooks.PreCompact[0].matcher).toBe('auto');
       expect(hooks.hooks.SessionStart[0].matcher).toBe('startup|resume');
-      expect(hooks.hooks.PreToolUse[0].matcher).toBe('mcp__exarchos__.*');
+      expect(hooks.hooks.PreToolUse[0].matcher).toBe('mcp__(plugin_exarchos_)?exarchos__.*');
     });
   });
 

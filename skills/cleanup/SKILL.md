@@ -34,12 +34,12 @@ Activate this skill when:
 
 Read workflow state to get current phase and metadata:
 ```typescript
-mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<id>" })
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<id>" })
 ```
 
 If featureId not provided, use pipeline view to list active workflows:
 ```typescript
-mcp__exarchos__exarchos_view({ action: "pipeline" })
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "pipeline" })
 ```
 
 ### 2. Verify Merge Status
@@ -65,7 +65,7 @@ For detailed verification guidance, see `references/merge-verification.md`.
 
 Call the MCP cleanup action with collected data:
 ```typescript
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,
@@ -115,7 +115,7 @@ Output summary:
 
 Use `dryRun: true` to preview what cleanup would do without modifying state:
 ```typescript
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "cleanup",
   featureId: "<id>",
   mergeVerified: true,

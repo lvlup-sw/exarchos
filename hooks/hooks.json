@@ -19,7 +19,7 @@
       }]
     }],
     "PreToolUse": [{
-      "matcher": "mcp__exarchos__.*",
+      "matcher": "mcp__(plugin_exarchos_)?exarchos__.*",
       "hooks": [{
         "type": "command",
         "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" guard",

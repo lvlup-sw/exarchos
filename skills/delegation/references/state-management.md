@@ -1,6 +1,6 @@
 # Delegation State Management
 
-State update patterns for workflow state during delegation. Use `mcp__exarchos__exarchos_workflow` for all mutations.
+State update patterns for workflow state during delegation. Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` for all mutations.
 
 ## Read Tasks from State
 

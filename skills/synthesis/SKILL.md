@@ -65,7 +65,7 @@ See `references/troubleshooting.md` for test failures, PR check failures, and me
 
 ## State Management
 
-Call `mcp__exarchos__exarchos_workflow` for all state operations. Full parameter reference: `@skills/workflow-state/SKILL.md` § Update State.
+Call `mcp__plugin_exarchos_exarchos__exarchos_workflow` for all state operations. Full parameter reference: `@skills/workflow-state/SKILL.md` § Update State.
 
 ### Read Task State
 

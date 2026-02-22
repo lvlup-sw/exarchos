@@ -27,7 +27,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__exarchos__exarchos_workflow` `action: "set"`.
+When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__plugin_exarchos_exarchos__exarchos_workflow` `action: "set"`.
 
 ### Revision Loop Guard
 

@@ -63,7 +63,7 @@ Switch from polish to overhaul if scope expands.
 
 ### Step 1: Initialize State
 
-Initialize workflow state using `mcp__exarchos__exarchos_workflow` with `action: "init"`, featureId `refactor-<slug>`, and workflowType `refactor`.
+Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, featureId `refactor-<slug>`, and workflowType `refactor`.
 
 ### Step 2: Explore
 

@@ -6,7 +6,7 @@ Detailed steps for gathering PR status during each shepherd iteration.
 
 Read PR URLs from workflow state:
 ```
-mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
 ```
 
 Extract PR numbers from URLs (e.g., `https://github.com/owner/repo/pull/123` → `123`).

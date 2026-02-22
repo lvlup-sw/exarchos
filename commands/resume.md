@@ -33,7 +33,7 @@ The SessionStart hook automatically verifies state matches git reality on resume
 
 ### Step 3: Load Context Summary
 
-The SessionStart hook provides workflow context automatically. Read the state file using `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId for detailed state.
+The SessionStart hook provides workflow context automatically. Read the state file using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and the featureId for detailed state.
 
 ### Step 4: Display Context
 

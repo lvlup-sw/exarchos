@@ -48,7 +48,7 @@ For full MCP tool signatures, error handling, and anti-patterns, see `references
 
 ### Initialize State
 
-At the start of `/exarchos:ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
+At the start of `/exarchos:ideate`, use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
 - `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
 
@@ -56,7 +56,7 @@ This creates a new state file with phase "ideate".
 
 ### Read State
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`:
+Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and `featureId`:
 
 - **Full state**: Call with just `featureId`
 - **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`)
@@ -66,7 +66,7 @@ Field projection via `fields` returns only the requested top-level keys, reducin
 
 ### Update State
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with `featureId` and either `updates`, `phase`, or both:
+Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` with `featureId` and either `updates`, `phase`, or both:
 
 - **Update phase**: `phase: "delegate"`
 - **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
@@ -78,7 +78,7 @@ Worktree status values: `'active' | 'merged' | 'removed'`
 
 ### Get Summary
 
-For context restoration after summarization, use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`. This outputs a minimal summary suitable for rebuilding orchestrator context.
+For context restoration after summarization, use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and `featureId`. This outputs a minimal summary suitable for rebuilding orchestrator context.
 
 ### Reconcile State
 
@@ -168,19 +168,19 @@ Key sections:
 ### MCP Tool Call Failed
 If an Exarchos MCP tool returns an error:
 1. Check the error message — it usually contains specific guidance
-2. Verify the workflow state exists: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
+2. Verify the workflow state exists: call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and the featureId
 3. If "version mismatch": another process updated state — retry the operation
-4. If state is corrupted: call `mcp__exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
+4. If state is corrupted: call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true`
 
 ### State Desync
 If workflow state doesn't match git reality:
 1. The SessionStart hook runs reconciliation automatically on resume
 2. If manual check needed: compare state file with `git log` and branch state
-3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
 ### Checkpoint File Missing
 If the PreCompact hook can't find state to checkpoint:
-1. Verify a workflow is active: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
+1. Verify a workflow is active: call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` and the featureId
 2. If no active workflow: the hook will silently skip (expected behavior)
 3. If workflow exists but checkpoint fails: check disk space and permissions
 
@@ -193,18 +193,18 @@ If state references branches or worktrees that no longer exist:
 ### Multiple Active Workflows
 If multiple workflow state files exist:
 1. The system uses the most recently updated active (non-completed) workflow
-2. Use `mcp__exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true` on stale workflows to preview cleanup
+2. Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "cancel"` and `dryRun: true` on stale workflows to preview cleanup
 3. Cancel stale workflows before starting new ones
 
 ## Example Workflow
 
-1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
+1. **Start new workflow**: Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with:
+2. **After design phase**: Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` with:
    - `featureId: "user-authentication"`
    - `phase: "plan"`
    - `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
 
-3. **Check state**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
+3. **Check state**: Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
 
-4. **Resume after context loss**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"` to get context restoration output
+4. **Resume after context loss**: Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"` to get context restoration output

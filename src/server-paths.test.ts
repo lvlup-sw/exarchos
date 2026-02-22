@@ -18,7 +18,7 @@ describe('Server source paths', () => {
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
     expect(pkg.scripts['build:mcp']).toContain('servers/exarchos-mcp/src/index.ts');
     expect(pkg.scripts['build:mcp']).not.toContain('plugins/exarchos');
-    expect(pkg.scripts['build:cli']).toContain('servers/exarchos-mcp/src/cli.ts');
+    expect(pkg.scripts['build:cli']).toContain('build-cli');
     expect(pkg.scripts['build:cli']).not.toContain('plugins/exarchos');
   });
 

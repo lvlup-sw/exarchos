@@ -30,12 +30,12 @@ Follow the cleanup skill: `@skills/cleanup/SKILL.md`
 
 Read workflow state:
 ```typescript
-mcp__exarchos__exarchos_workflow({ action: "get", featureId: "<feature-id>" })
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<feature-id>" })
 ```
 
 If no `$ARGUMENTS` provided, list active workflows:
 ```typescript
-mcp__exarchos__exarchos_view({ action: "pipeline" })
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "pipeline" })
 ```
 
 ### Step 2: Verify PR Merge Status
@@ -54,7 +54,7 @@ Collect:
 ### Step 3: Invoke Cleanup Action
 
 ```typescript
-mcp__exarchos__exarchos_workflow({
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "cleanup",
   featureId: "<feature-id>",
   mergeVerified: true,
