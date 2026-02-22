@@ -23,6 +23,7 @@ import { configureNextActionEventStore } from './workflow/next-action.js';
 import { configureCancelEventStore } from './workflow/cancel.js';
 import { configureCleanupEventStore, configureCleanupSnapshotStore } from './workflow/cleanup.js';
 import { configureQueryEventStore } from './workflow/query.js';
+import { configureQualityEventStore } from './quality/hints.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
 
@@ -62,6 +63,7 @@ export function createServer(stateDir: string): McpServer {
   configureCleanupEventStore(eventStore);
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
   configureQueryEventStore(eventStore);
+  configureQualityEventStore(eventStore);
 
   // Register composite tools from registry
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';

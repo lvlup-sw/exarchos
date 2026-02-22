@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { generateQualityHints } from './hints.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { generateQualityHints, configureQualityEventStore } from './hints.js';
 import type { QualityHint } from './hints.js';
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Test Helper ────────────────────────────────────────────────────────────
 
@@ -613,6 +614,171 @@ describe('generateQualityHints', () => {
       const skillsInHints = new Set(hints.map(h => h.skill));
       expect(skillsInHints.has('skill-a')).toBe(true);
       expect(skillsInHints.has('skill-b')).toBe(true);
+    });
+  });
+
+  // ─── Event Emission Tests ─────────────────────────────────────────────────
+
+  describe('event emission', () => {
+    let mockEventStore: { append: ReturnType<typeof vi.fn> };
+
+    beforeEach(() => {
+      mockEventStore = {
+        append: vi.fn().mockResolvedValue({}),
+      };
+      configureQualityEventStore(mockEventStore as unknown as EventStore);
+    });
+
+    afterEach(() => {
+      configureQualityEventStore(null);
+    });
+
+    it('GenerateQualityHints_WithHints_EmitsEvent', () => {
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1.5,
+            topFailureCategories: [
+              { category: 'lint', count: 5 },
+              { category: 'type-check', count: 3 },
+            ],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state, 'my-skill');
+
+      expect(hints.length).toBeGreaterThan(0);
+      expect(mockEventStore.append).toHaveBeenCalledTimes(1);
+
+      const [streamId, event] = mockEventStore.append.mock.calls[0];
+      expect(streamId).toBe('quality-hints');
+      expect(event.type).toBe('quality.hint.generated');
+      expect(event.data.skill).toBe('my-skill');
+      expect(event.data.hintCount).toBe(hints.length);
+      expect(event.data.categories).toEqual(expect.arrayContaining(['gate']));
+      expect(event.data.generatedAt).toBeDefined();
+    });
+
+    it('GenerateQualityHints_NoHints_DoesNotEmitEvent', () => {
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 10,
+            gatePassRate: 0.95,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1,
+            topFailureCategories: [],
+          },
+        },
+      });
+
+      const hints = generateQualityHints(state, 'my-skill');
+
+      expect(hints).toHaveLength(0);
+      expect(mockEventStore.append).not.toHaveBeenCalled();
+    });
+
+    it('GenerateQualityHints_NoTargetSkill_EmitsGlobalSkill', () => {
+      const state = makeState({
+        skills: {
+          'alpha': {
+            skill: 'alpha',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1.5,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+        },
+      });
+
+      generateQualityHints(state);
+
+      expect(mockEventStore.append).toHaveBeenCalledTimes(1);
+      const [, event] = mockEventStore.append.mock.calls[0];
+      expect(event.data.skill).toBe('global');
+    });
+
+    it('GenerateQualityHints_EventStoreNull_DoesNotThrow', () => {
+      configureQualityEventStore(null);
+
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1.5,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+        },
+      });
+
+      // Should not throw even without event store
+      const hints = generateQualityHints(state, 'my-skill');
+      expect(hints.length).toBeGreaterThan(0);
+    });
+
+    it('GenerateQualityHints_EventStoreAppendFails_DoesNotThrow', () => {
+      mockEventStore.append.mockRejectedValue(new Error('append failed'));
+
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1.5,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+        },
+      });
+
+      // Should not throw even when event store fails (fire-and-forget)
+      const hints = generateQualityHints(state, 'my-skill');
+      expect(hints.length).toBeGreaterThan(0);
+      expect(mockEventStore.append).toHaveBeenCalledTimes(1);
+    });
+
+    it('GenerateQualityHints_MultipleCategories_EmitsUniqueCategories', () => {
+      const state = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 20,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.40,
+            avgRemediationAttempts: 3,
+            topFailureCategories: [{ category: 'lint', count: 10 }],
+          },
+        },
+        benchmarks: [
+          {
+            operation: 'event-append',
+            metric: 'latency-ms',
+            values: [{ value: 10, commit: 'a', timestamp: '2024-01-01T00:00:00Z' }],
+            trend: 'degrading',
+          },
+        ],
+      });
+
+      generateQualityHints(state);
+
+      const [, event] = mockEventStore.append.mock.calls[0];
+      const categories = event.data.categories as string[];
+      // Categories should be unique (no duplicates)
+      expect(categories.length).toBe(new Set(categories).size);
+      // Should include both gate and benchmark categories
+      expect(categories).toContain('gate');
+      expect(categories).toContain('benchmark');
     });
   });
 });

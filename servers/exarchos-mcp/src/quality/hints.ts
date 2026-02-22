@@ -1,4 +1,14 @@
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
+import type { EventStore } from '../event-store/store.js';
+
+// ─── Module-Level EventStore Configuration ──────────────────────────────────
+
+let moduleEventStore: EventStore | null = null;
+
+/** Configure the EventStore instance used for quality hint event emission. */
+export function configureQualityEventStore(store: EventStore | null): void {
+  moduleEventStore = store;
+}
 
 // ─── Hint Interface ─────────────────────────────────────────────────────────
 
@@ -132,5 +142,24 @@ export function generateQualityHints(
   }
 
   hints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
-  return hints.slice(0, MAX_HINTS);
+  const result = hints.slice(0, MAX_HINTS);
+
+  // Fire-and-forget: emit quality.hint.generated event when hints are produced
+  if (result.length > 0 && moduleEventStore) {
+    moduleEventStore
+      .append('quality-hints', {
+        type: 'quality.hint.generated',
+        data: {
+          skill: targetSkill ?? 'global',
+          hintCount: result.length,
+          categories: [...new Set(result.map(h => h.category))],
+          generatedAt: new Date().toISOString(),
+        },
+      })
+      .catch(() => {
+        // Intentionally swallowed — event emission is fire-and-forget
+      });
+  }
+
+  return result;
 }
