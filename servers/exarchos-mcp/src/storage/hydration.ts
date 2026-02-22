@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { readdir, access } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { WorkflowEventBase, type WorkflowEvent } from '../event-store/schemas.js';
 import type { StorageBackend } from './backend.js';
 
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
@@ -13,7 +13,7 @@ const SEQUENCE_REGEX = /"sequence":(\d+)/;
  *
  * Reads `{stateDir}/{streamId}.events.jsonl` and inserts only events
  * with sequence > current backend sequence (delta hydration).
- * Corrupt JSON lines are skipped with a warning.
+ * Corrupt or invalid JSON lines are skipped.
  */
 export async function hydrateStream(
   backend: StorageBackend,
@@ -22,19 +22,18 @@ export async function hydrateStream(
 ): Promise<void> {
   const filePath = path.join(stateDir, `${streamId}.events.jsonl`);
 
-  // Guard: if file doesn't exist, no-op
+  // Guard: if file doesn't exist, no-op; rethrow non-ENOENT errors
   try {
     await access(filePath);
-  } catch {
-    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   const dbSequence = backend.getSequence(streamId);
 
   const input = createReadStream(filePath, { encoding: 'utf-8' });
   const rl = createInterface({ input, crlfDelay: Infinity });
-
-  const batch: WorkflowEvent[] = [];
 
   for await (const line of rl) {
     if (!line.trim()) continue;
@@ -51,24 +50,26 @@ export async function hydrateStream(
     }
 
     // Parse the line — skip corrupt lines
-    let event: WorkflowEvent;
+    let raw: unknown;
     try {
-      event = JSON.parse(line) as WorkflowEvent;
+      raw = JSON.parse(line);
     } catch {
-      // Corrupt line — skip with warning
       continue;
     }
+
+    // Validate against schema — skip invalid events
+    const parsed = WorkflowEventBase.safeParse(raw);
+    if (!parsed.success) {
+      continue;
+    }
+    const event: WorkflowEvent = parsed.data;
 
     // Double-check sequence after parsing (in case regex matched wrong field)
     if (event.sequence <= dbSequence) {
       continue;
     }
 
-    batch.push(event);
-  }
-
-  // Batch insert all delta events in a single pass
-  for (const event of batch) {
+    // Stream-append: insert immediately instead of buffering
     backend.appendEvent(streamId, event);
   }
 }
@@ -83,8 +84,9 @@ export async function hydrateAll(
   let files: string[];
   try {
     files = await readdir(stateDir);
-  } catch {
-    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   const jsonlFiles = files.filter((f) => f.endsWith('.events.jsonl'));

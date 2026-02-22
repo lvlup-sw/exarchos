@@ -35,7 +35,7 @@ describe('createServer Backend Wiring', () => {
     const { createServer } = await import('./index.js');
     const { configureStateStoreBackend } = await import('./workflow/state-store.js');
     const backend = new InMemoryBackend();
-    backend.initialize();
+    await backend.initialize();
 
     // Act
     createServer('/tmp/test-state-dir', { backend });
@@ -48,7 +48,7 @@ describe('createServer Backend Wiring', () => {
     // Arrange
     const { createServer } = await import('./index.js');
     const backend = new InMemoryBackend();
-    backend.initialize();
+    await backend.initialize();
 
     // Act — should not throw
     const server = createServer('/tmp/test-state-dir', { backend });
@@ -113,14 +113,10 @@ describe('initializeBackend', () => {
     }
   });
 
-  it('initializeBackend_MissingSQLiteBinary_ReturnsUndefined', async () => {
-    // Arrange — this test verifies the graceful fallback when better-sqlite3
-    // cannot be loaded. We mock the SqliteBackend constructor to throw.
+  it('initializeBackend_AnyEnvironment_NeverThrows', async () => {
+    // Arrange — verifies the graceful fallback contract: initializeBackend
+    // never throws regardless of whether better-sqlite3 is available.
     const { initializeBackend } = await import('./index.js');
-
-    // If better-sqlite3 is genuinely unavailable, initializeBackend returns undefined.
-    // If it IS available, we still test the function works.
-    // The key contract: initializeBackend never throws.
     const tmpDir = '/tmp/test-sqlite-missing-' + Date.now();
     const { mkdirSync } = await import('node:fs');
     mkdirSync(tmpDir, { recursive: true });
@@ -141,7 +137,7 @@ describe('Process Cleanup', () => {
     // Arrange
     const { registerBackendCleanup } = await import('./index.js');
     const backend = new InMemoryBackend();
-    backend.initialize();
+    await backend.initialize();
     const closeSpy = vi.spyOn(backend, 'close');
 
     // Track process.on calls

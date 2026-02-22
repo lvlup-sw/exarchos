@@ -1,7 +1,9 @@
 import { readdir, rename, unlink } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { z } from 'zod';
+import { WorkflowEventBase, type WorkflowEvent } from '../event-store/schemas.js';
+import { WorkflowStateSchema } from '../workflow/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { StorageBackend } from './backend.js';
 
@@ -21,11 +23,12 @@ const LEGACY_CLEANUP_PATTERNS = [
  *
  * For each `*.state.json` file found:
  * - Parses the JSON content
+ * - Validates against WorkflowStateSchema
  * - Extracts the featureId from the filename (`{featureId}.state.json`)
  * - Inserts into the backend via `setState()`
  * - Renames the original file to `*.state.json.migrated`
  *
- * Corrupt files are skipped (not renamed) with a warning.
+ * Corrupt or invalid files are skipped (not renamed).
  */
 export async function migrateLegacyStateFiles(
   backend: StorageBackend,
@@ -34,8 +37,9 @@ export async function migrateLegacyStateFiles(
   let files: string[];
   try {
     files = await readdir(stateDir);
-  } catch {
-    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   const stateFiles = files.filter(
@@ -46,14 +50,21 @@ export async function migrateLegacyStateFiles(
     const filePath = path.join(stateDir, file);
     const featureId = file.replace('.state.json', '');
 
-    let state: WorkflowState;
+    let raw: unknown;
     try {
       const content = readFileSync(filePath, 'utf-8');
-      state = JSON.parse(content) as WorkflowState;
+      raw = JSON.parse(content);
     } catch {
-      // Corrupt file — skip with warning
+      // Corrupt file — skip
       continue;
     }
+
+    const parsed = WorkflowStateSchema.safeParse(raw);
+    if (!parsed.success) {
+      // Invalid state — skip
+      continue;
+    }
+    const state: WorkflowState = parsed.data;
 
     backend.setState(featureId, state);
 
@@ -68,7 +79,7 @@ export async function migrateLegacyStateFiles(
  * Migrates legacy `*.outbox.json` files into the StorageBackend outbox.
  *
  * Each file is expected to contain a JSON array of WorkflowEvent objects.
- * Events are inserted via `backend.addOutboxEntry()`.
+ * Events are validated via WorkflowEventBase and inserted via `backend.addOutboxEntry()`.
  */
 export async function migrateLegacyOutbox(
   backend: StorageBackend,
@@ -77,8 +88,9 @@ export async function migrateLegacyOutbox(
   let files: string[];
   try {
     files = await readdir(stateDir);
-  } catch {
-    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   const outboxFiles = files.filter((f) => f.endsWith('.outbox.json'));
@@ -87,18 +99,21 @@ export async function migrateLegacyOutbox(
     const filePath = path.join(stateDir, file);
     const streamId = file.replace('.outbox.json', '');
 
-    let entries: WorkflowEvent[];
+    let raw: unknown;
     try {
       const content = readFileSync(filePath, 'utf-8');
-      entries = JSON.parse(content) as WorkflowEvent[];
+      raw = JSON.parse(content);
     } catch {
       // Corrupt file — skip
       continue;
     }
 
-    if (!Array.isArray(entries)) continue;
+    const parsed = z.array(WorkflowEventBase).safeParse(raw);
+    if (!parsed.success) {
+      continue;
+    }
 
-    for (const event of entries) {
+    for (const event of parsed.data) {
       backend.addOutboxEntry(streamId, event);
     }
   }
@@ -117,8 +132,9 @@ export async function cleanupLegacyFiles(stateDir: string): Promise<void> {
   let files: string[];
   try {
     files = await readdir(stateDir);
-  } catch {
-    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   for (const file of files) {
@@ -129,8 +145,9 @@ export async function cleanupLegacyFiles(stateDir: string): Promise<void> {
     if (shouldRemove) {
       try {
         await unlink(path.join(stateDir, file));
-      } catch {
-        // Missing file — ignore
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw err;
       }
     }
   }

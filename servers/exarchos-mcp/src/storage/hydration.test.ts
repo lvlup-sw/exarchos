@@ -212,7 +212,7 @@ describe('hydrateAll', () => {
 // ─── Property Tests ─────────────────────────────────────────────────────────
 
 describe('Hydration Property Tests', () => {
-  it('Hydration idempotence: hydrateStream(hydrateStream(x)) === hydrateStream(x)', async () => {
+  it('hydrateStream_Idempotent_NoDuplicates', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 1, max: 20 }),
@@ -258,7 +258,7 @@ describe('Hydration Property Tests', () => {
     );
   });
 
-  it('Sequence preservation: events in SQLite have same sequences as JSONL', async () => {
+  it('hydrateStream_SequencePreserved_MatchesJsonl', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.integer({ min: 1, max: 20 }),

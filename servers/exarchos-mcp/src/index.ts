@@ -217,10 +217,11 @@ async function main() {
   if (backend) {
     // Hydrate SQLite from JSONL source of truth and migrate legacy files
     const { hydrateAll } = await import('./storage/hydration.js');
-    const { migrateLegacyStateFiles } = await import('./storage/migration.js');
+    const { migrateLegacyStateFiles, migrateLegacyOutbox } = await import('./storage/migration.js');
 
     await hydrateAll(backend, stateDir);
     await migrateLegacyStateFiles(backend, stateDir);
+    await migrateLegacyOutbox(backend, stateDir);
 
     registerBackendCleanup(backend);
   }

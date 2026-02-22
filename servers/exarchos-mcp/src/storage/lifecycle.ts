@@ -26,39 +26,43 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/** Check if a file exists. */
+/** Check if a file exists. Only treats ENOENT as "not found"; rethrows other errors. */
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
   }
 }
 
-/** Count lines in a JSONL file. */
+/** Count lines in a JSONL file. Returns 0 if the file doesn't exist. */
 async function countJsonlLines(filePath: string): Promise<number> {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     return content.trim().split('\n').filter(Boolean).length;
-  } catch {
-    return 0;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw err;
   }
 }
 
 /** Calculate total size of all *.events.jsonl files in a directory. */
 async function totalJsonlSizeBytes(stateDir: string): Promise<number> {
   let totalBytes = 0;
+  let entries: string[];
   try {
-    const entries = await fs.readdir(stateDir);
-    for (const entry of entries) {
-      if (entry.endsWith('.events.jsonl')) {
-        const stat = await fs.stat(path.join(stateDir, entry));
-        totalBytes += stat.size;
-      }
+    entries = await fs.readdir(stateDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw err;
+  }
+  for (const entry of entries) {
+    if (entry.endsWith('.events.jsonl')) {
+      const stat = await fs.stat(path.join(stateDir, entry));
+      totalBytes += stat.size;
     }
-  } catch {
-    // Directory may not exist
   }
   return totalBytes;
 }
@@ -73,6 +77,16 @@ function isOlderThanDays(isoTimestamp: string, days: number): boolean {
   const threshold = new Date();
   threshold.setDate(threshold.getDate() - days);
   return new Date(isoTimestamp) < threshold;
+}
+
+/** Unlink a file, ignoring ENOENT but rethrowing other errors. */
+async function unlinkIfExists(filePath: string): Promise<void> {
+  try {
+    await fs.unlink(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
 }
 
 // ─── Workflow Compaction ────────────────────────────────────────────────────
@@ -95,8 +109,9 @@ export async function compactWorkflow(
   let stateRaw: string;
   try {
     stateRaw = await fs.readFile(stateFile, 'utf-8');
-  } catch {
-    return; // No state file, nothing to compact
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   let state: Record<string, unknown>;
@@ -140,14 +155,14 @@ export async function compactWorkflow(
   await fs.rename(tmpPath, archivePath);
 
   // Delete JSONL file
-  await fs.unlink(jsonlPath).catch(() => {});
+  await unlinkIfExists(jsonlPath);
 
   // Delete .seq file if it exists
   const seqPath = path.join(stateDir, `${featureId}.seq`);
-  await fs.unlink(seqPath).catch(() => {});
+  await unlinkIfExists(seqPath);
 
   // Delete state file
-  await fs.unlink(stateFile).catch(() => {});
+  await unlinkIfExists(stateFile);
 
   // Clean up backend rows if available
   if (backend) {
@@ -171,8 +186,9 @@ export async function checkCompaction(
   let entries: string[];
   try {
     entries = await fs.readdir(stateDir);
-  } catch {
-    return; // Directory doesn't exist
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
   }
 
   const stateFiles = entries.filter((f) => f.endsWith('.state.json'));
@@ -229,7 +245,7 @@ export async function rotateTelemetry(
   const rotated2 = `${telemetryJsonl}.2`;
 
   // Delete .2 if it exists
-  await fs.unlink(rotated2).catch(() => {});
+  await unlinkIfExists(rotated2);
 
   // Rename .1 to .2 if it exists
   if (await fileExists(rotated1)) {
