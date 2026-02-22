@@ -17,7 +17,8 @@ describe('Core Plugin Structure', () => {
       expect(plugin.author).toEqual({ name: 'Levelup Software' });
       expect(plugin.commands).toBe('./commands/');
       expect(plugin.skills).toBe('./skills/');
-      expect(plugin.hooks).toBe('./hooks/hooks.json');
+      // hooks/hooks.json is auto-loaded by Claude Code — declaring it in plugin.json causes duplicates
+      expect(plugin.hooks).toBeUndefined();
       expect(plugin.mcpServers).toBeDefined();
       expect(plugin.mcpServers.exarchos).toBeDefined();
       // Graphite is a required external dependency, not bundled in plugin

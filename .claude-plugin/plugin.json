@@ -20,7 +20,6 @@
   ],
   "commands": "./commands/",
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
   "mcpServers": {
     "exarchos": {
       "type": "stdio",
