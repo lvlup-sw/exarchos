@@ -1,6 +1,6 @@
 {
   "name": "@lvlup-sw/exarchos",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "Governed SDLC workflows for Claude Code — agent orchestration, quality gates, and Graphite stacked PRs",
   "type": "module",
   "bin": {
