@@ -29,6 +29,7 @@ const categoryMap: Record<string, ErrorCategory> = {
   FILE_IO_ERROR: 'io',
   EVENT_APPEND_FAILED: 'io',
   EVENT_MIGRATION_FAILED: 'state-lifecycle',
+  EVENT_STORE_NOT_CONFIGURED: 'io',
 };
 
 // ─── Recovery Strategies ────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ const recoveryMap: Record<string, string> = {
   EVENT_APPEND_FAILED: 'Check event store integrity and retry the operation',
   VERSION_CONFLICT: 'Re-read current state and retry the operation with updated version',
   EVENT_MIGRATION_FAILED: 'Check event schemaVersion and ensure event migration path exists. Backup events available in .bak files.',
+  EVENT_STORE_NOT_CONFIGURED: 'Ensure the MCP server is started with an event store configured. Reconcile requires event sourcing',
 };
 
 // ─── Retryable Codes ────────────────────────────────────────────────────────

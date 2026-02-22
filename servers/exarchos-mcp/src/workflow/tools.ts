@@ -15,6 +15,7 @@ import {
   writeStateFile,
   applyDotPath,
   listStateFiles,
+  reconcileFromEvents,
   StateStoreError,
   VersionConflictError,
 } from './state-store.js';
@@ -769,6 +770,64 @@ export async function handleCheckpoint(
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
+}
+
+// ─── handleReconcileState ───────────────────────────────────────────────
+
+/**
+ * Reconcile workflow state from events in the JSONL event store.
+ *
+ * Delegates to `reconcileFromEvents` which rebuilds state from events,
+ * applying any that are newer than the state's `_eventSequence`.
+ * Idempotent — running with no new events returns `{ reconciled: false, eventsApplied: 0 }`.
+ */
+export async function handleReconcileState(
+  input: { featureId: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  // Validate featureId
+  if (!input.featureId) {
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.INVALID_INPUT,
+        message: 'featureId is required for reconcile action',
+      },
+    };
+  }
+
+  // Guard: event store must be configured
+  if (!moduleEventStore) {
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.EVENT_STORE_NOT_CONFIGURED,
+        message: 'Event store is not configured — reconcile requires an event store',
+      },
+    };
+  }
+
+  try {
+    const result = await reconcileFromEvents(stateDir, input.featureId, moduleEventStore);
+    return {
+      success: true,
+      data: {
+        reconciled: result.reconciled,
+        eventsApplied: result.eventsApplied,
+      },
+    };
+  } catch (err) {
+    if (err instanceof StateStoreError) {
+      return {
+        success: false,
+        error: {
+          code: err.code,
+          message: err.message,
+        },
+      };
+    }
+    throw err;
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

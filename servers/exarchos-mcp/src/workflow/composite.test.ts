@@ -4,6 +4,7 @@ vi.mock('./tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'init-result' } }),
   handleGet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'get-result' } }),
   handleSet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'set-result' } }),
+  handleReconcileState: vi.fn().mockResolvedValue({ success: true, data: { reconciled: true, eventsApplied: 3 } }),
 }));
 
 vi.mock('./cancel.js', () => ({
@@ -11,7 +12,7 @@ vi.mock('./cancel.js', () => ({
 }));
 
 import { handleWorkflow } from './composite.js';
-import { handleInit, handleGet, handleSet } from './tools.js';
+import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
 
 describe('handleWorkflow', () => {
@@ -74,6 +75,20 @@ describe('handleWorkflow', () => {
         stateDir,
       );
       expect(result).toEqual({ success: true, data: { phase: 'cancel-result' } });
+    });
+  });
+
+  describe('reconcile action', () => {
+    it('should delegate to handleReconcileState with correct args', async () => {
+      const args = { action: 'reconcile', featureId: 'test' };
+
+      const result = await handleWorkflow(args, stateDir);
+
+      expect(handleReconcileState).toHaveBeenCalledWith(
+        { featureId: 'test' },
+        stateDir,
+      );
+      expect(result).toEqual({ success: true, data: { reconciled: true, eventsApplied: 3 } });
     });
   });
 

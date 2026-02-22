@@ -342,6 +342,7 @@ export const ErrorCode = {
   EVENT_APPEND_FAILED: 'EVENT_APPEND_FAILED',
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   EVENT_MIGRATION_FAILED: 'EVENT_MIGRATION_FAILED',
+  EVENT_STORE_NOT_CONFIGURED: 'EVENT_STORE_NOT_CONFIGURED',
 } as const;
 
 // ─── Reserved Field Validation ──────────────────────────────────────────────
