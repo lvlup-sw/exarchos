@@ -285,6 +285,15 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'reconcile',
+    description: 'Rebuild workflow state from event store. Applies events newer than state _eventSequence. Idempotent — no new events returns {reconciled: false, eventsApplied: 0}. Use after compaction or crash recovery',
+    schema: z.object({
+      featureId: featureIdSchema,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
@@ -505,7 +514,7 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, cancel, and cleanup workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, and reconcile workflows',
     actions: workflowActions,
   },
   {

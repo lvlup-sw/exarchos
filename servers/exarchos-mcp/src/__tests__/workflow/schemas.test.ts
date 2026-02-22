@@ -935,3 +935,22 @@ describe('cleanup action registration', () => {
     expect(cleanupAction!.schema).toBeDefined();
   });
 });
+
+// ─── reconcile action registration (#738) ────────────────────────────────
+
+describe('reconcile action registration', () => {
+  it('should include reconcile in exarchos_workflow actions', () => {
+    const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
+    expect(workflowTool).toBeDefined();
+    const reconcileAction = workflowTool!.actions.find(a => a.name === 'reconcile');
+    expect(reconcileAction).toBeDefined();
+    expect(reconcileAction!.schema).toBeDefined();
+  });
+
+  it('should require featureId parameter', () => {
+    const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
+    const reconcileAction = workflowTool!.actions.find(a => a.name === 'reconcile');
+    const shape = reconcileAction!.schema.shape;
+    expect(shape.featureId).toBeDefined();
+  });
+});

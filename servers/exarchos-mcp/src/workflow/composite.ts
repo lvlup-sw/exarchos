@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleSet } from './tools.js';
+import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import type { ToolResult } from '../format.js';
@@ -24,12 +24,14 @@ export async function handleWorkflow(
       return handleCancel(rest as Parameters<typeof handleCancel>[0], stateDir);
     case 'cleanup':
       return handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir);
+    case 'reconcile':
+      return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir);
     default:
       return {
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile`,
         },
       };
   }
