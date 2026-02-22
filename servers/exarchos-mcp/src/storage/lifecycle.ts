@@ -146,27 +146,29 @@ export async function compactWorkflow(
     return;
   }
 
-  // Count events before archiving
-  const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
-  const eventCount = await countJsonlLines(jsonlPath);
-
-  // Write archive
+  // Write archive (skip if a valid archive already exists from a prior interrupted run)
   const archiveDir = path.join(stateDir, 'archives');
   await fs.mkdir(archiveDir, { recursive: true });
-
-  const archive = {
-    featureId,
-    archivedAt: new Date().toISOString(),
-    finalState: state,
-    eventCount,
-  };
-
   const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
-  const tmpPath = `${archivePath}.tmp.${Date.now()}`;
-  await fs.writeFile(tmpPath, JSON.stringify(archive, null, 2), 'utf-8');
-  await fs.rename(tmpPath, archivePath);
+
+  if (!await fileExists(archivePath)) {
+    const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
+    const eventCount = await countJsonlLines(jsonlPath);
+
+    const archive = {
+      featureId,
+      archivedAt: new Date().toISOString(),
+      finalState: state,
+      eventCount,
+    };
+
+    const tmpPath = `${archivePath}.tmp.${Date.now()}`;
+    await fs.writeFile(tmpPath, JSON.stringify(archive, null, 2), 'utf-8');
+    await fs.rename(tmpPath, archivePath);
+  }
 
   // Delete JSONL file
+  const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
   await unlinkIfExists(jsonlPath);
 
   // Delete .seq file if it exists

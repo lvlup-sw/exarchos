@@ -150,8 +150,8 @@ describe('Atomic Archive Writes', () => {
     expect(archive.eventCount).toBe(3);
   });
 
-  it('compactWorkflow_CrashDuringArchiveRename_PreservesExistingArchive', async () => {
-    // Arrange — write a pre-existing archive
+  it('compactWorkflow_ExistingArchive_SkipsRewrite', async () => {
+    // Arrange — write a pre-existing archive (simulates prior interrupted compaction)
     const featureId = 'crash-archive';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -161,23 +161,23 @@ describe('Atomic Archive Writes', () => {
     await mkdir(archiveDir, { recursive: true });
     const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
 
-    // Write a pre-existing archive that should survive a crash
+    // Write a pre-existing archive that should be preserved
     const existingArchive = { featureId, archivedAt: '2025-01-01T00:00:00Z', finalState: { phase: 'completed' }, eventCount: 99 };
     await writeFile(archivePath, JSON.stringify(existingArchive), 'utf-8');
 
     const policy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
-
-    // Act — simulate crash during rename
-    renameFailOnce = true;
     writeFileCalls.length = 0;
 
-    await expect(
-      compactWorkflow(undefined, stateDir, featureId, policy),
-    ).rejects.toThrow('Simulated crash during rename');
+    // Act — compaction should skip archive write since one already exists
+    await compactWorkflow(undefined, stateDir, featureId, policy);
 
-    // Assert — pre-existing archive should NOT be corrupted
+    // Assert — existing archive preserved with original event count
     const afterRaw = await readFile(archivePath, 'utf-8');
     const afterArchive = JSON.parse(afterRaw);
-    expect(afterArchive.eventCount).toBe(99); // Original value preserved
+    expect(afterArchive.eventCount).toBe(99);
+
+    // Assert — no new archive write was attempted
+    const archiveWrites = writeFileCalls.filter(c => c.path.includes('.archive.json'));
+    expect(archiveWrites).toHaveLength(0);
   });
 });
