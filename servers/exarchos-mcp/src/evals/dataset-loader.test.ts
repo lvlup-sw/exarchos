@@ -3,6 +3,7 @@ import { fc } from '@fast-check/vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { loadDataset } from './dataset-loader.js';
 import type { EvalCase } from './types.js';
 
@@ -162,7 +163,8 @@ describe('loadDataset', () => {
 // ─── Real Dataset Loading Tests ──────────────────────────────────────────────
 
 describe('loadDataset_RealDatasets', () => {
-  const REPO_EVALS_DIR = path.resolve(import.meta.dirname, '..', '..', '..', '..', 'evals');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const REPO_EVALS_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'evals');
 
   it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
     const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl'));

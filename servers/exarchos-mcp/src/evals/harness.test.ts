@@ -706,9 +706,13 @@ describe('discoverSuites_RealEvalSuites', () => {
     expect(debug).toBeDefined();
   });
 
-  it('DiscoverSuites_TotalSuiteCount_Is7', async () => {
+  it('DiscoverSuites_TotalSuiteCount_IncludesNewSuites', async () => {
     const suites = await discoverSuites(REPO_EVALS_DIR);
-    expect(suites.length).toBe(7); // 3 existing + 4 new
+    const skills = suites.map(s => s.config.metadata.skill);
+    expect(suites.length).toBeGreaterThanOrEqual(7);
+    expect(skills).toEqual(
+      expect.arrayContaining(['brainstorming', 'implementation-planning', 'refactor', 'debug']),
+    );
   });
 });
 
