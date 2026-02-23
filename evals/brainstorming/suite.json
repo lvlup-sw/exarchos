@@ -1,0 +1,47 @@
+{
+  "description": "Brainstorming skill evaluation suite",
+  "metadata": {
+    "skill": "brainstorming",
+    "phaseAffinity": "ideate",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "init" },
+          { "tool": "exarchos_workflow", "action": "set" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "design-artifact-created",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["artifacts.design"]
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good brainstorming traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Brainstorming capability scenarios"
+    }
+  }
+}
