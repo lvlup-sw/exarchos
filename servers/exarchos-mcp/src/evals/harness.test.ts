@@ -677,6 +677,41 @@ describe('runSuite — event emission', () => {
   });
 });
 
+// ─── Discovery Tests for New Eval Suites ──────────────────────────────────────
+
+describe('discoverSuites_RealEvalSuites', () => {
+  it('DiscoverSuites_FindsBrainstormingSuite', async () => {
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const brainstorming = suites.find(s => s.config.metadata.skill === 'brainstorming');
+    expect(brainstorming).toBeDefined();
+    expect(brainstorming!.config.assertions).toHaveLength(3);
+  });
+
+  it('DiscoverSuites_FindsImplementationPlanningSuite', async () => {
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const planning = suites.find(s => s.config.metadata.skill === 'implementation-planning');
+    expect(planning).toBeDefined();
+    expect(planning!.config.assertions).toHaveLength(3);
+  });
+
+  it('DiscoverSuites_FindsRefactorSuite', async () => {
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const refactor = suites.find(s => s.config.metadata.skill === 'refactor');
+    expect(refactor).toBeDefined();
+  });
+
+  it('DiscoverSuites_FindsDebugSuite', async () => {
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const debug = suites.find(s => s.config.metadata.skill === 'debug');
+    expect(debug).toBeDefined();
+  });
+
+  it('DiscoverSuites_TotalSuiteCount_Is7', async () => {
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    expect(suites.length).toBe(7); // 3 existing + 4 new
+  });
+});
+
 // ─── Layer Filtering Tests ────────────────────────────────────────────────────
 
 describe('runSuite — layer filtering', () => {

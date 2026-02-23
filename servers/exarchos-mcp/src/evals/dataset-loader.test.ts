@@ -159,6 +159,32 @@ describe('loadDataset', () => {
   });
 });
 
+// ─── Real Dataset Loading Tests ──────────────────────────────────────────────
+
+describe('loadDataset_RealDatasets', () => {
+  const REPO_EVALS_DIR = path.resolve(import.meta.dirname, '..', '..', '..', '..', 'evals');
+
+  it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
+    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl'));
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_ImplementationPlanningGolden_ParsesWithoutErrors', async () => {
+    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'implementation-planning', 'datasets', 'golden.jsonl'));
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_RefactorGolden_ParsesWithoutErrors', async () => {
+    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'refactor', 'datasets', 'golden.jsonl'));
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_DebugGolden_ParsesWithoutErrors', async () => {
+    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'debug', 'datasets', 'golden.jsonl'));
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
 // ─── Property Tests ─────────────────────────────────────────────────────────
 
 describe('loadDataset Property Tests', () => {
