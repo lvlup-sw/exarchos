@@ -4,7 +4,7 @@ description: Rebuild exarchos plugin and update marketplace installation
 
 # Rebuild
 
-Build the project and sync the build output directly into the plugin cache.
+Build the project and sync the build output into the local plugin installation.
 
 **Why not `claude plugin update`?** The plugin installer resolves versions through npm CDN which has aggressive caching — it often fetches stale tarballs even after `npm publish`. This command bypasses that by copying the local build directly.
 
@@ -62,12 +62,23 @@ Read `~/.claude/plugins/installed_plugins.json` and update the `exarchos@lvlup-s
 - Set `version` to `$VERSION`
 - Set `lastUpdated` to the current ISO timestamp
 
-### 5. Update marketplace clone
+### 5. Update marketplace clone (CRITICAL)
 
-The marketplace clone at `~/.claude/plugins/marketplaces/lvlup-sw/` is a git checkout of this repo. Pull latest:
+**Claude Code resolves the plugin version from the marketplace clone, not just `installed_plugins.json`.** If you skip this step or it falls behind, Claude Code will load the old version regardless of what `installed_plugins.json` says.
+
+The marketplace clone at `~/.claude/plugins/marketplaces/lvlup-sw/` is a git checkout of this repo. It must match the version you're installing.
 
 ```bash
-cd ~/.claude/plugins/marketplaces/lvlup-sw && git pull --ff-only origin main
+cd ~/.claude/plugins/marketplaces/lvlup-sw && git fetch origin main && git reset --hard origin/main
+```
+
+Use `git reset --hard` instead of `git pull --ff-only` because the clone may have diverged or have local modifications.
+
+**Verify the marketplace clone version matches:**
+
+```bash
+grep '"version"' ~/.claude/plugins/marketplaces/lvlup-sw/package.json
+# Must show $VERSION
 ```
 
 ### 6. Report
@@ -75,6 +86,52 @@ cd ~/.claude/plugins/marketplaces/lvlup-sw && git pull --ff-only origin main
 Tell the user:
 - The version that was synced
 - Remind them to restart Claude Code to pick up the changes
+
+## Publishing to npm
+
+When publishing a new version to the npm registry:
+
+### Version bump workflow
+
+```bash
+npm version patch --no-git-tag-version   # or minor/major
+npm run version:sync                      # sync to plugin.json, marketplace.json, manifest.json
+npm run build                             # rebuild with new version
+git add package.json package-lock.json .claude-plugin/plugin.json .claude-plugin/marketplace.json manifest.json
+git commit -m "chore: bump version to $VERSION"
+git push origin main
+npm login                                 # if token expired
+npm publish --access public
+```
+
+### Verifying the published tarball
+
+After publishing, verify the tarball contains the expected files:
+
+```bash
+npm pack @lvlup-sw/exarchos@$VERSION --dry-run 2>&1 | grep better_sqlite3.node
+# Should show the ~2MB native binary
+```
+
+### Installing from npm (like a new user)
+
+To test the exact experience a new user would have:
+
+```bash
+# Clear the local cache for this version
+rm -rf ~/.claude/plugins/cache/lvlup-sw/exarchos/$VERSION
+
+# Fetch the tarball directly from npm (bypasses CDN cache)
+mkdir -p ~/.claude/plugins/cache/lvlup-sw/exarchos/$VERSION
+cd ~/.claude/plugins/cache/lvlup-sw/exarchos/$VERSION
+npm pack @lvlup-sw/exarchos@$VERSION
+tar xzf lvlup-sw-exarchos-$VERSION.tgz --strip-components=1
+rm lvlup-sw-exarchos-$VERSION.tgz
+
+# Then update installed_plugins.json and marketplace clone (steps 4-5 above)
+```
+
+**Do NOT use `claude plugin update`** — the npm CDN aggressively caches old tarballs and may fetch a stale version even minutes after publishing.
 
 ## Companion
 
