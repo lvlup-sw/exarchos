@@ -94,6 +94,7 @@ export async function initStateFile(
     tasks: [],
     worktrees: {},
     reviews: {},
+    explore: {},
     synthesis: {
       integrationBranch: null,
       mergeOrder: [],
