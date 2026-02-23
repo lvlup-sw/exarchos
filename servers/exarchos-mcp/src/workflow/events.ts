@@ -149,9 +149,8 @@ export function mapInternalToExternalType(internalType: string): string {
 }
 
 /**
- * Map external event types (used in JSONL store) back to internal event types
- * (used in _events). This is the inverse of mapInternalToExternalType.
- * Non-workflow-prefixed types (e.g. 'team.disbanded') pass through unchanged.
+ * Map external event types (JSONL store) back to internal event types (used in _events).
+ * Types without the `workflow.` prefix (e.g., `team.spawned`) are returned as-is.
  */
 export function mapExternalToInternalType(externalType: string): string {
   const reverseMap: Record<string, string> = {

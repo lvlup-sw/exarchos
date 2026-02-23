@@ -50,6 +50,7 @@ import {
   EVAL_RESULTS_VIEW,
 } from './eval-results-view.js';
 import type { EvalResultsViewState } from './eval-results-view.js';
+import { correlateQualityAndEvals } from '../quality/quality-correlation.js';
 import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
@@ -541,6 +542,44 @@ export async function handleViewQualityHints(
       success: true,
       data: { hints, generatedAt: new Date().toISOString() },
     };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Quality Correlation Handler ────────────────────────────────────────
+
+export async function handleViewQualityCorrelation(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
+    const cqView = materializer.materialize<CodeQualityViewState>(
+      streamId,
+      CODE_QUALITY_VIEW,
+      cqEvents,
+    );
+
+    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
+    const erView = materializer.materialize<EvalResultsViewState>(
+      streamId,
+      EVAL_RESULTS_VIEW,
+      erEvents,
+    );
+
+    const correlation = correlateQualityAndEvals(cqView, erView);
+    return { success: true, data: correlation };
   } catch (err) {
     return {
       success: false,

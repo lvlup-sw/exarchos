@@ -475,6 +475,33 @@ export async function handleSet(
 
     if (input.phase) {
       const hsm = getHSMDefinition(state.workflowType);
+
+      // Inject events from JSONL store for guard evaluation (#787)
+      // Map external event format (JSONL) to internal format used by state-machine guards
+      if (moduleEventStore) {
+        try {
+          const storedEvents = await moduleEventStore.query(input.featureId);
+          mutableState._events = storedEvents.map((e) => {
+            const data = typeof e.data === 'object' && e.data !== null
+              ? (e.data as Record<string, unknown>)
+              : undefined;
+            return {
+              type: mapExternalToInternalType(e.type),
+              timestamp: e.timestamp,
+              ...(typeof data?.from === 'string' ? { from: data.from } : {}),
+              ...(typeof data?.to === 'string' ? { to: data.to } : {}),
+              ...(typeof data?.trigger === 'string' ? { trigger: data.trigger } : {}),
+              metadata: data,
+            };
+          });
+        } catch (err) {
+          return {
+            success: false,
+            error: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
+
       const result = executeTransition(hsm, mutableState, input.phase);
 
       if (!result.success) {
@@ -530,7 +557,7 @@ export async function handleSet(
     if (moduleEventStore && pendingTransitionEvents.length > 0) {
       try {
         for (const transitionEvent of pendingTransitionEvents) {
-          const idempotencyKey = `${input.featureId}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
+          const idempotencyKey = `${input.featureId}:${transitionEvent.type}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
           const event = await moduleEventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
             correlationId: input.featureId,

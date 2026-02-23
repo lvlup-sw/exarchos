@@ -484,6 +484,9 @@ export const guards = {
     description: 'Team must be disbanded before transitioning out of delegation',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+      // No team spawned (subagent mode) — guard passes automatically
+      const hasTeamSpawned = events.some((e) => e.type === 'team.spawned');
+      if (!hasTeamSpawned) return true;
       const hasDisbanded = events.some((e) => e.type === 'team.disbanded');
       if (hasDisbanded) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
