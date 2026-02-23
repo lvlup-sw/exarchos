@@ -31,6 +31,15 @@
       "config": {
         "fields": ["artifacts.plan"]
       }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "plan-decomposition-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the planning trace produces a comprehensive task decomposition with appropriate dependency ordering and testing strategy. Score 1 if tasks cover data model, core implementation, tests, and integration with correct parallel groups and dependencies. Score 0 if major components are missing or dependencies are incorrect.",
+        "outputPath": "tasks"
+      }
     }
   ],
   "datasets": {
@@ -41,6 +50,10 @@
     "capability": {
       "path": "./datasets/golden.jsonl",
       "description": "Implementation planning capability scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded plan decomposition quality scenarios"
     }
   }
 }
