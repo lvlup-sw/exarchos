@@ -479,12 +479,27 @@ export async function handleSet(
       // Inject events from JSONL store for guard evaluation (#787)
       // Map external event format (JSONL) to internal format used by state-machine guards
       if (moduleEventStore) {
-        const storedEvents = await moduleEventStore.query(input.featureId);
-        mutableState._events = storedEvents.map((e) => ({
-          type: mapExternalToInternalType(e.type),
-          timestamp: e.timestamp,
-          metadata: e.data as Record<string, unknown> | undefined,
-        }));
+        try {
+          const storedEvents = await moduleEventStore.query(input.featureId);
+          mutableState._events = storedEvents.map((e) => {
+            const data = typeof e.data === 'object' && e.data !== null
+              ? (e.data as Record<string, unknown>)
+              : undefined;
+            return {
+              type: mapExternalToInternalType(e.type),
+              timestamp: e.timestamp,
+              ...(typeof data?.from === 'string' ? { from: data.from } : {}),
+              ...(typeof data?.to === 'string' ? { to: data.to } : {}),
+              ...(typeof data?.trigger === 'string' ? { trigger: data.trigger } : {}),
+              metadata: data,
+            };
+          });
+        } catch (err) {
+          return {
+            success: false,
+            error: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
       }
 
       const result = executeTransition(hsm, mutableState, input.phase);
