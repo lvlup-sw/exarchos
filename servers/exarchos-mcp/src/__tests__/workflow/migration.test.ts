@@ -102,10 +102,30 @@ describe('Migration', () => {
       expect(() => migrateState(futureState)).toThrow('MIGRATION_FAILED');
     });
 
-    it('should throw MIGRATION_FAILED error for missing version field', () => {
-      const noVersion = { featureId: 'test' };
+    it('should treat missing version field as v1.0 and migrate', () => {
+      const noVersion = {
+        featureId: 'test-feature',
+        workflowType: 'feature',
+        createdAt: '2025-01-15T10:00:00Z',
+        updatedAt: '2025-01-15T10:30:00Z',
+        phase: 'ideate',
+        artifacts: { design: null, plan: null, pr: null },
+        tasks: [],
+        worktrees: {},
+        reviews: {},
+        synthesis: {
+          integrationBranch: null,
+          mergeOrder: [],
+          mergedBranches: [],
+          prUrl: null,
+          prFeedback: [],
+        },
+      };
 
-      expect(() => migrateState(noVersion)).toThrow('MIGRATION_FAILED');
+      const result = migrateState(noVersion) as Record<string, unknown>;
+      expect(result.version).toBe(CURRENT_VERSION);
+      expect(result._history).toBeDefined();
+      expect(result._checkpoint).toBeDefined();
     });
   });
 
