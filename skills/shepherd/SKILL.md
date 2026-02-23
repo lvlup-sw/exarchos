@@ -90,6 +90,33 @@ For each comment thread, check if it has been **replied to** (has child comments
 - **PR #123** — Graphite: `resolveEvalsDir` should use injected config (eval-run.ts:14)
 ```
 
+### Gate Event Emission
+
+After checking CI status for each PR, emit `gate.executed` events to the event store for quality tracking:
+
+For each CI check result observed:
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "gate.executed",
+    data: {
+      gateName: "<check-name>",
+      layer: "CI",
+      passed: <true|false>,
+      duration: <duration-ms-if-available>,
+      details: {
+        skill: "shepherd",
+        commit: "<head-sha>"
+      }
+    }
+  }
+})
+```
+
+This feeds the CodeQualityView, which tracks gate pass rates and detects quality regressions.
+
 ### 2. Evaluate
 
 If ALL dimensions pass for ALL PRs → skip to step 5 (Request Approval).
@@ -295,8 +322,9 @@ When Exarchos MCP tools are available:
 
 1. **On shepherd start:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.started` with PR URLs and iteration count
 2. **On each iteration:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.iteration` with assessment results and actions taken
-3. **On approval request:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
-4. **On completion:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
+3. **On CI check observed:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `gate.executed` with check name, pass/fail, and duration (feeds CodeQualityView)
+4. **On approval request:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
+5. **On completion:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
 
 ## Troubleshooting
 
