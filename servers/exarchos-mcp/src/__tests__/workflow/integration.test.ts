@@ -28,6 +28,9 @@ describe('Integration', () => {
   });
 
   afterEach(async () => {
+    configureWorkflowEventStore(null);
+    configureQueryEventStore(null);
+    configureCancelEventStore(null);
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
@@ -195,12 +198,11 @@ describe('Integration', () => {
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
       // delegate -> review: requires all tasks complete + team.disbanded event
-      // Inject team.disbanded into _events via raw state update
-      const rawState = await readRawState('full-saga');
-      const evts = (rawState._events as unknown[]) ?? [];
-      evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
-      rawState._events = evts;
-      await writeRawState('full-saga', rawState);
+      // Append team.disbanded to event store (hydration populates _events from store)
+      await eventStore.append('full-saga', {
+        type: 'team.disbanded',
+        data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+      });
       const toReview = await transitionFeature('full-saga', 'review', eventStore);
       expect(toReview.success).toBe(true);
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
@@ -263,6 +265,7 @@ describe('Integration', () => {
   describe('FixCycle_DelegateReviewFail_CircuitBreakerTrips', () => {
     it('should trip circuit breaker after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
+      configureWorkflowEventStore(eventStore);
       configureQueryEventStore(eventStore);
 
       // Init and advance to delegate
@@ -294,12 +297,11 @@ describe('Integration', () => {
       // Perform fix cycles: delegate -> review (fail) -> delegate
       // Circuit breaker max is 3 for implementation compound
       for (let i = 0; i < 3; i++) {
-        // delegate -> review: inject team.disbanded event into _events
-        const rawCycle = await readRawState('fix-cycle');
-        const cyclEvts = (rawCycle._events as unknown[]) ?? [];
-        cyclEvts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
-        rawCycle._events = cyclEvts;
-        await writeRawState('fix-cycle', rawCycle);
+        // delegate -> review: append team.disbanded to event store (hydration populates _events)
+        await eventStore.append('fix-cycle', {
+          type: 'team.disbanded',
+          data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+        });
         await transitionFeature('fix-cycle', 'review', eventStore);
 
         // Set review as failed
@@ -314,12 +316,11 @@ describe('Integration', () => {
       }
 
       // Now at delegate again, try another cycle -- should be blocked by circuit breaker
-      // Inject team.disbanded event before attempting delegate -> review
-      const rawBlock = await readRawState('fix-cycle');
-      const blockEvts = (rawBlock._events as unknown[]) ?? [];
-      blockEvts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
-      rawBlock._events = blockEvts;
-      await writeRawState('fix-cycle', rawBlock);
+      // Append team.disbanded to event store (hydration populates _events)
+      await eventStore.append('fix-cycle', {
+        type: 'team.disbanded',
+        data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+      });
       await transitionFeature('fix-cycle', 'review', eventStore);
 
       // Set review as failed

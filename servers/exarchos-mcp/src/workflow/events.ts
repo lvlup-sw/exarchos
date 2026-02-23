@@ -148,6 +148,26 @@ export function mapInternalToExternalType(internalType: string): string {
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }
 
+/**
+ * Map external event types (used in JSONL store) back to internal event types
+ * (used in _events). This is the inverse of mapInternalToExternalType.
+ * Non-workflow-prefixed types (e.g. 'team.disbanded') pass through unchanged.
+ */
+export function mapExternalToInternalType(externalType: string): string {
+  const reverseMap: Record<string, string> = {
+    'workflow.transition': 'transition',
+    'workflow.fix-cycle': 'fix-cycle',
+    'workflow.guard-failed': 'guard-failed',
+    'workflow.checkpoint': 'checkpoint',
+    'workflow.compound-entry': 'compound-entry',
+    'workflow.compound-exit': 'compound-exit',
+    'workflow.circuit-open': 'circuit-open',
+    'workflow.cancel': 'cancel',
+    'workflow.cleanup': 'cleanup',
+  };
+  return reverseMap[externalType] ?? externalType;
+}
+
 // ─── Async Store-Based Event Consumers ────────────────────────────────────
 
 /**

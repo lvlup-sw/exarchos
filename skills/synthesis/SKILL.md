@@ -43,6 +43,51 @@ Since delegation creates Graphite stack branches and review validates them, synt
 2. **REQUIRED: Verify/reconstruct Graphite stack** -- Run `scripts/reconstruct-stack.sh` before PR creation. If exit 1: stop and report error.
 3. **Quick test verification** -- `npm run test:run && npm run typecheck`
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
+
+### Gate Event Emission
+
+After build/test verification, emit gate results for quality tracking:
+
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "gate.executed",
+    data: {
+      gateName: "pre-synthesis-tests",
+      layer: "CI",
+      passed: <true|false>,
+      duration: <test-duration-ms>,
+      details: {
+        skill: "synthesis",
+        commit: "<current-sha>"
+      }
+    }
+  }
+})
+```
+
+Also emit for CodeRabbit review gate:
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "gate.executed",
+    data: {
+      gateName: "coderabbit-review",
+      layer: "CI",
+      passed: <true|false>,
+      details: {
+        skill: "synthesis",
+        commit: "<current-sha>"
+      }
+    }
+  }
+})
+```
+
 5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure
 6. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
 7. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
