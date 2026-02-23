@@ -10,6 +10,7 @@ vi.mock('./tools.js', () => ({
   handleViewCodeQuality: vi.fn(),
   handleViewQualityHints: vi.fn(),
   handleViewEvalResults: vi.fn(),
+  handleViewQualityCorrelation: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -33,6 +34,7 @@ import {
   handleViewCodeQuality,
   handleViewQualityHints,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -368,6 +370,49 @@ describe('handleView', () => {
     });
   });
 
+  describe('quality_correlation', () => {
+    it('HandleView_QualityCorrelation_DispatchesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: { delegation: { skill: 'delegation', gatePassRate: 0.9, evalScore: 0.85, evalTrend: 'stable', qualityTrend: 'stable', regressionCount: 0 } } },
+      };
+      vi.mocked(handleViewQualityCorrelation).mockResolvedValue(expected);
+      const args = { action: 'quality_correlation', workflowId: 'corr-wf' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
+        { workflowId: 'corr-wf' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleView_QualityCorrelation_NoWorkflowId_DelegatesWithoutIt', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: {} },
+      };
+      vi.mocked(handleViewQualityCorrelation).mockResolvedValue(expected);
+      const args = { action: 'quality_correlation' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
+        {},
+        STATE_DIR,
+      );
+    });
+  });
+
   describe('unknown action', () => {
     it('HandleView_UnknownAction_IncludesEvalResultsAndCodeQuality', async () => {
       // Arrange
@@ -383,6 +428,7 @@ describe('handleView', () => {
       expect(validTargets).toContain('code_quality');
       expect(validTargets).toContain('quality_hints');
       expect(validTargets).toContain('eval_results');
+      expect(validTargets).toContain('quality_correlation');
     });
 
     it('should return error for unknown action', async () => {
