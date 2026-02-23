@@ -2097,11 +2097,18 @@ describe('Diagnostic Event Emission', () => {
     );
     await handleSet({ featureId: 'circuit-diag', phase: 'delegate' }, tmpDir);
 
-    // Complete tasks with proper task schema
+    // Complete tasks and inject team.disbanded event for delegate -> review guard
     await handleSet(
       { featureId: 'circuit-diag', updates: { tasks: [{ id: 't1', title: 'Task 1', status: 'complete' }] } },
       tmpDir,
     );
+    const circuitStateFile = path.join(tmpDir, 'circuit-diag.state.json');
+    const circuitState = await readStateFile(circuitStateFile);
+    const circuitMutable = circuitState as unknown as Record<string, unknown>;
+    const circuitEvts = (circuitMutable._events as unknown[]) ?? [];
+    circuitEvts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+    circuitMutable._events = circuitEvts;
+    await writeStateFile(circuitStateFile, circuitMutable as typeof circuitState);
     await handleSet({ featureId: 'circuit-diag', phase: 'review' }, tmpDir);
 
     // Now inject 3 fix-cycle events into internal state to trigger circuit breaker

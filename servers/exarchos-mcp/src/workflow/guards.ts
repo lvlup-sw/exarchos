@@ -18,6 +18,26 @@ export interface Guard {
   readonly description: string;
 }
 
+// ─── Guard Composition ──────────────────────────────────────────────────────
+
+/**
+ * Compose multiple guards into a single guard that requires all to pass.
+ * Returns the first failure encountered, or true if all pass.
+ */
+export function composeGuards(id: string, description: string, ...innerGuards: Guard[]): Guard {
+  return {
+    id,
+    description,
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      for (const guard of innerGuards) {
+        const result = guard.evaluate(state);
+        if (result !== true) return result;
+      }
+      return true;
+    },
+  };
+}
+
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
 
 function makeArtifactGuard(field: string, description: string, customId?: string): Guard {
@@ -456,6 +476,42 @@ export const guards = {
         };
       }
       return true;
+    },
+  },
+
+  teamDisbandedEmitted: {
+    id: 'team-disbanded-emitted',
+    description: 'Team must be disbanded before transitioning out of delegation',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+      const hasDisbanded = events.some((e) => e.type === 'team.disbanded');
+      if (hasDisbanded) return true;
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'team-disbanded-emitted not satisfied: team.disbanded event not found in _events',
+        expectedShape: {
+          type: 'team.disbanded',
+          data: {
+            totalDurationMs: 'number',
+            tasksCompleted: 'number',
+            tasksFailed: 'number',
+          },
+        },
+        suggestedFix: {
+          tool: 'exarchos_event',
+          params: {
+            action: 'append',
+            featureId,
+            type: 'team.disbanded',
+            data: {
+              totalDurationMs: 0,
+              tasksCompleted: 0,
+              tasksFailed: 0,
+            },
+          },
+        },
+      };
     },
   },
 

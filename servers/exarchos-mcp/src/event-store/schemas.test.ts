@@ -736,3 +736,32 @@ describe('WorkflowEventBase — eval event types', () => {
     expect(event.success).toBe(true);
   });
 });
+
+// ─── Task 3.1: quality.hint.generated @planned removal ──────────────────────
+
+describe('schemas_QualityHintGenerated_NotMarkedPlanned', () => {
+  it('schemas_QualityHintGenerated_NotMarkedPlanned', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const schemasPath = path.resolve(
+      import.meta.dirname,
+      'schemas.ts',
+    );
+    const source = fs.readFileSync(schemasPath, 'utf-8');
+
+    // Find the QualityHintGeneratedData declaration and check
+    // that no @planned annotation appears in the JSDoc immediately
+    // preceding it
+    const lines = source.split('\n');
+    const declIndex = lines.findIndex((l) =>
+      l.includes('QualityHintGeneratedData'),
+    );
+    expect(declIndex).toBeGreaterThan(0);
+
+    // Check the 3 lines before the declaration for @planned
+    const preceding = lines
+      .slice(Math.max(0, declIndex - 3), declIndex)
+      .join('\n');
+    expect(preceding).not.toContain('@planned');
+  });
+});

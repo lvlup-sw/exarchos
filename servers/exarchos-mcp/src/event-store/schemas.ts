@@ -352,7 +352,6 @@ export const QualityRegressionData = z.object({
 
 // ─── Quality Hint Event Data ─────────────────────────────────────────────
 
-/** @planned — not yet emitted in production */
 export const QualityHintGeneratedData = z.object({
   skill: z.string(),
   hintCount: z.number().int().nonnegative(),

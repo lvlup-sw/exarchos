@@ -194,7 +194,13 @@ describe('Integration', () => {
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
-      // delegate -> review: requires all tasks complete (empty array passes -- use handleSet)
+      // delegate -> review: requires all tasks complete + team.disbanded event
+      // Inject team.disbanded into _events via raw state update
+      const rawState = await readRawState('full-saga');
+      const evts = (rawState._events as unknown[]) ?? [];
+      evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+      rawState._events = evts;
+      await writeRawState('full-saga', rawState);
       const toReview = await transitionFeature('full-saga', 'review', eventStore);
       expect(toReview.success).toBe(true);
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
@@ -288,7 +294,12 @@ describe('Integration', () => {
       // Perform fix cycles: delegate -> review (fail) -> delegate
       // Circuit breaker max is 3 for implementation compound
       for (let i = 0; i < 3; i++) {
-        // delegate -> review (all tasks complete = empty array, use handleSet)
+        // delegate -> review: inject team.disbanded event into _events
+        const rawCycle = await readRawState('fix-cycle');
+        const cyclEvts = (rawCycle._events as unknown[]) ?? [];
+        cyclEvts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+        rawCycle._events = cyclEvts;
+        await writeRawState('fix-cycle', rawCycle);
         await transitionFeature('fix-cycle', 'review', eventStore);
 
         // Set review as failed
@@ -303,6 +314,12 @@ describe('Integration', () => {
       }
 
       // Now at delegate again, try another cycle -- should be blocked by circuit breaker
+      // Inject team.disbanded event before attempting delegate -> review
+      const rawBlock = await readRawState('fix-cycle');
+      const blockEvts = (rawBlock._events as unknown[]) ?? [];
+      blockEvts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+      rawBlock._events = blockEvts;
+      await writeRawState('fix-cycle', rawBlock);
       await transitionFeature('fix-cycle', 'review', eventStore);
 
       // Set review as failed

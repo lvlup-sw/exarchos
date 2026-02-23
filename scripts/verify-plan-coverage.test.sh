@@ -332,6 +332,189 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 9: verify_plan_coverage_HierarchicalDesign_MatchesSubsectionsNotStreams
+# --------------------------------------------------
+# Bug: ### stream headers (e.g., "Stream 1: Storage E2E Validation") don't match
+# granular task titles. The script should prefer #### subsections when they exist.
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Problem Statement
+
+We need to validate the storage layer.
+
+## Technical Design
+
+### Stream 1: Storage E2E Validation
+
+High-level stream description.
+
+#### Parameterized Backend Contract Tests
+
+Add a test harness that validates storage backends.
+
+#### Concurrent Write Stress Tests
+
+Test concurrent writes under load.
+
+### Stream 2: Query Optimization
+
+High-level query optimization stream.
+
+#### Index Rebuild Logic
+
+Redesign the index rebuild pipeline.
+
+## Testing Strategy
+
+Tests required.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 001: Add parameterized backend contract test suite
+
+Build the test harness for storage backend validation.
+
+### Task 002: Add concurrent write stress tests
+
+Implement stress tests for concurrent writes.
+
+### Task 003: Redesign index rebuild logic
+
+Improve the index rebuild pipeline.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+# With the fix, all #### subsections should match task titles via keyword matching
+# Stream-level ### headers should NOT be the units being matched
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "verify_plan_coverage_HierarchicalDesign_MatchesSubsectionsNotStreams"
+else
+    fail "verify_plan_coverage_HierarchicalDesign_MatchesSubsectionsNotStreams (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify output references subsections, not stream headers
+if echo "$OUTPUT" | grep -qi "Parameterized Backend Contract"; then
+    pass "HierarchicalDesign_OutputReferencesSubsections"
+else
+    fail "HierarchicalDesign_OutputReferencesSubsections (expected subsection names in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 10: verify_plan_coverage_AllSubsectionsCovered_ExitsZero
+# --------------------------------------------------
+# When all #### subsections are covered, exit 0
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Stream 1: Auth Module
+
+#### Token Validation
+
+Validate JWT tokens.
+
+#### Session Management
+
+Handle user sessions.
+
+## Testing Strategy
+
+Tests.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 001: Implement token validation
+
+Build JWT token validation.
+
+### Task 002: Implement session management
+
+Build session handling.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "verify_plan_coverage_AllSubsectionsCovered_ExitsZero"
+else
+    fail "verify_plan_coverage_AllSubsectionsCovered_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 11: verify_plan_coverage_MissingSubsection_ExitsOne
+# --------------------------------------------------
+# When a #### subsection has no matching task, exit 1
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Stream 1: Auth Module
+
+#### Token Validation
+
+Validate JWT tokens.
+
+#### Session Management
+
+Handle user sessions.
+
+#### Rate Limiting
+
+Rate limit API calls.
+
+## Testing Strategy
+
+Tests.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 001: Implement token validation
+
+Build JWT token validation.
+
+### Task 002: Implement session management
+
+Build session handling.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "verify_plan_coverage_MissingSubsection_ExitsOne"
+else
+    fail "verify_plan_coverage_MissingSubsection_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify the gap identifies Rate Limiting
+if echo "$OUTPUT" | grep -qi "Rate Limiting"; then
+    pass "MissingSubsection_IdentifiesGap"
+else
+    fail "MissingSubsection_IdentifiesGap (expected 'Rate Limiting' in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================

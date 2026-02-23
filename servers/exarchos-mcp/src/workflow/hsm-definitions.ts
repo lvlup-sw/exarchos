@@ -1,4 +1,4 @@
-import { guards } from './guards.js';
+import { guards, composeGuards } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
 
 // ─── Feature Workflow HSM ───────────────────────────────────────────────────
@@ -34,7 +34,12 @@ export function createFeatureHSM(): HSMDefinition {
       guard: guards.planReviewGapsFound,
       effects: ['log'],
     },
-    { from: 'delegate', to: 'review', guard: guards.allTasksComplete },
+    { from: 'delegate', to: 'review', guard: composeGuards(
+      'all-tasks-complete+team-disbanded',
+      'All tasks must be complete and team must be disbanded',
+      guards.allTasksComplete,
+      guards.teamDisbandedEmitted,
+    ) },
     { from: 'review', to: 'synthesize', guard: guards.allReviewsPassed },
     {
       from: 'review',
