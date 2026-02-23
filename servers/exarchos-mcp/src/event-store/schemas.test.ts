@@ -21,6 +21,10 @@ import {
   EvalRunStartedData,
   EvalCaseCompletedData,
   EvalRunCompletedData,
+  ShepherdStartedData,
+  ShepherdIterationData,
+  ShepherdApprovalRequestedData,
+  ShepherdCompletedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -326,7 +330,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(42);
+    expect(EventTypes).toHaveLength(46);
   });
 
   it('EventTypes_StatePatchedType_IsValidEventType', () => {
@@ -763,5 +767,131 @@ describe('schemas_QualityHintGenerated_NotMarkedPlanned', () => {
       .slice(Math.max(0, declIndex - 3), declIndex)
       .join('\n');
     expect(preceding).not.toContain('@planned');
+  });
+});
+
+// ─── Task 3: @planned removal promotion tests ──────────────────────
+
+describe('schemas_ReviewFindingData_NotMarkedPlanned', () => {
+  it('schemas_ReviewFindingData_NotMarkedPlanned', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const schemasPath = path.resolve(import.meta.dirname, 'schemas.ts');
+    const source = fs.readFileSync(schemasPath, 'utf-8');
+    const lines = source.split('\n');
+    const declIndex = lines.findIndex((l) => l.includes('ReviewFindingData'));
+    expect(declIndex).toBeGreaterThan(0);
+    const preceding = lines.slice(Math.max(0, declIndex - 3), declIndex).join('\n');
+    expect(preceding).not.toContain('@planned');
+  });
+});
+
+describe('schemas_ReviewEscalatedData_NotMarkedPlanned', () => {
+  it('schemas_ReviewEscalatedData_NotMarkedPlanned', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const schemasPath = path.resolve(import.meta.dirname, 'schemas.ts');
+    const source = fs.readFileSync(schemasPath, 'utf-8');
+    const lines = source.split('\n');
+    const declIndex = lines.findIndex((l) => l.includes('ReviewEscalatedData'));
+    expect(declIndex).toBeGreaterThan(0);
+    const preceding = lines.slice(Math.max(0, declIndex - 3), declIndex).join('\n');
+    expect(preceding).not.toContain('@planned');
+  });
+});
+
+describe('schemas_QualityRegressionData_NotMarkedPlanned', () => {
+  it('schemas_QualityRegressionData_NotMarkedPlanned', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const schemasPath = path.resolve(import.meta.dirname, 'schemas.ts');
+    const source = fs.readFileSync(schemasPath, 'utf-8');
+    const lines = source.split('\n');
+    const declIndex = lines.findIndex((l) => l.includes('QualityRegressionData'));
+    expect(declIndex).toBeGreaterThan(0);
+    const preceding = lines.slice(Math.max(0, declIndex - 3), declIndex).join('\n');
+    expect(preceding).not.toContain('@planned');
+  });
+});
+
+// ─── Task 4: Schema validation tests ──────────────────────────────
+
+describe('ReviewFindingData validation', () => {
+  it('ReviewFindingData_ValidPayload_PassesValidation', () => {
+    const payload = {
+      pr: 123,
+      source: 'coderabbit',
+      severity: 'major',
+      filePath: 'src/foo.ts',
+      lineRange: [10, 20],
+      message: 'Unused import',
+      rule: 'no-unused-imports',
+    };
+    expect(ReviewFindingData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('ReviewEscalatedData validation', () => {
+  it('ReviewEscalatedData_ValidPayload_PassesValidation', () => {
+    const payload = {
+      pr: 123,
+      reason: 'Critical finding detected',
+      originalScore: 0.4,
+      triggeringFinding: 'SQL injection in query builder',
+    };
+    expect(ReviewEscalatedData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('QualityRegressionData validation', () => {
+  it('QualityRegressionData_ValidPayload_PassesValidation', () => {
+    const payload = {
+      skill: 'delegation',
+      gate: 'test-coverage',
+      consecutiveFailures: 3,
+      firstFailureCommit: 'abc123',
+      lastFailureCommit: 'def456',
+      detectedAt: new Date().toISOString(),
+    };
+    expect(QualityRegressionData.safeParse(payload).success).toBe(true);
+  });
+});
+
+// ─── Task 5+6: Shepherd schema tests ──────────────────────────────
+
+describe('ShepherdStartedData validation', () => {
+  it('ShepherdStartedData_ValidPayload_PassesValidation', () => {
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', stackSize: 3, ciStatus: 'pending' };
+    expect(ShepherdStartedData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('ShepherdIterationData validation', () => {
+  it('ShepherdIterationData_ValidPayload_PassesValidation', () => {
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', iteration: 2, action: 'fix-ci', outcome: 'resolved' };
+    expect(ShepherdIterationData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('ShepherdApprovalRequestedData validation', () => {
+  it('ShepherdApprovalRequestedData_ValidPayload_PassesValidation', () => {
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', reviewers: ['alice', 'bob'] };
+    expect(ShepherdApprovalRequestedData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('ShepherdCompletedData validation', () => {
+  it('ShepherdCompletedData_ValidPayload_PassesValidation', () => {
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', merged: true, iterations: 3, duration: 45000 };
+    expect(ShepherdCompletedData.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('EventType_ShepherdTypes_ExistInUnion', () => {
+  it('EventType_ShepherdTypes_ExistInUnion', () => {
+    const shepherdTypes = ['shepherd.started', 'shepherd.iteration', 'shepherd.approval_requested', 'shepherd.completed'];
+    for (const t of shepherdTypes) {
+      expect(EventTypes).toContain(t);
+    }
   });
 });
