@@ -371,6 +371,69 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 });
 
+// ─── #775: scopeAssessmentComplete guard with explore field variations ───────
+
+describe('ScopeAssessmentComplete Guard (#775)', () => {
+  describe('scopeAssessmentComplete_WithExploreSet_ReturnsTrue', () => {
+    it('should return true when explore.scopeAssessment is set', () => {
+      const state = { explore: { scopeAssessment: 'Assessment complete' } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithoutExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore is missing entirely', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+      expect(obj.expectedShape).toEqual({ explore: { scopeAssessment: '<assessment>' } });
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithEmptyExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore exists but scopeAssessment is missing', () => {
+      const state = { explore: {} } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithNullExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore is null', () => {
+      const state = { explore: null } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithNullScopeAssessment_ReturnsFailure', () => {
+    it('should return { passed: false } when explore.scopeAssessment is null', () => {
+      const state = { explore: { scopeAssessment: null } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+});
+
 // ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
 
 describe('Guard Null Safety', () => {
