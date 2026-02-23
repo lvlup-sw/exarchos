@@ -38,7 +38,7 @@
       "name": "ideation-quality",
       "threshold": 0.7,
       "config": {
-        "rubric": "Evaluate whether the ideation trace explores multiple approaches with trade-off analysis before selecting one. Score 1 if 2+ approaches are explored with pros/cons and a selection rationale. Score 0 if only one approach is considered or no trade-off analysis is present.",
+        "rubric": "Evaluate whether the ideation trace explores multiple approaches with trade-off analysis before selecting one. Score 1 if 2+ approaches are explored with pros/cons and a selection rationale. Score 0.5 if 2+ approaches are explored with pros/cons but no selection rationale is provided. Score 0 if only one approach is considered or no trade-off analysis is present.",
         "outputPath": "approaches"
       }
     }
