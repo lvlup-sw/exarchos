@@ -63,12 +63,12 @@ export function captureTrace(
         type: 'trace',
         description: `Captured trace from ${skillLabel}: ${pendingInput.type} -> ${event.type}`,
         input: {
-          eventType: pendingInput.type,
           ...(pendingInput.data ?? {}),
+          eventType: pendingInput.type,
         },
         expected: {
-          eventType: event.type,
           ...(event.data ?? {}),
+          eventType: event.type,
         },
         tags: ['captured'],
         layer: 'regression',
@@ -86,8 +86,8 @@ export function captureTrace(
       type: 'trace',
       description: `Captured trace from ${skillLabel}: ${pendingInput.type} (unmatched)`,
       input: {
-        eventType: pendingInput.type,
         ...(pendingInput.data ?? {}),
+        eventType: pendingInput.type,
       },
       expected: {},
       tags: ['captured'],
