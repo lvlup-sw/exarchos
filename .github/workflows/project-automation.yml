@@ -26,7 +26,7 @@ jobs:
   # ============================================================
   label-sync:
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -108,7 +108,7 @@ jobs:
   # ============================================================
   auto-triage:
     if: github.event_name == 'issues' && github.event.action == 'opened'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -154,7 +154,7 @@ jobs:
   # ============================================================
   auto-assign-author:
     if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       pull-requests: write
     steps:
@@ -172,7 +172,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.action == 'opened') ||
       (github.event_name == 'pull_request' && github.event.action == 'opened')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     steps:
       - name: Add to project
         uses: actions/add-to-project@v1.0.2
@@ -188,7 +188,7 @@ jobs:
     if: |
       (github.event_name == 'issues' && github.event.action == 'opened') ||
       (github.event_name == 'pull_request' && github.event.action == 'opened')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     steps:
       - name: Initialize project fields
         uses: actions/github-script@v8
@@ -368,7 +368,7 @@ jobs:
     if: |
       github.event_name == 'issues' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     steps:
       - name: Update project status
         uses: actions/github-script@v8
@@ -476,7 +476,7 @@ jobs:
   # ============================================================
   stale:
     if: github.event_name == 'schedule'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -501,7 +501,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'renovate[bot]'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       contents: write
       pull-requests: write
@@ -517,7 +517,7 @@ jobs:
   # ============================================================
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       contents: write
     steps:

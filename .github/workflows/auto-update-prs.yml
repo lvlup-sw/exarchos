@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   update-prs:
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     steps:
       - uses: actions/setup-node@v6
         with:

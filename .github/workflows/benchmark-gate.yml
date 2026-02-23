@@ -6,7 +6,7 @@ on:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
     concurrency:
       group: benchmark-${{ github.event.pull_request.number }}
