@@ -16,6 +16,7 @@ import { handleAssembleContext } from './cli-commands/assemble-context.js';
 import { handleEvalRun, resolveEvalsDir } from './cli-commands/eval-run.js';
 import { handleEvalCapture } from './cli-commands/eval-capture.js';
 import { handleEvalCompare } from './cli-commands/eval-compare.js';
+import { handleQualityCheck } from './cli-commands/quality-check.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ const KNOWN_COMMANDS = [
   'eval-run',
   'eval-capture',
   'eval-compare',
+  'quality-check',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -63,6 +65,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'eval-run': async (stdinData) => handleEvalRun(stdinData, resolveEvalsDir()),
   'eval-capture': async (stdinData) => handleEvalCapture(stdinData, resolveStateDir()),
   'eval-compare': async (stdinData) => handleEvalCompare(stdinData, resolveStateDir()),
+  'quality-check': async (stdinData) => handleQualityCheck(stdinData, resolveStateDir()),
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────

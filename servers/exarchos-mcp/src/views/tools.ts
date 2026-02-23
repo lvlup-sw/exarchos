@@ -54,6 +54,8 @@ import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
 } from './workflow-state-projection.js';
+import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
+import type { FailureTracker } from '../quality/regression-detector.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -132,7 +134,8 @@ export function resetMaterializerCache(): void {
 
 // ─── Helper: query delta events using materializer high-water mark ──────────
 
-async function queryDeltaEvents(
+/** @internal Exported for CLI commands and testing */
+export async function queryDeltaEvents(
   store: EventStore,
   materializer: ViewMaterializer,
   streamId: string,
@@ -396,6 +399,28 @@ export async function handleViewCodeQuality(
       CODE_QUALITY_VIEW,
       events,
     );
+
+    // Detect and emit quality regressions with deduplication
+    // _failureTrackers is a non-enumerable property set by code-quality-view.ts
+    const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
+    if (regressions.length > 0) {
+      const existingEvents = await store.query(streamId);
+      const existingRegressions = existingEvents
+        .filter(e => e.type === 'quality.regression')
+        .map(e => e.data as { gate: string; skill: string; firstFailureCommit: string });
+
+      const newRegressions = regressions.filter(r =>
+        !existingRegressions.some(er =>
+          er.gate === r.gate && er.skill === r.skill && er.firstFailureCommit === r.firstFailureCommit
+        )
+      );
+
+      if (newRegressions.length > 0) {
+        try {
+          await emitRegressionEvents(newRegressions, streamId, store);
+        } catch { /* fire-and-forget: emission failure must not break the view query */ }
+      }
+    }
 
     // Apply optional filters
     let filtered: CodeQualityViewState = { ...view };
