@@ -689,7 +689,7 @@ describe('discoverSuites_RealEvalSuites', () => {
 
     // Assert
     expect(brainstorming).toBeDefined();
-    expect(brainstorming!.config.assertions).toHaveLength(3);
+    expect(brainstorming!.config.assertions).toHaveLength(4);
   });
 
   it('DiscoverSuites_FindsImplementationPlanningSuite', async () => {
@@ -701,7 +701,7 @@ describe('discoverSuites_RealEvalSuites', () => {
 
     // Assert
     expect(planning).toBeDefined();
-    expect(planning!.config.assertions).toHaveLength(3);
+    expect(planning!.config.assertions).toHaveLength(4);
   });
 
   it('DiscoverSuites_FindsRefactorSuite', async () => {
