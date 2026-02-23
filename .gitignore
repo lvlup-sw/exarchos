@@ -21,6 +21,7 @@ plugins/*/servers/*/coverage/
 .terraform.lock.hcl
 
 .worktrees/
+.claude/worktrees/
 .serena/
 ~/
 

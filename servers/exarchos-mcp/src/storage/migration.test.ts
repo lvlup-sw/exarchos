@@ -130,6 +130,76 @@ describe('migrateLegacyStateFiles', () => {
     expect(fs.existsSync(corruptPath)).toBe(true);
   });
 
+  it('migrateLegacyStateFiles_V1_0State_MigratesViaMigrationPipeline', async () => {
+    // Arrange: write a v1.0 state file (no _history, _checkpoint)
+    const v1_0State = {
+      version: '1.0',
+      featureId: 'old-feature',
+      workflowType: 'feature',
+      phase: 'plan',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+    };
+    const filePath = path.join(tempDir, 'old-feature.state.json');
+    fs.writeFileSync(filePath, JSON.stringify(v1_0State), 'utf-8');
+
+    // Act
+    await migrateLegacyStateFiles(backend, tempDir);
+
+    // Assert: state was migrated to v1.1 and stored
+    const retrieved = backend.getState('old-feature');
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.version).toBe('1.1');
+    expect(retrieved!._history).toBeDefined();
+    expect(retrieved!._checkpoint).toBeDefined();
+    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
+  });
+
+  it('migrateLegacyStateFiles_VersionlessState_MigratesAsV1_0', async () => {
+    // Arrange: write a state file without a version field
+    const versionlessState = {
+      featureId: 'legacy-feature',
+      workflowType: 'feature',
+      phase: 'ideate',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+    };
+    const filePath = path.join(tempDir, 'legacy-feature.state.json');
+    fs.writeFileSync(filePath, JSON.stringify(versionlessState), 'utf-8');
+
+    // Act
+    await migrateLegacyStateFiles(backend, tempDir);
+
+    // Assert: versionless state was treated as v1.0 and migrated
+    const retrieved = backend.getState('legacy-feature');
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.version).toBe('1.1');
+    expect(retrieved!._checkpoint).toBeDefined();
+    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
+  });
+
   it('migrateLegacyStateFiles_MultipleFiles_MigratesAll', async () => {
     // Arrange
     const stateA = makeState({ featureId: 'feature-a', phase: 'ideate' });
