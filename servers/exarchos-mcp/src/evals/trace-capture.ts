@@ -71,6 +71,7 @@ export function captureTrace(
           ...(event.data ?? {}),
         },
         tags: ['captured'],
+        layer: 'regression',
       });
 
       pendingInput = null;
@@ -90,6 +91,7 @@ export function captureTrace(
       },
       expected: {},
       tags: ['captured'],
+      layer: 'regression',
     });
   }
 
