@@ -1,5 +1,5 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { TeamTaskAssignedData, type WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -80,14 +80,10 @@ export const delegationTimelineProjection: ViewProjection<DelegationTimelineView
       }
 
       case 'team.task.assigned': {
-        const data = event.data as {
-          taskId?: string;
-          teammateName?: string;
-        } | undefined;
+        const parsed = TeamTaskAssignedData.safeParse(event.data);
+        if (!parsed.success) return view;
 
-        const taskId = data?.taskId;
-        const teammateName = data?.teammateName;
-        if (!taskId || !teammateName) return view;
+        const { taskId, teammateName } = parsed.data;
 
         const task: TimelineTask = {
           taskId,
