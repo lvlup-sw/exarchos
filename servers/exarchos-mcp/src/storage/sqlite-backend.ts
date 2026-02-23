@@ -161,7 +161,7 @@ export class SqliteBackend implements StorageBackend {
   private prepareStatements(): Statements {
     return {
       insertEvent: this.db.prepare(
-        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
       ),
       upsertSequence: this.db.prepare(
         'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
