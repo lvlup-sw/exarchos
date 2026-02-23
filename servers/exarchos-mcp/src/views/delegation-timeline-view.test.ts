@@ -243,6 +243,38 @@ describe('DelegationTimelineView', () => {
       expect(state.bottleneck!.reason).toBe('longest_task');
     });
 
+    it('Apply_TeamTaskAssigned_InvalidSchema_ReturnsViewUnchanged', () => {
+      const state = delegationTimelineProjection.init();
+      // Missing worktreePath and modules — should fail schema validation
+      const event = makeEvent('team.task.assigned', {
+        taskId: 'task-1',
+        teammateName: 'worker-1',
+      }, 1);
+
+      const next = delegationTimelineProjection.apply(state, event);
+      // With safeParse, incomplete data should be rejected
+      expect(next.tasks).toHaveLength(0);
+      expect(next).toEqual(state);
+    });
+
+    it('Apply_TeamTaskAssigned_FullSchema_CreatesTask', () => {
+      const state = delegationTimelineProjection.init();
+      const ts = '2026-02-22T10:00:00.000Z';
+      const event = makeEvent('team.task.assigned', {
+        taskId: 'task-1',
+        teammateName: 'worker-1',
+        worktreePath: '/path/to/.worktrees/wt-1',
+        modules: ['src/foo.ts'],
+      }, 1, ts);
+
+      const next = delegationTimelineProjection.apply(state, event);
+      expect(next.tasks).toHaveLength(1);
+      expect(next.tasks[0].taskId).toBe('task-1');
+      expect(next.tasks[0].teammateName).toBe('worker-1');
+      expect(next.tasks[0].status).toBe('assigned');
+      expect(next.tasks[0].assignedAt).toBe(ts);
+    });
+
     it('Apply_TaskEviction_BottleneckEvicted_BottleneckResetToNull', () => {
       let state = delegationTimelineProjection.init();
 
