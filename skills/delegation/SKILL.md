@@ -71,6 +71,30 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 5. Dispatch parallel subagents via Task tool
 6. Monitor progress via TaskOutput
 7. Collect and verify — `scripts/post-delegation-check.sh`
+
+### Gate Event Emission
+
+After post-delegation verification, emit gate results for each check:
+
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "gate.executed",
+    data: {
+      gateName: "post-delegation-check",
+      layer: "CI",
+      passed: <true|false>,
+      details: {
+        skill: "delegation",
+        commit: "<worktree-head-sha>"
+      }
+    }
+  }
+})
+```
+
 8. Schema sync if API files modified
 
 For detailed step instructions, see `references/workflow-steps.md`.
@@ -180,5 +204,7 @@ See `references/troubleshooting.md` for MCP tool failures, state desync, worktre
 **Subagent mode:** Emit `task.assigned` on dispatch, use `exarchos_orchestrate task_complete` on completion. Phase transitions auto-emit `workflow.transition`.
 
 **Agent-team mode:** Follow the 6-step saga. Do NOT mix with subagent-mode patterns — the TeammateIdle hook handles completion. See `references/agent-teams-saga.md`.
+
+**Gate events:** After post-delegation checks, emit `gate.executed` events for each verification result. These feed the CodeQualityView for quality tracking and regression detection.
 
 **Claim guard** (subagent only): Use `exarchos_orchestrate task_claim` for optimistic concurrency. On `ALREADY_CLAIMED`, skip and check status before re-dispatching.
