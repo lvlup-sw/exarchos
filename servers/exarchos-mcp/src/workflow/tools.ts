@@ -497,7 +497,10 @@ export async function handleSet(
         } catch (err) {
           return {
             success: false,
-            error: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
+            error: {
+              code: 'EVENT_QUERY_FAILED',
+              message: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
+            },
           };
         }
       }

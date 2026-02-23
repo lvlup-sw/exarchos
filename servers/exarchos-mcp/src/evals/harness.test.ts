@@ -677,6 +677,70 @@ describe('runSuite — event emission', () => {
   });
 });
 
+// ─── Discovery Tests for New Eval Suites ──────────────────────────────────────
+
+describe('discoverSuites_RealEvalSuites', () => {
+  it('DiscoverSuites_FindsBrainstormingSuite', async () => {
+    // Arrange — no setup required
+
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const brainstorming = suites.find(s => s.config.metadata.skill === 'brainstorming');
+
+    // Assert
+    expect(brainstorming).toBeDefined();
+    expect(brainstorming!.config.assertions).toHaveLength(4);
+  });
+
+  it('DiscoverSuites_FindsImplementationPlanningSuite', async () => {
+    // Arrange — no setup required
+
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const planning = suites.find(s => s.config.metadata.skill === 'implementation-planning');
+
+    // Assert
+    expect(planning).toBeDefined();
+    expect(planning!.config.assertions).toHaveLength(4);
+  });
+
+  it('DiscoverSuites_FindsRefactorSuite', async () => {
+    // Arrange — no setup required
+
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const refactor = suites.find(s => s.config.metadata.skill === 'refactor');
+
+    // Assert
+    expect(refactor).toBeDefined();
+  });
+
+  it('DiscoverSuites_FindsDebugSuite', async () => {
+    // Arrange — no setup required
+
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const debug = suites.find(s => s.config.metadata.skill === 'debug');
+
+    // Assert
+    expect(debug).toBeDefined();
+  });
+
+  it('DiscoverSuites_TotalSuiteCount_IncludesNewSuites', async () => {
+    // Arrange — no setup required
+
+    // Act
+    const suites = await discoverSuites(REPO_EVALS_DIR);
+    const skills = suites.map(s => s.config.metadata.skill);
+
+    // Assert
+    expect(suites.length).toBeGreaterThanOrEqual(7);
+    expect(skills).toEqual(
+      expect.arrayContaining(['brainstorming', 'implementation-planning', 'refactor', 'debug']),
+    );
+  });
+});
+
 // ─── Layer Filtering Tests ────────────────────────────────────────────────────
 
 describe('runSuite — layer filtering', () => {
