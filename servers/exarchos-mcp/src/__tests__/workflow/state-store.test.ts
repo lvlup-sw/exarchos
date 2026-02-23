@@ -768,19 +768,37 @@ describe('State Store', () => {
       }
     });
 
-    it('should throw STATE_CORRUPT when migration fails due to missing version', async () => {
+    it('should migrate versionless state by treating missing version as v1.0', async () => {
       const stateFile = path.join(tmpDir, 'no-version.state.json');
-      // Write valid JSON but without version field
+      // Write a complete v1.0 state without a version field
       await fs.writeFile(
         stateFile,
         JSON.stringify({
           featureId: 'test',
           workflowType: 'feature',
+          createdAt: '2025-01-15T10:00:00Z',
+          updatedAt: '2025-01-15T10:30:00Z',
+          phase: 'ideate',
+          artifacts: { design: null, plan: null, pr: null },
+          tasks: [],
+          worktrees: {},
+          reviews: {},
+          synthesis: {
+            integrationBranch: null,
+            mergeOrder: [],
+            mergedBranches: [],
+            prUrl: null,
+            prFeedback: [],
+          },
+          _version: 1,
         }),
         'utf-8',
       );
 
-      await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+      const result = await readStateFile(stateFile);
+      expect(result.version).toBe('1.1');
+      expect(result._history).toBeDefined();
+      expect(result._checkpoint).toBeDefined();
     });
   });
 
