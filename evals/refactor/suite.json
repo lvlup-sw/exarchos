@@ -31,6 +31,15 @@
       "config": {
         "fields": ["workflowType"]
       }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "refactor-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the refactor trace demonstrates scope-appropriate track selection and behavioral preservation. Score 1 if scope assessment matches track choice (polish for small changes, overhaul for structural) and the refactor preserves existing behavior. Score 0 if track is mismatched to scope or behavioral changes are introduced without justification.",
+        "outputPath": "brief"
+      }
     }
   ],
   "datasets": {
@@ -41,6 +50,10 @@
     "capability": {
       "path": "./datasets/golden.jsonl",
       "description": "Refactor capability scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded refactor quality scenarios"
     }
   }
 }
