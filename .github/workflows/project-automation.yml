@@ -158,6 +158,15 @@ jobs:
     permissions:
       pull-requests: write
     steps:
+      - name: Setup GitHub CLI
+        env:
+          GH_VERSION: '2.65.0'
+        run: |
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar xz -C /tmp
+            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          fi
       - name: Assign PR author
         run: gh pr edit "$PR_URL" --add-assignee "$AUTHOR"
         env:
@@ -506,6 +515,15 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Setup GitHub CLI
+        env:
+          GH_VERSION: '2.65.0'
+        run: |
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar xz -C /tmp
+            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          fi
       - name: Enable auto-merge for Renovate PRs
         run: gh pr merge --auto --squash "$PR_URL"
         env:
