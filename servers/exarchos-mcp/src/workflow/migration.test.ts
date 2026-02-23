@@ -42,6 +42,39 @@ describe('backupStateFile', () => {
   });
 });
 
+describe('MigrateState_MissingVersion_TreatedAsV1_0', () => {
+  it('should treat missing version as v1.0 and migrate to current', () => {
+    const versionless = {
+      featureId: 'test-feature',
+      workflowType: 'feature',
+      createdAt: '2025-01-15T10:00:00Z',
+      updatedAt: '2025-01-15T10:30:00Z',
+      phase: 'ideate',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+    };
+
+    const result = migrateState(versionless) as Record<string, unknown>;
+
+    expect(result.version).toBe(CURRENT_VERSION);
+    expect(result._history).toEqual({});
+    expect(result._checkpoint).toBeDefined();
+    const history = result._migrationHistory as Array<{ from: string; to: string }>;
+    expect(history).toHaveLength(1);
+    expect(history[0].from).toBe('1.0');
+    expect(history[0].to).toBe('1.1');
+  });
+});
+
 describe('Migration Metadata', () => {
   it('MigrateState_V1_0ToV1_1_AddsMigrationHistory', () => {
     const v1_0 = {

@@ -73,11 +73,7 @@ export function migrateState(raw: unknown): unknown {
   }
 
   const state = raw as Record<string, unknown>;
-  const version = state.version as string | undefined;
-
-  if (!version) {
-    throw new Error('MIGRATION_FAILED: missing version field');
-  }
+  const version = (state.version as string | undefined) ?? '1.0';
 
   if (version === CURRENT_VERSION) {
     return state;

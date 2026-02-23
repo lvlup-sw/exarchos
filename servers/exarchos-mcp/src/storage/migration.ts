@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowEventBase, type WorkflowEvent } from '../event-store/schemas.js';
 import { WorkflowStateSchema } from '../workflow/schemas.js';
+import { migrateState } from '../workflow/migration.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { StorageBackend } from './backend.js';
 import { logger } from '../logger.js';
@@ -60,7 +61,15 @@ export async function migrateLegacyStateFiles(
       continue;
     }
 
-    const parsed = WorkflowStateSchema.safeParse(raw);
+    let migrated: unknown;
+    try {
+      migrated = migrateState(raw);
+    } catch (err) {
+      logger.warn({ file, err: err instanceof Error ? err.message : String(err) }, 'Skipping legacy state file: migration failed');
+      continue;
+    }
+
+    const parsed = WorkflowStateSchema.safeParse(migrated);
     if (!parsed.success) {
       logger.warn({ file, error: parsed.error.message }, 'Skipping invalid legacy state file');
       continue;
