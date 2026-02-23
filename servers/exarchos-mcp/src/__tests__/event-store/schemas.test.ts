@@ -358,7 +358,7 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 46 event types', () => {
+  it('EventTypes_AllEventTypes_CountIs46', () => {
     expect(EventTypes).toHaveLength(46);
   });
 
