@@ -25,7 +25,7 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { mapInternalToExternalType } from './events.js';
+import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
@@ -444,6 +444,28 @@ export async function handleSet(
 
       for (const [dotPath, value] of Object.entries(input.updates)) {
         applyDotPath(mutableState, dotPath, value);
+      }
+    }
+
+    // ─── Hydrate _events from event store for guard evaluation ──────────
+    // Guards like teamDisbandedEmitted read state._events, but events were
+    // migrated to the external JSONL store (v1.0 → v1.1). Hydrate them
+    // back into the mutable state copy so executeTransition can evaluate guards.
+    // External events use 'workflow.' prefix and 'data' field; internal events
+    // use short types and 'metadata' field — mapExternalToInternalType handles
+    // the type mapping, and data is spread into metadata for backward compat.
+    if (input.phase && moduleEventStore) {
+      try {
+        const storeEvents = await moduleEventStore.query(input.featureId);
+        mutableState._events = storeEvents.map((e) => ({
+          type: mapExternalToInternalType(e.type),
+          timestamp: e.timestamp,
+          ...(e.data as Record<string, unknown> ?? {}),
+          metadata: e.data as Record<string, unknown> ?? {},
+        }));
+      } catch {
+        // If event store query fails, proceed with empty _events (best-effort)
+        mutableState._events = mutableState._events ?? [];
       }
     }
 
