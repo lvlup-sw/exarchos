@@ -258,7 +258,12 @@ describe('Cross-Module Boundary Tests', () => {
 
       // Perform 2 fix cycles: delegate → review (fail) → delegate
       for (let i = 0; i < 2; i++) {
-        // delegate → review (all tasks complete — empty array passes)
+        // delegate → review: inject team.disbanded event into _events
+        const raw = await readRawState('cb-e2e');
+        const evts = (raw._events as unknown[]) ?? [];
+        evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+        raw._events = evts;
+        await writeRawState('cb-e2e', raw);
         await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed
@@ -295,7 +300,12 @@ describe('Cross-Module Boundary Tests', () => {
 
       // Perform 3 fix cycles (max for implementation compound): delegate → review (fail) → delegate
       for (let i = 0; i < 3; i++) {
-        // delegate → review (all tasks complete — empty array passes)
+        // delegate → review: inject team.disbanded event into _events
+        const raw = await readRawState('cb-open');
+        const evts = (raw._events as unknown[]) ?? [];
+        evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+        raw._events = evts;
+        await writeRawState('cb-open', raw);
         await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed

@@ -86,10 +86,17 @@ fi
 # EXTRACT DESIGN SECTIONS
 # ============================================================
 
-# Extract ### subsections under ## Technical Design
-# We look for "## Technical Design" then collect all ### headers until the next ## header
-DESIGN_SECTIONS=()
+# Extract design subsections under ## Technical Design.
+# Strategy:
+#   1. Collect all ### headers and their child #### headers within ## Technical Design
+#   2. For each ### that has #### children, use the #### headers (more granular)
+#   3. For each ### that has NO #### children, use the ### header itself (fallback)
+
+# Phase 1: Parse the hierarchical structure
+H3_HEADERS=()          # All ### headers found
+H4_BY_H3=()           # Pipe-delimited #### headers for each ### (empty string if none)
 IN_TECH_DESIGN=false
+CURRENT_H3_INDEX=-1
 
 while IFS= read -r line; do
     # Detect start of Technical Design section
@@ -98,20 +105,56 @@ while IFS= read -r line; do
         continue
     fi
 
-    # Detect next ## section (end of Technical Design)
-    if [[ "$IN_TECH_DESIGN" == true && "$line" =~ ^##[[:space:]] && ! "$line" =~ ^###[[:space:]] ]]; then
+    # Skip lines outside Technical Design
+    if [[ "$IN_TECH_DESIGN" != true ]]; then
+        continue
+    fi
+
+    # Detect next ## section (end of Technical Design) — must NOT be ### or ####
+    if [[ "$line" =~ ^##[[:space:]] && ! "$line" =~ ^### ]]; then
         IN_TECH_DESIGN=false
         continue
     fi
 
-    # Collect ### subsection headers within Technical Design
-    if [[ "$IN_TECH_DESIGN" == true && "$line" =~ ^###[[:space:]]+(.+) ]]; then
+    # Collect #### headers under current ### (check BEFORE ### to avoid BASH_REMATCH clobber)
+    if [[ "$line" =~ ^####[[:space:]]+(.+) && $CURRENT_H3_INDEX -ge 0 ]]; then
+        subsection_name="${BASH_REMATCH[1]}"
+        subsection_name="$(echo "$subsection_name" | sed 's/[[:space:]]*$//')"
+        if [[ -n "${H4_BY_H3[$CURRENT_H3_INDEX]}" ]]; then
+            H4_BY_H3[$CURRENT_H3_INDEX]="${H4_BY_H3[$CURRENT_H3_INDEX]}|${subsection_name}"
+        else
+            H4_BY_H3[$CURRENT_H3_INDEX]="$subsection_name"
+        fi
+        continue
+    fi
+
+    # Collect ### headers (only if NOT ####, since #### was handled above)
+    if [[ "$line" =~ ^###[[:space:]]+(.+) ]]; then
         section_name="${BASH_REMATCH[1]}"
-        # Trim trailing whitespace
         section_name="$(echo "$section_name" | sed 's/[[:space:]]*$//')"
-        DESIGN_SECTIONS+=("$section_name")
+        H3_HEADERS+=("$section_name")
+        H4_BY_H3+=("")
+        CURRENT_H3_INDEX=$(( ${#H3_HEADERS[@]} - 1 ))
+        continue
     fi
 done < "$DESIGN_FILE"
+
+# Phase 2: Build DESIGN_SECTIONS from the hierarchy
+# Prefer #### subsections when they exist; fall back to ### headers
+DESIGN_SECTIONS=()
+
+for i in "${!H3_HEADERS[@]}"; do
+    if [[ -n "${H4_BY_H3[$i]}" ]]; then
+        # Split pipe-delimited #### headers
+        IFS='|' read -ra subs <<< "${H4_BY_H3[$i]}"
+        for sub in "${subs[@]}"; do
+            DESIGN_SECTIONS+=("$sub")
+        done
+    else
+        # No #### children — use the ### header
+        DESIGN_SECTIONS+=("${H3_HEADERS[$i]}")
+    fi
+done
 
 # Validate we found sections
 if [[ -z "${DESIGN_SECTIONS+x}" ]] || [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
@@ -148,6 +191,63 @@ fi
 PLAN_CONTENT="$(cat "$PLAN_FILE")"
 
 # ============================================================
+# KEYWORD EXTRACTION HELPER
+# ============================================================
+
+# Common words to skip during keyword matching
+STOP_WORDS="a an and are as at be by for from has have in is it of on or the this to was were will with"
+
+# Extract significant keywords from a string (lowercase, skip stop words, skip short words)
+# Returns space-separated keywords
+extract_keywords() {
+    local text="$1"
+    local words=()
+    # Convert to lowercase, split on non-alpha
+    for word in $(echo "$text" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alpha:]' ' '); do
+        # Skip short words (< 3 chars) and stop words
+        if [[ ${#word} -lt 3 ]]; then
+            continue
+        fi
+        local is_stop=false
+        for sw in $STOP_WORDS; do
+            if [[ "$word" == "$sw" ]]; then
+                is_stop=true
+                break
+            fi
+        done
+        if [[ "$is_stop" == false ]]; then
+            words+=("$word")
+        fi
+    done
+    echo "${words[*]}"
+}
+
+# Check if text matches by keywords: at least 2 significant keywords from section
+# appear in the target text (case-insensitive)
+keyword_match() {
+    local section_keywords="$1"
+    local target_text="$2"
+    local target_lower
+    target_lower="$(echo "$target_text" | tr '[:upper:]' '[:lower:]')"
+
+    local match_count=0
+    for kw in $section_keywords; do
+        if echo "$target_lower" | grep -qiw "$kw"; then
+            match_count=$((match_count + 1))
+        fi
+    done
+
+    # Require at least 2 keyword matches (or all keywords if only 1 keyword)
+    local kw_count
+    kw_count=$(echo "$section_keywords" | wc -w | tr -d ' ')
+    if [[ $kw_count -le 1 ]]; then
+        [[ $match_count -ge 1 ]]
+    else
+        [[ $match_count -ge 2 ]]
+    fi
+}
+
+# ============================================================
 # CROSS-REFERENCE: Design sections to plan tasks
 # ============================================================
 
@@ -160,17 +260,29 @@ for section in "${DESIGN_SECTIONS[@]}"; do
     # Check if any task title or plan content references this design section
     MATCHED_TASKS=()
 
+    # Extract keywords from the section name for keyword-based matching
+    SECTION_KEYWORDS="$(extract_keywords "$section")"
+
     for task in "${PLAN_TASKS[@]+${PLAN_TASKS[@]}}"; do
-        # Case-insensitive substring match
+        # First try exact case-insensitive substring match
         if echo "$task" | grep -qiF "$section"; then
+            MATCHED_TASKS+=("$task")
+            continue
+        fi
+        # Fall back to keyword-based matching
+        if keyword_match "$SECTION_KEYWORDS" "$task"; then
             MATCHED_TASKS+=("$task")
         fi
     done
 
-    # If no task title matches, check the full plan content for the section name
+    # If no task title matches, check the full plan content
     if [[ -z "${MATCHED_TASKS+x}" ]] || [[ ${#MATCHED_TASKS[@]} -eq 0 ]]; then
+        # Try exact match first
         if echo "$PLAN_CONTENT" | grep -qiF "$section"; then
             MATCHED_TASKS+=("(referenced in plan body)")
+        # Then try keyword match against plan content
+        elif keyword_match "$SECTION_KEYWORDS" "$PLAN_CONTENT"; then
+            MATCHED_TASKS+=("(keyword match in plan body)")
         fi
     fi
 

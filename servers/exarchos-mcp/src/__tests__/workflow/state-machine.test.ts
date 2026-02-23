@@ -92,7 +92,7 @@ describe('HSM State Definitions', () => {
         (t) => t.from === 'delegate' && t.to === 'review'
       );
       expect(delegateToReview).toBeDefined();
-      expect(delegateToReview!.guard!.id).toBe('all-tasks-complete');
+      expect(delegateToReview!.guard!.id).toBe('all-tasks-complete+team-disbanded');
 
       // integrate transitions should NOT exist
       expect(transitions.find((t) => t.from === 'integrate')).toBeUndefined();
@@ -1776,7 +1776,7 @@ describe('Guard edge cases', () => {
     const state: Record<string, unknown> = {
       phase: 'delegate',
       tasks: [],
-      _events: [],
+      _events: [{ type: 'team.disbanded' }],
       _history: {},
     };
 
@@ -1788,7 +1788,7 @@ describe('Guard edge cases', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'delegate',
-      _events: [],
+      _events: [{ type: 'team.disbanded' }],
       _history: {},
     };
 
@@ -2077,7 +2077,7 @@ describe('Diagnostic Event Emission', () => {
       expect(result.events[0].from).toBe('delegate');
       expect(result.events[0].to).toBe('review');
       expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete');
+      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete+team-disbanded');
     });
   });
 
