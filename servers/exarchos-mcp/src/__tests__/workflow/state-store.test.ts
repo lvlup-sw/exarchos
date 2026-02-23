@@ -102,6 +102,55 @@ describe('State Store', () => {
     });
   });
 
+  // ─── #775: explore field initialization ──────────────────────────────────
+
+  describe('InitStateFile_RefactorWorkflow_IncludesExploreField', () => {
+    it('should include explore: {} in refactor workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'refactor-explore', 'refactor');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+
+    it('should include explore: {} in feature workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'feature-explore', 'feature');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+
+    it('should include explore: {} in debug workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'debug-explore', 'debug');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+  });
+
+  describe('HandleSet_ExploreScope_ThenTransitionToBrief_Succeeds', () => {
+    it('should allow setting explore.scopeAssessment on initialized refactor state', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'refactor-scope', 'refactor');
+
+      // Set explore.scopeAssessment via applyDotPath (simulating exarchos_workflow set)
+      const stateRecord = state as unknown as Record<string, unknown>;
+      applyDotPath(stateRecord, 'explore.scopeAssessment', 'Files assessed: 5 modules');
+
+      // Verify the value was set
+      const explore = stateRecord.explore as Record<string, unknown>;
+      expect(explore.scopeAssessment).toBe('Files assessed: 5 modules');
+
+      // Write back and re-read to verify persistence
+      await writeStateFile(stateFile, state);
+      const reloaded = await readStateFile(stateFile);
+      const reloadedRecord = reloaded as unknown as Record<string, unknown>;
+      const reloadedExplore = reloadedRecord.explore as Record<string, unknown>;
+      expect(reloadedExplore.scopeAssessment).toBe('Files assessed: 5 modules');
+    });
+  });
+
   describe('ReadStateFile_ValidJSON_ParsesAndValidates', () => {
     it('should read and validate a state file from disk', async () => {
       const { stateFile } = await initStateFile(tmpDir, 'read-test', 'feature');
