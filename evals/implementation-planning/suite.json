@@ -1,0 +1,46 @@
+{
+  "description": "Implementation planning skill evaluation suite",
+  "metadata": {
+    "skill": "implementation-planning",
+    "phaseAffinity": "plan",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "set" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "plan-artifact-created",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["artifacts.plan"]
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good planning traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Implementation planning capability scenarios"
+    }
+  }
+}

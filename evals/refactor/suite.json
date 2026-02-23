@@ -1,0 +1,46 @@
+{
+  "description": "Refactor skill evaluation suite",
+  "metadata": {
+    "skill": "refactor",
+    "phaseAffinity": "refactor",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "init" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "workflow-type-correct",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["workflowType"]
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good refactor traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Refactor capability scenarios"
+    }
+  }
+}
