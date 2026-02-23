@@ -314,6 +314,73 @@ describe('View Handlers', () => {
       expect(gates).not.toHaveProperty('lint');
     });
 
+    it('HandleViewCodeQuality_WithRegressions_EmitsQualityRegressionEvents', async () => {
+      // Arrange: seed 3 consecutive gate failures for same gate+skill combo
+      const store = new EventStore(tmpDir);
+      for (let i = 1; i <= 3; i++) {
+        await store.append('regression-wf', {
+          streamId: 'regression-wf',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: 'typecheck',
+            layer: 'build',
+            passed: false,
+            duration: 100,
+            details: { skill: 'delegation', commit: `commit-${i}`, reason: 'type error' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act
+      await handleViewCodeQuality({ workflowId: 'regression-wf' }, tmpDir);
+
+      // Assert: query event store for quality.regression events
+      const allEvents = await store.query('regression-wf');
+      const regressionEvents = allEvents.filter(e => e.type === 'quality.regression');
+      expect(regressionEvents.length).toBeGreaterThanOrEqual(1);
+      const regressionData = regressionEvents[0].data as Record<string, unknown>;
+      expect(regressionData).toMatchObject({
+        skill: 'delegation',
+        gate: 'typecheck',
+        consecutiveFailures: 3,
+        firstFailureCommit: 'commit-1',
+        lastFailureCommit: 'commit-3',
+      });
+    });
+
+    it('HandleViewCodeQuality_CalledTwice_DoesNotEmitDuplicateRegressions', async () => {
+      // Arrange: seed 3 consecutive gate failures
+      const store = new EventStore(tmpDir);
+      for (let i = 1; i <= 3; i++) {
+        await store.append('dedup-wf', {
+          streamId: 'dedup-wf',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: 'typecheck',
+            layer: 'build',
+            passed: false,
+            duration: 100,
+            details: { skill: 'delegation', commit: `commit-${i}`, reason: 'type error' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act: call twice
+      await handleViewCodeQuality({ workflowId: 'dedup-wf' }, tmpDir);
+      await handleViewCodeQuality({ workflowId: 'dedup-wf' }, tmpDir);
+
+      // Assert: should have exactly 1 quality.regression event, not 2
+      const allEvents = await store.query('dedup-wf');
+      const regressionEvents = allEvents.filter(e => e.type === 'quality.regression');
+      expect(regressionEvents).toHaveLength(1);
+    });
+
     it('HandleViewCodeQuality_WithLimit_LimitsArrays', async () => {
       // Arrange: seed events that produce multiple benchmark entries
       const store = new EventStore(tmpDir);
