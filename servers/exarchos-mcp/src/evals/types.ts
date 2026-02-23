@@ -49,6 +49,7 @@ export const EvalCaseSchema = z.object({
   input: z.record(z.unknown()),
   expected: z.record(z.unknown()),
   tags: z.array(z.string()).default([]),
+  layer: z.enum(['regression', 'capability', 'reliability']).default('regression'),
 });
 
 export type EvalCase = z.infer<typeof EvalCaseSchema>;
