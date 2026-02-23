@@ -167,22 +167,46 @@ describe('loadDataset_RealDatasets', () => {
   const REPO_EVALS_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'evals');
 
   it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
-    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl'));
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
     expect(cases.length).toBeGreaterThanOrEqual(3);
   });
 
   it('LoadDataset_ImplementationPlanningGolden_ParsesWithoutErrors', async () => {
-    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'implementation-planning', 'datasets', 'golden.jsonl'));
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'implementation-planning', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
     expect(cases.length).toBeGreaterThanOrEqual(3);
   });
 
   it('LoadDataset_RefactorGolden_ParsesWithoutErrors', async () => {
-    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'refactor', 'datasets', 'golden.jsonl'));
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'refactor', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
     expect(cases.length).toBeGreaterThanOrEqual(3);
   });
 
   it('LoadDataset_DebugGolden_ParsesWithoutErrors', async () => {
-    const cases = await loadDataset(path.join(REPO_EVALS_DIR, 'debug', 'datasets', 'golden.jsonl'));
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'debug', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
     expect(cases.length).toBeGreaterThanOrEqual(3);
   });
 });
