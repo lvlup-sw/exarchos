@@ -45,6 +45,10 @@ export const EventTypes = [
   'eval.run.started',
   'eval.case.completed',
   'eval.run.completed',
+  'shepherd.started',
+  'shepherd.iteration',
+  'shepherd.approval_requested',
+  'shepherd.completed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -225,7 +229,6 @@ export const ReviewRoutedData = z.object({
   semanticAugmented: z.boolean(),
 });
 
-/** @planned — not yet emitted in production */
 export const ReviewFindingData = z.object({
   pr: z.number().int(),
   source: z.enum(['coderabbit', 'self-hosted']),
@@ -236,7 +239,6 @@ export const ReviewFindingData = z.object({
   rule: z.string().optional(),
 });
 
-/** @planned — not yet emitted in production */
 export const ReviewEscalatedData = z.object({
   pr: z.number().int(),
   reason: z.string(),
@@ -340,7 +342,6 @@ export const TeamTeammateDispatchedData = z.object({
 
 // ─── Quality Regression Event Data ──────────────────────────────────────────
 
-/** @planned — not yet emitted in production */
 export const QualityRegressionData = z.object({
   skill: z.string(),
   gate: z.string(),
@@ -357,6 +358,37 @@ export const QualityHintGeneratedData = z.object({
   hintCount: z.number().int().nonnegative(),
   categories: z.array(z.string()),
   generatedAt: z.string().datetime(),
+});
+
+// ─── Shepherd Event Data ──────────────────────────────────────────────────
+
+/** @planned — not yet emitted in production */
+export const ShepherdStartedData = z.object({
+  prUrl: z.string(),
+  stackSize: z.number().int().nonnegative(),
+  ciStatus: z.string(),
+});
+
+/** @planned — not yet emitted in production */
+export const ShepherdIterationData = z.object({
+  prUrl: z.string(),
+  iteration: z.number().int().nonnegative(),
+  action: z.string(),
+  outcome: z.string(),
+});
+
+/** @planned — not yet emitted in production */
+export const ShepherdApprovalRequestedData = z.object({
+  prUrl: z.string(),
+  reviewers: z.array(z.string()),
+});
+
+/** @planned — not yet emitted in production */
+export const ShepherdCompletedData = z.object({
+  prUrl: z.string(),
+  merged: z.boolean(),
+  iterations: z.number().int().nonnegative(),
+  duration: z.number().nonnegative(),
 });
 
 // ─── Eval Event Data ────────────────────────────────────────────────────────
@@ -437,6 +469,10 @@ export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
 export type QualityHintGenerated = z.infer<typeof QualityHintGeneratedData>;
+export type ShepherdStarted = z.infer<typeof ShepherdStartedData>;
+export type ShepherdIteration = z.infer<typeof ShepherdIterationData>;
+export type ShepherdApprovalRequested = z.infer<typeof ShepherdApprovalRequestedData>;
+export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
 export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;

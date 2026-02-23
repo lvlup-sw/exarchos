@@ -39,7 +39,9 @@ describe('teamDisbandedEmitted', () => {
   it('teamDisbandedEmitted_GuardFailure_IncludesExpectedShapeAndSuggestedFix', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
-      _events: [],
+      _events: [
+        { type: 'team.spawned' },
+      ],
     };
 
     const result = guards.teamDisbandedEmitted.evaluate(state);
@@ -60,5 +62,63 @@ describe('teamDisbandedEmitted', () => {
     expect(failure.suggestedFix).toBeDefined();
     expect(failure.suggestedFix!.tool).toBe('exarchos_event');
     expect(failure.suggestedFix!.params.action).toBe('append');
+  });
+
+  // ─── #786: Subagent-mode tests (no team spawned) ────────────────────────
+
+  it('teamDisbandedEmitted_NoTeamSpawned_ReturnsTrue', () => {
+    // Subagent mode — no team.spawned event means no team was used
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      _events: [
+        { type: 'workflow.started' },
+        { type: 'workflow.transition' },
+      ],
+    };
+
+    const result = guards.teamDisbandedEmitted.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('teamDisbandedEmitted_EmptyEvents_ReturnsTrue', () => {
+    // No events at all — subagent mode
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      _events: [],
+    };
+
+    const result = guards.teamDisbandedEmitted.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('teamDisbandedEmitted_UndefinedEvents_ReturnsTrue', () => {
+    // _events not present at all — subagent mode
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+    };
+
+    const result = guards.teamDisbandedEmitted.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('teamDisbandedEmitted_TeamSpawnedButNotDisbanded_ReturnsFailure', () => {
+    // Team was spawned but not yet disbanded — guard must block
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      _events: [
+        { type: 'team.spawned' },
+        { type: 'team.task.completed' },
+      ],
+    };
+
+    const result = guards.teamDisbandedEmitted.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('team-disbanded-emitted');
   });
 });

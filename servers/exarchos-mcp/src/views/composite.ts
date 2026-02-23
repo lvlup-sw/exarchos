@@ -13,6 +13,7 @@ import {
   handleViewCodeQuality,
   handleViewQualityHints,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -120,6 +121,12 @@ export async function handleView(
         stateDir,
       );
 
+    case 'quality_correlation':
+      return handleViewQualityCorrelation(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -138,6 +145,7 @@ export async function handleView(
             'code_quality',
             'quality_hints',
             'eval_results',
+            'quality_correlation',
           ] as const,
         },
       };

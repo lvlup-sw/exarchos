@@ -13,6 +13,7 @@ import {
   handleViewDelegationTimeline,
   handleViewCodeQuality,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
@@ -529,6 +530,73 @@ describe('View Handlers', () => {
       const data = result.data as Record<string, unknown>;
       const runs = data.runs as unknown[];
       expect(runs).toHaveLength(2);
+    });
+  });
+
+  // ─── handleViewQualityCorrelation ──────────────────────────────────────────
+
+  describe('handleViewQualityCorrelation', () => {
+    it('HandleViewQualityCorrelation_NoEvents_ReturnsEmptyCorrelation', async () => {
+      // Act
+      const result = await handleViewQualityCorrelation({}, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      expect(data.skills).toEqual({});
+    });
+
+    it('HandleViewQualityCorrelation_WithMatchingEvents_ReturnsCorrelatedData', async () => {
+      // Arrange: seed both code quality and eval events for the same skill
+      const store = new EventStore(tmpDir);
+      const streamId = 'corr-wf';
+
+      // Seed code quality events
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Seed eval events
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        data: {
+          runId: 'run-001',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 9,
+          failed: 1,
+          avgScore: 0.9,
+          duration: 5000,
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewQualityCorrelation({ workflowId: streamId }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      const skills = data.skills as Record<string, Record<string, unknown>>;
+      expect(skills).toHaveProperty('delegation');
+      expect(skills['delegation'].evalScore).toBe(0.9);
+      expect(skills['delegation'].gatePassRate).toBe(1);
     });
   });
 });

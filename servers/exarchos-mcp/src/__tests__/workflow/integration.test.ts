@@ -29,15 +29,13 @@ describe('Integration', () => {
 
   afterEach(async () => {
     configureWorkflowEventStore(null);
-    configureQueryEventStore(null);
-    configureCancelEventStore(null);
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   // ─── Helper: advance feature workflow through a phase transition ──────────
 
-  async function transitionFeature(featureId: string, targetPhase: string, eventStore?: EventStore) {
-    return handleSet({ featureId, phase: targetPhase }, stateDir, eventStore);
+  async function transitionFeature(featureId: string, targetPhase: string, _eventStore?: EventStore) {
+    return handleSet({ featureId, phase: targetPhase }, stateDir);
   }
 
   /**
@@ -198,11 +196,12 @@ describe('Integration', () => {
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
       // delegate -> review: requires all tasks complete + team.disbanded event
-      // Append team.disbanded to event store (hydration populates _events from store)
-      await eventStore.append('full-saga', {
-        type: 'team.disbanded',
-        data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
-      });
+      // Inject team.disbanded into _events via raw state update
+      const rawState = await readRawState('full-saga');
+      const evts = (rawState._events as unknown[]) ?? [];
+      evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
+      rawState._events = evts;
+      await writeRawState('full-saga', rawState);
       const toReview = await transitionFeature('full-saga', 'review', eventStore);
       expect(toReview.success).toBe(true);
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
@@ -278,62 +277,80 @@ describe('Integration', () => {
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.design': 'design.md' } },
         stateDir,
-        eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan', eventStore);
+      await transitionFeature('fix-cycle', 'plan');
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.plan': 'plan.md' } },
         stateDir,
-        eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan-review', eventStore);
+      await transitionFeature('fix-cycle', 'plan-review');
       await handleSet(
         { featureId: 'fix-cycle', updates: { planReview: { approved: true } } },
         stateDir,
-        eventStore,
       );
-      await transitionFeature('fix-cycle', 'delegate', eventStore);
+      await transitionFeature('fix-cycle', 'delegate');
 
       // Perform fix cycles: delegate -> review (fail) -> delegate
       // Circuit breaker max is 3 for implementation compound
       for (let i = 0; i < 3; i++) {
-        // delegate -> review: append team.disbanded to event store (hydration populates _events)
+        // delegate -> review: emit team.spawned + team.disbanded to JSONL store
         await eventStore.append('fix-cycle', {
-          type: 'team.disbanded',
-          data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+          type: 'team.spawned' as ExternalEventType,
+          correlationId: 'fix-cycle',
+          source: 'orchestrator',
+          data: { featureId: 'fix-cycle' },
         });
-        await transitionFeature('fix-cycle', 'review', eventStore);
+        await eventStore.append('fix-cycle', {
+          type: 'team.disbanded' as ExternalEventType,
+          correlationId: 'fix-cycle',
+          source: 'orchestrator',
+          data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
+        });
+        await transitionFeature('fix-cycle', 'review');
 
         // Set review as failed
         await handleSet(
           { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
-          eventStore,
         );
 
-        const fixResult = await transitionRaw('fix-cycle', 'delegate', eventStore);
+        // review -> delegate (fix cycle)
+        const fixResult = await handleSet(
+          { featureId: 'fix-cycle', phase: 'delegate' },
+          stateDir,
+        );
         expect(fixResult.success).toBe(true);
       }
 
       // Now at delegate again, try another cycle -- should be blocked by circuit breaker
-      // Append team.disbanded to event store (hydration populates _events)
+      // Emit team events for the delegate -> review transition
       await eventStore.append('fix-cycle', {
-        type: 'team.disbanded',
-        data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+        type: 'team.spawned' as ExternalEventType,
+        correlationId: 'fix-cycle',
+        source: 'orchestrator',
+        data: { featureId: 'fix-cycle' },
       });
-      await transitionFeature('fix-cycle', 'review', eventStore);
+      await eventStore.append('fix-cycle', {
+        type: 'team.disbanded' as ExternalEventType,
+        correlationId: 'fix-cycle',
+        source: 'orchestrator',
+        data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
+      });
+      await transitionFeature('fix-cycle', 'review');
 
       // Set review as failed
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
         stateDir,
-        eventStore,
       );
 
-      // This should fail with CIRCUIT_OPEN
-      const blockedResult = await transitionRaw('fix-cycle', 'delegate', eventStore);
+      // This should fail with CIRCUIT_OPEN — events injected from JSONL store
+      const blockedResult = await handleSet(
+        { featureId: 'fix-cycle', phase: 'delegate' },
+        stateDir,
+      );
       expect(blockedResult.success).toBe(false);
-      expect(blockedResult.errorCode).toBe('CIRCUIT_OPEN');
+      expect(blockedResult.error?.code).toBe('CIRCUIT_OPEN');
 
       // Verify the event log from external store contains 3 fix-cycle events
       const fixCycleEvents = await eventStore.query('fix-cycle', { type: 'workflow.fix-cycle' });
