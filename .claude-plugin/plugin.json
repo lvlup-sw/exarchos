@@ -1,7 +1,7 @@
 {
   "name": "exarchos",
   "description": "SDLC workflows for Claude Code with agent team coordination, quality gates, and Graphite stacked PRs.",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "author": {
     "name": "Levelup Software"
   },
