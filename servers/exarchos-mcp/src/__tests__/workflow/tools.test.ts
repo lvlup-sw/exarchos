@@ -2097,37 +2097,33 @@ describe('Diagnostic Event Emission', () => {
     );
     await handleSet({ featureId: 'circuit-diag', phase: 'delegate' }, tmpDir);
 
-    // Complete tasks and append team.disbanded event to event store for delegate -> review guard
+    // Complete tasks for delegate -> review guard (subagent mode — no team events needed)
     await handleSet(
       { featureId: 'circuit-diag', updates: { tasks: [{ id: 't1', title: 'Task 1', status: 'complete' }] } },
       tmpDir,
     );
-    await eventStore.append('circuit-diag', {
-      type: 'team.disbanded',
-      data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
-    });
     await handleSet({ featureId: 'circuit-diag', phase: 'review' }, tmpDir);
 
-    // Append 3 fix-cycle events to event store to trigger circuit breaker
-    // External store uses 'workflow.fix-cycle' type and 'data' (not 'metadata')
-    // — hydration maps type back to 'fix-cycle' and data to metadata
+    // Inject 3 fix-cycle events into JSONL store to trigger circuit breaker
     for (let i = 0; i < 3; i++) {
       await eventStore.append('circuit-diag', {
-        type: 'workflow.fix-cycle',
+        type: 'workflow.fix-cycle' as import('../../event-store/schemas.js').EventType,
+        correlationId: 'circuit-diag',
+        source: 'workflow',
         data: {
           from: 'review',
           to: 'delegate',
           trigger: 'test',
+          featureId: 'circuit-diag',
           compoundStateId: 'implementation',
         },
       });
     }
     // Set review to failed so the guard would pass for delegate transition
-    const stateFile = path.join(tmpDir, 'circuit-diag.state.json');
-    const state = await readStateFile(stateFile);
-    const mutableState = state as unknown as Record<string, unknown>;
-    mutableState.reviews = { spec: { status: 'fail' } };
-    await writeStateFile(stateFile, mutableState as WorkflowState);
+    await handleSet(
+      { featureId: 'circuit-diag', updates: { 'reviews.spec': { status: 'fail' } } },
+      tmpDir,
+    );
 
     // Attempt fix cycle — should trigger circuit breaker
     const result = await handleSet(
@@ -3493,48 +3489,5 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
     expect(data.patch).toEqual({
       tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],
     });
-  });
-});
-
-describe('HandleSet_PhaseTransitionWithEventStore_HydratesEventsForGuards', () => {
-  it('should hydrate _events from event store before evaluating guards', async () => {
-    // Arrange: Create a workflow at delegate phase with completed tasks
-    const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
-
-    await handleInit({ featureId: 'hydrate-test', workflowType: 'feature' }, tmpDir);
-    await handleSet(
-      { featureId: 'hydrate-test', updates: { 'artifacts.design': 'design.md' } },
-      tmpDir,
-    );
-    await handleSet({ featureId: 'hydrate-test', phase: 'plan' }, tmpDir);
-    await handleSet(
-      { featureId: 'hydrate-test', updates: { 'artifacts.plan': 'plan.md' } },
-      tmpDir,
-    );
-    await handleSet({ featureId: 'hydrate-test', phase: 'plan-review' }, tmpDir);
-    await handleSet(
-      { featureId: 'hydrate-test', updates: { 'planReview.approved': true } },
-      tmpDir,
-    );
-    await handleSet({ featureId: 'hydrate-test', phase: 'delegate' }, tmpDir);
-    await handleSet(
-      { featureId: 'hydrate-test', updates: { tasks: [{ id: 't1', title: 'Task 1', status: 'complete' }] } },
-      tmpDir,
-    );
-
-    // Append team.disbanded event to the event store (NOT to state._events)
-    await eventStore.append('hydrate-test', {
-      type: 'team.disbanded',
-      data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
-    });
-
-    // Act: Try to transition from delegate to review
-    // Without the fix, this fails because _events is empty
-    const result = await handleSet({ featureId: 'hydrate-test', phase: 'review' }, tmpDir);
-
-    // Assert: Transition should succeed because team.disbanded is in the event store
-    expect(result.success).toBe(true);
-    expect((result.data as Record<string, unknown>).phase).toBe('review');
   });
 });
