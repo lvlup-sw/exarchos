@@ -1,0 +1,24 @@
+{
+  "description": "Agent reliability evaluation — stall, loop, budget, phase, recovery, compaction",
+  "metadata": {
+    "skill": "reliability",
+    "phaseAffinity": "delegate",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "trace-pattern",
+      "name": "reliability-trace-pattern",
+      "threshold": 0.8,
+      "config": {
+        "ordered": false
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Reliability regression cases covering stall, loop, budget, phase, recovery, and compaction"
+    }
+  }
+}

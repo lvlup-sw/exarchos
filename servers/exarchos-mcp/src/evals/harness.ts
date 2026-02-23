@@ -65,10 +65,11 @@ export async function discoverSuites(
 
 /**
  * Duck-typed event store interface to avoid circular dependencies.
- * Only requires the append method needed for event emission.
+ * Requires append for event emission and query for regression detection.
  */
 export interface EvalEventStore {
   append(streamId: string, event: Record<string, unknown>): Promise<void>;
+  query?(streamId: string, filters?: { type?: string }): Promise<Array<{ type: string; data?: Record<string, unknown> }>>;
 }
 
 /**
@@ -78,6 +79,65 @@ export interface RunSuiteOptions {
   eventStore?: EvalEventStore;
   streamId?: string;
   trigger?: 'ci' | 'local' | 'scheduled';
+  layer?: 'regression' | 'capability' | 'reliability';
+}
+
+/**
+ * Detect regressions by comparing current results against the most recent
+ * previous run for the same suite. A regression is a case that previously
+ * passed but now fails.
+ */
+async function detectRegressions(
+  suiteId: string,
+  currentResults: EvalResult[],
+  eventStore?: EvalEventStore,
+  streamId?: string,
+): Promise<string[]> {
+  if (!eventStore?.query) return [];
+
+  const stream = streamId ?? 'default';
+  const events = await eventStore.query(stream);
+
+  // Find the most recent eval.run.completed for this suite to get its runId
+  const runCompletedEvents = events.filter(
+    (e) => e.type === 'eval.run.completed' && e.data?.['suiteId'] === suiteId,
+  );
+
+  if (runCompletedEvents.length === 0) return [];
+
+  const lastRun = runCompletedEvents[runCompletedEvents.length - 1];
+  const lastRunId = lastRun.data?.['runId'] as string | undefined;
+
+  if (!lastRunId) return [];
+
+  // Find all case results from the previous run
+  const previousCaseEvents = events.filter(
+    (e) =>
+      e.type === 'eval.case.completed' &&
+      e.data?.['runId'] === lastRunId &&
+      e.data?.['suiteId'] === suiteId,
+  );
+
+  // Build a map of caseId -> passed for the previous run
+  const previousResults = new Map<string, boolean>();
+  for (const event of previousCaseEvents) {
+    const caseId = event.data?.['caseId'] as string | undefined;
+    const passed = event.data?.['passed'] as boolean | undefined;
+    if (caseId !== undefined && passed !== undefined) {
+      previousResults.set(caseId, passed);
+    }
+  }
+
+  // Detect regressions: previously passed, now failed
+  const regressions: string[] = [];
+  for (const result of currentResults) {
+    const wasPassing = previousResults.get(result.caseId);
+    if (wasPassing === true && !result.passed) {
+      regressions.push(result.caseId);
+    }
+  }
+
+  return regressions;
 }
 
 /**
@@ -102,9 +162,17 @@ export async function runSuite(
   const datasetEntries = Object.entries(suite.datasets);
   const loadedDatasets: Array<{ datasetRef: { path: string; description: string }; cases: Awaited<ReturnType<typeof loadDataset>> }> = [];
 
+  const layerFilter = options?.layer;
+
   for (const [_datasetName, datasetRef] of datasetEntries) {
     const datasetPath = path.resolve(suiteDir, datasetRef.path);
-    const cases = await loadDataset(datasetPath);
+    let cases = await loadDataset(datasetPath);
+
+    // Filter cases by layer when a layer filter is provided
+    if (layerFilter) {
+      cases = cases.filter((c) => c.layer === layerFilter);
+    }
+
     totalCaseCount += cases.length;
     loadedDatasets.push({ datasetRef, cases });
   }
@@ -212,6 +280,14 @@ export async function runSuite(
     results: allResults,
   };
 
+  // Detect regressions by comparing with previous run
+  const regressions = await detectRegressions(
+    suite.metadata.skill,
+    allResults,
+    eventStore,
+    streamId,
+  );
+
   // Emit eval.run.completed
   if (eventStore) {
     await eventStore.append(streamId, {
@@ -224,7 +300,7 @@ export async function runSuite(
         failed: summary.failed,
         avgScore: summary.avgScore,
         duration: summary.duration,
-        regressions: [],
+        regressions,
       },
     });
   }
@@ -237,7 +313,7 @@ export async function runSuite(
  */
 export async function runAll(
   evalsDir: string,
-  options?: { skill?: string; dataset?: string } & RunSuiteOptions,
+  options?: { skill?: string; dataset?: string; layer?: 'regression' | 'capability' | 'reliability' } & RunSuiteOptions,
 ): Promise<RunSummary[]> {
   const discovered = await discoverSuites(evalsDir, { skill: options?.skill });
   const summaries: RunSummary[] = [];

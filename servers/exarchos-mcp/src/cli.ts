@@ -14,6 +14,8 @@ import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { handleSubagentContext } from './cli-commands/subagent-context.js';
 import { handleAssembleContext } from './cli-commands/assemble-context.js';
 import { handleEvalRun, resolveEvalsDir } from './cli-commands/eval-run.js';
+import { handleEvalCapture } from './cli-commands/eval-capture.js';
+import { handleEvalCompare } from './cli-commands/eval-compare.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -38,6 +40,8 @@ const KNOWN_COMMANDS = [
   'subagent-context',
   'assemble-context',
   'eval-run',
+  'eval-capture',
+  'eval-compare',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -57,6 +61,8 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'subagent-context': handleSubagentContext,
   'assemble-context': async (stdinData) => handleAssembleContext(stdinData, resolveStateDir()),
   'eval-run': async (stdinData) => handleEvalRun(stdinData, resolveEvalsDir()),
+  'eval-capture': async (stdinData) => handleEvalCapture(stdinData, resolveStateDir()),
+  'eval-compare': async (stdinData) => handleEvalCompare(stdinData, resolveStateDir()),
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────

@@ -485,6 +485,175 @@ describe('runSuite — event emission', () => {
     expect(summary.passed).toBe(1);
   });
 
+  it('runSuite_PreviouslyPassingCaseNowFails_PopulatesRegressionsArray', async () => {
+    // Arrange — c-1 passes, c-2 fails
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'different' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('regression-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Simulate a previous run where both cases passed
+    const previousRunId = 'prev-run-001';
+    mockStore.query.mockResolvedValue([
+      {
+        type: 'eval.case.completed',
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: true, score: 1.0 },
+        streamId: 'eval-stream',
+        sequence: 1,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'eval.case.completed',
+        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegation', passed: true, score: 1.0 },
+        streamId: 'eval-stream',
+        sequence: 2,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'eval.run.completed',
+        data: { runId: previousRunId, suiteId: 'delegation', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
+        streamId: 'eval-stream',
+        sequence: 3,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — c-2 should be a regression (was passing, now fails)
+    const completedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
+    );
+    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.regressions).toContain('c-2');
+    expect(data.regressions).not.toContain('c-1');
+  });
+
+  it('runSuite_NoPreviousRun_RegressionsArrayEmpty', async () => {
+    // Arrange — no previous run exists
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'different' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('no-prev-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // query returns empty — no previous run
+    mockStore.query.mockResolvedValue([]);
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — regressions should be empty
+    const completedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
+    );
+    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.regressions).toEqual([]);
+  });
+
+  it('runSuite_AllCasesStillPassing_RegressionsArrayEmpty', async () => {
+    // Arrange — all cases pass
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('still-passing-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Simulate a previous run where both cases also passed
+    const previousRunId = 'prev-run-002';
+    mockStore.query.mockResolvedValue([
+      {
+        type: 'eval.case.completed',
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: true, score: 1.0 },
+        streamId: 'eval-stream',
+        sequence: 1,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'eval.case.completed',
+        data: { runId: previousRunId, caseId: 'c-2', suiteId: 'delegation', passed: true, score: 1.0 },
+        streamId: 'eval-stream',
+        sequence: 2,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'eval.run.completed',
+        data: { runId: previousRunId, suiteId: 'delegation', total: 2, passed: 2, failed: 0, avgScore: 1.0, duration: 100, regressions: [] },
+        streamId: 'eval-stream',
+        sequence: 3,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — no regressions
+    const completedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
+    );
+    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.regressions).toEqual([]);
+  });
+
+  it('runSuite_PreviouslyFailingCaseStillFails_NotARegression', async () => {
+    // Arrange — c-1 fails
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'different' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('still-failing-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Simulate a previous run where c-1 also failed
+    const previousRunId = 'prev-run-003';
+    mockStore.query.mockResolvedValue([
+      {
+        type: 'eval.case.completed',
+        data: { runId: previousRunId, caseId: 'c-1', suiteId: 'delegation', passed: false, score: 0.0 },
+        streamId: 'eval-stream',
+        sequence: 1,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+      {
+        type: 'eval.run.completed',
+        data: { runId: previousRunId, suiteId: 'delegation', total: 1, passed: 0, failed: 1, avgScore: 0.0, duration: 100, regressions: [] },
+        streamId: 'eval-stream',
+        sequence: 2,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — c-1 was already failing, so not a regression
+    const completedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.run.completed',
+    );
+    const data = (completedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data.regressions).toEqual([]);
+  });
+
   it('runSuite_WithTriggerOption_PassesTriggerInStartedEvent', async () => {
     // Arrange
     const cases = [makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } })];
@@ -505,5 +674,62 @@ describe('runSuite — event emission', () => {
     );
     const data = (startedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
     expect(data.trigger).toBe('ci');
+  });
+});
+
+// ─── Layer Filtering Tests ────────────────────────────────────────────────────
+
+describe('runSuite — layer filtering', () => {
+  it('runSuite_LayerFilter_OnlyRunsMatchingCases', async () => {
+    // Arrange: 3 cases — 2 regression, 1 capability
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' }, layer: 'regression' }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' }, layer: 'capability' }),
+      makeEvalCase('c-3', { input: { value: 'c' }, expected: { value: 'c' }, layer: 'regression' }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('layer-filter', config, { main: cases });
+
+    // Act
+    const summary = await runSuite(config, tmpDir, suiteDir, registry, { layer: 'regression' });
+
+    // Assert: only the 2 regression cases should run
+    expect(summary.total).toBe(2);
+    expect(summary.results.map((r) => r.caseId).sort()).toEqual(['c-1', 'c-3']);
+  });
+
+  it('runSuite_NoLayerFilter_RunsAllCases', async () => {
+    // Arrange: 3 cases with mixed layers
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' }, layer: 'regression' }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' }, layer: 'capability' }),
+      makeEvalCase('c-3', { input: { value: 'c' }, expected: { value: 'c' }, layer: 'reliability' }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('no-layer-filter', config, { main: cases });
+
+    // Act: no layer filter
+    const summary = await runSuite(config, tmpDir, suiteDir, registry);
+
+    // Assert: all 3 cases should run
+    expect(summary.total).toBe(3);
+    expect(summary.results.map((r) => r.caseId).sort()).toEqual(['c-1', 'c-2', 'c-3']);
+  });
+
+  it('runSuite_LayerMissing_DefaultsToRegression', async () => {
+    // Arrange: cases without explicit layer field should default to 'regression'
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' }, layer: 'capability' }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('layer-default', config, { main: cases });
+
+    // Act
+    const summary = await runSuite(config, tmpDir, suiteDir, registry, { layer: 'regression' });
+
+    // Assert: c-1 (defaults to regression) should be included, c-2 (capability) excluded
+    expect(summary.total).toBe(1);
+    expect(summary.results[0].caseId).toBe('c-1');
   });
 });
