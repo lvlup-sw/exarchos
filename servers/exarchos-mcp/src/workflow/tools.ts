@@ -475,6 +475,18 @@ export async function handleSet(
 
     if (input.phase) {
       const hsm = getHSMDefinition(state.workflowType);
+
+      // Inject events from JSONL store for guard evaluation (#787)
+      // Map external event format (JSONL) to internal format used by state-machine guards
+      if (moduleEventStore) {
+        const storedEvents = await moduleEventStore.query(input.featureId);
+        mutableState._events = storedEvents.map((e) => ({
+          type: mapExternalToInternalType(e.type),
+          timestamp: e.timestamp,
+          metadata: e.data as Record<string, unknown> | undefined,
+        }));
+      }
+
       const result = executeTransition(hsm, mutableState, input.phase);
 
       if (!result.success) {
@@ -530,7 +542,7 @@ export async function handleSet(
     if (moduleEventStore && pendingTransitionEvents.length > 0) {
       try {
         for (const transitionEvent of pendingTransitionEvents) {
-          const idempotencyKey = `${input.featureId}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
+          const idempotencyKey = `${input.featureId}:${transitionEvent.type}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
           const event = await moduleEventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
             correlationId: input.featureId,
