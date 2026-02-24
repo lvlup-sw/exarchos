@@ -895,3 +895,108 @@ describe('EventType_ShepherdTypes_ExistInUnion', () => {
     }
   });
 });
+
+// ─── Task 5: WorkflowEventBase max-length constraints ──────────────────────
+
+describe('WorkflowEventBase max-length constraints', () => {
+  const validBase = {
+    streamId: 'test-stream',
+    sequence: 1,
+    type: 'workflow.started' as const,
+  };
+
+  it('WorkflowEventBase_OversizedStreamId_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      streamId: 'a'.repeat(101),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_MaxLengthStreamId_PassesValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      streamId: 'a'.repeat(100),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('WorkflowEventBase_OversizedAgentId_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      agentId: 'a'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_OversizedCorrelationId_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      correlationId: 'a'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_ValidEvent_StillPasses', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      correlationId: 'corr-123',
+      causationId: 'cause-456',
+      agentId: 'agent-789',
+      agentRole: 'implementer',
+      source: 'test-runner',
+      schemaVersion: '1.0',
+      idempotencyKey: 'key-abc',
+      data: { key: 'value' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('WorkflowEventBase_OversizedCausationId_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      causationId: 'a'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_OversizedAgentRole_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      agentRole: 'a'.repeat(51),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_OversizedSource_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      source: 'a'.repeat(101),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_OversizedSchemaVersion_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      schemaVersion: 'a'.repeat(21),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_OversizedIdempotencyKey_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      idempotencyKey: 'a'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_MaxLengthAgentRole_PassesValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      agentRole: 'a'.repeat(50),
+    });
+    expect(result.success).toBe(true);
+  });
+});
