@@ -1,11 +1,20 @@
 {
   "version": "1.0.0",
-  "generated": "2026-02-15",
+  "generated": "2026-02-23",
   "baselines": {
     "telemetry_view_compact_5_tools_max_tokens": 400,
     "telemetry_view_single_tool_max_tokens": 150,
     "perf_field_overhead_max_tokens": 15,
     "telemetry_wrapper_overhead_max_ms": 10,
-    "telemetry_view_100_events_max_ms": 100
+    "telemetry_view_100_events_max_ms": 100,
+    "event_store_single_append_max_ms": 50,
+    "event_store_batch_50_max_ms": 200,
+    "event_store_concurrent_10_max_ms": 500,
+    "event_store_query_100_no_filter_max_ms": 100,
+    "event_store_query_100_type_filter_max_ms": 100,
+    "event_store_init_sequence_100_max_ms": 100,
+    "hydration_single_100_max_ms": 500,
+    "hydration_delta_50_max_ms": 300,
+    "hydration_multi_10x20_max_ms": 1000
   }
 }
