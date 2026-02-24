@@ -33,8 +33,8 @@ export function correlateQualityAndEvals(
 
   for (const skillName of Object.keys(codeQuality.skills)) {
     const qualityMetrics = codeQuality.skills[skillName];
+    if (!Object.hasOwn(evalResults.skills, skillName)) continue;
     const evalMetrics = evalResults.skills[skillName];
-    if (!evalMetrics) continue; // only include skills present in BOTH views
 
     skills[skillName] = {
       skill: skillName,
