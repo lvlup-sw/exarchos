@@ -514,13 +514,14 @@ export class EventStore {
 
   private async rebuildIdempotencyCache(streamId: string): Promise<void> {
     if (this.idempotencyCacheInitialized.has(streamId)) return;
-    this.idempotencyCacheInitialized.add(streamId);
+    // Do NOT mark as initialized yet — wait until cache is fully populated
 
     const filePath = this.getEventFilePath(streamId);
     try {
       await fs.access(filePath);
     } catch {
-      return; // No events file yet
+      this.idempotencyCacheInitialized.add(streamId); // Mark even if no file
+      return;
     }
 
     const input = createReadStream(filePath, { encoding: 'utf-8' });
@@ -549,6 +550,8 @@ export class EventStore {
       }
       this.idempotencyCache.set(streamId, streamCache);
     }
+
+    this.idempotencyCacheInitialized.add(streamId); // Mark AFTER fully populated
   }
 
   private async initializeSequence(streamId: string): Promise<void> {
