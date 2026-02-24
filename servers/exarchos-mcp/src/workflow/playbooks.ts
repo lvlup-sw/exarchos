@@ -1,0 +1,912 @@
+// ─── Phase Playbook Types ──────────────────────────────────────────────────
+
+export interface ToolInstruction {
+  readonly tool: string;
+  readonly action: string;
+  readonly purpose: string;
+}
+
+export interface EventInstruction {
+  readonly type: string;
+  readonly when: string;
+}
+
+export interface PhasePlaybook {
+  readonly phase: string;
+  readonly workflowType: string;
+  readonly skill: string;
+  readonly skillRef: string;
+  readonly tools: readonly ToolInstruction[];
+  readonly events: readonly EventInstruction[];
+  readonly transitionCriteria: string;
+  readonly guardPrerequisites: string;
+  readonly validationScripts: readonly string[];
+  readonly humanCheckpoint: boolean;
+  readonly compactGuidance: string;
+}
+
+// ─── Playbook Registry ────────────────────────────────────────────────────
+
+const registry = new Map<string, PhasePlaybook>();
+
+function register(playbook: PhasePlaybook): void {
+  registry.set(`${playbook.workflowType}:${playbook.phase}`, playbook);
+}
+
+// ─── Lookup ───────────────────────────────────────────────────────────────
+
+export function getPlaybook(
+  workflowType: string,
+  phase: string,
+): PhasePlaybook | null {
+  return registry.get(`${workflowType}:${phase}`) ?? null;
+}
+
+// ─── Renderer ─────────────────────────────────────────────────────────────
+
+export function renderPlaybook(playbook: PhasePlaybook): string {
+  const lines: string[] = [];
+
+  lines.push('### Behavioral Guidance');
+  lines.push(`**Skill:** @skills/${playbook.skill}/SKILL.md`);
+
+  if (playbook.tools.length > 0) {
+    const toolEntries = playbook.tools
+      .map((t) => `${t.tool} (${t.action}: ${t.purpose})`)
+      .join(', ');
+    lines.push(`**Tools:** ${toolEntries}`);
+  } else {
+    lines.push('**Tools:** None');
+  }
+
+  if (playbook.events.length > 0) {
+    const eventEntries = playbook.events
+      .map((e) => `${e.type} — ${e.when}`)
+      .join(', ');
+    lines.push(`**Events to emit:** ${eventEntries}`);
+  } else {
+    lines.push('**Events to emit:** None');
+  }
+
+  lines.push(
+    `**Transition:** ${playbook.transitionCriteria} | Guard: ${playbook.guardPrerequisites || 'None'}`,
+  );
+
+  if (playbook.validationScripts.length > 0) {
+    lines.push(`**Scripts:** ${playbook.validationScripts.join(', ')}`);
+  }
+
+  lines.push(playbook.compactGuidance);
+
+  return lines.join('\n');
+}
+
+// ─── Terminal Playbook Factory ────────────────────────────────────────────
+
+function terminalPlaybook(
+  workflowType: string,
+  phase: string,
+  guidance: string,
+): PhasePlaybook {
+  return {
+    phase,
+    workflowType,
+    skill: 'none',
+    skillRef: '',
+    tools: [],
+    events: [],
+    transitionCriteria: 'Terminal state',
+    guardPrerequisites: '',
+    validationScripts: [],
+    humanCheckpoint: false,
+    compactGuidance: guidance,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Feature Workflow Playbooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+register({
+  phase: 'ideate',
+  workflowType: 'feature',
+  skill: 'brainstorming',
+  skillRef: '@skills/brainstorming/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record design decisions and artifacts',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Design artifact created → plan',
+  guardPrerequisites: 'artifacts.design exists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are brainstorming a feature design. Use exarchos_workflow set to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state.',
+});
+
+register({
+  phase: 'plan',
+  workflowType: 'feature',
+  skill: 'implementation-planning',
+  skillRef: '@skills/implementation-planning/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record plan artifact and task breakdown',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Plan artifact created → plan-review',
+  guardPrerequisites: 'artifacts.plan exists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are creating an implementation plan from the design doc. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete.',
+});
+
+register({
+  phase: 'plan-review',
+  workflowType: 'feature',
+  skill: 'implementation-planning',
+  skillRef: '@skills/implementation-planning/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record review decision',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Plan approved → delegate | Gaps found → plan',
+  guardPrerequisites: 'Plan review complete',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to delegate on approval or back to plan if gaps found.',
+});
+
+register({
+  phase: 'delegate',
+  workflowType: 'feature',
+  skill: 'delegation',
+  skillRef: '@skills/delegation/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read task list and worktree assignments',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose:
+        'Update task statuses, transition to review when all complete',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose:
+        'Emit task.assigned on dispatch, gate.executed on post-delegation check',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'batch_append',
+      purpose: 'Batch emit team events',
+    },
+    {
+      tool: 'exarchos_orchestrate',
+      action: 'task_complete',
+      purpose: 'Mark individual task complete',
+    },
+  ],
+  events: [
+    { type: 'task.assigned', when: 'On dispatch of each task' },
+    { type: 'team.spawned', when: 'After team creation' },
+    {
+      type: 'team.teammate.dispatched',
+      when: 'After each agent spawn',
+    },
+    { type: 'team.disbanded', when: 'After all tasks collected' },
+    {
+      type: 'gate.executed',
+      when: 'After post-delegation-check.sh runs',
+    },
+  ],
+  transitionCriteria: 'All tasks complete → review',
+  guardPrerequisites:
+    "tasks[].status = 'complete' for every task",
+  validationScripts: ['scripts/post-delegation-check.sh'],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review phase when all tasks complete.',
+});
+
+register({
+  phase: 'review',
+  workflowType: 'feature',
+  skill: 'quality-review',
+  skillRef: '@skills/quality-review/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read task and review state',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record review results and transition',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit gate.executed for review gates',
+    },
+  ],
+  events: [
+    { type: 'gate.executed', when: 'After each review gate runs' },
+  ],
+  transitionCriteria:
+    'All reviews passed → synthesize | Any review failed → delegate',
+  guardPrerequisites:
+    'reviews.spec-review.passed AND reviews.quality-review.passed',
+  validationScripts: [
+    'scripts/static-analysis-gate.sh',
+    'scripts/security-scan.sh',
+  ],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed.',
+});
+
+register({
+  phase: 'synthesize',
+  workflowType: 'feature',
+  skill: 'synthesis',
+  skillRef: '@skills/synthesis/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read synthesis state',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record PR URLs and synthesis metadata',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit gate.executed for pre-synthesis checks',
+    },
+  ],
+  events: [
+    {
+      type: 'gate.executed',
+      when: 'After pre-synthesis-check.sh and reconstruct-stack.sh',
+    },
+  ],
+  transitionCriteria: 'PR created and enqueued → completed',
+  guardPrerequisites: 'artifacts.pr exists',
+  validationScripts: [
+    'scripts/pre-synthesis-check.sh',
+    'scripts/reconstruct-stack.sh',
+  ],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are creating stacked PRs via Graphite. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding.',
+});
+
+register(
+  terminalPlaybook(
+    'feature',
+    'completed',
+    'Workflow is complete. No further actions needed.',
+  ),
+);
+
+register(
+  terminalPlaybook(
+    'feature',
+    'cancelled',
+    'Workflow was cancelled. No further actions needed.',
+  ),
+);
+
+register({
+  phase: 'blocked',
+  workflowType: 'feature',
+  skill: 'none',
+  skillRef: '',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record unblock decision',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Human unblock → delegate',
+  guardPrerequisites: 'Human decision',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow set to record the decision and transition back to delegate.',
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Debug Workflow Playbooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+register({
+  phase: 'triage',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record triage findings and severity assessment',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Triage complete → investigate',
+  guardPrerequisites: 'triageComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are triaging a bug report. Use exarchos_workflow set to record triage findings, severity, and reproduction steps. Transition to investigate when triage is complete.',
+});
+
+register({
+  phase: 'investigate',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record investigation findings and track selection',
+    },
+  ],
+  events: [],
+  transitionCriteria:
+    'Thorough track → rca | Hotfix track → hotfix-implement | Escalation → cancelled',
+  guardPrerequisites:
+    'thoroughTrackSelected OR hotfixTrackSelected OR escalationRequired',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are investigating the bug root cause. Use exarchos_workflow set to record investigation findings. Select thorough track (rca) for complex bugs or hotfix track for simple fixes. Transition based on track selection.',
+});
+
+register({
+  phase: 'rca',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record RCA document and root cause analysis',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'RCA document complete → design',
+  guardPrerequisites: 'rca document exists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are performing root cause analysis. Use exarchos_workflow set to record the rca document path and findings. Transition to design when the rca document is complete.',
+});
+
+register({
+  phase: 'design',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record fix design decisions',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Fix design complete → debug-implement',
+  guardPrerequisites: 'fixDesign document exists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are designing the fix based on the RCA. Use exarchos_workflow set to record the fix design. Transition to debug-implement when the design is complete.',
+});
+
+register({
+  phase: 'debug-implement',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record implementation progress and completion',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Implementation complete → debug-validate',
+  guardPrerequisites: 'implementationComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are implementing the fix based on the design. Use exarchos_workflow set to record implementation progress. Follow TDD — write failing test first, then implement fix. Transition to debug-validate when implementation is complete.',
+});
+
+register({
+  phase: 'debug-validate',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record validation results',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Validation passed → debug-review',
+  guardPrerequisites: 'validationPassed',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are validating the fix. Use exarchos_workflow set to record validation results. Run tests, verify the bug is fixed, and check for regressions. Transition to debug-review when validation passes.',
+});
+
+register({
+  phase: 'debug-review',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record review results',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Review passed → synthesize',
+  guardPrerequisites: 'reviewPassed',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are reviewing the fix for code quality and correctness. Use exarchos_workflow set to record review results. Transition to synthesize when the review passes.',
+});
+
+register({
+  phase: 'hotfix-implement',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record hotfix implementation progress',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Implementation complete → hotfix-validate',
+  guardPrerequisites: 'implementationComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are implementing a hotfix. Use exarchos_workflow set to record implementation progress. This is the fast-track — apply minimal targeted fix. Transition to hotfix-validate when implementation is complete.',
+});
+
+register({
+  phase: 'hotfix-validate',
+  workflowType: 'debug',
+  skill: 'debug',
+  skillRef: '@skills/debug/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record validation results and PR decision',
+    },
+  ],
+  events: [],
+  transitionCriteria:
+    'Validation passed + PR requested → synthesize | Validation passed → completed',
+  guardPrerequisites: 'validationPassed',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are validating the hotfix. Use exarchos_workflow set to record validation results. Run tests and verify the fix. If PR is requested, transition to synthesize; otherwise transition to completed.',
+});
+
+register({
+  phase: 'synthesize',
+  workflowType: 'debug',
+  skill: 'synthesis',
+  skillRef: '@skills/synthesis/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read synthesis state',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record PR URLs and synthesis metadata',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit gate.executed for synthesis checks',
+    },
+  ],
+  events: [
+    {
+      type: 'gate.executed',
+      when: 'After synthesis validation scripts',
+    },
+  ],
+  transitionCriteria: 'PR URL exists → completed',
+  guardPrerequisites: 'artifacts.pr exists',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are creating a PR for the debug fix via Graphite. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+});
+
+register(
+  terminalPlaybook(
+    'debug',
+    'completed',
+    'Workflow is complete. No further actions needed.',
+  ),
+);
+
+register(
+  terminalPlaybook(
+    'debug',
+    'cancelled',
+    'Workflow was cancelled. No further actions needed.',
+  ),
+);
+
+register({
+  phase: 'blocked',
+  workflowType: 'debug',
+  skill: 'none',
+  skillRef: '',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record unblock decision',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Human unblock → previous phase',
+  guardPrerequisites: 'Human decision',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow set to record the decision.',
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Refactor Workflow Playbooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+register({
+  phase: 'explore',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record scope assessment and exploration findings',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Scope assessment complete → brief',
+  guardPrerequisites: 'scopeAssessmentComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are exploring the codebase to assess refactoring scope. Use exarchos_workflow set to record exploration findings and scope assessment. Transition to brief when scope assessment is complete.',
+});
+
+register({
+  phase: 'brief',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record refactoring brief and track selection',
+    },
+  ],
+  events: [],
+  transitionCriteria:
+    'Polish track → polish-implement | Overhaul track → overhaul-plan',
+  guardPrerequisites: 'polishTrackSelected OR overhaulTrackSelected',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are writing the refactoring brief. Use exarchos_workflow set to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection.',
+});
+
+register({
+  phase: 'polish-implement',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record implementation progress and completion',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Implementation complete → polish-validate',
+  guardPrerequisites: 'implementationComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow set to record progress. Follow TDD if changing behavior. Stay within brief scope. Transition to polish-validate when implementation is complete.',
+});
+
+register({
+  phase: 'polish-validate',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record validation results',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Goals verified → polish-update-docs',
+  guardPrerequisites: 'goalsVerified',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are validating the polish refactoring meets goals. Use exarchos_workflow set to record validation results. Run tests and verify refactoring goals are met. Transition to polish-update-docs when goals are verified.',
+});
+
+register({
+  phase: 'polish-update-docs',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record docs update status',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Docs updated → completed',
+  guardPrerequisites: 'docsUpdated',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are updating documentation for the polish refactoring. Use exarchos_workflow set to record docs update completion. This is a human checkpoint — wait for user confirmation before completing.',
+});
+
+register({
+  phase: 'overhaul-plan',
+  workflowType: 'refactor',
+  skill: 'implementation-planning',
+  skillRef: '@skills/implementation-planning/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record plan artifact and task breakdown',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Plan artifact exists → overhaul-delegate',
+  guardPrerequisites: 'planArtifactExists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are creating an implementation plan for the overhaul refactoring. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to overhaul-delegate when plan artifact exists.',
+});
+
+register({
+  phase: 'overhaul-delegate',
+  workflowType: 'refactor',
+  skill: 'delegation',
+  skillRef: '@skills/delegation/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read task list and worktree assignments',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Update task statuses',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit task.assigned on dispatch',
+    },
+    {
+      tool: 'exarchos_orchestrate',
+      action: 'task_complete',
+      purpose: 'Mark individual task complete',
+    },
+  ],
+  events: [
+    { type: 'task.assigned', when: 'On dispatch of each task' },
+    { type: 'team.spawned', when: 'After team creation' },
+    { type: 'team.disbanded', when: 'After all tasks collected' },
+  ],
+  transitionCriteria: 'All tasks complete → overhaul-review',
+  guardPrerequisites: 'allTasksComplete',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are dispatching overhaul implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Transition to overhaul-review when all tasks complete.',
+});
+
+register({
+  phase: 'overhaul-review',
+  workflowType: 'refactor',
+  skill: 'quality-review',
+  skillRef: '@skills/quality-review/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read task and review state',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record review results and transition',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit gate.executed for review gates',
+    },
+  ],
+  events: [
+    { type: 'gate.executed', when: 'After each review gate runs' },
+  ],
+  transitionCriteria:
+    'All reviews passed → overhaul-update-docs | Any review failed → overhaul-delegate',
+  guardPrerequisites: 'allReviewsPassed',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are reviewing the overhaul refactoring. Use exarchos_event to emit gate.executed for review gates. Use exarchos_workflow set to record review results. Transition to overhaul-update-docs when all reviews pass, or back to overhaul-delegate if fixes needed.',
+});
+
+register({
+  phase: 'overhaul-update-docs',
+  workflowType: 'refactor',
+  skill: 'refactor',
+  skillRef: '@skills/refactor/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record docs update status',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Docs updated → synthesize',
+  guardPrerequisites: 'docsUpdated',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are updating documentation for the overhaul refactoring. Use exarchos_workflow set to record docs update completion. Transition to synthesize when docs are updated.',
+});
+
+register({
+  phase: 'synthesize',
+  workflowType: 'refactor',
+  skill: 'synthesis',
+  skillRef: '@skills/synthesis/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read synthesis state',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record PR URLs and synthesis metadata',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'append',
+      purpose: 'Emit gate.executed for synthesis checks',
+    },
+  ],
+  events: [
+    {
+      type: 'gate.executed',
+      when: 'After synthesis validation scripts',
+    },
+  ],
+  transitionCriteria: 'PR URL exists → completed',
+  guardPrerequisites: 'artifacts.pr exists',
+  validationScripts: [
+    'scripts/pre-synthesis-check.sh',
+    'scripts/reconstruct-stack.sh',
+  ],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are creating stacked PRs via Graphite for the overhaul refactoring. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+});
+
+register(
+  terminalPlaybook(
+    'refactor',
+    'completed',
+    'Workflow is complete. No further actions needed.',
+  ),
+);
+
+register(
+  terminalPlaybook(
+    'refactor',
+    'cancelled',
+    'Workflow was cancelled. No further actions needed.',
+  ),
+);
+
+register({
+  phase: 'blocked',
+  workflowType: 'refactor',
+  skill: 'none',
+  skillRef: '',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record unblock decision',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Human unblock → previous phase',
+  guardPrerequisites: 'Human decision',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow set to record the decision.',
+});
