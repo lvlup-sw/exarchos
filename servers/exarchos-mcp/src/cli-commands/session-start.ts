@@ -552,14 +552,19 @@ export async function handleSessionStart(
     for (const cp of checkpoints) {
       if (TERMINAL_PHASES.has(cp.phase)) continue;
       try {
-        const stateRaw = await fs.readFile(cp.stateFile, 'utf-8');
+        const resolvedStateDir = path.resolve(stateDir);
+        const resolvedStateFile = path.resolve(cp.stateFile);
+        if (!resolvedStateFile.startsWith(resolvedStateDir + path.sep) && resolvedStateFile !== resolvedStateDir) {
+          continue;
+        }
+        const stateRaw = await fs.readFile(resolvedStateFile, 'utf-8');
         const stateData = JSON.parse(stateRaw) as Record<string, unknown>;
         const wfType = typeof stateData.workflowType === 'string' ? stateData.workflowType : '';
         behavioralGuidance = getBehavioralGuidanceForPhase(wfType, cp.phase);
+        if (behavioralGuidance) break; // Only first active workflow with resolved guidance
       } catch {
-        // Graceful fallback — state file may not exist
+        // Graceful fallback — try next checkpoint
       }
-      break; // Only first active workflow
     }
 
     // Also check for active state files not covered by checkpoints
@@ -622,7 +627,7 @@ export async function handleSessionStart(
         entry.state.workflowType ?? '',
         entry.state.phase,
       );
-      break; // Only first active workflow
+      if (behavioralGuidance) break; // Only first active workflow with resolved guidance
     }
 
     if (teamsDir) {
