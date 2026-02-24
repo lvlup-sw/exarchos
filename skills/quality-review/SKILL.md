@@ -92,6 +92,16 @@ If ANY task has `specReview.status !== "pass"`, STOP and return:
 { "verdict": "blocked", "summary": "Spec review not passed — run spec-review first" }
 ```
 
+### Step 0.5: Verify Review Triage (Optional)
+
+If this review follows a delegation phase, verify triage routing:
+
+```bash
+scripts/verify-review-triage.sh --state-file <state-file>
+```
+
+Exit 0: triage routing correct. Exit 1: triage issues found (investigate before proceeding).
+
 ### Step 1: Static Analysis
 
 Run the static analysis gate:

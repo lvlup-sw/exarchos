@@ -40,6 +40,7 @@ Since delegation creates Graphite stack branches and review validates them, synt
 ## Synthesis Process
 
 1. **Verify readiness** -- `scripts/pre-synthesis-check.sh` (includes phase readiness check with transition guidance)
+1b. **Optional: Benchmark regression check** -- If `state.verification.hasBenchmarks` is true, run `scripts/check-benchmark-regression.sh`. Exit 0: within threshold. Exit 1: regression detected (stop synthesis and report).
 2. **REQUIRED: Verify/reconstruct Graphite stack** -- Run `scripts/reconstruct-stack.sh` before PR creation. If exit 1: stop and report error.
 3. **Quick test verification** -- `npm run test:run && npm run typecheck`
 4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
@@ -77,6 +78,26 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
     type: "gate.executed",
     data: {
       gateName: "coderabbit-review",
+      layer: "CI",
+      passed: <true|false>,
+      details: {
+        skill: "synthesis",
+        commit: "<current-sha>"
+      }
+    }
+  }
+})
+```
+
+If benchmark regression check ran (step 1b), also emit:
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "gate.executed",
+    data: {
+      gateName: "benchmark-regression",
       layer: "CI",
       passed: <true|false>,
       details: {
