@@ -67,7 +67,6 @@ describe('teamDisbandedEmitted', () => {
   // ─── #786: Subagent-mode tests (no team spawned) ────────────────────────
 
   it('teamDisbandedEmitted_NoTeamSpawned_ReturnsTrue', () => {
-    // Subagent mode — no team.spawned event means no team was used
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       _events: [
@@ -82,7 +81,6 @@ describe('teamDisbandedEmitted', () => {
   });
 
   it('teamDisbandedEmitted_EmptyEvents_ReturnsTrue', () => {
-    // No events at all — subagent mode
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       _events: [],
@@ -94,7 +92,6 @@ describe('teamDisbandedEmitted', () => {
   });
 
   it('teamDisbandedEmitted_UndefinedEvents_ReturnsTrue', () => {
-    // _events not present at all — subagent mode
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
     };
@@ -105,7 +102,6 @@ describe('teamDisbandedEmitted', () => {
   });
 
   it('teamDisbandedEmitted_TeamSpawnedButNotDisbanded_ReturnsFailure', () => {
-    // Team was spawned but not yet disbanded — guard must block
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       _events: [
@@ -283,5 +279,106 @@ describe('prRequested', () => {
     expect(result).not.toBe(true);
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
+  });
+});
+
+// ─── synthesizeRetryable Guard Tests ─────────────────────────────────────────
+
+describe('synthesizeRetryable', () => {
+  it('synthesizeRetryable_HasErrorAndRetriesRemaining_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: 'network error',
+        retryCount: 1,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesizeRetryable_NoError_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        retryCount: 0,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize-retryable');
+    expect(failure.reason).toContain('no lastError');
+  });
+
+  it('synthesizeRetryable_RetriesExhausted_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: 'gt submit failed',
+        retryCount: 3,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize-retryable');
+    expect(failure.reason).toContain('retries exhausted');
+  });
+
+  it('synthesizeRetryable_NoSynthesisState_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {};
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('no lastError');
+  });
+
+  it('synthesizeRetryable_RetryCountAtMax_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: 'stack conflict',
+        retryCount: 5,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+
+  it('synthesizeRetryable_ZeroRetryCount_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: 'first failure',
+        retryCount: 0,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesizeRetryable_MissingRetryCount_DefaultsToZero_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: 'network timeout',
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).toBe(true);
   });
 });

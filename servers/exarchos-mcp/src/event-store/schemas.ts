@@ -56,20 +56,20 @@ export type EventType = typeof EventTypes[number];
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
-  streamId: z.string().min(1),
+  streamId: z.string().min(1).max(100),
   sequence: z.number().int().positive(),
   timestamp: z.string().datetime().default(() => new Date().toISOString()),
   type: z.enum(EventTypes),
-  correlationId: z.string().optional(),
-  causationId: z.string().optional(),
-  agentId: z.string().optional(),
-  agentRole: z.string().optional(),
-  tenantId: z.string().min(1).optional(),
-  organizationId: z.string().min(1).optional(),
-  source: z.string().optional(),
-  schemaVersion: z.string().default('1.0'),
+  correlationId: z.string().max(200).optional(),
+  causationId: z.string().max(200).optional(),
+  agentId: z.string().max(200).optional(),
+  agentRole: z.string().max(50).optional(),
+  tenantId: z.string().min(1).max(100).optional(),
+  organizationId: z.string().min(1).max(100).optional(),
+  source: z.string().max(100).optional(),
+  schemaVersion: z.string().min(1).max(20).default('1.0'),
   data: z.record(z.string(), z.unknown()).optional(),
-  idempotencyKey: z.string().optional(),
+  idempotencyKey: z.string().max(200).optional(),
 });
 
 // ─── Workflow-Level Event Data ──────────────────────────────────────────────
