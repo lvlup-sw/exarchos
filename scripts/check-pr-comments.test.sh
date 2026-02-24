@@ -163,8 +163,8 @@ fi
 MOCK
 chmod +x "$MOCK_GH"
 
-output=$(PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" --pr 999 --repo owner/repo 2>&1)
-exit_code=$?
+exit_code=0
+output=$(PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" --pr 999 --repo owner/repo 2>&1) || exit_code=$?
 if [[ $exit_code -eq 2 ]]; then
     pass "gh_api_failure_exit_2"
 else

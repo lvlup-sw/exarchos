@@ -15,6 +15,13 @@
 
 set -euo pipefail
 
+for dep in gh jq; do
+    command -v "$dep" >/dev/null 2>&1 || {
+        echo "Error: Missing dependency: $dep" >&2
+        exit 2
+    }
+done
+
 PR_NUMBER=""
 REPO=""
 
