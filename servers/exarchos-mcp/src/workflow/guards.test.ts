@@ -298,6 +298,19 @@ describe('synthesizeRetryable', () => {
     expect(result).toBe(true);
   });
 
+  it('synthesizeRetryable_EmptyStringError_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      synthesis: {
+        lastError: '',
+        retryCount: 0,
+      },
+    };
+
+    const result = guards.synthesizeRetryable.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
   it('synthesizeRetryable_NoError_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
       synthesis: {

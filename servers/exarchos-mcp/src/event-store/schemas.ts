@@ -62,14 +62,14 @@ export const WorkflowEventBase = z.object({
   type: z.enum(EventTypes),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
-  agentId: z.string().max(200).optional(),
+  agentId: z.string().min(1).max(200).optional(),
   agentRole: z.string().max(50).optional(),
   tenantId: z.string().min(1).max(100).optional(),
   organizationId: z.string().min(1).max(100).optional(),
   source: z.string().max(100).optional(),
   schemaVersion: z.string().min(1).max(20).default('1.0'),
   data: z.record(z.string(), z.unknown()).optional(),
-  idempotencyKey: z.string().max(200).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
 });
 
 // ─── Workflow-Level Event Data ──────────────────────────────────────────────

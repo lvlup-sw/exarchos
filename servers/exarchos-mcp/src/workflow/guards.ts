@@ -571,7 +571,7 @@ export const guards = {
     description: 'Synthesis can be retried (has error and retries remaining)',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const synthesis = state.synthesis as Record<string, unknown> | undefined;
-      if (!synthesis?.lastError) {
+      if (synthesis?.lastError == null) {
         return {
           passed: false,
           reason: 'synthesize-retryable not satisfied: no lastError recorded',

@@ -1032,6 +1032,22 @@ describe('WorkflowEventBase max-length constraints', () => {
     expect(result.success).toBe(true);
   });
 
+  it('WorkflowEventBase_EmptyAgentId_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      agentId: '',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorkflowEventBase_EmptyIdempotencyKey_FailsValidation', () => {
+    const result = WorkflowEventBase.safeParse({
+      ...validBase,
+      idempotencyKey: '',
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('WorkflowEventBase_EmptySchemaVersion_FailsValidation', () => {
     const result = WorkflowEventBase.safeParse({
       ...validBase,
