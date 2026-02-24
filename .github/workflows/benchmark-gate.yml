@@ -2,7 +2,7 @@ name: Benchmark Regression Gate
 
 on:
   pull_request:
-    types: [labeled, synchronize, opened, reopened]
+    types: [synchronize, opened, reopened]
 
 jobs:
   benchmark:
@@ -11,8 +11,6 @@ jobs:
     concurrency:
       group: benchmark-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    if: contains(github.event.pull_request.labels.*.name, 'has-benchmarks')
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +27,8 @@ jobs:
       - name: Run benchmarks
         run: npm run bench -- --outputJson benchmark-results.json
         working-directory: servers/exarchos-mcp
+        env:
+          RUN_BENCHMARKS: 'true'
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
