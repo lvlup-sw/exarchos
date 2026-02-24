@@ -2152,6 +2152,170 @@ describe('Diagnostic Event Emission', () => {
   });
 });
 
+// ─── Task: Synthesize retry transitions ───────────────────────────────────────
+
+describe('Synthesize retry transitions', () => {
+  describe('Feature HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_TransitionsToDelegate', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'merge conflict', retryCount: 1 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('delegate');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'merge conflict', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_WhenNoError_FailsGuard', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: {},
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesDelegateTarget', () => {
+      const hsm = getHSMDefinition('feature');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const delegateTarget = targets.find((t) => t.phase === 'delegate');
+      expect(delegateTarget).toBeDefined();
+      expect(delegateTarget!.guard!.id).toBe('synthesize-retryable');
+    });
+  });
+
+  describe('Debug HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_ThoroughTrack_TransitionsToDebugImplement', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'thorough',
+        synthesis: { lastError: 'merge conflict', retryCount: 0 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'debug-implement');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('debug-implement');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetryable_HotfixTrack_TransitionsToHotfixImplement', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'hotfix',
+        synthesis: { lastError: 'merge conflict', retryCount: 0 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'hotfix-implement');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('hotfix-implement');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'thorough',
+        synthesis: { lastError: 'merge conflict', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'debug-implement');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesTrackAwareTargets', () => {
+      const hsm = getHSMDefinition('debug');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const debugImplTarget = targets.find((t) => t.phase === 'debug-implement');
+      expect(debugImplTarget).toBeDefined();
+      expect(debugImplTarget!.guard!.id).toBe('synthesize-retryable+thorough-track');
+      const hotfixImplTarget = targets.find((t) => t.phase === 'hotfix-implement');
+      expect(hotfixImplTarget).toBeDefined();
+      expect(hotfixImplTarget!.guard!.id).toBe('synthesize-retryable+hotfix-track');
+    });
+  });
+
+  describe('Refactor HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_TransitionsToOverhaulDelegate', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'CI failed', retryCount: 2 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-delegate');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'CI failed', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesOverhaulDelegateTarget', () => {
+      const hsm = getHSMDefinition('refactor');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const overhaulDelegateTarget = targets.find((t) => t.phase === 'overhaul-delegate');
+      expect(overhaulDelegateTarget).toBeDefined();
+      expect(overhaulDelegateTarget!.guard!.id).toBe('synthesize-retryable');
+    });
+  });
+});
+
 describe('Missing _events and _history defaults', () => {
   it('handles missing _events gracefully (defaults to empty array)', () => {
     const hsm = getHSMDefinition('feature');

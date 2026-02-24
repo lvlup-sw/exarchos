@@ -49,6 +49,7 @@ export function createFeatureHSM(): HSMDefinition {
       isFixCycle: true,
       effects: ['increment-fix-cycle'],
     },
+    { from: 'synthesize', to: 'delegate', guard: guards.synthesizeRetryable },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
     { from: 'blocked', to: 'delegate', guard: guards.humanUnblocked },
   ];
@@ -152,7 +153,19 @@ export function createDebugHSM(): HSMDefinition {
     ) },
     { from: 'hotfix-validate', to: 'completed', guard: guards.validationPassed },
 
-    // Synthesize -> completed
+    // Synthesize -> retry (track-aware) or completed
+    { from: 'synthesize', to: 'debug-implement', guard: composeGuards(
+      'synthesize-retryable+thorough-track',
+      'Synthesis retryable on thorough track',
+      guards.synthesizeRetryable,
+      guards.thoroughTrackSelected,
+    ) },
+    { from: 'synthesize', to: 'hotfix-implement', guard: composeGuards(
+      'synthesize-retryable+hotfix-track',
+      'Synthesis retryable on hotfix track',
+      guards.synthesizeRetryable,
+      guards.hotfixTrackSelected,
+    ) },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
   ];
 
@@ -275,7 +288,8 @@ export function createRefactorHSM(): HSMDefinition {
     },
     { from: 'overhaul-update-docs', to: 'synthesize', guard: guards.docsUpdated },
 
-    // Synthesize -> completed
+    // Synthesize -> retry or completed
+    { from: 'synthesize', to: 'overhaul-delegate', guard: guards.synthesizeRetryable },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
   ];
 
