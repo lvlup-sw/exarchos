@@ -146,6 +146,7 @@ function buildFailedReviewsExpectedShape(
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 export const MAX_PLAN_REVISIONS = 3;
+const MAX_SYNTHESIZE_RETRIES = 3;
 
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
@@ -562,6 +563,29 @@ export const guards = {
         reason: 'pr-requested not satisfied',
         expectedShape: { synthesis: { requested: true } },
       };
+    },
+  },
+
+  synthesizeRetryable: {
+    id: 'synthesize-retryable',
+    description: 'Synthesis can be retried (has error and retries remaining)',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      if (!synthesis?.lastError) {
+        return {
+          passed: false,
+          reason: 'synthesize-retryable not satisfied: no lastError recorded',
+        };
+      }
+      const rawRetry = synthesis.retryCount;
+      const retryCount = typeof rawRetry === 'number' && Number.isFinite(rawRetry) ? rawRetry : 0;
+      if (retryCount >= MAX_SYNTHESIZE_RETRIES) {
+        return {
+          passed: false,
+          reason: `synthesize-retryable not satisfied: ${retryCount}/${MAX_SYNTHESIZE_RETRIES} retries exhausted`,
+        };
+      }
+      return true;
     },
   },
 
