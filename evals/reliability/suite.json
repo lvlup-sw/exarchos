@@ -1,9 +1,9 @@
 {
-  "description": "Agent reliability evaluation — stall, loop, budget, phase, recovery, compaction",
+  "description": "Agent reliability evaluation — stall, loop, budget, phase, recovery, compaction, compaction-behavioral",
   "metadata": {
     "skill": "reliability",
     "phaseAffinity": "delegate",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "assertions": [
     {
@@ -19,6 +19,10 @@
     "regression": {
       "path": "./datasets/regression.jsonl",
       "description": "Reliability regression cases covering stall, loop, budget, phase, recovery, and compaction"
+    },
+    "compaction-behavioral": {
+      "path": "./datasets/compaction-behavioral.jsonl",
+      "description": "Compaction behavioral fidelity cases — event emission, tool usage, script execution post-compaction"
     }
   }
 }
