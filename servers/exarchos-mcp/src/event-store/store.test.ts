@@ -1181,6 +1181,78 @@ describe('EventStore Sequence Invariant', () => {
   });
 });
 
+// ─── Sequence Invariant Under Compaction ──────────────────────────────────────
+
+describe('EventStore Sequence Invariant Under Compaction', () => {
+  it('initializeSequence_CompactedFile_ThrowsSequenceInvariantError', async () => {
+    // Arrange: create a JSONL file simulating compaction where middle events
+    // were removed. 3 lines but last event has sequence 5 (gap).
+    const filePath = path.join(tempDir, 'compacted.events.jsonl');
+    const events = [
+      { streamId: 'compacted', sequence: 1, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'compacted', sequence: 3, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+      { streamId: 'compacted', sequence: 5, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
+    ];
+    await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+
+    // Delete .seq file to force fallback to JSONL line counting with invariant check
+    const seqPath = path.join(tempDir, 'compacted.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+
+    // Act & Assert: should throw because last event (seq 5) != line count (3)
+    await expect(
+      store.append('compacted', { type: 'task.claimed' }),
+    ).rejects.toThrow(/sequence invariant/i);
+  });
+
+  it('initializeSequence_ValidFile_SetsCorrectSequence', async () => {
+    // Arrange: create a valid JSONL file where seq matches line number
+    const filePath = path.join(tempDir, 'valid-compact.events.jsonl');
+    const events = [
+      { streamId: 'valid-compact', sequence: 1, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'valid-compact', sequence: 2, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+      { streamId: 'valid-compact', sequence: 3, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
+    ];
+    await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+
+    // Delete .seq file to force fallback
+    const seqPath = path.join(tempDir, 'valid-compact.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+
+    // Act: should succeed — sequence counter set to 3
+    const event = await store.append('valid-compact', { type: 'task.claimed' });
+
+    // Assert: next event should be sequence 4
+    expect(event.sequence).toBe(4);
+  });
+
+  it('initializeSequence_FirstEventNotOne_ThrowsSequenceInvariantError', async () => {
+    // Arrange: create a JSONL file where first event starts at sequence 2
+    const filePath = path.join(tempDir, 'offset-seq.events.jsonl');
+    const events = [
+      { streamId: 'offset-seq', sequence: 2, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
+      { streamId: 'offset-seq', sequence: 3, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
+      { streamId: 'offset-seq', sequence: 4, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
+    ];
+    await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+
+    // Delete .seq file to force fallback
+    const seqPath = path.join(tempDir, 'offset-seq.seq');
+    await fs.rm(seqPath, { force: true });
+
+    const store = new EventStore(tempDir);
+
+    // Act & Assert: should throw because first event seq is 2, expected 1
+    await expect(
+      store.append('offset-seq', { type: 'task.claimed' }),
+    ).rejects.toThrow(/sequence invariant/i);
+  });
+});
+
 // ─── T31-T32: Configurable Idempotency Cache ────────────────────────────────
 
 describe('EventStore Configurable Idempotency Cache', () => {
