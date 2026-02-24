@@ -1369,6 +1369,106 @@ describe('EventStore Query with Event Migration', () => {
   });
 });
 
+// ─── Idempotency Cache Rebuild Race Condition ────────────────────────────────
+
+describe('EventStore Idempotency Cache Race Condition', () => {
+  it('rebuildIdempotencyCache_ConcurrentAccess_DoesNotReturnStaleCache', async () => {
+    // Arrange: write events with idempotency keys via store1
+    const store1 = new EventStore(tempDir);
+    await store1.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-a' },
+    );
+    await store1.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'key-b' },
+    );
+
+    // Create a new store instance (simulating restart) — cache is empty
+    const store2 = new EventStore(tempDir);
+
+    // Act: fire two concurrent appends with the same idempotency key
+    // Both will trigger rebuildIdempotencyCache since the cache is not yet initialized.
+    // With the bug (marking initialized BEFORE populating), the second call may
+    // see the stream as initialized but find an empty/incomplete cache,
+    // leading to a duplicate event instead of deduplication.
+    const [resultA, resultB] = await Promise.all([
+      store2.append('my-workflow', { type: 'task.assigned' }, { idempotencyKey: 'key-a' }),
+      store2.append('my-workflow', { type: 'task.assigned' }, { idempotencyKey: 'key-a' }),
+    ]);
+
+    // Assert: both should return the SAME event (deduplication)
+    // The original event was sequence 1 with key-a
+    expect(resultA.sequence).toBe(1);
+    expect(resultB.sequence).toBe(1);
+
+    // No duplicates should have been appended
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(2); // only the original 2 events
+  });
+
+  it('rebuildIdempotencyCache_PartialFailure_DoesNotPermanentlyMarkInitialized', async () => {
+    // Arrange: write events with idempotency keys via store1
+    const store1 = new EventStore(tempDir);
+    await store1.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-a' },
+    );
+    await store1.append(
+      'my-workflow',
+      { type: 'task.claimed' },
+      { idempotencyKey: 'key-b' },
+    );
+
+    // Create a new store (simulating restart)
+    const store2 = new EventStore(tempDir);
+
+    // Corrupt the JSONL file AFTER the first valid line — force a JSON.parse error
+    // during rebuild. With the bug, the stream gets marked as "initialized" BEFORE
+    // the file is read, so even after the error, subsequent calls skip the rebuild
+    // and use an empty/stale cache.
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const original = await fs.readFile(filePath, 'utf-8');
+    const lines = original.trim().split('\n');
+    // Replace second line with an idempotencyKey-containing but invalid JSON
+    const corrupted = lines[0] + '\n' + '{"idempotencyKey":"key-b", INVALID_JSON}\n';
+    await fs.writeFile(filePath, corrupted, 'utf-8');
+
+    // First attempt: append with idempotency key — triggers rebuildIdempotencyCache
+    // The rebuild will encounter a JSON parse error on the corrupted line.
+    // With the bug, the stream is marked "initialized" before reading, so the error
+    // means the cache stays empty but the flag says it's done.
+    try {
+      await store2.append(
+        'my-workflow',
+        { type: 'task.assigned' },
+        { idempotencyKey: 'key-a' },
+      );
+    } catch {
+      // Expected: the corrupt JSON may cause an error
+    }
+
+    // Fix the file — restore the original valid content
+    await fs.writeFile(filePath, original, 'utf-8');
+
+    // Second attempt: with the bug, the cache is marked "initialized" but empty,
+    // so key-a won't be found and a DUPLICATE event gets appended.
+    // After the fix (marking initialized AFTER populating), the cache won't be
+    // marked initialized if the first attempt failed, so rebuild will be retried.
+    const result = await store2.append(
+      'my-workflow',
+      { type: 'task.assigned' },
+      { idempotencyKey: 'key-a' },
+    );
+
+    // Assert: should deduplicate to original event (sequence 1), NOT create a new event
+    expect(result.sequence).toBe(1);
+  });
+});
+
 // ─── Task 9: EventStore StorageBackend Integration ────────────────────────────
 
 describe('EventStore StorageBackend Integration', () => {
