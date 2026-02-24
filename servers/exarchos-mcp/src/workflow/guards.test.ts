@@ -122,3 +122,166 @@ describe('teamDisbandedEmitted', () => {
     expect(failure.reason).toContain('team-disbanded-emitted');
   });
 });
+
+// ─── Task 3: escalationRequired Guard Tests ─────────────────────────────────
+
+describe('escalationRequired', () => {
+  it('escalationRequired_EscalateTrue_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      investigation: { escalate: true, rootCause: 'architectural issue' },
+    };
+
+    const result = guards.escalationRequired.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('escalationRequired_EscalateMissing_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      investigation: { rootCause: 'simple bug' },
+    };
+
+    const result = guards.escalationRequired.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('escalation-required');
+    expect(failure.expectedShape).toEqual({ investigation: { escalate: true } });
+  });
+
+  it('escalationRequired_NoInvestigation_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {};
+
+    const result = guards.escalationRequired.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('escalation-required');
+  });
+
+  it('escalationRequired_EscalateFalse_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      investigation: { escalate: false },
+    };
+
+    const result = guards.escalationRequired.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+});
+
+// ─── Task 4: revisionsExhausted Guard Tests ─────────────────────────────────
+
+describe('revisionsExhausted', () => {
+  it('revisionsExhausted_CountAtMax_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 3 },
+    };
+
+    const result = guards.revisionsExhausted.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('revisionsExhausted_CountAboveMax_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 5 },
+    };
+
+    const result = guards.revisionsExhausted.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('revisionsExhausted_CountBelowMax_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 1 },
+    };
+
+    const result = guards.revisionsExhausted.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('revisions-exhausted');
+    expect(failure.reason).toContain('1/3');
+  });
+
+  it('revisionsExhausted_NoRevisionCount_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {};
+
+    const result = guards.revisionsExhausted.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('revisions-exhausted');
+    expect(failure.reason).toContain('0/3');
+  });
+
+  it('revisionsExhausted_ZeroRevisions_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      planReview: { revisionCount: 0 },
+    };
+
+    const result = guards.revisionsExhausted.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+});
+
+// ─── Task 8: prRequested Guard Tests ────────────────────────────────────────
+
+describe('prRequested', () => {
+  it('prRequested_SynthesisRequestedTrue_ReturnsTrue', () => {
+    const state: Record<string, unknown> = {
+      synthesis: { requested: true },
+    };
+
+    const result = guards.prRequested.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('prRequested_SynthesisMissing_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {};
+
+    const result = guards.prRequested.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('pr-requested');
+    expect(failure.expectedShape).toEqual({ synthesis: { requested: true } });
+  });
+
+  it('prRequested_SynthesisRequestedFalse_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      synthesis: { requested: false },
+    };
+
+    const result = guards.prRequested.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+
+  it('prRequested_SynthesisNoRequestedField_ReturnsFailure', () => {
+    const state: Record<string, unknown> = {
+      synthesis: { prUrl: 'https://example.com' },
+    };
+
+    const result = guards.prRequested.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+});
