@@ -143,6 +143,10 @@ function buildFailedReviewsExpectedShape(
   return { reviews: reviewEntries };
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+export const MAX_PLAN_REVISIONS = 3;
+
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
 export const guards = {
@@ -514,6 +518,49 @@ export const guards = {
             },
           },
         },
+      };
+    },
+  },
+
+  escalationRequired: {
+    id: 'escalation-required',
+    description: 'Investigation determined fix requires architectural redesign',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const investigation = state.investigation as Record<string, unknown> | undefined;
+      if (investigation?.escalate === true) return true;
+      return {
+        passed: false,
+        reason: 'escalation-required not satisfied',
+        expectedShape: { investigation: { escalate: true } },
+      };
+    },
+  },
+
+  revisionsExhausted: {
+    id: 'revisions-exhausted',
+    description: 'Plan revision count has reached the maximum allowed',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const planReview = state.planReview as Record<string, unknown> | undefined;
+      const rawCount = planReview?.revisionCount;
+      const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
+      if (count >= MAX_PLAN_REVISIONS) return true;
+      return {
+        passed: false,
+        reason: `revisions-exhausted not satisfied: ${count}/${MAX_PLAN_REVISIONS} revisions`,
+      };
+    },
+  },
+
+  prRequested: {
+    id: 'pr-requested',
+    description: 'PR creation has been requested',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      if (synthesis?.requested === true) return true;
+      return {
+        passed: false,
+        reason: 'pr-requested not satisfied',
+        expectedShape: { synthesis: { requested: true } },
       };
     },
   },
