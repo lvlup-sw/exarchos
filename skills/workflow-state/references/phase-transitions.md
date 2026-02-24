@@ -116,6 +116,46 @@ explore → brief → [polish-track | overhaul-track] → completed
 
 **Compound state:** `overhaul-track` contains `overhaul-plan` through `overhaul-review`. Max 3 fix cycles.
 
+## Circuit Breaker
+
+Compound states enforce a maximum number of fix cycles to prevent infinite review-fix loops. When the limit is exceeded, the HSM rejects the transition with a `CIRCUIT_OPEN` error and emits a `workflow.circuit-open` event.
+
+### What Triggers It
+
+A fix cycle occurs when a review phase transitions back to a delegate/implement phase (a `isFixCycle: true` transition). Each such transition increments the fix cycle counter for the enclosing compound state. The circuit breaker opens when the count reaches `maxFixCycles`.
+
+For example, in the feature workflow: `review` -> `delegate` is a fix cycle within the `implementation` compound state. After 3 such cycles, the fourth attempt is blocked.
+
+### Max Fix Cycles Per Workflow
+
+| Workflow | Compound State | Contains | Max Fix Cycles |
+|----------|---------------|----------|----------------|
+| Feature | `implementation` | `delegate`, `review` | 3 |
+| Debug | `thorough-track` | `rca`, `design`, `debug-implement`, `debug-validate`, `debug-review` | 2 |
+| Refactor | `overhaul-track` | `overhaul-plan`, `overhaul-delegate`, `overhaul-review`, `overhaul-update-docs` | 3 |
+
+Note: `polish-track` (refactor) and `hotfix-track` (debug) have no fix cycle transitions, so no circuit breaker applies.
+
+### What Happens When It Opens
+
+1. The HSM emits a `circuit-open` event with metadata:
+   - `compoundStateId` — the compound state that exceeded its limit
+   - `fixCycleCount` — current count
+   - `maxFixCycles` — the configured limit
+2. The transition is **rejected** — the workflow stays in the current phase
+3. The error response contains `errorCode: "CIRCUIT_OPEN"` with a descriptive message
+4. The workflow effectively enters a stuck state requiring human intervention
+
+### How to Recover
+
+When a circuit breaker opens, the agent should:
+
+1. **Report to the user** with the iteration history and persistent failures
+2. **Set `unblocked = true`** after the user provides guidance — this allows the `blocked` -> `delegate` transition
+3. Alternatively, **cancel the workflow** via `exarchos_workflow cancel` and restart with a different approach
+
+The circuit breaker count is tracked via `fix-cycle` events in the workflow's `_events` array. These events persist across sessions, so the count survives context compaction and session restarts.
+
 ## Troubleshooting
 
 ### INVALID_TRANSITION Error
@@ -135,7 +175,7 @@ The transition exists but the guard condition is not met.
 
 ### CIRCUIT_OPEN Error
 
-A compound state's fix cycle limit has been reached (e.g., review → delegate looped too many times).
+A compound state's fix cycle limit has been reached (e.g., review -> delegate looped too many times). See the **Circuit Breaker** section above for full details on limits per workflow, what happens, and recovery steps.
 
-1. The workflow is stuck — escalate to the user
-2. Consider cancelling and restarting with a different approach
+1. Report persistent failures to the user with iteration history
+2. After user guidance, set `unblocked = true` to proceed, or cancel and restart
