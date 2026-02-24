@@ -34,6 +34,7 @@ export function createFeatureHSM(): HSMDefinition {
       guard: guards.planReviewGapsFound,
       effects: ['log'],
     },
+    { from: 'plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     { from: 'delegate', to: 'review', guard: composeGuards(
       'all-tasks-complete+team-disbanded',
       'All tasks must be complete and team must be disbanded',
@@ -124,6 +125,7 @@ export function createDebugHSM(): HSMDefinition {
       to: 'hotfix-implement',
       guard: guards.hotfixTrackSelected,
     },
+    { from: 'investigate', to: 'cancelled', guard: guards.escalationRequired },
 
     // Thorough track flow
     { from: 'rca', to: 'design', guard: guards.rcaDocumentComplete },
@@ -142,6 +144,12 @@ export function createDebugHSM(): HSMDefinition {
       to: 'hotfix-validate',
       guard: guards.implementationComplete,
     },
+    { from: 'hotfix-validate', to: 'synthesize', guard: composeGuards(
+      'validation+pr-requested',
+      'Validation must pass and PR must be requested',
+      guards.validationPassed,
+      guards.prRequested,
+    ) },
     { from: 'hotfix-validate', to: 'completed', guard: guards.validationPassed },
 
     // Synthesize -> completed

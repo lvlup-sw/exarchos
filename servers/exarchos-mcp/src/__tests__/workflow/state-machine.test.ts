@@ -2403,3 +2403,178 @@ describe('universal cleanup transition', () => {
     expect(result.idempotent).toBe(true);
   });
 });
+
+// ─── Task 3: Debug Escalation HSM Transition ────────────────────────────────
+
+describe('Debug HSM Escalation Transition', () => {
+  it('debugHSM_InvestigateToCancel_EscalationTransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'cancelled',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('escalation-required');
+  });
+
+  it('debugHSM_InvestigateToCancelled_SucceedsWhenEscalationRequired', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      investigation: { escalate: true, rootCause: 'architectural issue' },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'cancelled');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('cancelled');
+  });
+
+  it('debugHSM_InvestigateToCancelled_FailsWhenNoEscalation', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      investigation: { rootCause: 'simple bug' },
+      _events: [],
+      _history: {},
+    };
+
+    // Note: cancel is a universal transition, so investigate → cancelled
+    // via the escalation guard will fail, but universal cancel will succeed.
+    // The guard-gated transition is distinct from universal cancel.
+    // Let's verify the guard-gated transition is in the definition.
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'cancelled',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+
+    // Verify the guard fails for non-escalation state
+    const guardResult = transition!.guard!.evaluate(state);
+    expect(guardResult).not.toBe(true);
+  });
+});
+
+// ─── Task 4: Plan Revision Termination HSM Transition ───────────────────────
+
+describe('Feature HSM Plan Revision Termination', () => {
+  it('featureHSM_PlanReviewToBlocked_RevisionsExhaustedTransitionExists', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'plan-review' && t.to === 'blocked',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('revisions-exhausted');
+  });
+
+  it('featureHSM_PlanReviewToBlocked_SucceedsWhenRevisionsExhausted', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'plan-review',
+      planReview: { revisionCount: 3 },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'blocked');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('blocked');
+  });
+
+  it('featureHSM_PlanReviewToBlocked_FailsWhenRevisionsBelowMax', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'plan-review',
+      planReview: { revisionCount: 1 },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'blocked');
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+});
+
+// ─── Task 8: Hotfix-Validate to Synthesize HSM Transition ───────────────────
+
+describe('Debug HSM Hotfix-Validate to Synthesize', () => {
+  it('debugHSM_HotfixValidateToSynthesize_TransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'hotfix-validate' && t.to === 'synthesize',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('validation+pr-requested');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_SucceedsWhenValidAndPrRequested', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      synthesis: { requested: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('synthesize');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_FailsWhenNoPrRequested', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+
+  it('debugHSM_HotfixValidateToCompleted_StillWorksWithoutPr', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_BeforeCompletedInTransitionOrder', () => {
+    const hsm = getHSMDefinition('debug');
+    const transitions = hsm.transitions;
+
+    // Find indices of both transitions from hotfix-validate
+    const synthIdx = transitions.findIndex(
+      (t) => t.from === 'hotfix-validate' && t.to === 'synthesize',
+    );
+    const completedIdx = transitions.findIndex(
+      (t) => t.from === 'hotfix-validate' && t.to === 'completed',
+    );
+
+    // synthesize transition must come before completed transition
+    expect(synthIdx).toBeGreaterThanOrEqual(0);
+    expect(completedIdx).toBeGreaterThanOrEqual(0);
+    expect(synthIdx).toBeLessThan(completedIdx);
+  });
+});
