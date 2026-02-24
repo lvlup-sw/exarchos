@@ -62,6 +62,8 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 
 **Conditional PBT:** When a task has `testingStrategy.propertyTests: true`, include the PBT section from `references/pbt-patterns.md`. When `false`, omit entirely.
 
+**Testing patterns:** For Arrange/Act/Assert examples, test naming conventions, mocking, and co-location rules, see `references/testing-patterns.md`.
+
 ## Delegation Workflow — Subagent Mode
 
 1. Prepare worktrees — `scripts/setup-worktree.sh`
