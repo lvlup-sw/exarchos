@@ -95,7 +95,7 @@ for skip_author in "${SKIP_AUTHORS[@]}"; do
   fi
 done
 
-# Skip Graphite merge queue PRs
+# Skip Graphite merge queue PRs (defense-in-depth; CI also skips via job condition)
 if echo "$BODY" | grep -qi "graphite merge queue"; then
   exit 0
 fi
@@ -128,7 +128,7 @@ fi
 MISSING=()
 for section in "${REQUIRED_SECTIONS[@]}"; do
   # Escape regex metacharacters in section name for safe ERE matching
-  escaped_section=$(printf '%s' "$section" | sed 's/[.*+?^${}()|[\]/\\&/g')
+  escaped_section=$(printf '%s' "$section" | sed 's/\\/\\\\/g; s/[].*+?^${}()|[]/\\&/g')
   # Case-insensitive match for ## Section Header
   if ! echo "$BODY" | grep -qiE "^##[[:space:]]+${escaped_section}[[:space:]]*$"; then
     MISSING+=("$section")

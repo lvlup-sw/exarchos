@@ -162,13 +162,21 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              assignees: [context.payload.pull_request.user.login]
-            });
-            console.log(`Assigned ${context.payload.pull_request.user.login} to PR #${context.payload.pull_request.number}`);
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                assignees: [context.payload.pull_request.user.login]
+              });
+              console.log(`Assigned ${context.payload.pull_request.user.login} to PR #${context.payload.pull_request.number}`);
+            } catch (error) {
+              if (error.status === 403 || error.status === 422) {
+                console.log(`Skipping assignment for ${context.payload.pull_request.user.login}: ${error.message}`);
+                return;
+              }
+              throw error;
+            }
 
   # ============================================================
   # PROJECT SYNC: Add issues/PRs to project board
