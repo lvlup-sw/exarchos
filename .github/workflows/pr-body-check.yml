@@ -1,0 +1,42 @@
+name: PR Body Check
+
+on:
+  pull_request:
+    types: [opened, edited, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-pr-body:
+    if: |
+      github.event.pull_request.user.login != 'renovate[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.title, '[Graphite MQ]')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup GitHub CLI
+        env:
+          GH_VERSION: '2.65.0'
+        run: |
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar xz -C /tmp
+            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Validate PR body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TEMPLATE_FLAG=""
+          if [[ -f ".exarchos/pr-template.md" ]]; then
+            TEMPLATE_FLAG="--template .exarchos/pr-template.md"
+          fi
+          bash scripts/validate-pr-body.sh \
+            --pr "${{ github.event.pull_request.number }}" \
+            --author "${{ github.event.pull_request.user.login }}" \
+            $TEMPLATE_FLAG

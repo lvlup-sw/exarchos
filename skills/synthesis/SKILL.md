@@ -109,7 +109,7 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
 })
 ```
 
-5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure
+5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure. After `gt submit`, update each PR body via `gh pr edit`. Validate with `scripts/validate-pr-body.sh --pr <number>`. Consumers can override the template via `.exarchos/pr-template.md`.
 6. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
 7. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
 8. **Cleanup after merge** -- `gt sync` + remove worktrees
