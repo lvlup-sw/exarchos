@@ -5,6 +5,7 @@ import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { isPidAlive } from '../utils/process.js';
+import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -140,6 +141,19 @@ export async function initStateFile(
         );
       }
       throw err;
+    }
+
+    // Write-through: also write .state.json as crash-recovery backup.
+    try {
+      await fs.mkdir(stateDir, { recursive: true });
+      const tmpPath = `${stateFile}.init.${process.pid}`;
+      await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+      await fs.rename(tmpPath, stateFile);
+    } catch (err) {
+      logger.warn(
+        { stateFile, err: err instanceof Error ? err.message : String(err) },
+        'Failed to write .state.json backup; backend write succeeded',
+      );
     }
     return { stateFile, state };
   }
@@ -327,6 +341,21 @@ export async function writeStateFile(
         );
       }
       throw err;
+    }
+
+    // Write-through: also write .state.json as crash-recovery backup.
+    // Backend is the primary store; file write failure is non-fatal.
+    try {
+      const dir = path.dirname(stateFile);
+      await fs.mkdir(dir, { recursive: true });
+      const tmpPath = `${stateFile}.tmp.${process.pid}`;
+      await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
+      await fs.rename(tmpPath, stateFile);
+    } catch (err) {
+      logger.warn(
+        { stateFile, err: err instanceof Error ? err.message : String(err) },
+        'Failed to write .state.json backup; backend write succeeded',
+      );
     }
     return;
   }
