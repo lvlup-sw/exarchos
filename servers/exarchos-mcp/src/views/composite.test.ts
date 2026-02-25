@@ -11,6 +11,7 @@ vi.mock('./tools.js', () => ({
   handleViewQualityHints: vi.fn(),
   handleViewEvalResults: vi.fn(),
   handleViewQualityCorrelation: vi.fn(),
+  handleViewSessionProvenance: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -35,6 +36,7 @@ import {
   handleViewQualityHints,
   handleViewEvalResults,
   handleViewQualityCorrelation,
+  handleViewSessionProvenance,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -413,6 +415,73 @@ describe('handleView', () => {
     });
   });
 
+  describe('session_provenance', () => {
+    it('exarchosView_SessionProvenance_BySession_ReturnsSessionData', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        sessionId: 'sess-1',
+        tools: { Read: 5 },
+        toolsByCategory: { native: 5, mcp_exarchos: 0, mcp_other: 0 },
+        tokens: { in: 1000, out: 500, cacheR: 200, cacheW: 100 },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance', sessionId: 'sess-1' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        { sessionId: 'sess-1' },
+        STATE_DIR,
+      );
+    });
+
+    it('exarchosView_SessionProvenance_ByWorkflow_ReturnsAggregatedData', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        workflowId: 'wf-1',
+        sessions: 3,
+        tokens: { in: 5000, out: 2500, cacheR: 1000, cacheW: 500 },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance', workflowId: 'wf-1' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        { workflowId: 'wf-1' },
+        STATE_DIR,
+      );
+    });
+
+    it('exarchosView_SessionProvenance_InvalidQuery_ReturnsError', async () => {
+      // Arrange
+      const expected = {
+        success: false,
+        error: { code: 'INVALID_QUERY', message: 'Either sessionId or workflowId is required' },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        {},
+        STATE_DIR,
+      );
+    });
+  });
+
   describe('unknown action', () => {
     it('HandleView_UnknownAction_IncludesEvalResultsAndCodeQuality', async () => {
       // Arrange
@@ -429,6 +498,7 @@ describe('handleView', () => {
       expect(validTargets).toContain('quality_hints');
       expect(validTargets).toContain('eval_results');
       expect(validTargets).toContain('quality_correlation');
+      expect(validTargets).toContain('session_provenance');
     });
 
     it('should return error for unknown action', async () => {
