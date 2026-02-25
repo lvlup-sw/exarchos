@@ -122,6 +122,8 @@ export async function handleCancel(
   }
 
   // Determine event-sourcing version for v1/v2 path discrimination
+  // Note: v2 workflows may run without an EventStore during CLI/hook contexts (migration period).
+  // When moduleEventStore is null, we gracefully fall back to v1 legacy path.
   const useEventFirst = isEventSourced(mutableState) && moduleEventStore !== null;
 
   // Bridge compensation events to external event store
@@ -135,7 +137,7 @@ export async function handleCancel(
           await moduleEventStore.append(input.featureId, {
             type: externalType as import('../event-store/schemas.js').EventType,
             data: { ...event.metadata, featureId: input.featureId },
-          }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${i}` });
+          }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${event.metadata?.taskId ?? event.metadata?.action ?? i}` });
         }
       } catch (err) {
         return {
@@ -200,7 +202,7 @@ export async function handleCancel(
               featureId: input.featureId,
               ...(transitionEvent.metadata ?? {}),
             },
-          }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.from}:cancelled` });
+          }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled` });
         }
         // Emit cancel event with distinct type and full metadata
         await moduleEventStore.append(input.featureId, {

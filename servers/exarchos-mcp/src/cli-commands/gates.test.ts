@@ -1517,8 +1517,8 @@ describe('Quality Gate Commands', () => {
       expect(event.type).toBe('team.task.failed');
       expect(event.data.failureReason).toContain('typecheck');
       // On the circuit-breaker path, taskId/featureId are not passed (no completion context),
-      // so taskId defaults to 'unknown' and streamId is resolved from active workflow
-      expect(event.idempotencyKey).toBe('sidecar-fail-test:team.task.failed:unknown');
+      // so taskId falls back to anon-{teammateName} — stable for retry dedup
+      expect(event.idempotencyKey).toContain(':team.task.failed:anon-');
 
       // Cleanup circuit breaker state
       resetQualityRetries('__all__');

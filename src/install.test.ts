@@ -1111,16 +1111,17 @@ describe('hooks.json', () => {
     expect(() => JSON.parse(content)).not.toThrow();
   });
 
-  it('hooksJson_HasSixHookEvents', () => {
+  it('hooksJson_ContainsAllExpectedHookEventTypes', () => {
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const eventTypes = Object.keys(hooks.hooks);
     expect(eventTypes).toContain('PreCompact');
     expect(eventTypes).toContain('SessionStart');
+    expect(eventTypes).toContain('SessionEnd');
     expect(eventTypes).toContain('PreToolUse');
     expect(eventTypes).toContain('TaskCompleted');
     expect(eventTypes).toContain('TeammateIdle');
     expect(eventTypes).toContain('SubagentStart');
-    expect(eventTypes).toHaveLength(6);
+    expect(eventTypes).toHaveLength(7);
   });
 
   it('hooksJson_AllCommandsReferencePluginRoot', () => {

@@ -591,6 +591,58 @@ export async function handleViewQualityCorrelation(
   }
 }
 
+// ─── View Session Provenance Handler ─────────────────────────────────────────
+
+export async function handleViewSessionProvenance(
+  args: { sessionId?: string; workflowId?: string; metric?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  if (!args.sessionId && !args.workflowId) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'Either sessionId or workflowId is required',
+      },
+    };
+  }
+
+  if (args.sessionId && args.workflowId) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'Provide sessionId or workflowId, not both',
+      },
+    };
+  }
+
+  const validMetrics = new Set(['cost', 'attribution']);
+  const metric = args.metric && validMetrics.has(args.metric)
+    ? (args.metric as 'cost' | 'attribution')
+    : undefined;
+
+  try {
+    const { materializeSessionProvenance } = await import(
+      '../session/session-provenance-projection.js'
+    );
+    const result = await materializeSessionProvenance(stateDir, {
+      sessionId: args.sessionId,
+      workflowId: args.workflowId,
+      metric,
+    });
+    return { success: true, data: result };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {

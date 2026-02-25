@@ -14,6 +14,7 @@ import {
   handleViewQualityHints,
   handleViewEvalResults,
   handleViewQualityCorrelation,
+  handleViewSessionProvenance,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -127,6 +128,12 @@ export async function handleView(
         stateDir,
       );
 
+    case 'session_provenance':
+      return handleViewSessionProvenance(
+        rest as { sessionId?: string; workflowId?: string; metric?: string },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -146,6 +153,7 @@ export async function handleView(
             'quality_hints',
             'eval_results',
             'quality_correlation',
+            'session_provenance',
           ] as const,
         },
       };

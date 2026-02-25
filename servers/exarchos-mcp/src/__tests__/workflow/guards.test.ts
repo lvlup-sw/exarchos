@@ -432,6 +432,16 @@ describe('ScopeAssessmentComplete Guard (#775)', () => {
       expect(obj).toEqual(expect.objectContaining({ passed: false }));
     });
   });
+
+  describe('scopeAssessmentComplete_WithRootScopeAssessment_ReturnsTrue', () => {
+    it('should return true when scopeAssessment is at root level (legacy/convenience)', () => {
+      const state = { scopeAssessment: { complete: true, track: 'overhaul' } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).toBe(true);
+    });
+  });
 });
 
 // ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
