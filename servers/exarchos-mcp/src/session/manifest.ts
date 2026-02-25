@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { SessionManifestEntry } from './types.js';
+import type { SessionManifestEntry, SessionManifestCompletion } from './types.js';
 
 const SESSIONS_DIR = 'sessions';
 const MANIFEST_FILE = '.manifest.jsonl';
@@ -29,6 +29,13 @@ export async function readManifestEntries(stateDir: string): Promise<SessionMani
   return trimmed
     .split('\n')
     .map((line) => JSON.parse(line) as SessionManifestEntry);
+}
+
+export async function writeManifestCompletion(stateDir: string, completion: SessionManifestCompletion): Promise<void> {
+  const sessionsDir = path.join(stateDir, SESSIONS_DIR);
+  await fs.mkdir(sessionsDir, { recursive: true });
+  const completionPath = path.join(sessionsDir, '.completions.jsonl');
+  await fs.appendFile(completionPath, JSON.stringify(completion) + '\n', 'utf-8');
 }
 
 export async function findUnextractedSessions(stateDir: string): Promise<SessionManifestEntry[]> {
