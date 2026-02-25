@@ -21,16 +21,17 @@ const LEGACY_CLEANUP_PATTERNS = [
 // ─── State Migration ────────────────────────────────────────────────────────
 
 /**
- * Migrates legacy `*.state.json` files into the StorageBackend.
+ * Imports `*.state.json` files into the StorageBackend.
  *
  * For each `*.state.json` file found:
+ * - Skips if the featureId already exists in the backend (idempotent)
  * - Parses the JSON content
  * - Validates against WorkflowStateSchema
  * - Extracts the featureId from the filename (`{featureId}.state.json`)
  * - Inserts into the backend via `setState()`
- * - Renames the original file to `*.state.json.migrated`
  *
- * Corrupt or invalid files are skipped (not renamed).
+ * The `.state.json` file is kept on disk as a crash-recovery backup.
+ * Corrupt or invalid files are skipped.
  */
 export async function migrateLegacyStateFiles(
   backend: StorageBackend,
@@ -51,6 +52,9 @@ export async function migrateLegacyStateFiles(
   for (const file of stateFiles) {
     const filePath = path.join(stateDir, file);
     const featureId = file.replace('.state.json', '');
+
+    // Idempotent: skip if backend already has this state
+    if (backend.getState(featureId) != null) continue;
 
     let raw: unknown;
     try {
@@ -77,9 +81,6 @@ export async function migrateLegacyStateFiles(
     const state: WorkflowState = parsed.data;
 
     backend.setState(featureId, state);
-
-    // Rename to .migrated after successful insert
-    await rename(filePath, filePath + '.migrated');
   }
 }
 

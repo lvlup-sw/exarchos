@@ -95,9 +95,29 @@ describe('migrateLegacyStateFiles', () => {
     expect(retrieved!.featureId).toBe('my-feature');
     expect(retrieved!.phase).toBe('plan');
 
-    // Assert: original file was renamed to .migrated
-    expect(fs.existsSync(filePath)).toBe(false);
-    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
+    // Assert: original file preserved as crash-recovery backup
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it('migrateLegacyStateFiles_AlreadyInBackend_SkipsIdempotently', async () => {
+    // Arrange: state already exists in backend
+    const state = makeState({ featureId: 'existing', phase: 'plan' });
+    backend.setState('existing', state);
+
+    // Write a .state.json that would conflict
+    const filePath = path.join(tempDir, 'existing.state.json');
+    const olderState = makeState({ featureId: 'existing', phase: 'ideate' });
+    fs.writeFileSync(filePath, JSON.stringify(olderState), 'utf-8');
+
+    // Act
+    await migrateLegacyStateFiles(backend, tempDir);
+
+    // Assert: backend still has the original state (not overwritten)
+    const retrieved = backend.getState('existing');
+    expect(retrieved!.phase).toBe('plan');
+
+    // Assert: file remains untouched
+    expect(fs.existsSync(filePath)).toBe(true);
   });
 
   it('migrateLegacyStateFiles_NoLegacyFiles_NoOps', async () => {
@@ -163,7 +183,8 @@ describe('migrateLegacyStateFiles', () => {
     expect(retrieved!.version).toBe('1.1');
     expect(retrieved!._history).toBeDefined();
     expect(retrieved!._checkpoint).toBeDefined();
-    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
+    // File preserved as backup
+    expect(fs.existsSync(filePath)).toBe(true);
   });
 
   it('migrateLegacyStateFiles_VersionlessState_MigratesAsV1_0', async () => {
@@ -197,7 +218,8 @@ describe('migrateLegacyStateFiles', () => {
     expect(retrieved).not.toBeNull();
     expect(retrieved!.version).toBe('1.1');
     expect(retrieved!._checkpoint).toBeDefined();
-    expect(fs.existsSync(filePath + '.migrated')).toBe(true);
+    // File preserved as backup
+    expect(fs.existsSync(filePath)).toBe(true);
   });
 
   it('migrateLegacyStateFiles_MultipleFiles_MigratesAll', async () => {
