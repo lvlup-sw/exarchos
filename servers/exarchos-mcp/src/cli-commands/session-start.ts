@@ -6,6 +6,7 @@ import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { generateHints } from '../telemetry/hints.js';
+import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ export interface SessionStartResult extends CommandResult {
   readonly orphanedTeams?: ReadonlyArray<string>;
   readonly telemetryHints?: ReadonlyArray<string>;
   readonly contextDocument?: string;
+  readonly behavioralGuidance?: string;
   readonly graphiteAvailable?: boolean;
 }
 
@@ -483,6 +485,24 @@ async function enrichResult(
   return enriched;
 }
 
+// ─── Behavioral Guidance Lookup ───────────────────────────────────────────
+
+/**
+ * Look up behavioral guidance for a given workflow phase.
+ * Returns the rendered playbook string or undefined if:
+ * - The phase is terminal (completed/cancelled)
+ * - No playbook is registered for the workflow type + phase combination
+ */
+function getBehavioralGuidanceForPhase(
+  workflowType: string,
+  phase: string,
+): string | undefined {
+  if (TERMINAL_PHASES.has(phase)) return undefined;
+  const playbook = getPlaybook(workflowType, phase);
+  if (!playbook) return undefined;
+  return renderPlaybook(playbook);
+}
+
 /**
  * Handle the `session-start` CLI command.
  *
@@ -527,6 +547,21 @@ export async function handleSessionStart(
     // Collect pre-computed context documents from checkpoint references
     const contextDocument = await collectContextDocuments(checkpoints, stateDir);
 
+    // Look up behavioral guidance for the first non-terminal checkpoint workflow
+    let behavioralGuidance: string | undefined;
+    for (const cp of checkpoints) {
+      if (TERMINAL_PHASES.has(cp.phase)) continue;
+      try {
+        const stateRaw = await fs.readFile(cp.stateFile, 'utf-8');
+        const stateData = JSON.parse(stateRaw) as Record<string, unknown>;
+        const wfType = typeof stateData.workflowType === 'string' ? stateData.workflowType : '';
+        behavioralGuidance = getBehavioralGuidanceForPhase(wfType, cp.phase);
+      } catch {
+        // Graceful fallback — state file may not exist
+      }
+      break; // Only first active workflow
+    }
+
     // Also check for active state files not covered by checkpoints
     try {
       const stateFiles = (await listStateFiles(stateDir)).valid;
@@ -545,13 +580,19 @@ export async function handleSessionStart(
       // Non-critical: if listing fails, we still have checkpoint data
     }
 
-    const baseResult: SessionStartResult = contextDocument
-      ? { workflows, contextDocument }
-      : { workflows };
+    const baseResult: SessionStartResult = {
+      ...(workflows.length > 0 && { workflows }),
+      ...(contextDocument && { contextDocument }),
+      ...(behavioralGuidance && { behavioralGuidance }),
+    };
 
     if (teamsDir) {
       const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
-      const merged = contextDocument ? { ...teamResult, contextDocument } : teamResult;
+      const merged = {
+        ...teamResult,
+        ...(contextDocument && { contextDocument }),
+        ...(behavioralGuidance && { behavioralGuidance }),
+      };
       return enrichResult(merged, stateDir, graphiteAvailable);
     }
     return enrichResult(baseResult, stateDir, graphiteAvailable);
@@ -573,9 +614,31 @@ export async function handleSessionStart(
       nextAction: `WAIT:in-progress:${entry.state.phase}`,
     }));
 
-    if (teamsDir) return enrichResult(await applyNativeTeamDetection(workflows, teamsDir), stateDir, graphiteAvailable);
+    // Look up behavioral guidance for the first non-terminal workflow
+    let behavioralGuidance: string | undefined;
+    for (const entry of activeWorkflows) {
+      if (TERMINAL_PHASES.has(entry.state.phase)) continue;
+      behavioralGuidance = getBehavioralGuidanceForPhase(
+        entry.state.workflowType ?? '',
+        entry.state.phase,
+      );
+      break; // Only first active workflow
+    }
+
+    if (teamsDir) {
+      const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
+      return enrichResult(
+        { ...teamResult, ...(behavioralGuidance && { behavioralGuidance }) },
+        stateDir,
+        graphiteAvailable,
+      );
+    }
     if (workflows.length === 0) return enrichResult({}, stateDir, graphiteAvailable);
-    return enrichResult({ workflows }, stateDir, graphiteAvailable);
+    return enrichResult(
+      { workflows, ...(behavioralGuidance && { behavioralGuidance }) },
+      stateDir,
+      graphiteAvailable,
+    );
   } catch {
     // If state dir doesn't exist or is unreadable, still check for orphaned teams
     if (teamsDir) return enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir, graphiteAvailable);
