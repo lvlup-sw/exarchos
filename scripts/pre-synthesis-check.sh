@@ -182,31 +182,58 @@ check_phase_readiness() {
             ;;
         refactor)
             case "$phase" in
+                # Polish track — no synthesize step, goes directly to completed
+                polish-implement|polish-validate|polish-update-docs)
+                    check_fail "Phase is synthesize" \
+                      "Current phase '$phase' — polish track completes directly (no synthesize). Use exarchos_workflow cleanup."
+                    return 1
+                    ;;
+                # Overhaul track — has synthesize step
+                overhaul-plan)
+                    missing+=("Transition: overhaul-plan → overhaul-delegate (guard: planArtifactExists)")
+                    missing+=("Transition: overhaul-delegate → overhaul-review (guard: allTasksComplete)")
+                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed)")
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated)")
+                    ;;
                 overhaul-delegate)
                     missing+=("Transition: overhaul-delegate → overhaul-review (guard: allTasksComplete)")
-                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed — set reviews)")
-                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
+                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed)")
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated)")
                     ;;
                 overhaul-review)
-                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed — set reviews)")
-                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
+                    missing+=("Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed)")
+                    missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated)")
                     ;;
                 overhaul-update-docs)
                     missing+=("Transition: overhaul-update-docs → synthesize (guard: docsUpdated — set validation.docsUpdated=true)")
                     ;;
                 *)
-                    check_fail "Phase is synthesize" "Current phase '$phase' — manual phase advancement needed for $workflow_type workflow"
+                    check_fail "Phase is synthesize" \
+                      "Current phase '$phase' — not on a synthesis-eligible path for $workflow_type workflow"
                     return 1
                     ;;
             esac
             ;;
         debug)
             case "$phase" in
-                validate)
-                    missing+=("Transition: validate → synthesize (guard: allTestsPass — set validation.testsPass=true)")
+                debug-validate)
+                    missing+=("Transition: debug-validate → debug-review (guard: validationPassed)")
+                    missing+=("Transition: debug-review → synthesize (guard: reviewPassed)")
+                    ;;
+                debug-review)
+                    missing+=("Transition: debug-review → synthesize (guard: reviewPassed)")
+                    ;;
+                hotfix-validate)
+                    missing+=("Transition: hotfix-validate → synthesize (guard: validationPassed + prRequested)")
+                    ;;
+                triage|investigate|rca|design|debug-implement|hotfix-implement)
+                    check_fail "Phase is synthesize" \
+                      "Current phase '$phase' — multiple transitions needed before synthesize for $workflow_type workflow"
+                    return 1
                     ;;
                 *)
-                    check_fail "Phase is synthesize" "Current phase '$phase' — manual phase advancement needed for $workflow_type workflow"
+                    check_fail "Phase is synthesize" \
+                      "Current phase '$phase' — not on a synthesis-eligible path for $workflow_type workflow"
                     return 1
                     ;;
             esac

@@ -56,7 +56,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<i
 | Inline review comments | GitHub MCP `pull_request_read` (review comments) | All addressed (replied to or resolved) |
 | Stack health | `mcp__graphite__run_gt_cmd({ args: ["log"] })` | Correct base targeting, no conflicts |
 
-**CodeRabbit Review Gate:** For sophisticated CodeRabbit review cycle management, use `scripts/coderabbit-review-gate.sh`. This script handles round counting, severity classification (high/medium/low), auto-resolution of outdated comments, and outputs an approve/wait/escalate decision. Exit 0: approved. Exit 1: waiting for more rounds. Exit 2: escalate to human.
+**CodeRabbit Review Gate:** For sophisticated CodeRabbit review cycle management, use `scripts/coderabbit-review-gate.sh --owner <owner> --repo <repo> --pr <number>`. This script handles round counting, severity classification (high/medium/low), auto-resolution of outdated comments, and outputs an approve/wait/escalate decision. Exit 0: approve or wait (no intervention needed). Exit 1: escalate (human review needed). Exit 2: usage error.
 
 **CRITICAL — Inline review comments are the most commonly missed dimension.** Formal review status (APPROVED/CHANGES_REQUESTED) only captures reviews submitted through GitHub's review workflow. Many automated reviewers — Sentry, Graphite agent, and others — leave **inline comments** that do NOT affect formal review status. You MUST read the full comment list for every PR.
 
@@ -196,7 +196,7 @@ Return to step 1 (Assess) for the next iteration.
 
 When all checks and reviews are green:
 
-**Pre-approval gate:** Before requesting human approval, run `scripts/check-pr-comments.sh` to verify all inline PR review comments have replies. Exit 0: all addressed. Exit 1: unaddressed comments remain (address them before requesting approval).
+**Pre-approval gate:** Before requesting human approval, run `scripts/check-pr-comments.sh --pr <number> [--repo owner/repo]` to verify all inline PR review comments have replies. Exit 0: all addressed. Exit 1: unaddressed comments remain (address them before requesting approval).
 
 1. Identify required approvers (repo settings or user-specified)
 2. Request review via GitHub MCP:

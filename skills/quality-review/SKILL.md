@@ -83,7 +83,7 @@ This enables catching:
 
 Before proceeding, confirm spec review passed for all tasks:
 
-```
+```text
 action: "get", featureId: "<id>", query: "reviews"
 ```
 
@@ -92,7 +92,7 @@ If ANY task has `specReview.status !== "pass"`, STOP and return:
 { "verdict": "blocked", "summary": "Spec review not passed — run spec-review first" }
 ```
 
-### Step 0.5: Verify Review Triage (Optional)
+### Step 0.5: Verify Review Triage (Conditional — run when delegation phase preceded this review)
 
 If this review follows a delegation phase, verify triage routing:
 
@@ -100,7 +100,7 @@ If this review follows a delegation phase, verify triage routing:
 scripts/verify-review-triage.sh --state-file <state-file>
 ```
 
-Exit 0: triage routing correct. Exit 1: triage issues found (investigate before proceeding).
+Exit 0: triage routing correct — continue to Step 1. Exit 1: triage issues found — investigate and resolve before proceeding.
 
 ### Step 1: Static Analysis
 
@@ -210,14 +210,14 @@ If an issue spans multiple tasks:
 ## State Management
 
 **On review complete:**
-```
+```text
 action: "set", featureId: "<id>", updates: {
   "reviews": { "quality": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 ```
 
 **On all reviews pass — advance to synthesis:**
-```
+```text
 action: "set", featureId: "<id>", phase: "synthesize"
 ```
 
