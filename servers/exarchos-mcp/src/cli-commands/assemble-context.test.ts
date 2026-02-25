@@ -431,4 +431,137 @@ describe('assemble-context', () => {
     expect(result.contextDocument).toContain('### Task Progress');
     expect(result.contextDocument).toMatch(/\+5 more tasks? not shown/);
   });
+
+  // ─── Behavioral Guidance Section Tests ──────────────────────────────────
+
+  it('handleAssembleContext_ActiveWorkflow_IncludesBehavioralSection', async () => {
+    // Arrange — state with phase=delegate, workflowType=feature
+    const featureId = 'behavioral-feature';
+    await writeMockState(tempDir, featureId, {
+      phase: 'delegate',
+      workflowType: 'feature',
+    });
+    await writeMockEvents(tempDir, featureId, [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+      {
+        type: 'workflow.transition',
+        data: { featureId, from: 'ideate', to: 'delegate', trigger: 'auto' },
+      },
+    ]);
+
+    // Act
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // Assert
+    expect(result.contextDocument).toContain('### Behavioral Guidance');
+  });
+
+  it('handleAssembleContext_BehavioralSection_ContainsToolInstructions', async () => {
+    // Arrange — state with phase=delegate, workflowType=feature
+    const featureId = 'behavioral-tools';
+    await writeMockState(tempDir, featureId, {
+      phase: 'delegate',
+      workflowType: 'feature',
+    });
+    await writeMockEvents(tempDir, featureId, [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+      {
+        type: 'workflow.transition',
+        data: { featureId, from: 'ideate', to: 'delegate', trigger: 'auto' },
+      },
+    ]);
+
+    // Act
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // Assert — delegate playbook references exarchos_workflow tool
+    expect(result.contextDocument).toContain('exarchos_workflow');
+  });
+
+  it('handleAssembleContext_BehavioralSection_ContainsEventInstructions', async () => {
+    // Arrange — state with phase=delegate, workflowType=feature
+    const featureId = 'behavioral-events';
+    await writeMockState(tempDir, featureId, {
+      phase: 'delegate',
+      workflowType: 'feature',
+    });
+    await writeMockEvents(tempDir, featureId, [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+      {
+        type: 'workflow.transition',
+        data: { featureId, from: 'ideate', to: 'delegate', trigger: 'auto' },
+      },
+    ]);
+
+    // Act
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // Assert — delegate playbook emits task.assigned events
+    expect(result.contextDocument).toContain('task.assigned');
+  });
+
+  it('handleAssembleContext_BehavioralSection_NeverTruncated', async () => {
+    // Arrange — create a large workflow that forces truncation
+    const featureId = 'behavioral-truncation';
+    const tasks = Array.from({ length: 25 }, (_, i) => ({
+      id: `T${i + 1}`,
+      title: `Task number ${i + 1} with a very long detailed title that takes up space for truncation testing purposes in the context assembly`,
+      status: i < 10 ? 'complete' : 'in_progress',
+    }));
+    await writeMockState(tempDir, featureId, {
+      phase: 'delegate',
+      workflowType: 'feature',
+      tasks,
+    });
+
+    const events = [
+      {
+        type: 'workflow.started' as const,
+        data: { featureId, workflowType: 'feature' },
+        timestamp: '2026-01-01T10:00:00Z',
+      },
+      {
+        type: 'workflow.transition' as const,
+        data: { featureId, from: 'ideate', to: 'delegate', trigger: 'auto' },
+        timestamp: '2026-01-01T10:01:00Z',
+      },
+      ...Array.from({ length: 25 }, (_, i) => ({
+        type: 'task.assigned' as const,
+        data: {
+          taskId: `T${i + 1}`,
+          title: `Task number ${i + 1} with a very long detailed title that takes up space for truncation testing purposes in the context assembly`,
+        },
+        timestamp: `2026-01-01T10:${String(i + 2).padStart(2, '0')}:00Z`,
+      })),
+    ];
+    await writeMockEvents(
+      tempDir,
+      featureId,
+      events as Array<Record<string, unknown>>,
+    );
+
+    // Act
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // Assert — behavioral guidance MUST survive truncation
+    expect(result.contextDocument).toContain('### Behavioral Guidance');
+  });
+
+  it('handleAssembleContext_UnknownPhase_OmitsBehavioralSection', async () => {
+    // Arrange — state with a nonexistent phase
+    const featureId = 'behavioral-unknown';
+    await writeMockState(tempDir, featureId, {
+      phase: 'nonexistent-phase',
+      workflowType: 'feature',
+    });
+    await writeMockEvents(tempDir, featureId, [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+    ]);
+
+    // Act
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // Assert — unknown phase should NOT include behavioral section
+    expect(result.contextDocument).not.toContain('### Behavioral Guidance');
+  });
 });
