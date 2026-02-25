@@ -277,6 +277,121 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test NEW-1: RefactorPolishImplement_ValidPhase
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/test.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-refactor",
+  "workflowType": "refactor",
+  "phase": "polish-implement",
+  "tasks": [],
+  "worktrees": {}
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/test.state.json" --repo-root "$GIT_REPO" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "RefactorPolishImplement_ValidPhase"
+else
+    fail "RefactorPolishImplement_ValidPhase (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-2: RefactorOverhaulDelegate_ValidPhase
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/test.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-refactor",
+  "workflowType": "refactor",
+  "phase": "overhaul-delegate",
+  "tasks": [],
+  "worktrees": {}
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/test.state.json" --repo-root "$GIT_REPO" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "RefactorOverhaulDelegate_ValidPhase"
+else
+    fail "RefactorOverhaulDelegate_ValidPhase (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-3: DebugRca_ValidPhase
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/test.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-debug",
+  "workflowType": "debug",
+  "phase": "rca",
+  "tasks": [],
+  "worktrees": {}
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/test.state.json" --repo-root "$GIT_REPO" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "DebugRca_ValidPhase"
+else
+    fail "DebugRca_ValidPhase (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-4: DebugHotfixImplement_ValidPhase
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/test.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-debug",
+  "workflowType": "debug",
+  "phase": "hotfix-implement",
+  "tasks": [],
+  "worktrees": {}
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/test.state.json" --repo-root "$GIT_REPO" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "DebugHotfixImplement_ValidPhase"
+else
+    fail "DebugHotfixImplement_ValidPhase (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-5: FeatureBlocked_ValidPhase
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/test.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-feature",
+  "workflowType": "feature",
+  "phase": "blocked",
+  "tasks": [],
+  "worktrees": {}
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/test.state.json" --repo-root "$GIT_REPO" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "FeatureBlocked_ValidPhase"
+else
+    fail "FeatureBlocked_ValidPhase (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================
