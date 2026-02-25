@@ -38,7 +38,7 @@ import { withTelemetry } from './telemetry/middleware.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
-export const SERVER_VERSION = '1.0.0';
+export const SERVER_VERSION = '1.1.0';
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────
 
