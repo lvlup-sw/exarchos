@@ -48,6 +48,14 @@
         "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" subagent-context",
         "timeout": 5
       }]
+    }],
+    "SessionEnd": [{
+      "matcher": "auto",
+      "hooks": [{
+        "type": "command",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" session-end",
+        "timeout": 30
+      }]
     }]
   }
 }
