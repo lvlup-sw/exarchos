@@ -32,11 +32,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TEMPLATE_FLAG=""
+          args=(
+            --pr "${{ github.event.pull_request.number }}"
+            --author "${{ github.event.pull_request.user.login }}"
+          )
           if [[ -f ".exarchos/pr-template.md" ]]; then
-            TEMPLATE_FLAG="--template .exarchos/pr-template.md"
+            args+=(--template ".exarchos/pr-template.md")
           fi
-          bash scripts/validate-pr-body.sh \
-            --pr "${{ github.event.pull_request.number }}" \
-            --author "${{ github.event.pull_request.user.login }}" \
-            $TEMPLATE_FLAG
+          bash scripts/validate-pr-body.sh "${args[@]}"

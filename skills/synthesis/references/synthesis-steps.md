@@ -83,7 +83,7 @@ For each PR in the stack, write a structured description following `references/p
 1. **Title:** `<type>: <what>` (max 72 chars)
 2. **Body:** Summary → Changes → Test Plan → Footer
 
-After `gt submit` creates/updates PRs, update each PR body via GitHub MCP or CLI:
+Update each PR body via GitHub MCP or CLI (run this before or after `gt submit` in Step 6):
 ```bash
 gh pr edit <number> --body "$(cat <<'EOF'
 ## Summary
