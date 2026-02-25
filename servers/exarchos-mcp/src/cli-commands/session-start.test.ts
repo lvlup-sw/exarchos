@@ -1198,6 +1198,98 @@ describe('session-start command', () => {
     });
   });
 
+  // ─── Behavioral Guidance ──────────────────────────────────────────────────
+
+  describe('behavioral guidance', () => {
+    it('handleSessionStart_WithCheckpoint_IncludesBehavioralGuidance', async () => {
+      // Arrange — checkpoint for delegate phase with a state file containing workflowType
+      const checkpoint = createCheckpointFile({
+        featureId: 'guidance-feature',
+        phase: 'delegate',
+        stateFile: path.join(tmpDir, 'guidance-feature.state.json'),
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'guidance-feature.checkpoint.json'),
+        JSON.stringify(checkpoint),
+      );
+      // Write corresponding state file so workflowType can be read
+      const stateData = createValidStateFile({
+        featureId: 'guidance-feature',
+        workflowType: 'feature',
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'guidance-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.behavioralGuidance).toBeDefined();
+      expect(result.behavioralGuidance).toContain('exarchos_workflow');
+    });
+
+    it('handleSessionStart_NoCheckpoint_ActiveWorkflow_IncludesBehavioralGuidance', async () => {
+      // Arrange — state file with phase=delegate, workflowType=feature (no checkpoint)
+      const stateData = createValidStateFile({
+        featureId: 'no-cp-guidance',
+        workflowType: 'feature',
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'no-cp-guidance.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.behavioralGuidance).toBeDefined();
+    });
+
+    it('handleSessionStart_TerminalPhase_NoBehavioralGuidance', async () => {
+      // Arrange — state file with phase=completed
+      const stateData = createValidStateFile({
+        featureId: 'completed-feature',
+        phase: 'completed',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'completed-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.behavioralGuidance).toBeUndefined();
+    });
+
+    it('handleSessionStart_BehavioralGuidance_MatchesPhasePlaybook', async () => {
+      // Arrange — state file with phase=review, workflowType=feature
+      const stateData = createValidStateFile({
+        featureId: 'review-guidance',
+        workflowType: 'feature',
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'review-guidance.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.behavioralGuidance).toBeDefined();
+      expect(result.behavioralGuidance).toContain('quality-review');
+      expect(result.behavioralGuidance).toContain('gate.executed');
+    });
+  });
+
   // ─── Graphite CLI Detection ──────────────────────────────────────────────
 
   describe('detectGraphite', () => {
