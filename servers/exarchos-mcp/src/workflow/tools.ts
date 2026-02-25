@@ -27,6 +27,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { getPlaybook } from './playbooks.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
 import type { EventStore } from '../event-store/store.js';
@@ -307,6 +308,16 @@ function projectState(
     const projected: Record<string, unknown> = {};
     for (const field of input.fields) {
       if (field.startsWith('_')) continue;
+      // Special handling for 'playbook' virtual field
+      if (field === 'playbook') {
+        const wfType = typeof stateObj.workflowType === 'string' ? stateObj.workflowType : '';
+        const phase = typeof stateObj.phase === 'string' ? stateObj.phase : '';
+        const playbook = getPlaybook(wfType, phase);
+        if (playbook !== null) {
+          projected.playbook = playbook;
+        }
+        continue;
+      }
       const value = resolveDotPath(stateObj, field);
       if (value !== undefined) {
         projected[field] = value;
