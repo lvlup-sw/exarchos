@@ -2221,6 +2221,41 @@ describe('Guaranteed Event Append', () => {
 
     appendSpy.mockRestore();
   });
+
+  it('handleCheckpoint_EventAppend_HasIdempotencyKey', async () => {
+    // Arrange: init with real event store
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'ckpt-idem-key', workflowType: 'feature' }, tmpDir);
+
+    // Spy on append to capture idempotency keys
+    const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
+    const originalAppend = eventStore.append.bind(eventStore);
+    vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+      appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+      return originalAppend(streamId, event, options);
+    });
+
+    // Act
+    await handleCheckpoint(
+      { featureId: 'ckpt-idem-key', summary: 'test checkpoint' },
+      tmpDir,
+    );
+
+    // Assert: the checkpoint event should have an idempotency key
+    const checkpointCalls = appendCalls.filter((c) => c.type === 'workflow.checkpoint');
+    expect(checkpointCalls.length).toBe(1);
+    expect(checkpointCalls[0].idempotencyKey).toBeDefined();
+    // Key pattern: ${featureId}:checkpoint:${phase}:${version}
+    // The version used in the key is the state's version at read time (before checkpoint writes).
+    // handleInit writes with version increment, so the on-disk version after init is 2,
+    // but handleCheckpoint reads the state and uses _version from that read.
+    // Verify the key matches the expected pattern (phase=ideate, version from state read)
+    expect(checkpointCalls[0].idempotencyKey).toMatch(
+      /^ckpt-idem-key:checkpoint:ideate:\d+$/,
+    );
+  });
 });
 
 // ─── CAS Retry: No Duplicate Events (updated for event-first T3) ───────────

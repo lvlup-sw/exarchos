@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
-import { handleTaskClaim, resetModuleEventStore } from './tools.js';
+import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventStore } from './tools.js';
 import { resetMaterializerCache } from '../views/tools.js';
 
 let tempDir: string;
@@ -290,5 +290,77 @@ describe('handleTaskClaim Exponential Backoff', () => {
     const totalRequestedDelay = capturedDelays.reduce((sum, d) => sum + d, 0);
     expect(totalRequestedDelay).toBe(350);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── F-TASK-1 / F-TASK-2: Idempotency keys on task events ──────────────────
+
+describe('Task event idempotency keys', () => {
+  it('handleTaskComplete_EventAppend_HasIdempotencyKey', async () => {
+    // Arrange: create an event store and seed with a task assignment
+    const store = new EventStore(tempDir);
+    await store.append('wf-idem-comp', {
+      type: 'task.assigned',
+      data: { taskId: 't-idem-1', title: 'Idem test', assignee: 'agent-1' },
+    });
+
+    // Spy on append to capture idempotency keys
+    const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
+    const originalAppend = store.append.bind(store);
+    vi.spyOn(EventStore.prototype, 'append').mockImplementation(async function (
+      this: EventStore,
+      streamId: string,
+      event: Parameters<EventStore['append']>[1],
+      options?: Parameters<EventStore['append']>[2],
+    ) {
+      appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+      return originalAppend(streamId, event, options);
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-idem-1', streamId: 'wf-idem-comp' },
+      tempDir,
+    );
+
+    // Assert: task.completed event should have an idempotency key
+    expect(result.success).toBe(true);
+    const completedCalls = appendCalls.filter((c) => c.type === 'task.completed');
+    expect(completedCalls.length).toBe(1);
+    expect(completedCalls[0].idempotencyKey).toBe('wf-idem-comp:task.completed:t-idem-1');
+  });
+
+  it('handleTaskFail_EventAppend_HasIdempotencyKey', async () => {
+    // Arrange: create an event store and seed with a task assignment
+    const store = new EventStore(tempDir);
+    await store.append('wf-idem-fail', {
+      type: 'task.assigned',
+      data: { taskId: 't-idem-2', title: 'Idem fail test', assignee: 'agent-1' },
+    });
+
+    // Spy on append to capture idempotency keys
+    const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
+    const originalAppend = store.append.bind(store);
+    vi.spyOn(EventStore.prototype, 'append').mockImplementation(async function (
+      this: EventStore,
+      streamId: string,
+      event: Parameters<EventStore['append']>[1],
+      options?: Parameters<EventStore['append']>[2],
+    ) {
+      appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+      return originalAppend(streamId, event, options);
+    });
+
+    // Act
+    const result = await handleTaskFail(
+      { taskId: 't-idem-2', error: 'Something broke', streamId: 'wf-idem-fail' },
+      tempDir,
+    );
+
+    // Assert: task.failed event should have an idempotency key
+    expect(result.success).toBe(true);
+    const failedCalls = appendCalls.filter((c) => c.type === 'task.failed');
+    expect(failedCalls.length).toBe(1);
+    expect(failedCalls[0].idempotencyKey).toBe('wf-idem-fail:task.failed:t-idem-2');
   });
 });
