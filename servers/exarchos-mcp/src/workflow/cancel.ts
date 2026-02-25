@@ -21,6 +21,15 @@ import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
+// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
+
+const CURRENT_ES_VERSION = 2;
+
+/** Check whether a workflow state uses the pure event-sourcing path. */
+function isEventSourced(state: Record<string, unknown>): boolean {
+  return state._esVersion === CURRENT_ES_VERSION;
+}
+
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
 
 let moduleEventStore: EventStore | null = null;
@@ -112,18 +121,45 @@ export async function handleCancel(
     };
   }
 
-  // Bridge compensation events to external event store (best-effort)
+  // Determine event-sourcing version for v1/v2 path discrimination
+  const useEventFirst = isEventSourced(mutableState) && moduleEventStore !== null;
+
+  // Bridge compensation events to external event store
   if (moduleEventStore && compensationResult.events.length > 0) {
-    try {
-      for (const event of compensationResult.events) {
-        const externalType = mapInternalToExternalType(event.type);
-        await moduleEventStore.append(input.featureId, {
-          type: externalType as import('../event-store/schemas.js').EventType,
-          data: { ...event.metadata, featureId: input.featureId },
-        });
+    if (useEventFirst) {
+      // ES v2: event-first — propagate errors, abort cancel if append fails
+      try {
+        for (let i = 0; i < compensationResult.events.length; i++) {
+          const event = compensationResult.events[i];
+          const externalType = mapInternalToExternalType(event.type);
+          await moduleEventStore.append(input.featureId, {
+            type: externalType as import('../event-store/schemas.js').EventType,
+            data: { ...event.metadata, featureId: input.featureId },
+          }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${i}` });
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed during cancel compensation: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
       }
-    } catch {
-      // External store is supplementary; JSONL append failure must not break cancel
+    } else {
+      // V1 legacy: best-effort — swallow errors
+      try {
+        for (let i = 0; i < compensationResult.events.length; i++) {
+          const event = compensationResult.events[i];
+          const externalType = mapInternalToExternalType(event.type);
+          await moduleEventStore.append(input.featureId, {
+            type: externalType as import('../event-store/schemas.js').EventType,
+            data: { ...event.metadata, featureId: input.featureId },
+          });
+        }
+      } catch {
+        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
+      }
     }
   }
 
@@ -149,35 +185,71 @@ export async function handleCancel(
   cancelMetadata.compensationActions = compensationResult.actions.length;
   cancelMetadata.compensationSuccess = compensationResult.success;
 
-  // Event-first: emit to external event store BEFORE mutating state (best-effort)
-
+  // Event-first: emit to external event store BEFORE mutating state
   if (moduleEventStore) {
-    try {
-      for (const transitionEvent of transitionResult.events) {
+    if (useEventFirst) {
+      // ES v2: event-first — propagate errors, abort cancel if append fails
+      try {
+        for (const transitionEvent of transitionResult.events) {
+          await moduleEventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.from}:cancelled` });
+        }
+        // Emit cancel event with distinct type and full metadata
         await moduleEventStore.append(input.featureId, {
-          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
           data: {
-            from: transitionEvent.from,
-            to: transitionEvent.to,
-            trigger: transitionEvent.trigger,
+            from: currentPhase,
+            to: 'cancelled',
+            trigger: 'user-cancel',
             featureId: input.featureId,
-            ...(transitionEvent.metadata ?? {}),
+            ...cancelMetadata,
+          },
+        }, { idempotencyKey: `${input.featureId}:cancel:complete` });
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed during cancel: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
+    } else {
+      // V1 legacy: best-effort — swallow errors
+      try {
+        for (const transitionEvent of transitionResult.events) {
+          await moduleEventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          });
+        }
+        await moduleEventStore.append(input.featureId, {
+          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
+          data: {
+            from: currentPhase,
+            to: 'cancelled',
+            trigger: 'user-cancel',
+            featureId: input.featureId,
+            ...cancelMetadata,
           },
         });
+      } catch {
+        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
       }
-      // Emit cancel event with distinct type and full metadata
-      await moduleEventStore.append(input.featureId, {
-        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
-        data: {
-          from: currentPhase,
-          to: 'cancelled',
-          trigger: 'user-cancel',
-          featureId: input.featureId,
-          ...cancelMetadata,
-        },
-      });
-    } catch {
-      // External store is supplementary; JSONL append failure must not break cancel
     }
   }
 

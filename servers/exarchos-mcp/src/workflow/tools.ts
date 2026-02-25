@@ -793,7 +793,7 @@ export async function handleCheckpoint(
           phase: state.phase,
           featureId: input.featureId,
         },
-      });
+      }, { idempotencyKey: `${input.featureId}:checkpoint:${state.phase}:${state._version}` });
     } catch (err) {
       return {
         success: false,

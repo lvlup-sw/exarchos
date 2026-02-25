@@ -200,7 +200,7 @@ export async function handleTaskComplete(
     const event = await store.append(args.streamId, {
       type: 'task.completed',
       data,
-    });
+    }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
@@ -261,7 +261,7 @@ export async function handleTaskFail(
     const event = await store.append(args.streamId, {
       type: 'task.failed',
       data,
-    });
+    }, { idempotencyKey: `${args.streamId}:task.failed:${args.taskId}` });
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {

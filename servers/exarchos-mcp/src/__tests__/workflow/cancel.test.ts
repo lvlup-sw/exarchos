@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { fc } from '@fast-check/vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCancel } from '../../workflow/cancel.js';
-import { handleInit } from '../../workflow/tools.js';
+import { handleCancel, configureCancelEventStore } from '../../workflow/cancel.js';
+import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js';
+import { EventStore } from '../../event-store/store.js';
 import type { CompensationResult } from '../../workflow/compensation.js';
 
 let tmpDir: string;
@@ -13,6 +15,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  configureCancelEventStore(null);
+  configureWorkflowEventStore(null);
   vi.restoreAllMocks();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
@@ -193,6 +197,271 @@ describe('handleCancel', () => {
       // Assert: the raw state on disk should not have _compensationCheckpoint
       const stateAfter = await readRawState('ckpt-null');
       expect(stateAfter).not.toHaveProperty('_compensationCheckpoint');
+    });
+  });
+
+  // ─── F-CANCEL-1: Event-first violation — error propagation ────────────────
+
+  describe('event-first error propagation (v2)', () => {
+    it('handleCancel_EventAppendFails_ReturnsErrorNotMutatesState', async () => {
+      // Arrange: create a v2 (event-sourced) workflow in delegate phase
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+      configureCancelEventStore(eventStore);
+
+      await handleInit({ featureId: 'cancel-efail', workflowType: 'feature' }, tmpDir);
+
+      // Set up as v2 event-sourced workflow in delegate phase
+      const rawState = await readRawState('cancel-efail');
+      rawState.phase = 'delegate';
+      rawState._history = { feature: 'delegate' };
+      rawState._esVersion = 2;
+      await writeRawState('cancel-efail', rawState);
+
+      // Mock compensation to succeed (no partial failure)
+      const compensationModule = await import('../../workflow/compensation.js');
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+        actions: [],
+        events: [],
+        success: true,
+        checkpoint: null,
+      });
+
+      // Mock event store append to throw (simulating JSONL failure)
+      vi.spyOn(eventStore, 'append').mockRejectedValue(
+        new Error('Disk full'),
+      );
+
+      // Act
+      const result = await handleCancel({ featureId: 'cancel-efail' }, tmpDir);
+
+      // Assert: should return error, NOT succeed
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+      expect(result.error?.message).toContain('Disk full');
+
+      // Assert: state should NOT be mutated to 'cancelled'
+      const stateAfter = await readRawState('cancel-efail');
+      expect(stateAfter.phase).toBe('delegate');
+    });
+  });
+
+  // ─── F-CANCEL-2: Idempotency keys on cancel events ────────────────────────
+
+  describe('cancel event idempotency keys', () => {
+    it('handleCancel_CompensationEvents_HaveIdempotencyKeys', async () => {
+      // Arrange: create a v2 workflow with compensation events
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+      configureCancelEventStore(eventStore);
+
+      await handleInit({ featureId: 'cancel-comp-keys', workflowType: 'feature' }, tmpDir);
+
+      const rawState = await readRawState('cancel-comp-keys');
+      rawState.phase = 'delegate';
+      rawState._history = { feature: 'delegate' };
+      rawState._esVersion = 2;
+      await writeRawState('cancel-comp-keys', rawState);
+
+      // Mock compensation to return events
+      const compensationModule = await import('../../workflow/compensation.js');
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+        actions: [
+          { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
+          { actionId: 'delegate:delete-branches', status: 'executed', message: 'Done' },
+        ],
+        events: [
+          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'cleanup-worktrees' } },
+          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'delete-branches' } },
+        ],
+        success: true,
+        checkpoint: null,
+      });
+
+      // Spy on append to capture idempotency keys
+      const appendCalls: Array<{ idempotencyKey?: string }> = [];
+      const originalAppend = eventStore.append.bind(eventStore);
+      vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+        appendCalls.push({ idempotencyKey: options?.idempotencyKey });
+        return originalAppend(streamId, event, options);
+      });
+
+      // Act
+      await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir);
+
+      // Assert: compensation events have idempotency keys matching the pattern
+      // The first two append calls after init should be compensation events
+      // Filter for compensation-related calls
+      const compKeys = appendCalls
+        .map((c) => c.idempotencyKey)
+        .filter((k): k is string => k !== undefined && k.includes('compensation'));
+      expect(compKeys.length).toBe(2);
+      expect(compKeys[0]).toBe('cancel-comp-keys:cancel:compensation:compensation:0');
+      expect(compKeys[1]).toBe('cancel-comp-keys:cancel:compensation:compensation:1');
+    });
+
+    it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
+      // Arrange: create a v2 workflow
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+      configureCancelEventStore(eventStore);
+
+      await handleInit({ featureId: 'cancel-trans-keys', workflowType: 'feature' }, tmpDir);
+
+      const rawState = await readRawState('cancel-trans-keys');
+      rawState.phase = 'delegate';
+      rawState._history = { feature: 'delegate' };
+      rawState._esVersion = 2;
+      await writeRawState('cancel-trans-keys', rawState);
+
+      // Mock compensation to succeed with no events
+      const compensationModule = await import('../../workflow/compensation.js');
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+        actions: [],
+        events: [],
+        success: true,
+        checkpoint: null,
+      });
+
+      // Spy on append to capture idempotency keys
+      const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
+      const originalAppend = eventStore.append.bind(eventStore);
+      vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+        return originalAppend(streamId, event, options);
+      });
+
+      // Act
+      await handleCancel({ featureId: 'cancel-trans-keys' }, tmpDir);
+
+      // Assert: transition events have idempotency keys
+      const transKeys = appendCalls
+        .filter((c) => c.idempotencyKey?.includes('transition'))
+        .map((c) => c.idempotencyKey);
+      expect(transKeys.length).toBeGreaterThanOrEqual(1);
+      // The transition key should match the pattern: ${featureId}:cancel:transition:${from}:cancelled
+      expect(transKeys[0]).toBe('cancel-trans-keys:cancel:transition:delegate:cancelled');
+    });
+
+    it('handleCancel_CancelEvent_HasIdempotencyKey', async () => {
+      // Arrange: create a v2 workflow
+      const eventStore = new EventStore(tmpDir);
+      configureWorkflowEventStore(eventStore);
+      configureCancelEventStore(eventStore);
+
+      await handleInit({ featureId: 'cancel-event-key', workflowType: 'feature' }, tmpDir);
+
+      const rawState = await readRawState('cancel-event-key');
+      rawState.phase = 'delegate';
+      rawState._history = { feature: 'delegate' };
+      rawState._esVersion = 2;
+      await writeRawState('cancel-event-key', rawState);
+
+      // Mock compensation to succeed
+      const compensationModule = await import('../../workflow/compensation.js');
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+        actions: [],
+        events: [],
+        success: true,
+        checkpoint: null,
+      });
+
+      // Spy on append to capture idempotency keys
+      const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
+      const originalAppend = eventStore.append.bind(eventStore);
+      vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+        appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+        return originalAppend(streamId, event, options);
+      });
+
+      // Act
+      await handleCancel({ featureId: 'cancel-event-key' }, tmpDir);
+
+      // Assert: the cancel completion event has an idempotency key
+      const cancelKey = appendCalls
+        .filter((c) => c.idempotencyKey?.includes('cancel:complete'))
+        .map((c) => c.idempotencyKey);
+      expect(cancelKey.length).toBe(1);
+      expect(cancelKey[0]).toBe('cancel-event-key:cancel:complete');
+    });
+  });
+
+  // ─── Property test: retry after failure produces no duplicate events ────────
+
+  describe('cancel retry idempotency (property)', () => {
+    it('handleCancel_RetryAfterFailure_NoDuplicateEvents', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.constantFrom('ideate', 'plan', 'delegate', 'review', 'synthesize'),
+          async (phase) => {
+            // Use a unique dir per property run
+            const propDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-cancel-pbt-'));
+            try {
+              const eventStore = new EventStore(propDir);
+              configureWorkflowEventStore(eventStore);
+              configureCancelEventStore(eventStore);
+
+              await handleInit({ featureId: 'cancel-pbt', workflowType: 'feature' }, propDir);
+
+              // Read/write raw state using propDir directly
+              const stateFile = path.join(propDir, 'cancel-pbt.state.json');
+              const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
+              rawState.phase = phase;
+              rawState._history = { feature: phase };
+              rawState._esVersion = 2;
+              await fs.writeFile(stateFile, JSON.stringify(rawState, null, 2), 'utf-8');
+
+              // Mock compensation
+              const compensationModule = await import('../../workflow/compensation.js');
+              vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+                actions: [],
+                events: [],
+                success: true,
+                checkpoint: null,
+              });
+
+              // First attempt: fail event append on the first call within cancel
+              let callCount = 0;
+              const originalAppend = eventStore.append.bind(eventStore);
+              vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+                callCount++;
+                // Fail on the 1st cancel-related append
+                if (callCount === 1) {
+                  throw new Error('Transient failure');
+                }
+                return originalAppend(streamId, event, options);
+              });
+
+              // First cancel attempt should fail
+              const result1 = await handleCancel({ featureId: 'cancel-pbt' }, propDir);
+              expect(result1.success).toBe(false);
+
+              // Reset mock to let retry succeed
+              vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
+                return originalAppend(streamId, event, options);
+              });
+
+              // Retry cancel — state should not have been mutated by first attempt
+              const result2 = await handleCancel({ featureId: 'cancel-pbt' }, propDir);
+              expect(result2.success).toBe(true);
+
+              // Verify no duplicate events in stream
+              const allEvents = await eventStore.query('cancel-pbt');
+              const eventKeys = allEvents
+                .map((e) => `${e.type}:${JSON.stringify(e.data)}`)
+                .sort();
+              const uniqueKeys = [...new Set(eventKeys)];
+              expect(eventKeys).toEqual(uniqueKeys);
+            } finally {
+              configureCancelEventStore(null);
+              configureWorkflowEventStore(null);
+              vi.restoreAllMocks();
+              await fs.rm(propDir, { recursive: true, force: true });
+            }
+          },
+        ),
+        { numRuns: 5 },
+      );
     });
   });
 });
