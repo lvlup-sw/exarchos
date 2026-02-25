@@ -2,6 +2,8 @@
 description: Resume workflow from saved state file
 ---
 
+> **Deprecated:** Use `/rehydrate` instead. `/rehydrate` provides behavioral guidance (tools, events, transition criteria) in addition to workflow state, which helps the agent recover from context compaction more effectively. `/resume` remains functional for backward compatibility.
+
 # Resume
 
 Resume workflow from state file: "$ARGUMENTS"
