@@ -234,6 +234,13 @@ async function main() {
     await migrateLegacyOutbox(backend, stateDir);
     await cleanupLegacyFiles(stateDir);
 
+    // Merge sidecar event files written by hook subprocesses
+    const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
+    const sidecarStore = new EventStore(stateDir, { backend });
+    await mergeSidecarEvents(stateDir, sidecarStore).catch((err) => {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
+    });
+
     registerBackendCleanup(backend);
   }
 
