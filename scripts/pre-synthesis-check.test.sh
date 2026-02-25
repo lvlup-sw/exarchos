@@ -334,6 +334,146 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test NEW-1: RefactorPolishValidate_CorrectMessage
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/polish.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-refactor",
+  "workflowType": "refactor",
+  "phase": "polish-validate",
+  "tasks": [
+    { "id": "task-1", "title": "Task One", "status": "complete", "branch": "task/001" }
+  ],
+  "reviews": {
+    "specReview": { "status": "pass" },
+    "qualityReview": { "status": "approved" }
+  }
+}
+EOF
+OUTPUT="$(PATH="$MOCK_BIN:$PATH" bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/polish.state.json" --skip-tests --skip-stack 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "RefactorPolishValidate_CorrectlyRejects"
+else
+    fail "RefactorPolishValidate_CorrectlyRejects (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify it mentions "polish track" or "no synthesize" or "directly"
+if echo "$OUTPUT" | grep -qi "polish\|no synthesize\|directly\|completes directly"; then
+    pass "RefactorPolishValidate_MentionsPolishTrack"
+else
+    fail "RefactorPolishValidate_MentionsPolishTrack (expected mention of polish track)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-2: RefactorOverhaulPlan_ListsAllTransitions
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/overhaul.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-refactor",
+  "workflowType": "refactor",
+  "phase": "overhaul-plan",
+  "tasks": [
+    { "id": "task-1", "title": "Task One", "status": "complete", "branch": "task/001" }
+  ],
+  "reviews": {
+    "specReview": { "status": "pass" },
+    "qualityReview": { "status": "approved" }
+  }
+}
+EOF
+OUTPUT="$(PATH="$MOCK_BIN:$PATH" bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/overhaul.state.json" --skip-tests --skip-stack 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "RefactorOverhaulPlan_ExitsOne"
+else
+    fail "RefactorOverhaulPlan_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Should list remaining transitions including overhaul-delegate
+if echo "$OUTPUT" | grep -qi "overhaul-delegate"; then
+    pass "RefactorOverhaulPlan_ListsOverhaulDelegate"
+else
+    fail "RefactorOverhaulPlan_ListsOverhaulDelegate (expected overhaul-delegate in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-3: DebugValidate_UsesCorrectPhaseName
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/debug.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-debug",
+  "workflowType": "debug",
+  "phase": "debug-validate",
+  "tasks": [
+    { "id": "task-1", "title": "Task One", "status": "complete", "branch": "task/001" }
+  ],
+  "reviews": {
+    "specReview": { "status": "pass" },
+    "qualityReview": { "status": "approved" }
+  }
+}
+EOF
+OUTPUT="$(PATH="$MOCK_BIN:$PATH" bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/debug.state.json" --skip-tests --skip-stack 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "DebugValidate_ExitsOne"
+else
+    fail "DebugValidate_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Should mention debug-review or synthesize as next steps
+if echo "$OUTPUT" | grep -qi "debug-review\|synthesize"; then
+    pass "DebugValidate_MentionsNextPhase"
+else
+    fail "DebugValidate_MentionsNextPhase (expected debug-review or synthesize in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test NEW-4: DebugHotfixValidate_CorrectMessage
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/hotfix.state.json" << 'EOF'
+{
+  "version": "1.1",
+  "featureId": "test-debug",
+  "workflowType": "debug",
+  "phase": "hotfix-validate",
+  "tasks": [
+    { "id": "task-1", "title": "Task One", "status": "complete", "branch": "task/001" }
+  ],
+  "reviews": {
+    "specReview": { "status": "pass" },
+    "qualityReview": { "status": "approved" }
+  }
+}
+EOF
+OUTPUT="$(PATH="$MOCK_BIN:$PATH" bash "$SCRIPT_UNDER_TEST" --state-file "$TMPDIR_ROOT/hotfix.state.json" --skip-tests --skip-stack 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "DebugHotfixValidate_ExitsOne"
+else
+    fail "DebugHotfixValidate_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Should mention synthesize as target
+if echo "$OUTPUT" | grep -qi "synthesize\|hotfix"; then
+    pass "DebugHotfixValidate_MentionsTarget"
+else
+    fail "DebugHotfixValidate_MentionsTarget (expected synthesize or hotfix in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================
