@@ -9,6 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
+import { handleSessionEnd } from './cli-commands/session-end.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { handleSubagentContext } from './cli-commands/subagent-context.js';
@@ -44,6 +45,7 @@ const KNOWN_COMMANDS = [
   'eval-capture',
   'eval-compare',
   'quality-check',
+  'session-end',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -66,6 +68,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'eval-capture': async (stdinData) => handleEvalCapture(stdinData, resolveStateDir()),
   'eval-compare': async (stdinData) => handleEvalCompare(stdinData, resolveStateDir()),
   'quality-check': async (stdinData) => handleQualityCheck(stdinData, resolveStateDir()),
+  'session-end': async (stdinData) => handleSessionEnd(stdinData, resolveStateDir()),
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
