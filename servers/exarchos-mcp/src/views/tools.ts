@@ -607,6 +607,21 @@ export async function handleViewSessionProvenance(
     };
   }
 
+  if (args.sessionId && args.workflowId) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_QUERY',
+        message: 'Provide sessionId or workflowId, not both',
+      },
+    };
+  }
+
+  const validMetrics = new Set(['cost', 'attribution']);
+  const metric = args.metric && validMetrics.has(args.metric)
+    ? (args.metric as 'cost' | 'attribution')
+    : undefined;
+
   try {
     const { materializeSessionProvenance } = await import(
       '../session/session-provenance-projection.js'
@@ -614,9 +629,9 @@ export async function handleViewSessionProvenance(
     const result = await materializeSessionProvenance(stateDir, {
       sessionId: args.sessionId,
       workflowId: args.workflowId,
-      metric: args.metric as 'cost' | 'attribution' | undefined,
+      metric,
     });
-    return { success: true, ...result };
+    return { success: true, data: result };
   } catch (err) {
     return {
       success: false,

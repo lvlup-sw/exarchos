@@ -379,8 +379,10 @@ export const guards = {
     id: 'scope-assessment-complete',
     description: 'Scope assessment must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
+      // Check under explore.scopeAssessment (canonical) or root scopeAssessment (legacy/convenience)
       const explore = state.explore as Record<string, unknown> | undefined;
       if (explore?.scopeAssessment != null) return true;
+      if (state.scopeAssessment != null) return true;
       return {
         passed: false,
         reason: 'scope-assessment-complete not satisfied',

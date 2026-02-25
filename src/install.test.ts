@@ -1111,7 +1111,7 @@ describe('hooks.json', () => {
     expect(() => JSON.parse(content)).not.toThrow();
   });
 
-  it('hooksJson_HasSevenHookEvents', () => {
+  it('hooksJson_ContainsAllExpectedHookEventTypes', () => {
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const eventTypes = Object.keys(hooks.hooks);
     expect(eventTypes).toContain('PreCompact');

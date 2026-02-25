@@ -434,7 +434,7 @@ async function emitTeamTaskEvent(
     const streamId = featureId ?? (await resolveStreamId(stateDir));
     if (!streamId) return;
 
-    const resolvedTaskId = taskId ?? 'unknown';
+    const resolvedTaskId = taskId ?? `anon-${teammateName}`;
 
     if (passed) {
       const filesChanged = getChangedFiles(cwd);

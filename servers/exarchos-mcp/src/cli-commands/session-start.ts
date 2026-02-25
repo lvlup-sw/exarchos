@@ -399,6 +399,9 @@ async function retryUnextractedSessions(stateDir: string): Promise<void> {
   await fs.mkdir(sessionsDir, { recursive: true });
 
   for (const entry of unextracted) {
+    // Validate sessionId to prevent path traversal in filenames
+    if (!/^[a-zA-Z0-9_-]+$/.test(entry.sessionId)) continue;
+
     const transcriptExists = await fs.access(entry.transcriptPath).then(() => true, () => false);
 
     if (transcriptExists) {

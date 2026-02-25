@@ -296,8 +296,8 @@ describe('handleCancel', () => {
         .map((c) => c.idempotencyKey)
         .filter((k): k is string => k !== undefined && k.includes('compensation'));
       expect(compKeys.length).toBe(2);
-      expect(compKeys[0]).toBe('cancel-comp-keys:cancel:compensation:compensation:0');
-      expect(compKeys[1]).toBe('cancel-comp-keys:cancel:compensation:compensation:1');
+      expect(compKeys[0]).toBe('cancel-comp-keys:cancel:compensation:compensation:cleanup-worktrees');
+      expect(compKeys[1]).toBe('cancel-comp-keys:cancel:compensation:compensation:delete-branches');
     });
 
     it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
@@ -339,8 +339,8 @@ describe('handleCancel', () => {
         .filter((c) => c.idempotencyKey?.includes('transition'))
         .map((c) => c.idempotencyKey);
       expect(transKeys.length).toBeGreaterThanOrEqual(1);
-      // The transition key should match the pattern: ${featureId}:cancel:transition:${from}:cancelled
-      expect(transKeys[0]).toBe('cancel-trans-keys:cancel:transition:delegate:cancelled');
+      // The transition key should match the pattern: ${featureId}:cancel:transition:${type}:${from}:cancelled
+      expect(transKeys[0]).toMatch(/^cancel-trans-keys:cancel:transition:\w+:delegate:cancelled$/);
     });
 
     it('handleCancel_CancelEvent_HasIdempotencyKey', async () => {

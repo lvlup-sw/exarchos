@@ -651,6 +651,23 @@ describe('Workflow State Schemas', () => {
     });
   });
 
+  describe('TaskSchema_NullBranch', () => {
+    it('TaskSchema_WithNullBranch_AcceptsNullable', () => {
+      const task = {
+        id: 'task-001',
+        title: 'Pending task',
+        status: 'pending',
+        branch: null,
+        blockedBy: [],
+      };
+      const result = TaskSchema.safeParse(task);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.branch).toBeNull();
+      }
+    });
+  });
+
   describe('WorktreeSchema', () => {
     it('should parse a valid worktree with taskId', () => {
       const wt = {

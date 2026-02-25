@@ -17,8 +17,11 @@ export async function readManifestEntries(stateDir: string): Promise<SessionMani
   let content: string;
   try {
     content = await fs.readFile(manifestPath, 'utf-8');
-  } catch {
-    return [];
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
   }
 
   const trimmed = content.trim();
@@ -26,9 +29,16 @@ export async function readManifestEntries(stateDir: string): Promise<SessionMani
     return [];
   }
 
-  return trimmed
-    .split('\n')
-    .map((line) => JSON.parse(line) as SessionManifestEntry);
+  const entries: SessionManifestEntry[] = [];
+  for (const line of trimmed.split('\n')) {
+    try {
+      entries.push(JSON.parse(line) as SessionManifestEntry);
+    } catch {
+      // Skip malformed lines — partial writes should not crash manifest reads
+      continue;
+    }
+  }
+  return entries;
 }
 
 export async function writeManifestCompletion(stateDir: string, completion: SessionManifestCompletion): Promise<void> {
@@ -44,6 +54,9 @@ export async function findUnextractedSessions(stateDir: string): Promise<Session
 
   const results: SessionManifestEntry[] = [];
   for (const entry of entries) {
+    // Skip orphan markers and incomplete entries (no transcriptPath means not a valid session entry)
+    if (!entry.transcriptPath || !entry.sessionId) continue;
+
     const eventsPath = path.join(sessionsDir, `${entry.sessionId}.events.jsonl`);
     try {
       await fs.access(eventsPath);

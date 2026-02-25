@@ -39,19 +39,31 @@ export interface SessionProvenanceResult {
 // ─── LRU Cache ──────────────────────────────────────────────────────────────
 
 const MAX_CACHE_SIZE = 20;
-const sessionCache = new Map<string, SessionEvent[]>();
 
-function getCachedEvents(key: string): SessionEvent[] | undefined {
-  const value = sessionCache.get(key);
-  if (value !== undefined) {
-    // Move to end (most recently used)
-    sessionCache.delete(key);
-    sessionCache.set(key, value);
-  }
-  return value;
+interface CacheEntry {
+  events: SessionEvent[];
+  mtimeMs: number;
 }
 
-function setCachedEvents(key: string, events: SessionEvent[]): void {
+const sessionCache = new Map<string, CacheEntry>();
+
+function getCachedEvents(key: string, currentMtimeMs: number): SessionEvent[] | undefined {
+  const entry = sessionCache.get(key);
+  if (entry !== undefined) {
+    // Invalidate if file has been modified since caching
+    if (entry.mtimeMs !== currentMtimeMs) {
+      sessionCache.delete(key);
+      return undefined;
+    }
+    // Move to end (most recently used)
+    sessionCache.delete(key);
+    sessionCache.set(key, entry);
+    return entry.events;
+  }
+  return undefined;
+}
+
+function setCachedEvents(key: string, events: SessionEvent[], mtimeMs: number): void {
   if (sessionCache.size >= MAX_CACHE_SIZE) {
     // Evict oldest (first key)
     const oldest = sessionCache.keys().next().value;
@@ -59,7 +71,7 @@ function setCachedEvents(key: string, events: SessionEvent[]): void {
       sessionCache.delete(oldest);
     }
   }
-  sessionCache.set(key, events);
+  sessionCache.set(key, { events, mtimeMs });
 }
 
 // ─── Event File Reading ─────────────────────────────────────────────────────
@@ -68,26 +80,41 @@ async function readSessionEvents(
   stateDir: string,
   sessionId: string,
 ): Promise<SessionEvent[]> {
-  const cacheKey = `${stateDir}:${sessionId}`;
-  const cached = getCachedEvents(cacheKey);
-  if (cached) return cached;
+  // Guard against path traversal in sessionId
+  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return [];
 
   const eventsPath = path.join(stateDir, 'sessions', `${sessionId}.events.jsonl`);
-  let content: string;
+  const cacheKey = `${stateDir}:${sessionId}`;
+
+  // Stat the file to check mtime for cache validation
+  let stat: { mtimeMs: number };
   try {
-    content = await fs.readFile(eventsPath, 'utf-8');
-  } catch {
-    return [];
+    stat = await fs.stat(eventsPath);
+  } catch (error: unknown) {
+    if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
   }
 
+  const cached = getCachedEvents(cacheKey, stat.mtimeMs);
+  if (cached) return cached;
+
+  const content = await fs.readFile(eventsPath, 'utf-8');
   const trimmed = content.trim();
   if (trimmed.length === 0) return [];
 
-  const events = trimmed
-    .split('\n')
-    .map((line) => JSON.parse(line) as SessionEvent);
+  const events: SessionEvent[] = [];
+  for (const line of trimmed.split('\n')) {
+    try {
+      events.push(JSON.parse(line) as SessionEvent);
+    } catch {
+      // Skip malformed lines — partial writes or corruption should not crash the query
+      continue;
+    }
+  }
 
-  setCachedEvents(cacheKey, events);
+  setCachedEvents(cacheKey, events, stat.mtimeMs);
   return events;
 }
 
@@ -205,6 +232,18 @@ function buildCostBySession(
   sessionsEvents: Array<{ sid: string; events: SessionEvent[] }>,
 ): Array<{ sid: string; tokens: { in: number; out: number } }> {
   return sessionsEvents.map(({ sid, events }) => {
+    // Summary events are authoritative — prefer them over turn events to avoid double-counting
+    const summaryEvents = events.filter((e): e is SessionSummaryEvent => e.t === 'summary');
+    if (summaryEvents.length > 0) {
+      let tokIn = 0;
+      let tokOut = 0;
+      for (const su of summaryEvents) {
+        tokIn += su.tokTotal.in;
+        tokOut += su.tokTotal.out;
+      }
+      return { sid, tokens: { in: tokIn, out: tokOut } };
+    }
+    // Fallback to turn events when no summary exists
     let tokIn = 0;
     let tokOut = 0;
     for (const event of events) {
@@ -212,10 +251,6 @@ function buildCostBySession(
         const tu = event as SessionTurnEvent;
         tokIn += tu.tokIn;
         tokOut += tu.tokOut;
-      } else if (event.t === 'summary') {
-        const su = event as SessionSummaryEvent;
-        tokIn += su.tokTotal.in;
-        tokOut += su.tokTotal.out;
       }
     }
     return { sid, tokens: { in: tokIn, out: tokOut } };

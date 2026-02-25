@@ -142,7 +142,7 @@ export const TaskSchema = z.object({
   id: z.string(),
   title: z.string(),
   status: TaskStatusSchema,
-  branch: z.string().optional(),
+  branch: z.string().nullable().optional(),
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
   nativeTaskId: z.string().optional(),
