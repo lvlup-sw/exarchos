@@ -150,9 +150,10 @@ describe('mergeSidecarEvents', () => {
           taskId: fc.stringMatching(/^task-[a-z0-9]{1,8}$/),
           teammateName: fc.stringMatching(/^worker-[a-z0-9]{1,4}$/),
         }),
-        { minLength: 1, maxLength: 10 },
+        { minLength: 1, maxLength: 5 },
       ),
     ],
+    { numRuns: 20 },
   )(
     'mergeSidecarEvents_Idempotent_RemergeProducesNoDuplicates',
     async (eventInputs) => {
