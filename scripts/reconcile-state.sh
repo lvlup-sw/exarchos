@@ -154,13 +154,13 @@ check_phase_valid() {
     local -a valid_phases
     case "$workflow_type" in
         feature)
-            valid_phases=(ideate plan plan-review delegate review synthesize complete cancelled)
+            valid_phases=(ideate plan plan-review delegate review synthesize completed cancelled blocked)
             ;;
         debug)
-            valid_phases=(triage investigate fix validate complete cancelled)
+            valid_phases=(triage investigate rca design debug-implement debug-validate debug-review hotfix-implement hotfix-validate synthesize completed cancelled blocked)
             ;;
         refactor)
-            valid_phases=(explore brief implement validate complete cancelled)
+            valid_phases=(explore brief polish-implement polish-validate polish-update-docs overhaul-plan overhaul-delegate overhaul-review overhaul-update-docs synthesize completed cancelled blocked)
             ;;
         *)
             check_fail "Phase is valid" "Unknown workflow type: $workflow_type"
