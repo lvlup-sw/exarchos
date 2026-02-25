@@ -76,7 +76,42 @@ Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
 ```
 After fixes are applied, return to Step 4 to re-check.
 
-## Step 5: Submit Stack to Merge Queue
+## Step 5: Write PR Descriptions
+
+For each PR in the stack, write a structured description following `references/pr-descriptions.md`:
+
+1. **Title:** `<type>: <what>` (max 72 chars)
+2. **Body:** Summary → Changes → Test Plan → Footer
+
+After `gt submit` creates/updates PRs, update each PR body via GitHub MCP or CLI:
+```bash
+gh pr edit <number> --body "$(cat <<'EOF'
+## Summary
+[2-3 sentences]
+
+## Changes
+- **Component** — Description
+
+## Test Plan
+[1-2 sentences]
+
+---
+**Results:** Tests X ✓ · Build 0 errors
+**Design:** [doc](path)
+**Related:** #issue
+EOF
+)"
+```
+
+**Validation:** Run `scripts/validate-pr-body.sh --pr <number>` to verify the body passes.
+CI enforces this via the `PR Body Check` workflow — PRs missing required sections will fail.
+
+**Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `--template`:
+```bash
+scripts/validate-pr-body.sh --pr <number> --template .exarchos/pr-template.md
+```
+
+## Step 6: Submit Stack to Merge Queue
 
 Enqueue the stack for merging (PRs already exist from delegation):
 
@@ -90,7 +125,7 @@ mcp__graphite__run_gt_cmd({
 
 After submission, use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to get the PR URLs for each stack entry.
 
-## Step 6: Cleanup After Merge
+## Step 7: Cleanup After Merge
 
 After PRs are merged, use Graphite to clean up:
 ```

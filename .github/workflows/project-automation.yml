@@ -158,21 +158,25 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - name: Setup GitHub CLI
-        env:
-          GH_VERSION: '2.65.0'
-        run: |
-          if ! command -v gh &>/dev/null; then
-            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
-              | tar xz -C /tmp
-            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
-          fi
       - name: Assign PR author
-        run: gh pr edit "$PR_URL" --add-assignee "$AUTHOR"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                assignees: [context.payload.pull_request.user.login]
+              });
+              console.log(`Assigned ${context.payload.pull_request.user.login} to PR #${context.payload.pull_request.number}`);
+            } catch (error) {
+              if (error.status === 403 || error.status === 422) {
+                console.log(`Skipping assignment for ${context.payload.pull_request.user.login}: ${error.message}`);
+                return;
+              }
+              throw error;
+            }
 
   # ============================================================
   # PROJECT SYNC: Add issues/PRs to project board
