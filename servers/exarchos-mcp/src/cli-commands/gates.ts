@@ -11,6 +11,7 @@ import { execSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
+import { writeHookEvent } from '../event-store/hook-event-writer.js';
 
 // ─── Check Definitions ─────────────────────────────────────────────────────
 
@@ -399,20 +400,6 @@ async function readTaskCompletionContext(cwd: string): Promise<TaskCompletionCon
 // ─── Team Event Emission ──────────────────────────────────────────────────
 
 /**
- * Lightweight event append for CLI hooks (no full EventStore import).
- * Appends a single JSON line to the JSONL file.
- */
-async function appendTeamEvent(
-  stateDir: string,
-  streamId: string,
-  event: Record<string, unknown>,
-): Promise<void> {
-  const eventFile = path.join(stateDir, `${streamId}.events.jsonl`);
-  const line = JSON.stringify(event) + '\n';
-  await fs.appendFile(eventFile, line, 'utf-8');
-}
-
-/**
  * Get changed files in the worktree using git diff.
  */
 function getChangedFiles(cwd: string): string[] {
@@ -429,8 +416,9 @@ function getChangedFiles(cwd: string): string[] {
 }
 
 /**
- * Emit a team.task.completed or team.task.failed event to the JSONL event store.
- * Best-effort: failures are silently swallowed.
+ * Emit a team.task.completed or team.task.failed event via the sidecar writer.
+ * Events are written to `{streamId}.hook-events.jsonl` for later merging
+ * into the main EventStore. Best-effort: failures are silently swallowed.
  */
 async function emitTeamTaskEvent(
   cwd: string,
@@ -446,38 +434,36 @@ async function emitTeamTaskEvent(
     const streamId = featureId ?? (await resolveStreamId(stateDir));
     if (!streamId) return;
 
+    const resolvedTaskId = taskId ?? 'unknown';
+
     if (passed) {
       const filesChanged = getChangedFiles(cwd);
       const durationMs = startedAt
         ? Date.now() - new Date(startedAt).getTime()
         : 0;
 
-      await appendTeamEvent(stateDir, streamId, {
-        streamId,
-        sequence: Date.now(),
-        timestamp: new Date().toISOString(),
+      await writeHookEvent(stateDir, streamId, {
         type: 'team.task.completed',
         data: {
-          taskId: taskId ?? 'unknown',
+          taskId: resolvedTaskId,
           teammateName,
           durationMs: durationMs > 0 ? durationMs : 1,
           filesChanged,
           testsPassed: true,
           qualityGateResults: {},
         },
+        idempotencyKey: `${streamId}:team.task.completed:${resolvedTaskId}`,
       });
     } else {
-      await appendTeamEvent(stateDir, streamId, {
-        streamId,
-        sequence: Date.now(),
-        timestamp: new Date().toISOString(),
+      await writeHookEvent(stateDir, streamId, {
         type: 'team.task.failed',
         data: {
-          taskId: taskId ?? 'unknown',
+          taskId: resolvedTaskId,
           teammateName,
           failureReason: failureReason ?? 'quality gate failed',
           gateResults: {},
         },
+        idempotencyKey: `${streamId}:team.task.failed:${resolvedTaskId}`,
       });
     }
   } catch {
