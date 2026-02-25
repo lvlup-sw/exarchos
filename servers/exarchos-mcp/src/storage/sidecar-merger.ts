@@ -10,6 +10,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ async function mergeOneSidecar(
       const beforeSeq = await getStreamSequence(eventStore, streamId);
       await eventStore.append(
         streamId,
-        { type, data, timestamp },
+        { type: type as WorkflowEvent['type'], data, timestamp },
         idempotencyKey ? { idempotencyKey } : undefined,
       );
       const afterSeq = await getStreamSequence(eventStore, streamId);

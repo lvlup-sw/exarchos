@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleSessionStart, detectNativeTeam, queryTelemetryHints, detectGraphite } from './session-start.js';
+
+vi.mock('../session/manifest.js', () => ({
+  writeManifestEntry: vi.fn().mockResolvedValue(undefined),
+  findUnextractedSessions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../session/transcript-parser.js', () => ({
+  parseTranscript: vi.fn().mockResolvedValue([]),
+}));
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1313,6 +1322,231 @@ describe('session-start command', () => {
 
       // Assert
       expect(result).toBe(false);
+    });
+  });
+
+  // ─── Session Manifest Integration (Task 008) ───────────────────────────────
+
+  describe('session manifest integration', () => {
+    let manifestMocks: typeof import('../session/manifest.js');
+
+    beforeEach(async () => {
+      manifestMocks = await import('../session/manifest.js');
+      vi.mocked(manifestMocks.writeManifestEntry).mockReset().mockResolvedValue(undefined);
+      vi.mocked(manifestMocks.findUnextractedSessions).mockReset().mockResolvedValue([]);
+    });
+
+    it('handleSessionStart_WritesManifestEntry_WithSessionMetadata', async () => {
+      // Arrange
+      const stdinData = {
+        session_id: 'sess-abc-123',
+        transcript_path: '/home/user/.claude/projects/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const callArgs = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0];
+      expect(callArgs[0]).toBe(tmpDir);
+      const entry = callArgs[1];
+      expect(entry.sessionId).toBe('sess-abc-123');
+      expect(entry.transcriptPath).toBe('/home/user/.claude/projects/transcript.jsonl');
+      expect(entry.cwd).toBe('/home/user/project');
+      expect(entry.startedAt).toBeDefined();
+      // startedAt should be a valid ISO date
+      expect(new Date(entry.startedAt).toISOString()).toBe(entry.startedAt);
+    });
+
+    it('handleSessionStart_ResolvesWorkflowId_FromActiveWorkflows', async () => {
+      // Arrange — active workflow state file
+      const stdinData = {
+        session_id: 'sess-with-workflow',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+      const stateData = createValidStateFile({
+        featureId: 'active-feature',
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'active-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const entry = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0][1];
+      expect(entry.workflowId).toBe('active-feature');
+    });
+
+    it('handleSessionStart_NoActiveWorkflow_ManifestEntryHasUndefinedWorkflowId', async () => {
+      // Arrange — no state files, no checkpoints
+      const stdinData = {
+        session_id: 'sess-no-workflow',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const entry = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0][1];
+      expect(entry.workflowId).toBeUndefined();
+    });
+
+    it('handleSessionStart_ManifestWriteFailure_DoesNotBreakExistingBehavior', async () => {
+      // Arrange — writeManifestEntry throws
+      vi.mocked(manifestMocks.writeManifestEntry).mockRejectedValue(new Error('disk full'));
+      const stdinData = {
+        session_id: 'sess-fail-write',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+      const stateData = createValidStateFile({
+        featureId: 'resilient-feature',
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'resilient-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — session-start still returns workflow info
+      expect(result.workflows).toBeDefined();
+      expect(result.workflows).toHaveLength(1);
+      expect(result.workflows![0].featureId).toBe('resilient-feature');
+      expect(result.error).toBeUndefined();
+    });
+  });
+
+  // ─── Session Retry Mechanism (Task 011) ────────────────────────────────────
+
+  describe('session retry mechanism', () => {
+    let manifestMocks: typeof import('../session/manifest.js');
+    let parserMocks: typeof import('../session/transcript-parser.js');
+
+    beforeEach(async () => {
+      manifestMocks = await import('../session/manifest.js');
+      parserMocks = await import('../session/transcript-parser.js');
+      vi.mocked(manifestMocks.writeManifestEntry).mockReset().mockResolvedValue(undefined);
+      vi.mocked(manifestMocks.findUnextractedSessions).mockReset().mockResolvedValue([]);
+      vi.mocked(parserMocks.parseTranscript).mockReset().mockResolvedValue([]);
+    });
+
+    it('handleSessionStart_UnextractedSession_RetriesExtraction', async () => {
+      // Arrange — one unextracted session with existing transcript
+      const transcriptPath = path.join(tmpDir, 'old-transcript.jsonl');
+      await fs.writeFile(transcriptPath, '{"type":"assistant"}\n');
+
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'old-sess-1', transcriptPath, cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z', workflowId: 'feat-1' },
+      ]);
+
+      const mockEvents = [
+        { t: 'tool' as const, ts: '2025-01-01T00:00:01Z', tool: 'Read', cat: 'native' as const, inB: 10, outB: 20, sid: 'old-sess-1', wid: 'feat-1' },
+      ];
+      vi.mocked(parserMocks.parseTranscript).mockResolvedValue(mockEvents);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript called for the unextracted session
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath, { sessionId: 'old-sess-1', workflowId: 'feat-1' });
+
+      // Assert — events written to sessions/{sessionId}.events.jsonl
+      const eventsPath = path.join(tmpDir, 'sessions', 'old-sess-1.events.jsonl');
+      const eventsContent = await fs.readFile(eventsPath, 'utf-8');
+      expect(eventsContent.trim().split('\n')).toHaveLength(1);
+      const parsed = JSON.parse(eventsContent.trim().split('\n')[0]);
+      expect(parsed.t).toBe('tool');
+    });
+
+    it('handleSessionStart_TranscriptGone_MarksSessionAsOrphan', async () => {
+      // Arrange — unextracted session whose transcript file no longer exists
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'orphan-sess', transcriptPath: '/nonexistent/transcript.jsonl', cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript should NOT be called
+      expect(parserMocks.parseTranscript).not.toHaveBeenCalled();
+
+      // Assert — orphan marker appended to manifest
+      const manifestPath = path.join(tmpDir, 'sessions', '.manifest.jsonl');
+      const content = await fs.readFile(manifestPath, 'utf-8');
+      const lines = content.trim().split('\n');
+      const orphanLine = lines.find((l) => l.includes('orphan-sess'));
+      expect(orphanLine).toBeDefined();
+      const orphanEntry = JSON.parse(orphanLine!);
+      expect(orphanEntry.sessionId).toBe('orphan-sess');
+      expect(orphanEntry.reason).toBe('transcript_not_found');
+      expect(orphanEntry.orphanedAt).toBeDefined();
+    });
+
+    it('handleSessionStart_MultipleUnextracted_ProcessesAll', async () => {
+      // Arrange — two unextracted sessions
+      const transcriptPath1 = path.join(tmpDir, 'transcript-1.jsonl');
+      const transcriptPath2 = path.join(tmpDir, 'transcript-2.jsonl');
+      await fs.writeFile(transcriptPath1, '{"type":"assistant"}\n');
+      await fs.writeFile(transcriptPath2, '{"type":"assistant"}\n');
+
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'multi-sess-1', transcriptPath: transcriptPath1, cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z' },
+        { sessionId: 'multi-sess-2', transcriptPath: transcriptPath2, cwd: '/tmp', startedAt: '2025-01-01T00:01:00Z' },
+      ]);
+
+      vi.mocked(parserMocks.parseTranscript).mockResolvedValue([]);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript called for both
+      expect(parserMocks.parseTranscript).toHaveBeenCalledTimes(2);
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath1, { sessionId: 'multi-sess-1', workflowId: undefined });
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath2, { sessionId: 'multi-sess-2', workflowId: undefined });
+    });
+
+    it('handleSessionStart_RetryFailure_DoesNotBreakStartup', async () => {
+      // Arrange — findUnextractedSessions throws
+      vi.mocked(manifestMocks.findUnextractedSessions).mockRejectedValue(new Error('corrupt manifest'));
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+      const stateData = createValidStateFile({
+        featureId: 'resilient-feature-2',
+        phase: 'plan',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'resilient-feature-2.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — session-start still returns workflow info normally
+      expect(result.workflows).toBeDefined();
+      expect(result.workflows).toHaveLength(1);
+      expect(result.workflows![0].featureId).toBe('resilient-feature-2');
+      expect(result.error).toBeUndefined();
     });
   });
 });
