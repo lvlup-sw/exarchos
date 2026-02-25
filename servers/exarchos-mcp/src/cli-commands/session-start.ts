@@ -6,6 +6,9 @@ import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { generateHints } from '../telemetry/hints.js';
+import { writeManifestEntry, findUnextractedSessions } from '../session/manifest.js';
+import { parseTranscript } from '../session/transcript-parser.js';
+import type { SessionManifestEntry } from '../session/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -373,6 +376,49 @@ export async function queryTelemetryHints(stateDir: string): Promise<string[]> {
   return hints.map((h) => `${h.tool}: ${h.hint}`);
 }
 
+// ─── Session Retry ──────────────────────────────────────────────────────────
+
+/**
+ * Retry extraction for sessions that were started but never had their
+ * SessionEnd hook fire successfully. Scans the manifest for entries
+ * without a corresponding `.events.jsonl` file.
+ *
+ * For each unextracted session:
+ * - If the transcript file still exists, parse it and write events
+ * - If the transcript is gone, append an orphan marker to the manifest
+ *
+ * Failures are silently caught — retries must never break session startup.
+ */
+async function retryUnextractedSessions(stateDir: string): Promise<void> {
+  const unextracted = await findUnextractedSessions(stateDir);
+  if (unextracted.length === 0) return;
+
+  const sessionsDir = path.join(stateDir, 'sessions');
+  await fs.mkdir(sessionsDir, { recursive: true });
+
+  for (const entry of unextracted) {
+    const transcriptExists = await fs.access(entry.transcriptPath).then(() => true, () => false);
+
+    if (transcriptExists) {
+      const events = await parseTranscript(entry.transcriptPath, {
+        sessionId: entry.sessionId,
+        workflowId: entry.workflowId,
+      });
+      const eventsPath = path.join(sessionsDir, `${entry.sessionId}.events.jsonl`);
+      const eventsContent = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      await fs.writeFile(eventsPath, eventsContent, 'utf-8');
+    } else {
+      const manifestPath = path.join(sessionsDir, '.manifest.jsonl');
+      const orphanMarker = {
+        sessionId: entry.sessionId,
+        orphanedAt: new Date().toISOString(),
+        reason: 'transcript_not_found',
+      };
+      await fs.appendFile(manifestPath, JSON.stringify(orphanMarker) + '\n', 'utf-8');
+    }
+  }
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
@@ -498,7 +544,7 @@ async function enrichResult(
  * that exceed optimization thresholds.
  */
 export async function handleSessionStart(
-  _stdinData: Record<string, unknown>,
+  stdinData: Record<string, unknown>,
   stateDir: string,
   teamsDir?: string,
 ): Promise<SessionStartResult> {
@@ -507,6 +553,11 @@ export async function handleSessionStart(
 
   // Step 1: Check for checkpoint files (highest priority)
   const checkpoints = await readAndDeleteCheckpoints(stateDir);
+
+  // Collect discovered workflows for manifest workflowId resolution
+  const discoveredWorkflows: WorkflowInfo[] = [];
+
+  let result: SessionStartResult;
 
   if (checkpoints.length > 0) {
     // Collect featureIds from checkpoints to exclude from state file discovery
@@ -545,6 +596,8 @@ export async function handleSessionStart(
       // Non-critical: if listing fails, we still have checkpoint data
     }
 
+    discoveredWorkflows.push(...workflows);
+
     const baseResult: SessionStartResult = contextDocument
       ? { workflows, contextDocument }
       : { workflows };
@@ -552,33 +605,79 @@ export async function handleSessionStart(
     if (teamsDir) {
       const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
       const merged = contextDocument ? { ...teamResult, contextDocument } : teamResult;
-      return enrichResult(merged, stateDir, graphiteAvailable);
+      result = await enrichResult(merged, stateDir, graphiteAvailable);
+    } else {
+      result = await enrichResult(baseResult, stateDir, graphiteAvailable);
     }
-    return enrichResult(baseResult, stateDir, graphiteAvailable);
+  } else {
+    // Step 2: No checkpoints — discover active workflows from state files
+    try {
+      const stateFiles = (await listStateFiles(stateDir)).valid;
+      const activeWorkflows = stateFiles.filter(
+        (entry) => !TERMINAL_PHASES.has(entry.state.phase),
+      );
+
+      const workflows: WorkflowInfo[] = activeWorkflows.map((entry) => ({
+        featureId: entry.featureId,
+        phase: entry.state.phase,
+        summary: `Active workflow discovered (${entry.state.workflowType})`,
+        nextAction: `WAIT:in-progress:${entry.state.phase}`,
+      }));
+
+      discoveredWorkflows.push(...workflows);
+
+      if (activeWorkflows.length === 0 && !teamsDir) {
+        result = await enrichResult({}, stateDir, graphiteAvailable);
+      } else if (teamsDir) {
+        result = await enrichResult(await applyNativeTeamDetection(workflows, teamsDir), stateDir, graphiteAvailable);
+      } else if (workflows.length === 0) {
+        result = await enrichResult({}, stateDir, graphiteAvailable);
+      } else {
+        result = await enrichResult({ workflows }, stateDir, graphiteAvailable);
+      }
+    } catch {
+      // If state dir doesn't exist or is unreadable, still check for orphaned teams
+      if (teamsDir) {
+        result = await enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir, graphiteAvailable);
+      } else {
+        result = await enrichResult({}, stateDir, graphiteAvailable);
+      }
+    }
   }
 
-  // Step 2: No checkpoints — discover active workflows from state files
+  // Step 3: Write session manifest entry (non-critical — failures must not break startup)
   try {
-    const stateFiles = (await listStateFiles(stateDir)).valid;
-    const activeWorkflows = stateFiles.filter(
-      (entry) => !TERMINAL_PHASES.has(entry.state.phase),
-    );
+    const sessionId = typeof stdinData.session_id === 'string' ? stdinData.session_id : undefined;
+    const transcriptPath = typeof stdinData.transcript_path === 'string' ? stdinData.transcript_path : undefined;
+    const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : undefined;
+    const branch = typeof stdinData.branch === 'string' ? stdinData.branch : undefined;
 
-    if (activeWorkflows.length === 0 && !teamsDir) return enrichResult({}, stateDir, graphiteAvailable);
+    if (sessionId && transcriptPath && cwd) {
+      const workflowId = discoveredWorkflows.length > 0
+        ? discoveredWorkflows[0].featureId
+        : undefined;
 
-    const workflows: WorkflowInfo[] = activeWorkflows.map((entry) => ({
-      featureId: entry.featureId,
-      phase: entry.state.phase,
-      summary: `Active workflow discovered (${entry.state.workflowType})`,
-      nextAction: `WAIT:in-progress:${entry.state.phase}`,
-    }));
+      const manifestEntry: SessionManifestEntry = {
+        sessionId,
+        transcriptPath,
+        cwd,
+        startedAt: new Date().toISOString(),
+        ...(workflowId !== undefined && { workflowId }),
+        ...(branch !== undefined && { branch }),
+      };
 
-    if (teamsDir) return enrichResult(await applyNativeTeamDetection(workflows, teamsDir), stateDir, graphiteAvailable);
-    if (workflows.length === 0) return enrichResult({}, stateDir, graphiteAvailable);
-    return enrichResult({ workflows }, stateDir, graphiteAvailable);
+      await writeManifestEntry(stateDir, manifestEntry);
+    }
   } catch {
-    // If state dir doesn't exist or is unreadable, still check for orphaned teams
-    if (teamsDir) return enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir, graphiteAvailable);
-    return enrichResult({}, stateDir, graphiteAvailable);
+    // Manifest write failure must not break session startup
   }
+
+  // Step 4: Retry extraction for unextracted sessions (non-critical)
+  try {
+    await retryUnextractedSessions(stateDir);
+  } catch {
+    // Retry failure must not break session startup
+  }
+
+  return result;
 }
