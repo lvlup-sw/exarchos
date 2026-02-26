@@ -49,6 +49,7 @@ export const EventTypes = [
   'shepherd.iteration',
   'shepherd.approval_requested',
   'shepherd.completed',
+  'quality.refinement.suggested',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -360,6 +361,26 @@ export const QualityHintGeneratedData = z.object({
   generatedAt: z.string().datetime(),
 });
 
+// ─── Quality Refinement Event Data ──────────────────────────────────────────
+
+export const RefinementSuggestedDataSchema = z.object({
+  skill: z.string().min(1),
+  signalConfidence: z.enum(['high', 'medium']),
+  trigger: z.enum(['regression', 'trend-degradation', 'attribution-outlier']),
+  evidence: z.object({
+    gatePassRate: z.number(),
+    evalScore: z.number(),
+    topFailureCategories: z.array(z.object({
+      category: z.string(),
+      count: z.number(),
+    })),
+    selfCorrectionRate: z.number(),
+    recentRegressions: z.number(),
+  }),
+  suggestedAction: z.string().min(1),
+  affectedPromptPaths: z.array(z.string()),
+});
+
 // ─── Shepherd Event Data ──────────────────────────────────────────────────
 
 /** @planned — not yet emitted in production */
@@ -469,6 +490,7 @@ export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
 export type QualityHintGenerated = z.infer<typeof QualityHintGeneratedData>;
+export type RefinementSuggestedData = z.infer<typeof RefinementSuggestedDataSchema>;
 export type ShepherdStarted = z.infer<typeof ShepherdStartedData>;
 export type ShepherdIteration = z.infer<typeof ShepherdIterationData>;
 export type ShepherdApprovalRequested = z.infer<typeof ShepherdApprovalRequestedData>;
