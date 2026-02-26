@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { fc, test as fcTest } from '@fast-check/vitest';
 import {
   codeQualityProjection,
   CODE_QUALITY_VIEW,
@@ -280,6 +281,227 @@ describe('CodeQualityView', () => {
     it('Init_IncludesEmptyModelsRecord', () => {
       const state = codeQualityProjection.init();
       expect(state.models).toEqual({});
+    });
+  });
+
+  // ─── remediation.succeeded handling ───────────────────────────────────────
+
+  describe('apply - remediation.succeeded', () => {
+    it('CodeQualityView_RemediationSucceeded_UpdatesSelfCorrectionRate', () => {
+      // Arrange: create a skill with some failures (2 executions, 50% pass = 1 failure)
+      let state = codeQualityProjection.init();
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        duration: 500,
+        details: { skill: 'delegation' },
+      }, 1));
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 500,
+        details: { skill: 'delegation' },
+      }, 2));
+
+      // Act: remediation succeeds for that skill
+      const next = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'delegation',
+        totalAttempts: 2,
+      }, 3));
+
+      // Assert: selfCorrectionRate should be > 0
+      expect(next.skills['delegation'].selfCorrectionRate).toBeGreaterThan(0);
+      expect(next.skills['delegation'].selfCorrectionRate).toBeLessThanOrEqual(1);
+    });
+
+    it('CodeQualityView_RemediationSucceeded_UpdatesAvgRemediationAttempts', () => {
+      // Arrange: create a skill with failures
+      let state = codeQualityProjection.init();
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 500,
+        details: { skill: 'delegation' },
+      }, 1));
+
+      // Act: remediation succeeds with 3 attempts
+      const next = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'delegation',
+        totalAttempts: 3,
+      }, 2));
+
+      // Assert: avgRemediationAttempts should reflect the 3 attempts
+      expect(next.skills['delegation'].avgRemediationAttempts).toBe(3);
+    });
+
+    it('CodeQualityView_MultipleRemediations_CorrectRunningAverage', () => {
+      // Arrange: skill with multiple failures
+      let state = codeQualityProjection.init();
+      for (let i = 1; i <= 3; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'delegation' },
+        }, i));
+      }
+
+      // Act: two remediations with different attempt counts
+      state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'delegation',
+        totalAttempts: 2,
+      }, 4));
+      state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'delegation',
+        totalAttempts: 4,
+      }, 5));
+
+      // Assert: running average of 2 and 4 = 3
+      expect(state.skills['delegation'].avgRemediationAttempts).toBe(3);
+    });
+
+    it('CodeQualityView_RemediationForUnknownSkill_CreatesSkillEntry', () => {
+      // Arrange: fresh state, no skill exists
+      const state = codeQualityProjection.init();
+
+      // Act: remediation for a skill not yet tracked
+      const next = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'unknown-skill',
+        totalAttempts: 1,
+      }, 1));
+
+      // Assert: skill entry should be created with remediation data
+      expect(next.skills['unknown-skill']).toBeDefined();
+      expect(next.skills['unknown-skill'].avgRemediationAttempts).toBe(1);
+    });
+
+    it('CodeQualityView_NoRemediations_RateRemainsZero', () => {
+      // Arrange: skill with only gate executions, no remediations
+      let state = codeQualityProjection.init();
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 500,
+        details: { skill: 'delegation' },
+      }, 1));
+
+      // Assert: selfCorrectionRate and avgRemediationAttempts remain at 0
+      expect(state.skills['delegation'].selfCorrectionRate).toBe(0);
+      expect(state.skills['delegation'].avgRemediationAttempts).toBe(0);
+    });
+
+    it('CodeQualityView_RemediationAfterGateFailure_CorrelatesCorrectly', () => {
+      // Arrange: 4 gate executions (2 pass, 2 fail) for a skill
+      let state = codeQualityProjection.init();
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck', layer: 'build', passed: true, duration: 500,
+        details: { skill: 'planning' },
+      }, 1));
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck', layer: 'build', passed: false, duration: 500,
+        details: { skill: 'planning' },
+      }, 2));
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck', layer: 'build', passed: true, duration: 500,
+        details: { skill: 'planning' },
+      }, 3));
+      state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+        gateName: 'typecheck', layer: 'build', passed: false, duration: 500,
+        details: { skill: 'planning' },
+      }, 4));
+
+      // 4 executions, 50% pass rate => 2 failures
+      expect(state.skills['planning'].totalExecutions).toBe(4);
+      expect(state.skills['planning'].gatePassRate).toBe(0.5);
+
+      // Act: remediate 1 of 2 failures
+      state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'planning',
+        totalAttempts: 2,
+      }, 5));
+
+      // Assert: 1 correction out of (2 failures + 1) denominator
+      // selfCorrectionRate = 1/3 ≈ 0.333
+      const rate = state.skills['planning'].selfCorrectionRate;
+      expect(rate).toBeGreaterThan(0);
+      expect(rate).toBeLessThanOrEqual(1);
+      expect(state.skills['planning'].avgRemediationAttempts).toBe(2);
+
+      // Act: remediate 2nd failure
+      state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'planning',
+        totalAttempts: 1,
+      }, 6));
+
+      // selfCorrectionRate should be higher now
+      const rate2 = state.skills['planning'].selfCorrectionRate;
+      expect(rate2).toBeGreaterThan(rate);
+      // avgRemediationAttempts = running average of (2, 1) = 1.5
+      expect(state.skills['planning'].avgRemediationAttempts).toBe(1.5);
+    });
+  });
+
+  // ─── Property-based tests for remediation.succeeded ─────────────────────
+
+  describe('apply - remediation.succeeded (property-based)', () => {
+    fcTest.prop([
+      fc.integer({ min: 1, max: 50 }),
+      fc.integer({ min: 1, max: 10 }),
+    ])('selfCorrectionRate is always between 0 and 1', (failCount, totalAttempts) => {
+      let state = codeQualityProjection.init();
+
+      // Create failures
+      for (let i = 1; i <= failCount; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'prop-skill' },
+        }, i));
+      }
+
+      // Apply remediation
+      state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+        skill: 'prop-skill',
+        totalAttempts,
+      }, failCount + 1));
+
+      expect(state.skills['prop-skill'].selfCorrectionRate).toBeGreaterThanOrEqual(0);
+      expect(state.skills['prop-skill'].selfCorrectionRate).toBeLessThanOrEqual(1);
+    });
+
+    fcTest.prop([
+      fc.array(fc.integer({ min: 1, max: 20 }), { minLength: 1, maxLength: 20 }),
+    ])('avgRemediationAttempts >= 1 when any remediations exist', (attemptsList) => {
+      let state = codeQualityProjection.init();
+
+      // Create enough failures
+      for (let i = 1; i <= attemptsList.length * 2; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'prop-skill' },
+        }, i));
+      }
+
+      // Apply all remediations
+      let seq = attemptsList.length * 2 + 1;
+      for (const attempts of attemptsList) {
+        state = codeQualityProjection.apply(state, makeEvent('remediation.succeeded', {
+          skill: 'prop-skill',
+          totalAttempts: attempts,
+        }, seq++));
+      }
+
+      expect(state.skills['prop-skill'].avgRemediationAttempts).toBeGreaterThanOrEqual(1);
     });
   });
 

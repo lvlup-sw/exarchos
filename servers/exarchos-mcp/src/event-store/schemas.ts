@@ -49,6 +49,7 @@ export const EventTypes = [
   'shepherd.iteration',
   'shepherd.approval_requested',
   'shepherd.completed',
+  'remediation.succeeded',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -391,6 +392,13 @@ export const ShepherdCompletedData = z.object({
   duration: z.number().nonnegative(),
 });
 
+// ─── Remediation Event Data ──────────────────────────────────────────────────
+
+export const RemediationSucceededData = z.object({
+  skill: z.string(),
+  totalAttempts: z.number().int().positive(),
+});
+
 // ─── Eval Event Data ────────────────────────────────────────────────────────
 
 export const EvalRunStartedData = z.object({
@@ -473,6 +481,7 @@ export type ShepherdStarted = z.infer<typeof ShepherdStartedData>;
 export type ShepherdIteration = z.infer<typeof ShepherdIterationData>;
 export type ShepherdApprovalRequested = z.infer<typeof ShepherdApprovalRequestedData>;
 export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
+export type RemediationSucceeded = z.infer<typeof RemediationSucceededData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
 export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
