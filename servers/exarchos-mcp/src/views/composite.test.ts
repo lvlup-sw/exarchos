@@ -12,6 +12,7 @@ vi.mock('./tools.js', () => ({
   handleViewEvalResults: vi.fn(),
   handleViewQualityCorrelation: vi.fn(),
   handleViewSessionProvenance: vi.fn(),
+  handleViewQualityAttribution: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -37,6 +38,7 @@ import {
   handleViewEvalResults,
   handleViewQualityCorrelation,
   handleViewSessionProvenance,
+  handleViewQualityAttribution,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -512,6 +514,89 @@ describe('handleView', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
       expect(result.error?.message).toContain('nonexistent');
+    });
+  });
+
+  describe('quality_attribution', () => {
+    it('HandleViewAttribution_ValidQuery_ReturnsAttributionResult', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          dimension: 'skill',
+          entries: [
+            { name: 'delegation', dimension: 'skill', contribution: 0.67, passRate: 0.9, executionCount: 20 },
+          ],
+          totalExecutions: 30,
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { workflowId: 'test-wf', dimension: 'skill' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleViewAttribution_InvalidDimension_ReturnsError', async () => {
+      // Arrange
+      const expected = {
+        success: false,
+        error: {
+          code: 'VIEW_ERROR',
+          message: 'Invalid attribution dimension: invalid',
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', dimension: 'invalid' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid attribution dimension');
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { dimension: 'invalid' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleViewAttribution_WithSkillFilter_FiltersResults', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          dimension: 'skill',
+          entries: [
+            { name: 'delegation', dimension: 'skill', contribution: 1.0, passRate: 0.9, executionCount: 20 },
+          ],
+          totalExecutions: 20,
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      const data = result.data as { entries: Array<{ name: string }> };
+      expect(data.entries).toHaveLength(1);
+      expect(data.entries[0].name).toBe('delegation');
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' },
+        STATE_DIR,
+      );
     });
   });
 
