@@ -39,6 +39,7 @@ describe('correlateQualityAndEvals', () => {
       },
       runs: [],
       regressions: [],
+      calibrations: [],
     };
 
     // Act
@@ -87,6 +88,7 @@ describe('correlateQualityAndEvals', () => {
       },
       runs: [],
       regressions: [],
+      calibrations: [],
     };
 
     // Act
@@ -110,6 +112,7 @@ describe('correlateQualityAndEvals', () => {
       skills: {},
       runs: [],
       regressions: [],
+      calibrations: [],
     };
 
     // Act
@@ -142,6 +145,7 @@ describe('correlateQualityAndEvals', () => {
       skills: {},
       runs: [],
       regressions: [],
+      calibrations: [],
     };
 
     // Act
@@ -203,6 +207,7 @@ describe('correlateQualityAndEvals', () => {
       },
       runs: [],
       regressions: [],
+      calibrations: [],
     };
 
     // Act
@@ -255,6 +260,7 @@ const evalResultsArb: fc.Arbitrary<EvalResultsViewState> = fc
     skills: Object.fromEntries(entries.map(([name, m]) => [name, { ...m, skill: name }])),
     runs: [],
     regressions: [],
+    calibrations: [],
   }));
 
 describe('correlateQualityAndEvals (property tests)', () => {
