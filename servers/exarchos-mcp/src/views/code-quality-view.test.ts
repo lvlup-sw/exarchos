@@ -283,6 +283,123 @@ describe('CodeQualityView', () => {
     });
   });
 
+  // ─── topFailureCategories population ────────────────────────────────────
+
+  describe('apply - topFailureCategories', () => {
+    it('CodeQualityView_GateFailedWithReason_PopulatesTopFailureCategories', () => {
+      const state = codeQualityProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 500,
+        details: { skill: 'delegation', reason: 'TS2345' },
+      });
+
+      const next = codeQualityProjection.apply(state, event);
+      expect(next.skills['delegation'].topFailureCategories).toEqual([
+        { category: 'TS2345', count: 1 },
+      ]);
+    });
+
+    it('CodeQualityView_MultipleFailureReasons_SortedByCount', () => {
+      let state = codeQualityProjection.init();
+
+      // Add 'TS2345' twice
+      for (let i = 1; i <= 2; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'delegation', reason: 'TS2345' },
+        }, i));
+      }
+
+      // Add 'TS1234' three times
+      for (let i = 3; i <= 5; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'delegation', reason: 'TS1234' },
+        }, i));
+      }
+
+      const categories = state.skills['delegation'].topFailureCategories;
+      expect(categories[0]).toEqual({ category: 'TS1234', count: 3 });
+      expect(categories[1]).toEqual({ category: 'TS2345', count: 2 });
+    });
+
+    it('CodeQualityView_MoreThan10Categories_TruncatesToTop10', () => {
+      let state = codeQualityProjection.init();
+      let seq = 1;
+
+      // Add 12 distinct categories, each with count = 1
+      for (let i = 1; i <= 12; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'delegation', reason: `category-${i}` },
+        }, seq++));
+      }
+
+      const categories = state.skills['delegation'].topFailureCategories;
+      expect(categories.length).toBe(10);
+    });
+
+    it('CodeQualityView_GatePassedNoReason_DoesNotAddCategory', () => {
+      const state = codeQualityProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: true,
+        duration: 500,
+        details: { skill: 'delegation' },
+      });
+
+      const next = codeQualityProjection.apply(state, event);
+      expect(next.skills['delegation'].topFailureCategories).toEqual([]);
+    });
+
+    it('CodeQualityView_FailureNoReason_UsesGateNameAsCategory', () => {
+      const state = codeQualityProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'typecheck',
+        layer: 'build',
+        passed: false,
+        duration: 500,
+        details: { skill: 'delegation' },
+      });
+
+      const next = codeQualityProjection.apply(state, event);
+      expect(next.skills['delegation'].topFailureCategories).toEqual([
+        { category: 'typecheck', count: 1 },
+      ]);
+    });
+
+    it('CodeQualityView_SameCategory_IncrementsCount', () => {
+      let state = codeQualityProjection.init();
+
+      for (let i = 1; i <= 3; i++) {
+        state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: false,
+          duration: 500,
+          details: { skill: 'delegation', reason: 'TS2345' },
+        }, i));
+      }
+
+      expect(state.skills['delegation'].topFailureCategories).toEqual([
+        { category: 'TS2345', count: 3 },
+      ]);
+    });
+  });
+
   // ─── T16: Unrelated events ────────────────────────────────────────────────
 
   describe('apply - unrelated events', () => {

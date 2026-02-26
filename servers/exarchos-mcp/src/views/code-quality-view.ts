@@ -213,12 +213,31 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     const newExec = prevSkill.totalExecutions + 1;
     const skillPassCount = Math.round(prevSkill.gatePassRate * prevSkill.totalExecutions) + (passed ? 1 : 0);
 
+    // Aggregate failure categories on the skill
+    let updatedCategories = [...prevSkill.topFailureCategories] as Array<{ category: string; count: number }>;
+    if (!passed) {
+      const category = reason || gateName;
+      const existing = updatedCategories.find(c => c.category === category);
+      if (existing) {
+        updatedCategories = updatedCategories.map(c =>
+          c.category === category ? { ...c, count: c.count + 1 } : c,
+        );
+      } else {
+        updatedCategories.push({ category, count: 1 });
+      }
+      updatedCategories.sort((a, b) => b.count - a.count);
+      if (updatedCategories.length > 10) {
+        updatedCategories.length = 10;
+      }
+    }
+
     updatedSkills = {
       ...state.skills,
       [skill]: {
         ...prevSkill,
         totalExecutions: newExec,
         gatePassRate: skillPassCount / newExec,
+        topFailureCategories: updatedCategories,
       },
     };
   }
