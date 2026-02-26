@@ -3,8 +3,17 @@ import type { EvalResultsViewState } from '../views/eval-results-view.js';
 
 // ─── Interfaces ─────────────────────────────────────────────────────────────
 
+export type AttributionDimension = 'skill' | 'model' | 'gate' | 'prompt-version';
+
+const VALID_DIMENSIONS: ReadonlySet<string> = new Set<string>(['skill', 'model', 'gate', 'prompt-version']);
+
+/** Type guard: check if a string is a valid attribution dimension. */
+export function isValidDimension(value: string): value is AttributionDimension {
+  return VALID_DIMENSIONS.has(value);
+}
+
 export interface AttributionQuery {
-  readonly dimension: 'skill' | 'model' | 'gate' | 'prompt-version';
+  readonly dimension: AttributionDimension;
   readonly skill?: string;
   readonly timeRange?: string; // ISO 8601 duration (e.g., 'P7D')
 }

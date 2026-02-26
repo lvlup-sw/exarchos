@@ -150,7 +150,11 @@ async function handlePromote(
       continue;
     }
     // Override layer to match the dataset name (regression, capability, etc.)
-    toPromote.push({ ...candidate, layer: datasetName as EvalCase['layer'] });
+    const validLayers = ['regression', 'capability', 'reliability'] as const;
+    const layer = validLayers.includes(datasetName as typeof validLayers[number])
+      ? (datasetName as EvalCase['layer'])
+      : 'regression';
+    toPromote.push({ ...candidate, layer });
   }
 
   // Append to dataset

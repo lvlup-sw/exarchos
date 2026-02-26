@@ -634,10 +634,19 @@ export async function handleViewQualityAttribution(
       erEvents,
     );
 
+    // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
+    // but the MCP handler receives { start, end } — compute duration from the range
+    let timeRange: string | undefined;
+    if (args.timeRange) {
+      const startMs = new Date(args.timeRange.start).getTime();
+      const endMs = new Date(args.timeRange.end).getTime();
+      const diffDays = Math.max(1, Math.round((endMs - startMs) / (24 * 60 * 60 * 1000)));
+      timeRange = `P${diffDays}D`;
+    }
     const query = {
       dimension: dimension as AttributionDimension,
       skill: args.skill,
-      timeRange: args.timeRange,
+      timeRange,
     };
     const attribution = computeAttribution(query, cqView, erView);
     return { success: true, data: attribution };

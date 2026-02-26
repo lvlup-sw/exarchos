@@ -299,12 +299,13 @@ describe('Calibration Metrics Property Tests', () => {
     fc.assert(
       fc.property(
         fc.array(arbHumanCase, { minLength: 1, maxLength: 50 }),
-        (cases) => {
-          // Generate matching judge verdicts for every case
+        fc.array(fc.boolean(), { minLength: 50, maxLength: 50 }),
+        (cases, verdicts) => {
+          // Generate matching judge verdicts deterministically from fast-check
           const judgeVerdicts = new Map<string, { verdict: boolean; reason: string }>();
-          for (const c of cases) {
-            judgeVerdicts.set(c.caseId, {
-              verdict: Math.random() > 0.5,
+          for (let i = 0; i < cases.length; i++) {
+            judgeVerdicts.set(cases[i].caseId, {
+              verdict: verdicts[i % verdicts.length],
               reason: 'auto',
             });
           }

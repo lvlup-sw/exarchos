@@ -54,6 +54,10 @@ export const CalibrateInputSchema = z.object({
 
 export type CalibrateInput = z.infer<typeof CalibrateInputSchema>;
 
+// ─── Split Type ────────────────────────────────────────────────────────────
+
+export type CalibrationSplit = 'train' | 'validation' | 'test';
+
 // ─── JSONL Loader ───────────────────────────────────────────────────────────
 
 /**
