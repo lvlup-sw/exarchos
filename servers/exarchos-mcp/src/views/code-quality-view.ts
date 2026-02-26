@@ -14,6 +14,7 @@ export interface SkillQualityMetrics {
   readonly selfCorrectionRate: number;
   readonly avgRemediationAttempts: number;
   readonly topFailureCategories: ReadonlyArray<{ readonly category: string; readonly count: number }>;
+  readonly latestPromptVersion?: string;
 }
 
 export interface GateMetrics {
@@ -190,6 +191,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const model = typeof details.model === 'string' ? details.model : undefined;
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
+  const promptVersion = typeof details.promptVersion === 'string' ? details.promptVersion : undefined;
 
   // Update gate metrics
   const prevGate = state.gates[gateName] ?? defaultGateMetrics(gateName);
@@ -219,6 +221,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
         ...prevSkill,
         totalExecutions: newExec,
         gatePassRate: skillPassCount / newExec,
+        ...(promptVersion !== undefined ? { latestPromptVersion: promptVersion } : {}),
       },
     };
   }
