@@ -359,7 +359,7 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_AllEventTypes_CountIs46', () => {
-    expect(EventTypes).toHaveLength(46);
+    expect(EventTypes).toHaveLength(47);
   });
 
   it('should include workflow-level types', () => {

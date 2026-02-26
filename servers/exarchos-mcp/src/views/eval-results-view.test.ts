@@ -25,6 +25,7 @@ describe('EvalResultsView', () => {
         skills: {},
         runs: [],
         regressions: [],
+        calibrations: [],
       });
     });
   });
