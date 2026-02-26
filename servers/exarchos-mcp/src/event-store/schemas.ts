@@ -49,6 +49,8 @@ export const EventTypes = [
   'shepherd.iteration',
   'shepherd.approval_requested',
   'shepherd.completed',
+  'remediation.attempted',
+  'remediation.succeeded',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -428,6 +430,24 @@ export const EvalRunCompletedData = z.object({
   regressions: z.array(z.string()),
 });
 
+// ─── Remediation Event Data ─────────────────────────────────────────────────
+
+export const RemediationAttemptedDataSchema = z.object({
+  taskId: z.string().min(1),
+  skill: z.string().min(1),
+  gateName: z.string().min(1),
+  attemptNumber: z.number().int().min(1),
+  strategy: z.string(),
+});
+
+export const RemediationSucceededDataSchema = z.object({
+  taskId: z.string().min(1),
+  skill: z.string().min(1),
+  gateName: z.string().min(1),
+  totalAttempts: z.number().int().min(1),
+  finalStrategy: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -476,6 +496,61 @@ export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
 export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
+export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
+export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
+
+// ─── Event Data Map ─────────────────────────────────────────────────────────
+
+export type EventDataMap = {
+  'workflow.started': WorkflowStarted;
+  'task.assigned': TaskAssigned;
+  'task.claimed': TaskClaimed;
+  'task.progressed': TaskProgressed;
+  'task.completed': TaskCompleted;
+  'task.failed': TaskFailed;
+  'gate.executed': GateExecuted;
+  'state.patched': Record<string, unknown>;
+  'stack.position-filled': StackPositionFilled;
+  'stack.restacked': StackRestacked;
+  'stack.enqueued': StackEnqueued;
+  'workflow.transition': WorkflowTransition;
+  'workflow.fix-cycle': WorkflowFixCycle;
+  'workflow.guard-failed': WorkflowGuardFailed;
+  'workflow.checkpoint': WorkflowCheckpoint;
+  'workflow.compound-entry': WorkflowCompoundEntry;
+  'workflow.compound-exit': WorkflowCompoundExit;
+  'workflow.cancel': WorkflowCancel;
+  'workflow.cleanup': WorkflowCleanup;
+  'workflow.compensation': WorkflowCompensation;
+  'workflow.circuit-open': WorkflowCircuitOpen;
+  'tool.invoked': ToolInvoked;
+  'tool.completed': ToolCompleted;
+  'tool.errored': ToolErrored;
+  'benchmark.completed': BenchmarkCompleted;
+  'team.spawned': TeamSpawned;
+  'team.task.assigned': TeamTaskAssigned;
+  'team.task.completed': TeamTaskCompleted;
+  'team.task.failed': TeamTaskFailed;
+  'team.disbanded': TeamDisbanded;
+  'team.context.injected': TeamContextInjected;
+  'team.task.planned': TeamTaskPlanned;
+  'team.teammate.dispatched': TeamTeammateDispatched;
+  'quality.regression': QualityRegression;
+  'workflow.cas-failed': WorkflowCasFailed;
+  'review.routed': ReviewRouted;
+  'review.finding': ReviewFinding;
+  'review.escalated': ReviewEscalated;
+  'quality.hint.generated': QualityHintGenerated;
+  'eval.run.started': EvalRunStarted;
+  'eval.case.completed': EvalCaseCompleted;
+  'eval.run.completed': EvalRunCompleted;
+  'shepherd.started': ShepherdStarted;
+  'shepherd.iteration': ShepherdIteration;
+  'shepherd.approval_requested': ShepherdApprovalRequested;
+  'shepherd.completed': ShepherdCompleted;
+  'remediation.attempted': RemediationAttempted;
+  'remediation.succeeded': RemediationSucceeded;
+};
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
