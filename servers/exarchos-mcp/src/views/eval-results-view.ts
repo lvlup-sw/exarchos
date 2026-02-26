@@ -37,10 +37,21 @@ export interface EvalRegression {
   readonly consecutiveFailures: number;
 }
 
+export interface CalibrationRecord {
+  readonly skill: string;
+  readonly rubricName: string;
+  readonly tpr: number;
+  readonly tnr: number;
+  readonly totalCases: number;
+  readonly f1: number;
+  readonly timestamp: string;
+}
+
 export interface EvalResultsViewState {
   readonly skills: Record<string, SkillEvalMetrics>;
   readonly runs: ReadonlyArray<EvalRunRecord>;
   readonly regressions: ReadonlyArray<EvalRegression>;
+  readonly calibrations: ReadonlyArray<CalibrationRecord>;
 }
 
 // ─── Internal Tracking State ───────────────────────────────────────────────
@@ -264,6 +275,48 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
   });
 }
 
+function handleEvalJudgeCalibrated(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
+  const data = event.data as {
+    skill?: string;
+    rubricName?: string;
+    tpr?: number;
+    tnr?: number;
+    totalCases?: number;
+    f1?: number;
+  } | undefined;
+
+  if (!data) return fromInternal(state);
+
+  const record: CalibrationRecord = {
+    skill: data.skill ?? '',
+    rubricName: data.rubricName ?? '',
+    tpr: data.tpr ?? 0,
+    tnr: data.tnr ?? 0,
+    totalCases: data.totalCases ?? 0,
+    f1: data.f1 ?? 0,
+    timestamp: event.timestamp,
+  };
+
+  // Replace existing calibration for same skill+rubric, or append
+  const existing = state.calibrations.findIndex(
+    c => c.skill === record.skill && c.rubricName === record.rubricName,
+  );
+
+  let updatedCalibrations: CalibrationRecord[];
+  if (existing >= 0) {
+    updatedCalibrations = state.calibrations.map((c, i) =>
+      i === existing ? record : c,
+    );
+  } else {
+    updatedCalibrations = [...state.calibrations, record];
+  }
+
+  return fromInternal({
+    ...state,
+    calibrations: updatedCalibrations,
+  });
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
@@ -271,6 +324,7 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
     skills: {},
     runs: [],
     regressions: [],
+    calibrations: [],
   }),
 
   apply: (view: EvalResultsViewState, event: WorkflowEvent): EvalResultsViewState => {
@@ -285,6 +339,12 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
         if (!event.data) return view;
         const state = toInternal(view);
         return handleEvalCaseCompleted(state, event);
+      }
+
+      case 'eval.judge.calibrated': {
+        if (!event.data) return view;
+        const state = toInternal(view);
+        return handleEvalJudgeCalibrated(state, event);
       }
 
       default:

@@ -330,7 +330,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(46);
+    expect(EventTypes).toHaveLength(48);
   });
 
   it('EventTypes_StatePatchedType_IsValidEventType', () => {

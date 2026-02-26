@@ -1,5 +1,7 @@
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
+import type { SignalConfidence } from './calibrated-correlation.js';
+import type { RefinementSignal } from './refinement-signal.js';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
 
@@ -12,13 +14,21 @@ export function configureQualityEventStore(store: EventStore | null): void {
 
 // ─── Hint Interface ─────────────────────────────────────────────────────────
 
-export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval';
+export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval' | 'refinement';
 
 export interface QualityHint {
   readonly skill: string;
   readonly category: QualityHintCategory;
   readonly severity: 'info' | 'warning';
   readonly hint: string;
+  readonly confidence?: SignalConfidence;
+}
+
+// ─── Calibration Context ────────────────────────────────────────────────────
+
+export interface CalibrationContext {
+  readonly signalConfidence: SignalConfidence;
+  readonly refinementSignals: ReadonlyArray<RefinementSignal>;
 }
 
 // ─── Rule Type ──────────────────────────────────────────────────────────────
@@ -120,6 +130,7 @@ function severityOrder(severity: QualityHint['severity']): number {
 export function generateQualityHints(
   state: CodeQualityViewState,
   targetSkill?: string,
+  calibrationContext?: CalibrationContext,
 ): QualityHint[] {
   const hints: QualityHint[] = [];
   const skills = targetSkill ? [targetSkill] : Object.keys(state.skills);
@@ -138,6 +149,19 @@ export function generateQualityHints(
     for (const rule of globalRules) {
       const hint = rule(state, globalSkill);
       if (hint) hints.push(hint);
+    }
+  }
+
+  // Calibration-enriched refinement hints
+  if (calibrationContext && calibrationContext.refinementSignals.length > 0) {
+    for (const signal of calibrationContext.refinementSignals) {
+      hints.push({
+        skill: signal.skill,
+        category: 'refinement',
+        severity: 'warning',
+        hint: signal.suggestedAction,
+        confidence: calibrationContext.signalConfidence,
+      });
     }
   }
 
