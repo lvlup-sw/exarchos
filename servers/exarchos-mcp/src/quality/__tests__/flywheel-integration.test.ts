@@ -100,6 +100,25 @@ function makeRemediationEvent(seq: number, opts: {
   }, seq);
 }
 
+function makeEvalRunEvent(seq: number, opts: {
+  suiteId: string;
+  avgScore?: number;
+  total?: number;
+  passed?: number;
+  failed?: number;
+}): WorkflowEvent {
+  return makeEvent('eval.run.completed', {
+    runId: `run-${seq}`,
+    suiteId: opts.suiteId,
+    trigger: 'local',
+    total: opts.total ?? 10,
+    passed: opts.passed ?? 8,
+    failed: opts.failed ?? 2,
+    avgScore: opts.avgScore ?? 0.8,
+    duration: 5000,
+  }, seq);
+}
+
 function materializeCodeQuality(events: WorkflowEvent[]): CodeQualityViewState {
   let state = codeQualityProjection.init();
   for (const event of events) {
@@ -170,8 +189,14 @@ describe('Flywheel Integration', () => {
       tnr: 0.85,
     });
 
+    // Also emit eval runs so the delegation skill exists in eval results
+    const evalRunEvents: WorkflowEvent[] = [];
+    for (let i = 0; i < 12; i++) {
+      evalRunEvents.push(makeEvalRunEvent(100 + i, { suiteId: 'delegation', avgScore: 0.85 }));
+    }
+
     // Act: Materialize EvalResultsView — verify calibration is recorded
-    const evalState = materializeEvalResults([calibrationEvent]);
+    const evalState = materializeEvalResults([calibrationEvent, ...evalRunEvents]);
     expect(evalState.calibrations.length).toBe(1);
     expect(evalState.calibrations[0].skill).toBe('delegation');
     expect(evalState.calibrations[0].tpr).toBe(0.90);
@@ -369,13 +394,21 @@ describe('Flywheel Integration', () => {
       makeCalibrationEvent(9, { skill: 'delegation', tpr: 0.90, tnr: 0.85 }),
     ];
 
+    // Eval run events — needed to populate evalResults.skills['delegation']
+    // (correlateWithCalibration requires skills in both views)
+    const evalRunEvents: WorkflowEvent[] = [];
+    for (let i = 0; i < 12; i++) {
+      evalRunEvents.push(makeEvalRunEvent(100 + i, { suiteId: 'delegation', avgScore: 0.82 }));
+    }
+
     // Step 2: Materialize both views
     const cqState = materializeCodeQuality(events);
-    const evalState = materializeEvalResults(events);
+    const evalState = materializeEvalResults([...events, ...evalRunEvents]);
 
     // Verify views materialized correctly
     expect(cqState.regressions.length).toBeGreaterThanOrEqual(1);
     expect(evalState.calibrations.length).toBe(1);
+    expect(evalState.skills['delegation']).toBeDefined();
 
     // Step 3: Build calibration-enriched eval state
     const calibrations: JudgeCalibration[] = evalState.calibrations.map(c => ({
@@ -383,7 +416,7 @@ describe('Flywheel Integration', () => {
       tpr: c.tpr,
       tnr: c.tnr,
       calibratedAt: '2026-02-25T00:00:00.000Z',
-      sampleSize: c.totalCases,
+      sampleSize: 30,
     }));
 
     const enrichedEvalState = {
