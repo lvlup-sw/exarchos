@@ -119,6 +119,17 @@ export const TaskFailedData = z.object({
 
 // ─── Quality Gate Event Data ────────────────────────────────────────────────
 
+export const GateExecutedDetailsSchema = z.object({
+  skill: z.string().optional(),
+  model: z.string().optional(),
+  commit: z.string().optional(),
+  reason: z.string().optional(),
+  category: z.string().optional(),
+  taskId: z.string().optional(),
+  attemptNumber: z.number().int().min(1).optional(),
+  promptVersion: z.string().optional(),
+}).passthrough();
+
 export const GateExecutedData = z.object({
   gateName: z.string(),
   layer: z.string(),
@@ -470,6 +481,7 @@ export type TaskClaimed = z.infer<typeof TaskClaimedData>;
 export type TaskProgressed = z.infer<typeof TaskProgressedData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
+export type GateExecutedDetails = z.infer<typeof GateExecutedDetailsSchema>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
 export type StackRestacked = z.infer<typeof StackRestackedData>;
