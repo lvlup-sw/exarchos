@@ -5,6 +5,11 @@ import { TELEMETRY_STREAM } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';
 import { matchCorrection, applyCorrections } from './auto-correction.js';
 import type { Correction } from './auto-correction.js';
+import { TraceWriter } from './trace-writer.js';
+
+// ─── Singleton TraceWriter ──────────────────────────────────────────────────
+
+const traceWriter = new TraceWriter();
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -149,6 +154,24 @@ export function withTelemetry(
 
       let finalResult = injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
       finalResult = injectAutoCorrection(finalResult, appliedCorrections);
+
+      // ─── Trace Capture (swallow failures) ──────────────────────────────
+      const action = typeof correctedArgs.action === 'string' ? correctedArgs.action : '';
+      const featureId = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : 'unknown';
+      const sessionId = typeof correctedArgs.sessionId === 'string' ? correctedArgs.sessionId : 'unknown';
+      const skillContext = typeof correctedArgs.skillContext === 'string' ? correctedArgs.skillContext : undefined;
+
+      await traceWriter.writeTrace({
+        toolName,
+        action,
+        input: correctedArgs,
+        output: responseText,
+        durationMs,
+        timestamp: new Date().toISOString(),
+        featureId,
+        sessionId,
+        ...(skillContext ? { skillContext } : {}),
+      }).catch(() => {});
 
       return finalResult;
     } catch (error) {
