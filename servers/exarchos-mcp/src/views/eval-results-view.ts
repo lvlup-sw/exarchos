@@ -37,10 +37,22 @@ export interface EvalRegression {
   readonly consecutiveFailures: number;
 }
 
+export interface CalibrationRecord {
+  readonly skill: string;
+  readonly rubricName: string;
+  readonly split: string;
+  readonly tpr: number;
+  readonly tnr: number;
+  readonly accuracy: number;
+  readonly f1: number;
+  readonly calibratedAt: string;
+}
+
 export interface EvalResultsViewState {
   readonly skills: Record<string, SkillEvalMetrics>;
   readonly runs: ReadonlyArray<EvalRunRecord>;
   readonly regressions: ReadonlyArray<EvalRegression>;
+  readonly calibrations: ReadonlyArray<CalibrationRecord>;
 }
 
 // ─── Internal Tracking State ───────────────────────────────────────────────
@@ -264,6 +276,36 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
   });
 }
 
+function handleJudgeCalibrated(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
+  const data = event.data as {
+    skill?: string;
+    rubricName?: string;
+    split?: string;
+    tpr?: number;
+    tnr?: number;
+    accuracy?: number;
+    f1?: number;
+  } | undefined;
+
+  if (!data) return fromInternal(state);
+
+  const record: CalibrationRecord = {
+    skill: data.skill ?? '',
+    rubricName: data.rubricName ?? '',
+    split: data.split ?? '',
+    tpr: data.tpr ?? 0,
+    tnr: data.tnr ?? 0,
+    accuracy: data.accuracy ?? 0,
+    f1: data.f1 ?? 0,
+    calibratedAt: event.timestamp,
+  };
+
+  return fromInternal({
+    ...state,
+    calibrations: [...state.calibrations, record],
+  });
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
@@ -271,6 +313,7 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
     skills: {},
     runs: [],
     regressions: [],
+    calibrations: [],
   }),
 
   apply: (view: EvalResultsViewState, event: WorkflowEvent): EvalResultsViewState => {
@@ -285,6 +328,12 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
         if (!event.data) return view;
         const state = toInternal(view);
         return handleEvalCaseCompleted(state, event);
+      }
+
+      case 'eval.judge.calibrated': {
+        if (!event.data) return view;
+        const state = toInternal(view);
+        return handleJudgeCalibrated(state, event);
       }
 
       default:

@@ -45,6 +45,7 @@ export const EventTypes = [
   'eval.run.started',
   'eval.case.completed',
   'eval.run.completed',
+  'eval.judge.calibrated',
   'shepherd.started',
   'shepherd.iteration',
   'shepherd.approval_requested',
@@ -428,6 +429,18 @@ export const EvalRunCompletedData = z.object({
   regressions: z.array(z.string()),
 });
 
+export const JudgeCalibratedDataSchema = z.object({
+  skill: z.string(),
+  rubricName: z.string(),
+  split: z.enum(['validation', 'test']),
+  tpr: z.number(),
+  tnr: z.number(),
+  accuracy: z.number(),
+  f1: z.number(),
+  goldStandardVersion: z.string(),
+  rubricVersion: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -476,6 +489,7 @@ export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
 export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
+export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
