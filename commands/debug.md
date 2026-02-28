@@ -131,10 +131,10 @@ Debug workflows auto-chain through phases with ONE human checkpoint.
 
 ## Resume Support
 
-Debug workflows resume like feature workflows:
+Debug workflows resume via MCP auto-discovery:
 
 ```bash
-/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:rehydrate
 ```
 
 ## When to Use /debug vs /refactor

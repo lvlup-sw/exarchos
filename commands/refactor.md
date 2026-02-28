@@ -146,8 +146,8 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 
 ## Resume Support
 
-Refactor workflows resume like other workflows:
+Refactor workflows resume via MCP auto-discovery:
 
 ```bash
-/exarchos:resume ~/.claude/workflow-state/refactor-<slug>.state.json
+/exarchos:rehydrate
 ```
