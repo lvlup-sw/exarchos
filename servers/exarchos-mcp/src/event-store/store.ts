@@ -231,33 +231,8 @@ export class EventStore {
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
     return this.withLock(streamId, async () => {
-      // Rebuild idempotency cache from JSONL on first access per stream
-      if (options?.idempotencyKey && !this.idempotencyCacheInitialized.has(streamId)) {
-        await this.rebuildIdempotencyCache(streamId);
-      }
-
-      // Idempotency check: return cached event if key was already seen
-      if (options?.idempotencyKey) {
-        const streamCache = this.idempotencyCache.get(streamId);
-        const cached = streamCache?.get(options.idempotencyKey);
-        if (cached) return cached;
-      }
-
-      // Initialize sequence from file if not cached
-      if (!this.sequenceCounters.has(streamId)) {
-        await this.initializeSequence(streamId);
-      }
-
-      // Optimistic concurrency check
-      if (options?.expectedSequence !== undefined) {
-        // Re-read from file for freshest state
-        await this.initializeSequence(streamId);
-        const actualSequence = this.sequenceCounters.get(streamId) ?? 0;
-
-        if (actualSequence !== options.expectedSequence) {
-          throw new SequenceConflictError(options.expectedSequence, actualSequence);
-        }
-      }
+      const cached = await this.checkIdempotencyAndSequence(streamId, options);
+      if (cached) return cached;
 
       const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
       this.sequenceCounters.set(streamId, sequence);
@@ -270,34 +245,124 @@ export class EventStore {
         idempotencyKey: options?.idempotencyKey,
       });
 
-      await this.writeEvents(streamId, [fullEvent]);
-      this.cacheIdempotencyKey(streamId, fullEvent);
-
-      // Backend dual-write: replicate to backend if available
-      // JSONL is the source of truth; backend write failure is logged but does not fail the append
-      if (this.backend) {
-        try {
-          this.backend.appendEvent(streamId, fullEvent);
-        } catch (err) {
-          storeLogger.warn(
-            { err: err instanceof Error ? err.message : String(err), streamId, sequence: fullEvent.sequence },
-            'Backend dual-write failed — stores may diverge',
-          );
-        }
-      }
-
-      // Outbox integration: write supplementary entry under the same lock
-      if (this.outbox) {
-        try {
-          await this.outbox.addEntry(streamId, fullEvent);
-        } catch (err) {
-          // Outbox is supplementary; log but don't fail the append
-          storeLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Outbox entry failed');
-        }
-      }
-
+      await this.persistAndReplicate(streamId, fullEvent);
       return fullEvent;
     });
+  }
+
+  /**
+   * Append a pre-validated event to the stream, skipping Zod validation.
+   * Use when the caller has already validated the event at the system boundary
+   * via buildValidatedEvent(). This avoids redundant Zod parsing on the hot path.
+   */
+  async appendValidated(
+    streamId: string,
+    event: WorkflowEvent,
+    options?: AppendOptions,
+  ): Promise<WorkflowEvent> {
+    return this.withLock(streamId, async () => {
+      const cached = await this.checkIdempotencyAndSequence(streamId, options);
+      if (cached) return cached;
+
+      const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
+      this.sequenceCounters.set(streamId, sequence);
+
+      // Construct the final event WITHOUT Zod parse
+      const fullEvent: WorkflowEvent = {
+        ...event,
+        streamId,
+        sequence,
+        timestamp: event.timestamp || new Date().toISOString(),
+        idempotencyKey: options?.idempotencyKey,
+      } as WorkflowEvent;
+
+      await this.persistAndReplicate(streamId, fullEvent);
+      return fullEvent;
+    });
+  }
+
+  /**
+   * Shared pre-append checks: rebuild idempotency cache, check for cached duplicate,
+   * initialize sequence counter, and validate optimistic concurrency.
+   * Returns the cached event if idempotency key matched, otherwise undefined.
+   * Must be called within withLock().
+   */
+  private async checkIdempotencyAndSequence(
+    streamId: string,
+    options?: AppendOptions,
+  ): Promise<WorkflowEvent | undefined> {
+    // Rebuild idempotency cache from JSONL on first access per stream
+    if (options?.idempotencyKey && !this.idempotencyCacheInitialized.has(streamId)) {
+      await this.rebuildIdempotencyCache(streamId);
+    }
+
+    // Idempotency check: return cached event if key was already seen
+    if (options?.idempotencyKey) {
+      const streamCache = this.idempotencyCache.get(streamId);
+      const cached = streamCache?.get(options.idempotencyKey);
+      if (cached) return cached;
+    }
+
+    // Initialize sequence from file if not cached
+    if (!this.sequenceCounters.has(streamId)) {
+      await this.initializeSequence(streamId);
+    }
+
+    // Optimistic concurrency check
+    if (options?.expectedSequence !== undefined) {
+      // Re-read from file for freshest state
+      await this.initializeSequence(streamId);
+      const actualSequence = this.sequenceCounters.get(streamId) ?? 0;
+
+      if (actualSequence !== options.expectedSequence) {
+        throw new SequenceConflictError(options.expectedSequence, actualSequence);
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Shared post-construct logic: write to JSONL, cache idempotency key,
+   * dual-write to backend, and write to outbox.
+   * Must be called within withLock().
+   */
+  private async persistAndReplicate(streamId: string, fullEvent: WorkflowEvent): Promise<void> {
+    await this.writeEvents(streamId, [fullEvent]);
+    this.cacheIdempotencyKey(streamId, fullEvent);
+
+    // Backend dual-write: replicate to backend if available
+    // JSONL is the source of truth; backend write failure is logged but does not fail the append
+    if (this.backend) {
+      try {
+        this.backend.appendEvent(streamId, fullEvent);
+      } catch (err) {
+        storeLogger.warn(
+          { err: err instanceof Error ? err.message : String(err), streamId, sequence: fullEvent.sequence },
+          'Backend dual-write failed — stores may diverge',
+        );
+      }
+    }
+
+    /**
+     * Outbox integration: write supplementary entry under the same lock.
+     *
+     * KNOWN LIMITATION — Atomicity gap: The JSONL event append (above) and
+     * this outbox write are NOT transactionally atomic. A crash between them
+     * could leave an event in JSONL without a corresponding outbox entry.
+     * This is acceptable because:
+     * 1. The outbox is supplementary — JSONL is the source of truth
+     * 2. The sync layer reconciles from JSONL, catching any missed entries
+     * 3. In-process lock serialization prevents concurrent partial writes
+     */
+    if (this.outbox) {
+      try {
+        await this.outbox.addEntry(streamId, fullEvent);
+      } catch (err) {
+        // Outbox is supplementary; log but don't fail the append
+        storeLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Outbox entry failed');
+      }
+    }
   }
 
   async batchAppend(

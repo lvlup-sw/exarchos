@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
+import { buildValidatedEvent } from './event-factory.js';
 
 // ─── Module-Level EventStore (injected via registerEventTools) ───────────────
 
@@ -51,20 +52,25 @@ export async function handleEventAppend(
   const store = getStore(stateDir);
 
   try {
-    const event = await store.append(
+    // Validate at the system boundary (MCP tool handler = untrusted input)
+    // Sequence 1 is a placeholder — appendValidated overwrites it with the real sequence
+    const validatedEvent = buildValidatedEvent(args.stream, 1, {
+      type: eventType,
+      data: args.event.data as Record<string, unknown> | undefined,
+      correlationId: args.event.correlationId as string | undefined,
+      causationId: args.event.causationId as string | undefined,
+      agentId: args.event.agentId as string | undefined,
+      agentRole: args.event.agentRole as string | undefined,
+      tenantId: args.event.tenantId as string | undefined,
+      organizationId: args.event.organizationId as string | undefined,
+      source: args.event.source as string | undefined,
+      timestamp: args.event.timestamp as string | undefined,
+    });
+
+    // Append without re-validating (already validated above)
+    const event = await store.appendValidated(
       args.stream,
-      {
-        type: eventType,
-        data: args.event.data as Record<string, unknown> | undefined,
-        correlationId: args.event.correlationId as string | undefined,
-        causationId: args.event.causationId as string | undefined,
-        agentId: args.event.agentId as string | undefined,
-        agentRole: args.event.agentRole as string | undefined,
-        tenantId: args.event.tenantId as string | undefined,
-        organizationId: args.event.organizationId as string | undefined,
-        source: args.event.source as string | undefined,
-        timestamp: args.event.timestamp as string | undefined,
-      },
+      validatedEvent,
       (args.expectedSequence !== undefined || args.idempotencyKey !== undefined)
         ? {
             expectedSequence: args.expectedSequence,

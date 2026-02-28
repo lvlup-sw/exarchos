@@ -1668,3 +1668,142 @@ describe('EventStore StorageBackend Integration', () => {
     expect(events[0].type).toBe('task.assigned');
   });
 });
+
+// ─── appendValidated ────────────────────────────────────────────────────────
+
+describe('EventStore appendValidated', () => {
+  it('appendValidated_WritesEventWithoutZodParse', async () => {
+    const store = new EventStore(tempDir);
+
+    // Build a pre-validated event object (simulating what buildEvent returns)
+    const prebuilt = {
+      type: 'workflow.started' as const,
+      data: { featureId: 'test' },
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    };
+
+    const event = await store.appendValidated('my-workflow', prebuilt, {});
+
+    expect(event.streamId).toBe('my-workflow');
+    expect(event.sequence).toBe(1);
+    expect(event.type).toBe('workflow.started');
+    expect(event.timestamp).toBeDefined();
+
+    // Verify event was written to JSONL
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    expect(lines).toHaveLength(1);
+
+    const parsed = JSON.parse(lines[0]);
+    expect(parsed.streamId).toBe('my-workflow');
+    expect(parsed.sequence).toBe(1);
+  });
+
+  it('appendValidated_RespectsIdempotencyKey', async () => {
+    const store = new EventStore(tempDir);
+
+    const prebuilt = {
+      type: 'workflow.started' as const,
+      data: { featureId: 'test' },
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    };
+
+    const first = await store.appendValidated('my-workflow', prebuilt, {
+      idempotencyKey: 'dedup-key-1',
+    });
+
+    // Same idempotency key should return the cached event
+    const second = await store.appendValidated('my-workflow', prebuilt, {
+      idempotencyKey: 'dedup-key-1',
+    });
+
+    expect(first.sequence).toBe(1);
+    expect(second.sequence).toBe(1);
+    expect(second).toEqual(first);
+
+    // Only one event should be in the file
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content.trim().split('\n')).toHaveLength(1);
+  });
+
+  it('appendValidated_RespectsExpectedSequence', async () => {
+    const store = new EventStore(tempDir);
+
+    const prebuilt = {
+      type: 'workflow.started' as const,
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    };
+
+    await store.appendValidated('my-workflow', prebuilt, {});
+
+    // expectedSequence=1 should succeed (current is 1)
+    const event = await store.appendValidated('my-workflow', prebuilt, {
+      expectedSequence: 1,
+    });
+    expect(event.sequence).toBe(2);
+
+    // expectedSequence=1 should now fail (current is 2)
+    await expect(
+      store.appendValidated('my-workflow', prebuilt, { expectedSequence: 1 }),
+    ).rejects.toThrow(SequenceConflictError);
+  });
+
+  it('append_StillCallsZodParse_BackwardCompat', async () => {
+    const store = new EventStore(tempDir);
+
+    // Verify existing append() still validates via Zod (rejects invalid event type)
+    await expect(
+      store.append('my-workflow', { type: 'invalid.type' as any }),
+    ).rejects.toThrow();
+  });
+
+  it('appendValidated_DualWritesToBackend', async () => {
+    const backend = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend });
+    const appendSpy = vi.spyOn(backend, 'appendEvent');
+
+    const prebuilt = {
+      type: 'workflow.started' as const,
+      data: { featureId: 'test' },
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    };
+
+    const event = await store.appendValidated('my-workflow', prebuilt, {});
+
+    expect(appendSpy).toHaveBeenCalledWith('my-workflow', event);
+  });
+
+  it('appendValidated_WritesToOutbox', async () => {
+    const store = new EventStore(tempDir);
+    const outbox = new Outbox(tempDir);
+    store.setOutbox(outbox);
+    const addEntrySpy = vi.spyOn(outbox, 'addEntry');
+
+    const prebuilt = {
+      type: 'workflow.started' as const,
+      data: { featureId: 'test' },
+      streamId: '',
+      sequence: 0,
+      timestamp: '',
+      schemaVersion: '1.0',
+    };
+
+    const event = await store.appendValidated('my-workflow', prebuilt, {});
+
+    expect(addEntrySpy).toHaveBeenCalledWith('my-workflow', event);
+  });
+});
