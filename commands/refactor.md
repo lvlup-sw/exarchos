@@ -138,7 +138,7 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 | Something is broken or wrong | No | Yes |
 | "This should be reorganized" | Yes | No |
 | Users report a bug or regression | No | Yes |
-| Performance degradation | Start with /debug (investigate), switch to /refactor if structural |
+| Performance degradation | Switch to /refactor if structural | Start with /debug (investigate) |
 | SOLID violations in working code | Yes | No |
 | Error in production logs | No | Yes |
 

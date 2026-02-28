@@ -144,7 +144,7 @@ Debug workflows resume like feature workflows:
 | Something is broken or wrong | Yes | No |
 | Code works but is messy/complex | No | Yes |
 | Users report a bug or regression | Yes | No |
-| Performance degradation | Start with /debug (investigate), escalate to /refactor if structural |
+| Performance degradation | Start with /debug (investigate) | Escalate to /refactor if structural |
 | "This should be reorganized" | No | Yes |
 | Error in production logs | Yes | No |
 

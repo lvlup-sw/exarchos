@@ -4,7 +4,7 @@ After checking CI status for each PR, emit `gate.executed` events to the event s
 
 For each CI check result observed:
 
-```
+```javascript
 mcp__plugin_exarchos_exarchos__exarchos_event({
   action: "append",
   streamId: "<featureId>",
