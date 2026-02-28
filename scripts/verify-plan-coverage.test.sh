@@ -515,6 +515,226 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 12: DeferredSection_InTraceability_ExitsZero
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Component A
+
+Build the A component.
+
+### Component B
+
+Build the B component.
+
+## Testing Strategy
+
+Tests needed.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Spec Traceability
+
+### Traceability Matrix
+
+| Design Section | Task ID(s) | Status |
+|----------------|-----------|--------|
+| Component A | T001 | Covered |
+| Component B | Deferred | Operational process, not code. |
+
+## Tasks
+
+### Task 001: Build component A
+
+Implement the A component.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "DeferredSection_InTraceability_ExitsZero"
+else
+    fail "DeferredSection_InTraceability_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 13: DeferredSection_ShownAsDeferredInMatrix
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Component A
+
+Build the A component.
+
+### Component B
+
+Build the B component.
+
+## Testing Strategy
+
+Tests needed.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Spec Traceability
+
+### Traceability Matrix
+
+| Design Section | Task ID(s) | Status |
+|----------------|-----------|--------|
+| Component A | T001 | Covered |
+| Component B | Deferred | Operational process. |
+
+## Tasks
+
+### Task 001: Build component A
+
+Implement the A component.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if echo "$OUTPUT" | grep -qi "Component B.*Deferred"; then
+    pass "DeferredSection_ShownAsDeferredInMatrix"
+else
+    fail "DeferredSection_ShownAsDeferredInMatrix (expected 'Component B' with 'Deferred' status)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 14: MixedDeferredAndCovered_ExitsZero
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Auth Module
+
+Build auth.
+
+### Cache Layer
+
+Build cache.
+
+### Monitoring
+
+Add monitoring.
+
+## Testing Strategy
+
+Tests needed.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Spec Traceability
+
+### Traceability Matrix
+
+| Design Section | Task ID(s) | Status |
+|----------------|-----------|--------|
+| Auth Module | T001 | Covered |
+| Cache Layer | T002 | Covered |
+| Monitoring | Deferred | Will add in Phase 2. |
+
+## Tasks
+
+### Task 001: Implement auth module
+
+Build authentication.
+
+### Task 002: Implement cache layer
+
+Build caching.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "MixedDeferredAndCovered_ExitsZero"
+else
+    fail "MixedDeferredAndCovered_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 15: DeferredAndGap_ExitsOne
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature Design
+
+## Technical Design
+
+### Auth Module
+
+Build auth.
+
+### Cache Layer
+
+Build cache.
+
+### Rate Limiting
+
+Add rate limits.
+
+## Testing Strategy
+
+Tests needed.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Spec Traceability
+
+### Traceability Matrix
+
+| Design Section | Task ID(s) | Status |
+|----------------|-----------|--------|
+| Auth Module | T001 | Covered |
+| Cache Layer | Deferred | Phase 2 work. |
+
+## Tasks
+
+### Task 001: Implement auth module
+
+Build authentication.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "DeferredAndGap_ExitsOne"
+else
+    fail "DeferredAndGap_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+# Verify Rate Limiting is identified as the gap (not Cache Layer)
+if echo "$OUTPUT" | grep -qi "Rate Limiting"; then
+    pass "DeferredAndGap_IdentifiesCorrectGap"
+else
+    fail "DeferredAndGap_IdentifiesCorrectGap (expected 'Rate Limiting' in gaps)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================
