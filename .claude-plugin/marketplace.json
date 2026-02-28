@@ -14,10 +14,10 @@
       "source": {
         "source": "npm",
         "package": "@lvlup-sw/exarchos",
-        "version": "2.1.0"
+        "version": "2.1.1"
       },
       "description": "SDLC workflows with agent team coordination, quality gates, and Graphite stacked PRs",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": {
         "name": "Levelup Software"
       },
