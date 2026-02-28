@@ -13,6 +13,46 @@ How to address common issues found during shepherd assessment.
 
 **Default to fixing directly** — delegation adds overhead. Only delegate when the fix scope warrants it.
 
+## Remediation Event Emission
+
+When fixing CI failures or addressing review comments that require code changes, emit remediation events to track self-correction metrics in CodeQualityView.
+
+**When a fix attempt is made** (after applying a code change for a CI failure or review finding):
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  event: {
+    type: "remediation.attempted",
+    data: {
+      skill: "shepherd",
+      gate: "<failing-check-name-or-review-source>",
+      attemptNumber: <N>,
+      strategy: "direct-fix"
+    }
+  }
+})
+```
+
+**When the next iteration confirms the fix resolved the issue:**
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  event: {
+    type: "remediation.succeeded",
+    data: {
+      skill: "shepherd",
+      gate: "<check-name-or-review-source>",
+      totalAttempts: <N>,
+      finalStrategy: "direct-fix"
+    }
+  }
+})
+```
+
+These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in CodeQualityView. Emit `remediation.attempted` each time you push a fix, and `remediation.succeeded` when the subsequent assess cycle confirms the issue is resolved.
+
 ## CI Failures
 
 ### Lint / Format

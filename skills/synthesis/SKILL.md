@@ -109,10 +109,16 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
 })
 ```
 
-5. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure. After `gt submit`, update each PR body via `gh pr edit`. Validate with `scripts/validate-pr-body.sh --pr <number>`. Consumers can override the template via `.exarchos/pr-template.md`.
-6. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
-7. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
-8. **Cleanup after merge** -- `gt sync` + remove worktrees
+5. **Check quality signals** before creating PRs:
+   ```
+   mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+   ```
+   - If `regressions` is non-empty for skills touched by this branch, warn the user before proceeding
+   - If any hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user
+6. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure. After `gt submit`, update each PR body via `gh pr edit`. Validate with `scripts/validate-pr-body.sh --pr <number>`. Consumers can override the template via `.exarchos/pr-template.md`.
+7. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
+8. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
+9. **Cleanup after merge** -- `gt sync` + remove worktrees
 
 For detailed step instructions, see `references/synthesis-steps.md`.
 

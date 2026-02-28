@@ -38,6 +38,16 @@ Activate this skill when:
 
 The shepherd loop repeats until all PRs are green or the user aborts.
 
+### 0. Check Quality Signals (Per Iteration)
+
+At the start of each iteration, query quality hints to inform the assessment:
+```
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+```
+- If `regressions` is non-empty, include regression context in the status report
+- If any hint has `confidenceLevel: 'actionable'`, surface the `suggestedAction` in the iteration summary
+- If `gatePassRate < 0.80` for any skill, flag degrading quality trends
+
 ### 1. Assess
 
 Gather the current state of all PRs in the stack. See `references/assess-checklist.md` for detailed steps.
