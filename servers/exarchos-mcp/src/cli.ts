@@ -82,7 +82,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
         },
       };
     }
-    return handleCalibrate(parsed.data);
+    return handleCalibrate(parsed.data, resolveEvalsDir());
   },
   'session-end': async (stdinData) => handleSessionEnd(stdinData, resolveStateDir()),
 };
