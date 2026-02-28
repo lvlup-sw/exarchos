@@ -235,17 +235,17 @@ export class EventStore {
       if (cached) return cached;
 
       const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-      this.sequenceCounters.set(streamId, sequence);
 
       const fullEvent = WorkflowEventBase.parse({
         ...event,
         streamId,
         sequence,
         timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey,
+        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
       });
 
       await this.persistAndReplicate(streamId, fullEvent);
+      this.sequenceCounters.set(streamId, sequence);
       return fullEvent;
     });
   }
@@ -265,7 +265,6 @@ export class EventStore {
       if (cached) return cached;
 
       const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-      this.sequenceCounters.set(streamId, sequence);
 
       // Construct the final event WITHOUT Zod parse
       const fullEvent: WorkflowEvent = {
@@ -273,10 +272,11 @@ export class EventStore {
         streamId,
         sequence,
         timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey,
+        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
       } as WorkflowEvent;
 
       await this.persistAndReplicate(streamId, fullEvent);
+      this.sequenceCounters.set(streamId, sequence);
       return fullEvent;
     });
   }

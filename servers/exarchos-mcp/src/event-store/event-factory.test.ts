@@ -73,6 +73,7 @@ describe('buildEvent', () => {
     expect(event.timestamp).toBeDefined();
     expect(event.timestamp >= before).toBe(true);
     expect(event.timestamp <= after).toBe(true);
+    expect(event.schemaVersion).toBe('1.0');
   });
 
   it('buildEvent_PreservesProvidedTimestamp', () => {

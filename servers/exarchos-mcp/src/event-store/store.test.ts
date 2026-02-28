@@ -1764,7 +1764,7 @@ describe('EventStore appendValidated', () => {
 
     // Verify existing append() still validates via Zod (rejects invalid event type)
     await expect(
-      store.append('my-workflow', { type: 'invalid.type' as any }),
+      store.append('my-workflow', { type: 'invalid.type' }),
     ).rejects.toThrow();
   });
 

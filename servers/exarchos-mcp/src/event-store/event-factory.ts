@@ -47,5 +47,6 @@ export function buildEvent(
     streamId,
     sequence,
     timestamp: input.timestamp || new Date().toISOString(),
+    schemaVersion: input.schemaVersion || '1.0',
   } as WorkflowEvent;
 }
