@@ -7,6 +7,7 @@ import {
 } from './workflow-state-projection.js';
 import type { WorkflowStateView } from './workflow-state-projection.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
+import { viewLogger } from '../logger.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -579,5 +580,114 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     const loaded = await materializer.loadFromSnapshot('stream-1', VIEW_NAME);
     expect(loaded).toBe(true);
     expect(snapshotStore.load).toHaveBeenCalledWith('stream-1', VIEW_NAME);
+  });
+});
+
+// ─── Cache Stats Tracking ────────────────────────────────────────────────────
+
+describe('ViewMaterializer Cache Stats', () => {
+  const VIEW_NAME = 'counter';
+
+  it('getCacheStats_NewMaterializer_ReturnsZeros', () => {
+    const materializer = new ViewMaterializer();
+
+    const stats = materializer.getCacheStats();
+
+    expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0 });
+  });
+
+  it('getCacheStats_AfterHitsAndMisses_TracksCorrectly', () => {
+    const materializer = new ViewMaterializer({ maxCacheEntries: 10 });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Miss: first time materializing stream-a
+    materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
+    // Hit: stream-a is already cached
+    materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
+    // Miss: first time materializing stream-b
+    materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
+
+    const stats = materializer.getCacheStats();
+
+    expect(stats.hits).toBe(1);
+    expect(stats.misses).toBe(2);
+    expect(stats.size).toBe(2);
+    expect(stats.missRate).toBeCloseTo(2 / 3);
+  });
+
+  it('materialize_HighMissRate_LogsWarning', () => {
+    const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
+
+    // Use thrashingWindowSize of 10 so we only need 10 calls to trigger the check
+    const materializer = new ViewMaterializer({
+      maxCacheEntries: 1,
+      thrashingWindowSize: 10,
+    });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // With maxCacheEntries=1, each new stream evicts the previous one.
+    // Every call to a different stream is a miss. We need 10 calls (the window size)
+    // with >50% miss rate to trigger the warning.
+    for (let i = 1; i <= 10; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ cacheSize: 1, maxCacheEntries: 1 }),
+      expect.stringContaining('View cache thrashing detected'),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('materialize_LowMissRate_DoesNotLogWarning', () => {
+    const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
+
+    const materializer = new ViewMaterializer({
+      maxCacheEntries: 100,
+      thrashingWindowSize: 10,
+    });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Materialize one stream, then re-materialize it 9 more times (all hits after first)
+    // Miss rate = 1/10 = 10% — below 50% threshold
+    materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
+    for (let i = 2; i <= 10; i++) {
+      materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
+    }
+
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('materialize_ThrashingWindowResets_AfterWarning', () => {
+    const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
+
+    const materializer = new ViewMaterializer({
+      maxCacheEntries: 1,
+      thrashingWindowSize: 10,
+    });
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // First window: 10 misses → triggers warning
+    for (let i = 1; i <= 10; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    // Second window: 10 more misses → triggers warning again
+    for (let i = 11; i <= 20; i++) {
+      materializer.materialize(`stream-${i}`, VIEW_NAME, [
+        makeEvent(1, `stream-${i}`),
+      ]);
+    }
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    warnSpy.mockRestore();
   });
 });
