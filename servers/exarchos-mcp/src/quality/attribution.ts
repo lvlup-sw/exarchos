@@ -70,8 +70,8 @@ function pearsonCorrelation(xs: number[], ys: number[]): number {
   const n = Math.min(xs.length, ys.length);
   if (n < 2) return 0;
 
-  const meanX = xs.reduce((s, v) => s + v, 0) / n;
-  const meanY = ys.reduce((s, v) => s + v, 0) / n;
+  const meanX = xs.slice(0, n).reduce((s, v) => s + v, 0) / n;
+  const meanY = ys.slice(0, n).reduce((s, v) => s + v, 0) / n;
 
   let numerator = 0;
   let denomX = 0;

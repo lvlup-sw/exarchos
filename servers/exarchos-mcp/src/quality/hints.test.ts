@@ -888,7 +888,7 @@ describe('generateQualityHints', () => {
       for (const hint of hints) {
         // Without calibration context, confidenceLevel should be undefined (backward compatible)
         // OR default to 'advisory' — either is acceptable
-        expect(hint.confidenceLevel).toBeUndefined();
+        expect([undefined, 'advisory']).toContain(hint.confidenceLevel);
       }
     });
   });

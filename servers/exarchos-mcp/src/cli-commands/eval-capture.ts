@@ -125,8 +125,16 @@ async function handlePromote(
     };
   }
 
-  // Filter candidates by provided IDs
-  const idSet = new Set(ids as string[]);
+  // Filter candidates by provided IDs (validate all are strings)
+  if (!ids.every((id): id is string => typeof id === 'string')) {
+    return {
+      error: {
+        code: 'INVALID_IDS',
+        message: 'All IDs must be strings.',
+      },
+    };
+  }
+  const idSet = new Set(ids);
   const selected = candidates.filter((c) => idSet.has(c.id));
 
   // Load existing dataset for deduplication

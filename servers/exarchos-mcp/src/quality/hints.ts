@@ -154,7 +154,7 @@ export function generateQualityHints(
 
   // Enrich hints with calibration data when provided
   const enrichedHints = calibrationContext
-    ? enrichWithCalibration(hints, calibrationContext)
+    ? enrichWithCalibration(hints, calibrationContext, targetSkill)
     : hints;
 
   enrichedHints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
@@ -185,6 +185,7 @@ export function generateQualityHints(
 function enrichWithCalibration(
   hints: QualityHint[],
   calibration: CalibrationContext,
+  targetSkill?: string,
 ): QualityHint[] {
   const confidenceLevel = isCalibrated(calibration.signalConfidence)
     ? 'actionable' as const
@@ -196,8 +197,9 @@ function enrichWithCalibration(
     confidenceLevel,
   }));
 
-  // Add refinement hints for matching signals
+  // Add refinement hints for matching signals (filtered by targetSkill when specified)
   for (const signal of calibration.refinementSignals) {
+    if (targetSkill && signal.skill !== targetSkill) continue;
     enriched.push({
       skill: signal.skill,
       category: 'refinement',

@@ -58,17 +58,37 @@ export async function handleCalibrate(
 
   // Run LLM grader against each case
   const registry = createDefaultRegistry();
-  const grader = registry.resolve('llm-rubric');
+  let grader: ReturnType<typeof registry.resolve>;
+  try {
+    grader = registry.resolve('llm-rubric');
+  } catch (err: unknown) {
+    return {
+      error: {
+        code: 'GRADER_RESOLVE_FAILED',
+        message: `Failed to resolve llm-rubric grader: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
   const judgeVerdicts = new Map<string, JudgeVerdict>();
   let skippedCount = 0;
 
   for (const c of filteredCases) {
-    const result = await grader.grade(
-      { output: c.graderOutput ?? {} },
-      { output: c.graderOutput ?? {} },
-      {},
-      { rubric: c.rubricName },
-    );
+    let result: Awaited<ReturnType<typeof grader.grade>>;
+    try {
+      result = await grader.grade(
+        { output: c.graderOutput ?? {} },
+        { output: c.graderOutput ?? {} },
+        {},
+        { rubric: c.rubricName },
+      );
+    } catch (err: unknown) {
+      return {
+        error: {
+          code: 'GRADING_FAILED',
+          message: `Failed to grade case ${c.caseId}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
 
     // Check if grader skipped (e.g., no API key)
     const isSkipped = result.details?.['skipped'] === true;

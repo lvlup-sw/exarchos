@@ -23,6 +23,7 @@ function makeEvalResults(overrides?: Partial<EvalResultsViewState>): EvalResults
     skills: {},
     runs: [],
     regressions: [],
+    calibrations: [],
     ...overrides,
   };
 }

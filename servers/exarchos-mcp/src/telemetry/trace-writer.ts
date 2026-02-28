@@ -46,6 +46,11 @@ function truncate(value: unknown, maxBytes: number): string {
  * Write failures are silently swallowed — trace capture must never interfere
  * with tool execution.
  */
+/** Strips path separators and parent-directory sequences from an identifier. */
+function sanitizeId(id: string): string {
+  return id.replace(/[/\\]/g, '_').replace(/\.\./g, '_');
+}
+
 export class TraceWriter {
   async writeTrace(entry: TraceEntry): Promise<void> {
     if (process.env.EXARCHOS_EVAL_CAPTURE !== '1') return;
@@ -54,7 +59,7 @@ export class TraceWriter {
       const captureDir = process.env.EXARCHOS_EVAL_CAPTURE_DIR || DEFAULT_CAPTURE_DIR;
       await fs.mkdir(captureDir, { recursive: true });
 
-      const filename = `${entry.featureId}-${entry.sessionId}.trace.jsonl`;
+      const filename = `${sanitizeId(entry.featureId)}-${sanitizeId(entry.sessionId)}.trace.jsonl`;
       const filepath = path.join(captureDir, filename);
 
       const record = {

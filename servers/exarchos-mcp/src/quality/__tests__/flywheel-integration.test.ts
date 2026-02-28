@@ -73,6 +73,7 @@ function makeCalibrationEvent(seq: number, opts: {
   tpr: number;
   tnr: number;
   totalCases?: number;
+  accuracy?: number;
   f1?: number;
 }): WorkflowEvent {
   return makeEvent('eval.judge.calibrated', {
@@ -81,8 +82,11 @@ function makeCalibrationEvent(seq: number, opts: {
     split: 'validation',
     tpr: opts.tpr,
     tnr: opts.tnr,
+    accuracy: opts.accuracy ?? 0.87,
     totalCases: opts.totalCases ?? 30,
     f1: opts.f1 ?? 0.88,
+    goldStandardVersion: '1.0.0',
+    rubricVersion: '1.0.0',
   }, seq);
 }
 

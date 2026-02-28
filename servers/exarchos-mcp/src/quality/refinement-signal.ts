@@ -26,6 +26,8 @@ export interface RefinementSignalInput {
   readonly calibratedCorrelation: CalibratedSkillCorrelation | null;
   readonly attribution: AttributionResult | null;
   readonly promptPaths: string[];
+  readonly topFailureCategories?: ReadonlyArray<{ readonly category: string; readonly count: number }>;
+  readonly selfCorrectionRate?: number;
 }
 
 export interface RefinementSignal {
@@ -50,8 +52,8 @@ function buildEvidence(input: RefinementSignalInput): RefinementEvidence {
   return {
     gatePassRate: correlation?.gatePassRate ?? 0,
     evalScore: correlation?.evalScore ?? 0,
-    topFailureCategories: [],
-    selfCorrectionRate: 0,
+    topFailureCategories: input.topFailureCategories ?? [],
+    selfCorrectionRate: input.selfCorrectionRate ?? 0,
     recentRegressions: input.regressions.length,
   };
 }

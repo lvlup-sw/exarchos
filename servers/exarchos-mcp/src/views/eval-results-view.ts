@@ -1,5 +1,5 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { JudgeCalibratedDataSchema, type WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -277,26 +277,18 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
 }
 
 function handleJudgeCalibrated(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
-  const data = event.data as {
-    skill?: string;
-    rubricName?: string;
-    split?: string;
-    tpr?: number;
-    tnr?: number;
-    accuracy?: number;
-    f1?: number;
-  } | undefined;
-
-  if (!data) return fromInternal(state);
+  const parsed = JudgeCalibratedDataSchema.safeParse(event.data);
+  if (!parsed.success) return fromInternal(state);
+  const data = parsed.data;
 
   const record: CalibrationRecord = {
-    skill: data.skill ?? '',
-    rubricName: data.rubricName ?? '',
-    split: data.split ?? '',
-    tpr: data.tpr ?? 0,
-    tnr: data.tnr ?? 0,
-    accuracy: data.accuracy ?? 0,
-    f1: data.f1 ?? 0,
+    skill: data.skill,
+    rubricName: data.rubricName,
+    split: data.split,
+    tpr: data.tpr,
+    tnr: data.tnr,
+    accuracy: data.accuracy,
+    f1: data.f1,
     calibratedAt: event.timestamp,
   };
 

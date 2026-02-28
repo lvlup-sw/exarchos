@@ -25,7 +25,7 @@ export async function loadJsonl<S extends z.ZodTypeAny>(
     try {
       parsed = JSON.parse(line);
     } catch {
-      throw new Error(`Invalid JSON at line ${lineNumber}: ${line}`);
+      throw new Error(`Invalid JSON at line ${lineNumber}`);
     }
 
     const result = schema.safeParse(parsed);

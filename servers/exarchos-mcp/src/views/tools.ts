@@ -638,9 +638,18 @@ export async function handleViewQualityAttribution(
     // but the MCP handler receives { start, end } — compute duration from the range
     let timeRange: string | undefined;
     if (args.timeRange) {
-      const startMs = new Date(args.timeRange.start).getTime();
-      const endMs = new Date(args.timeRange.end).getTime();
-      const diffDays = Math.max(1, Math.round((endMs - startMs) / (24 * 60 * 60 * 1000)));
+      const startMs = Date.parse(args.timeRange.start);
+      const endMs = Date.parse(args.timeRange.end);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+        return {
+          success: false,
+          error: {
+            code: 'VIEW_ERROR',
+            message: 'Invalid timeRange: expected ISO timestamps with end >= start',
+          },
+        };
+      }
+      const diffDays = Math.max(1, Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)));
       timeRange = `P${diffDays}D`;
     }
     const query = {
