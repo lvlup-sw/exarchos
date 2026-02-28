@@ -34,13 +34,9 @@ Activate this skill when:
 
 Valid transitions, guards, and prerequisites for all workflow types are documented in `references/phase-transitions.md`. **CRITICAL:** When a transition has a guard, send the prerequisite `updates` and `phase` in a single `set` call — updates apply before guards evaluate.
 
-## State File Location
+## State Location
 
-```
-~/.claude/workflow-state/<feature-id>.state.json
-```
-
-State files are gitignored - they persist locally but are not committed.
+Workflow state lives in the **MCP event store**, not the filesystem. Use `exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
 
 ## State Operations
 

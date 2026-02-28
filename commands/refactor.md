@@ -130,10 +130,24 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
           (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
 ```
 
+## When to Use /refactor vs /debug
+
+| Signal | Use /refactor | Use /debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to /refactor if structural | Start with /debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/refactor`. If there is a _symptom_ (something that should work but doesn't), use `/debug`.
+
 ## Resume Support
 
-Refactor workflows resume like other workflows:
+Refactor workflows resume via MCP auto-discovery:
 
 ```bash
-/exarchos:resume ~/.claude/workflow-state/refactor-<slug>.state.json
+/exarchos:rehydrate
 ```

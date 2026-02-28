@@ -131,11 +131,24 @@ Debug workflows auto-chain through phases with ONE human checkpoint.
 
 ## Resume Support
 
-Debug workflows resume like feature workflows:
+Debug workflows resume via MCP auto-discovery:
 
 ```bash
-/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:rehydrate
 ```
+
+## When to Use /debug vs /refactor
+
+| Signal | Use /debug | Use /refactor |
+|--------|-----------|---------------|
+| Something is broken or wrong | Yes | No |
+| Code works but is messy/complex | No | Yes |
+| Users report a bug or regression | Yes | No |
+| Performance degradation | Start with /debug (investigate) | Escalate to /refactor if structural |
+| "This should be reorganized" | No | Yes |
+| Error in production logs | Yes | No |
+
+**Rule of thumb:** If there is a _symptom_ (something that should work but doesn't), use `/debug`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/refactor`.
 
 ## Related
 

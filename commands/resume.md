@@ -21,13 +21,15 @@ Restore workflow context after:
 
 ## Process
 
-### Step 1: Locate State File
+### Step 1: Discover Active Workflows
 
-If no argument provided, the SessionStart hook automatically discovers active workflows on session start. To manually locate state files, check the state directory:
+If no argument provided, the SessionStart hook automatically discovers active workflows on session start. To manually discover workflows, query the MCP pipeline view:
 
-```bash
-ls ~/.claude/workflow-state/*.state.json
 ```
+exarchos_view pipeline
+```
+
+This lists all workflows with their phase, task counts, and featureId.
 
 ### Step 2: Reconcile State
 
@@ -79,7 +81,7 @@ After displaying context, ask:
 ### Resume Specific Workflow
 
 ```
-/exarchos:resume ~/.claude/workflow-state/user-authentication.state.json
+/exarchos:resume user-authentication
 ```
 
 ### List and Choose
@@ -88,11 +90,7 @@ After displaying context, ask:
 /exarchos:resume
 ```
 
-Lists available workflows, then:
-
-```
-/exarchos:resume ~/.claude/workflow-state/<chosen-feature>.state.json
-```
+Lists available workflows via `exarchos_view pipeline`, then resumes the selected one.
 
 ## Context Efficiency
 
