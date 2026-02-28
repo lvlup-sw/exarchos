@@ -119,7 +119,7 @@ export class ViewMaterializer {
       if (this.recentMisses / this.recentTotal > 0.5) {
         viewLogger.warn(
           { missRate: (this.recentMisses / this.recentTotal).toFixed(2), cacheSize: this.states.size, maxCacheEntries: this.maxCacheEntries },
-          'View cache thrashing detected — miss rate exceeds 50%% over last window. Consider increasing EXARCHOS_MAX_CACHE_ENTRIES',
+          'View cache thrashing detected — miss rate exceeds 50% over last window. Consider increasing EXARCHOS_MAX_CACHE_ENTRIES',
         );
       }
       this.recentMisses = 0;
