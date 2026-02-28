@@ -130,6 +130,20 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
           (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
 ```
 
+## When to Use /refactor vs /debug
+
+| Signal | Use /refactor | Use /debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Start with /debug (investigate), switch to /refactor if structural |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/refactor`. If there is a _symptom_ (something that should work but doesn't), use `/debug`.
+
 ## Resume Support
 
 Refactor workflows resume like other workflows:
