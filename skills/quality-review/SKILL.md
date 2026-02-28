@@ -95,6 +95,16 @@ This enables catching:
 
 ## Review Process
 
+### Check Quality Signals
+
+Before reviewing, query quality signals for the skill(s) under review:
+```
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+```
+- If `regressions` is non-empty, report active quality regressions to the user before proceeding
+- If any hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user
+- If `gatePassRate < 0.80` for the target skill, warn about degrading quality
+
 ### Step 0: Verify Spec Review Passed (MANDATORY)
 
 Before proceeding, confirm spec review passed for all tasks:
