@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { GradeResultSchema } from './types.js';
 import { loadJsonl } from './jsonl-reader.js';
 
 // ─── HumanGradedCase ────────────────────────────────────────────────────────
@@ -11,7 +10,7 @@ export const HumanGradedCaseSchema = z.object({
   humanVerdict: z.boolean(),
   humanScore: z.number().min(0).max(1),
   humanRationale: z.string().min(1),
-  graderOutput: GradeResultSchema.optional(),
+  graderOutput: z.record(z.unknown()).optional(),
 });
 
 export type HumanGradedCase = z.infer<typeof HumanGradedCaseSchema>;

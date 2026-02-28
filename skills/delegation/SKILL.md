@@ -66,6 +66,12 @@ Use `@skills/delegation/references/implementer-prompt.md` as template for Task t
 
 ## Delegation Workflow — Subagent Mode
 
+0. **Check quality signals** before dispatching:
+   ```
+   mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+   ```
+   - If `gatePassRate < 0.80` for any skill involved, include extra validation instructions in subagent prompts
+   - If `regressions` is non-empty, warn the user about active regressions before dispatching
 1. Prepare worktrees — `scripts/setup-worktree.sh`
 2. Extract task details from plan
 3. Check for benchmark tasks → set `verification.hasBenchmarks` in state
