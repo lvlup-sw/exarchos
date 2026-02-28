@@ -248,20 +248,76 @@ keyword_match() {
 }
 
 # ============================================================
+# EXTRACT DEFERRED SECTIONS FROM TRACEABILITY TABLE
+# ============================================================
+
+# Parse deferred section names from the plan's traceability table.
+# Rows containing "Deferred" (case-insensitive) in any column are treated as
+# explicitly deferred — the first column's text (with leading number prefixes
+# like "1.4 " stripped) is the design section name.
+DEFERRED_SECTIONS=()
+while IFS= read -r line; do
+    # Match table rows containing "Deferred" (case-insensitive) with pipe delimiters
+    if echo "$line" | grep -qi "deferred" && [[ "$line" == *"|"* ]]; then
+        # Skip table header/separator rows
+        if echo "$line" | grep -qE '^\|[[:space:]]*[-]+'; then
+            continue
+        fi
+        if echo "$line" | grep -qiE '^\|[[:space:]]*(Design Section|Section)'; then
+            continue
+        fi
+        # Extract first column (design section name), strip leading number prefix like "1.4 "
+        section_name="$(echo "$line" | sed 's/^[[:space:]]*|[[:space:]]*//' | sed 's/[[:space:]]*|.*//' | sed 's/^[0-9.]*[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+        if [[ -n "$section_name" ]]; then
+            DEFERRED_SECTIONS+=("$section_name")
+        fi
+    fi
+done < "$PLAN_FILE"
+
+# ============================================================
 # CROSS-REFERENCE: Design sections to plan tasks
 # ============================================================
 
 CHECK_PASS=0
 CHECK_FAIL=0
+CHECK_DEFERRED=0
 GAPS=()
 MATRIX_ROWS=()
 
 for section in "${DESIGN_SECTIONS[@]}"; do
-    # Check if any task title or plan content references this design section
-    MATCHED_TASKS=()
-
     # Extract keywords from the section name for keyword-based matching
     SECTION_KEYWORDS="$(extract_keywords "$section")"
+
+    # Check if section is explicitly deferred in the traceability table FIRST.
+    # Deferred sections take priority — they represent intentional exclusions
+    # documented with rationale, not gaps.
+    is_deferred=false
+    for deferred in "${DEFERRED_SECTIONS[@]+${DEFERRED_SECTIONS[@]}}"; do
+        # Try exact case-insensitive substring match (both directions)
+        if echo "$deferred" | grep -qiF "$section"; then
+            is_deferred=true
+            break
+        fi
+        if echo "$section" | grep -qiF "$deferred"; then
+            is_deferred=true
+            break
+        fi
+        # Try keyword match
+        deferred_keywords="$(extract_keywords "$deferred")"
+        if keyword_match "$deferred_keywords" "$section" || keyword_match "$SECTION_KEYWORDS" "$deferred"; then
+            is_deferred=true
+            break
+        fi
+    done
+
+    if [[ "$is_deferred" == true ]]; then
+        MATRIX_ROWS+=("| $section | (Deferred in traceability) | Deferred |")
+        CHECK_DEFERRED=$((CHECK_DEFERRED + 1))
+        continue
+    fi
+
+    # Check if any task title or plan content references this design section
+    MATCHED_TASKS=()
 
     for task in "${PLAN_TASKS[@]+${PLAN_TASKS[@]}}"; do
         # First try exact case-insensitive substring match
@@ -317,11 +373,12 @@ for row in "${MATRIX_ROWS[@]}"; do
 done
 echo ""
 
-TOTAL=$((CHECK_PASS + CHECK_FAIL))
+TOTAL=$((CHECK_PASS + CHECK_FAIL + CHECK_DEFERRED))
 echo "### Summary"
 echo ""
 echo "- Design sections: $TOTAL"
 echo "- Covered: $CHECK_PASS"
+echo "- Deferred: $CHECK_DEFERRED"
 echo "- Gaps: $CHECK_FAIL"
 echo ""
 
@@ -338,7 +395,11 @@ echo "---"
 echo ""
 
 if [[ $CHECK_FAIL -eq 0 ]]; then
-    echo "**Result: PASS** (${CHECK_PASS}/${TOTAL} sections covered)"
+    if [[ $CHECK_DEFERRED -gt 0 ]]; then
+        echo "**Result: PASS** (${CHECK_PASS}/${TOTAL} sections covered, ${CHECK_DEFERRED} deferred)"
+    else
+        echo "**Result: PASS** (${CHECK_PASS}/${TOTAL} sections covered)"
+    fi
     exit 0
 else
     echo "**Result: FAIL** (${CHECK_FAIL}/${TOTAL} sections have gaps)"
