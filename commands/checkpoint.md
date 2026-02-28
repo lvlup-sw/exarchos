@@ -22,10 +22,10 @@ Use `/exarchos:checkpoint` when:
 
 ### Step 1: Identify Active Workflow
 
-The SessionStart hook automatically discovers active workflows on session start. If you need to locate the state file manually, check the state directory:
+The SessionStart hook automatically discovers active workflows on session start. To manually discover workflows, query the MCP pipeline view:
 
-```bash
-ls ~/.claude/workflow-state/*.state.json
+```
+exarchos_view pipeline
 ```
 
 ### Step 2: Ensure State is Current
@@ -49,8 +49,6 @@ Fix any discrepancies.
 
 **Feature:** <feature-id>
 **Phase:** <current-phase>
-**State file:** `~/.claude/workflow-state/<feature>.state.json`
-
 ### Progress
 - Tasks: X/Y complete
 - Current: <what's in progress>
@@ -60,11 +58,11 @@ Fix any discrepancies.
 
 To continue this workflow in a new session:
 
-```bash
-/exarchos:resume ~/.claude/workflow-state/<feature>.state.json
+```
+/exarchos:rehydrate
 ```
 
-Or start Claude Code fresh and run the resume command.
+Or start Claude Code fresh — the SessionStart hook will auto-discover active workflows.
 ```
 
 ## Auto-Checkpoint Triggers

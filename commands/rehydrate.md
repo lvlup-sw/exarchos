@@ -12,8 +12,8 @@ Restore full workflow awareness without starting a new session.
 - Returning to a workflow after a break
 
 ## Process
-1. Discover active workflow(s) by scanning `~/.claude/workflow-state/*.state.json` for non-terminal workflows
-2. If multiple active workflows, ask user which to rehydrate
+1. Discover active workflow(s) via MCP: `exarchos_view pipeline` — lists all workflows with phase and task counts
+2. If multiple active (non-completed) workflows, ask user which to rehydrate
 3. Fetch full state + phase playbook: `exarchos_workflow get featureId="<id>" fields=["playbook", "phase", "workflowType", "tasks", "artifacts"]`
 4. Render compact behavioral context (same format as post-compaction context.md)
 5. Output the rehydration context to refresh agent awareness
