@@ -27,6 +27,7 @@ import {
   ShepherdCompletedData,
   TaskProgressedData,
   TaskFailedData,
+  SessionTaggedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -332,7 +333,11 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(50);
+    expect(EventTypes).toHaveLength(51);
+  });
+
+  it('EventTypes_IncludesSessionTagged', () => {
+    expect(EventTypes).toContain('session.tagged');
   });
 
   it('EventTypes_StatePatchedType_IsValidEventType', () => {
@@ -1108,5 +1113,62 @@ describe('EvalCaseCompletedData max-length constraints', () => {
       passed: true, score: 1, assertions, duration: 100
     };
     expect(() => EvalCaseCompletedData.parse(data)).toThrow();
+  });
+});
+
+describe('SessionTaggedData', () => {
+  it('SessionTaggedData_ValidPayload_PassesValidation', () => {
+    const data = { tag: 'feature-auth', sessionId: 'sess-123' };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(true);
+  });
+
+  it('SessionTaggedData_WithOptionalFields_PassesValidation', () => {
+    const data = {
+      tag: 'feature-auth',
+      sessionId: 'sess-123',
+      description: 'Adding JWT token validation',
+      branch: 'main',
+    };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.description).toBe('Adding JWT token validation');
+      expect(result.data.branch).toBe('main');
+    }
+  });
+
+  it('SessionTaggedData_MissingTag_FailsValidation', () => {
+    const data = { sessionId: 'sess-123' };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(false);
+  });
+
+  it('SessionTaggedData_MissingSessionId_FailsValidation', () => {
+    const data = { tag: 'feature-auth' };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(false);
+  });
+
+  it('SessionTaggedData_OversizedTag_FailsValidation', () => {
+    const data = { tag: 'a'.repeat(101), sessionId: 'sess-123' };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(false);
+  });
+
+  it('SessionTaggedData_OversizedDescription_FailsValidation', () => {
+    const data = { tag: 'feature-auth', sessionId: 'sess-123', description: 'a'.repeat(501) };
+    const result = SessionTaggedData.safeParse(data);
+    expect(result.success).toBe(false);
+  });
+
+  it('sessionTaggedEvent_ValidPayload_ParsesAsBaseEvent', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'tags',
+      sequence: 1,
+      type: 'session.tagged',
+      data: { tag: 'feature-auth', sessionId: 'sess-123' },
+    });
+    expect(event.success).toBe(true);
   });
 });

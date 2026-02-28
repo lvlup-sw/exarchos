@@ -53,6 +53,7 @@ export const EventTypes = [
   'remediation.attempted',
   'remediation.succeeded',
   'quality.refinement.suggested',
+  'session.tagged',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -493,6 +494,13 @@ export const RemediationSucceededDataSchema = z.object({
   finalStrategy: z.string(),
 });
 
+export const SessionTaggedData = z.object({
+  tag: z.string().min(1).max(100),
+  sessionId: z.string().min(1),
+  description: z.string().max(500).optional(),
+  branch: z.string().optional(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -546,6 +554,7 @@ export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
 export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
 export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
 export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
+export type SessionTagged = z.infer<typeof SessionTaggedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -600,6 +609,7 @@ export type EventDataMap = {
   'remediation.attempted': RemediationAttempted;
   'remediation.succeeded': RemediationSucceeded;
   'quality.refinement.suggested': RefinementSuggestedData;
+  'session.tagged': SessionTagged;
 };
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
