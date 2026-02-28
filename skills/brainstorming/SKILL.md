@@ -56,6 +56,12 @@ Document the chosen approach using the structure in `references/design-template.
 
 **Save Location:** `docs/designs/YYYY-MM-DD-<feature>.md`
 
+## Iteration Limits
+
+**Design iterations: max 3.** If Phase 2 (Exploration) cycles through 3 rounds of presenting approaches without the user converging on a choice, pause and summarize the trade-offs for the user to make a final decision.
+
+The user can override: `/ideate --max-iterations 5`
+
 ## Anti-Patterns
 
 | Don't | Do Instead |

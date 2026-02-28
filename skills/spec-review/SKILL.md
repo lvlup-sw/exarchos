@@ -39,6 +39,21 @@ The subagent:
 - Generates report
 - Returns verdict to orchestrator
 
+### Data Handoff Protocol
+
+The **orchestrator** is responsible for generating the diff before dispatching the spec-review subagent. The subagent does NOT generate its own diff.
+
+**Orchestrator responsibilities:**
+1. Generate diff: `~/.claude/scripts/review-diff.sh <integration-branch> main`
+2. Pass diff content in the subagent dispatch prompt
+3. Include state file path for artifact resolution
+
+**Subagent responsibilities:**
+1. Receive diff content from dispatch prompt (do NOT re-generate)
+2. Read state file for design/plan artifact paths
+3. Run verification commands against the working tree
+4. Return structured JSON verdict
+
 ### Context-Efficient Input
 
 Instead of per-worktree diffs, receive an integrated diff from the
