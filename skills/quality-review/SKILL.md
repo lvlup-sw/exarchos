@@ -33,6 +33,22 @@ The orchestrator provides the state file path, diff output from `~/.claude/scrip
 
 The subagent reads the state file for artifact paths, uses the diff output instead of full files, runs static analysis, performs a code walkthrough, generates a report, and returns the verdict.
 
+### Data Handoff Protocol
+
+The **orchestrator** is responsible for generating the diff before dispatching the quality-review subagent. The subagent does NOT generate its own diff.
+
+**Orchestrator responsibilities:**
+1. Generate diff: `gt diff main` or `git diff main...integration-branch`
+2. Pass diff content in the subagent dispatch prompt
+3. Include state file path for artifact resolution
+4. Include spec review results (must be PASS)
+
+**Subagent responsibilities:**
+1. Receive diff content from dispatch prompt (do NOT re-generate)
+2. Read state file for design/plan artifact paths
+3. Run static analysis and security scripts against the working tree
+4. Return structured JSON verdict
+
 ### Context-Efficient Input
 
 Instead of reading full files, receive the integrated diff:
@@ -161,6 +177,21 @@ If HIGH-priority issues found:
 2. Dispatch to implementer subagent
 3. Re-review quality after fixes
 4. Only mark APPROVED when all HIGH items resolved and tests pass
+
+**Fix loop iteration limit: max 3.** If HIGH-priority issues persist after 3 fix-review cycles, pause and escalate to the user with a summary of unresolved issues. The user can override: `/review --max-fix-iterations 5`
+
+### Post-Fix Spec Compliance Check (MANDATORY after fix cycle)
+
+After the quality-review fix loop completes and quality passes, re-verify that the quality fixes did not break spec compliance. Run inline (not a full dispatch):
+
+1. Run spec verification commands:
+   ```bash
+   npm run test:run
+   npm run typecheck
+   scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
+   ```
+2. If all pass: proceed to APPROVED transition
+3. If any fail: return to NEEDS_FIXES with spec regression noted in issues array
 
 ## Required Output Format
 
