@@ -14,6 +14,7 @@ export interface SkillQualityMetrics {
   readonly selfCorrectionRate: number;
   readonly avgRemediationAttempts: number;
   readonly topFailureCategories: ReadonlyArray<{ readonly category: string; readonly count: number }>;
+  readonly latestPromptVersion?: string;
 }
 
 export interface GateMetrics {
@@ -70,6 +71,7 @@ interface FailureTracker {
 /** Extended state that includes internal tracking. */
 interface InternalState extends CodeQualityViewState {
   readonly _failureTrackers: Record<string, FailureTracker>;
+  readonly _remediationCounts: Record<string, number>;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -146,20 +148,28 @@ function trackerKey(gate: string, skill: string): string {
 
 /** Convert public view state to internal state with failure trackers. */
 function toInternal(view: CodeQualityViewState): InternalState {
+  const partial = view as Partial<InternalState>;
   return {
     ...view,
-    _failureTrackers: (view as Partial<InternalState>)._failureTrackers ?? {},
+    _failureTrackers: partial._failureTrackers ?? {},
+    _remediationCounts: partial._remediationCounts ?? {},
   };
 }
 
-/** Create a result that hides _failureTrackers from enumeration. */
+/** Create a result that hides internal trackers from enumeration. */
 function fromInternal(state: InternalState): CodeQualityViewState {
-  const { _failureTrackers, ...publicState } = state;
+  const { _failureTrackers, _remediationCounts, ...publicState } = state;
   const result = { ...publicState } as CodeQualityViewState;
   // Store trackers as non-enumerable so they survive apply() chaining
   // but don't leak into toEqual/JSON.stringify comparisons
   Object.defineProperty(result, '_failureTrackers', {
     value: _failureTrackers,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(result, '_remediationCounts', {
+    value: _remediationCounts,
     enumerable: false,
     writable: false,
     configurable: false,
@@ -190,6 +200,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const model = typeof details.model === 'string' ? details.model : undefined;
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
+  const promptVersion = typeof details.promptVersion === 'string' ? details.promptVersion : undefined;
 
   // Update gate metrics
   const prevGate = state.gates[gateName] ?? defaultGateMetrics(gateName);
@@ -213,12 +224,32 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     const newExec = prevSkill.totalExecutions + 1;
     const skillPassCount = Math.round(prevSkill.gatePassRate * prevSkill.totalExecutions) + (passed ? 1 : 0);
 
+    // Aggregate failure categories on the skill
+    let updatedCategories = [...prevSkill.topFailureCategories] as Array<{ category: string; count: number }>;
+    if (!passed) {
+      const category = reason || gateName;
+      const existing = updatedCategories.find(c => c.category === category);
+      if (existing) {
+        updatedCategories = updatedCategories.map(c =>
+          c.category === category ? { ...c, count: c.count + 1 } : c,
+        );
+      } else {
+        updatedCategories.push({ category, count: 1 });
+      }
+      updatedCategories.sort((a, b) => b.count - a.count);
+      if (updatedCategories.length > 10) {
+        updatedCategories.length = 10;
+      }
+    }
+
     updatedSkills = {
       ...state.skills,
       [skill]: {
         ...prevSkill,
         totalExecutions: newExec,
         gatePassRate: skillPassCount / newExec,
+        topFailureCategories: updatedCategories,
+        ...(promptVersion !== undefined ? { latestPromptVersion: promptVersion } : {}),
       },
     };
   }
@@ -341,6 +372,51 @@ function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): C
   });
 }
 
+function handleRemediationSucceeded(state: InternalState, event: WorkflowEvent): CodeQualityViewState {
+  const data = event.data as {
+    skill?: string;
+    totalAttempts?: number;
+  } | undefined;
+
+  if (!data?.skill) return fromInternal(state);
+
+  const skill = data.skill;
+  const totalAttempts = data.totalAttempts ?? 1;
+
+  const metrics = state.skills[skill] ?? defaultSkillMetrics(skill);
+  const prevCorrections = state._remediationCounts[skill] ?? 0;
+  const corrections = prevCorrections + 1;
+
+  // Compute totalFailures from gate metrics
+  const totalFailures = metrics.totalExecutions - Math.round(metrics.gatePassRate * metrics.totalExecutions);
+
+  // selfCorrectionRate = corrections / totalFailures, clamped to [0, 1]
+  const selfCorrectionRate = totalFailures > 0
+    ? Math.min(corrections / totalFailures, 1)
+    : 0;
+
+  // Running average of attempts across all corrections
+  const avgRemediationAttempts = runningAverage(
+    metrics.avgRemediationAttempts, corrections, totalAttempts,
+  );
+
+  return fromInternal({
+    ...state,
+    skills: {
+      ...state.skills,
+      [skill]: {
+        ...metrics,
+        selfCorrectionRate,
+        avgRemediationAttempts,
+      },
+    },
+    _remediationCounts: {
+      ...state._remediationCounts,
+      [skill]: corrections,
+    },
+  });
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
@@ -364,6 +440,12 @@ export const codeQualityProjection: ViewProjection<CodeQualityViewState> = {
         if (!event.data) return view;
         const state = toInternal(view);
         return handleBenchmarkCompleted(state, event);
+      }
+
+      case 'remediation.succeeded': {
+        if (!event.data) return view;
+        const state = toInternal(view);
+        return handleRemediationSucceeded(state, event);
       }
 
       default:

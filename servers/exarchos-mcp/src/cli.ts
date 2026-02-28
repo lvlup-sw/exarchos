@@ -18,6 +18,8 @@ import { handleEvalRun, resolveEvalsDir } from './cli-commands/eval-run.js';
 import { handleEvalCapture } from './cli-commands/eval-capture.js';
 import { handleEvalCompare } from './cli-commands/eval-compare.js';
 import { handleQualityCheck } from './cli-commands/quality-check.js';
+import { handleCalibrate } from './cli-commands/eval-calibrate.js';
+import { CalibrateInputSchema } from './evals/calibration-types.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -45,6 +47,7 @@ const KNOWN_COMMANDS = [
   'eval-capture',
   'eval-compare',
   'quality-check',
+  'eval-calibrate',
   'session-end',
 ] as const;
 
@@ -68,6 +71,19 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'eval-capture': async (stdinData) => handleEvalCapture(stdinData, resolveStateDir()),
   'eval-compare': async (stdinData) => handleEvalCompare(stdinData, resolveStateDir()),
   'quality-check': async (stdinData) => handleQualityCheck(stdinData, resolveStateDir()),
+  'eval-calibrate': async (stdinData) => {
+    const parsed = CalibrateInputSchema.safeParse(stdinData);
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      return {
+        error: {
+          code: 'INVALID_INPUT',
+          message: `Invalid calibrate input: ${firstIssue.path.join('.')} - ${firstIssue.message}`,
+        },
+      };
+    }
+    return handleCalibrate(parsed.data);
+  },
   'session-end': async (stdinData) => handleSessionEnd(stdinData, resolveStateDir()),
 };
 

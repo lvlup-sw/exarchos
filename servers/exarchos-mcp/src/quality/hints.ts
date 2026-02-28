@@ -1,5 +1,6 @@
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
+import type { RefinementSignal } from './refinement-signal.js';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
 
@@ -12,13 +13,22 @@ export function configureQualityEventStore(store: EventStore | null): void {
 
 // ─── Hint Interface ─────────────────────────────────────────────────────────
 
-export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval';
+export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval' | 'refinement';
 
 export interface QualityHint {
   readonly skill: string;
   readonly category: QualityHintCategory;
   readonly severity: 'info' | 'warning';
   readonly hint: string;
+  readonly confidenceLevel?: 'actionable' | 'advisory';
+  readonly affectedPromptPaths?: string[];
+}
+
+// ─── Calibration Context ───────────────────────────────────────────────────
+
+export interface CalibrationContext {
+  readonly signalConfidence: 'high' | 'medium' | 'low';
+  readonly refinementSignals: RefinementSignal[];
 }
 
 // ─── Rule Type ──────────────────────────────────────────────────────────────
@@ -120,6 +130,7 @@ function severityOrder(severity: QualityHint['severity']): number {
 export function generateQualityHints(
   state: CodeQualityViewState,
   targetSkill?: string,
+  calibrationContext?: CalibrationContext,
 ): QualityHint[] {
   const hints: QualityHint[] = [];
   const skills = targetSkill ? [targetSkill] : Object.keys(state.skills);
@@ -141,8 +152,13 @@ export function generateQualityHints(
     }
   }
 
-  hints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
-  const result = hints.slice(0, MAX_HINTS);
+  // Enrich hints with calibration data when provided
+  const enrichedHints = calibrationContext
+    ? enrichWithCalibration(hints, calibrationContext, targetSkill)
+    : hints;
+
+  enrichedHints.sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity));
+  const result = enrichedHints.slice(0, MAX_HINTS);
 
   // Fire-and-forget: emit quality.hint.generated event when hints are produced
   if (result.length > 0 && moduleEventStore) {
@@ -162,4 +178,41 @@ export function generateQualityHints(
   }
 
   return result;
+}
+
+// ─── Calibration Enrichment ──────────────────────────────────────────────────
+
+function enrichWithCalibration(
+  hints: QualityHint[],
+  calibration: CalibrationContext,
+  targetSkill?: string,
+): QualityHint[] {
+  const confidenceLevel = isCalibrated(calibration.signalConfidence)
+    ? 'actionable' as const
+    : 'advisory' as const;
+
+  // Enrich existing hints with confidence level
+  const enriched: QualityHint[] = hints.map(hint => ({
+    ...hint,
+    confidenceLevel,
+  }));
+
+  // Add refinement hints for matching signals (filtered by targetSkill when specified)
+  for (const signal of calibration.refinementSignals) {
+    if (targetSkill && signal.skill !== targetSkill) continue;
+    enriched.push({
+      skill: signal.skill,
+      category: 'refinement',
+      severity: 'info',
+      hint: signal.suggestedAction,
+      confidenceLevel,
+      affectedPromptPaths: signal.affectedPromptPaths,
+    });
+  }
+
+  return enriched;
+}
+
+function isCalibrated(confidence: CalibrationContext['signalConfidence']): boolean {
+  return confidence === 'high' || confidence === 'medium';
 }

@@ -45,10 +45,14 @@ export const EventTypes = [
   'eval.run.started',
   'eval.case.completed',
   'eval.run.completed',
+  'eval.judge.calibrated',
   'shepherd.started',
   'shepherd.iteration',
   'shepherd.approval_requested',
   'shepherd.completed',
+  'remediation.attempted',
+  'remediation.succeeded',
+  'quality.refinement.suggested',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -115,6 +119,17 @@ export const TaskFailedData = z.object({
 });
 
 // ─── Quality Gate Event Data ────────────────────────────────────────────────
+
+export const GateExecutedDetailsSchema = z.object({
+  skill: z.string().optional(),
+  model: z.string().optional(),
+  commit: z.string().optional(),
+  reason: z.string().optional(),
+  category: z.string().optional(),
+  taskId: z.string().optional(),
+  attemptNumber: z.number().int().min(1).optional(),
+  promptVersion: z.string().optional(),
+}).passthrough();
 
 export const GateExecutedData = z.object({
   gateName: z.string(),
@@ -360,6 +375,26 @@ export const QualityHintGeneratedData = z.object({
   generatedAt: z.string().datetime(),
 });
 
+// ─── Quality Refinement Event Data ──────────────────────────────────────────
+
+export const RefinementSuggestedDataSchema = z.object({
+  skill: z.string().min(1),
+  signalConfidence: z.enum(['high', 'medium']),
+  trigger: z.enum(['regression', 'trend-degradation', 'attribution-outlier']),
+  evidence: z.object({
+    gatePassRate: z.number(),
+    evalScore: z.number(),
+    topFailureCategories: z.array(z.object({
+      category: z.string(),
+      count: z.number(),
+    })),
+    selfCorrectionRate: z.number(),
+    recentRegressions: z.number(),
+  }),
+  suggestedAction: z.string().min(1),
+  affectedPromptPaths: z.array(z.string()),
+});
+
 // ─── Shepherd Event Data ──────────────────────────────────────────────────
 
 /** @planned — not yet emitted in production */
@@ -428,6 +463,36 @@ export const EvalRunCompletedData = z.object({
   regressions: z.array(z.string()),
 });
 
+export const JudgeCalibratedDataSchema = z.object({
+  skill: z.string(),
+  rubricName: z.string(),
+  split: z.enum(['validation', 'test']),
+  tpr: z.number().min(0).max(1),
+  tnr: z.number().min(0).max(1),
+  accuracy: z.number().min(0).max(1),
+  f1: z.number().min(0).max(1),
+  goldStandardVersion: z.string(),
+  rubricVersion: z.string(),
+});
+
+// ─── Remediation Event Data ─────────────────────────────────────────────────
+
+export const RemediationAttemptedDataSchema = z.object({
+  taskId: z.string().min(1),
+  skill: z.string().min(1),
+  gateName: z.string().min(1),
+  attemptNumber: z.number().int().min(1),
+  strategy: z.string(),
+});
+
+export const RemediationSucceededDataSchema = z.object({
+  taskId: z.string().min(1),
+  skill: z.string().min(1),
+  gateName: z.string().min(1),
+  totalAttempts: z.number().int().min(1),
+  finalStrategy: z.string(),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -437,6 +502,7 @@ export type TaskClaimed = z.infer<typeof TaskClaimedData>;
 export type TaskProgressed = z.infer<typeof TaskProgressedData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
+export type GateExecutedDetails = z.infer<typeof GateExecutedDetailsSchema>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
 export type StackRestacked = z.infer<typeof StackRestackedData>;
@@ -469,6 +535,7 @@ export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
 export type QualityHintGenerated = z.infer<typeof QualityHintGeneratedData>;
+export type RefinementSuggestedData = z.infer<typeof RefinementSuggestedDataSchema>;
 export type ShepherdStarted = z.infer<typeof ShepherdStartedData>;
 export type ShepherdIteration = z.infer<typeof ShepherdIterationData>;
 export type ShepherdApprovalRequested = z.infer<typeof ShepherdApprovalRequestedData>;
@@ -476,6 +543,64 @@ export type ShepherdCompleted = z.infer<typeof ShepherdCompletedData>;
 export type EvalRunStarted = z.infer<typeof EvalRunStartedData>;
 export type EvalCaseCompleted = z.infer<typeof EvalCaseCompletedData>;
 export type EvalRunCompleted = z.infer<typeof EvalRunCompletedData>;
+export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
+export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
+export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
+
+// ─── Event Data Map ─────────────────────────────────────────────────────────
+
+export type EventDataMap = {
+  'workflow.started': WorkflowStarted;
+  'task.assigned': TaskAssigned;
+  'task.claimed': TaskClaimed;
+  'task.progressed': TaskProgressed;
+  'task.completed': TaskCompleted;
+  'task.failed': TaskFailed;
+  'gate.executed': GateExecuted;
+  'state.patched': Record<string, unknown>;
+  'stack.position-filled': StackPositionFilled;
+  'stack.restacked': StackRestacked;
+  'stack.enqueued': StackEnqueued;
+  'workflow.transition': WorkflowTransition;
+  'workflow.fix-cycle': WorkflowFixCycle;
+  'workflow.guard-failed': WorkflowGuardFailed;
+  'workflow.checkpoint': WorkflowCheckpoint;
+  'workflow.compound-entry': WorkflowCompoundEntry;
+  'workflow.compound-exit': WorkflowCompoundExit;
+  'workflow.cancel': WorkflowCancel;
+  'workflow.cleanup': WorkflowCleanup;
+  'workflow.compensation': WorkflowCompensation;
+  'workflow.circuit-open': WorkflowCircuitOpen;
+  'tool.invoked': ToolInvoked;
+  'tool.completed': ToolCompleted;
+  'tool.errored': ToolErrored;
+  'benchmark.completed': BenchmarkCompleted;
+  'team.spawned': TeamSpawned;
+  'team.task.assigned': TeamTaskAssigned;
+  'team.task.completed': TeamTaskCompleted;
+  'team.task.failed': TeamTaskFailed;
+  'team.disbanded': TeamDisbanded;
+  'team.context.injected': TeamContextInjected;
+  'team.task.planned': TeamTaskPlanned;
+  'team.teammate.dispatched': TeamTeammateDispatched;
+  'quality.regression': QualityRegression;
+  'workflow.cas-failed': WorkflowCasFailed;
+  'review.routed': ReviewRouted;
+  'review.finding': ReviewFinding;
+  'review.escalated': ReviewEscalated;
+  'quality.hint.generated': QualityHintGenerated;
+  'eval.run.started': EvalRunStarted;
+  'eval.case.completed': EvalCaseCompleted;
+  'eval.run.completed': EvalRunCompleted;
+  'shepherd.started': ShepherdStarted;
+  'shepherd.iteration': ShepherdIteration;
+  'shepherd.approval_requested': ShepherdApprovalRequested;
+  'shepherd.completed': ShepherdCompleted;
+  'eval.judge.calibrated': JudgeCalibrated;
+  'remediation.attempted': RemediationAttempted;
+  'remediation.succeeded': RemediationSucceeded;
+  'quality.refinement.suggested': RefinementSuggestedData;
+};
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 

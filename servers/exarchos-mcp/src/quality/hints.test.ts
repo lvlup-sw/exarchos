@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { generateQualityHints, configureQualityEventStore } from './hints.js';
-import type { QualityHint } from './hints.js';
+import type { QualityHint, CalibrationContext } from './hints.js';
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
+import type { RefinementSignal } from './refinement-signal.js';
 
 // ─── Test Helper ────────────────────────────────────────────────────────────
 
@@ -779,6 +780,116 @@ describe('generateQualityHints', () => {
       // Should include both gate and benchmark categories
       expect(categories).toContain('gate');
       expect(categories).toContain('benchmark');
+    });
+  });
+
+  // ─── T21: Calibration confidence and refinement data ─────────────────────
+
+  describe('calibration context enrichment', () => {
+    const baseSkillState = {
+      skills: {
+        'my-skill': {
+          skill: 'my-skill',
+          totalExecutions: 10,
+          gatePassRate: 0.70,
+          selfCorrectionRate: 0.10,
+          avgRemediationAttempts: 1.5,
+          topFailureCategories: [
+            { category: 'lint', count: 5 },
+            { category: 'type-check', count: 3 },
+          ],
+        },
+      },
+    };
+
+    const makeRefinementSignal = (overrides: Partial<RefinementSignal> = {}): RefinementSignal => ({
+      skill: 'my-skill',
+      signalConfidence: 'high',
+      trigger: 'regression',
+      evidence: {
+        metric: 'gate-pass-rate',
+        baseline: 0.90,
+        current: 0.70,
+        threshold: 0.80,
+      },
+      suggestedAction: 'Review gate configuration for lint rules',
+      affectedPromptPaths: ['skills/my-skill/prompts/lint-check.md'],
+      ...overrides,
+    });
+
+    it('GenerateQualityHints_WithCalibration_IncludesConfidenceLevel', () => {
+      const state = makeState(baseSkillState);
+      const calibration: CalibrationContext = {
+        signalConfidence: 'high',
+        refinementSignals: [],
+      };
+
+      const hints = generateQualityHints(state, 'my-skill', calibration);
+
+      expect(hints.length).toBeGreaterThan(0);
+      for (const hint of hints) {
+        expect(hint.confidenceLevel).toBeDefined();
+      }
+    });
+
+    it('GenerateQualityHints_LowConfidence_MarksAsAdvisory', () => {
+      const state = makeState(baseSkillState);
+      const calibration: CalibrationContext = {
+        signalConfidence: 'low',
+        refinementSignals: [],
+      };
+
+      const hints = generateQualityHints(state, 'my-skill', calibration);
+
+      expect(hints.length).toBeGreaterThan(0);
+      for (const hint of hints) {
+        expect(hint.confidenceLevel).toBe('advisory');
+      }
+    });
+
+    it('GenerateQualityHints_HighConfidence_MarksAsActionable', () => {
+      const state = makeState(baseSkillState);
+      const calibration: CalibrationContext = {
+        signalConfidence: 'high',
+        refinementSignals: [],
+      };
+
+      const hints = generateQualityHints(state, 'my-skill', calibration);
+
+      expect(hints.length).toBeGreaterThan(0);
+      for (const hint of hints) {
+        expect(hint.confidenceLevel).toBe('actionable');
+      }
+    });
+
+    it('GenerateQualityHints_WithRefinementSuggestion_IncludesPromptPaths', () => {
+      const state = makeState(baseSkillState);
+      const signal = makeRefinementSignal();
+      const calibration: CalibrationContext = {
+        signalConfidence: 'high',
+        refinementSignals: [signal],
+      };
+
+      const hints = generateQualityHints(state, 'my-skill', calibration);
+
+      const refinementHint = hints.find(h => h.category === 'refinement');
+      expect(refinementHint).toBeDefined();
+      expect(refinementHint!.hint).toContain(signal.suggestedAction);
+      expect(refinementHint!.affectedPromptPaths).toEqual(signal.affectedPromptPaths);
+    });
+
+    it('GenerateQualityHints_NoCalibrationData_DefaultsToLowConfidence', () => {
+      const state = makeState(baseSkillState);
+
+      // No calibration context provided (undefined)
+      const hints = generateQualityHints(state, 'my-skill');
+
+      expect(hints.length).toBeGreaterThan(0);
+      for (const hint of hints) {
+        // Without calibration context, confidenceLevel should be undefined (backward compatible)
+        // OR default to 'advisory' — either is acceptable
+        expect([undefined, 'advisory']).toContain(hint.confidenceLevel);
+      }
     });
   });
 });

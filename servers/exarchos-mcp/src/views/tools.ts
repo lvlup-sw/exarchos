@@ -57,6 +57,8 @@ import {
 } from './workflow-state-projection.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
+import { computeAttribution, isValidDimension } from '../quality/attribution.js';
+import type { AttributionDimension } from '../quality/attribution.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -580,6 +582,83 @@ export async function handleViewQualityCorrelation(
 
     const correlation = correlateQualityAndEvals(cqView, erView);
     return { success: true, data: correlation };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Quality Attribution Handler ─────────────────────────────────────────
+
+export async function handleViewQualityAttribution(
+  args: {
+    workflowId?: string;
+    dimension?: string;
+    skill?: string;
+    timeRange?: { start: string; end: string };
+  },
+  stateDir: string,
+): Promise<ToolResult> {
+  const dimension = args.dimension;
+  if (!dimension || !isValidDimension(dimension)) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: `Invalid attribution dimension: ${String(dimension)}`,
+      },
+    };
+  }
+
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
+    const cqView = materializer.materialize<CodeQualityViewState>(
+      streamId,
+      CODE_QUALITY_VIEW,
+      cqEvents,
+    );
+
+    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
+    const erView = materializer.materialize<EvalResultsViewState>(
+      streamId,
+      EVAL_RESULTS_VIEW,
+      erEvents,
+    );
+
+    // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
+    // but the MCP handler receives { start, end } — compute duration from the range
+    let timeRange: string | undefined;
+    if (args.timeRange) {
+      const startMs = Date.parse(args.timeRange.start);
+      const endMs = Date.parse(args.timeRange.end);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+        return {
+          success: false,
+          error: {
+            code: 'VIEW_ERROR',
+            message: 'Invalid timeRange: expected ISO timestamps with end >= start',
+          },
+        };
+      }
+      const diffDays = Math.max(1, Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)));
+      timeRange = `P${diffDays}D`;
+    }
+    const query = {
+      dimension: dimension as AttributionDimension,
+      skill: args.skill,
+      timeRange,
+    };
+    const attribution = computeAttribution(query, cqView, erView);
+    return { success: true, data: attribution };
   } catch (err) {
     return {
       success: false,
