@@ -103,7 +103,7 @@ export const TaskClaimedData = z.object({
 export const TaskProgressedData = z.object({
   taskId: z.string(),
   tddPhase: z.enum(['red', 'green', 'refactor']),
-  detail: z.string().optional(),
+  detail: z.string().max(500).optional(),
 });
 
 export const TaskCompletedData = z.object({
@@ -114,7 +114,7 @@ export const TaskCompletedData = z.object({
 
 export const TaskFailedData = z.object({
   taskId: z.string(),
-  error: z.string(),
+  error: z.string().max(500),
   diagnostics: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -448,7 +448,7 @@ export const EvalCaseCompletedData = z.object({
     passed: z.boolean(),
     score: z.number().min(0).max(1),
     reason: z.string(),
-  })),
+  })).max(50),
   duration: z.number().int().nonnegative(),
 });
 

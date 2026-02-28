@@ -25,6 +25,8 @@ import {
   ShepherdIterationData,
   ShepherdApprovalRequestedData,
   ShepherdCompletedData,
+  TaskProgressedData,
+  TaskFailedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -1054,5 +1056,57 @@ describe('WorkflowEventBase max-length constraints', () => {
       schemaVersion: '',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── Task 1: Max-length constraints on unbounded event payload fields ────────
+
+describe('TaskProgressedData max-length constraints', () => {
+  it('TaskProgressedData_MaxDetail_PassesValidation', () => {
+    const data = { taskId: 'task-1', tddPhase: 'red', detail: 'a'.repeat(500) };
+    expect(() => TaskProgressedData.parse(data)).not.toThrow();
+  });
+
+  it('TaskProgressedData_OversizedDetail_FailsValidation', () => {
+    const data = { taskId: 'task-1', tddPhase: 'red', detail: 'a'.repeat(501) };
+    expect(() => TaskProgressedData.parse(data)).toThrow();
+  });
+});
+
+describe('TaskFailedData max-length constraints', () => {
+  it('TaskFailedData_MaxError_PassesValidation', () => {
+    const data = { taskId: 'task-1', error: 'a'.repeat(500) };
+    expect(() => TaskFailedData.parse(data)).not.toThrow();
+  });
+
+  it('TaskFailedData_OversizedError_FailsValidation', () => {
+    const data = { taskId: 'task-1', error: 'a'.repeat(501) };
+    expect(() => TaskFailedData.parse(data)).toThrow();
+  });
+});
+
+describe('EvalCaseCompletedData max-length constraints', () => {
+  it('EvalCaseCompletedData_MaxAssertions_PassesValidation', () => {
+    const assertions = Array.from({ length: 50 }, (_, i) => ({
+      name: `assertion-${i}`, type: 'equality', passed: true, score: 1, reason: 'ok'
+    }));
+    const data = {
+      runId: '00000000-0000-0000-0000-000000000001',
+      caseId: 'case-1', suiteId: 'suite-1',
+      passed: true, score: 1, assertions, duration: 100
+    };
+    expect(() => EvalCaseCompletedData.parse(data)).not.toThrow();
+  });
+
+  it('EvalCaseCompletedData_OversizedAssertions_FailsValidation', () => {
+    const assertions = Array.from({ length: 51 }, (_, i) => ({
+      name: `assertion-${i}`, type: 'equality', passed: true, score: 1, reason: 'ok'
+    }));
+    const data = {
+      runId: '00000000-0000-0000-0000-000000000001',
+      caseId: 'case-1', suiteId: 'suite-1',
+      passed: true, score: 1, assertions, duration: 100
+    };
+    expect(() => EvalCaseCompletedData.parse(data)).toThrow();
   });
 });
