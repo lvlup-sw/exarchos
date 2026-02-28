@@ -1,7 +1,7 @@
-import { WorkflowEventBase, type WorkflowEvent } from './schemas.js';
+import { WorkflowEventBase, type WorkflowEvent, type EventType } from './schemas.js';
 
 export interface EventInput {
-  type: string;
+  type: EventType;
   data?: Record<string, unknown>;
   timestamp?: string;
   idempotencyKey?: string;
@@ -15,6 +15,9 @@ export interface EventInput {
   schemaVersion?: string;
 }
 
+/** Accepts untrusted type strings — Zod validates at runtime. */
+export type UntrustedEventInput = Omit<EventInput, 'type'> & { type: string };
+
 /**
  * Build a WorkflowEvent with Zod validation. Use at system boundaries
  * (MCP tool handlers, external input) where input is untrusted.
@@ -22,13 +25,13 @@ export interface EventInput {
 export function buildValidatedEvent(
   streamId: string,
   sequence: number,
-  input: EventInput,
+  input: UntrustedEventInput,
 ): WorkflowEvent {
   return WorkflowEventBase.parse({
     ...input,
     streamId,
     sequence,
-    timestamp: input.timestamp || new Date().toISOString(),
+    timestamp: input.timestamp ?? new Date().toISOString(),
   });
 }
 
@@ -46,7 +49,7 @@ export function buildEvent(
     ...input,
     streamId,
     sequence,
-    timestamp: input.timestamp || new Date().toISOString(),
-    schemaVersion: input.schemaVersion || '1.0',
+    timestamp: input.timestamp ?? new Date().toISOString(),
+    schemaVersion: input.schemaVersion ?? '1.0',
   } as WorkflowEvent;
 }

@@ -60,8 +60,8 @@ describe('buildEvent', () => {
   });
 
   it('buildEvent_InvalidInput_DoesNotThrow', () => {
-    // buildEvent skips validation — empty strings won't throw
-    expect(() => buildEvent('', 0, { type: '' })).not.toThrow();
+    // buildEvent skips validation — invalid streamId/sequence won't throw
+    expect(() => buildEvent('', 0, { type: 'workflow.started' })).not.toThrow();
   });
 
   it('buildEvent_SetsTimestampWhenMissing', () => {
