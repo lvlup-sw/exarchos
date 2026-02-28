@@ -56,7 +56,7 @@ export type CalibrateInput = z.infer<typeof CalibrateInputSchema>;
 
 // ─── Split Type ────────────────────────────────────────────────────────────
 
-export type CalibrationSplit = 'validation' | 'test';
+export type CalibrationSplit = 'train' | 'validation' | 'test';
 
 // ─── JSONL Loader ───────────────────────────────────────────────────────────
 
