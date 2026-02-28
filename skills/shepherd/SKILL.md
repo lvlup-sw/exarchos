@@ -122,6 +122,8 @@ Otherwise, categorize issues:
 
 Address issues based on type. See `references/fix-strategies.md` for detailed strategies.
 
+**Remediation Events:** Before applying each fix, emit a `remediation.attempted` event. After confirming the fix resolves the gate, emit `remediation.succeeded`. See `references/fix-strategies.md#remediation-event-protocol` for templates and field descriptions.
+
 **For ALL inline review comments (any source):**
 1. Read ALL PR review comments via GitHub MCP:
    ```

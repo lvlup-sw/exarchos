@@ -242,6 +242,66 @@ When making fixes to stack branches:
 
 **IMPORTANT:** Always resubmit with `--publish --merge-when-ready` to maintain merge queue enrollment.
 
+## Remediation Event Protocol
+
+Emit remediation events to feed the CodeQualityView and enable flywheel tracking of CI fix patterns.
+
+### When to Emit
+
+- Emit `remediation.attempted` **BEFORE** applying a fix for a CI gate failure
+- Emit `remediation.succeeded` **AFTER** a resubmit confirms the gate now passes
+
+### `remediation.attempted` Event Template
+
+Emit before each fix attempt:
+
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "remediation.attempted",
+    data: {
+      taskId: "<pr-number>",
+      skill: "shepherd",
+      gateName: "<failing-check-name>",
+      attemptNumber: <N>,
+      strategy: "<fix-type>"
+    }
+  }
+})
+```
+
+**`strategy` values:** `"lint-fix"`, `"test-fix"`, `"build-fix"`, `"flaky-retry"`, `"restack"`, `"direct-fix"`
+
+### `remediation.succeeded` Event Template
+
+Emit after confirming the gate passes:
+
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  streamId: "<featureId>",
+  event: {
+    type: "remediation.succeeded",
+    data: {
+      taskId: "<pr-number>",
+      skill: "shepherd",
+      gateName: "<check-name>",
+      totalAttempts: <N>,
+      finalStrategy: "<fix-type>"
+    }
+  }
+})
+```
+
+### Attempt Tracking
+
+- Start `attemptNumber` at **1** for the first fix attempt on a given gate
+- Increment for each retry of the **same gate** on the same PR
+- `totalAttempts` in the succeeded event must match the final `attemptNumber`
+- If multiple gates fail, track each gate's attempt count independently
+
 ## Responding on PRs
 
 When addressing feedback, reply to each comment thread individually using the GitHub MCP `add_reply_to_pull_request_comment` tool. This ensures:
