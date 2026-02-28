@@ -339,7 +339,7 @@ plugins/exarchos/
 
 > **Note:** The server uses a per-module tool registration pattern. Each module directory exports a `registerXTools(server, stateDir)` function (e.g., `registerWorkflowTools`, `registerQueryTools`, `registerEventTools`). The entry point (`index.ts`) imports and invokes all registration functions, keeping the server bootstrap minimal (~85 lines).
 
-### MCP Tools (27 Tools)
+### MCP Tools (32 Tools)
 
 All teammates and the lead access these tools via the shared MCP server instance. The unified server combines workflow state management (HSM transitions), event sourcing, CQRS views, team coordination, and task management into a single tool surface.
 
@@ -1147,7 +1147,7 @@ Events flow bidirectionally between the local JSONL event log and the remote Mar
 **Outbound (local to remote):**
 
 ```text
-Local JSONL -> Exarchos sync engine -> MCP tool call (workflow_command) -> Basileus Workflow MCP Server -> Marten append
+Local JSONL -> Exarchos sync engine -> MCP tool call (exarchos_sync) -> Basileus Workflow MCP Server -> Marten append
 ```
 
 Events are batched and sent on phase transitions or every 30 seconds (configurable). Failed sends are queued in the local outbox and retried with exponential backoff (1s, 2s, 4s, 8s, max 60s).

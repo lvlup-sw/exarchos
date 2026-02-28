@@ -89,7 +89,19 @@ async function handlePromote(
     };
   }
 
-  const parseResult = EvalSuiteConfigSchema.safeParse(JSON.parse(suiteRaw));
+  let parsedSuite: unknown;
+  try {
+    parsedSuite = JSON.parse(suiteRaw);
+  } catch {
+    return {
+      error: {
+        code: 'INVALID_SUITE_CONFIG',
+        message: `suite.json contains invalid JSON.`,
+      },
+    };
+  }
+
+  const parseResult = EvalSuiteConfigSchema.safeParse(parsedSuite);
   if (!parseResult.success) {
     return {
       error: {
@@ -144,8 +156,19 @@ async function handlePromote(
     if (content.trim().length > 0) {
       existing = await loadDataset(datasetPath);
     }
-  } catch {
-    // Dataset file may not exist yet — that's fine, start empty
+  } catch (err: unknown) {
+    const code = typeof err === 'object' && err !== null && 'code' in err
+      ? (err as { code: string }).code
+      : undefined;
+    if (code !== 'ENOENT') {
+      return {
+        error: {
+          code: 'DATASET_LOAD_FAILED',
+          message: `Failed to load existing dataset at "${datasetPath}".`,
+        },
+      };
+    }
+    // File doesn't exist yet — start empty
   }
 
   // Filter out duplicates and assign the correct layer tag
@@ -165,22 +188,28 @@ async function handlePromote(
     toPromote.push({ ...candidate, layer });
   }
 
-  // Append to dataset
+  // Append to dataset and update suite version atomically
   if (toPromote.length > 0) {
-    const appendContent = toPromote.map((c) => JSON.stringify(c)).join('\n') + '\n';
-    await fs.appendFile(datasetPath, appendContent, 'utf-8');
-  }
+    try {
+      const appendContent = toPromote.map((c) => JSON.stringify(c)).join('\n') + '\n';
+      await fs.appendFile(datasetPath, appendContent, 'utf-8');
 
-  // Increment suite metadata version
-  if (toPromote.length > 0) {
-    const updatedConfig = {
-      ...suiteConfig,
-      metadata: {
-        ...suiteConfig.metadata,
-        version: incrementPatchVersion(suiteConfig.metadata.version),
-      },
-    };
-    await fs.writeFile(suiteJsonPath, JSON.stringify(updatedConfig, null, 2) + '\n', 'utf-8');
+      const updatedConfig = {
+        ...suiteConfig,
+        metadata: {
+          ...suiteConfig.metadata,
+          version: incrementPatchVersion(suiteConfig.metadata.version),
+        },
+      };
+      await fs.writeFile(suiteJsonPath, JSON.stringify(updatedConfig, null, 2) + '\n', 'utf-8');
+    } catch {
+      return {
+        error: {
+          code: 'PROMOTE_WRITE_FAILED',
+          message: `Failed to write promoted cases or update suite version.`,
+        },
+      };
+    }
   }
 
   return {

@@ -83,14 +83,16 @@ function evaluateRegressionTrigger(
 ): RefinementSignal[] {
   if (input.regressions.length === 0) return [];
 
-  return input.regressions.map((regression) => ({
-    skill: input.skill,
-    signalConfidence: confidence,
-    trigger: 'regression' as const,
-    evidence,
-    suggestedAction: buildRegressionAction(regression),
-    affectedPromptPaths: input.promptPaths,
-  }));
+  return input.regressions
+    .filter((regression) => regression.skill === input.skill)
+    .map((regression) => ({
+      skill: input.skill,
+      signalConfidence: confidence,
+      trigger: 'regression' as const,
+      evidence,
+      suggestedAction: buildRegressionAction(regression),
+      affectedPromptPaths: input.promptPaths,
+    }));
 }
 
 function evaluateTrendDegradationTrigger(
@@ -121,6 +123,7 @@ function evaluateAttributionOutlierTrigger(
 ): RefinementSignal[] {
   const attribution = input.attribution;
   if (!attribution) return [];
+  if (attribution.dimension !== 'prompt-version') return [];
 
   const hasStrongNegative = attribution.correlations.some(
     (c) => c.direction === 'negative' && c.strength >= ATTRIBUTION_NEGATIVE_STRENGTH_THRESHOLD,
