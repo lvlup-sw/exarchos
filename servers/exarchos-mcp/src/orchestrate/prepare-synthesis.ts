@@ -118,7 +118,8 @@ function detectDefaultBranch(): string {
       timeout: 5_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    return ref.replace('refs/remotes/origin/', '');
+    const branch = ref.replace('refs/remotes/origin/', '');
+    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
