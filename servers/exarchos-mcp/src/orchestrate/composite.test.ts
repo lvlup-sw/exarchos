@@ -31,12 +31,17 @@ vi.mock('./plan-coverage.js', () => ({
   handlePlanCoverage: vi.fn(),
 }));
 
+vi.mock('./post-merge.js', () => ({
+  handlePostMerge: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
 import { handlePlanCoverage } from './plan-coverage.js';
+import { handlePostMerge } from './post-merge.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -161,6 +166,28 @@ describe('handleOrchestrate', () => {
       expect(result).toBe(expected);
       expect(handlePrepareSynthesis).toHaveBeenCalledWith(
         { featureId: 'feat-456' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_CheckPostMerge_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', findings: [], report: '...' });
+      vi.mocked(handlePostMerge).mockResolvedValue(expected);
+      const args = {
+        action: 'check_post_merge',
+        featureId: 'feat-123',
+        prUrl: 'https://github.com/org/repo/pull/42',
+        mergeSha: 'abc1234',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handlePostMerge).toHaveBeenCalledWith(
+        { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
         STATE_DIR,
       );
     });

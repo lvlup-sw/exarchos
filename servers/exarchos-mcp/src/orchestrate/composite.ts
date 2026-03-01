@@ -20,6 +20,7 @@ import { handleAssessStack } from './assess-stack.js';
 import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
+import { handlePostMerge } from './post-merge.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_design_completeness: handleDesignCompleteness as ActionHandler,
   check_plan_coverage: handlePlanCoverage as ActionHandler,
   check_tdd_compliance: handleTddCompliance as ActionHandler,
+  check_post_merge: handlePostMerge as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
