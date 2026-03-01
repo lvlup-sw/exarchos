@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import type { ToolResult } from '../format.js';
+import { orchestrateLogger } from '../logger.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ function queryPrChecks(prNumber: number): CiCheck[] {
     return raw.map(normalizeCiCheck);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[assess-stack] Failed to query checks for PR #${prNumber}: ${message}`);
+    orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query checks');
     return [];
   }
 }
@@ -115,7 +116,7 @@ function queryPrReviews(prNumber: number): PrReview[] {
     return raw.map(r => ({ state: r.state, author: r.author.login }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[assess-stack] Failed to query reviews for PR #${prNumber}: ${message}`);
+    orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query reviews');
     return [];
   }
 }
@@ -131,7 +132,7 @@ function queryPrComments(prNumber: number): PrComment[] {
     return raw.map(c => ({ body: c.body, isResolved: false }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[assess-stack] Failed to query comments for PR #${prNumber}: ${message}`);
+    orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');
     return [];
   }
 }
