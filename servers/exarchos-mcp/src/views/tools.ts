@@ -64,6 +64,7 @@ import {
   ideateReadinessProjection,
   IDEATE_READINESS_VIEW,
 } from './ideate-readiness-view.js';
+import type { IdeateReadinessState } from './ideate-readiness-view.js';
 import {
   synthesisReadinessProjection,
   SYNTHESIS_READINESS_VIEW,
@@ -840,6 +841,67 @@ export async function handleViewShepherdStatus(
     };
   }
 }
+
+// ─── View Provenance Handler ──────────────────────────────────────────────
+
+export async function handleViewProvenance(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, PROVENANCE_VIEW);
+    const view = materializer.materialize<ProvenanceViewState>(
+      streamId,
+      PROVENANCE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Ideate Readiness Handler ────────────────────────────────────────
+
+export async function handleViewIdeateReadiness(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, IDEATE_READINESS_VIEW);
+    const view = materializer.materialize<IdeateReadinessState>(
+      streamId,
+      IDEATE_READINESS_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
