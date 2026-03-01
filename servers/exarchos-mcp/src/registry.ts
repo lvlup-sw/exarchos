@@ -407,6 +407,15 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'prepare_synthesis',
+    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
+    schema: z.object({
+      featureId: z.string().min(1),
+    }),
+    phases: new Set(['synthesize', 'review']),
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────

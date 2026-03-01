@@ -99,14 +99,15 @@ describe('subagent-context', () => {
       // Act
       const result = filterToolsForPhaseAndRole(phase, role);
 
-      // Assert — review_triage should be denied (lead role + review phase only)
+      // Assert — review_triage and prepare_synthesis should be denied (lead role + wrong phase)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
       expect(deniedOrchestrate!.actions).toContain('review_triage');
       expect(deniedOrchestrate!.actions).toContain('prepare_delegation');
-      expect(deniedOrchestrate!.actions).toHaveLength(2);
+      expect(deniedOrchestrate!.actions).toContain('prepare_synthesis');
+      expect(deniedOrchestrate!.actions).toHaveLength(3);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -149,7 +150,7 @@ describe('subagent-context', () => {
       const result = filterToolsForPhaseAndRole(phase, role);
 
       // Assert — all orchestrate actions should be denied:
-      // task_claim/task_complete/task_fail (delegate phase only) + review_triage (lead role only)
+      // task_claim/task_complete/task_fail (delegate phase only) + review_triage (lead role only) + prepare_synthesis (lead role only)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
