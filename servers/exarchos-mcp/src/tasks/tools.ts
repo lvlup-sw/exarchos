@@ -199,6 +199,15 @@ export async function handleTaskComplete(
     if (args.result.duration !== undefined) {
       data.duration = args.result.duration;
     }
+    if (args.result.implements) {
+      data.implements = args.result.implements;
+    }
+    if (args.result.tests) {
+      data.tests = args.result.tests;
+    }
+    if (args.result.files) {
+      data.files = args.result.files;
+    }
   }
 
   // Evidence storage: include evidence and set verified flag
