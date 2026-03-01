@@ -17,6 +17,7 @@ import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
+import { handleDesignCompleteness } from './design-completeness.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prepare_delegation: handlePrepareDelegation as ActionHandler,
   prepare_synthesis: handlePrepareSynthesis as ActionHandler,
   assess_stack: handleAssessStack as ActionHandler,
+  check_design_completeness: handleDesignCompleteness as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
