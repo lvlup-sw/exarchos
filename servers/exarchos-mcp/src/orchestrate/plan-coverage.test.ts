@@ -377,4 +377,32 @@ describe('handlePlanCoverage', () => {
       expect(result.error?.message).toContain('Design file not found');
     });
   });
+
+  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+
+  describe('unexpected exit code', () => {
+    it('handlePlanCoverage_ExitCode3Plus_ReturnsScriptError', async () => {
+      // Arrange — exit code 127 = command not found
+      const error = new Error('command not found') as Error & {
+        status: number;
+        stdout: Buffer;
+        stderr: Buffer;
+      };
+      error.status = 127;
+      error.stdout = Buffer.from('');
+      error.stderr = Buffer.from('');
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw error;
+      });
+
+      const args = { featureId: 'feat-1', designPath: '/tmp/d.md', planPath: '/tmp/p.md' };
+
+      // Act
+      const result = await handlePlanCoverage(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('SCRIPT_ERROR');
+    });
+  });
 });

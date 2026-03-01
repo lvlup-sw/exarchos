@@ -358,4 +358,33 @@ describe('handleDesignCompleteness', () => {
       expect(argsCall[designFileIdx + 1]).toBe('/tmp/my-design.md');
     });
   });
+
+  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+
+  describe('unexpected exit code', () => {
+    it('handleDesignCompleteness_ExitCode3Plus_ReturnsScriptError', async () => {
+      // Arrange — exit code 127 = command not found
+      const error = new Error('command not found') as Error & {
+        stdout: Buffer;
+        stderr: Buffer;
+        status: number;
+      };
+      error.stdout = Buffer.from('');
+      error.stderr = Buffer.from('');
+      error.status = 127;
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw error;
+      });
+
+      // Act
+      const result = await handleDesignCompleteness(
+        { featureId: 'test-feature' },
+        STATE_DIR,
+      );
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('SCRIPT_ERROR');
+    });
+  });
 });

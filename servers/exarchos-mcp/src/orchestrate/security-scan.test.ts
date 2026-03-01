@@ -239,4 +239,32 @@ describe('handleSecurityScan', () => {
       expect(result.error?.message).toContain('--repo-root is required');
     });
   });
+
+  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+
+  describe('unexpected exit code', () => {
+    it('handleSecurityScan_ExitCode3Plus_ReturnsScriptError', async () => {
+      // Arrange — exit code 127 = command not found
+      const error = new Error('command not found') as Error & {
+        status: number;
+        stdout: Buffer;
+        stderr: Buffer;
+      };
+      error.status = 127;
+      error.stdout = Buffer.from('');
+      error.stderr = Buffer.from('');
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw error;
+      });
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      const result = await handleSecurityScan(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('SCRIPT_ERROR');
+    });
+  });
 });

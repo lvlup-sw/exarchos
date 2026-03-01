@@ -275,4 +275,29 @@ describe('handleProvenanceChain', () => {
     expect(result.success).toBe(true);
     expect(result.data?.coverage.orphanRefs).toBe(3);
   });
+
+  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+
+  it('handleProvenanceChain_ExitCode3Plus_ReturnsScriptError', async () => {
+    // Arrange — exit code 127 = command not found
+    const error = new Error('command not found') as Error & {
+      status: number;
+      stdout: Buffer;
+      stderr: Buffer;
+    };
+    error.status = 127;
+    error.stdout = Buffer.from('');
+    error.stderr = Buffer.from('');
+    mockedExecFileSync.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    const result = await handleProvenanceChain(
+      { featureId: 'test-feat', designPath: '/tmp/d.md', planPath: '/tmp/p.md' },
+      stateDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('SCRIPT_ERROR');
+  });
 });

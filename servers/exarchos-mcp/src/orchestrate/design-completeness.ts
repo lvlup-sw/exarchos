@@ -128,7 +128,18 @@ export async function handleDesignCompleteness(
     }
 
     // Exit code 1 = checks failed (expected advisory failure)
-    output = stdout;
+    if (execError.status === 1) {
+      output = stdout;
+    } else {
+      // Exit code ≥3 = unexpected error — propagate as handler failure
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
   }
 
   // 4. Parse output

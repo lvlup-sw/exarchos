@@ -100,9 +100,17 @@ export async function handleReviewVerdict(
     // Exit code 1 = NEEDS_FIXES
     if (execError.status === 1) {
       verdict = 'NEEDS_FIXES';
-    } else {
-      // Exit code 2 = BLOCKED (or script error)
+    } else if (execError.status === 2) {
       verdict = 'BLOCKED';
+    } else {
+      // Exit code ≥3 = unexpected error — treat as script error
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
     }
   }
 
