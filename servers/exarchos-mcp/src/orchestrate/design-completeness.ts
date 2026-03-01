@@ -8,7 +8,6 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
-import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -84,8 +83,7 @@ export async function handleDesignCompleteness(
   const streamId = args.featureId;
 
   // 2. Build script command
-  const scriptPath = path.resolve(stateDir, '..', '..', 'scripts', 'verify-ideate-artifacts.sh');
-  const stateFile = args.stateFile ?? path.join(stateDir, `${streamId}.json`);
+  const stateFile = args.stateFile ?? `${stateDir}/${streamId}.json`;
 
   const scriptArgs = ['--state-file', stateFile];
   if (args.designPath) {
@@ -97,7 +95,7 @@ export async function handleDesignCompleteness(
 
   try {
     const result = execFileSync(
-      scriptPath,
+      'scripts/verify-ideate-artifacts.sh',
       scriptArgs,
       { encoding: 'buffer', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
     );

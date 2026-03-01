@@ -35,27 +35,32 @@ import { handleTaskDecomposition } from './task-decomposition.js';
 
 type ActionHandler = (args: Record<string, unknown>, stateDir: string) => Promise<ToolResult>;
 
+/** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
+function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
+  return (args, stateDir) => handler(args as unknown as T, stateDir);
+}
+
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
-  task_claim: handleTaskClaim as ActionHandler,
-  task_complete: handleTaskComplete as ActionHandler,
-  task_fail: handleTaskFail as ActionHandler,
-  review_triage: handleReviewTriage as ActionHandler,
-  prepare_delegation: handlePrepareDelegation as ActionHandler,
-  prepare_synthesis: handlePrepareSynthesis as ActionHandler,
-  assess_stack: handleAssessStack as ActionHandler,
-  check_design_completeness: handleDesignCompleteness as ActionHandler,
-  check_plan_coverage: handlePlanCoverage as ActionHandler,
-  check_tdd_compliance: handleTddCompliance as unknown as ActionHandler,
-  check_post_merge: handlePostMerge as unknown as ActionHandler,
-  check_static_analysis: handleStaticAnalysis as unknown as ActionHandler,
-  check_security_scan: handleSecurityScan as unknown as ActionHandler,
-  check_context_economy: handleContextEconomy as unknown as ActionHandler,
-  check_operational_resilience: handleOperationalResilience as unknown as ActionHandler,
-  check_workflow_determinism: handleWorkflowDeterminism as unknown as ActionHandler,
-  check_review_verdict: handleReviewVerdict as unknown as ActionHandler,
-  check_convergence: handleCheckConvergence as unknown as ActionHandler,
-  check_provenance_chain: handleProvenanceChain as unknown as ActionHandler,
-  check_task_decomposition: handleTaskDecomposition as unknown as ActionHandler,
+  task_claim: adapt(handleTaskClaim),
+  task_complete: adapt(handleTaskComplete),
+  task_fail: adapt(handleTaskFail),
+  review_triage: handleReviewTriage,
+  prepare_delegation: adapt(handlePrepareDelegation),
+  prepare_synthesis: adapt(handlePrepareSynthesis),
+  assess_stack: adapt(handleAssessStack),
+  check_design_completeness: adapt(handleDesignCompleteness),
+  check_plan_coverage: adapt(handlePlanCoverage),
+  check_tdd_compliance: adapt(handleTddCompliance),
+  check_post_merge: adapt(handlePostMerge),
+  check_static_analysis: adapt(handleStaticAnalysis),
+  check_security_scan: adapt(handleSecurityScan),
+  check_context_economy: adapt(handleContextEconomy),
+  check_operational_resilience: adapt(handleOperationalResilience),
+  check_workflow_determinism: adapt(handleWorkflowDeterminism),
+  check_review_verdict: adapt(handleReviewVerdict),
+  check_convergence: adapt(handleCheckConvergence),
+  check_provenance_chain: adapt(handleProvenanceChain),
+  check_task_decomposition: adapt(handleTaskDecomposition),
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
