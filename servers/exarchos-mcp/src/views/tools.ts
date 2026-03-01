@@ -61,6 +61,10 @@ import {
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
 import {
+  ideateReadinessProjection,
+  IDEATE_READINESS_VIEW,
+} from './ideate-readiness-view.js';
+import {
   synthesisReadinessProjection,
   SYNTHESIS_READINESS_VIEW,
 } from './synthesis-readiness-view.js';
@@ -91,6 +95,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
+  materializer.register(IDEATE_READINESS_VIEW, ideateReadinessProjection);
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   return materializer;
