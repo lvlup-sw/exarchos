@@ -119,14 +119,25 @@ export async function handlePostMerge(
     }
 
     // Exit code 1 = findings detected — parse report and findings
-    report = execError.stdout instanceof Buffer
-      ? execError.stdout.toString('utf-8')
-      : '';
-    const stderrText = execError.stderr instanceof Buffer
-      ? execError.stderr.toString('utf-8')
-      : '';
-    findings = parseFindings(stderrText);
-    passed = false;
+    if (exitCode === 1) {
+      report = execError.stdout instanceof Buffer
+        ? execError.stdout.toString('utf-8')
+        : '';
+      const stderrText = execError.stderr instanceof Buffer
+        ? execError.stderr.toString('utf-8')
+        : '';
+      findings = parseFindings(stderrText);
+      passed = false;
+    } else {
+      // Exit code ≥3 = unexpected error — treat as script error
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
   }
 
   // Emit gate.executed event for flywheel integration (fire-and-forget)

@@ -205,4 +205,30 @@ describe('handlePostMerge', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('SCRIPT_ERROR');
   });
+
+  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+
+  it('handlePostMerge_ExitCode3Plus_ReturnsScriptError', async () => {
+    // Arrange — exit code 127 = command not found
+    const error = new Error('command not found') as Error & {
+      status: number;
+      stdout: Buffer;
+      stderr: Buffer;
+    };
+    error.status = 127;
+    error.stdout = Buffer.from('');
+    error.stderr = Buffer.from('');
+    vi.mocked(execFileSync).mockImplementation(() => {
+      throw error;
+    });
+
+    const args = { featureId: 'feat-1', prUrl: 'https://github.com/org/repo/pull/1', mergeSha: 'abc1234' };
+
+    // Act
+    const result = await handlePostMerge(args, STATE_DIR);
+
+    // Assert
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('SCRIPT_ERROR');
+  });
 });
