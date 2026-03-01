@@ -54,6 +54,14 @@ export const EventTypes = [
   'remediation.succeeded',
   'quality.refinement.suggested',
   'session.tagged',
+  'worktree.created',
+  'worktree.baseline',
+  'test.result',
+  'typecheck.result',
+  'stack.submitted',
+  'ci.status',
+  'comment.posted',
+  'comment.resolved',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -111,6 +119,12 @@ export const TaskCompletedData = z.object({
   taskId: z.string(),
   artifacts: z.array(z.string()).optional(),
   duration: z.number().optional(),
+  evidence: z.object({
+    type: z.enum(['test', 'build', 'typecheck', 'manual']),
+    output: z.string(),
+    passed: z.boolean(),
+  }).optional(),
+  verified: z.boolean().optional(),
 });
 
 export const TaskFailedData = z.object({
@@ -149,9 +163,10 @@ export const StackPositionFilledData = z.object({
   prUrl: z.string().optional(),
 });
 
-/** @planned — not yet emitted in production */
 export const StackRestackedData = z.object({
-  affectedPositions: z.array(z.number().int()),
+  branches: z.array(z.string()),
+  conflicts: z.boolean(),
+  reconstructed: z.boolean(),
 });
 
 export const StackEnqueuedData = z.object({
@@ -405,12 +420,11 @@ export const ShepherdStartedData = z.object({
   ciStatus: z.string(),
 });
 
-/** @planned — not yet emitted in production */
 export const ShepherdIterationData = z.object({
-  prUrl: z.string(),
   iteration: z.number().int().nonnegative(),
-  action: z.string(),
-  outcome: z.string(),
+  prsAssessed: z.number().int().nonnegative(),
+  fixesApplied: z.number().int().nonnegative(),
+  status: z.string(),
 });
 
 /** @planned — not yet emitted in production */
@@ -501,6 +515,59 @@ export const SessionTaggedData = z.object({
   branch: z.string().optional(),
 });
 
+// ─── Readiness Event Data ───────────────────────────────────────────────────
+
+export const WorktreeCreatedData = z.object({
+  taskId: z.string(),
+  path: z.string(),
+  branch: z.string(),
+});
+
+export const WorktreeBaselineData = z.object({
+  taskId: z.string(),
+  path: z.string(),
+  status: z.enum(['passed', 'failed', 'skipped']),
+  output: z.string().optional(),
+});
+
+export const TestResultData = z.object({
+  passed: z.boolean(),
+  passCount: z.number().int().nonnegative(),
+  failCount: z.number().int().nonnegative(),
+  coveragePercent: z.number().optional(),
+  output: z.string().optional(),
+});
+
+export const TypecheckResultData = z.object({
+  passed: z.boolean(),
+  errorCount: z.number().int().nonnegative(),
+  errors: z.array(z.string()).optional(),
+});
+
+export const StackSubmittedData = z.object({
+  branches: z.array(z.string()),
+  prNumbers: z.array(z.number().int()),
+});
+
+export const CiStatusData = z.object({
+  pr: z.number().int(),
+  status: z.enum(['passing', 'failing', 'pending']),
+  jobUrl: z.string().optional(),
+});
+
+export const CommentPostedData = z.object({
+  pr: z.number().int(),
+  commentId: z.string(),
+  body: z.string(),
+  inReplyTo: z.string().optional(),
+});
+
+export const CommentResolvedData = z.object({
+  pr: z.number().int(),
+  threadId: z.string(),
+  resolvedBy: z.enum(['author', 'outdated', 'manual']),
+});
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -555,6 +622,14 @@ export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
 export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
 export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
 export type SessionTagged = z.infer<typeof SessionTaggedData>;
+export type WorktreeCreated = z.infer<typeof WorktreeCreatedData>;
+export type WorktreeBaseline = z.infer<typeof WorktreeBaselineData>;
+export type TestResult = z.infer<typeof TestResultData>;
+export type TypecheckResult = z.infer<typeof TypecheckResultData>;
+export type StackSubmitted = z.infer<typeof StackSubmittedData>;
+export type CiStatus = z.infer<typeof CiStatusData>;
+export type CommentPosted = z.infer<typeof CommentPostedData>;
+export type CommentResolved = z.infer<typeof CommentResolvedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -610,6 +685,14 @@ export type EventDataMap = {
   'remediation.succeeded': RemediationSucceeded;
   'quality.refinement.suggested': RefinementSuggestedData;
   'session.tagged': SessionTagged;
+  'worktree.created': WorktreeCreated;
+  'worktree.baseline': WorktreeBaseline;
+  'test.result': TestResult;
+  'typecheck.result': TypecheckResult;
+  'stack.submitted': StackSubmitted;
+  'ci.status': CiStatus;
+  'comment.posted': CommentPosted;
+  'comment.resolved': CommentResolved;
 };
 
 // ─── Agent Event Validation ──────────────────────────────────────────────────

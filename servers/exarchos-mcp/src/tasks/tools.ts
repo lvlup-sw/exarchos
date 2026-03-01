@@ -166,6 +166,11 @@ export async function handleTaskComplete(
   args: {
     taskId: string;
     result?: Record<string, unknown>;
+    evidence?: {
+      type: 'test' | 'build' | 'typecheck' | 'manual';
+      output: string;
+      passed: boolean;
+    };
     streamId: string;
   },
   stateDir: string,
@@ -194,6 +199,14 @@ export async function handleTaskComplete(
     if (args.result.duration !== undefined) {
       data.duration = args.result.duration;
     }
+  }
+
+  // Evidence storage: include evidence and set verified flag
+  if (args.evidence) {
+    data.evidence = args.evidence;
+    data.verified = true;
+  } else {
+    data.verified = false;
   }
 
   try {
@@ -293,10 +306,15 @@ export function registerTaskTools(server: McpServer, stateDir: string, _eventSto
 
   server.tool(
     'exarchos_task_complete',
-    'Mark a task as complete with optional artifacts',
+    'Mark a task as complete with optional artifacts and evidence',
     {
       taskId: z.string().min(1),
       result: z.record(z.string(), z.unknown()).optional(),
+      evidence: z.object({
+        type: z.enum(['test', 'build', 'typecheck', 'manual']),
+        output: z.string(),
+        passed: z.boolean(),
+      }).optional(),
       streamId: z.string().min(1),
     },
     async (args) => formatResult(await handleTaskComplete(args, stateDir)),

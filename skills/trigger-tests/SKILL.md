@@ -17,12 +17,22 @@ Validates that skill trigger matching works correctly by running a suite of test
 ## Contents
 
 - `fixtures.jsonl` — Test cases with trigger patterns and expected match results
-- `run-trigger-tests.sh` — Bash test runner that executes fixtures and reports results
+- `run-trigger-tests.sh` — Bash test runner that executes trigger fixtures and reports results
+- `fixtures/pressure-tests.jsonl` — Adversarial pressure test fixtures that validate discipline skills hold firm under pressure
+- `run-pressure-tests.sh` — Runner that validates pressure test fixtures reference valid skills with discipline content
+- `pressure-tests.test.sh` — Structural validation tests for pressure test fixture format and coverage
 
 ## Usage
 
 ```bash
+# Run trigger matching tests
 bash skills/trigger-tests/run-trigger-tests.sh
+
+# Run pressure test validation
+bash skills/trigger-tests/run-pressure-tests.sh
+
+# Run pressure test structural tests
+bash skills/trigger-tests/pressure-tests.test.sh
 ```
 
-This runs all trigger matching test cases and reports pass/fail results. Use after modifying skill trigger patterns or the trigger matching algorithm.
+The trigger tests validate skill trigger matching. The pressure tests validate that discipline skills (implementation-planning, spec-review, quality-review) resist adversarial prompts that attempt to bypass required processes.

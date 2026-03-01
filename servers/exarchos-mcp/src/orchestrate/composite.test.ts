@@ -11,7 +11,27 @@ vi.mock('../tasks/tools.js', () => ({
   handleTaskFail: vi.fn(),
 }));
 
+vi.mock('../review/tools.js', () => ({
+  handleReviewTriage: vi.fn(),
+}));
+
+vi.mock('./prepare-delegation.js', () => ({
+  handlePrepareDelegation: vi.fn(),
+}));
+
+vi.mock('./prepare-synthesis.js', () => ({
+  handlePrepareSynthesis: vi.fn(),
+}));
+
+vi.mock('./assess-stack.js', () => ({
+  handleAssessStack: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
+import { handleReviewTriage } from '../review/tools.js';
+import { handlePrepareDelegation } from './prepare-delegation.js';
+import { handlePrepareSynthesis } from './prepare-synthesis.js';
+import { handleAssessStack } from './assess-stack.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -91,6 +111,72 @@ describe('handleOrchestrate', () => {
       expect(result).toBe(expected);
       expect(handleTaskFail).toHaveBeenCalledWith(
         { taskId: 't1', error: 'something broke', diagnostics: { log: 'details' }, streamId: 's1' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  // ─── Composite Actions ──────────────────────────────────────────────
+
+  describe('composite actions', () => {
+    it('HandleOrchestrate_PrepareDelegation_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ ready: true, readiness: { planApproved: true, tasksExist: true } });
+      vi.mocked(handlePrepareDelegation).mockResolvedValue(expected);
+      const args = {
+        action: 'prepare_delegation',
+        featureId: 'feat-123',
+        tasks: [{ id: 't1', title: 'Task 1' }],
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handlePrepareDelegation).toHaveBeenCalledWith(
+        { featureId: 'feat-123', tasks: [{ id: 't1', title: 'Task 1' }] },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_PrepareSynthesis_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ ready: true, readiness: { allPassed: true } });
+      vi.mocked(handlePrepareSynthesis).mockResolvedValue(expected);
+      const args = {
+        action: 'prepare_synthesis',
+        featureId: 'feat-456',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handlePrepareSynthesis).toHaveBeenCalledWith(
+        { featureId: 'feat-456' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_AssessStack_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ status: 'healthy', actionItems: [], recommendation: 'proceed' });
+      vi.mocked(handleAssessStack).mockResolvedValue(expected);
+      const args = {
+        action: 'assess_stack',
+        featureId: 'feat-789',
+        prNumbers: [101, 102],
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleAssessStack).toHaveBeenCalledWith(
+        { featureId: 'feat-789', prNumbers: [101, 102] },
         STATE_DIR,
       );
     });

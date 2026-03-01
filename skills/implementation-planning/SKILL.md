@@ -15,6 +15,8 @@ metadata:
 
 Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Ensures complete spec coverage through explicit traceability.
 
+For a complete worked example, see `references/worked-example.md`.
+
 ## Triggers
 
 Activate this skill when:
@@ -37,6 +39,8 @@ After 3 failed revisions:
 1. Set `planReview.revisionsExhausted = true`
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
 3. Escalate: Suggest `/exarchos:ideate --redesign` to revisit design
+
+> **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
 
 ## The Iron Law
 

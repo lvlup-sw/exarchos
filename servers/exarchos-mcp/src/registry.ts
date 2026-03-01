@@ -222,6 +222,12 @@ const REVIEW_PHASES: ReadonlySet<string> = new Set([
   'overhaul-review',
   'debug-review',
 ]);
+const SYNTHESIS_REVIEW_PHASES: ReadonlySet<string> = new Set([
+  'synthesize',
+  'review',
+  'overhaul-review',
+  'debug-review',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -352,10 +358,15 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'task_complete',
-    description: 'Mark a task as complete with optional result. Auto-emits task.completed event',
+    description: 'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false',
     schema: z.object({
       taskId: z.string().min(1),
       result: coercedRecord().optional(),
+      evidence: z.object({
+        type: z.enum(['test', 'build', 'typecheck', 'manual']),
+        output: z.string(),
+        passed: z.boolean(),
+      }).optional(),
       streamId: z.string().min(1),
     }),
     phases: DELEGATE_PHASES,
@@ -390,6 +401,35 @@ const orchestrateActions: readonly ToolAction[] = [
       basileusConnected: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'prepare_delegation',
+    description: 'Query delegation readiness and prepare quality hints for subagent dispatch',
+    schema: z.object({
+      featureId: z.string().min(1),
+      tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'prepare_synthesis',
+    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
+    schema: z.object({
+      featureId: z.string().min(1),
+    }),
+    phases: SYNTHESIS_REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'assess_stack',
+    description: 'Assess PR stack health: CI status, reviews, comments. Emits events for shepherd view and eval flywheel.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      prNumbers: z.array(z.number().int().positive()),
+    }),
+    phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
 ];
@@ -491,6 +531,33 @@ const viewActions: readonly ToolAction[] = [
       skill: z.string().optional(),
       gate: z.string().optional(),
       limit: coercedPositiveInt().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'delegation_readiness',
+    description: 'Check delegation readiness: plan approval, quality gates, and worktree status',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'synthesis_readiness',
+    description: 'Check synthesis readiness: task completion, reviews, tests, and typecheck status',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'shepherd_status',
+    description: 'PR shepherd status: CI, comments, unresolved findings, and iteration tracking',
+    schema: z.object({
+      workflowId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

@@ -1,0 +1,15 @@
+# Rationalization Refutation Guide
+
+Common rationalizations that lead to delegation failures, with counter-arguments and correct alternatives.
+
+## Rationalizations Table
+
+| Rationalization | Counter-argument | What to do instead |
+|----------------|-----------------|-------------------|
+| "This task is simple enough to skip tests." | Simple tasks have the highest regression risk because they lack safety nets. Every skipped test is a future debugging session. TDD is mandatory per project rules, not optional per perceived complexity. | Write the test first. If it truly is simple, the test will be trivial to write — proving the point. |
+| "The subagent will figure it out without a detailed prompt." | Subagents have zero context beyond what you provide. They cannot read the plan, see prior conversation, or infer intent. Vague prompts produce vague implementations that fail review. | Paste the full task description, file paths, TDD requirements, and acceptance criteria into the prompt. Use the implementer-prompt template without shortcuts. |
+| "One worktree is enough for parallel tasks." | Two agents writing to the same worktree will race on `git checkout`, corrupt branch state, and produce merge conflicts. This is a known, documented failure mode. | Create one worktree per task via `prepare_delegation`. Never share worktrees between parallel agents. |
+| "I can fix review findings directly instead of re-dispatching." | The orchestrator must not write implementation code (Orchestrator Constraints rule). Fixing directly bypasses TDD, skips worktree isolation, and conflates orchestration with implementation. | Dispatch a fixer agent using `references/fixer-prompt.md` with adversarial verification posture. Let the subagent fix in the proper worktree with proper tests. |
+| "The subagent's self-assessment is sufficient for verifying completion." | Subagents are biased toward reporting success. They may miss failing tests, skip type checks, or misdiagnose root causes. Self-assessment is a known unreliable signal in multi-agent systems. | Independently verify: run tests in the worktree, check `git status` for uncommitted files, read test output yourself. Use the adversarial verification posture from `references/fixer-prompt.md`. |
+| "I'll just dispatch sequentially to avoid coordination complexity." | Sequential dispatch wastes wall-clock time proportional to task count. Independent tasks should run in parallel — that is the entire purpose of delegation. | Identify dependency edges in the plan. Dispatch all tasks without inbound dependencies in a single parallel batch. Sequence only what the dependency graph requires. |
+| "I can reuse context from the previous subagent's session." | Subagents do not share memory, state, or context windows. Attempting to reference "what the previous agent did" produces hallucinated continuations. | Follow the Fresh Context Per Task principle. Each prompt is self-contained. If Task B depends on Task A's output, wait for A to complete, read its artifacts, and include them in B's prompt. |

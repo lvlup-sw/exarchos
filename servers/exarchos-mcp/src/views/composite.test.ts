@@ -13,6 +13,9 @@ vi.mock('./tools.js', () => ({
   handleViewQualityCorrelation: vi.fn(),
   handleViewSessionProvenance: vi.fn(),
   handleViewQualityAttribution: vi.fn(),
+  handleViewDelegationReadiness: vi.fn(),
+  handleViewSynthesisReadiness: vi.fn(),
+  handleViewShepherdStatus: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -39,6 +42,9 @@ import {
   handleViewQualityCorrelation,
   handleViewSessionProvenance,
   handleViewQualityAttribution,
+  handleViewDelegationReadiness,
+  handleViewSynthesisReadiness,
+  handleViewShepherdStatus,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -484,8 +490,95 @@ describe('handleView', () => {
     });
   });
 
+  describe('delegation_readiness', () => {
+    it('HandleView_DelegationReadiness_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          ready: false,
+          blockers: ['Plan not yet approved'],
+          plan: { approved: false, taskCount: 0 },
+          quality: { queried: false, gatePassRate: 0, regressions: 0 },
+          worktrees: { expected: 0, ready: 0, failed: 0 },
+        },
+      };
+      vi.mocked(handleViewDelegationReadiness).mockResolvedValue(expected);
+      const args = { action: 'delegation_readiness', workflowId: 'wf-dr' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewDelegationReadiness).toHaveBeenCalledWith(
+        { workflowId: 'wf-dr' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('synthesis_readiness', () => {
+    it('HandleView_SynthesisReadiness_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          ready: false,
+          blockers: ['No tasks assigned'],
+          tasks: { total: 0, completed: 0, failed: 0 },
+          review: { specPassed: false, qualityPassed: false, findingsBySeverity: {} },
+          tests: { lastRunPassed: false, typecheckPassed: false, coveragePercent: 0 },
+          stack: { restacked: false, conflicts: 0 },
+        },
+      };
+      vi.mocked(handleViewSynthesisReadiness).mockResolvedValue(expected);
+      const args = { action: 'synthesis_readiness', workflowId: 'wf-sr' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewSynthesisReadiness).toHaveBeenCalledWith(
+        { workflowId: 'wf-sr' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('shepherd_status', () => {
+    it('HandleView_ShepherdStatus_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          overallStatus: 'unknown',
+          prs: [],
+          iteration: 0,
+          maxIterations: 5,
+        },
+      };
+      vi.mocked(handleViewShepherdStatus).mockResolvedValue(expected);
+      const args = { action: 'shepherd_status', workflowId: 'wf-ss' };
+
+      // Act
+      const result = await handleView(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewShepherdStatus).toHaveBeenCalledWith(
+        { workflowId: 'wf-ss' },
+        STATE_DIR,
+      );
+    });
+  });
+
   describe('unknown action', () => {
-    it('HandleView_UnknownAction_IncludesEvalResultsAndCodeQuality', async () => {
+    it('HandleView_UnknownAction_IncludesAllViewActions', async () => {
       // Arrange
       const args = { action: 'nonexistent' };
 
@@ -501,6 +594,9 @@ describe('handleView', () => {
       expect(validTargets).toContain('eval_results');
       expect(validTargets).toContain('quality_correlation');
       expect(validTargets).toContain('session_provenance');
+      expect(validTargets).toContain('delegation_readiness');
+      expect(validTargets).toContain('synthesis_readiness');
+      expect(validTargets).toContain('shepherd_status');
     });
 
     it('should return error for unknown action', async () => {

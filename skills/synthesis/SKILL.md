@@ -3,7 +3,7 @@ name: synthesis
 description: "Create pull request from completed feature branch using Graphite stacked PRs. Use when the user says 'create PR', 'submit for review', 'synthesize', or runs /synthesize. Validates branch readiness, creates PR with structured description, and manages merge queue. Do NOT use before review phase completes. Not for draft PRs."
 metadata:
   author: exarchos
-  version: 1.0.0
+  version: 2.0.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: synthesize
@@ -13,14 +13,14 @@ metadata:
 
 ## Overview
 
-Submit Graphite stack as pull requests after review phase completes.
+Submit Graphite stack as pull requests after review phase completes. The `prepare_synthesis` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
 
 **Prerequisites:**
-- All delegated tasks complete
-- All reviews (spec + quality) passed — integration must be complete and passing
-- Graphite stack exists with task branches (the integration branch already exists from delegation)
+- All delegated tasks complete with reviews passed (spec + quality)
+- The integration branch already exists from delegation phase
+- Graphite stack branches present (`gt log` shows task branches)
 
-Requires BOTH spec-review PASS AND quality-review APPROVED. If either review is incomplete or failed, do NOT proceed — return to /exarchos:review.
+Do NOT proceed if either review is incomplete or failed -- return to `/exarchos:review` first.
 
 ## Triggers
 
@@ -29,102 +29,106 @@ Activate this skill when:
 - All reviews have passed successfully
 - Ready to submit PRs
 
-## Simplified Process (Review Already Complete)
+## Process
 
-Since delegation creates Graphite stack branches and review validates them, synthesis focuses on:
-1. Verifying the stack is ready
-2. Submitting the stacked PRs
-3. Handling PR feedback (if any)
-4. Cleanup after merge
+### Step 1: Verify Readiness
 
-## Synthesis Process
+Call the `prepare_synthesis` composite action to validate all preconditions in a single operation:
 
-1. **Verify readiness** -- `scripts/pre-synthesis-check.sh` (includes phase readiness check with transition guidance)
-1b. **Optional: Benchmark regression check** -- If `state.verification.hasBenchmarks` is true, run `scripts/check-benchmark-regression.sh`. Exit 0: within threshold. Exit 1: regression detected (stop synthesis and report).
-2. **REQUIRED: Verify/reconstruct Graphite stack** -- Run `scripts/reconstruct-stack.sh` before PR creation. If exit 1: stop and report error.
-3. **Quick test verification** -- `npm run test:run && npm run typecheck`
-4. **Check CodeRabbit reviews** -- `scripts/check-coderabbit.sh`
-
-### Gate Event Emission
-
-After build/test verification, emit gate results for quality tracking:
-
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "prepare_synthesis",
+  featureId: "<id>"
+})
 ```
-mcp__plugin_exarchos_exarchos__exarchos_event({
-  action: "append",
-  streamId: "<featureId>",
-  event: {
-    type: "gate.executed",
-    data: {
-      gateName: "pre-synthesis-tests",
-      layer: "CI",
-      passed: <true|false>,
-      duration: <test-duration-ms>,
-      details: {
-        skill: "synthesis",
-        commit: "<current-sha>"
-      }
-    }
+
+This action performs:
+- **Phase readiness** -- Confirms workflow is in the correct phase with all reviews complete
+- **Stack integrity** -- Detects diverged branches, missing task branches, or broken parent chains and reconstructs automatically
+- **Test verification** -- Runs `npm run test:run && npm run typecheck` from the stack top
+- **Benchmark regression** -- If `state.verification.hasBenchmarks` is true, checks for performance regressions
+- **Quality signals** -- Queries `code_quality` view for regressions and actionable hints
+- **Gate events** -- Auto-emits `gate.executed` events for each check (tests, benchmarks, CodeRabbit)
+
+For the full breakdown of individual checks the composite action performs, see `references/synthesis-steps.md`.
+
+**On success:** All checks passed. The response includes a readiness summary with any quality hints to present to the user. Proceed to Step 2.
+
+**On failure:** The response identifies which check failed and provides remediation guidance. Follow the guidance -- typically returning to `/exarchos:review` or `/exarchos:delegate`.
+
+If any quality hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user before proceeding.
+
+### Step 2: Write PR Descriptions
+
+For each PR in the stack, write a structured description following `references/pr-descriptions.md`.
+
+**Title format:** `<type>: <what>` (max 72 chars)
+**Body structure:** Summary (2-3 sentences) -> Changes (bulleted) -> Test Plan -> Footer
+
+After `gt submit` (Step 3), update each PR's metadata:
+```bash
+gh pr edit <number> --title "<type>: <what>" --body "$(cat <<'EOF'
+## Summary
+[2-3 sentences: what changed, why it matters]
+
+## Changes
+- **Component** -- Description of change
+
+## Test Plan
+[Testing approach and coverage]
+
+---
+**Results:** Tests X pass · Build 0 errors
+**Design:** [doc](path)
+**Related:** #issue
+EOF
+)"
+```
+
+Validate each PR body with `scripts/validate-pr-body.sh --pr <number>`. Projects can override the template via `.exarchos/pr-template.md`.
+
+For the complete template, examples, and anti-patterns, see `references/pr-descriptions.md`.
+
+### Step 3: Submit and Merge
+
+Enqueue the Graphite stack for merging:
+```bash
+gt submit --no-interactive --publish --merge-when-ready
+```
+
+After submission:
+1. **Apply benchmark label** -- If `verification.hasBenchmarks` is true, apply label: `gh pr edit <number> --add-label has-benchmarks`
+2. **Record PR URLs** -- Capture URLs from `gt log`
+3. **Update state:**
+
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
+  action: "set", featureId: "<id>", updates: {
+    "artifacts": { "pr": ["<url1>", "<url2>"] },
+    "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
 })
 ```
 
-Also emit for CodeRabbit review gate:
-```
-mcp__plugin_exarchos_exarchos__exarchos_event({
-  action: "append",
-  streamId: "<featureId>",
-  event: {
-    type: "gate.executed",
-    data: {
-      gateName: "coderabbit-review",
-      layer: "CI",
-      passed: <true|false>,
-      details: {
-        skill: "synthesis",
-        commit: "<current-sha>"
-      }
-    }
-  }
+For merge ordering strategy, see `references/merge-ordering.md`.
+
+**Human checkpoint:** Output "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue." then **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
+
+- **'yes'** -- PRs merge; transition to completed via `/exarchos:cleanup`
+- **'feedback'** -- Route to `/exarchos:delegate --pr-fixes [PR_URL]` to address comments, then return here
+- **'no'** -- Pause workflow; resume later with `/exarchos:resume`
+
+### Post-Merge Cleanup
+
+After PRs merge, invoke cleanup:
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_workflow({
+  action: "cleanup", featureId: "<id>", mergeVerified: true,
+  prUrl: ["<url>", ...], mergedBranches: ["<branch>", ...]
 })
 ```
 
-If benchmark regression check ran (step 1b), also emit:
-```
-mcp__plugin_exarchos_exarchos__exarchos_event({
-  action: "append",
-  streamId: "<featureId>",
-  event: {
-    type: "gate.executed",
-    data: {
-      gateName: "benchmark-regression",
-      layer: "CI",
-      passed: <true|false>,
-      details: {
-        skill: "synthesis",
-        commit: "<current-sha>"
-      }
-    }
-  }
-})
-```
-
-5. **Check quality signals** before creating PRs:
-   ```
-   mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
-   ```
-   - If `regressions` is non-empty for skills touched by this branch, warn the user before proceeding
-   - If any hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user
-6. **Write PR descriptions** -- Follow `references/pr-descriptions.md` for title format and body structure. After `gt submit`, update each PR body via `gh pr edit`. Validate with `scripts/validate-pr-body.sh --pr <number>`. Consumers can override the template via `.exarchos/pr-template.md`.
-7. **Submit to merge queue** -- `gt submit --no-interactive --publish --merge-when-ready`
-8. **Apply benchmark label** -- If `verification.hasBenchmarks` is `true` in workflow state, apply label to each PR: `gh pr edit <number> --add-label has-benchmarks`
-9. **Cleanup after merge** -- `gt sync` + remove worktrees
-
-For detailed step instructions, see `references/synthesis-steps.md`.
-
-## Handling Failures
-
-See `references/troubleshooting.md` for test failures, PR check failures, and merge queue rejections.
+Then sync: `gt sync` and remove worktrees.
 
 ## Anti-Patterns
 
@@ -132,70 +136,18 @@ See `references/troubleshooting.md` for test failures, PR check failures, and me
 |-------|------------|
 | Skip review phase | Always run `/exarchos:review` first |
 | Force push stack branches | Use normal push |
-| Delete worktrees before PR approval | Wait for merge confirmation |
+| Delete worktrees before merge | Wait for merge confirmation |
 | Create PR with failing tests | Ensure review phase passes first |
+| Run readiness scripts manually | Use `prepare_synthesis` composite action |
 
-## State Management
+## Handling Failures
 
-Call `mcp__plugin_exarchos_exarchos__exarchos_workflow` for all state operations. Full parameter reference: `@skills/workflow-state/SKILL.md` § Update State.
-
-### Read Task State
-
-```
-action: "get", featureId: "<id>", fields: ["tasks", "synthesis"]
-```
-
-### On PR Created
-
-```
-action: "set", featureId: "<id>", updates: {
-  "artifacts": { "pr": ["<url1>", "<url2>"] },
-  "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
-}
-```
-
-### On PR Feedback Received
-
-```
-action: "set", featureId: "<id>", updates: {
-  "synthesis": { "prFeedback": [{ "pr": "<url>", "reviewer": "<name>", "status": "<status>" }] }
-}
-```
-
-### On Merge Complete
-
-```
-action: "cleanup", featureId: "<id>", mergeVerified: true, prUrl: ["<url>", ...], mergedBranches: ["<branch>", ...]
-```
+See `references/troubleshooting.md` for test failures, PR check failures, merge queue rejections, and MCP tool errors.
 
 ## Completion Criteria
 
-- [ ] Graphite stack verified via reconstruct-stack.sh
-- [ ] Quick test verification passed
-- [ ] CodeRabbit reviews checked (no CHANGES_REQUESTED blocking)
-- [ ] PRs enqueued via `--merge-when-ready`
+- [ ] `prepare_synthesis` readiness check passed
+- [ ] PR descriptions written per `references/pr-descriptions.md`
+- [ ] Stack enqueued via `--merge-when-ready`
 - [ ] PR links provided to user
-- [ ] State file updated with PR URLs
-
-## Handling PR Feedback
-
-Route to `/exarchos:delegate --pr-fixes [PR_URL]` for automated fix dispatch. See `references/troubleshooting.md` for details.
-
-## Transition
-
-After stacked PRs enqueued in merge queue, this is a **human checkpoint**:
-
-1. Update state: `action: "set", featureId: "<id>", updates: { "synthesis": { "prUrl": ["<urls>"] }, "artifacts": { "pr": ["<urls>"] } }`
-2. Output: "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue."
-3. **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
-
-This is one of only TWO human checkpoints in the workflow.
-
-Options:
-- **'yes'**: Merge PR, update state to "completed"
-- **'feedback'**: Auto-continue to `/exarchos:delegate --pr-fixes` to address comments, then return here
-- **'no'**: Pause workflow, can resume later with `/exarchos:resume`
-
-## Troubleshooting
-
-See `references/troubleshooting.md` for MCP failures, state desync, PR creation issues, and stack rebase conflicts.
+- [ ] State updated with PR URLs and merge order
