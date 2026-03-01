@@ -298,11 +298,15 @@ describe('handleTaskClaim Exponential Backoff', () => {
 
 describe('Task event idempotency keys', () => {
   it('handleTaskComplete_EventAppend_HasIdempotencyKey', async () => {
-    // Arrange: create an event store and seed with a task assignment
+    // Arrange: create an event store and seed with a task assignment + passing gate
     const store = new EventStore(tempDir);
     await store.append('wf-idem-comp', {
       type: 'task.assigned',
       data: { taskId: 't-idem-1', title: 'Idem test', assignee: 'agent-1' },
+    });
+    await store.append('wf-idem-comp', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-idem-1' } },
     });
 
     // Spy on append to capture idempotency keys
@@ -376,6 +380,10 @@ describe('task_complete evidence field', () => {
       type: 'task.assigned',
       data: { taskId: 't-ev-1', title: 'Evidence test', assignee: 'agent-1' },
     });
+    await store.append('wf-ev-1', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-ev-1' } },
+    });
 
     const evidence = {
       type: 'test' as const,
@@ -406,6 +414,10 @@ describe('task_complete evidence field', () => {
       type: 'task.assigned',
       data: { taskId: 't-ev-2', title: 'No evidence test', assignee: 'agent-1' },
     });
+    await store.append('wf-ev-2', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-ev-2' } },
+    });
 
     // Act
     const result = await handleTaskComplete(
@@ -429,6 +441,10 @@ describe('task_complete evidence field', () => {
     await store.append('wf-ev-3', {
       type: 'task.assigned',
       data: { taskId: 't-ev-3', title: 'Test output evidence', assignee: 'agent-1' },
+    });
+    await store.append('wf-ev-3', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-ev-3' } },
     });
 
     const evidence = {
@@ -460,6 +476,10 @@ describe('task_complete evidence field', () => {
       type: 'task.assigned',
       data: { taskId: 't-ev-4', title: 'Build output evidence', assignee: 'agent-1' },
     });
+    await store.append('wf-ev-4', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-ev-4' } },
+    });
 
     const evidence = {
       type: 'build' as const,
@@ -489,6 +509,10 @@ describe('task_complete evidence field', () => {
     await store.append('wf-prov-1', {
       type: 'task.assigned',
       data: { taskId: 't-prov-1', title: 'Provenance test', assignee: 'agent-1' },
+    });
+    await store.append('wf-prov-1', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-prov-1' } },
     });
 
     const provenanceResult = {
@@ -520,6 +544,10 @@ describe('task_complete evidence field', () => {
     await store.append('wf-prov-2', {
       type: 'task.assigned',
       data: { taskId: 't-prov-2', title: 'No provenance test', assignee: 'agent-1' },
+    });
+    await store.append('wf-prov-2', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-prov-2' } },
     });
 
     // Act
@@ -586,5 +614,73 @@ describe('task_complete evidence field', () => {
       verified: true,
     };
     expect(() => TaskCompletedData.parse(missingPassed)).toThrow();
+  });
+});
+
+// ─── Gate Enforcement in handleTaskComplete ──────────────────────────────────
+
+describe('handleTaskComplete gate enforcement', () => {
+  it('HandleTaskComplete_NoTddGate_RejectsCompletion', async () => {
+    // Arrange: seed with task.assigned but NO gate event
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-1', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'Gate test', assignee: 'agent-1' },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-1', result: { summary: 'done' } },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  it('HandleTaskComplete_PassingTddGate_AllowsCompletion', async () => {
+    // Arrange: seed with gate.executed event that passed for this taskId
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-2', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'Gate test', assignee: 'agent-1' },
+    });
+    await store.append('wf-gate-2', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 'T-01' } },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-2' },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+  });
+
+  it('HandleTaskComplete_FailingTddGate_RejectsCompletion', async () => {
+    // Arrange: seed with gate.executed event that FAILED for this taskId
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-3', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'Gate test', assignee: 'agent-1' },
+    });
+    await store.append('wf-gate-3', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: false, details: { taskId: 'T-01' } },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-3' },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 });
