@@ -175,8 +175,35 @@ describe('handleWorkflowDeterminism', () => {
       expect(event.data.passed).toBe(true);
       expect(event.data.details).toEqual({
         dimension: 'D5',
+        phase: 'review',
         findingCount: 0,
       });
+    });
+  });
+
+  // ─── Phase in Gate Event Details ──────────────────────────────────────────
+
+  describe('phase in gate event details', () => {
+    it('handleWorkflowDeterminism_EmitsGateEvent_IncludesPhaseInDetails', async () => {
+      // Arrange
+      const stdout = makePassReport();
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      await handleWorkflowDeterminism(args, STATE_DIR);
+
+      // Assert
+      expect(mockStore.append).toHaveBeenCalledTimes(1);
+      const appendCall = mockStore.append.mock.calls[0];
+      const event = appendCall[1] as {
+        type: string;
+        data: {
+          details: Record<string, unknown>;
+        };
+      };
+      expect(event.data.details.phase).toBe('review');
     });
   });
 

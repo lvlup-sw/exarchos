@@ -138,6 +138,32 @@ describe('handleCheckConvergence', () => {
     expect(mockStore.append).toHaveBeenCalled();
   });
 
+  it('CheckConvergence_EmitsGateEvent_IncludesPhaseInDetails', async () => {
+    mockViewState = {
+      featureId: 'test-feature',
+      overallConverged: true,
+      uncheckedDimensions: [],
+      dimensions: {
+        D1: { dimension: 'D1', label: 'Design', gateResults: [{ gateName: 'tdd', passed: true, timestamp: '2026-01-01' }], converged: true, lastChecked: '2026-01-01' },
+        D2: { dimension: 'D2', label: 'Static', gateResults: [{ gateName: 'lint', passed: true, timestamp: '2026-01-01' }], converged: true, lastChecked: '2026-01-01' },
+        D3: { dimension: 'D3', label: 'Context', gateResults: [{ gateName: 'ctx', passed: true, timestamp: '2026-01-01' }], converged: true, lastChecked: '2026-01-01' },
+        D4: { dimension: 'D4', label: 'Resilience', gateResults: [{ gateName: 'ops', passed: true, timestamp: '2026-01-01' }], converged: true, lastChecked: '2026-01-01' },
+        D5: { dimension: 'D5', label: 'Determinism', gateResults: [{ gateName: 'det', passed: true, timestamp: '2026-01-01' }], converged: true, lastChecked: '2026-01-01' },
+      },
+    };
+
+    await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR);
+
+    // Verify gate event includes phase: 'meta'
+    expect(mockStore.append).toHaveBeenCalled();
+    const appendCall = mockStore.append.mock.calls[0];
+    const event = appendCall[1] as {
+      type: string;
+      data: { details: Record<string, unknown> };
+    };
+    expect(event.data.details.phase).toBe('meta');
+  });
+
   it('CheckConvergence_GateEmissionFailure_DoesNotBreakHandler', async () => {
     mockViewState = {
       featureId: 'test-feature',

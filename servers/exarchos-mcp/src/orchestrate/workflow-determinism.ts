@@ -99,6 +99,7 @@ export async function handleWorkflowDeterminism(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'workflow-determinism', 'quality', passed, {
       dimension: 'D5',
+      phase: 'review',
       findingCount,
     });
   } catch { /* fire-and-forget */ }

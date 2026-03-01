@@ -99,6 +99,7 @@ export async function handleContextEconomy(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'context-economy', 'quality', passed, {
       dimension: 'D3',
+      phase: 'review',
       findingCount,
     });
   } catch { /* fire-and-forget */ }

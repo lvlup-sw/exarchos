@@ -175,8 +175,35 @@ describe('handleContextEconomy', () => {
       expect(event.data.passed).toBe(true);
       expect(event.data.details).toEqual({
         dimension: 'D3',
+        phase: 'review',
         findingCount: 0,
       });
+    });
+  });
+
+  // ─── Phase in Gate Event Details ──────────────────────────────────────────
+
+  describe('phase in gate event details', () => {
+    it('handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails', async () => {
+      // Arrange
+      const stdout = makeCleanReport();
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      await handleContextEconomy(args, STATE_DIR);
+
+      // Assert
+      expect(mockStore.append).toHaveBeenCalledTimes(1);
+      const appendCall = mockStore.append.mock.calls[0];
+      const event = appendCall[1] as {
+        type: string;
+        data: {
+          details: Record<string, unknown>;
+        };
+      };
+      expect(event.data.details.phase).toBe('review');
     });
   });
 

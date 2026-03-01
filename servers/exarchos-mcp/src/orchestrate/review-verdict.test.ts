@@ -196,10 +196,62 @@ describe('handleReviewVerdict', () => {
       expect(event.data.passed).toBe(true);
       expect(event.data.details).toEqual({
         verdict: 'APPROVED',
+        phase: 'review',
         high: 0,
         medium: 2,
         low: 1,
       });
+    });
+  });
+
+  // ─── Phase in Gate Event Details ──────────────────────────────────────────
+
+  describe('phase in gate event details', () => {
+    it('handleReviewVerdict_PerDimensionEvents_IncludePhaseInDetails', async () => {
+      // Arrange
+      const stdout = 'Review verdict: APPROVED';
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      const args = {
+        featureId: 'feat-1',
+        high: 0,
+        medium: 0,
+        low: 0,
+        dimensionResults: {
+          D1: { passed: true, findingCount: 0 },
+        },
+      };
+
+      // Act
+      await handleReviewVerdict(args, STATE_DIR);
+
+      // Assert — per-dimension event includes phase
+      const perDimCall = mockStore.append.mock.calls[0];
+      const perDimEvent = perDimCall[1] as {
+        type: string;
+        data: { details: Record<string, unknown> };
+      };
+      expect(perDimEvent.data.details.phase).toBe('review');
+    });
+
+    it('handleReviewVerdict_SummaryEvent_IncludesPhaseInDetails', async () => {
+      // Arrange
+      const stdout = 'Review verdict: APPROVED';
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      const args = { featureId: 'feat-1', high: 0, medium: 0, low: 0 };
+
+      // Act
+      await handleReviewVerdict(args, STATE_DIR);
+
+      // Assert — summary event includes phase
+      expect(mockStore.append).toHaveBeenCalledTimes(1);
+      const summaryCall = mockStore.append.mock.calls[0];
+      const summaryEvent = summaryCall[1] as {
+        type: string;
+        data: { details: Record<string, unknown> };
+      };
+      expect(summaryEvent.data.details.phase).toBe('review');
     });
   });
 
@@ -246,6 +298,7 @@ describe('handleReviewVerdict', () => {
       expect(d1Event.data.passed).toBe(true);
       expect(d1Event.data.details).toEqual({
         dimension: 'D1',
+        phase: 'review',
         findingCount: 0,
       });
 
@@ -267,6 +320,7 @@ describe('handleReviewVerdict', () => {
       expect(d2Event.data.passed).toBe(false);
       expect(d2Event.data.details).toEqual({
         dimension: 'D2',
+        phase: 'review',
         findingCount: 3,
       });
 
@@ -288,6 +342,7 @@ describe('handleReviewVerdict', () => {
       expect(summaryEvent.data.passed).toBe(true);
       expect(summaryEvent.data.details).toEqual({
         verdict: 'APPROVED',
+        phase: 'review',
         high: 0,
         medium: 1,
         low: 2,

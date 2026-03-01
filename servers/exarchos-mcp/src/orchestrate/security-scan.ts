@@ -98,6 +98,7 @@ export async function handleSecurityScan(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'security-scan', 'quality', passed, {
       dimension: 'D1',
+      phase: 'review',
       findingCount,
     });
   } catch { /* fire-and-forget */ }

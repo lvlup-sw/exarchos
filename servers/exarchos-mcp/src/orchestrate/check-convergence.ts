@@ -63,6 +63,7 @@ export async function handleCheckConvergence(
   // Emit meta gate.executed event (fire-and-forget)
   try {
     await emitGateEvent(store, streamId, 'convergence', 'meta', passed, {
+      phase: 'meta',
       uncheckedDimensions: view.uncheckedDimensions,
       dimensionSummary: dimensions,
     });

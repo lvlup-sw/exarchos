@@ -120,6 +120,7 @@ export async function handleStaticAnalysis(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'static-analysis', 'quality', passed, {
       dimension: 'D2',
+      phase: 'delegate',
       passCount,
       failCount,
     });
