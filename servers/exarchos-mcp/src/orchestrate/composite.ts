@@ -19,6 +19,7 @@ import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
 import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
+import { handleTddCompliance } from './tdd-compliance.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -34,6 +35,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_stack: handleAssessStack as ActionHandler,
   check_design_completeness: handleDesignCompleteness as ActionHandler,
   check_plan_coverage: handlePlanCoverage as ActionHandler,
+  check_tdd_compliance: handleTddCompliance as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
