@@ -15,6 +15,8 @@ metadata:
 
 Stage 1 of two-stage review: Verify implementation matches specification and follows TDD.
 
+For a complete worked example, see `references/worked-example.md`.
+
 ## Triggers
 
 Activate this skill when:

@@ -23,6 +23,8 @@ Activate this skill when:
 - User wants to discuss design options before implementation
 - A problem has multiple valid solutions needing evaluation
 
+For a complete worked example, see `references/worked-example.md`.
+
 ## Three-Phase Process
 
 ### Phase 1: Understanding

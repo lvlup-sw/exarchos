@@ -33,4 +33,30 @@ if ! grep -q "complete\|full picture\|combined\|entire" "$SKILL_FILE"; then
     exit 1
 fi
 
+# Test 6: Worked example file exists
+WORKED_EXAMPLE="skills/spec-review/references/worked-example.md"
+if [[ ! -f "$WORKED_EXAMPLE" ]]; then
+    echo "FAIL: $WORKED_EXAMPLE does not exist"
+    exit 1
+fi
+
+# Test 7: SKILL.md links to worked example
+if ! grep -q "references/worked-example.md" "$SKILL_FILE"; then
+    echo "FAIL: $SKILL_FILE does not link to worked example"
+    exit 1
+fi
+
+# Test 8: Worked example is under 500 words
+WORD_COUNT=$(wc -w < "$WORKED_EXAMPLE")
+if [[ "$WORD_COUNT" -ge 500 ]]; then
+    echo "FAIL: Worked example is $WORD_COUNT words (must be under 500)"
+    exit 1
+fi
+
+# Test 9: Worked example has frontmatter
+if ! head -1 "$WORKED_EXAMPLE" | grep -q "^---"; then
+    echo "FAIL: Worked example missing frontmatter"
+    exit 1
+fi
+
 echo "PASS: All tests passed"

@@ -15,6 +15,8 @@ metadata:
 
 Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Ensures complete spec coverage through explicit traceability.
 
+For a complete worked example, see `references/worked-example.md`.
+
 ## Triggers
 
 Activate this skill when:
