@@ -21,6 +21,7 @@ import {
   handleViewShepherdStatus,
   handleViewProvenance,
   handleViewIdeateReadiness,
+  handleViewConvergence,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -181,6 +182,12 @@ export async function handleView(
         stateDir,
       );
 
+    case 'convergence':
+      return handleViewConvergence(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -207,6 +214,7 @@ export async function handleView(
             'shepherd_status',
             'provenance',
             'ideate_readiness',
+            'convergence',
           ] as const,
         },
       };

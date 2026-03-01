@@ -129,6 +129,7 @@ export async function handleDesignCompleteness(
   try {
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, streamId, 'design-completeness', 'design', parsed.passed, {
+      dimension: 'D1',
       advisory: true,
       findings: parsed.findings,
       checkCount: parsed.checkCount,

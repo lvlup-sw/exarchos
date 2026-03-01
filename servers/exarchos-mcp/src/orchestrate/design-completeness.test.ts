@@ -222,6 +222,7 @@ describe('handleDesignCompleteness', () => {
       expect(event.data.gateName).toBe('design-completeness');
       expect(event.data.layer).toBe('design');
       expect(event.data.passed).toBe(true);
+      expect(event.data.details.dimension).toBe('D1');
       expect(event.data.details.advisory).toBe(true);
       expect(event.data.details.checkCount).toBe(4);
       expect(event.data.details.passCount).toBe(4);

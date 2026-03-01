@@ -116,6 +116,7 @@ export async function handlePostMerge(
   try {
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
+      dimension: 'D4',
       prUrl: args.prUrl,
       mergeSha: args.mergeSha,
       findings,

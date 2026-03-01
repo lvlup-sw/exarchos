@@ -256,6 +256,7 @@ describe('handlePlanCoverage', () => {
       expect(event.data.layer).toBe('planning');
       expect(event.data.passed).toBe(true);
       expect(event.data.details).toEqual({
+        dimension: 'D1',
         covered: 5,
         gaps: 0,
         deferred: 0,
@@ -302,6 +303,7 @@ describe('handlePlanCoverage', () => {
       expect(event.type).toBe('gate.executed');
       expect(event.data.passed).toBe(false);
       expect(event.data.details).toEqual({
+        dimension: 'D1',
         covered: 3,
         gaps: 2,
         deferred: 2,

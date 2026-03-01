@@ -113,7 +113,8 @@ describe('handlePostMerge', () => {
     expect(event.data.gateName).toBe('post-merge');
     expect(event.data.layer).toBe('post-merge');
     expect(event.data.passed).toBe(true);
-    const details = event.data.details as { prUrl: string; mergeSha: string; findings: string[] };
+    const details = event.data.details as { dimension: string; prUrl: string; mergeSha: string; findings: string[] };
+    expect(details.dimension).toBe('D4');
     expect(details.prUrl).toBe('https://github.com/org/repo/pull/42');
     expect(details.mergeSha).toBe('abc1234');
     expect(details.findings).toEqual([]);

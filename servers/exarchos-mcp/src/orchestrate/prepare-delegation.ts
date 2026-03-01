@@ -176,6 +176,7 @@ export async function handlePrepareDelegation(
 
     // Emit plan-coverage gate event
     await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
+      dimension: 'D1',
       taskCount,
       gatePassRate: readiness.quality.gatePassRate,
     });

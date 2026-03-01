@@ -1,8 +1,8 @@
-// ─── Plan Coverage Composite Action ─────────────────────────────────────────
+// ─── Context Economy Gate (T-20) ────────────────────────────────────────────
 //
-// Orchestrates plan-to-design coverage verification by running the
-// verify-plan-coverage.sh script and emitting gate.executed events for
-// the plan→plan-review boundary.
+// Orchestrates context-economy checking by running the
+// scripts/check-context-economy.sh script and emitting gate.executed events
+// for quality-layer gate checks.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync } from 'node:child_process';
@@ -10,44 +10,37 @@ import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
 
-// ─── Result Types ──────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
-interface CoverageMetrics {
-  readonly covered: number;
-  readonly gaps: number;
-  readonly deferred: number;
-  readonly total: number;
+interface ContextEconomyArgs {
+  readonly featureId: string;
+  readonly repoRoot?: string;
+  readonly baseBranch?: string;
 }
 
-interface PlanCoverageResult {
+interface ContextEconomyResult {
   readonly passed: boolean;
-  readonly coverage: CoverageMetrics;
+  readonly findingCount: number;
   readonly report: string;
 }
 
 // ─── Output Parsing ────────────────────────────────────────────────────────
 
-function parseCoverageMetrics(output: string): CoverageMetrics {
-  const coveredMatch = output.match(/Covered:\s*(\d+)/);
-  const gapsMatch = output.match(/Gaps:\s*(\d+)/);
-  const deferredMatch = output.match(/Deferred:\s*(\d+)/);
-  const totalMatch = output.match(/Design sections:\s*(\d+)/);
-
-  return {
-    covered: coveredMatch ? parseInt(coveredMatch[1], 10) : 0,
-    gaps: gapsMatch ? parseInt(gapsMatch[1], 10) : 0,
-    deferred: deferredMatch ? parseInt(deferredMatch[1], 10) : 0,
-    total: totalMatch ? parseInt(totalMatch[1], 10) : 0,
-  };
+function parseContextEconomyOutput(output: string): number {
+  const findingsMatch = output.match(/Result:\s*FINDINGS\*{0,2}\s*\((\d+)\s*findings detected\)/);
+  if (findingsMatch) {
+    return parseInt(findingsMatch[1], 10);
+  }
+  return 0;
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
 
-export async function handlePlanCoverage(
-  args: { featureId: string; designPath: string; planPath: string },
+export async function handleContextEconomy(
+  args: ContextEconomyArgs,
   stateDir: string,
 ): Promise<ToolResult> {
-  // Input validation
+  // Guard clause: validate required inputs
   if (!args.featureId) {
     return {
       success: false,
@@ -55,28 +48,17 @@ export async function handlePlanCoverage(
     };
   }
 
-  if (!args.designPath) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'designPath is required' },
-    };
-  }
-
-  if (!args.planPath) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'planPath is required' },
-    };
-  }
-
-  const scriptCmd = `scripts/verify-plan-coverage.sh --design-file ${args.designPath} --plan-file ${args.planPath}`;
+  // Build the script command
+  const repoRoot = args.repoRoot || process.cwd();
+  const baseBranch = args.baseBranch || 'main';
+  const scriptCmd = `scripts/check-context-economy.sh --repo-root ${repoRoot} --base-branch ${baseBranch}`;
 
   let stdout = '';
   let passed = false;
 
   try {
     const output = execSync(scriptCmd, {
-      timeout: 30_000,
+      timeout: 60_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
@@ -102,32 +84,29 @@ export async function handlePlanCoverage(
       };
     }
 
-    // Exit code 1 = gaps found — parse the report
+    // Exit code 1 = findings detected — parse the report
     stdout = execError.stdout instanceof Buffer
       ? execError.stdout.toString('utf-8')
       : String(execError.stdout ?? '');
     passed = false;
   }
 
-  // Parse coverage metrics from stdout
-  const metrics = parseCoverageMetrics(stdout);
+  // Parse finding count from stdout
+  const findingCount = parseContextEconomyOutput(stdout);
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
     const store = getOrCreateEventStore(stateDir);
-    await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', passed, {
-      dimension: 'D1',
-      covered: metrics.covered,
-      gaps: metrics.gaps,
-      deferred: metrics.deferred,
-      totalSections: metrics.total,
+    await emitGateEvent(store, args.featureId, 'context-economy', 'quality', passed, {
+      dimension: 'D3',
+      findingCount,
     });
   } catch { /* fire-and-forget */ }
 
   // Return structured result
-  const result: PlanCoverageResult = {
+  const result: ContextEconomyResult = {
     passed,
-    coverage: metrics,
+    findingCount,
     report: stdout,
   };
 

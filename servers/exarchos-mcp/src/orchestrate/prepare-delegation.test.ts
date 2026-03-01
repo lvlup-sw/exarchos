@@ -259,6 +259,7 @@ describe('handlePrepareDelegation', () => {
       'planning',        // layer
       true,              // passed
       {
+        dimension: 'D1',
         taskCount: 2,
         gatePassRate: null,
       },

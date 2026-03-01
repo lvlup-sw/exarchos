@@ -3,7 +3,7 @@
   "metadata": {
     "skill": "delegation",
     "phaseAffinity": "delegate",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "assertions": [
     {
@@ -13,7 +13,8 @@
       "config": {
         "required": [
           { "tool": "exarchos_workflow", "action": "set" },
-          { "tool": "exarchos_orchestrate", "action": "team_spawn" }
+          { "tool": "exarchos_orchestrate", "action": "team_spawn" },
+          { "tool": "exarchos_orchestrate", "action": "check_tdd_compliance" }
         ]
       }
     },

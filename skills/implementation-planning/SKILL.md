@@ -126,15 +126,33 @@ Run deterministic verification scripts instead of manual checklist review.
 
 **5a. Design-to-plan coverage** — verify every Technical Design subsection maps to a task:
 
-```bash
-scripts/verify-plan-coverage.sh \
-  --design-file docs/designs/<feature>.md \
-  --plan-file docs/plans/<date>-<feature>.md
+```typescript
+exarchos_orchestrate({
+  action: "check_plan_coverage",
+  featureId: "<id>",
+  designPath: "docs/designs/<feature>.md",
+  planPath: "docs/plans/<date>-<feature>.md"
+})
 ```
 
-- **exit 0** — All design sections covered; proceed to 5b
-- **exit 1** — Gaps found; add tasks for uncovered sections or defer with rationale
-- **exit 2** — Usage error or empty design; check arguments
+- **passed: true** — All design sections covered; proceed to 5a-ii
+- **passed: false** — Gaps found; add tasks for uncovered sections or defer with rationale
+- **error** — Usage error or empty design; check arguments
+
+**5a-ii. Provenance chain verification** — verify every DR-N requirement maps to a task via `Implements:` field:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_provenance_chain",
+  featureId: "<id>",
+  designPath: "docs/designs/<feature>.md",
+  planPath: "docs/plans/<date>-<feature>.md"
+})
+```
+
+- **passed: true** — All DR-N requirements traced; proceed to 5b
+- **passed: false** — Advisory: gaps or orphan references found; add `**Implements:** DR-N` to tasks or investigate orphans. Does not independently block (5a coverage already blocks on section gaps).
+- **error** — No DR-N identifiers in design (exit 2); if design doesn't use DR-N identifiers, this check is skipped
 
 **5b. Spec coverage check** — verify planned test files exist and pass:
 
@@ -190,7 +208,8 @@ action: "set", featureId: "<id>", phase: "plan-review", updates: {
 - [ ] Each task starts with failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
-- [ ] Plan verification passed — `scripts/verify-plan-coverage.sh` exit 0
+- [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
+- [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` run (advisory; gaps reported but don't block)
 - [ ] Spec coverage check passed — `scripts/spec-coverage-check.sh` exit 0
 - [ ] Coverage thresholds met — `scripts/check-coverage-thresholds.sh` exit 0:
 
@@ -215,7 +234,7 @@ After planning completes, **auto-continue to plan-review** (delta analysis):
    - No gaps: present to user for approval (human checkpoint)
    - On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
 
-**REQUIRED:** Run `scripts/verify-plan-coverage.sh --design-file <design> --plan-file <plan>`. If exit code 1: auto-invoke `Skill({ skill: "exarchos:plan", args: "--revise <design>" })`. If exit code 0: proceed to delegation.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage", featureId: "<id>", designPath: "<design>", planPath: "<plan>" })`. If passed: false: auto-invoke `Skill({ skill: "exarchos:plan", args: "--revise <design>" })`. If passed: true: proceed to delegation.
 
 ## Exarchos Integration
 
@@ -225,7 +244,7 @@ On plan completion, auto-emitted by `exarchos_workflow` `set` when phase transit
 
 | Issue | Cause | Resolution |
 |-------|-------|------------|
-| `verify-plan-coverage.sh` exit 1 | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
+| `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
 | `spec-coverage-check.sh` exit 1 | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
 | `generate-traceability.sh` exit 1 | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
 | Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/ideate --redesign` |

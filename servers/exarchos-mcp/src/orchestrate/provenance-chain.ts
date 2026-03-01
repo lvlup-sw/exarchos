@@ -1,7 +1,7 @@
-// ─── Plan Coverage Composite Action ─────────────────────────────────────────
+// ─── Provenance Chain Composite Action ──────────────────────────────────────
 //
-// Orchestrates plan-to-design coverage verification by running the
-// verify-plan-coverage.sh script and emitting gate.executed events for
+// Orchestrates design-to-plan provenance verification by running the
+// verify-provenance-chain.sh script and emitting gate.executed events for
 // the plan→plan-review boundary.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -12,42 +12,41 @@ import { emitGateEvent } from './gate-utils.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
-interface CoverageMetrics {
+interface ProvenanceMetrics {
+  readonly requirements: number;
   readonly covered: number;
   readonly gaps: number;
-  readonly deferred: number;
-  readonly total: number;
+  readonly orphanRefs: number;
 }
 
-interface PlanCoverageResult {
+interface ProvenanceChainResult {
   readonly passed: boolean;
-  readonly coverage: CoverageMetrics;
+  readonly coverage: ProvenanceMetrics;
   readonly report: string;
 }
 
 // ─── Output Parsing ────────────────────────────────────────────────────────
 
-function parseCoverageMetrics(output: string): CoverageMetrics {
+function parseProvenanceMetrics(output: string): ProvenanceMetrics {
+  const requirementsMatch = output.match(/Requirements:\s*(\d+)/);
   const coveredMatch = output.match(/Covered:\s*(\d+)/);
   const gapsMatch = output.match(/Gaps:\s*(\d+)/);
-  const deferredMatch = output.match(/Deferred:\s*(\d+)/);
-  const totalMatch = output.match(/Design sections:\s*(\d+)/);
+  const orphanMatch = output.match(/Orphan refs:\s*(\d+)/);
 
   return {
+    requirements: requirementsMatch ? parseInt(requirementsMatch[1], 10) : 0,
     covered: coveredMatch ? parseInt(coveredMatch[1], 10) : 0,
     gaps: gapsMatch ? parseInt(gapsMatch[1], 10) : 0,
-    deferred: deferredMatch ? parseInt(deferredMatch[1], 10) : 0,
-    total: totalMatch ? parseInt(totalMatch[1], 10) : 0,
+    orphanRefs: orphanMatch ? parseInt(orphanMatch[1], 10) : 0,
   };
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
 
-export async function handlePlanCoverage(
+export async function handleProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
   stateDir: string,
 ): Promise<ToolResult> {
-  // Input validation
   if (!args.featureId) {
     return {
       success: false,
@@ -69,7 +68,7 @@ export async function handlePlanCoverage(
     };
   }
 
-  const scriptCmd = `scripts/verify-plan-coverage.sh --design-file ${args.designPath} --plan-file ${args.planPath}`;
+  const scriptCmd = `scripts/verify-provenance-chain.sh --design-file ${args.designPath} --plan-file ${args.planPath}`;
 
   let stdout = '';
   let passed = false;
@@ -109,23 +108,23 @@ export async function handlePlanCoverage(
     passed = false;
   }
 
-  // Parse coverage metrics from stdout
-  const metrics = parseCoverageMetrics(stdout);
+  // Parse provenance metrics from stdout
+  const metrics = parseProvenanceMetrics(stdout);
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
     const store = getOrCreateEventStore(stateDir);
-    await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', passed, {
+    await emitGateEvent(store, args.featureId, 'provenance-chain', 'planning', passed, {
       dimension: 'D1',
+      requirements: metrics.requirements,
       covered: metrics.covered,
       gaps: metrics.gaps,
-      deferred: metrics.deferred,
-      totalSections: metrics.total,
+      orphanRefs: metrics.orphanRefs,
     });
   } catch { /* fire-and-forget */ }
 
   // Return structured result
-  const result: PlanCoverageResult = {
+  const result: ProvenanceChainResult = {
     passed,
     coverage: metrics,
     report: stdout,

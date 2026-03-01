@@ -21,6 +21,14 @@ import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
+import { handleStaticAnalysis } from './static-analysis.js';
+import { handleSecurityScan } from './security-scan.js';
+import { handleContextEconomy } from './context-economy.js';
+import { handleOperationalResilience } from './operational-resilience.js';
+import { handleWorkflowDeterminism } from './workflow-determinism.js';
+import { handleReviewVerdict } from './review-verdict.js';
+import { handleCheckConvergence } from './check-convergence.js';
+import { handleProvenanceChain } from './provenance-chain.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -36,8 +44,16 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   assess_stack: handleAssessStack as ActionHandler,
   check_design_completeness: handleDesignCompleteness as ActionHandler,
   check_plan_coverage: handlePlanCoverage as ActionHandler,
-  check_tdd_compliance: handleTddCompliance as ActionHandler,
-  check_post_merge: handlePostMerge as ActionHandler,
+  check_tdd_compliance: handleTddCompliance as unknown as ActionHandler,
+  check_post_merge: handlePostMerge as unknown as ActionHandler,
+  check_static_analysis: handleStaticAnalysis as unknown as ActionHandler,
+  check_security_scan: handleSecurityScan as unknown as ActionHandler,
+  check_context_economy: handleContextEconomy as unknown as ActionHandler,
+  check_operational_resilience: handleOperationalResilience as unknown as ActionHandler,
+  check_workflow_determinism: handleWorkflowDeterminism as unknown as ActionHandler,
+  check_review_verdict: handleReviewVerdict as unknown as ActionHandler,
+  check_convergence: handleCheckConvergence as unknown as ActionHandler,
+  check_provenance_chain: handleProvenanceChain as unknown as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────

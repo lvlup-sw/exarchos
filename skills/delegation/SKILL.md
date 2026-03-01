@@ -143,13 +143,38 @@ exarchos_orchestrate({
 ```
 
 Gate on the result:
-- If `result.data.passed === true`: Task passes TDD compliance. Proceed to mark it complete.
+- If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
 - If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
 
-The handler auto-emits `gate.executed` events, so manual `exarchos_event` calls for post-delegation checks are not needed.
+3. **Static analysis gate (D2, advisory)** — after TDD compliance passes, run a lightweight D2 check on the task branch:
 
-3. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
-4. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
+```typescript
+exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "<featureId>",
+  repoRoot: "<worktree-path>"
+})
+```
+
+This check is **advisory** — findings are recorded as gate events but do not block task completion. If `passed: false`, include findings in the task completion summary for review-phase attention.
+
+All handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
+
+4. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
+5. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_operational_resilience",
+  featureId: "<featureId>",
+  repoRoot: ".",
+  baseBranch: "main"
+})
+```
+
+This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+
+6. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
 ### Agent Teams Monitoring
 

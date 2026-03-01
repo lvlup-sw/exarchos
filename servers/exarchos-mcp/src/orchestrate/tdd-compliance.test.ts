@@ -179,6 +179,7 @@ describe('handleTddCompliance', () => {
     expect(event.data.layer).toBe('testing');
     expect(event.data.passed).toBe(true);
     const details = event.data.details as Record<string, unknown>;
+    expect(details.dimension).toBe('D1');
     expect(details.taskId).toBe('T-03');
     expect(details.branch).toBe('feature/widget');
     expect(details.passCount).toBe(2);

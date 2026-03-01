@@ -80,6 +80,11 @@ import {
   PROVENANCE_VIEW,
 } from './provenance-view.js';
 import type { ProvenanceViewState } from './provenance-view.js';
+import {
+  convergenceProjection,
+  CONVERGENCE_VIEW,
+} from './convergence-view.js';
+import type { ConvergenceViewState } from './convergence-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -105,6 +110,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   materializer.register(PROVENANCE_VIEW, provenanceProjection);
+  materializer.register(CONVERGENCE_VIEW, convergenceProjection);
   return materializer;
 }
 
@@ -857,6 +863,36 @@ export async function handleViewProvenance(
     const view = materializer.materialize<ProvenanceViewState>(
       streamId,
       PROVENANCE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Convergence Handler ──────────────────────────────────────────────
+
+export async function handleViewConvergence(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, CONVERGENCE_VIEW);
+    const view = materializer.materialize<ConvergenceViewState>(
+      streamId,
+      CONVERGENCE_VIEW,
       events,
     );
 
