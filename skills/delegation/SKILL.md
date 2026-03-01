@@ -149,17 +149,18 @@ Gate on the result:
 - If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
 - If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
 
-4. **Static analysis gate (D2, advisory)** — after TDD compliance passes, run a lightweight D2 check on the task branch:
+4. **Static analysis gate (D2, blocking)** — after TDD compliance passes, run a D2 check on the task branch:
 
 ```typescript
 exarchos_orchestrate({
   action: "check_static_analysis",
   featureId: "<featureId>",
+  taskId: "<taskId>",
   repoRoot: "<worktree-path>"
 })
 ```
 
-This check is **advisory** — findings are recorded as gate events but do not block task completion. If `passed: false`, include findings in the task completion summary for review-phase attention.
+This check is **blocking** — `handleTaskComplete` enforces that a passing `static-analysis` gate event exists for the task (same pattern as TDD compliance). If `passed: false`, keep task in-progress and report findings.
 
 All handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
 

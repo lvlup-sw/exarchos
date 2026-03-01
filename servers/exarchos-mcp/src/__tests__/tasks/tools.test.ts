@@ -156,10 +156,14 @@ describe('handleTaskClaim', () => {
 
 describe('handleTaskComplete', () => {
   it('with artifacts emits completed event', async () => {
-    // Seed passing TDD compliance gate for this task
+    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
     const result = await handleTaskComplete(
@@ -185,10 +189,14 @@ describe('handleTaskComplete', () => {
   });
 
   it('without result still emits completed event', async () => {
-    // Seed passing TDD compliance gate for this task
+    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
     const result = await handleTaskComplete(
@@ -228,10 +236,14 @@ describe('handleTaskComplete', () => {
   });
 
   it('with artifacts but no duration only includes artifacts in event data', async () => {
-    // Seed passing TDD compliance gate for this task
+    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-002', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-002', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
     const result = await handleTaskComplete(
@@ -257,10 +269,14 @@ describe('handleTaskComplete', () => {
   });
 
   it('success returns EventAck with only streamId, sequence, type keys', async () => {
-    // Seed passing TDD compliance gate for this task
+    // Seed passing TDD compliance + static analysis gates for this task
     await store.append('wf-001', {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
     });
 
     const result = await handleTaskComplete(
