@@ -17,6 +17,8 @@ Stage 2 of two-stage review: Assess code quality, maintainability, and engineeri
 
 **Prerequisite:** Spec review must PASS before quality review.
 
+> **MANDATORY:** Before accepting any rationalization for rubber-stamping code quality, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
+
 ## Triggers
 
 Activate this skill when:

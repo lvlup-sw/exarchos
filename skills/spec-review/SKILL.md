@@ -17,6 +17,8 @@ Stage 1 of two-stage review: Verify implementation matches specification and fol
 
 For a complete worked example, see `references/worked-example.md`.
 
+> **MANDATORY:** Before accepting any rationalization for approving without full verification, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
+
 ## Triggers
 
 Activate this skill when:

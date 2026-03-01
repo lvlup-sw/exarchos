@@ -2,6 +2,18 @@
 
 Detailed review criteria for code quality, SOLID principles, DRY enforcement, and structural standards. Used during Step 2 of the quality review process.
 
+## Adversarial Review Posture
+
+You are an ADVERSARIAL reviewer. Your job is to find quality issues, not rubber-stamp passing code.
+
+- Do NOT trust that "tests pass" means the code is well-structured
+- Do NOT accept "it works" as sufficient quality evidence
+- Do NOT assume the implementer followed SOLID principles without verifying
+- Independently check each quality dimension against the actual code
+- Treat every claim of quality as unverified until you see the evidence yourself
+
+Consult `references/rationalization-refutation.md` when you feel tempted to accept a rationalization for skipping quality checks.
+
 ## 1. Code Quality
 
 | Aspect | Check For |

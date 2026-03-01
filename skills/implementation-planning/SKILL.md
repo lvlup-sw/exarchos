@@ -40,6 +40,8 @@ After 3 failed revisions:
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
 3. Escalate: Suggest `/exarchos:ideate --redesign` to revisit design
 
+> **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
+
 ## The Iron Law
 
 > **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
