@@ -483,6 +483,63 @@ describe('task_complete evidence field', () => {
     expect(data.verified).toBe(true);
   });
 
+  it('handleTaskComplete_WithProvenanceInResult_IncludesFieldsInEvent', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-prov-1', {
+      type: 'task.assigned',
+      data: { taskId: 't-prov-1', title: 'Provenance test', assignee: 'agent-1' },
+    });
+
+    const provenanceResult = {
+      implements: ['DR-1', 'DR-3'],
+      tests: [{ name: 'test1', file: 'src/foo.test.ts' }],
+      files: ['src/foo.ts', 'src/foo.test.ts'],
+    };
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-prov-1', streamId: 'wf-prov-1', result: provenanceResult },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-prov-1');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    expect(completedEvent).toBeDefined();
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.implements).toEqual(['DR-1', 'DR-3']);
+    expect(data.tests).toEqual([{ name: 'test1', file: 'src/foo.test.ts' }]);
+    expect(data.files).toEqual(['src/foo.ts', 'src/foo.test.ts']);
+  });
+
+  it('handleTaskComplete_WithoutProvenance_OmitsFields', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-prov-2', {
+      type: 'task.assigned',
+      data: { taskId: 't-prov-2', title: 'No provenance test', assignee: 'agent-1' },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-prov-2', streamId: 'wf-prov-2', result: { artifacts: ['artifact1'] } },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-prov-2');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    expect(completedEvent).toBeDefined();
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.artifacts).toEqual(['artifact1']);
+    expect(data).not.toHaveProperty('implements');
+    expect(data).not.toHaveProperty('tests');
+    expect(data).not.toHaveProperty('files');
+  });
+
   it('TaskComplete_EvidenceSchema_ValidatesCorrectly', () => {
     // Valid evidence with all required fields
     const validData = {
