@@ -116,6 +116,7 @@ export async function handleProvenanceChain(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'provenance-chain', 'planning', passed, {
       dimension: 'D1',
+      phase: 'plan',
       requirements: metrics.requirements,
       covered: metrics.covered,
       gaps: metrics.gaps,
