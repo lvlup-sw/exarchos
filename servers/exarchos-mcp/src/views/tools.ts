@@ -74,6 +74,11 @@ import {
   SHEPHERD_STATUS_VIEW,
 } from './shepherd-status-view.js';
 import type { ShepherdStatusState } from './shepherd-status-view.js';
+import {
+  provenanceProjection,
+  PROVENANCE_VIEW,
+} from './provenance-view.js';
+import type { ProvenanceViewState } from './provenance-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -98,6 +103,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(IDEATE_READINESS_VIEW, ideateReadinessProjection);
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
+  materializer.register(PROVENANCE_VIEW, provenanceProjection);
   return materializer;
 }
 
