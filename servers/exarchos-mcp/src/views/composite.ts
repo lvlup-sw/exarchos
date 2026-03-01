@@ -10,6 +10,7 @@ import {
   handleViewWorkflowStatus,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
+  handleViewDelegationReadiness,
   handleViewCodeQuality,
   handleViewQualityHints,
   handleViewEvalResults,
@@ -96,6 +97,12 @@ export async function handleView(
         stateDir,
       );
 
+    case 'delegation_readiness':
+      return handleViewDelegationReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
     case 'code_quality':
       return handleViewCodeQuality(
         rest as {
@@ -161,6 +168,7 @@ export async function handleView(
             'telemetry',
             'team_performance',
             'delegation_timeline',
+            'delegation_readiness',
             'code_quality',
             'quality_hints',
             'eval_results',

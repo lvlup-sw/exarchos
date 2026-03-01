@@ -55,6 +55,11 @@ import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
 } from './workflow-state-projection.js';
+import {
+  delegationReadinessProjection,
+  DELEGATION_READINESS_VIEW,
+} from './delegation-readiness-view.js';
+import type { DelegationReadinessState } from './delegation-readiness-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -75,6 +80,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(CODE_QUALITY_VIEW, codeQualityProjection);
   materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
+  materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
   return materializer;
 }
 
@@ -711,6 +717,36 @@ export async function handleViewSessionProvenance(
       metric,
     });
     return { success: true, data: result };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Delegation Readiness Handler ──────────────────────────────────────
+
+export async function handleViewDelegationReadiness(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
+    const view = materializer.materialize<DelegationReadinessState>(
+      streamId,
+      DELEGATION_READINESS_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
   } catch (err) {
     return {
       success: false,
