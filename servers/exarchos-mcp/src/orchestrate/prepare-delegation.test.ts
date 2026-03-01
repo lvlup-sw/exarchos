@@ -17,12 +17,17 @@ vi.mock('../quality/hints.js', () => ({
   generateQualityHints: vi.fn(),
 }));
 
+vi.mock('./gate-utils.js', () => ({
+  emitGateEvent: vi.fn(),
+}));
+
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';
+import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -233,5 +238,43 @@ describe('handlePrepareDelegation', () => {
     expect(data.qualityHints[0].category).toBe('gate');
     expect(data.qualityHints[0].severity).toBe('warning');
     expect(data.qualityHints[1].category).toBe('review');
+  });
+
+  it('PrepareDelegation_Ready_EmitsPlanCoverageGateEvent', async () => {
+    // Arrange
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(emitGateEvent).toHaveBeenCalledOnce();
+    expect(emitGateEvent).toHaveBeenCalledWith(
+      expect.anything(), // store
+      'test-feature',    // streamId
+      'plan-coverage',   // gateName
+      'planning',        // layer
+      true,              // passed
+      {
+        taskCount: 2,
+        gatePassRate: null,
+      },
+    );
+  });
+
+  it('PrepareDelegation_NotReady_DoesNotEmitGateEvent', async () => {
+    // Arrange
+    const state = notReadyWorkflowState();
+    setupMaterializer(state);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(emitGateEvent).not.toHaveBeenCalled();
   });
 });

@@ -23,6 +23,7 @@ import {
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
+import { emitGateEvent } from './gate-utils.js';
 
 // ─── Readiness State ────────────────────────────────────────────────────────
 
@@ -172,6 +173,13 @@ export async function handlePrepareDelegation(
 
     // Ready -- include quality hints
     const qualityHints = assembleQualityHints(qualityState);
+
+    // Emit plan-coverage gate event
+    await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
+      taskCount,
+      gatePassRate: readiness.quality.gatePassRate,
+    });
+
     const result: PrepareDelegationResult = {
       ready: true,
       readiness,
