@@ -241,12 +241,7 @@ async function emitCiStatusEvents(
       type: 'ci.status' as const,
       data: {
         pr: prStatus.pr,
-        checks: prStatus.checks.map(c => ({
-          name: c.name,
-          status: c.status,
-          url: c.url,
-        })),
-        overall: prStatus.overallCi,
+        status: prStatus.overallCi,
       },
     }, {
       idempotencyKey: `${featureId}:ci.status:${prStatus.pr}:${Date.now()}`,
