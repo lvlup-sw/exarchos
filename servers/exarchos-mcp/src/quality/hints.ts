@@ -1,6 +1,8 @@
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
 import type { RefinementSignal } from './refinement-signal.js';
+import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import { generateHints as generateTelemetryHints } from '../telemetry/hints.js';
 
 // ─── Module-Level EventStore Configuration ──────────────────────────────────
 
@@ -13,7 +15,7 @@ export function configureQualityEventStore(store: EventStore | null): void {
 
 // ─── Hint Interface ─────────────────────────────────────────────────────────
 
-export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval' | 'refinement';
+export type QualityHintCategory = 'pbt' | 'benchmark' | 'gate' | 'review' | 'eval' | 'refinement' | 'telemetry';
 
 export interface QualityHint {
   readonly skill: string;
@@ -131,6 +133,7 @@ export function generateQualityHints(
   state: CodeQualityViewState,
   targetSkill?: string,
   calibrationContext?: CalibrationContext,
+  telemetryState?: TelemetryViewState,
 ): QualityHint[] {
   const hints: QualityHint[] = [];
   const skills = targetSkill ? [targetSkill] : Object.keys(state.skills);
@@ -149,6 +152,19 @@ export function generateQualityHints(
     for (const rule of globalRules) {
       const hint = rule(state, globalSkill);
       if (hint) hints.push(hint);
+    }
+  }
+
+  // Telemetry hints: convert tool optimization hints to quality hints
+  if (telemetryState) {
+    const telemetryHints = generateTelemetryHints(telemetryState);
+    for (const th of telemetryHints) {
+      hints.push({
+        skill: 'global',
+        category: 'telemetry',
+        severity: 'info',
+        hint: `[${th.tool}] ${th.hint}`,
+      });
     }
   }
 

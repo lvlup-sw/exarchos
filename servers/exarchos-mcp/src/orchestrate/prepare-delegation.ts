@@ -24,6 +24,8 @@ import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
+import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
+import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 
 // ─── Readiness State ────────────────────────────────────────────────────────
 
@@ -92,10 +94,16 @@ function assessReadiness(
 
 function assembleQualityHints(
   qualityState: CodeQualityViewState | null,
+  telemetryState?: TelemetryViewState | null,
 ): Array<{ category: string; severity: string; hint: string }> {
   if (!qualityState) return [];
 
-  const hints: QualityHint[] = generateQualityHints(qualityState);
+  const hints: QualityHint[] = generateQualityHints(
+    qualityState,
+    undefined,
+    undefined,
+    telemetryState ?? undefined,
+  );
   return hints.map(h => ({
     category: h.category,
     severity: h.severity,
@@ -171,8 +179,11 @@ export async function handlePrepareDelegation(
       return { success: true, data: result };
     }
 
-    // Ready -- include quality hints
-    const qualityHints = assembleQualityHints(qualityState);
+    // Query telemetry state for hint generation (graceful degradation)
+    const telemetryState = await queryTelemetryState(store, stateDir);
+
+    // Ready -- include quality hints (with telemetry integration)
+    const qualityHints = assembleQualityHints(qualityState, telemetryState);
 
     // Emit plan-coverage gate event
     await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
