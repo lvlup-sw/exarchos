@@ -272,7 +272,7 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 7 actions for task management, review triage, delegation prep, synthesis prep, and stack assessment', () => {
+    it('should have 7 actions for task management, review triage, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
       expect(composite!.actions).toHaveLength(7);

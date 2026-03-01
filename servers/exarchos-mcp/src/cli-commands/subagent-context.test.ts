@@ -151,12 +151,16 @@ describe('subagent-context', () => {
       const result = filterToolsForPhaseAndRole(phase, role);
 
       // Assert — all orchestrate actions should be denied:
-      // task_claim/task_complete/task_fail (delegate phase only) + review_triage (lead role only) + prepare_delegation/prepare_synthesis/assess_stack (lead role only)
+      // task_claim/task_complete/task_fail (delegate phase only)
+      // + review_triage (lead role only)
+      // + prepare_delegation (delegate phase + lead role)
+      // + prepare_synthesis (lead role only)
+      // + assess_stack (lead role only)
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      expect(deniedOrchestrate!.actions.length).toBe(5);
+      expect(deniedOrchestrate!.actions.length).toBe(7);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {

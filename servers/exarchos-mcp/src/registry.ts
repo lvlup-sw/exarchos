@@ -222,6 +222,12 @@ const REVIEW_PHASES: ReadonlySet<string> = new Set([
   'overhaul-review',
   'debug-review',
 ]);
+const SYNTHESIS_REVIEW_PHASES: ReadonlySet<string> = new Set([
+  'synthesize',
+  'review',
+  'overhaul-review',
+  'debug-review',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -413,7 +419,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
     }),
-    phases: new Set(['synthesize', 'review']),
+    phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
   {
@@ -423,7 +429,7 @@ const orchestrateActions: readonly ToolAction[] = [
       featureId: z.string().min(1),
       prNumbers: z.array(z.number().int()),
     }),
-    phases: new Set(['synthesize', 'review']),
+    phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
 ];
