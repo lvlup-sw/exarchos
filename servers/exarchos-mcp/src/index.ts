@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from './registry.js';
 import { formatResult, type ToolResult } from './format.js';
 import { logger } from './logger.js';
+import { expandTilde } from './utils/paths.js';
 
 // Composite handlers
 import { handleWorkflow } from './workflow/composite.js';
@@ -207,7 +208,7 @@ export function createServer(
 
 export async function resolveStateDir(): Promise<string> {
   if (process.env.WORKFLOW_STATE_DIR) {
-    return process.env.WORKFLOW_STATE_DIR;
+    return expandTilde(process.env.WORKFLOW_STATE_DIR);
   }
 
   return path.join(homedir(), '.claude', 'workflow-state');
