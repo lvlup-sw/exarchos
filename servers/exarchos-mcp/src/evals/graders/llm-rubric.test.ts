@@ -179,6 +179,22 @@ describe('LlmRubricGrader', () => {
     expect(result.reason).toContain('Network timeout');
   });
 
+  it('LlmRubricGrader_MissingOutputPath_ReturnsSkipped', async () => {
+    const result = await grader.grade(
+      {},
+      { tool_calls: [], trace_events: [] },
+      {},
+      { rubric: 'Does the output have tasks?', outputPath: 'tasks' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('tasks');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesLlmRubric).not.toHaveBeenCalled();
+  });
+
   it('LlmRubricGrader_NoApiKey_ReturnsSkipped', async () => {
     delete process.env['ANTHROPIC_API_KEY'];
 

@@ -63,7 +63,10 @@ function runTestSuite(): TestResult {
     return { passed: true, passCount, failCount, output: text };
   } catch (err: unknown) {
     const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = execError.stdout?.toString('utf-8') ?? '';
+    const text = [execError.stdout, execError.stderr]
+      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
+      .map((chunk) => chunk.toString('utf-8'))
+      .join('\n');
     const { passCount, failCount } = parseTestOutput(text);
     return { passed: false, passCount, failCount, output: text };
   }
@@ -91,7 +94,10 @@ function runTypecheck(): TypecheckResult {
     return { passed: true, errorCount: 0 };
   } catch (err: unknown) {
     const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    const text = execError.stdout?.toString('utf-8') ?? '';
+    const text = [execError.stdout, execError.stderr]
+      .filter((chunk): chunk is Buffer => chunk instanceof Buffer)
+      .map((chunk) => chunk.toString('utf-8'))
+      .join('\n');
     const errors = parseTypecheckErrors(text);
     return { passed: false, errorCount: errors.length, errors };
   }

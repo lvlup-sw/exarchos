@@ -269,6 +269,34 @@ describe('handleAssessStack', () => {
       expect(data.recommendation).toBe('fix-and-resubmit');
     });
 
+    it('AssessStack_PendingCi_RecommendsWait', async () => {
+      // Arrange
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pending' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        return Buffer.from('[]');
+      });
+
+      // Act
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { recommendation: string };
+      expect(data.recommendation).toBe('wait');
+    });
+
     it('AssessStack_MaxIterations_RecommendsEscalate', async () => {
       // Arrange — simulate max iterations via prior shepherd.iteration events
       const iterationEvents = Array.from({ length: 5 }, (_, i) => ({
@@ -332,14 +360,15 @@ describe('handleAssessStack', () => {
         STATE_DIR,
       );
 
-      // Assert — ci.status event emitted per PR
+      // Assert — ci.status event emitted per PR with schema-mapped value
       const ciStatusCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'ci.status',
       );
       expect(ciStatusCalls.length).toBe(1);
       expect(ciStatusCalls[0][0]).toBe('test-feature');
-      const eventData = (ciStatusCalls[0][1] as { data: { pr: number } }).data;
+      const eventData = (ciStatusCalls[0][1] as { data: { pr: number; status: string } }).data;
       expect(eventData.pr).toBe(42);
+      expect(eventData.status).toBe('passing');
     });
 
     it('AssessStack_EmitsGateExecutedEvents', async () => {
@@ -370,6 +399,10 @@ describe('handleAssessStack', () => {
         (call: unknown[]) => (call[1] as { type: string }).type === 'gate.executed',
       );
       expect(gateExecutedCalls.length).toBe(2);
+
+      // Verify deterministic idempotency keys (iter-based, not Date.now)
+      const gateIdempotencyKey = (gateExecutedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(gateIdempotencyKey).toMatch(/iter-\d+$/);
 
       // Verify flywheel metadata
       const firstGate = (gateExecutedCalls[0][1] as { data: Record<string, unknown> }).data;
