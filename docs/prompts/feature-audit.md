@@ -292,7 +292,7 @@ grep -rn 'readEvents\|scanEvents\|events\.filter' --include='*.ts' src/handlers/
 grep -rn 'guard.*async\|guard.*await\|guard.*fs\.\|guard.*fetch' --include='*.ts' src/
 
 # 3. Token economy
-wc -w skills/*/SKILL.md | sort -n  # Flag >1,300
+wc -w skills/*/SKILL.md | sort -n  # Flag >1,600
 find src/ -name '*.ts' -exec grep -l 'ToolResult\|toolResponse' {} \; | \
   xargs -I{} wc -c {}  # Review large response builders
 

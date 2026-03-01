@@ -248,7 +248,7 @@ After planning completes, **auto-continue to plan-review** (delta analysis). Set
 - No gaps: present to user for approval (human checkpoint)
 - On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
 
-**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })`. If passed: false → auto-invoke `/exarchos:plan --revise`. If passed: true → proceed to delegation.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })`. If passed: false → auto-invoke `/exarchos:plan --revise`. If passed: true → continue to the plan-review phase (feature: `plan-review`, refactor: `overhaul-plan-review`) and only invoke `/exarchos:delegate` after plan-review approval.
 
 ## Exarchos Integration
 

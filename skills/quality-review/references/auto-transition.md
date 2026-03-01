@@ -28,7 +28,7 @@ All transitions happen **immediately** without user confirmation:
    Skill({ skill: "exarchos:ideate", args: "--redesign <feature-name>" })
    ```
 
-This is NOT a human checkpoint - workflow continues autonomously.
+Quality-review itself is NOT a human checkpoint — it auto-continues. However, the APPROVED path leads to synthesize, which IS a human checkpoint (`WAIT:human-checkpoint:synthesize`).
 
 ## Exarchos Integration
 

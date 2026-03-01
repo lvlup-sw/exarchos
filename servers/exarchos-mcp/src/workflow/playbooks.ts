@@ -758,12 +758,12 @@ register({
     },
   ],
   events: [],
-  transitionCriteria: 'Plan approved → overhaul-delegate | Gaps found → overhaul-plan',
+  transitionCriteria: 'Plan approved → overhaul-delegate | Gaps found → overhaul-plan | Revisions exhausted → blocked',
   guardPrerequisites: 'Plan review complete',
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to overhaul-delegate on approval or back to overhaul-plan if gaps found.',
+    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted.',
 });
 
 register({

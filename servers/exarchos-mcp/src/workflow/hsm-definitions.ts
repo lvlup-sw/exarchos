@@ -286,6 +286,7 @@ export function createRefactorHSM(): HSMDefinition {
       effects: ['log'],
     },
     { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
+    { from: 'blocked', to: 'overhaul-delegate', guard: guards.humanUnblocked },
     {
       from: 'overhaul-delegate',
       to: 'overhaul-review',

@@ -50,7 +50,7 @@ When available, run additional quality gates for D3-D5 dimensions:
 // D3: Context Economy — code complexity impacting LLM context
 exarchos_orchestrate({ action: "check_context_economy", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
 
-// D4: Operational Resilience — empty catches, swallowed errors, console.log
+// D4: Operational Resilience — empty catches (excluding intentional fire-and-forget telemetry), swallowed errors, console.log
 exarchos_orchestrate({ action: "check_operational_resilience", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
 
 // D5: Workflow Determinism — .only/.skip, non-deterministic time/random, debug artifacts

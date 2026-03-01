@@ -98,7 +98,7 @@ For detailed phase instructions, state management, and auto-chain behavior, see 
 
 Rigorous path for architectural changes, migrations, and multi-file restructuring. Uses full delegation model with worktree isolation.
 
-Phases: Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
+Phases: Explore -> Brief -> Plan -> Plan Review -> Delegate -> Review -> Update Docs -> Synthesize
 
 For detailed phase instructions, skill invocations, and auto-chain behavior, see `@skills/refactor/references/overhaul-track.md`.
 

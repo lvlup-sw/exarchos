@@ -396,6 +396,13 @@ describe('HSM State Definitions', () => {
       expect(reviewToDelegate).toBeDefined();
       expect(reviewToDelegate!.isFixCycle).toBe(true);
 
+      // blocked → overhaul-delegate (recovery)
+      expect(
+        transitions.find(
+          (t) => t.from === 'blocked' && t.to === 'overhaul-delegate'
+        )
+      ).toBeDefined();
+
       // synthesize → completed
       expect(
         transitions.find(
@@ -1396,6 +1403,22 @@ describe('Refactor HSM executeTransition', () => {
         phase: 'overhaul-plan-review',
         track: 'overhaul',
         planReview: { approved: true },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-delegate');
+    });
+
+    it('completes blocked to overhaul-delegate recovery transition', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'blocked',
+        track: 'overhaul',
+        unblocked: true,
         _events: [],
         _history: {},
       };

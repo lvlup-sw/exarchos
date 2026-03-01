@@ -44,9 +44,15 @@ function upsertRequirement(
   const existing = requirements.find((r) => r.id === reqId);
 
   if (existing) {
-    // Deduplicate tests by name+file key
-    const existingTestKeys = new Set(existing.tests.map((t) => `${t.name}\0${t.file}`));
-    const newTests = tests.filter((t) => !existingTestKeys.has(`${t.name}\0${t.file}`));
+    // Deduplicate tests by name+file key (includes intra-batch dedup)
+    const seenTestKeys = new Set(existing.tests.map((t) => `${t.name}\0${t.file}`));
+    const newTests: Array<{ name: string; file: string }> = [];
+    for (const t of tests) {
+      const key = `${t.name}\0${t.file}`;
+      if (seenTestKeys.has(key)) continue;
+      seenTestKeys.add(key);
+      newTests.push(t);
+    }
 
     return requirements.map((r) =>
       r.id === reqId
