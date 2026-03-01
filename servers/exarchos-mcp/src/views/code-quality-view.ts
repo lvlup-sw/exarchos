@@ -5,6 +5,12 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 export const CODE_QUALITY_VIEW = 'code-quality';
 
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_BENCHMARKS = 50;
+export const MAX_BENCHMARK_VALUES = 100;
+export const MAX_REGRESSIONS = 50;
+
 // ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface SkillQualityMetrics {
@@ -309,6 +315,10 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
     }
   }
 
+  if (updatedRegressions.length > MAX_REGRESSIONS) {
+    updatedRegressions = updatedRegressions.slice(updatedRegressions.length - MAX_REGRESSIONS);
+  }
+
   return fromInternal({
     ...state,
     gates: { ...state.gates, [gateName]: updatedGate },
@@ -341,10 +351,13 @@ function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): C
     );
 
     if (existing) {
-      const updatedValues = [
+      let updatedValues = [
         ...existing.values,
         { value: result.value, commit: data.taskId ?? '', timestamp: event.timestamp },
       ];
+      if (updatedValues.length > MAX_BENCHMARK_VALUES) {
+        updatedValues = updatedValues.slice(updatedValues.length - MAX_BENCHMARK_VALUES);
+      }
       const updatedTrend = calculateTrend(updatedValues);
 
       benchmarks = benchmarks.map((b) =>
@@ -364,6 +377,10 @@ function handleBenchmarkCompleted(state: InternalState, event: WorkflowEvent): C
         },
       ];
     }
+  }
+
+  if (benchmarks.length > MAX_BENCHMARKS) {
+    benchmarks = benchmarks.slice(benchmarks.length - MAX_BENCHMARKS);
   }
 
   return fromInternal({

@@ -207,9 +207,9 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 ## State Management
 
-On plan save:
+On plan save, transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`.
 ```
-action: "set", featureId: "<id>", phase: "plan-review", updates: {
+action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -243,19 +243,16 @@ scripts/check-coverage-thresholds.sh \
 
 ## Transition
 
-After planning completes, **auto-continue to plan-review** (delta analysis):
+After planning completes, **auto-continue to plan-review** (delta analysis). Set `.phase` to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review compares design sections against planned tasks:
+- Gaps found: set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
+- No gaps: present to user for approval (human checkpoint)
+- On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
 
-1. Set `.phase = "plan-review"` and populate tasks in state
-2. Run plan-review: compare design sections against planned tasks
-   - Gaps found: set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
-   - No gaps: present to user for approval (human checkpoint)
-   - On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
-
-**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage", featureId: "<id>", designPath: "<design>", planPath: "<plan>" })`. If passed: false: auto-invoke `Skill({ skill: "exarchos:plan", args: "--revise <design>" })`. If passed: true: proceed to delegation.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })`. If passed: false → auto-invoke `/exarchos:plan --revise`. If passed: true → continue to the plan-review phase (feature: `plan-review`, refactor: `overhaul-plan-review`) and only invoke `/exarchos:delegate` after plan-review approval.
 
 ## Exarchos Integration
 
-On plan completion, auto-emitted by `exarchos_workflow` `set` when phase transitions — emits `workflow.transition` from plan to plan-review. No manual `exarchos_event` append needed.
+Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow` `set`. No manual `exarchos_event` append needed.
 
 ## Troubleshooting
 

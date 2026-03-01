@@ -111,6 +111,9 @@ Returns: AUTO:refactor-brief
 Returns: AUTO:overhaul-plan
 
 # After plan
+Returns: AUTO:refactor-plan-review
+
+# After plan-review (approved)
 Returns: AUTO:refactor-delegate
 
 # After delegate
@@ -240,6 +243,7 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 | AUTO:refactor-validate | Continue to validate phase (inline) |
 | AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
 | AUTO:overhaul-plan | `Skill({ skill: "exarchos:plan", args: "--refactor <state-file>" })` |
+| AUTO:refactor-plan-review | Plan-review human checkpoint (inline gap analysis) |
 | AUTO:refactor-delegate | `Skill({ skill: "exarchos:delegate", args: "<state-file>" })` |
 | AUTO:refactor-delegate:--fixes | `Skill({ skill: "exarchos:delegate", args: "--fixes <state-file>" })` |
 | AUTO:refactor-review | `Skill({ skill: "exarchos:review", args: "<state-file>" })` |

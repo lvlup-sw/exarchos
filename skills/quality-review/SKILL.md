@@ -130,64 +130,13 @@ scripts/verify-review-triage.sh --state-file <state-file>
 
 Exit 0: triage routing correct — continue to Step 1. Exit 1: triage issues found — investigate and resolve before proceeding.
 
-### Step 1: Static Analysis
+### Step 1: Static Analysis + Security + Extended Gates
 
-Run the static analysis gate via orchestrate:
+Run automated gates via orchestrate actions. See `references/gate-execution.md` for orchestrate action signatures and response handling.
 
-```typescript
-exarchos_orchestrate({
-  action: "check_static_analysis",
-  featureId: "<id>",
-  repoRoot: "<repo-root>"
-})
-```
-
-The handler runs lint, typecheck, and quality-check (if available), distinguishing errors from warnings. It automatically emits a `gate.executed` event with dimension D2.
-
-**On `passed: true`:** All analysis passes — proceed to Step 2.
-**On `passed: false`:** Errors found — fix before continuing review.
-
-### Step 2: Code Walkthrough
-
-Assess each modified file against the quality checklists:
-- Consult `references/code-quality-checklist.md` for code quality, SOLID, DRY, and structural criteria
-- Consult `references/security-checklist.md` for security review criteria
-- Consult `references/typescript-standards.md` for TypeScript-specific conventions (file organization, naming, patterns)
-
-### Step 2.5: Security Scan (Automated)
-
-Run automated security pattern detection via orchestrate:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_security_scan",
-  featureId: "<id>",
-  repoRoot: "<repo-root>",
-  baseBranch: "main"
-})
-```
-
-The handler automatically emits a `gate.executed` event with dimension D1.
-
-**On `passed: true`:** No security patterns detected.
-**On `passed: false`:** Potential security issues found — include in review report.
-
-### Step 2.6: Extended Quality Gates (Optional)
-
-When available, run additional quality gates for D3-D5 dimensions:
-
-```typescript
-// D3: Context Economy — code complexity impacting LLM context
-exarchos_orchestrate({ action: "check_context_economy", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
-
-// D4: Operational Resilience — empty catches, swallowed errors, console.log
-exarchos_orchestrate({ action: "check_operational_resilience", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
-
-// D5: Workflow Determinism — .only/.skip, non-deterministic time/random, debug artifacts
-exarchos_orchestrate({ action: "check_workflow_determinism", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
-```
-
-Each handler automatically emits `gate.executed` events with the appropriate dimension. Findings from these checks are advisory and feed into the convergence view but do not independently block the review.
+1. `check_static_analysis` — lint, typecheck, quality-check (D2). **Must pass** before continuing.
+2. `check_security_scan` — security pattern detection (D1). Include findings in report.
+3. Optional D3-D5 gates: `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism` — advisory, feed convergence view.
 
 ### Step 3: Generate Report
 
@@ -301,95 +250,16 @@ action: "set", featureId: "<id>", phase: "synthesize"
 - [ ] Code is maintainable
 - [ ] State file updated with review results
 
-## Check Convergence
+## Convergence & Verdict
 
-Before computing the verdict, query the convergence view for the aggregate D1-D5 status from all gate events emitted during the pipeline:
+Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.
 
-```typescript
-exarchos_orchestrate({
-  action: "check_convergence",
-  featureId: "<id>"
-})
-```
+Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED/NEEDS_FIXES/BLOCKED.
 
-The handler returns:
-- `passed: true` — all five dimensions (D1-D5) have at least one gate result and all gates passed
-- `passed: false` — one or more dimensions have failing gates or no gate coverage yet
-- `uncheckedDimensions` — dimensions with no gate events (cold pipeline)
-- `dimensions` — per-dimension summary with gate counts and convergence status
+## Auto-Transition
 
-Use the convergence result as structured input to the verdict:
-- If `uncheckedDimensions` is non-empty, note which dimensions lack gate coverage in the review report
-- If a dimension has `converged: false`, include it as a finding in the verdict input
-- If `passed: true`, it provides strong evidence for APPROVED (pending qualitative assessment)
+All transitions are automatic — no user confirmation. See `references/auto-transition.md` for per-verdict transition details, Skill invocations, and integration notes.
 
-## Determine Verdict
-
-Classify review findings into a routing verdict via orchestrate:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_review_verdict",
-  featureId: "<id>",
-  high: <N>,
-  medium: <N>,
-  low: <N>,
-  dimensionResults: {
-    "D1": { passed: true, findingCount: 0 },
-    "D2": { passed: true, findingCount: 0 },
-    // ... include results from each gate run above
-  }
-})
-```
-
-The handler automatically emits per-dimension and summary `gate.executed` events. No manual event emission needed.
-
-**On `verdict: "APPROVED"`:** Proceed to synthesis.
-**On `verdict: "NEEDS_FIXES"`:** Route to `/exarchos:delegate --fixes`.
-**On `verdict: "BLOCKED"`:** Return to design phase.
-
-## Transition
-
-All transitions happen **immediately** without user confirmation:
-
-### If APPROVED:
-1. Update state: `action: "set", featureId: "<id>", phase: "synthesize"`
-2. Output: "Quality review passed. Auto-continuing to synthesis..."
-3. Auto-invoke synthesize:
-   ```typescript
-   Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
-   ```
-
-### If NEEDS_FIXES:
-1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality": { "status": "fail", "issues": [...] } } }`
-2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
-3. Auto-invoke delegate with fix tasks:
-   ```typescript
-   Skill({ skill: "exarchos:delegate", args: "--fixes <plan-path>" })
-   ```
-
-### If BLOCKED:
-1. Update state: `action: "set", featureId: "<id>", phase: "blocked"`
-2. Output: "Quality review blocked: [issue]. Returning to design..."
-3. Auto-invoke ideate for redesign:
-   ```typescript
-   Skill({ skill: "exarchos:ideate", args: "--redesign <feature-name>" })
-   ```
-
-This is NOT a human checkpoint - workflow continues autonomously.
-
-## Exarchos Integration
-
-Gate events are automatically emitted by the orchestrate handlers — do NOT manually emit `gate.executed` events via `exarchos_event`.
-
-1. **Read CI status** via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
-2. **Gate events** — emitted automatically by `check_static_analysis`, `check_security_scan`, `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`, and `check_review_verdict` handlers
-3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
-4. **Query convergence** via `exarchos_view` with `action: "convergence"`, `workflowId: "<featureId>"` for per-dimension gate results
-5. **When all per-PR gates pass**, apply `stack-ready` label to the PR
-
-## Performance Notes
-
-- Complete each step fully before advancing — quality over speed
-- Do not skip validation checks even when the change appears trivial
-- Read each checklist file completely before scoring. Do not skip security or SOLID checks even for small changes.
+- **APPROVED** → set phase `synthesize`, invoke `/exarchos:synthesize`
+- **NEEDS_FIXES** → invoke `/exarchos:delegate --fixes`
+- **BLOCKED** → set phase `blocked`, invoke `/exarchos:ideate --redesign`

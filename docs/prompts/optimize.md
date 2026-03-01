@@ -34,7 +34,7 @@ Every byte in a tool response or skill body consumes agent context window.
 
 **Event payloads:** Event types must not carry large freeform strings (`detail`, `diagnostics`, `context`) that inflate view projections downstream. Keep events lean; attach detail to linked artifacts, not to the event itself.
 
-**Skill budget:** SKILL.md files should stay under 1,300 words. Move templates, checklists, code blocks, and reference material to `references/` for on-demand access. Commands must reference skills via `@skills/` paths, not embed skill content inline. References should be linked for progressive discovery, not loaded eagerly.
+**Skill budget:** SKILL.md files should stay under 1,600 words. Move templates, checklists, code blocks, and reference material to `references/` for on-demand access. Commands must reference skills via `@skills/` paths, not embed skill content inline. References should be linked for progressive discovery, not loaded eagerly.
 
 **Rule budget:** Rules should be concise behavioral constraints, not verbose implementation guides. Consolidate related rules without losing specificity. Eliminate duplication with `CLAUDE.md` or skills. Scope rules to file patterns via `paths` frontmatter where applicable.
 

@@ -299,9 +299,10 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['overhaul-track'].type).toBe('compound');
       expect(hsm.states['overhaul-track'].maxFixCycles).toBe(3);
 
-      // OverhaulTrack children: plan, delegate, review, update-docs (no integrate)
+      // OverhaulTrack children: plan, plan-review, delegate, review, update-docs (no integrate)
       for (const child of [
         'overhaul-plan',
+        'overhaul-plan-review',
         'overhaul-delegate',
         'overhaul-review',
         'overhaul-update-docs',
@@ -354,10 +355,15 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // Overhaul track flow (no integrate step)
+      // Overhaul track flow (no integrate step, plan-review before delegate)
       expect(
         transitions.find(
-          (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-delegate'
+          (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-plan-review'
+        )
+      ).toBeDefined();
+      expect(
+        transitions.find(
+          (t) => t.from === 'overhaul-plan-review' && t.to === 'overhaul-delegate'
         )
       ).toBeDefined();
       expect(
@@ -389,6 +395,13 @@ describe('HSM State Definitions', () => {
       );
       expect(reviewToDelegate).toBeDefined();
       expect(reviewToDelegate!.isFixCycle).toBe(true);
+
+      // blocked → overhaul-delegate (recovery)
+      expect(
+        transitions.find(
+          (t) => t.from === 'blocked' && t.to === 'overhaul-delegate'
+        )
+      ).toBeDefined();
 
       // synthesize → completed
       expect(
@@ -1368,12 +1381,44 @@ describe('Refactor HSM executeTransition', () => {
   });
 
   describe('overhaul track flow', () => {
-    it('completes overhaul-plan to overhaul-delegate transition', () => {
+    it('completes overhaul-plan to overhaul-plan-review transition', () => {
       const hsm = getHSMDefinition('refactor');
       const state: Record<string, unknown> = {
         phase: 'overhaul-plan',
         track: 'overhaul',
         artifacts: { plan: 'docs/plan.md' },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-plan-review');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-plan-review');
+    });
+
+    it('completes overhaul-plan-review to overhaul-delegate transition', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'overhaul-plan-review',
+        track: 'overhaul',
+        planReview: { approved: true },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-delegate');
+    });
+
+    it('completes blocked to overhaul-delegate recovery transition', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'blocked',
+        track: 'overhaul',
+        unblocked: true,
         _events: [],
         _history: {},
       };

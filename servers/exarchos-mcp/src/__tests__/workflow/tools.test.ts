@@ -1878,7 +1878,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
     expect(data.action).toBe('WAIT:human-checkpoint:polish-update-docs');
   });
 
-  it('overhaulPlan_GuardPasses_ReturnsAutoRefactorDelegate', async () => {
+  it('overhaulPlan_GuardPasses_ReturnsAutoRefactorPlanReview', async () => {
     await handleInit({ featureId: 'refactor-na-overhaul-plan', workflowType: 'refactor' }, tmpDir);
 
     // Advance to overhaul-plan via direct state manipulation
@@ -1894,7 +1894,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-delegate');
+    expect(data.action).toBe('AUTO:refactor-plan-review');
   });
 
   it('overhaulUpdateDocs_GuardPasses_ReturnsAutoRefactorSynthesize', async () => {

@@ -5,6 +5,10 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 
 export const PROVENANCE_VIEW = 'provenance';
 
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_ORPHAN_TASKS = 200;
+
 // ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface RequirementStatus {
@@ -40,13 +44,23 @@ function upsertRequirement(
   const existing = requirements.find((r) => r.id === reqId);
 
   if (existing) {
+    // Deduplicate tests by name+file key (includes intra-batch dedup)
+    const seenTestKeys = new Set(existing.tests.map((t) => `${t.name}\0${t.file}`));
+    const newTests: Array<{ name: string; file: string }> = [];
+    for (const t of tests) {
+      const key = `${t.name}\0${t.file}`;
+      if (seenTestKeys.has(key)) continue;
+      seenTestKeys.add(key);
+      newTests.push(t);
+    }
+
     return requirements.map((r) =>
       r.id === reqId
         ? {
             ...r,
-            tasks: [...r.tasks, taskId],
-            tests: [...r.tests, ...tests],
-            files: [...r.files, ...files],
+            tasks: [...new Set([...r.tasks, taskId])],
+            files: [...new Set([...r.files, ...files])],
+            tests: [...r.tests, ...newTests],
           }
         : r,
     );
@@ -98,7 +112,10 @@ function handleTaskCompleted(
 
   // No implements or empty implements → orphan task
   if (implementsArr.length === 0) {
-    const updatedOrphans = [...state.orphanTasks, data.taskId];
+    let updatedOrphans = [...state.orphanTasks, data.taskId];
+    if (updatedOrphans.length > MAX_ORPHAN_TASKS) {
+      updatedOrphans = updatedOrphans.slice(updatedOrphans.length - MAX_ORPHAN_TASKS);
+    }
     return {
       ...state,
       orphanTasks: updatedOrphans,

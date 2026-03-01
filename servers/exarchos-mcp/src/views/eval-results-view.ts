@@ -5,6 +5,12 @@ import { JudgeCalibratedDataSchema, type WorkflowEvent } from '../event-store/sc
 
 export const EVAL_RESULTS_VIEW = 'eval-results';
 
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_EVAL_RUNS = 100;
+export const MAX_CALIBRATIONS = 50;
+export const MAX_SCORE_HISTORY = 50;
+
 // ─── View State Interfaces ─────────────────────────────────────────────────
 
 export interface SkillEvalMetrics {
@@ -162,7 +168,10 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
 
   // Update score history for trend calculation
   const prevScoreHistory = state._scoreHistory[suiteId] ?? { scores: [] };
-  const updatedScores = [...prevScoreHistory.scores, avgScore];
+  let updatedScores = [...prevScoreHistory.scores, avgScore];
+  if (updatedScores.length > MAX_SCORE_HISTORY) {
+    updatedScores = updatedScores.slice(updatedScores.length - MAX_SCORE_HISTORY);
+  }
   const trend = calculateTrend(updatedScores);
 
   // Count regressions for this skill
@@ -187,10 +196,15 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
     capabilityPassRate,
   };
 
+  let updatedRuns = [...state.runs, newRun];
+  if (updatedRuns.length > MAX_EVAL_RUNS) {
+    updatedRuns = updatedRuns.slice(updatedRuns.length - MAX_EVAL_RUNS);
+  }
+
   return fromInternal({
     ...state,
     skills: { ...state.skills, [suiteId]: updatedSkill },
-    runs: [...state.runs, newRun],
+    runs: updatedRuns,
     _scoreHistory: { ...state._scoreHistory, [suiteId]: { scores: updatedScores } },
   });
 }
@@ -292,9 +306,14 @@ function handleJudgeCalibrated(state: InternalState, event: WorkflowEvent): Eval
     calibratedAt: event.timestamp,
   };
 
+  let updatedCalibrations = [...state.calibrations, record];
+  if (updatedCalibrations.length > MAX_CALIBRATIONS) {
+    updatedCalibrations = updatedCalibrations.slice(updatedCalibrations.length - MAX_CALIBRATIONS);
+  }
+
   return fromInternal({
     ...state,
-    calibrations: [...state.calibrations, record],
+    calibrations: updatedCalibrations,
   });
 }
 
