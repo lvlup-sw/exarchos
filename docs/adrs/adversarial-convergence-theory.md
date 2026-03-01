@@ -303,12 +303,15 @@ VSDD is a **methodology** — it prescribes what actors should do. The extended 
 ## 7. Open Questions
 
 1. **Graduated gate cost**: How much context budget do lightweight adversarial checks consume? Need empirical measurement before committing to checks at every gate.
+   > *Partially addressed (2026-02-28)*: Gate checks are now routed through `exarchos_orchestrate` handlers that wrap deterministic bash scripts. Scripts execute in <5s each. Context cost is the structured result JSON (~200 tokens), not the full script output. Empirical measurement of cumulative per-workflow cost is still needed.
 
 2. **Provenance automation**: Can requirement IDs be extracted from design docs automatically, or does the human architect need to assign them explicitly during `/ideate`?
+   > *Partially addressed (2026-02-28)*: Provenance chain implemented via `TaskCompletedData` schema extensions (`implements[]`, `tests[]`, `files[]`) and `ProvenanceView` CQRS projection. Requirement IDs are still manually assigned during `/ideate` (DR-N pattern in design template). Automated extraction remains future work.
 
 3. **Convergence dimension weights**: While dimensions are conjunctive (all must pass), should the severity thresholds within each dimension be calibrated differently for different project types?
 
 4. **Feedback loops**: When $C_{adv}$ fails at an early gate (e.g., plan → plan-review), how far back should the workflow regress? Always to the immediately prior phase, or conditionally to an earlier phase based on the dimension that failed?
+   > *Addressed (2026-02-28)*: Gate handlers return structured results with `passed` boolean. Skill instructions gate on this: brainstorming skill treats design-completeness as advisory (doesn't block), delegation skill keeps tasks in-progress on TDD failure, review skill routes to `--fixes` on failure or `--redesign` on blocked.
 
 ---
 
