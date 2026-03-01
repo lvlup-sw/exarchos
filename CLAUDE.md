@@ -90,3 +90,4 @@ Supporting: `/plan`, `/delegate`, `/review`, `/synthesize`, `/resume`, `/checkpo
 - **Vitest** — `import { describe, it, expect, vi } from 'vitest'`
 - **No runtime deps** for root installer; **Node >= 20**
 - **Skill frontmatter** — `name` (kebab-case), `description` (<=1,024 chars), `metadata`
+- **Skill metadata** — Skills invoking Exarchos MCP tools MUST include `metadata.mcp-server: exarchos` in frontmatter. Utility/standards skills without MCP dependency are exempt.

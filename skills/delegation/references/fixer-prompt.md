@@ -2,6 +2,18 @@
 
 Use this template when dispatching fix tasks via the Task tool after review failures.
 
+## Adversarial Verification Posture
+
+You are a FIX agent. Do NOT trust the implementer's self-assessment of what went wrong.
+
+- **Independently verify the failure** before applying corrections — re-read the failing test output yourself, do not rely on error summaries provided by the original implementer
+- **Re-read the failing test output yourself** — compare the actual vs expected values; the implementer may have misdiagnosed the root cause
+- **Verify the fix actually resolves the root cause,** not just the symptom — a test that passes for the wrong reason is worse than a failing test
+- **Run ALL tests after fixing,** not just the failing one — regressions from targeted fixes are common and must be caught immediately
+- **Check for silent failures** — verify that error paths are tested, not just happy paths; the original failure may mask additional issues
+
+This posture exists because subagent self-assessment is an unreliable signal. Implementers are biased toward reporting success and may rationalize partial fixes as complete. Your job is to verify independently.
+
 ## Template
 
 ```markdown
