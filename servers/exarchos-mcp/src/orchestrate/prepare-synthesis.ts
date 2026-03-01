@@ -10,7 +10,7 @@ import type { ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
-import type { EventStore } from '../event-store/store.js';
+import { emitGateEvent } from './gate-utils.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -168,26 +168,6 @@ function checkTaskCompletion(
   return { allComplete: blockers.length === 0, blockers };
 }
 
-// ─── Event Emission ────────────────────────────────────────────────────────
-
-async function emitGateEvent(
-  store: EventStore,
-  streamId: string,
-  gateName: string,
-  passed: boolean,
-  details?: Record<string, unknown>,
-): Promise<void> {
-  await store.append(streamId, {
-    type: 'gate.executed',
-    data: {
-      gateName,
-      layer: 'CI',
-      passed,
-      details,
-    },
-  });
-}
-
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handlePrepareSynthesis(
@@ -243,7 +223,7 @@ export async function handlePrepareSynthesis(
     const tests = runTestSuite();
 
     // 5. Emit gate.executed event for test-suite (feeds flywheel)
-    await emitGateEvent(store, streamId, 'test-suite', tests.passed, {
+    await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       passCount: tests.passCount,
       failCount: tests.failCount,
     });
@@ -252,7 +232,7 @@ export async function handlePrepareSynthesis(
     const typecheck = runTypecheck();
 
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
-    await emitGateEvent(store, streamId, 'typecheck', typecheck.passed, {
+    await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
       errorCount: typecheck.errorCount,
       errors: typecheck.errors,
     });
