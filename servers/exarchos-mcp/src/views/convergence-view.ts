@@ -24,7 +24,7 @@ export interface ConvergenceViewState {
   readonly dimensions: Record<string, {
     readonly dimension: string;       // 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
     readonly label: string;           // Human-readable name
-    readonly gateResults: Array<{ gateName: string; passed: boolean; timestamp: string }>;
+    readonly gateResults: Array<{ gateName: string; passed: boolean; timestamp: string; phase?: string }>;
     readonly converged: boolean;      // All gates for this dimension passed
     readonly lastChecked: string | null;
   }>;
@@ -35,7 +35,7 @@ export interface ConvergenceViewState {
 // ─── Convergence Predicates ────────────────────────────────────────────────
 
 function isDimensionConverged(
-  gateResults: Array<{ gateName: string; passed: boolean; timestamp: string }>,
+  gateResults: Array<{ gateName: string; passed: boolean; timestamp: string; phase?: string }>,
 ): boolean {
   if (gateResults.length === 0) return false;
   return gateResults.every((r) => r.passed);
@@ -79,12 +79,14 @@ function handleGateExecuted(
   if (!ALL_DIMENSIONS.includes(dimension as typeof ALL_DIMENSIONS[number])) return state;
 
   const passed = data.passed ?? false;
+  const phase = data.details?.phase as string | undefined;
   const existing = state.dimensions[dimension];
 
   const newGateResult = {
     gateName: data.gateName,
     passed,
     timestamp: event.timestamp,
+    ...(phase !== undefined && { phase }),
   };
 
   const updatedGateResults = existing

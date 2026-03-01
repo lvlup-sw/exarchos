@@ -156,6 +156,36 @@ describe('ConvergenceView', () => {
     });
   });
 
+  // ─── T8: gate.executed with phase — stores phase on gate result ───────────
+
+  describe('apply - gate.executed with phase', () => {
+    it('handleGateExecuted_WithPhaseInDetails_StoresPhaseOnGateResult', () => {
+      const state = convergenceProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'test-gate',
+        passed: true,
+        details: { dimension: 'D1', phase: 'review' },
+      });
+
+      const result = convergenceProjection.apply(state, event);
+
+      expect(result.dimensions.D1.gateResults[0].phase).toBe('review');
+    });
+
+    it('handleGateExecuted_WithoutPhase_StoresUndefinedPhase', () => {
+      const state = convergenceProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'test-gate',
+        passed: true,
+        details: { dimension: 'D1' },
+      });
+
+      const result = convergenceProjection.apply(state, event);
+
+      expect(result.dimensions.D1.gateResults[0].phase).toBeUndefined();
+    });
+  });
+
   // ─── T7: Non-gate event — ignored ─────────────────────────────────────────
 
   describe('apply - non-gate events', () => {
