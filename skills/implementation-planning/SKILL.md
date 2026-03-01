@@ -151,8 +151,8 @@ exarchos_orchestrate({
 ```
 
 - **passed: true** — All DR-N requirements traced; proceed to 5b
-- **passed: false** — Advisory: gaps or orphan references found; add `**Implements:** DR-N` to tasks or investigate orphans. Does not independently block (5a coverage already blocks on section gaps).
-- **error** — No DR-N identifiers in design (exit 2); if design doesn't use DR-N identifiers, this check is skipped
+- **passed: false** — **Block:** gaps or orphan references found. Add `**Implements:** DR-N` to tasks for each uncovered requirement before proceeding. Every DR-N requirement MUST trace to at least one task.
+- **error** — No DR-N identifiers in design (exit 2); if design doesn't use DR-N identifiers, this check is skipped (exempt)
 
 **5b. Spec coverage check** — verify planned test files exist and pass:
 
@@ -209,7 +209,7 @@ action: "set", featureId: "<id>", phase: "plan-review", updates: {
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
-- [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` run (advisory; gaps reported but don't block)
+- [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` passed (blocking; gaps must be resolved before proceeding)
 - [ ] Spec coverage check passed — `scripts/spec-coverage-check.sh` exit 0
 - [ ] Coverage thresholds met — `scripts/check-coverage-thresholds.sh` exit 0:
 
