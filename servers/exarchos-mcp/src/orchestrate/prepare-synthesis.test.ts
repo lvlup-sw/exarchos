@@ -177,9 +177,9 @@ describe('handlePrepareSynthesis', () => {
     expect(typecheckEvent.data.layer).toBe('CI');
   });
 
-  // ─── Test 5: Stack checked and emits stack event if needed ────────────────
+  // ─── Test 5: Stack checked uses git log, not gt log ─────────────────────
 
-  it('PrepareSynthesis_StackReconstructed_EmitsStackEvent', async () => {
+  it('verifyStack_UsesGitLog_NotGtLog', async () => {
     // Arrange
     const taskView = mockTaskDetailView({
       't1': { status: 'completed' },
@@ -188,16 +188,25 @@ describe('handlePrepareSynthesis', () => {
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
-    // Tests and typecheck pass
+    // Tests and typecheck pass, then git log returns commit info
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))      // test suite
       .mockReturnValueOnce(Buffer.from(''))                       // typecheck
-      .mockReturnValueOnce(Buffer.from('main\n  feature-branch\n    sub-branch')); // gt log
+      .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature\n* def5678 fix: bug fix')); // git log
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
 
-    // Assert — stack should be reported
+    // Assert — verify git log was called (not gt log)
+    const execCalls = vi.mocked(execSync).mock.calls;
+    const stackCall = execCalls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('log'),
+    );
+    expect(stackCall).toBeDefined();
+    expect(stackCall![0]).toContain('git log');
+    expect(stackCall![0]).not.toContain('gt log');
+
+    // Stack result should still be healthy
     const data = result.data as { stack: { healthy: boolean; branches: string[] } };
     expect(data.stack).toBeDefined();
     expect(data.stack.healthy).toBe(true);
@@ -342,7 +351,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync)
       .mockImplementationOnce(() => { throw testError; })  // test suite fails
       .mockReturnValueOnce(Buffer.from(''))                  // typecheck passes
-      .mockReturnValueOnce(Buffer.from('main'));             // gt log
+      .mockReturnValueOnce(Buffer.from('main'));             // git log
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
@@ -371,7 +380,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))     // test suite passes
       .mockImplementationOnce(() => { throw typecheckError; })  // typecheck fails
-      .mockReturnValueOnce(Buffer.from('main'));                // gt log
+      .mockReturnValueOnce(Buffer.from('main'));                // git log
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);

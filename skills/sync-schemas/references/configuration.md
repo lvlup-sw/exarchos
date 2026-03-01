@@ -57,13 +57,11 @@ fi
 # After editing PatientEndpoints.cs
 /sync-schemas
 
-# Verify and commit via Graphite
+# Verify and commit
 git add shared/ apps/ares-elite-web/src/api/generated/
-gt create chore/schema-sync -m "chore: regenerate TypeScript types from OpenAPI"
-gt submit --no-interactive --publish
+git commit -m "chore: regenerate TypeScript types from OpenAPI"
+git push
 ```
-
-**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
 ### In Worktree
 ```bash

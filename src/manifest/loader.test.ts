@@ -292,7 +292,6 @@ describe('Real Manifest File (E5)', () => {
     const manifest = loadManifest(manifestPath);
     const required = getRequiredComponents(manifest);
     expect(required.servers).toContain('exarchos');
-    expect(required.servers).toContain('graphite');
   });
 
   it('manifest_ContainsAllPlugins', () => {
@@ -347,5 +346,11 @@ describe('Real Manifest File (E5)', () => {
     const manifest = loadManifest(manifestPath);
     const coreIds = manifest.components.core.map((c) => c.id);
     expect(coreIds).not.toContain('hooks');
+  });
+
+  it('loadManifest_McpServers_DoesNotContainGraphite', () => {
+    const manifest = loadManifest(manifestPath);
+    const serverIds = manifest.components.mcpServers.map((s) => s.id);
+    expect(serverIds).not.toContain('graphite');
   });
 });

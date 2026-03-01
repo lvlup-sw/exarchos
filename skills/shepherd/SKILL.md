@@ -28,7 +28,7 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in `synthesis.prUrl` or `artifacts.pr`)
-- Graphite stack submitted (`gt submit` already ran)
+- PRs created and pushed (`gh pr create` already ran)
 - GitHub MCP tools available (preferred) or `gh` CLI authenticated
 
 ## Process
@@ -61,7 +61,7 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 The composite action internally handles:
 - CI status checking for all PRs
 - Formal review status (APPROVED / CHANGES_REQUESTED)
-- Inline review comment polling and thread resolution (Sentry, Graphite, CodeRabbit, humans)
+- Inline review comment polling and thread resolution (Sentry, CodeRabbit, humans)
 - Stack health verification
 - Event emission: `gate.executed` events per CI check (feeds CodeQualityView) and `ci.status` events per PR (feeds ShepherdStatusView). See `references/gate-event-emission.md` for the event format.
 
@@ -115,7 +115,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 | `ci-fix` | Read logs, reproduce locally, fix, commit to stack branch |
 | `comment-reply` | Read context from `actionItem.context`, compose response, post via GitHub MCP |
 | `review-address` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| `restack` | Run `gt restack`, verify with `gt log` |
+| `restack` | Run `git rebase origin/<base>`, verify with `gh pr list` |
 | `escalate` | Consult `references/escalation-criteria.md` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -123,8 +123,10 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 ### Step 3 — Resubmit
 
 After fixes are applied, resubmit the stack:
-```
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
+```bash
+git push --force-with-lease
+# Re-enable auto-merge if needed:
+gh pr merge <number> --auto --squash
 ```
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching `request-approval`, escalate per `references/escalation-criteria.md`.

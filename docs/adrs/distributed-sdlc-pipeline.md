@@ -80,7 +80,7 @@ flowchart TB
         TM["Teammates (TM 1..N)"]
         Watcher["Watcher Teammate (Haiku)"]
         WT["Worktrees (isolated)"]
-        Graphite["Graphite MCP"]
+        GitHub["GitHub CLI (gh)"]
 
         Lead --> Exarchos
         Lead --> TM
@@ -110,7 +110,7 @@ flowchart TB
 | | Exarchos MCP (unified) | Workflow HSM (state machine transitions + guards), Team Coordinator (spawn/message/shutdown teammates), Event Store (local JSONL + outbox), Task Router (local vs. remote dispatch), View Materializer (merged CQRS views), Streaming Sync Engine (MCP client for Basileus Workflow MCP Server), Notification Queue (priority-based delivery to developer). Single server exposes 32 MCP tools. Acts as both MCP server (for Claude Code) and MCP client (for Basileus). |
 | | Teammates | Parallel implementation and review agents, each with independent context |
 | | Worktrees | Isolated git worktrees per task branch |
-| | Graphite MCP | Stack management, PR submission, merge queue integration |
+| | GitHub CLI (gh) | PR creation, stack management via `--base` targeting, merge queue integration |
 | Basileus Backend | AgentHost | Workflow Registry (all active workflows), Agentic Coder Sagas, Workflow MCP Server (event streaming + developer commands), Cross-Session Coordinator (dependency resolution, resource allocation) |
 | | Marten Event Store | Unified stream per workflow (local + remote events), CQRS Projections (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView) |
 | | ControlPlane + Containers | Container per coding task — cloned repo, dev tooling, MCP tools, autonomous plan-code-test-review loop, emits CodingEvents |
@@ -240,7 +240,7 @@ The tiers amplify each other through the unified event stream:
 
 **Strategos enables what local can't.** Exarchos provides a lightweight local saga model (event store + HSM + circuit breakers + saga compensation). Strategos (the Basileus workflow runtime) provides the full distributed version: saga compensation across containers, checkpoint/resume for multi-hour tasks, and cross-session coordination across multiple developers' Exarchos instances. The local model is deliberately designed as a subset of the remote model — same patterns, smaller scale.
 
-Progressive stacking via Graphite replaces the monolithic PR model. Instead of producing a single large PR per feature, each feature decomposes into a stack of small, focused, independently-reviewable PRs that merge in order through a stack-aware merge queue. This enables progressive review (early finishers get reviewed immediately) and eliminates the `/integrate` phase — its responsibilities are absorbed by progressive stacking within `/delegate` and per-PR/per-stack CI gates. See [Graphite Stacked PR Integration](../designs/2026-02-07-graphite-sdlc-integration.md) for the full design.
+Progressive stacking via GitHub replaces the monolithic PR model. Instead of producing a single large PR per feature, each feature decomposes into a stack of small, focused, independently-reviewable PRs that merge in order through GitHub's merge queue. This enables progressive review (early finishers get reviewed immediately) and eliminates the `/integrate` phase — its responsibilities are absorbed by progressive stacking within `/delegate` and per-PR/per-stack CI gates. PRs are created with `gh pr create --base <base-branch>` targeting, where each PR in the stack targets the previous PR's branch.
 
 ### Operational Modes
 
@@ -419,7 +419,7 @@ All teammates and the lead access these tools via the shared MCP server instance
 
 > **Note:** These tools are part of the [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md) design. `exarchos_notify_wait` is the key enabler of the Layer 3 Watcher Teammate — it blocks (consuming zero tokens) until a notification arrives, providing near-real-time (~1 second) event delivery within Claude Code's native agent team messaging. The `exarchos_remote_*` tools proxy developer commands through the MCP streamable HTTP connection to Basileus.
 
-> **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the Graphite stack at its designated position.
+> **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the PR stack at its designated position.
 
 ### Team Coordinator
 
@@ -438,7 +438,7 @@ The Team Coordinator manages the full teammate lifecycle: spawn, message, and sh
   +-- Read plan, extract tasks and stackOrder
   +-- Create worktrees for each task
   +-- Determine team composition
-  +-- Initialize Graphite stack (gt init if needed)
+  +-- Initialize PR stack (create base branches if needed)
   +-- exarchos_team_spawn(implementer_1, { worktree, task, model: "opus" })
   +-- exarchos_team_spawn(implementer_2, { worktree, task, model: "opus" })
   +-- exarchos_team_spawn(implementer_N, ...)
@@ -447,12 +447,12 @@ The Team Coordinator manages the full teammate lifecycle: spawn, message, and sh
   +-- Monitor via exarchos_view_progress + exarchos_stack_status
   |   +-- On TaskCompleted:
   |   |     +-- Evaluate stack position from stackOrder
-  |   |     +-- If all lower positions filled -> exarchos_stack_place -> gt submit -> PR created
+  |   |     +-- If all lower positions filled -> gh pr create --base <prev-branch> -> PR created
   |   |     +-- If lower positions missing -> queue for deferred placement
-  |   |     +-- gt restack (rebase higher positions if needed)
+  |   |     +-- git rebase (rebase higher positions if needed)
   |   |     +-- Emit StackPositionFilled event
   |   +-- On TaskFailed -> decide: retry, reassign, or escalate
-  |   +-- On all positions filled -> gt restack if needed -> exarchos_team_shutdown all -> /review
+  |   +-- On all positions filled -> rebase if needed -> exarchos_team_shutdown all -> /review
   +-- Circuit breaker: max 3 fix cycles before human checkpoint
 ```
 
@@ -1540,7 +1540,7 @@ Merge queue: per-stack deterministic gates -> fast-forward merge to main
 
 ### Path B: Fully Autonomous (Basileus-First)
 
-A CI event (GitHub issue, scheduled task, Renovate PR) triggers Basileus directly. No developer session needed. Basileus runs the full pipeline using Agentic Coder containers with Graphite stack submission.
+A CI event (GitHub issue, scheduled task, Renovate PR) triggers Basileus directly. No developer session needed. Basileus runs the full pipeline using Agentic Coder containers with GitHub PR stack submission.
 
 ```text
 CI Event: "Bug fix: null reference in workflow step"
@@ -1551,7 +1551,7 @@ Basileus: Create workflow, plan single task, stackOrder: [T1]
   v
 Agentic Coder container:
   - Autonomous coding loop (plan -> code -> test -> review)
-  - On success: gt create gt/fix/01-null-ref-fix -> gt submit -> PR #1
+  - On success: git push -> gh pr create --base main -> PR #1
   - All events emitted to Marten stream
   |
   v
@@ -1561,7 +1561,7 @@ Basileus: Apply 'agentic-coder' + 'stack-ready' labels
 Layer 4 advisory reviews (if configured for auto-PRs)
   |
   v
-gt merge (enqueue in merge queue)
+gh pr merge --auto --squash (enqueue in merge queue)
   |
   v
 [HUMAN CHECKPOINT: approve merge (or auto-merge if configured)]
@@ -1569,7 +1569,7 @@ gt merge (enqueue in merge queue)
 
 Both paths share the event taxonomy defined in [section 7](#7-unified-event-stream) and the CQRS views defined in [section 8](#8-cqrs-views). A developer monitoring the PipelineView sees both developer-led and autonomous workflows in the same dashboard.
 
-> **Note:** `/integrate` has been eliminated. Its responsibilities -- branch merge, combined tests, conflict resolution, build verification -- are absorbed by progressive stacking within `/delegate` (agents work in parallel, completed work placed into the Graphite stack, conflicts resolved via `gt restack`) and per-PR/per-stack CI gates (build verification, unit tests, integration tests run automatically on each PR and on the assembled stack in the merge queue).
+> **Note:** `/integrate` has been eliminated. Its responsibilities -- branch merge, combined tests, conflict resolution, build verification -- are absorbed by progressive stacking within `/delegate` (agents work in parallel, completed work placed into the PR stack, conflicts resolved via `git rebase`) and per-PR/per-stack CI gates (build verification, unit tests, integration tests run automatically on each PR and on the assembled stack in the merge queue).
 
 ---
 
@@ -1631,24 +1631,24 @@ This coordination happens through the event stream — no direct communication b
 
 ### Dependency Resolution
 
-**File-level conflicts:** Each task operates in its own worktree (local) or container (remote). No two tasks modify the same files. Progressive stacking via `gt restack` detects and resolves merge conflicts as each task is placed into the stack.
+**File-level conflicts:** Each task operates in its own worktree (local) or container (remote). No two tasks modify the same files. Progressive stacking via `git rebase` detects and resolves merge conflicts as each task is placed into the stack.
 
-**Branch strategy (dual-branch model):** Agent work branches are temporary -- they exist during parallel execution and are consumed when placed into the Graphite stack. The `gt/` prefixed branches are the Graphite-managed stack. Naming convention: `gt/<feature-id>/<NN>-<task-slug>`.
+**Branch strategy (dual-branch model):** Agent work branches are temporary -- they exist during parallel execution and are consumed when placed into the PR stack. The `stack/` prefixed branches are the stack-managed PRs. Naming convention: `stack/<feature-id>/<NN>-<task-slug>`.
 
 ```text
 main
-  ├── gt/user-auth/01-jwt-middleware (stack position 1, PR #1)
-  │     └── gt/user-auth/02-db-migrations (stack position 2, PR #2)
-  │           └── gt/user-auth/03-api-endpoints (stack position 3, PR #3)
-  │                 └── gt/user-auth/04-unit-tests (stack position 4, PR #4)
-  │                       └── gt/user-auth/05-integration-tests (stack position 5, PR #5)
+  ├── stack/user-auth/01-jwt-middleware (stack position 1, PR #1 --base main)
+  │     └── stack/user-auth/02-db-migrations (stack position 2, PR #2 --base 01-jwt-middleware)
+  │           └── stack/user-auth/03-api-endpoints (stack position 3, PR #3 --base 02-db-migrations)
+  │                 └── stack/user-auth/04-unit-tests (stack position 4, PR #4 --base 03-api-endpoints)
+  │                       └── stack/user-auth/05-integration-tests (stack position 5, PR #5 --base 04-unit-tests)
   │
   ├── feat/user-auth/task-1-jwt (agent work branch, temporary)
   ├── feat/user-auth/task-2-migrations (agent work branch, temporary)
   └── ...
 ```
 
-The numeric prefix in the `gt/` branch names ensures sort order matches stack order. Graphite tracks the parent-child relationships internally. Agent work branches (`feat/` prefix) are created when agents start working and are consumed (cherry-picked/rebased) into the stack when placed at their designated position. After placement, the temporary agent branches can be cleaned up.
+The numeric prefix in the `stack/` branch names ensures sort order matches stack order. GitHub tracks the parent-child relationships via PR `--base` targeting. Agent work branches (`feat/` prefix) are created when agents start working and are consumed (cherry-picked/rebased) into the stack when placed at their designated position. After placement, the temporary agent branches can be cleaned up.
 
 ---
 
@@ -1701,7 +1701,7 @@ These gates run in CI as the comprehensive safety net. Each gate is assigned to 
 | **DB Migration Sandbox** | Testcontainers | 3 (Integration) | Per-Stack | Medium (~3-5 min) | Block merge; auto-remediate if agent-authored |
 | **API Contract Drift** | Orval/OpenAPI | 3 (Integration) | Per-Stack | Fast (~1 min) | Block merge; auto-remediate if agent-authored |
 | **Integration Tests** | Alba / Vitest | 3 (Integration) | Per-Stack | Medium (~3-10 min) | Block merge; auto-remediate if agent-authored |
-| **Code Review** | CodeRabbit/Graphite Diamond | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; never auto-remediate |
+| **Code Review** | CodeRabbit | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; never auto-remediate |
 | **Red Team** | Basileus adversarial workflow | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
 | **Scope Drift** | Basileus PM agent | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
 | **Architect** | Basileus Architect/SRE agent | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
@@ -1749,7 +1749,7 @@ Performance benchmarks measure latency (P50/P95/P99), throughput (ops/sec), and 
 
 Post-deployment health validation running continuously during the verification window after each deployment. This is the final quality gate — it validates that merged code works correctly in production, not just in CI.
 
-**Gate Stratification:** Layer 5 gates run per-deployment (not per-PR or per-stack). They execute after the Graphite merge queue completes and the GitOps CD pipeline deploys the new ACA revision.
+**Gate Stratification:** Layer 5 gates run per-deployment (not per-PR or per-stack). They execute after the GitHub merge queue completes and the GitOps CD pipeline deploys the new ACA revision.
 
 | Gate | Tool | Tier | Cost/Duration | Failure Action |
 |------|------|------|---------------|----------------|
@@ -1763,7 +1763,7 @@ Post-deployment health validation running continuously during the verification w
 **Deployment Flow:**
 
 ```text
-PR merged → Graphite merge queue → GitHub Actions: build + push image
+PR merged → GitHub merge queue → GitHub Actions: build + push image
   → AgentHost DeploymentController:
       1. Create ACA revision (0% traffic)
       2. Health check: wait for revision Ready
@@ -2047,7 +2047,7 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'stack-ready')
     runs-on: ubuntu-latest
     steps:
-      # CodeRabbit / Graphite Diamond runs automatically via GitHub App integration
+      # CodeRabbit runs automatically via GitHub App integration
 
       - name: Trigger Basileus Review Agents
         if: contains(github.event.pull_request.labels.*.name, 'agentic-coder')
@@ -2364,13 +2364,13 @@ Each SDLC skill maps to the pipeline as follows:
 |-------|---------------------|----------------------|
 | `/ideate` | Runs before teams are formed. No pipeline changes. | None |
 | `/plan` | Enhanced to produce `stackOrder` array with dependency-aware topological sort. Each task includes stack position metadata. | Stack order planning |
-| `/delegate` | Extended to spawn agent teams when criteria met (>= 3 independent tasks). **Progressive stacking** places completed work into Graphite stack. PRs created incrementally via `gt submit`. Task Router dispatches local vs. remote. | Agent teams + Task Router + Progressive stacking |
+| `/delegate` | Extended to spawn agent teams when criteria met (>= 3 independent tasks). **Progressive stacking** places completed work into PR stack. PRs created incrementally via `gh pr create`. Task Router dispatches local vs. remote. | Agent teams + Task Router + Progressive stacking |
 | `/review` | Refocused for stack-based review. Verifies all per-PR gates passed, applies `stack-ready` label, triggers Layer 4 advisory reviews on full stack. Stack coherence review. | Stack-based review |
-| `/synthesize` | Simplified -- no longer creates PR (PRs already exist from `/delegate`). Enqueues stack in Graphite merge queue via `gt merge`. Human checkpoint for merge approval. | Merge queue enqueue |
+| `/synthesize` | Simplified -- no longer creates PR (PRs already exist from `/delegate`). Enqueues stack in GitHub merge queue via `gh pr merge --auto --squash`. Human checkpoint for merge approval. | Merge queue enqueue |
 | `/debug` | Extended for competing hypothesis investigation via concurrent teammates. | Concurrent investigation |
 | `/refactor` (overhaul) | Extended to use agent teams for parallel refactoring tasks via the standard delegation pipeline. | Agent team delegation |
 
-> **Note:** `/integrate` has been eliminated. Its responsibilities are absorbed by progressive stacking within `/delegate` (branch merge, conflict resolution) and CI gate stratification (combined tests, build verification). See [Graphite Stacked PR Integration](../designs/2026-02-07-graphite-sdlc-integration.md) for the full design.
+> **Note:** `/integrate` has been eliminated. Its responsibilities are absorbed by progressive stacking within `/delegate` (branch merge, conflict resolution) and CI gate stratification (combined tests, build verification). Stacked PRs use GitHub-native `--base` targeting for ordering.
 
 ---
 
@@ -2712,7 +2712,7 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 | [Platform Architecture](./platform-architecture.md) | Three-tier runtime, Agentic.Workflow, event sourcing, deployment, resources |
 | [Productization Roadmap](./productization-roadmap.md) | Strategic roadmap for OSS local tool and optional SaaS tier |
 | [`docs/designs/2026-01-18-agentic-coder.md`](../designs/2026-01-18-agentic-coder.md) | Full Agentic Coder design (remote tier) |
-| [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Graphite Stacked PR Integration design |
+| [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Stacked PR Integration design (historical — originally Graphite-based, now GitHub-native) |
 | [`docs/designs/2026-02-15-autonomous-code-verification.md`](../designs/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
 | [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Full productization assessment (source for Productization Roadmap ADR) |
 | [`docs/designs/2026-02-15-content-hardening.md`](../designs/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |

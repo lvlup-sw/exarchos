@@ -2,7 +2,9 @@
 
 **Context:** A feature has completed the pipeline (`/ideate` → `/plan` → `/delegate` → `/review` → `/synthesize`). You audit the full arc: design doc, implementation plan, code changes, test coverage, skill/content additions, workflow state events, and PR artifacts. Your audit is **eval-backed** — every finding maps to a measurable criterion with a deterministic check, a structured qualitative rubric, or both.
 
-**Your Task:** Audit the feature against the five dimensions below. For each finding, state: (1) the dimension violated, (2) the specific criterion, (3) severity, (4) evidence, (5) required fix. Produce a structured verdict.
+**Your Task:** Evaluate the feature against the five **convergence dimensions** below. A workflow reaches terminal state (APPROVED) only when all five dimensions independently converge — a pass in one dimension cannot compensate for a failure in another. For each finding, state: (1) the dimension violated, (2) the specific criterion, (3) severity, (4) evidence, (5) required fix. Produce a structured verdict.
+
+**Convergence principle:** This audit is a **convergence gate**, not a post-hoc review. The five dimensions are independent quality conditions that must all be satisfied before the workflow advances to synthesis. See `docs/adrs/adversarial-convergence-theory.md` §4 for the formal definition ($D_{conv}$).
 
 **Inputs required:**
 - Feature branch diff (`git diff main...HEAD`)
@@ -13,9 +15,11 @@
 
 ---
 
-### 1. Specification Fidelity & TDD Compliance
+### Convergence Dimension 1: Specification Fidelity & TDD Compliance
 
 Every requirement in the design doc must trace to implementation code and a test that exercises it. Implementation without specification is scope creep; specification without implementation is incomplete work.
+
+**Provenance chain:** If the pipeline maintained provenance metadata (requirement IDs in design → task mappings in plan → provenance events from delegation), query the provenance view first for a deterministic coverage check before constructing the traceability matrix manually. See `docs/adrs/adversarial-convergence-theory.md` §5 for the provenance graph definition ($L'$).
 
 **Deterministic evals:**
 
@@ -36,11 +40,11 @@ Every requirement in the design doc must trace to implementation code and a test
 | Edge case coverage | For each public function, verify tests cover: happy path, error path, boundary values, null/empty inputs. Missing error path = MEDIUM. Missing boundary = LOW. | Anthropic: "Edge cases covered" |
 | Property-based tests | Behavioral properties (idempotency, commutativity, invariants) should have PBT alongside example tests. Missing PBT for stateful operations = MEDIUM. | CLAUDE.md TDD rules |
 
-**Adversarial posture:** Do NOT trust passing tests as proof of completeness. Passing tests prove what they test — nothing about untested requirements. Check test *meaning*, not test *count*.
+**Adversarial posture:** Do NOT trust passing tests as proof of completeness. Passing tests prove what they test — nothing about untested requirements. Check test *meaning*, not test *count*. This posture generalizes across all convergence dimensions: do NOT trust passing phase artifacts as proof of sufficiency — they prove what they check, nothing about unchecked quality dimensions.
 
 ---
 
-### 2. Architectural Pattern Compliance
+### Convergence Dimension 2: Architectural Pattern Compliance
 
 Each pattern the feature touches must be faithful to its canonical definition. Deviations must be justified and documented, not accidental.
 
@@ -83,7 +87,7 @@ Each pattern the feature touches must be faithful to its canonical definition. D
 
 ---
 
-### 3. Context Economy & Token Efficiency
+### Convergence Dimension 3: Context Economy & Token Efficiency
 
 Every byte in a tool response, event payload, or skill body consumes finite agent context window. Efficiency here directly impacts workflow reliability through the CMDP budget constraint: $\mathbb{E}[\sum C_i(s_t, a_t)] \leq d_i$.
 
@@ -115,7 +119,7 @@ Every byte in a tool response, event payload, or skill body consumes finite agen
 
 ---
 
-### 4. Operational Resilience
+### Convergence Dimension 4: Operational Resilience
 
 The system must perform correctly under real-world conditions: concurrent access, large data, cold starts, and failure modes.
 
@@ -142,7 +146,7 @@ The system must perform correctly under real-world conditions: concurrent access
 
 ---
 
-### 5. Workflow Determinism & Variance Reduction
+### Convergence Dimension 5: Workflow Determinism & Variance Reduction
 
 Good feature work **constrains the action space** — each design decision narrows the probability distribution of agent outputs toward correct behavior. This is the core insight of the Constrained MDP framework: maximize task completion probability subject to resource budgets.
 
@@ -182,7 +186,7 @@ Good feature work **constrains the action space** — each design decision narro
 
 ---
 
-## Scoring Model
+## Convergence Scoring Model
 
 ### Severity Tiers
 
@@ -192,18 +196,25 @@ Good feature work **constrains the action space** — each design decision narro
 | **MEDIUM** | Degrades quality, performance, or maintainability but doesn't break correctness. Accumulation of MEDIUM findings indicates systemic issues. | Missing event metadata, Zod on hot paths, skill over word budget, generative selection, missing snapshot strategy | Should fix; may defer with justification |
 | **LOW** | Polish items, minor inefficiencies, or aspirational improvements | Orphaned checkpoints, scarcity signaling, overhead justification | Track for future; do not block |
 
-### Verdict Classification
+### Verdict Classification (Convergence Check)
+
+The verdict determines whether all five convergence dimensions have independently converged. Convergence is **conjunctive** — all dimensions must pass. A high score in one dimension cannot compensate for failure in another.
 
 ```
 if HIGH_count > 0:
-    verdict = "NEEDS_FIXES"
+    verdict = "NEEDS_FIXES"                    # ∃d: Fail(s, d) — remediation loop
     if any HIGH violates append-only, state derivability, or terminal reachability:
-        verdict = "BLOCKED"  # Return to design phase
+        verdict = "BLOCKED"                    # ∃d: Blocked(s, d) — return to design
 elif MEDIUM_count > 5:
-    verdict = "NEEDS_FIXES"
+    verdict = "NEEDS_FIXES"                    # Accumulated degradation
 else:
-    verdict = "APPROVED"
+    verdict = "APPROVED"                       # ∀d ∈ D_conv: Pass(s, d) — converged
 ```
+
+**Workflow effect:**
+- `APPROVED` → Advance to `/synthesize` (terminal convergence achieved)
+- `NEEDS_FIXES` → Remediation loop (stay in review, fix findings, re-evaluate)
+- `BLOCKED` → Return to design phase (fundamental dimension failure)
 
 ### Quantitative Summary
 
@@ -307,3 +318,5 @@ This audit protocol synthesizes:
 2. **Anthropic Skill-Building Best Practices** — `docs/skill-building-best-practices.pdf` (progressive disclosure, composability, trigger testing, functional testing, performance comparison, five skill patterns)
 3. **Microsoft Learn Event Sourcing & CQRS** — Canonical pattern definitions (append-only, materialized views, compensating events, idempotency, eventual consistency, snapshots, event versioning)
 4. **Agentic Workflow Theory ADR** — `docs/adrs/agentic-workflow-theory.md` (Constrained MDP, HSM formalism, discriminative selection, budget algebra, variance reduction, adversarial governance)
+5. **Adversarial Convergence Theory ADR** — `docs/adrs/adversarial-convergence-theory.md` (adversarial constraint function $C_{adv}$, multi-objective convergence $D_{conv}$, provenance-enriched observation $L'$)
+6. **Verified Spec-Driven Development (VSDD)** — Synthesis of SDD, TDD, and VDD: specs define what, tests enforce how, adversarial verification ensures nothing was missed

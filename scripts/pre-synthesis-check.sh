@@ -38,7 +38,7 @@ Required:
 Optional:
   --repo-root <path>    Repository root (default: parent of script directory)
   --skip-tests          Skip test execution check (npm run test:run && npm run typecheck)
-  --skip-stack          Skip Graphite stack existence check (gt log --short)
+  --skip-stack          Skip PR stack existence check
   --help                Show this help message
 
 Exit codes:
@@ -360,32 +360,40 @@ check_no_fix_requests() {
 }
 
 # ============================================================
-# CHECK 6: Graphite stack exists
+# CHECK 6: PR stack exists
 # ============================================================
 
-check_graphite_stack() {
+check_pr_stack() {
     if [[ "$SKIP_STACK" == true ]]; then
-        check_skip "Graphite stack exists (--skip-stack)"
+        check_skip "PR stack exists (--skip-stack)"
         return 0
     fi
 
-    if ! command -v gt &>/dev/null; then
-        check_fail "Graphite stack exists" "gt CLI not found in PATH"
+    if ! command -v gh &>/dev/null; then
+        check_fail "PR stack exists" "gh CLI not found in PATH"
         return 1
     fi
 
-    local gt_output
-    gt_output="$(gt log --short 2>&1)" || true
-
-    # Check that gt log produced at least one branch line
-    local branch_count
-    branch_count="$(echo "$gt_output" | grep -cE '\S' || true)"
-    if [[ "$branch_count" -lt 2 ]]; then
-        check_fail "Graphite stack exists" "No stack branches found (gt log --short returned $branch_count lines)"
+    # Check for open PRs associated with the current branch
+    local current_branch
+    current_branch="$(cd "$REPO_ROOT" && git branch --show-current 2>/dev/null || echo "")"
+    if [[ -z "$current_branch" ]]; then
+        check_fail "PR stack exists" "Could not determine current branch"
         return 1
     fi
 
-    check_pass "Graphite stack exists ($branch_count branches)"
+    local pr_count
+    pr_count="$(cd "$REPO_ROOT" && gh pr list --state open --head "$current_branch" --json number --jq 'length' 2>/dev/null)" || {
+        check_fail "PR stack exists" "Failed querying GitHub PRs (gh pr list error)"
+        return 1
+    }
+    pr_count="${pr_count:-0}"
+    if [[ "$pr_count" -lt 1 ]]; then
+        check_fail "PR stack exists" "No open PRs found for branch '$current_branch'"
+        return 1
+    fi
+
+    check_pass "PR stack exists ($pr_count open PRs for '$current_branch')"
     return 0
 }
 
@@ -434,8 +442,8 @@ if check_state_file; then
     check_no_fix_requests || true
 fi
 
-# Check 6: Graphite stack (independent of state file)
-check_graphite_stack || true
+# Check 6: PR stack (independent of state file)
+check_pr_stack || true
 
 # Check 7: Tests (independent of state file)
 check_tests_pass || true

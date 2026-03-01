@@ -1,6 +1,6 @@
 ---
 name: pr-descriptions
-description: "PR title and body format guidelines for Graphite stacked PRs."
+description: "PR title and body format guidelines."
 ---
 
 # PR Descriptions
@@ -11,6 +11,6 @@ description: "PR title and body format guidelines for Graphite stacked PRs."
 
 See `skills/synthesis/references/pr-descriptions.md` for template and examples.
 
-**Enforcement:** CI runs `scripts/validate-pr-body.sh` on human-authored PRs (skips Renovate/Dependabot and Graphite merge queue). Bodies missing `## Summary`, `## Changes`, or `## Test Plan` will fail the check. After `gt submit`, update each PR body via `gh pr edit <number> --body "..."`.
+**Enforcement:** CI runs `scripts/validate-pr-body.sh` on human-authored PRs (skips Renovate/Dependabot and GitHub merge queue). Bodies missing `## Summary`, `## Changes`, or `## Test Plan` will fail the check. After creating PRs, update each PR body via `gh pr edit <number> --body "..."`.
 
 **Custom templates:** Projects can override the default required sections by placing a `.exarchos/pr-template.md` file in the repo root. Any `## Section` headers in the template define the required sections for validation.

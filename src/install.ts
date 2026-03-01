@@ -96,12 +96,6 @@ export async function configureMcpServers(
     ...(workflowStateDir ? { env: { WORKFLOW_STATE_DIR: workflowStateDir } } : {})
   };
 
-  config.mcpServers['graphite'] = {
-    type: 'stdio',
-    command: 'gt',
-    args: ['mcp']
-  };
-
   config.mcpServers['microsoft-learn'] = {
     type: 'http',
     url: 'https://learn.microsoft.com/api/mcp'
@@ -122,7 +116,6 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
 
   if (config.mcpServers) {
     delete config.mcpServers['workflow-state'];
-    delete config.mcpServers['graphite'];
     delete config.mcpServers['exarchos'];
     delete config.mcpServers['microsoft-learn'];
   }

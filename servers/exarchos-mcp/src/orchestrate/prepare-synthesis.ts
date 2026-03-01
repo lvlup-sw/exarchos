@@ -1,7 +1,7 @@
 // ─── Prepare Synthesis Composite Action ─────────────────────────────────────
 //
 // Orchestrates pre-synthesis readiness checks: task completion, test suite,
-// typecheck, and Graphite stack health. Emits gate.executed events for both
+// typecheck, and branch stack health. Emits gate.executed events for both
 // SynthesisReadinessView and CodeQualityView flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ function parseTypecheckErrors(output: string): string[] {
 
 function verifyStack(): StackResult {
   try {
-    const output = execSync('gt log', {
+    const output = execSync('git log --oneline --graph main..HEAD', {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -123,7 +123,7 @@ function verifyStack(): StackResult {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean);
-    return { healthy: true, branches };
+    return { healthy: branches.length > 0, branches };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { healthy: false, branches: [], error: message };
@@ -239,7 +239,7 @@ export async function handlePrepareSynthesis(
       errors: typecheck.errors,
     });
 
-    // 8. Verify Graphite stack
+    // 8. Verify branch stack
     const stack = verifyStack();
 
     // 9. Build readiness state

@@ -21,7 +21,7 @@ gh pr view 123 --json state,mergedAt,headRefName
 
 ### For Stacked PRs
 
-When verifying a Graphite stack, check ALL PRs in the stack:
+When verifying a stacked PR set, check ALL PRs in the stack:
 
 ```bash
 # List PRs for the branch stack
@@ -37,4 +37,4 @@ Collect from each merged PR:
 
 - **Partially merged stack:** If some PRs are merged and others are not, abort cleanup. All PRs must be merged.
 - **Squash-merged PRs:** The branch name may differ from what's in the worktree. Use the PR's `headRefName` field.
-- **Already-deleted branches:** GitHub may have auto-deleted branches after merge. This is fine — `gt sync` will handle it.
+- **Already-deleted branches:** GitHub may have auto-deleted branches after merge. This is fine — `git fetch --prune` will handle it.

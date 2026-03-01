@@ -10,7 +10,7 @@ Use specialized MCP tools over generic approaches:
 1. **Workflow state** — Exarchos MCP, never manual JSON
 2. **Code structure** — Serena (`find_symbol`, `get_symbols_overview`) over grep
 3. **GitHub operations** — GitHub MCP tools over `gh` CLI
-4. **PR creation** — Graphite MCP (`gt submit --no-interactive --publish --merge-when-ready`), never `gh pr create`
+4. **PR creation** — GitHub CLI (`gh pr create --base <base-branch> --title "..." --body "..."`)
 5. **Library docs** — Context7 before web search
 6. **State management** — `exarchos_workflow` set/get, never edit JSON directly
 

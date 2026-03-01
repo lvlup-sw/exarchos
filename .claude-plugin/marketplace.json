@@ -16,7 +16,7 @@
         "package": "@lvlup-sw/exarchos",
         "version": "2.1.2"
       },
-      "description": "SDLC workflows with agent team coordination, quality gates, and Graphite stacked PRs",
+      "description": "SDLC workflows with agent team coordination and quality gates",
       "version": "2.1.2",
       "author": {
         "name": "Levelup Software"
@@ -25,8 +25,6 @@
       "tags": [
         "workflow",
         "sdlc",
-        "graphite",
-        "stacked-prs",
         "tdd"
       ]
     }

@@ -6,7 +6,7 @@ Exarchos is local agent governance for Claude Code — event-sourced SDLC workfl
 
 Exarchos distributes as a **Claude Code plugin** via the lvlup-sw marketplace. Install from the marketplace for the standard experience, or use `claude --plugin-dir .` for development.
 
-- **Core plugin** — Exarchos MCP server + Graphite integration (marketplace)
+- **Core plugin** — Exarchos MCP server + GitHub integration (marketplace)
 - **Dev companion** — GitHub, Serena, Context7, Microsoft Learn (`npx @lvlup-sw/exarchos-dev`)
 
 ## Build & Test
@@ -70,7 +70,7 @@ Supporting: `/plan`, `/delegate`, `/review`, `/synthesize`, `/resume`, `/checkpo
 ## MCP Tool Guidance
 
 - **Workflow state** — Exarchos MCP (`exarchos_workflow` set/get), never manual JSON editing
-- **PR creation** — Graphite MCP (`gt submit --no-interactive --publish --merge-when-ready`), never `gh pr create`
+- **PR creation** — GitHub CLI (`gh pr create --base <base-branch>`)
 
 ## PR Descriptions
 

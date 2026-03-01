@@ -15,18 +15,17 @@ Review implementation for: "$ARGUMENTS"
                             ON FAIL → /exarchos:delegate --fixes (auto)
 ```
 
-Review runs AFTER delegation completes -- reviews the Graphite stack diff.
+Review runs AFTER delegation completes -- reviews the branch stack diff.
 
 ## Skill References
 
 - **Stage 1 (spec compliance):** `@skills/spec-review/SKILL.md`
 - **Stage 2 (code quality):** `@skills/quality-review/SKILL.md`
 
-Reviews MUST be dispatched to subagents (not run inline). Use the Graphite stack diff to reduce context by 80-90%:
+Reviews MUST be dispatched to subagents (not run inline). Use the branch stack diff to reduce context by 80-90%:
 
 ```bash
-TARGET_BRANCH=$(gt parent 2>/dev/null || echo "main")
-gt diff $TARGET_BRANCH > /tmp/stack-diff.patch
+git diff main...HEAD > /tmp/stack-diff.patch
 ```
 
 ## Idempotency

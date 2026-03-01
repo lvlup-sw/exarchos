@@ -95,5 +95,5 @@ Official Microsoft/Azure documentation via remote HTTP MCP. **Use for any Micros
 | Read entire files to find functions or understand structure | Use Serena `get_symbols_overview` then `find_symbol` with `include_body` |
 | Use grep/rg to search code patterns | Use Serena `search_for_pattern` for regex search |
 | Use sed/awk for code replacement | Use Serena `replace_content` or `replace_symbol_body` |
-| Generate diffs with shell commands | Use GitHub `pull_request_read` or Graphite `gt diff` |
+| Generate diffs with shell commands | Use GitHub `pull_request_read` or `git diff main...HEAD` |
 | Manually parse PR comments | Use GitHub `pull_request_read` for structured review data |

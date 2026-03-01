@@ -112,7 +112,7 @@ Task:
   prompt: {spawnPrompt}  # See implementer-prompt.md template
 ```
 
-> **Spawn prompt assembly:** `{spawnPrompt}` MUST include all universal sections from `implementer-prompt.md` (TDD Requirements, Files, Success Criteria, **Commit Strategy**, Completion) PLUS the Agent Teams-only sections (Coordination, Workflow Intelligence, Team Context, Historical Context). See the comparison table in `implementer-prompt.md` for the full section list. The Commit Strategy section with Graphite `gt create`/`gt submit` instructions is required — without it, teammates will use plain `git commit` instead of creating stacked PRs.
+> **Spawn prompt assembly:** `{spawnPrompt}` MUST include all universal sections from `implementer-prompt.md` (TDD Requirements, Files, Success Criteria, **Commit Strategy**, Completion) PLUS the Agent Teams-only sections (Coordination, Workflow Intelligence, Team Context, Historical Context). See the comparison table in `implementer-prompt.md` for the full section list. The Commit Strategy section with `git commit`/`git push` instructions is required — without it, teammates may skip pushing their work.
 
 ### Step 4: Monitor (RETRYABLE)
 

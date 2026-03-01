@@ -158,17 +158,33 @@ else
 fi
 
 # --------------------------------------------------
-# Test 7: GraphiteMergeQueue_Skipped_ExitsZero
+# Test 7: MergeQueue_Skipped_ExitsZero
 # --------------------------------------------------
 BODY=$(cat <<'EOF'
-This draft PR was created by the Graphite merge queue.
+This draft PR was created by the merge queue.
+EOF
+)
+OUTPUT="$(echo "$BODY" | bash "$SCRIPT_UNDER_TEST" --head-ref "gh-readonly-queue/main/pr-123-abc123" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "MergeQueue_Skipped_ExitsZero"
+else
+    fail "MergeQueue_Skipped_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+
+# --------------------------------------------------
+# Test 7b: MergeQueueText_NotSkipped_ExitsOne
+# --------------------------------------------------
+BODY=$(cat <<'EOF'
+This PR discusses merge queue configuration.
+No summary or changes sections here.
 EOF
 )
 OUTPUT="$(echo "$BODY" | bash "$SCRIPT_UNDER_TEST" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "GraphiteMergeQueue_Skipped_ExitsZero"
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "MergeQueueText_NotSkipped_ExitsOne"
 else
-    fail "GraphiteMergeQueue_Skipped_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    fail "MergeQueueText_NotSkipped_ExitsOne (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 

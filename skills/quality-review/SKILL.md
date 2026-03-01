@@ -40,7 +40,7 @@ The subagent reads the state file for artifact paths, uses the diff output inste
 The **orchestrator** is responsible for generating the diff before dispatching the quality-review subagent. The subagent does NOT generate its own diff.
 
 **Orchestrator responsibilities:**
-1. Generate diff: `gt diff main` or `git diff main...integration-branch`
+1. Generate diff: `git diff main...HEAD` or `git diff main...integration-branch`
 2. Pass diff content in the subagent dispatch prompt
 3. Include state file path for artifact resolution
 4. Include spec review results (must be PASS)
@@ -56,8 +56,8 @@ The **orchestrator** is responsible for generating the diff before dispatching t
 Instead of reading full files, receive the integrated diff:
 
 ```bash
-# Generate integrated diff for review (Graphite stack vs main)
-gt diff main > /tmp/stack-diff.patch
+# Generate integrated diff for review (branch stack vs main)
+git diff main...HEAD > /tmp/stack-diff.patch
 
 # Alternative: git diff for integration branch
 git diff main...integration-branch > /tmp/integration-diff.patch

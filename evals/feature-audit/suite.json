@@ -1,9 +1,9 @@
 {
-  "description": "Feature audit eval suite — validates that the audit prompt correctly identifies architectural violations, token economy issues, operational defects, and workflow determinism gaps across all five dimensions",
+  "description": "Feature audit eval suite — validates that the audit prompt correctly identifies architectural violations, token economy issues, operational defects, and workflow determinism gaps across all five convergence dimensions. Includes convergence-specific cases for conjunctive evaluation, provenance chain traceability, and adversarial posture",
   "metadata": {
     "skill": "feature-audit",
     "phaseAffinity": "review",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "assertions": [
     {

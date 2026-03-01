@@ -11,9 +11,9 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<i
 
 Extract PR numbers from URLs (e.g., `https://github.com/owner/repo/pull/123` → `123`).
 
-If no PRs in state, check Graphite:
-```
-mcp__graphite__run_gt_cmd({ args: ["log"] })
+If no PRs in state, check GitHub:
+```bash
+gh pr list --json number,baseRefName,headRefName,url
 ```
 
 ## 2. CI Check Status
@@ -64,11 +64,11 @@ Review classification:
 
 **Aggregate rule:** No `CHANGES_REQUESTED` reviews from any reviewer. `COMMENTED` and `PENDING` are non-blocking.
 
-**NOTE:** Formal review status alone is INSUFFICIENT. Many automated reviewers (Sentry, Graphite agent) leave inline comments without submitting a formal review. You MUST also check inline review comments (step 4).
+**NOTE:** Formal review status alone is INSUFFICIENT. Many automated reviewers (Sentry, CodeRabbit) leave inline comments without submitting a formal review. You MUST also check inline review comments (step 4).
 
 ## 4. Inline Review Comments (CRITICAL)
 
-**This is the most commonly missed dimension.** Sentry, Graphite agent, and other bots leave inline review comments that are independent of formal review status. A PR can show "no reviews" while having 10 unaddressed inline comments.
+**This is the most commonly missed dimension.** Sentry, CodeRabbit, and other bots leave inline review comments that are independent of formal review status. A PR can show "no reviews" while having 10 unaddressed inline comments.
 
 **Read ALL inline review comments for each PR via GitHub MCP:**
 ```
@@ -85,9 +85,8 @@ mcp__plugin_github_github__pull_request_read({
 | Bot login | Reviewer | What they flag |
 |-----------|----------|----------------|
 | `sentry[bot]` | Sentry | Bug predictions, security vulnerabilities, runtime errors |
-| `graphite-app[bot]` | Graphite Agent | Architectural concerns, custom rule violations, code quality |
+| `github-actions[bot]` | GitHub Actions | CI/gate checks, usually informational |
 | `coderabbitai[bot]` | CodeRabbit | Code review suggestions, refactoring, best practices |
-| `github-actions[bot]` | CI/Gate checks | Usually informational (review-gate results) — often safe to skip |
 | Any other login | Human reviewer | Direct feedback requiring response |
 
 **Determine which comments are addressed:**
@@ -97,29 +96,30 @@ A comment thread is "addressed" if it has at least one reply (another comment wi
 Build a per-source summary:
 ```
 sentry: 2 total, 2 replied
-graphite: 3 total, 1 replied  ← 2 UNADDRESSED
+human: 3 total, 1 replied  ← 2 UNADDRESSED
 coderabbit: 5 total, 5 replied
-human: 0 total
 ```
 
 **Any unaddressed comment = assessment fails.** Every thread needs a reply — either confirming a fix, explaining a design decision, or acknowledging for a future phase.
 
 ## 5. Stack Health
 
-Check the Graphite stack state:
-```
-mcp__graphite__run_gt_cmd({ args: ["log"] })
+Check the branch stack state:
+```bash
+gh pr list --json number,baseRefName,headRefName,state
 ```
 
 Verify:
-- All expected branches are present in the stack
+- All expected branches are present and have PRs
 - Base branch targeting is correct (bottom of stack targets `main`)
 - Each PR's base matches its parent in the stack
-- No "needs restack" indicators
+- No outdated branches needing rebase
 
 If base branch has advanced:
-```
-mcp__graphite__run_gt_cmd({ args: ["restack"] })
+```bash
+git fetch origin
+git rebase origin/<base>
+git push --force-with-lease
 ```
 
 ## 6. Merge Readiness
@@ -136,8 +136,8 @@ mcp__plugin_github_github__pull_request_read({
 The response includes `autoMergeRequest` — if null, merge-when-ready is not set.
 
 If `autoMergeRequest` is null, merge-when-ready is not set. Re-enable:
-```
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
+```bash
+gh pr merge <number> --auto --squash
 ```
 
 ## 7. Aggregate and Report
@@ -152,19 +152,19 @@ Build the status table covering ALL dimensions:
 | #621 | pass | none | 1 Sentry (replied) | healthy | enqueued |
 | #622 | pass | none | — | healthy | enqueued |
 | #623 | pass | CR: commented | 1 CodeRabbit (replied) | healthy | enqueued |
-| #624 | fail (lint) | CR: commented | 3 Graphite (2 unaddressed), 4 CodeRabbit (replied) | healthy | blocked |
+| #624 | fail (lint) | CR: commented | 3 human (2 unaddressed), 4 CodeRabbit (replied) | healthy | blocked |
 | #625 | pass | none | 2 Sentry (unaddressed) | healthy | enqueued |
 
 ### Unaddressed Comments
-1. **PR #624 — Graphite:** `resolveEvalsDir` should use injected config (eval-run.ts:14)
-2. **PR #624 — Graphite:** unused `dataset` parameter (eval-run.ts:48)
+1. **PR #624 — Reviewer:** `resolveEvalsDir` should use injected config (eval-run.ts:14)
+2. **PR #624 — Reviewer:** unused `dataset` parameter (eval-run.ts:48)
 3. **PR #625 — Sentry:** TracePatternGrader reads wrong field (trace-pattern.ts:26)
 4. **PR #625 — Sentry:** exact-match structural mismatch (suite.json:22)
 
 ### Recommended Actions
 1. Fix Sentry bugs in #625 (trace field name, exact-match config)
-2. Reply to Graphite DI concern on #624 with Phase 2 rationale
-3. Reply to Graphite dataset param concern as intentional forward-compat
+2. Reply to DI concern on #624 with Phase 2 rationale
+3. Reply to dataset param concern as intentional forward-compat
 4. Fix lint error in #624
 5. Resubmit stack after fixes
 ```
