@@ -11,7 +11,7 @@ import {
   getOrCreateMaterializer,
   queryDeltaEvents,
 } from '../views/tools.js';
-import { CONVERGENCE_VIEW } from '../views/convergence-view.js';
+import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../views/convergence-view.js';
 import type { ConvergenceViewState } from '../views/convergence-view.js';
 import { emitGateEvent } from './gate-utils.js';
 
@@ -76,12 +76,11 @@ export async function handleCheckConvergence(
   const filteredDimensions = applyPhaseFilter(view.dimensions, args.phase);
 
   // Recompute convergence from filtered data
-  const allDimensionKeys = ['D1', 'D2', 'D3', 'D4', 'D5'];
-  const uncheckedDimensions = allDimensionKeys.filter((d) => {
+  const uncheckedDimensions = ALL_DIMENSIONS.filter((d) => {
     const dim = filteredDimensions[d];
     return !dim || dim.gateCount === 0;
   });
-  const overallConverged = allDimensionKeys.every((d) => {
+  const overallConverged = ALL_DIMENSIONS.every((d) => {
     const dim = filteredDimensions[d];
     return dim && dim.gateCount > 0 && dim.converged;
   });

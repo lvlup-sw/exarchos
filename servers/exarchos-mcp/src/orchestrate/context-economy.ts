@@ -103,9 +103,10 @@ export async function handleContextEconomy(
   // Parse finding count from stdout
   const findingCount = parseContextEconomyOutput(stdout);
 
+  const store = getOrCreateEventStore(stateDir);
+
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
-    const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'context-economy', 'quality', passed, {
       dimension: 'D3',
       phase: 'review',
@@ -121,7 +122,6 @@ export async function handleContextEconomy(
   };
 
   try {
-    const store = getOrCreateEventStore(stateDir);
     const materializer = getOrCreateMaterializer(stateDir);
     const telemetryEvents = await queryDeltaEvents(store, materializer, 'telemetry', TELEMETRY_VIEW);
     const telemetry = materializer.materialize<TelemetryViewState>('telemetry', TELEMETRY_VIEW, telemetryEvents);

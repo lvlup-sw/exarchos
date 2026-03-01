@@ -7,7 +7,7 @@ export const CONVERGENCE_VIEW = 'convergence';
 
 // ─── Dimension Definitions ─────────────────────────────────────────────────
 
-const ALL_DIMENSIONS = ['D1', 'D2', 'D3', 'D4', 'D5'] as const;
+export const ALL_DIMENSIONS = ['D1', 'D2', 'D3', 'D4', 'D5'] as const;
 
 const DIMENSION_LABELS: Record<string, string> = {
   D1: 'Design Completeness',
