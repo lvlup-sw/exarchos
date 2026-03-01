@@ -17,7 +17,6 @@ import {
   handleViewQualityCorrelation,
   handleViewSessionProvenance,
   handleViewQualityAttribution,
-  handleViewDelegationReadiness,
   handleViewSynthesisReadiness,
   handleViewShepherdStatus,
 } from './tools.js';
@@ -156,12 +155,6 @@ export async function handleView(
         stateDir,
       );
 
-    case 'delegation_readiness':
-      return handleViewDelegationReadiness(
-        rest as { workflowId?: string },
-        stateDir,
-      );
-
     case 'synthesis_readiness':
       return handleViewSynthesisReadiness(
         rest as { workflowId?: string },
@@ -196,7 +189,6 @@ export async function handleView(
             'quality_correlation',
             'quality_attribution',
             'session_provenance',
-            'delegation_readiness',
             'synthesis_readiness',
             'shepherd_status',
           ] as const,
