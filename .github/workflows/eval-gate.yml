@@ -6,8 +6,11 @@ on:
       - 'skills/**'
       - 'commands/**'
       - 'rules/**'
-      - 'servers/exarchos-mcp/src/**'
       - 'evals/**'
+      - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
+      - 'servers/exarchos-mcp/src/cli-commands/**'
+      - 'servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts'
+      - 'servers/exarchos-mcp/src/evals/**'
       - '.github/workflows/eval-gate.yml'
 
 jobs:

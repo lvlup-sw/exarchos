@@ -109,11 +109,29 @@ function parseTypecheckErrors(output: string): string[] {
   return errorLines.length > 0 ? errorLines : output.trim() ? [output.trim()] : [];
 }
 
+// ─── Default Branch Detection ─────────────────────────────────────────────
+
+function detectDefaultBranch(): string {
+  try {
+    const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    const branch = ref.replace('refs/remotes/origin/', '');
+    // Sanitize to prevent command injection via crafted ref names
+    return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
+  } catch {
+    return 'main';
+  }
+}
+
 // ─── Stack Verifier ────────────────────────────────────────────────────────
 
 function verifyStack(): StackResult {
   try {
-    const output = execSync('git log --oneline --graph main..HEAD', {
+    const baseBranch = detectDefaultBranch();
+    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],

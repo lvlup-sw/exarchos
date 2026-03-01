@@ -188,10 +188,11 @@ describe('handlePrepareSynthesis', () => {
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
-    // Tests and typecheck pass, then git log returns commit info
+    // Tests and typecheck pass, then detect default branch, then git log returns commit info
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))      // test suite
       .mockReturnValueOnce(Buffer.from(''))                       // typecheck
+      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature\n* def5678 fix: bug fix')); // git log
 
     // Act
@@ -213,6 +214,37 @@ describe('handlePrepareSynthesis', () => {
     expect(data.stack.branches).toBeDefined();
   });
 
+  // ─── Test 5b: Non-main default branch propagates to git log command ──────
+
+  it('verifyStack_NonMainDefaultBranch_UsesDetectedBranch', async () => {
+    // Arrange
+    const taskView = mockTaskDetailView({
+      't1': { status: 'completed' },
+    });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
+    vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
+    // Tests and typecheck pass, then detect default branch returns 'trunk', then git log
+    vi.mocked(execSync)
+      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))       // test suite
+      .mockReturnValueOnce(Buffer.from(''))                        // typecheck
+      .mockReturnValueOnce('refs/remotes/origin/trunk\n' as unknown as Buffer) // detectDefaultBranch → trunk
+      .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature')); // git log
+
+    // Act
+    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
+
+    // Assert — git log command uses 'trunk' not 'main'
+    const execCalls = vi.mocked(execSync).mock.calls;
+    const gitLogCall = execCalls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('git log'),
+    );
+    expect(gitLogCall).toBeDefined();
+    expect(gitLogCall![0]).toContain('trunk..HEAD');
+    expect(gitLogCall![0]).not.toContain('main..HEAD');
+  });
+
   // ─── Test 6: All green returns ready ──────────────────────────────────────
 
   it('PrepareSynthesis_AllGreen_ReturnsReady', async () => {
@@ -225,10 +257,11 @@ describe('handlePrepareSynthesis', () => {
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
-    // Tests pass, typecheck passes, stack healthy
+    // Tests pass, typecheck passes, detect default branch, stack healthy
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 10 passed, 0 failed'))
       .mockReturnValueOnce(Buffer.from(''))
+      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main\n  feature-branch'));
 
     // Act
@@ -351,6 +384,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync)
       .mockImplementationOnce(() => { throw testError; })  // test suite fails
       .mockReturnValueOnce(Buffer.from(''))                  // typecheck passes
+      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main'));             // git log
 
     // Act
@@ -380,6 +414,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))     // test suite passes
       .mockImplementationOnce(() => { throw typecheckError; })  // typecheck fails
+      .mockReturnValueOnce('refs/remotes/origin/main\n' as unknown as Buffer) // detectDefaultBranch
       .mockReturnValueOnce(Buffer.from('main'));                // git log
 
     // Act

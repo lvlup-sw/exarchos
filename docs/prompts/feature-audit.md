@@ -85,6 +85,30 @@ Each pattern the feature touches must be faithful to its canonical definition. D
 | Compensation is idempotent | Each compensating action must be safe to re-execute (e.g., deleting already-deleted resource, archiving already-archived file). Non-idempotent compensation = HIGH. | HIGH |
 | Checkpoint cleanup | Verify saga checkpoint files are removed after successful completion. Orphaned checkpoints = LOW. | LOW |
 
+**Adversarial Gate Integration** (adversarial-convergence-theory §3, §5):
+
+Gate checks are $C_{adv}$ implementations — they evaluate semantic quality at phase transitions. Their results must flow through the event-sourced architecture, not bypass it.
+
+| Invariant | Eval Method | Severity |
+|-----------|-------------|----------|
+| Gate results emit `gate.executed` events | Every gate check (design completeness, plan coverage, TDD compliance, test suite, typecheck) must emit a `gate.executed` event with `gateName`, `layer`, `passed`, and `details`. Gate checks that produce only console output without event emission = MEDIUM. | MEDIUM |
+| Gate logic via orchestrate actions | Gate checks that involve event emission must run through `exarchos_orchestrate` action handlers. Skills call orchestrate actions and receive structured responses — they do not shell out to scripts and parse stderr. Direct script invocation with manual event emission in a skill = MEDIUM. | MEDIUM |
+| Provenance chain maintained | Pipeline phases must maintain provenance metadata: DR-N identifiers in design docs → `Implements: DR-N` mappings in plan tasks → `task.provenance` events from delegation → provenance view query at review. Broken provenance chain at review→synthesize gate = HIGH. Broken chain at earlier gates = MEDIUM. | MEDIUM/HIGH |
+| Advisory gates don't block | Gates at auto-chained boundaries (ideate→plan) must be advisory-only — findings are recorded as events but do not block the transition. A blocking gate at an auto-chain boundary = HIGH (breaks flow). Non-advisory gates at human checkpoints must block until resolved. | HIGH |
+| Readiness views for complex gates | Gate checks that depend on multiple events or track incremental state must use CQRS readiness projections (e.g., `DelegationReadinessView`, `SynthesisReadinessView`), not re-derive state from scratch. One-shot gates (design completeness) may use direct orchestrate actions without a projection. | MEDIUM |
+
+**Canonical gate integration pattern:**
+
+```
+Skill → exarchos_orchestrate({ action: "<gate>", featureId, ... })
+  → Orchestrate handler runs check logic (script, query, or computation)
+  → Handler emits gate.executed event into event store
+  → Handler returns structured { passed, findings, advisory } response
+  → Skill presents findings and gates on result
+```
+
+Skills NEVER: parse script stderr, manually construct event payloads, or call `exarchos_event` directly for gate results. The orchestrate action is the single integration point between check logic and the event store.
+
 ---
 
 ### Convergence Dimension 3: Context Economy & Token Efficiency
@@ -163,6 +187,8 @@ Good feature work **constrains the action space** — each design decision narro
 |-----------|-------------|----------|
 | Validation via scripts, not prose | Gate checks, review criteria, and quality thresholds must be implemented as executable scripts with exit codes — not prose instructions that depend on language interpretation | Prose-only validation for a checkable condition = HIGH |
 | Explicit quality criteria | Iterative refinement loops must have concrete termination conditions (metric thresholds, max iterations), not "repeat until good" | Missing termination condition = HIGH |
+| Gate checks at every phase boundary | Each pipeline phase transition must have a corresponding adversarial gate check (see adversarial-convergence-theory §3.3). Missing gate check at a designed phase boundary = MEDIUM. | MEDIUM |
+| Graduated gate depth | Gate checks must evaluate the convergence dimensions specified for their boundary (e.g., ideate→plan: D1 only; review→synthesize: D1-D5 all). A gate checking fewer dimensions than specified = MEDIUM. A gate checking more than needed and consuming excessive budget = LOW. | MEDIUM |
 
 **Workflow pattern adherence** (Anthropic patterns):
 
