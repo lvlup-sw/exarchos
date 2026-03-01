@@ -1,0 +1,57 @@
+{
+  "description": "Feature audit eval suite — validates that the audit prompt correctly identifies architectural violations, token economy issues, operational defects, and workflow determinism gaps across all five dimensions",
+  "metadata": {
+    "skill": "feature-audit",
+    "phaseAffinity": "review",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "exact-match",
+      "name": "verdict-correctness",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["verdict"]
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "dimension-scores",
+      "threshold": 0.8,
+      "config": {
+        "fields": ["dimensions"]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "finding-coverage",
+      "threshold": 0.8,
+      "config": {
+        "ordered": false
+      }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "finding-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the audit findings are well-justified and actionable. If the findings array is empty ([] or no findings), score 1 — an empty findings list is correct when the audit found no violations. Otherwise, score 1 if every finding includes: (a) the specific invariant or criterion violated, (b) concrete evidence (file path, code pattern, or metric), and (c) a specific required fix. Score 0.5 if findings identify real issues but lack evidence or actionable fixes. Score 0 if findings are vague, miss the seeded defects, or cite wrong dimensions.",
+        "outputPath": "findings"
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good audit verdicts across clean features, minor issues, and blocking violations"
+    },
+    "defect-detection": {
+      "path": "./datasets/defect-detection.jsonl",
+      "description": "Seeded architectural and operational defects the audit must catch"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded scenarios testing nuanced judgment on severity classification and cross-dimension analysis"
+    }
+  }
+}
