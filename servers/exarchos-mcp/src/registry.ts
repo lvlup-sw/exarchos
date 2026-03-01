@@ -352,10 +352,15 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'task_complete',
-    description: 'Mark a task as complete with optional result. Auto-emits task.completed event',
+    description: 'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false',
     schema: z.object({
       taskId: z.string().min(1),
       result: coercedRecord().optional(),
+      evidence: z.object({
+        type: z.enum(['test', 'build', 'typecheck', 'manual']),
+        output: z.string(),
+        passed: z.boolean(),
+      }).optional(),
       streamId: z.string().min(1),
     }),
     phases: DELEGATE_PHASES,

@@ -119,6 +119,12 @@ export const TaskCompletedData = z.object({
   taskId: z.string(),
   artifacts: z.array(z.string()).optional(),
   duration: z.number().optional(),
+  evidence: z.object({
+    type: z.enum(['test', 'build', 'typecheck', 'manual']),
+    output: z.string(),
+    passed: z.boolean(),
+  }).optional(),
+  verified: z.boolean().optional(),
 });
 
 export const TaskFailedData = z.object({

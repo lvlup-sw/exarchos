@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
+import { TaskCompletedData } from '../event-store/schemas.js';
 import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventStore } from './tools.js';
 import { resetMaterializerCache } from '../views/tools.js';
 
@@ -362,5 +363,171 @@ describe('Task event idempotency keys', () => {
     const failedCalls = appendCalls.filter((c) => c.type === 'task.failed');
     expect(failedCalls.length).toBe(1);
     expect(failedCalls[0].idempotencyKey).toBe('wf-idem-fail:task.failed:t-idem-2');
+  });
+});
+
+// ─── C1: Evidence field on task_complete ─────────────────────────────────────
+
+describe('task_complete evidence field', () => {
+  it('TaskComplete_WithEvidence_StoresInEventData', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-ev-1', {
+      type: 'task.assigned',
+      data: { taskId: 't-ev-1', title: 'Evidence test', assignee: 'agent-1' },
+    });
+
+    const evidence = {
+      type: 'test' as const,
+      output: 'PASS src/foo.test.ts (5 tests)',
+      passed: true,
+    };
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-ev-1', streamId: 'wf-ev-1', evidence },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-ev-1');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    expect(completedEvent).toBeDefined();
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.evidence).toEqual(evidence);
+    expect(data.verified).toBe(true);
+  });
+
+  it('TaskComplete_WithoutEvidence_MarksUnverified', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-ev-2', {
+      type: 'task.assigned',
+      data: { taskId: 't-ev-2', title: 'No evidence test', assignee: 'agent-1' },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-ev-2', streamId: 'wf-ev-2' },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-ev-2');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    expect(completedEvent).toBeDefined();
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.evidence).toBeUndefined();
+    expect(data.verified).toBe(false);
+  });
+
+  it('TaskComplete_EvidenceContainsTestOutput_Stored', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-ev-3', {
+      type: 'task.assigned',
+      data: { taskId: 't-ev-3', title: 'Test output evidence', assignee: 'agent-1' },
+    });
+
+    const evidence = {
+      type: 'test' as const,
+      output: 'Tests: 42 passed, 0 failed\nTime: 3.2s',
+      passed: true,
+    };
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-ev-3', streamId: 'wf-ev-3', evidence },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-ev-3');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.evidence).toEqual(evidence);
+    expect((data.evidence as Record<string, unknown>).type).toBe('test');
+    expect(data.verified).toBe(true);
+  });
+
+  it('TaskComplete_EvidenceContainsBuildOutput_Stored', async () => {
+    // Arrange
+    const store = new EventStore(tempDir);
+    await store.append('wf-ev-4', {
+      type: 'task.assigned',
+      data: { taskId: 't-ev-4', title: 'Build output evidence', assignee: 'agent-1' },
+    });
+
+    const evidence = {
+      type: 'build' as const,
+      output: 'Build completed successfully in 12.5s',
+      passed: true,
+    };
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 't-ev-4', streamId: 'wf-ev-4', evidence },
+      tempDir,
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-ev-4');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.evidence).toEqual(evidence);
+    expect((data.evidence as Record<string, unknown>).type).toBe('build');
+    expect(data.verified).toBe(true);
+  });
+
+  it('TaskComplete_EvidenceSchema_ValidatesCorrectly', () => {
+    // Valid evidence with all required fields
+    const validData = {
+      taskId: 't1',
+      evidence: { type: 'test', output: 'PASS', passed: true },
+      verified: true,
+    };
+    expect(TaskCompletedData.parse(validData)).toEqual(validData);
+
+    // Valid without evidence
+    const noEvidence = { taskId: 't2', verified: false };
+    expect(TaskCompletedData.parse(noEvidence)).toEqual(noEvidence);
+
+    // Valid with all types
+    for (const evidenceType of ['test', 'build', 'typecheck', 'manual']) {
+      const data = {
+        taskId: 't3',
+        evidence: { type: evidenceType, output: 'output', passed: true },
+        verified: true,
+      };
+      expect(() => TaskCompletedData.parse(data)).not.toThrow();
+    }
+
+    // Invalid: evidence with wrong type enum
+    const invalidType = {
+      taskId: 't4',
+      evidence: { type: 'invalid', output: 'output', passed: true },
+      verified: true,
+    };
+    expect(() => TaskCompletedData.parse(invalidType)).toThrow();
+
+    // Invalid: evidence missing required field 'output'
+    const missingOutput = {
+      taskId: 't5',
+      evidence: { type: 'test', passed: true },
+      verified: true,
+    };
+    expect(() => TaskCompletedData.parse(missingOutput)).toThrow();
+
+    // Invalid: evidence missing required field 'passed'
+    const missingPassed = {
+      taskId: 't6',
+      evidence: { type: 'test', output: 'PASS' },
+      verified: true,
+    };
+    expect(() => TaskCompletedData.parse(missingPassed)).toThrow();
   });
 });
