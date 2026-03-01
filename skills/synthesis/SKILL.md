@@ -1,6 +1,6 @@
 ---
 name: synthesis
-description: "Create pull request from completed feature branch using Graphite stacked PRs. Use when the user says 'create PR', 'submit for review', 'synthesize', or runs /synthesize. Validates branch readiness, creates PR with structured description, and manages merge queue. Do NOT use before review phase completes. Not for draft PRs."
+description: "Create pull request from completed feature branch using GitHub-native stacked PRs. Use when the user says 'create PR', 'submit for review', 'synthesize', or runs /synthesize. Validates branch readiness, creates PR with structured description, and manages merge queue. Do NOT use before review phase completes. Not for draft PRs."
 metadata:
   author: exarchos
   version: 2.0.0
@@ -13,12 +13,12 @@ metadata:
 
 ## Overview
 
-Submit Graphite stack as pull requests after review phase completes. The `prepare_synthesis` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
+Submit stacked PRs after review phase completes. The `prepare_synthesis` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
 
 **Prerequisites:**
 - All delegated tasks complete with reviews passed (spec + quality)
 - The integration branch already exists from delegation phase
-- Graphite stack branches present (`gt log` shows task branches)
+- Task branches present and pushed to remote
 
 Do NOT proceed if either review is incomplete or failed -- return to `/exarchos:review` first.
 
@@ -65,7 +65,7 @@ For each PR in the stack, write a structured description following `references/p
 **Title format:** `<type>: <what>` (max 72 chars)
 **Body structure:** Summary (2-3 sentences) -> Changes (bulleted) -> Test Plan -> Footer
 
-After `gt submit` (Step 3), update each PR's metadata:
+After PR creation (Step 3), update each PR's metadata:
 ```bash
 gh pr edit <number> --title "<type>: <what>" --body "$(cat <<'EOF'
 ## Summary
@@ -91,14 +91,16 @@ For the complete template, examples, and anti-patterns, see `references/pr-descr
 
 ### Step 3: Submit and Merge
 
-Enqueue the Graphite stack for merging:
+Create PRs for each stack branch and enable auto-merge:
 ```bash
-gt submit --no-interactive --publish --merge-when-ready
+# For each branch in the stack (bottom-up):
+gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body "<pr-body>"
+gh pr merge <number> --auto --squash
 ```
 
 After submission:
 1. **Apply benchmark label** -- If `verification.hasBenchmarks` is true, apply label: `gh pr edit <number> --add-label has-benchmarks`
-2. **Record PR URLs** -- Capture URLs from `gt log`
+2. **Record PR URLs** -- Capture URLs from `gh pr list --json number,url,headRefName`
 3. **Update state:**
 
 ```typescript
@@ -128,7 +130,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 })
 ```
 
-Then sync: `gt sync` and remove worktrees.
+Then sync: `git fetch --prune` and remove worktrees.
 
 ## Anti-Patterns
 
@@ -148,6 +150,6 @@ See `references/troubleshooting.md` for test failures, PR check failures, merge 
 
 - [ ] `prepare_synthesis` readiness check passed
 - [ ] PR descriptions written per `references/pr-descriptions.md`
-- [ ] Stack enqueued via `--merge-when-ready`
+- [ ] PRs created and auto-merge enabled
 - [ ] PR links provided to user
 - [ ] State updated with PR URLs and merge order

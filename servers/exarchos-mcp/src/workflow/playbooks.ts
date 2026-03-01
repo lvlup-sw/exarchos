@@ -294,18 +294,18 @@ register({
   events: [
     {
       type: 'gate.executed',
-      when: 'After pre-synthesis-check.sh and reconstruct-stack.sh',
+      when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
     },
   ],
   transitionCriteria: 'PR created and enqueued → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
     'scripts/pre-synthesis-check.sh',
-    'scripts/reconstruct-stack.sh',
+    'scripts/validate-pr-stack.sh',
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating stacked PRs via Graphite. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding.',
 });
 
 register(
@@ -574,7 +574,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating a PR for the debug fix via Graphite. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating a PR for the debug fix via GitHub CLI. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
 });
 
 register(
@@ -872,11 +872,11 @@ register({
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
     'scripts/pre-synthesis-check.sh',
-    'scripts/reconstruct-stack.sh',
+    'scripts/validate-pr-stack.sh',
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating stacked PRs via Graphite for the overhaul refactoring. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating PRs via GitHub CLI for the overhaul refactoring. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
 });
 
 register(

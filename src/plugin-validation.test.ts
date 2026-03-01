@@ -21,8 +21,8 @@ describe('Core Plugin Structure', () => {
       expect(plugin.hooks).toBeUndefined();
       expect(plugin.mcpServers).toBeDefined();
       expect(plugin.mcpServers.exarchos).toBeDefined();
-      // Graphite is a required external dependency, not bundled in plugin
-      expect(plugin.mcpServers.graphite).toBeUndefined();
+      // Only the exarchos server should be bundled in plugin
+      expect(Object.keys(plugin.mcpServers)).toEqual(['exarchos']);
     });
   });
 
@@ -117,7 +117,6 @@ describe('Core Plugin Structure', () => {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.keywords).toContain('claude-code-plugin');
       expect(pkg.keywords).toContain('agent-governance');
-      expect(pkg.keywords).toContain('graphite');
       expect(pkg.keywords).toContain('event-sourcing');
     });
   });

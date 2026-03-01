@@ -36,15 +36,15 @@ describe('MCP Config Management (C2)', () => {
   }
 
   /** Helper: create an external McpServerComponent. */
-  function createExternalServer(id: string = 'graphite'): McpServerComponent {
+  function createExternalServer(id: string = 'example-ext'): McpServerComponent {
     return {
       id,
-      name: 'Graphite',
-      description: 'Stacked PR management',
+      name: 'Example External',
+      description: 'External tool integration',
       required: false,
       type: 'external',
-      command: 'gt',
-      args: ['mcp'],
+      command: 'example-tool',
+      args: ['serve'],
     };
   }
 
@@ -98,7 +98,7 @@ describe('MCP Config Management (C2)', () => {
 
       expect(result.mcpServers).toBeDefined();
       expect(result.mcpServers!['exarchos']).toBeDefined();
-      expect(result.mcpServers!['graphite']).toBeDefined();
+      expect(result.mcpServers!['example-ext']).toBeDefined();
     });
 
     it('mergeMcpServers_ExistingServers_PreservesUserServers', () => {
@@ -179,8 +179,8 @@ describe('MCP Config Management (C2)', () => {
       const entry = generateMcpEntry(server, 'node', claudeHome);
 
       expect(entry.type).toBe('stdio');
-      expect(entry.command).toBe('gt');
-      expect(entry.args).toEqual(['mcp']);
+      expect(entry.command).toBe('example-tool');
+      expect(entry.args).toEqual(['serve']);
     });
 
     it('generateMcpEntry_RemoteServer_ReturnsCorrectConfig', () => {
@@ -201,16 +201,16 @@ describe('MCP Config Management (C2)', () => {
       const config = {
         mcpServers: {
           exarchos: { type: 'stdio', command: 'node', args: ['run', 'server.js'] },
-          graphite: { type: 'stdio', command: 'gt', args: ['mcp'] },
+          'example-ext': { type: 'stdio', command: 'example-tool', args: ['serve'] },
           'my-custom-server': { type: 'stdio', command: 'custom', args: [] },
         },
         someOtherKey: 'preserved',
       };
 
-      const result = removeMcpServers(config, ['exarchos', 'graphite']);
+      const result = removeMcpServers(config, ['exarchos', 'example-ext']);
 
       expect(result.mcpServers!['exarchos']).toBeUndefined();
-      expect(result.mcpServers!['graphite']).toBeUndefined();
+      expect(result.mcpServers!['example-ext']).toBeUndefined();
       expect(result.mcpServers!['my-custom-server']).toBeDefined();
       expect(result['someOtherKey']).toBe('preserved');
     });

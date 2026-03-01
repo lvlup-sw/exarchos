@@ -33,27 +33,27 @@ if ! grep -q "STOP\|abort\|DO NOT proceed" "$PROMPT_FILE"; then
     exit 1
 fi
 
-# Test 6: Contains Commit Strategy section with Graphite
+# Test 6: Contains Commit Strategy section
 if ! grep -q "Commit Strategy" "$PROMPT_FILE"; then
     echo "FAIL: Missing 'Commit Strategy' section"
     exit 1
 fi
 
-# Test 7: Contains gt create instruction
-if ! grep -q "gt create" "$PROMPT_FILE"; then
-    echo "FAIL: Missing 'gt create' instruction in Commit Strategy"
-    exit 1
-fi
-
-# Test 8: Contains gt submit instruction
-if ! grep -q "gt submit" "$PROMPT_FILE"; then
-    echo "FAIL: Missing 'gt submit' instruction in Commit Strategy"
-    exit 1
-fi
-
-# Test 9: Contains fallback to standard git
+# Test 7: Contains git commit instruction
 if ! grep -q "git commit" "$PROMPT_FILE"; then
-    echo "FAIL: Missing standard git fallback in Commit Strategy"
+    echo "FAIL: Missing 'git commit' instruction in Commit Strategy"
+    exit 1
+fi
+
+# Test 8: Contains git push instruction
+if ! grep -q "git push" "$PROMPT_FILE"; then
+    echo "FAIL: Missing 'git push' instruction in Commit Strategy"
+    exit 1
+fi
+
+# Test 9: Contains git add instruction
+if ! grep -q "git add" "$PROMPT_FILE"; then
+    echo "FAIL: Missing 'git add' instruction in Commit Strategy"
     exit 1
 fi
 

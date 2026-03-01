@@ -152,7 +152,7 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers).toBeDefined();
   });
 
-  it('should add exarchos, graphite, and microsoft-learn servers', async () => {
+  it('should add exarchos and microsoft-learn servers', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
@@ -176,16 +176,16 @@ describe('configureMcpServers', () => {
     );
   });
 
-  it('should add graphite server', async () => {
+  it('addMcpConfig_ConfiguresServers_OnlyExarchosAndMicrosoftLearn', async () => {
     const { configureMcpServers } = await import('./install.js');
 
     await configureMcpServers(configPath, repoRoot);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['graphite']).toBeDefined();
-    expect(config.mcpServers['graphite'].type).toBe('stdio');
-    expect(config.mcpServers['graphite'].command).toBe('gt');
-    expect(config.mcpServers['graphite'].args).toEqual(['mcp']);
+    const serverIds = Object.keys(config.mcpServers);
+    expect(serverIds).toContain('exarchos');
+    expect(serverIds).toContain('microsoft-learn');
+    expect(serverIds).toHaveLength(2);
   });
 
   it('should add microsoft-learn server with correct url', async () => {
@@ -214,7 +214,6 @@ describe('configureMcpServers', () => {
     expect(config.mcpServers.existingServer).toBeDefined();
     expect(config.mcpServers.existingServer.command).toBe('existing');
     expect(config.mcpServers['exarchos']).toBeDefined();
-    expect(config.mcpServers['graphite']).toBeDefined();
     expect(config.mcpServers['microsoft-learn']).toBeDefined();
   });
 });
@@ -234,22 +233,26 @@ describe('removeMcpConfig', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should remove exarchos, graphite, and microsoft-learn from config', async () => {
-    const { removeMcpConfig, configureMcpServers } = await import('./install.js');
-    await configureMcpServers(configPath, repoRoot);
+  it('removeMcpConfig_RemovesOnlyManagedServers', async () => {
+    const { removeMcpConfig } = await import('./install.js');
+    // Pre-populate config with exarchos, microsoft-learn, and a user server
+    writeFileSync(configPath, JSON.stringify({
+      mcpServers: { 'exarchos': { type: 'stdio' }, 'microsoft-learn': { type: 'http' }, 'other': { type: 'stdio' } }
+    }));
 
     await removeMcpConfig(configPath);
 
     const config = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['exarchos']).toBeUndefined();
-    expect(config.mcpServers['graphite']).toBeUndefined();
     expect(config.mcpServers['microsoft-learn']).toBeUndefined();
+    // 'other' should remain
+    expect(config.mcpServers['other']).toBeDefined();
   });
 
   it('should preserve other config when removing servers', async () => {
     writeFileSync(configPath, JSON.stringify({
       existingKey: 'value',
-      mcpServers: { 'exarchos': {}, graphite: {}, other: {} }
+      mcpServers: { 'exarchos': {}, other: {} }
     }));
     const { removeMcpConfig } = await import('./install.js');
 
@@ -492,12 +495,6 @@ describe('Install Orchestrator (E3)', () => {
             required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
             devEntryPoint: 'servers/exarchos-mcp/dist/index.js',
           },
-          {
-            id: 'graphite', name: 'Graphite',
-            description: 'Stacked PRs',
-            required: true, type: 'external',
-            command: 'gt', args: ['mcp'], prerequisite: 'gt',
-          },
         ],
         plugins: [
           { id: 'github@claude-plugins-official', name: 'GitHub', description: 'PRs', required: false, default: true },
@@ -645,7 +642,6 @@ describe('Install Orchestrator (E3)', () => {
     const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
     // Plugin-provided servers should NOT be written by installer
     expect(config.mcpServers['exarchos']).toBeUndefined();
-    expect(config.mcpServers['graphite']).toBeUndefined();
     // User server preserved
     expect(config.mcpServers['user-server']).toBeDefined();
   });
@@ -724,7 +720,6 @@ describe('Install Orchestrator (E3)', () => {
     if (existsSync(claudeConfigPath)) {
       const config = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
       expect(config.mcpServers?.['exarchos']).toBeUndefined();
-      expect(config.mcpServers?.['graphite']).toBeUndefined();
     }
   });
 
@@ -871,7 +866,7 @@ describe('Uninstall Orchestrator (E4)', () => {
       installedAt: new Date().toISOString(),
       mode: 'standard' as const,
       selections: {
-        mcpServers: ['exarchos', 'graphite'],
+        mcpServers: ['exarchos'],
         plugins: ['github@claude-plugins-official'],
         ruleSets: ['typescript'],
         model: 'claude-opus-4-6',
@@ -897,7 +892,7 @@ describe('Uninstall Orchestrator (E4)', () => {
       installedAt: new Date().toISOString(),
       mode: 'standard' as const,
       selections: {
-        mcpServers: ['exarchos', 'graphite'],
+        mcpServers: ['exarchos'],
         plugins: [],
         ruleSets: [],
         model: 'claude-opus-4-6',
@@ -917,7 +912,6 @@ describe('Uninstall Orchestrator (E4)', () => {
     writeFileSync(claudeConfigPath, JSON.stringify({
       mcpServers: {
         exarchos: { type: 'stdio', command: 'bun' },
-        graphite: { type: 'stdio', command: 'gt' },
         'user-server': { type: 'stdio', command: 'myserver' },
       },
     }));
@@ -927,7 +921,7 @@ describe('Uninstall Orchestrator (E4)', () => {
       installedAt: new Date().toISOString(),
       mode: 'standard' as const,
       selections: {
-        mcpServers: ['exarchos', 'graphite'],
+        mcpServers: ['exarchos'],
         plugins: [],
         ruleSets: [],
         model: 'claude-opus-4-6',
@@ -940,7 +934,6 @@ describe('Uninstall Orchestrator (E4)', () => {
 
     const mcpConfig = JSON.parse(readFileSync(claudeConfigPath, 'utf-8'));
     expect(mcpConfig.mcpServers['exarchos']).toBeUndefined();
-    expect(mcpConfig.mcpServers['graphite']).toBeUndefined();
     // User server preserved
     expect(mcpConfig.mcpServers['user-server']).toBeDefined();
   });
@@ -1017,7 +1010,7 @@ describe('Uninstall Orchestrator (E4)', () => {
       installedAt: new Date().toISOString(),
       mode: 'standard' as const,
       selections: {
-        mcpServers: ['exarchos', 'graphite'],
+        mcpServers: ['exarchos'],
         plugins: [],
         ruleSets: [],
         model: 'claude-opus-4-6',
@@ -1248,12 +1241,6 @@ describe('Install Orchestrator - Hooks Integration', () => {
             required: true, type: 'bundled', bundlePath: 'dist/exarchos-mcp.js',
             devEntryPoint: 'servers/exarchos-mcp/dist/index.js',
             cliBundlePath: 'dist/exarchos-cli.js',
-          },
-          {
-            id: 'graphite', name: 'Graphite',
-            description: 'Stacked PRs',
-            required: true, type: 'external',
-            command: 'gt', args: ['mcp'], prerequisite: 'gt',
           },
         ],
         plugins: [

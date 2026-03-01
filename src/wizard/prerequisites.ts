@@ -210,12 +210,6 @@ export const DEFAULT_PREREQUISITES: readonly Prerequisite[] = [
     installHint: 'curl -fsSL https://bun.sh/install | bash',
   },
   {
-    command: 'gt',
-    args: ['--version'],
-    required: true,
-    installHint: 'brew install withgraphite/tap/graphite',
-  },
-  {
     command: 'node',
     args: ['--version'],
     required: false,

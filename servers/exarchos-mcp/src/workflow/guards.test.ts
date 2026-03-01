@@ -330,7 +330,7 @@ describe('synthesizeRetryable', () => {
   it('synthesizeRetryable_RetriesExhausted_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
       synthesis: {
-        lastError: 'gt submit failed',
+        lastError: 'gh pr create failed',
         retryCount: 3,
       },
     };

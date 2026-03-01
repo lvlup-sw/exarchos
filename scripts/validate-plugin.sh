@@ -5,7 +5,7 @@
 #   1. .claude-plugin/plugin.json exists and valid JSON with required fields
 #   2. Referenced directories exist: commands/, skills/
 #   3. Referenced files exist: hooks/hooks.json, .mcp.json
-#   4. .mcp.json is valid JSON containing exarchos and graphite server entries
+#   4. .mcp.json is valid JSON containing exarchos server entry
 #   5. hooks/hooks.json contains all 6 hook types
 #   6. No {{CLI_PATH}} references in hooks (should use ${CLAUDE_PLUGIN_ROOT})
 #
@@ -152,17 +152,13 @@ else
   check ".mcp.json exists" "false"
 fi
 
-# --- Check 4: .mcp.json is valid JSON with exarchos and graphite entries ---
+# --- Check 4: .mcp.json is valid JSON with exarchos entry ---
 if [[ -f "$MCP_FILE" ]] && jq empty "$MCP_FILE" 2>/dev/null; then
   HAS_EXARCHOS=$(jq -e '.mcpServers.exarchos' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
-  HAS_GRAPHITE=$(jq -e '.mcpServers.graphite' "$MCP_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
-  if [[ "$HAS_EXARCHOS" == "true" && "$HAS_GRAPHITE" == "true" ]]; then
-    check ".mcp.json contains exarchos and graphite entries" "true"
+  if [[ "$HAS_EXARCHOS" == "true" ]]; then
+    check ".mcp.json contains exarchos entry" "true"
   else
-    MISSING_SERVERS=()
-    [[ "$HAS_EXARCHOS" == "false" ]] && MISSING_SERVERS+=("exarchos")
-    [[ "$HAS_GRAPHITE" == "false" ]] && MISSING_SERVERS+=("graphite")
-    check ".mcp.json missing server entries: ${MISSING_SERVERS[*]}" "false"
+    check ".mcp.json missing exarchos server entry" "false"
   fi
 else
   check ".mcp.json valid JSON with required entries" "false"

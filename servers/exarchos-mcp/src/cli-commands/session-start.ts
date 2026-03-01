@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 import type { CommandResult } from '../cli.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
@@ -59,7 +58,6 @@ export interface SessionStartResult extends CommandResult {
   readonly telemetryHints?: ReadonlyArray<string>;
   readonly contextDocument?: string;
   readonly behavioralGuidance?: string;
-  readonly graphiteAvailable?: boolean;
 }
 
 // ─── Terminal Phases ────────────────────────────────────────────────────────
@@ -82,25 +80,6 @@ function isCheckpointData(value: unknown): value is CheckpointData {
     Array.isArray(obj.tasks) &&
     typeof obj.stateFile === 'string'
   );
-}
-
-// ─── Graphite CLI Detection ─────────────────────────────────────────────────
-
-/**
- * Detect whether the Graphite CLI (`gt`) is available on PATH.
- * Uses synchronous `which` for fast (~10ms) detection.
- * The `exec` parameter is injectable for testing.
- */
-export function detectGraphite(
-  exec: (cmd: string, opts?: Record<string, unknown>) => Buffer = execSync,
-): boolean {
-  try {
-    const cmd = process.platform === 'win32' ? 'where gt' : 'which gt';
-    exec(cmd, { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // ─── Checkpoint Reader ──────────────────────────────────────────────────────
@@ -509,29 +488,14 @@ async function enrichWithTelemetryHints(
   return { ...result, telemetryHints: hints };
 }
 
-/** Graphite CLI not-found informational message. */
-const GRAPHITE_INSTALL_MESSAGE =
-  'Graphite CLI not found. Exarchos requires Graphite for PR management.\n' +
-  'Install: https://graphite.dev/docs/install\n' +
-  'After install, restart Claude Code.';
-
 /**
- * Final enrichment: attach Graphite availability and telemetry hints.
- * When `graphiteAvailable` is false, an informational message is included
- * in the result output to guide the user toward installation.
+ * Final enrichment: attach telemetry hints.
  */
 async function enrichResult(
   result: SessionStartResult,
   stateDir: string,
-  graphiteAvailable: boolean,
 ): Promise<SessionStartResult> {
-  const withTelemetry = await enrichWithTelemetryHints(result, stateDir);
-  const enriched: SessionStartResult = { ...withTelemetry, graphiteAvailable };
-  if (!graphiteAvailable) {
-    const existingOutput = typeof enriched.output === 'string' ? enriched.output + '\n' : '';
-    return { ...enriched, output: existingOutput + GRAPHITE_INSTALL_MESSAGE };
-  }
-  return enriched;
+  return enrichWithTelemetryHints(result, stateDir);
 }
 
 // ─── Behavioral Guidance Lookup ───────────────────────────────────────────
@@ -571,9 +535,6 @@ export async function handleSessionStart(
   stateDir: string,
   teamsDir?: string,
 ): Promise<SessionStartResult> {
-  // Step 0: Detect Graphite CLI availability (fast sync check)
-  const graphiteAvailable = detectGraphite();
-
   // Step 1: Check for checkpoint files (highest priority)
   const checkpoints = await readAndDeleteCheckpoints(stateDir);
 
@@ -654,9 +615,9 @@ export async function handleSessionStart(
         ...(contextDocument && { contextDocument }),
         ...(behavioralGuidance && { behavioralGuidance }),
       };
-      result = await enrichResult(merged, stateDir, graphiteAvailable);
+      result = await enrichResult(merged, stateDir);
     } else {
-      result = await enrichResult(baseResult, stateDir, graphiteAvailable);
+      result = await enrichResult(baseResult, stateDir);
     }
   } else {
     // Step 2: No checkpoints — discover active workflows from state files
@@ -687,29 +648,27 @@ export async function handleSessionStart(
       }
 
       if (activeWorkflows.length === 0 && !teamsDir) {
-        result = await enrichResult({}, stateDir, graphiteAvailable);
+        result = await enrichResult({}, stateDir);
       } else if (teamsDir) {
         const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
         result = await enrichResult(
           { ...teamResult, ...(behavioralGuidance && { behavioralGuidance }) },
           stateDir,
-          graphiteAvailable,
         );
       } else if (workflows.length === 0) {
-        result = await enrichResult({}, stateDir, graphiteAvailable);
+        result = await enrichResult({}, stateDir);
       } else {
         result = await enrichResult(
           { workflows, ...(behavioralGuidance && { behavioralGuidance }) },
           stateDir,
-          graphiteAvailable,
         );
       }
     } catch {
       // If state dir doesn't exist or is unreadable, still check for orphaned teams
       if (teamsDir) {
-        result = await enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir, graphiteAvailable);
+        result = await enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir);
       } else {
-        result = await enrichResult({}, stateDir, graphiteAvailable);
+        result = await enrichResult({}, stateDir);
       }
     }
   }

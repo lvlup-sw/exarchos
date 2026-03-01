@@ -193,6 +193,6 @@ When Exarchos MCP tools are available, emit events throughout the refactor workf
 1. **At workflow start (explore):** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
 2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (polish/overhaul)
 3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
-4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
-5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
+4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `git commit` + `git push` per implementer prompt)
+5. **Polish track commit:** Single `git commit -m "refactor: <description>"` + `git push` — no multi-branch stacking needed
 6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"

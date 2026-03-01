@@ -46,8 +46,7 @@ EOF
 cat > "$TMPDIR1/.mcp.json" << 'EOF'
 {
   "mcpServers": {
-    "exarchos": { "type": "stdio", "command": "bun", "args": ["run", "dist/exarchos-mcp.js"] },
-    "graphite": { "type": "stdio", "command": "gt", "args": ["mcp"] }
+    "exarchos": { "type": "stdio", "command": "bun", "args": ["run", "dist/exarchos-mcp.js"] }
   }
 }
 EOF
@@ -87,8 +86,7 @@ EOF
 cat > "$TMPDIR3/.mcp.json" << 'EOF'
 {
   "mcpServers": {
-    "exarchos": { "type": "stdio" },
-    "graphite": { "type": "stdio" }
+    "exarchos": { "type": "stdio" }
   }
 }
 EOF
@@ -119,8 +117,7 @@ EOF
 cat > "$TMPDIR4/.mcp.json" << 'EOF'
 {
   "mcpServers": {
-    "exarchos": { "type": "stdio" },
-    "graphite": { "type": "stdio" }
+    "exarchos": { "type": "stdio" }
   }
 }
 EOF

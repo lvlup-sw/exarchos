@@ -141,11 +141,11 @@ describe('checkPrerequisite', () => {
     mockExecSync.mockReturnValueOnce(Buffer.from('2.1.3\n'));
 
     const prereq: Prerequisite = {
-      command: 'gt',
+      command: 'some-tool',
       args: ['--version'],
       required: true,
       minVersion: '1.0.0',
-      installHint: 'brew install graphite',
+      installHint: 'install some-tool',
     };
 
     const result = checkPrerequisite(prereq);
@@ -179,11 +179,11 @@ describe('checkAllPrerequisites', () => {
     // Each checkPrerequisite call invokes getVersion which calls execSync once
     mockExecSync
       .mockReturnValueOnce(Buffer.from('1.5.0\n')) // bun
-      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // gt
+      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // some-tool
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
-      { command: 'gt', args: ['--version'], required: true, installHint: 'install gt' },
+      { command: 'some-tool', args: ['--version'], required: true, installHint: 'install some-tool' },
     ];
 
     const report = checkAllPrerequisites(prereqs);
@@ -197,11 +197,11 @@ describe('checkAllPrerequisites', () => {
   it('blocks install when a required prerequisite is missing', () => {
     mockExecSync
       .mockImplementationOnce(() => { throw new Error('not found'); }) // bun missing
-      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // gt found
+      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // some-tool found
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
-      { command: 'gt', args: ['--version'], required: true, installHint: 'install gt' },
+      { command: 'some-tool', args: ['--version'], required: true, installHint: 'install some-tool' },
     ];
 
     const report = checkAllPrerequisites(prereqs);
@@ -236,7 +236,7 @@ describe('checkAllPrerequisites', () => {
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
-      { command: 'gt', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install gt' },
+      { command: 'some-tool', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install some-tool' },
       { command: 'node', args: ['--version'], required: false, minVersion: '20.0.0', installHint: 'install node' },
     ];
 
@@ -247,26 +247,23 @@ describe('checkAllPrerequisites', () => {
     expect(report.results[0].meetsMinVersion).toBe(true);
     expect(report.results[1].found).toBe(true);
     expect(report.results[1].meetsMinVersion).toBe(false);
-    expect(report.results[2].found).toBe(false);
-    // gt is required but below min version → blocks
+    // some-tool is required but below min version → blocks
     expect(report.canProceed).toBe(false);
     expect(report.blockers.length).toBeGreaterThan(0);
   });
 });
 
 describe('DEFAULT_PREREQUISITES', () => {
-  it('includes bun, gt, and node entries', () => {
-    expect(DEFAULT_PREREQUISITES).toHaveLength(3);
-    expect(DEFAULT_PREREQUISITES.map((p) => p.command)).toEqual(['bun', 'gt', 'node']);
+  it('includes bun and node entries', () => {
+    expect(DEFAULT_PREREQUISITES).toHaveLength(2);
+    expect(DEFAULT_PREREQUISITES.map((p) => p.command)).toEqual(['bun', 'node']);
   });
 
-  it('marks bun and gt as required, node as optional', () => {
+  it('marks bun as required, node as optional', () => {
     const bun = DEFAULT_PREREQUISITES.find((p) => p.command === 'bun');
-    const gt = DEFAULT_PREREQUISITES.find((p) => p.command === 'gt');
     const node = DEFAULT_PREREQUISITES.find((p) => p.command === 'node');
 
     expect(bun?.required).toBe(true);
-    expect(gt?.required).toBe(true);
     expect(node?.required).toBe(false);
   });
 });

@@ -113,7 +113,7 @@ cat > "$MOCK_GH" << 'MOCK'
 #!/usr/bin/env bash
 if [[ "$*" == *"pulls"*"comments"* ]]; then
     echo '[
-        {"id": 200, "in_reply_to_id": null, "user": {"login": "graphite-app[bot]"}, "path": "src/bar.ts", "line": 5, "body": "Consider DI here"},
+        {"id": 200, "in_reply_to_id": null, "user": {"login": "coderabbitai[bot]"}, "path": "src/bar.ts", "line": 5, "body": "Consider DI here"},
         {"id": 201, "in_reply_to_id": null, "user": {"login": "sentry[bot]"}, "path": "src/baz.ts", "line": 20, "body": "Potential null deref"}
     ]'
 elif [[ "$*" == *"nameWithOwner"* ]]; then

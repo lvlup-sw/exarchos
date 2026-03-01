@@ -10,7 +10,7 @@ When to stop the shepherd loop and escalate to the user.
 | Persistent CI failure | Same check fails across 3+ consecutive iterations | Report as likely flaky or systemic |
 | Review loop | Same reviewer requests changes 2+ times after fixes | Escalate — may need design discussion |
 | Conflicting feedback | Two reviewers give contradictory guidance | Escalate — human decision needed |
-| Access failure | GitHub MCP or Graphite CLI returns auth errors | Report — credentials may need refresh |
+| Access failure | GitHub MCP or `gh` CLI returns auth errors | Report — credentials may need refresh |
 | `assess_stack` returns `escalate` | Composite action determined escalation needed | Report action items to user |
 
 ## Escalation Report Format

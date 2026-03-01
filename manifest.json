@@ -33,18 +33,6 @@
         "cliBundlePath": "dist/exarchos-cli.js"
       },
       {
-        "id": "graphite",
-        "name": "Graphite",
-        "description": "Stacked PRs and merge queue",
-        "required": true,
-        "type": "external",
-        "command": "gt",
-        "args": [
-          "mcp"
-        ],
-        "prerequisite": "gt"
-      },
-      {
         "id": "microsoft-learn",
         "name": "Microsoft Learn",
         "description": "Official Azure/.NET documentation",

@@ -129,14 +129,17 @@ action: "set", featureId: "debug-<issue-slug>", phase: "synthesize"
 
 ### 7. Synthesize Phase
 
-Create PR via Graphite MCP:
+Create PR via GitHub CLI:
 
-```
-# Stage and create branch with fix commit
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
+```bash
+# Stage, commit, and push
+git add <fixed-files>
+git commit -m "fix: <issue summary>"
+git push -u origin <branch-name>
 
-# Submit to create the PR
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
+# Create PR and enable auto-merge
+gh pr create --base main --title "fix: <issue summary>" --body "<pr-body>"
+gh pr merge <number> --auto --squash
 ```
 
 Then update the PR description:

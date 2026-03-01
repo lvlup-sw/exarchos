@@ -10,7 +10,7 @@
 #
 # Default required sections: ## Summary, ## Changes, ## Test Plan
 # Custom templates: any line matching `^## <section>` defines a required section.
-# Skip conditions: Graphite merge queue PRs, bot authors (renovate, dependabot).
+# Skip conditions: GitHub merge queue PRs, bot authors (renovate, dependabot).
 
 set -euo pipefail
 
@@ -22,6 +22,7 @@ SKIP_AUTHORS=("renovate[bot]" "dependabot[bot]")
 PR_NUMBER=""
 REPO=""
 AUTHOR=""
+HEAD_REF=""
 TEMPLATE=""
 DRY_RUN=false
 
@@ -42,6 +43,11 @@ while [[ $# -gt 0 ]]; do
     --author)
       [[ $# -ge 2 ]] || { echo "Missing value for --author" >&2; exit 2; }
       AUTHOR="$2"
+      shift 2
+      ;;
+    --head-ref)
+      [[ $# -ge 2 ]] || { echo "Missing value for --head-ref" >&2; exit 2; }
+      HEAD_REF="$2"
       shift 2
       ;;
     --template)
@@ -76,10 +82,13 @@ if [[ -n "$PR_NUMBER" ]]; then
     REPO_FLAG="--repo $REPO"
   fi
   # shellcheck disable=SC2086
-  PR_DATA=$(gh pr view "$PR_NUMBER" $REPO_FLAG --json body,author --jq '{body: .body, author: .author.login}')
+  PR_DATA=$(gh pr view "$PR_NUMBER" $REPO_FLAG --json body,author,headRefName --jq '{body: .body, author: .author.login, headRef: .headRefName}')
   BODY=$(echo "$PR_DATA" | jq -r '.body // ""')
   if [[ -z "$AUTHOR" ]]; then
     AUTHOR=$(echo "$PR_DATA" | jq -r '.author // ""')
+  fi
+  if [[ -z "$HEAD_REF" ]]; then
+    HEAD_REF=$(echo "$PR_DATA" | jq -r '.headRef // ""')
   fi
 else
   # Read from stdin
@@ -95,8 +104,8 @@ for skip_author in "${SKIP_AUTHORS[@]}"; do
   fi
 done
 
-# Skip Graphite merge queue PRs (defense-in-depth; CI also skips via job condition)
-if echo "$BODY" | grep -qi "graphite merge queue"; then
+# Skip GitHub merge queue PRs (defense-in-depth; CI also skips via job condition)
+if [[ -n "$HEAD_REF" ]] && echo "$HEAD_REF" | grep -q "^gh-readonly-queue/"; then
   exit 0
 fi
 

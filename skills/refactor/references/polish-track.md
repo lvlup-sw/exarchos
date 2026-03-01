@@ -86,9 +86,11 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-When done, commit via Graphite:
-```typescript
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
+When done, commit and push:
+```bash
+git add <files>
+git commit -m "refactor: <description>"
+git push -u origin refactor/<brief-name>
 ```
 
 **Advance to validation:**

@@ -180,17 +180,17 @@ This regenerates TypeScript types from the OpenAPI spec. Include generated files
 After completing each logical task within your assignment:
 
 1. Stage the relevant files: `git add <files>`
-2. Create a stacked branch: `gt create <task-branch-name> -m "feat: <task summary>"`
-3. Continue to the next task (you are now on a new branch stacked on the previous)
+2. Commit with a descriptive message: `git commit -m "feat: <task summary>"`
+3. Continue to the next task
 
 After all tasks are complete:
-4. Submit the full stack: `gt submit --no-interactive --publish --stack`
+4. Push your branch: `git push -u origin <branch-name>`
 
-**IMPORTANT:** When using Graphite, never use `git commit` or `git push`. Always use `gt create` and `gt submit`.
+PR creation is handled during the synthesis phase — do not create PRs from implementation tasks.
 
 ### Grouping Guidance
 
-Stack branches should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one stack layer. For example, if you implement types + config + tests for a module, that's one `gt create`, not three.
+Commits should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one commit. For example, if you implement types + config + tests for a module, that's one commit, not three.
 
 ## Completion
 
@@ -304,7 +304,7 @@ describe('validateEmail', () => {
 2. **No File References** - Don't say "see plan.md" - paste content
 3. **Explicit Paths** - Absolute paths to working directory and files
 4. **TDD Mandatory** - Always include TDD requirements
-5. **Graphite-First** - Include commit strategy section; always use `gt create` and `gt submit`
+5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
 
 ## Agent Teams vs Subagent Mode

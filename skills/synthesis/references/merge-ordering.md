@@ -2,7 +2,7 @@
 
 ## Overview
 
-Graphite stacked PRs merge bottom-up: the base branch merges first, then each dependent branch in sequence. This ordering is enforced by Graphite's `--merge-when-ready` flag and cannot be overridden.
+GitHub-native stacked PRs merge bottom-up: the base branch merges first, then each dependent branch in sequence. This ordering is enforced by creating PRs with correct base branches and enabling auto-merge (`gh pr merge --auto --squash`).
 
 ## Stack Ordering Rules
 
@@ -12,7 +12,7 @@ Graphite stacked PRs merge bottom-up: the base branch merges first, then each de
 
 ## Merge Ordering in Practice
 
-The merge order is determined by the Graphite stack structure established during delegation. The `gt log` output shows the exact merge order (bottom-up):
+The merge order is determined by the branch stack structure established during delegation. The PR list shows the exact merge order (bottom-up):
 
 ```text
 main
@@ -38,13 +38,13 @@ action: "set", featureId: "<id>", updates: {
 If a branch fails CI in the merge queue:
 1. The entire stack pauses until the failure is resolved
 2. Fix the failing branch, push the fix
-3. Graphite automatically re-queues dependent branches
+3. After the fix merges, retarget dependent PRs: `gh pr edit <number> --base <new-base>`
 
 ## Common Issues
 
 | Issue | Resolution |
 |-------|------------|
-| Middle branch fails CI | Fix and push; Graphite re-queues descendants |
-| Branch needs rebase | Run `gt restack` to rebase the entire stack |
-| Merge conflict on trunk | Rebase stack onto latest trunk with `gt restack` |
-| Wrong merge order | Restructure stack with `gt move` before submission |
+| Middle branch fails CI | Fix and push; retarget dependent PRs with `gh pr edit` |
+| Branch needs rebase | Run `git rebase origin/<base>` for each branch in order |
+| Merge conflict on trunk | Rebase stack onto latest trunk with `git rebase origin/main` |
+| Wrong merge order | Retarget PRs with `gh pr edit <number> --base <correct-base>` |

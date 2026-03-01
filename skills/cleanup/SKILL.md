@@ -95,7 +95,8 @@ Handle gracefully if worktrees are already removed.
 
 Remove merged local branches:
 ```bash
-gt sync --force
+git fetch --prune
+git branch -d <merged-branch-1> <merged-branch-2> ...
 ```
 
 ### 6. Report Completion

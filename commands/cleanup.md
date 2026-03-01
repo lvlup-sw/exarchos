@@ -74,9 +74,10 @@ git worktree prune
 
 ### Step 5: Branch Sync
 
-Sync Graphite branches to remove merged ones:
+Sync branches to remove merged ones:
 ```bash
-gt sync --force
+git fetch --prune
+git branch -d <merged-branch-1> <merged-branch-2> ...
 ```
 
 ## Output

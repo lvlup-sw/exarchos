@@ -215,3 +215,25 @@ describe('Refactor workflow playbooks', () => {
     expect(playbook.humanCheckpoint).toBe(true);
   });
 });
+
+// ─── Task 5: Graphite Removal from Synthesize Playbooks ──────────────────────
+
+describe('Synthesize phase guidance references GitHub CLI', () => {
+  it('playbookGuidance_FeatureSynthesizePhase_ReferencesGhCli', () => {
+    const playbook = getPlaybook('feature', 'synthesize')!;
+    expect(playbook.compactGuidance).not.toContain('Graphite');
+    expect(playbook.compactGuidance).toContain('GitHub CLI');
+  });
+
+  it('playbookGuidance_DebugSynthesizePhase_ReferencesGhCli', () => {
+    const playbook = getPlaybook('debug', 'synthesize')!;
+    expect(playbook.compactGuidance).not.toContain('Graphite');
+    expect(playbook.compactGuidance).toContain('GitHub CLI');
+  });
+
+  it('playbookGuidance_RefactorSynthesizePhase_ReferencesGhCli', () => {
+    const playbook = getPlaybook('refactor', 'synthesize')!;
+    expect(playbook.compactGuidance).not.toContain('Graphite');
+    expect(playbook.compactGuidance).toContain('GitHub CLI');
+  });
+});
