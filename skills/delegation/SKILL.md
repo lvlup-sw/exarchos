@@ -3,7 +3,7 @@ name: delegation
 description: "Dispatch implementation tasks to agent teammates in git worktrees. Use when the user says 'delegate', 'dispatch tasks', 'assign work', 'delegate tasks', or runs /delegate. Spawns teammates, creates worktrees, monitors progress, and collects results. Supports --fixes flag for review finding remediation. Do NOT use for single-file changes or polish-track refactors."
 metadata:
   author: exarchos
-  version: 1.0.0
+  version: 2.0.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: delegate
@@ -11,208 +11,214 @@ metadata:
 
 # Delegation Skill
 
-## Overview
-
-Dispatch implementation tasks to Claude Code subagents with proper context and TDD requirements.
+Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
 Activate this skill when:
 - User runs `/delegate` command
-- Implementation plan is ready
-- User wants to parallelize work
-- Tasks are ready for execution
+- Implementation plan is ready with extractable tasks
+- User wants to parallelize work across subagents
 
-## Delegation Modes
+## Core Principles
+
+### Fresh Context Per Task (MANDATORY)
+
+Each subagent MUST start with a clean, self-contained context. As established in the Anthropic best practices for multi-agent coordination:
+
+- **No shared state assumptions.** Every subagent prompt must contain the full task description, file paths, TDD requirements, and acceptance criteria. Never say "see the plan" or "as discussed earlier."
+- **No cross-agent references.** Subagent A must not depend on output from Subagent B unless explicitly sequenced with a dependency edge in the plan.
+- **Isolated worktrees.** Each subagent operates in its own `git worktree`. Parallel agents in the same worktree will corrupt branch state.
+
+Rationalization patterns that violate this principle are catalogued in `references/rationalization-refutation.md`.
+
+### Delegation Modes
 
 | Mode | Mechanism | Best for |
 |------|-----------|----------|
 | `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
-**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` → `agent-team`. Otherwise → `subagent`. Override with `/delegate --mode subagent|agent-team`.
+**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/delegate --mode subagent|agent-team`.
 
 **CRITICAL:** Always specify `model: "opus"` for coding tasks.
+
+---
+
+## Step 1: Prepare
+
+Use the `prepare_delegation` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
+
+```
+exarchos_orchestrate({
+  action: "prepare_delegation",
+  featureId: "<featureId>",
+  tasks: [{ id: "task-001", title: "...", modules: [...] }, ...]
+})
+```
+
+The composite action performs:
+1. **Worktree creation** — creates `.worktrees/task-<id>` with `git worktree add`, runs `npm install`
+2. **State validation** — verifies workflow state is in `delegate` phase, plan exists
+3. **Quality signal check** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts
+4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
+5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
+
+**If `ready: false`:** Stop. Report the reason to the user. Do not proceed.
+
+**If `ready: true`:** Extract the `worktrees` paths and `qualityHints` for prompt construction.
+
+### Task Extraction
+
+From the implementation plan, extract for each task:
+- Full task description (paste inline; never reference external files)
+- Files to create/modify with absolute worktree paths
+- Test file paths and expected test names
+- Dependencies on other tasks (for sequencing)
+- Property-based testing flag (`testingStrategy.propertyTests`)
+
+For a complete worked example of this flow, see `references/worked-example.md`.
+
+---
+
+## Step 2: Dispatch
+
+Build subagent prompts using `references/implementer-prompt.md` as the template. Each prompt MUST include the full task context — this is the fresh-context principle in action.
+
+### Prompt Construction
+
+For each task:
+1. Fill the implementer prompt template with task-specific details
+2. Set the `Working Directory` to the worktree path from Step 1
+3. Include quality hints (if any) in the Quality Signals section
+4. Include PBT section from `references/pbt-patterns.md` when `propertyTests: true`
+5. Include testing patterns from `references/testing-patterns.md`
+
+### Parallel Dispatch
+
+Dispatch all independent tasks in a **single message** with multiple `Task` calls:
 
 ```typescript
 Task({
   subagent_type: "general-purpose",
   model: "opus",
-  description: "Implement user model",
-  prompt: `[Full implementer prompt from template]`
+  run_in_background: true,
+  description: "Implement task-001: [title]",
+  prompt: `[Full implementer prompt — self-contained]`
 })
 ```
 
-For agent-team event payloads and YAML examples, see `references/agent-teams-saga.md`. For adaptive team composition, see `references/adaptive-orchestration.md`.
+For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
-## Controller Responsibilities
+### Agent Teams Dispatch
 
-The orchestrator (you) MUST:
+When using `--mode agent-team`, follow the 6-step saga in `references/agent-teams-saga.md`. The saga requires event-first execution: emit event, then execute side effect at every step.
 
-1. **Extract tasks upfront** — Read plan, extract all task details
-2. **Provide full context** — Never make subagents read files for task info
-3. **Include TDD requirements** — Use implementer prompt template
-4. **Track progress** — TodoWrite (subagent) or native TaskList (agent-team)
-5. **Set up worktrees** — For parallel execution
-6. **Single-writer discipline** (agent-team) — Only the orchestrator mutates `workflow.tasks[]`
+Event emission contract for agent teams: see `references/agent-teams-saga.md` for full payload shapes and compensation protocol.
 
-## Implementer Prompt Template
+---
 
-Use `@skills/delegation/references/implementer-prompt.md` as template for Task tool prompts.
+## Step 3: Monitor and Collect
 
-**Conditional PBT:** When a task has `testingStrategy.propertyTests: true`, include the PBT section from `references/pbt-patterns.md`. When `false`, omit entirely.
+### Subagent Monitoring
 
-**Testing patterns:** For Arrange/Act/Assert examples, test naming conventions, mocking, and co-location rules, see `references/testing-patterns.md`.
+Poll background tasks and collect results:
 
-## Delegation Workflow — Subagent Mode
+```typescript
+TaskOutput({ task_id: "<id>", block: true })
+```
 
-0. **Check quality signals** before dispatching:
-   ```
-   mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
-   ```
-   - If `gatePassRate < 0.80` for any skill involved, include extra validation instructions in subagent prompts
-   - If `regressions` is non-empty, warn the user about active regressions before dispatching
-1. Prepare worktrees — `scripts/setup-worktree.sh`
-2. Extract task details from plan
-3. Check for benchmark tasks → set `verification.hasBenchmarks` in state
-4. Create TodoWrite entries for tracking
-5. Dispatch parallel subagents via Task tool
-6. Monitor progress via TaskOutput
-7. Collect and verify — `scripts/post-delegation-check.sh`
+After all tasks report completion:
 
-### Gate Event Emission
-
-After post-delegation verification, emit gate results for each check:
+1. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
+2. **Update workflow state** — set each `tasks[].status` to `"complete"` via `exarchos_workflow set`
+3. **Emit gate events** — for each verification result:
 
 ```
-mcp__plugin_exarchos_exarchos__exarchos_event({
+exarchos_event({
   action: "append",
-  streamId: "<featureId>",
+  stream: "<featureId>",
   event: {
     type: "gate.executed",
     data: {
       gateName: "post-delegation-check",
       layer: "CI",
-      passed: <true|false>,
-      details: {
-        skill: "delegation",
-        commit: "<worktree-head-sha>"
-      }
+      passed: true,
+      details: { skill: "delegation", commit: "<sha>" }
     }
   }
 })
 ```
 
-8. Schema sync if API files modified
+4. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
-For detailed step instructions, see `references/workflow-steps.md`.
+### Agent Teams Monitoring
 
-## Delegation Workflow — Agent Team Mode (6-Step Saga)
+- Teammates visible in tmux split panes
+- `TeammateIdle` hook auto-runs quality gates and emits completion/failure events
+- Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
+- See `references/agent-teams-saga.md` for disbanding and reconciliation
 
-Follow the event-first saga: **emit event → execute side effect** at every step.
+### Failure Recovery
 
-| Step | Action | Type |
-|------|--------|------|
-| Pre-flight | Read tasks, prepare worktrees | — |
-| 1 | Create team | Compensable |
-| 2 | Create native tasks (batched) | Compensable |
-| 3 | Spawn teammates (**pivot**) | Point of no return |
-| 4 | Monitor (tiered) | Retryable |
-| 5 | Disband | Retryable |
-| 6 | Transition to review | Retryable |
+When a task fails:
+1. Read the failure output from `TaskOutput`
+2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
+3. Re-dispatch with a fixer prompt (`references/fixer-prompt.md`) in the **same worktree**
+4. The fixer agent gets fresh context with the failure details embedded
 
-For step-by-step instructions, idempotency checks, compensation protocol, and event payloads, see `references/agent-teams-saga.md`.
+For the full recovery flow with a concrete example, see `references/worked-example.md`.
 
-## Event Emission Contract (Agent Teams)
+---
 
-| Saga Step | Exarchos Call | Event Type | Required Data |
-|-----------|-------------|-----------|---------------|
-| 1. Create team | `exarchos_event append` | `team.spawned` | teamName, teamSize, taskCount |
-| 2. Create tasks | `exarchos_event batch_append` | `team.task.planned` (per task) | taskId, title, modules |
-| 3. Spawn agents | `exarchos_event append` (per agent) | `team.teammate.dispatched` | teammateName, worktreePath, assignedTaskIds |
-| 4. Monitor | `exarchos_workflow set` | (state update) | tasks[N].status, completedAt |
-| 5. Disband | `exarchos_event append` | `team.disbanded` | totalDurationMs, tasksCompleted, tasksFailed |
-| 6. Transition | `exarchos_workflow set` (phase: review) | `workflow.transition` (auto) | -- |
+## Fix Mode (--fixes)
 
-**CRITICAL:** Steps 1-3 MUST emit events BEFORE executing the Claude Code side effect (TeamCreate, TaskCreate, Task).
-For full payload shapes, see `references/agent-teams-saga.md`.
+Handles review failures instead of initial implementation. Uses `references/fixer-prompt.md` template with adversarial verification posture, dispatches fix tasks per issue, then re-invokes review to re-integrate fixes.
 
-## State Synchronization
+**Arguments:** `--fixes <state-file-path>` — state JSON containing review results in `.reviews.<taskId>.specReview` or `.reviews.<taskId>.qualityReview`.
 
-Claude Code TaskList and exarchos workflow state are INDEPENDENT systems.
-After each task completion:
-1. `TaskUpdate` (Claude Code) -- marks native task complete
-2. `exarchos_workflow set` -- updates `tasks[N].status: "complete"` in workflow state
+For detailed fix-mode process, see `references/fix-mode.md`. For PR feedback workflows (`--pr-fixes`), see `references/pr-fixes-mode.md`.
 
-Before transitioning to review phase, ALL workflow state tasks must show `status: "complete"`.
-The `all-tasks-complete` guard checks exarchos workflow state, NOT Claude Code TaskList.
+---
 
 ## Context Compaction Recovery
 
 If context compaction occurs during delegation:
-1. Read team config: `~/.claude/teams/{featureId}/config.json` — discover active teammates
-2. Query workflow state: `exarchos_workflow` with `action: "get"`, `query: "tasks"` — check task progress
-3. Check teammate inboxes: `SendMessage` to each teammate — ask for status
-4. Reconcile: `exarchos_workflow` with `action: "reconcile"` — replays event stream and patches stale task state (CAS-protected)
+1. Query workflow state: `exarchos_workflow get` with `fields: ["tasks"]`
+2. Check active worktrees: `ls .worktrees/` and verify branch state
+3. Reconcile: `exarchos_workflow reconcile` replays the event stream and patches stale task state (CAS-protected)
+4. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
-Do NOT re-create branches or re-dispatch agents until you have confirmed they are lost.
-
-## Parallel Execution Strategy
-
-Dispatch parallel tasks in a single message with multiple Task calls. See `references/parallel-strategy.md` for group identification, dispatching patterns, and model selection.
-
-## Worktree Enforcement (MANDATORY)
-
-All tasks MUST run in isolated worktrees. Use `scripts/setup-worktree.sh` for setup.
-
-Before dispatching: run `scripts/verify-worktree.sh --cwd <path>`. If exit 1: stop dispatch, report invalid worktree. See `references/worktree-enforcement.md`.
-
-## State Management
-
-Track task progress in workflow state for context persistence. Read tasks with `action: "get"`, `query: "tasks"`. For benchmark labeling, state patterns, and agent-team consistency model, see `references/state-management.md`.
-
-## Fix Mode (--fixes)
-
-Handles review failures instead of initial implementation. Uses `references/fixer-prompt.md` template, dispatches fix tasks per issue, then re-invokes review.
-
-**Arguments:** `--fixes <state-file-path>` — state JSON containing review results in `.reviews.<taskId>.specReview` or `.reviews.<taskId>.qualityReview`.
-
-For detailed process, see `references/fix-mode.md`. For PR feedback workflows (`--pr-fixes`), see `references/pr-fixes-mode.md`.
-
-## Completion Criteria
-
-- [ ] All tasks extracted from plan (or read from state)
-- [ ] Worktrees created and validated via verify-worktree.sh
-- [ ] Implementers dispatched with full context
-- [ ] All tasks report completion, all tests pass
-- [ ] Schema sync run if API files modified
-- [ ] State file reflects all task completions
+---
 
 ## Transition
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
-1. Verify all `tasks[].status === 'complete'` in workflow state
-2. Update state: `action: "set"`, `phase: "review"`
+1. Verify all `tasks[].status === "complete"` in workflow state
+2. Update state: `exarchos_workflow set` with `phase: "review"`
 3. Invoke: `Skill({ skill: "exarchos:review", args: "<plan-path>" })`
 
-This is NOT a human checkpoint — workflow continues autonomously.
+This is NOT a human checkpoint — the workflow continues autonomously.
 
-## Known Limitations
+---
 
-- **Agent Teams:** No session resumption, task status lag, one team per session, no nested teams, requires tmux/iTerm2. Cold start falls back to plan's parallel group strategy.
-- **Subagents:** No visual monitoring, individual context windows, limited observability.
+## References
 
-## Troubleshooting
-
-See `references/troubleshooting.md` for MCP tool failures, state desync, worktree creation, teammate spawn timeouts, and task claim conflicts.
-
-## Exarchos Integration
-
-**Subagent mode:** Emit `task.assigned` on dispatch, use `exarchos_orchestrate task_complete` on completion. Phase transitions auto-emit `workflow.transition`.
-
-**Agent-team mode:** Follow the 6-step saga. Do NOT mix with subagent-mode patterns — the TeammateIdle hook handles completion. See `references/agent-teams-saga.md`.
-
-**Gate events:** After post-delegation checks, emit `gate.executed` events for each verification result. These feed the CodeQualityView for quality tracking and regression detection.
-
-**Claim guard** (subagent only): Use `exarchos_orchestrate task_claim` for optimistic concurrency. On `ALREADY_CLAIMED`, skip and check status before re-dispatching.
+| Document | Purpose |
+|----------|---------|
+| `references/implementer-prompt.md` | Full prompt template for implementation tasks |
+| `references/fixer-prompt.md` | Fix agent prompt with adversarial verification posture |
+| `references/worked-example.md` | Complete delegation trace with recovery path (R1) |
+| `references/rationalization-refutation.md` | Common rationalizations and counter-arguments (R2) |
+| `references/agent-teams-saga.md` | 6-step agent-team saga with event payloads |
+| `references/parallel-strategy.md` | Parallel grouping and model selection |
+| `references/testing-patterns.md` | Arrange/Act/Assert, naming, mocking conventions |
+| `references/pbt-patterns.md` | Property-based testing patterns |
+| `references/fix-mode.md` | Detailed fix-mode process |
+| `references/pr-fixes-mode.md` | PR feedback fix workflows |
+| `references/state-management.md` | State patterns and benchmark labeling |
+| `references/troubleshooting.md` | Common failure modes and resolutions |
+| `references/adaptive-orchestration.md` | Adaptive team composition |
+| `references/workflow-steps.md` | Legacy step-by-step delegation reference |
+| `references/worktree-enforcement.md` | Worktree isolation rules |
