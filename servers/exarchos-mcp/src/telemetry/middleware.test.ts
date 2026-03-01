@@ -295,3 +295,89 @@ describe('auto-correction integration', () => {
     expect(hintData.generatedAt).toBeDefined();
   });
 });
+
+describe('D3 token-budget gate emission', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gate-emission-test-'));
+    eventStore = new EventStore(tmpDir);
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('withTelemetry_TokenThresholdExceeded_EmitsGateExecutedForD3', async () => {
+    // Arrange: ~10KB response -> ~2560 tokens (exceeds 2048 threshold)
+    const largePayload = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
+    const handler = async () => ({
+      content: [{ type: 'text' as const, text: largePayload }],
+      isError: false,
+    });
+
+    const wrapped = withTelemetry(handler, 'test-tool', eventStore);
+
+    // Act
+    await wrapped({ featureId: 'test-feature' });
+
+    // Assert: gate.executed event should be emitted to the workflow stream (featureId)
+    const workflowEvents = await eventStore.query('test-feature');
+    const gateEvents = workflowEvents.filter((e) => e.type === 'gate.executed');
+    expect(gateEvents).toHaveLength(1);
+
+    const gateData = gateEvents[0].data as Record<string, unknown>;
+    expect(gateData.gateName).toBe('token-budget');
+    expect(gateData.passed).toBe(false);
+
+    const details = gateData.details as Record<string, unknown>;
+    expect(details.dimension).toBe('D3');
+    expect(details.phase).toBe('runtime');
+    expect(details.tokenEstimate).toBeGreaterThan(2048);
+    expect(details.tool).toBe('test-tool');
+  });
+
+  it('withTelemetry_TokenBelowThreshold_NoGateEvent', async () => {
+    // Arrange: small response (~25 tokens, well below 2048 threshold)
+    const smallPayload = JSON.stringify({ success: true, data: {} });
+    const handler = async () => ({
+      content: [{ type: 'text' as const, text: smallPayload }],
+      isError: false,
+    });
+
+    const wrapped = withTelemetry(handler, 'test-tool', eventStore);
+
+    // Act
+    await wrapped({ featureId: 'test-feature' });
+
+    // Assert: no gate.executed event emitted to the workflow stream
+    const workflowEvents = await eventStore.query('test-feature');
+    const gateEvents = workflowEvents.filter((e) => e.type === 'gate.executed');
+    expect(gateEvents).toHaveLength(0);
+  });
+
+  it('withTelemetry_NoFeatureIdInArgs_SkipsGateEmission', async () => {
+    // Arrange: large response but no featureId in args
+    const largePayload = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
+    const handler = async () => ({
+      content: [{ type: 'text' as const, text: largePayload }],
+      isError: false,
+    });
+
+    const wrapped = withTelemetry(handler, 'test-tool', eventStore);
+
+    // Act — no featureId provided
+    await wrapped({ action: 'get' });
+
+    // Assert: only telemetry stream events exist, no gate.executed anywhere
+    const telemetryEvents = await eventStore.query(TELEMETRY_STREAM);
+    const telemetryGateEvents = telemetryEvents.filter((e) => e.type === 'gate.executed');
+    expect(telemetryGateEvents).toHaveLength(0);
+
+    // The telemetry stream should have tool.invoked and tool.completed only
+    expect(telemetryEvents).toHaveLength(2);
+    expect(telemetryEvents[0].type).toBe('tool.invoked');
+    expect(telemetryEvents[1].type).toBe('tool.completed');
+  });
+});

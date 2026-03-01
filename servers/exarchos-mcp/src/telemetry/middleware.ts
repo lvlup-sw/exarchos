@@ -1,7 +1,7 @@
 import { EventStore } from '../event-store/store.js';
 import type { McpToolResult } from '../format.js';
 import { telemetryLogger } from '../logger.js';
-import { TELEMETRY_STREAM } from './constants.js';
+import { TELEMETRY_STREAM, TOKEN_GATE_THRESHOLD } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';
 import { matchCorrection, applyCorrections } from './auto-correction.js';
 import type { Correction } from './auto-correction.js';
@@ -120,6 +120,28 @@ export function withTelemetry(
       const responseText = result.content[0]?.text ?? '';
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
       const tokenEstimate = Math.ceil(responseBytes / 4);
+
+      // Emit D3 gate event when token threshold exceeded (fire-and-forget)
+      const featureIdForGate = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
+      if (featureIdForGate && tokenEstimate > TOKEN_GATE_THRESHOLD) {
+        eventStore
+          .append(featureIdForGate, {
+            type: 'gate.executed',
+            data: {
+              gateName: 'token-budget',
+              layer: 'runtime',
+              passed: false,
+              details: {
+                dimension: 'D3',
+                phase: 'runtime',
+                tokenEstimate,
+                responseBytes,
+                tool: toolName,
+              },
+            },
+          })
+          .catch(() => {});
+      }
 
       // Wait for invoke event to settle before emitting completed
       await invokePromise;
