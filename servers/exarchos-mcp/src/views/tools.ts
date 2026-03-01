@@ -64,6 +64,12 @@ import {
   synthesisReadinessProjection,
   SYNTHESIS_READINESS_VIEW,
 } from './synthesis-readiness-view.js';
+import type { SynthesisReadinessState } from './synthesis-readiness-view.js';
+import {
+  shepherdStatusProjection,
+  SHEPHERD_STATUS_VIEW,
+} from './shepherd-status-view.js';
+import type { ShepherdStatusState } from './shepherd-status-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -86,6 +92,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
+  materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   return materializer;
 }
 
@@ -763,6 +770,65 @@ export async function handleViewDelegationReadiness(
   }
 }
 
+// ─── View Synthesis Readiness Handler ────────────────────────────────────────
+
+export async function handleViewSynthesisReadiness(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, SYNTHESIS_READINESS_VIEW);
+    const view = materializer.materialize<SynthesisReadinessState>(
+      streamId,
+      SYNTHESIS_READINESS_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Shepherd Status Handler ────────────────────────────────────────────
+
+export async function handleViewShepherdStatus(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, SHEPHERD_STATUS_VIEW);
+    const view = materializer.materialize<ShepherdStatusState>(
+      streamId,
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {

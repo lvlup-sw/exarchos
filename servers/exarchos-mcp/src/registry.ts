@@ -500,6 +500,33 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'delegation_readiness',
+    description: 'Check delegation readiness: plan approval, quality gates, and worktree status',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'synthesis_readiness',
+    description: 'Check synthesis readiness: task completion, reviews, tests, and typecheck status',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'shepherd_status',
+    description: 'PR shepherd status: CI, comments, unresolved findings, and iteration tracking',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────

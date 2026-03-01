@@ -17,6 +17,9 @@ import {
   handleViewQualityCorrelation,
   handleViewSessionProvenance,
   handleViewQualityAttribution,
+  handleViewDelegationReadiness,
+  handleViewSynthesisReadiness,
+  handleViewShepherdStatus,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
@@ -153,6 +156,24 @@ export async function handleView(
         stateDir,
       );
 
+    case 'delegation_readiness':
+      return handleViewDelegationReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
+    case 'synthesis_readiness':
+      return handleViewSynthesisReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
+    case 'shepherd_status':
+      return handleViewShepherdStatus(
+        rest as { workflowId?: string },
+        stateDir,
+      );
+
     default:
       return {
         success: false,
@@ -175,6 +196,9 @@ export async function handleView(
             'quality_correlation',
             'quality_attribution',
             'session_provenance',
+            'delegation_readiness',
+            'synthesis_readiness',
+            'shepherd_status',
           ] as const,
         },
       };
