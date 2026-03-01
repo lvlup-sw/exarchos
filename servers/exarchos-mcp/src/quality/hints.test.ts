@@ -4,6 +4,8 @@ import type { QualityHint, CalibrationContext } from './hints.js';
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
 import type { RefinementSignal } from './refinement-signal.js';
+import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import { initToolMetrics } from '../telemetry/telemetry-projection.js';
 
 // ─── Test Helper ────────────────────────────────────────────────────────────
 
@@ -780,6 +782,142 @@ describe('generateQualityHints', () => {
       // Should include both gate and benchmark categories
       expect(categories).toContain('gate');
       expect(categories).toContain('benchmark');
+    });
+  });
+
+  // ─── Telemetry Hint Integration ────────────────────────────────────────────
+
+  describe('telemetry hint integration', () => {
+    function makeTelemetryState(tools: Record<string, Partial<ReturnType<typeof initToolMetrics>>>): TelemetryViewState {
+      const fullTools: Record<string, ReturnType<typeof initToolMetrics>> = {};
+      for (const [name, partial] of Object.entries(tools)) {
+        fullTools[name] = { ...initToolMetrics(), ...partial };
+      }
+      return {
+        tools: fullTools,
+        sessionStart: new Date().toISOString(),
+        totalInvocations: 0,
+        totalTokens: 0,
+        windowSize: 1000,
+      };
+    }
+
+    it('GenerateQualityHints_WithTelemetryHints_IncludesTelemetryCategory', () => {
+      // Arrange: quality state + telemetry state where a tool exceeds threshold
+      const qualityState = makeState();
+      const telemetryState = makeTelemetryState({
+        view_tasks: { p95Bytes: 1500 },
+      });
+
+      // Act
+      const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
+
+      // Assert
+      const telemetryHints = hints.filter(h => h.category === 'telemetry');
+      expect(telemetryHints.length).toBeGreaterThan(0);
+      expect(telemetryHints[0].skill).toBe('global');
+      expect(telemetryHints[0].severity).toBe('info');
+    });
+
+    it('GenerateQualityHints_WithoutTelemetryState_OmitsTelemetryHints', () => {
+      // Arrange: quality state, no telemetry state
+      const qualityState = makeState();
+
+      // Act
+      const hints = generateQualityHints(qualityState);
+
+      // Assert
+      const telemetryHints = hints.filter(h => h.category === 'telemetry');
+      expect(telemetryHints).toHaveLength(0);
+    });
+
+    it('GenerateQualityHints_TelemetryHintsSortedWithOthers', () => {
+      // Arrange: states that produce both quality warnings and telemetry info hints
+      const qualityState = makeState({
+        skills: {
+          'my-skill': {
+            skill: 'my-skill',
+            totalExecutions: 10,
+            gatePassRate: 0.70,
+            selfCorrectionRate: 0.10,
+            avgRemediationAttempts: 1.5,
+            topFailureCategories: [{ category: 'lint', count: 5 }],
+          },
+        },
+      });
+      const telemetryState = makeTelemetryState({
+        view_tasks: { p95Bytes: 1500 },
+      });
+
+      // Act
+      const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
+
+      // Assert: warnings sort before telemetry info hints
+      const warningIdx = hints.findIndex(h => h.severity === 'warning');
+      const telemetryIdx = hints.findIndex(h => h.category === 'telemetry');
+
+      expect(warningIdx).not.toBe(-1);
+      expect(telemetryIdx).not.toBe(-1);
+      expect(warningIdx).toBeLessThan(telemetryIdx);
+    });
+
+    it('GenerateQualityHints_TelemetryNoThresholdsExceeded_NoTelemetryHints', () => {
+      // Arrange: telemetry state where no tools exceed thresholds
+      const qualityState = makeState();
+      const telemetryState = makeTelemetryState({
+        view_tasks: { p95Bytes: 100 },
+        workflow_get: { p95Bytes: 50 },
+      });
+
+      // Act
+      const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
+
+      // Assert
+      const telemetryHints = hints.filter(h => h.category === 'telemetry');
+      expect(telemetryHints).toHaveLength(0);
+    });
+
+    it('GenerateQualityHints_TelemetryHintsCountTowardsCap', () => {
+      // Arrange: many quality warnings + telemetry hints to test cap at 5
+      const qualityState = makeState({
+        skills: {
+          'skill-a': {
+            skill: 'skill-a',
+            totalExecutions: 20,
+            gatePassRate: 0.50,
+            selfCorrectionRate: 0.40,
+            avgRemediationAttempts: 3,
+            topFailureCategories: [{ category: 'lint', count: 10 }],
+          },
+          'skill-b': {
+            skill: 'skill-b',
+            totalExecutions: 20,
+            gatePassRate: 0.60,
+            selfCorrectionRate: 0.35,
+            avgRemediationAttempts: 2,
+            topFailureCategories: [{ category: 'test', count: 8 }],
+          },
+          'skill-c': {
+            skill: 'skill-c',
+            totalExecutions: 20,
+            gatePassRate: 0.55,
+            selfCorrectionRate: 0.50,
+            avgRemediationAttempts: 4,
+            topFailureCategories: [{ category: 'build', count: 9 }],
+          },
+        },
+      });
+      const telemetryState = makeTelemetryState({
+        view_tasks: { p95Bytes: 1500 },
+        workflow_get: { p95Bytes: 800 },
+        event_query: { p95Bytes: 2500 },
+      });
+
+      // Act
+      const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
+
+      // Assert: total capped at 5
+      expect(hints.length).toBeLessThanOrEqual(5);
     });
   });
 
