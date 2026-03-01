@@ -101,6 +101,7 @@ export async function handleReviewVerdict(
         const store = getOrCreateEventStore(stateDir);
         await emitGateEvent(store, args.featureId, `review-${key}`, 'review', entry.passed, {
           dimension: key,
+          phase: 'review',
           findingCount: entry.findingCount,
         });
       } catch { /* fire-and-forget */ }
@@ -112,6 +113,7 @@ export async function handleReviewVerdict(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
       verdict,
+      phase: 'review',
       high: args.high,
       medium: args.medium,
       low: args.low,

@@ -177,6 +177,64 @@ describe('handlePrepareSynthesis', () => {
     expect(typecheckEvent.data.layer).toBe('CI');
   });
 
+  // ─── Test 4b: Test-suite gate event includes phase ──────────────────────
+
+  it('PrepareSynthesis_TestSuiteGateEvent_IncludesPhaseInDetails', async () => {
+    // Arrange
+    const taskView = mockTaskDetailView({
+      't1': { status: 'completed' },
+    });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
+    vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
+    vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 10 passed, 0 failed'));
+
+    // Act
+    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
+
+    // Assert — test-suite gate event includes phase: 'synthesize'
+    const appendCalls = mockStore.append.mock.calls;
+    const testGateCall = appendCalls.find(
+      (call: unknown[]) => {
+        const event = call[1] as { type: string; data: { gateName: string } };
+        return event.type === 'gate.executed' && event.data.gateName === 'test-suite';
+      },
+    );
+    expect(testGateCall).toBeDefined();
+    const testEvent = testGateCall![1] as { data: { details: Record<string, unknown> } };
+    expect(testEvent.data.details.phase).toBe('synthesize');
+  });
+
+  // ─── Test 4c: Typecheck gate event includes phase ─────────────────────
+
+  it('PrepareSynthesis_TypecheckGateEvent_IncludesPhaseInDetails', async () => {
+    // Arrange
+    const taskView = mockTaskDetailView({
+      't1': { status: 'completed' },
+    });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
+    vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
+    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+
+    // Act
+    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
+
+    // Assert — typecheck gate event includes phase: 'synthesize'
+    const appendCalls = mockStore.append.mock.calls;
+    const typecheckGateCall = appendCalls.find(
+      (call: unknown[]) => {
+        const event = call[1] as { type: string; data: { gateName: string } };
+        return event.type === 'gate.executed' && event.data.gateName === 'typecheck';
+      },
+    );
+    expect(typecheckGateCall).toBeDefined();
+    const typecheckEvent = typecheckGateCall![1] as { data: { details: Record<string, unknown> } };
+    expect(typecheckEvent.data.details.phase).toBe('synthesize');
+  });
+
   // ─── Test 5: Stack checked uses git log, not gt log ─────────────────────
 
   it('verifyStack_UsesGitLog_NotGtLog', async () => {

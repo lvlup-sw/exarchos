@@ -120,6 +120,26 @@ describe('handlePostMerge', () => {
     expect(details.findings).toEqual([]);
   });
 
+  // ─── Test 3b: Phase in gate event details ───────────────────────────────
+
+  it('handlePostMerge_EmitsGateEvent_IncludesPhaseInDetails', async () => {
+    // Arrange
+    const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
+    vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+    // Act
+    await handlePostMerge(
+      { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
+      STATE_DIR,
+    );
+
+    // Assert
+    expect(mockStore.append).toHaveBeenCalledTimes(1);
+    const [, event] = mockStore.append.mock.calls[0] as [string, { type: string; data: Record<string, unknown> }];
+    const details = event.data.details as Record<string, unknown>;
+    expect(details.phase).toBe('synthesize');
+  });
+
   // ─── Test 4: Missing args returns error ────────────────────────────────
 
   it('handlePostMerge_MissingPrUrl_ReturnsError', async () => {

@@ -99,6 +99,7 @@ export async function handleOperationalResilience(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'operational-resilience', 'quality', passed, {
       dimension: 'D4',
+      phase: 'review',
       findingCount,
     });
   } catch { /* fire-and-forget */ }

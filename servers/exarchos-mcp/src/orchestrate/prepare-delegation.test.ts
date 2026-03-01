@@ -260,10 +260,28 @@ describe('handlePrepareDelegation', () => {
       true,              // passed
       {
         dimension: 'D1',
+        phase: 'delegate',
         taskCount: 2,
         gatePassRate: null,
       },
     );
+  });
+
+  it('PrepareDelegation_Ready_EmitsGateEvent_IncludesPhaseInDetails', async () => {
+    // Arrange
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(emitGateEvent).toHaveBeenCalledOnce();
+    const callArgs = vi.mocked(emitGateEvent).mock.calls[0];
+    const details = callArgs[5] as Record<string, unknown>;
+    expect(details.phase).toBe('delegate');
   });
 
   it('PrepareDelegation_NotReady_DoesNotEmitGateEvent', async () => {

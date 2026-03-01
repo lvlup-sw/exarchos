@@ -225,6 +225,7 @@ export async function handlePrepareSynthesis(
     // 5. Emit gate.executed event for test-suite (feeds flywheel)
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
       dimension: 'D1',
+      phase: 'synthesize',
       passCount: tests.passCount,
       failCount: tests.failCount,
     });
@@ -235,6 +236,7 @@ export async function handlePrepareSynthesis(
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
     await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
       dimension: 'D1',
+      phase: 'synthesize',
       errorCount: typecheck.errorCount,
       errors: typecheck.errors,
     });
