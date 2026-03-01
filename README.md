@@ -3,25 +3,22 @@
 
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-  **SDLC workflows for Claude Code**<br>
-  Agent teams · Quality gates · Graphite stacked PRs · Event-sourced state
+  **Structure for agentic development**<br>
+  Durable SDLC workflows · Convergence gates · Agent teams · Audit trail
 </div>
 
 ---
 
 ## Why Exarchos?
 
-Claude Code doesn't have workflow structure out of the box. Agents lose context mid-task, skip tests, produce monolithic PRs, and leave you reconstructing what happened after the fact.
+Claude Code is powerful but unstructured. Agents lose context mid-task, skip verification, produce monolithic diffs, and leave no record of what they did or why. Exarchos adds SDLC structure.
 
-Exarchos adds SDLC process to Claude Code. Three workflows (feature, debug, refactor) move through defined phases with human checkpoints at design and merge. Between those checkpoints, agent teams work in parallel git worktrees while the orchestrator manages state, enforces review gates, and logs every transition.
-
-- **Three SDLC workflows.** Feature, debug, and refactor tracks with defined phases. You approve at design and merge; everything else auto-continues.
-- **Parallel agent teams.** Delegate implementation to teammates working in isolated git worktrees with independent context.
-- **Two-stage code review.** Spec compliance first, then code quality. TDD enforcement and deterministic validation scripts gate every merge.
-- **Graphite stacked PRs.** Work ships as incremental stacked PRs through merge queue. No monolithic diffs, no manual branch management.
-- **Append-only event log.** Every workflow transition, task completion, and agent interaction is recorded. Trace what happened, when, and why.
-- **Low context overhead.** Composite MCP tools and on-demand content loading keep token usage minimal.
-- **Persistent state.** Workflows survive context compaction and session restarts. Pick up where you left off across sessions and machines.
+- **Durable workflows.** State survives context compaction and session restarts. Checkpoint mid-task, resume tomorrow, on a different machine.
+- **Convergence gates.** Five independent quality dimensions verified at every phase boundary — spec fidelity, architectural compliance, context economy, operational resilience, workflow determinism. Code advances only when all dimensions pass.
+- **Structured phases.** Design → plan → implement → review → ship, with human checkpoints at design approval and merge. Everything between auto-continues.
+- **Agent teams.** Delegate tasks to parallel Claude Code instances in isolated git worktrees. The orchestrator coordinates; teammates execute.
+- **Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Automated verification scripts, not vibes.
+- **Full audit trail.** Append-only event log records every workflow transition, quality gate result, and agent decision. Trace what happened, when, and why.
 
 ## Installation
 
@@ -35,7 +32,7 @@ Exarchos adds SDLC process to Claude Code. Three workflows (feature, debug, refa
 /plugin install exarchos@lvlup-sw
 ```
 
-This installs the Exarchos MCP server, Graphite MCP integration, all workflow commands and skills, lifecycle hooks, and validation scripts.
+This installs the Exarchos MCP server, all workflow commands and skills, lifecycle hooks, and validation scripts.
 
 **Dev companion** (optional): adds GitHub, Serena, Context7, and Microsoft Learn MCP servers. `npx @lvlup-sw/exarchos-dev`
 
@@ -51,7 +48,6 @@ claude --plugin-dir .
 ### Prerequisites
 
 - **Node.js** >= 20
-- **Graphite CLI** (`gt`) — required for stacked PR workflows ([install](https://graphite.dev/docs/install))
 
 > Migrating from the legacy `npx` installer? See the [migration guide](docs/migration-from-legacy-installer.md).
 
@@ -89,11 +85,11 @@ Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoin
 | Phase | Command | Purpose |
 |-------|---------|---------|
 | Design | `/exarchos:ideate` | Collaborative design exploration with trade-offs |
-| Plan | `/exarchos:plan` | TDD task decomposition + stack ordering |
+| Plan | `/exarchos:plan` | TDD task decomposition with provenance tracing |
 | Plan review | — | Human approval checkpoint |
 | Delegate | `/exarchos:delegate` | Spawn agent teams in worktrees |
 | Review | `/exarchos:review` | Two-stage: spec compliance → code quality |
-| Synthesize | `/exarchos:synthesize` | Enqueue Graphite stack in merge queue |
+| Synthesize | `/exarchos:synthesize` | Create stacked PRs and enqueue for merge |
 
 ### Debug Workflow
 
@@ -164,14 +160,20 @@ Your Claude Code session acts as the orchestrator. Exarchos manages workflow sta
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| **Exarchos** | Core plugin | Workflow orchestration, event logging, team coordination |
-| **Graphite** | Core plugin | Stacked PR management and merge queue |
-| **GitHub** | [Dev companion](companion/) | PRs, issues, code search |
+| **Exarchos** | Core plugin | Workflow orchestration, event logging, team coordination, convergence gates |
+| **GitHub** | [Dev companion](companion/) | PRs, issues, code search, stacked PR management |
 | **Serena** | [Dev companion](companion/) | Semantic code analysis |
 | **Context7** | [Dev companion](companion/) | Up-to-date library documentation |
 | **Microsoft Learn** | [Dev companion](companion/) | Official Azure/.NET documentation |
 
 For technical details on the MCP server architecture, event sourcing model, and tool API, see the [architecture documentation](docs/).
+
+<!-- ## Scaling Up
+
+Exarchos runs entirely on your local machine. For teams that need cloud
+execution in secure sandboxes, multi-provider model routing, and
+enterprise observability, see [Basileus](https://basileus.dev) — the
+platform that Exarchos workflows connect to. -->
 
 ## Build & Test
 

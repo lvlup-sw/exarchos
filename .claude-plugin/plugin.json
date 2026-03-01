@@ -1,6 +1,6 @@
 {
   "name": "exarchos",
-  "description": "SDLC workflows for Claude Code with agent team coordination, quality gates, and PR management.",
+  "description": "Structure for agentic development — durable SDLC workflows with convergence gates, agent teams, and full audit trail.",
   "version": "2.2.1",
   "author": {
     "name": "Levelup Software"
@@ -12,9 +12,11 @@
     "workflow",
     "sdlc",
     "event-sourcing",
-    "tdd",
-    "code-review",
-    "agent-teams"
+    "quality-gates",
+    "agent-teams",
+    "durable-workflows",
+    "audit-trail",
+    "code-review"
   ],
   "commands": "./commands/",
   "skills": "./skills/",

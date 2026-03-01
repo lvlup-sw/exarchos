@@ -1,7 +1,7 @@
 {
   "name": "@lvlup-sw/exarchos",
   "version": "2.2.1",
-  "description": "Governed SDLC workflows for Claude Code — agent orchestration, quality gates, and PR management",
+  "description": "Structure for agentic development — durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
   "type": "module",
   "bin": {
     "exarchos-cli": "./dist/exarchos-cli.js"
@@ -40,12 +40,15 @@
   },
   "keywords": [
     "claude-code-plugin",
-    "agent-governance",
-    "workflow",
     "sdlc",
-    "tdd",
+    "workflow",
+    "agent-teams",
     "event-sourcing",
-    "code-review"
+    "code-review",
+    "quality-gates",
+    "tdd",
+    "durable-workflows",
+    "audit-trail"
   ],
   "author": "lvlup-sw",
   "license": "Apache-2.0",
