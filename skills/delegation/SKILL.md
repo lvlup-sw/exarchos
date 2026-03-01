@@ -131,25 +131,24 @@ TaskOutput({ task_id: "<id>", block: true })
 After all tasks report completion:
 
 1. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
-2. **Update workflow state** — set each `tasks[].status` to `"complete"` via `exarchos_workflow set`
-3. **Emit gate events** — for each verification result:
+2. **TDD compliance gate** — for each completed task, invoke the compliance check BEFORE marking the task as complete:
 
 ```typescript
-exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: {
-    type: "gate.executed",
-    data: {
-      gateName: "post-delegation-check",
-      layer: "CI",
-      passed: true,
-      details: { skill: "delegation", commit: "<sha>" }
-    }
-  }
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "<task-branch>"
 })
 ```
 
+Gate on the result:
+- If `result.data.passed === true`: Task passes TDD compliance. Proceed to mark it complete.
+- If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
+
+The handler auto-emits `gate.executed` events, so manual `exarchos_event` calls for post-delegation checks are not needed.
+
+3. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
 4. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
 ### Agent Teams Monitoring

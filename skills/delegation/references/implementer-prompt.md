@@ -192,13 +192,24 @@ PR creation is handled during the synthesis phase — do not create PRs from imp
 
 Commits should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one commit. For example, if you implement types + config + tests for a module, that's one commit, not three.
 
+## Provenance Reporting
+
+When completing a task, include provenance data in your completion report:
+
+1. **implements** — List design requirement IDs you implemented (e.g., DR-1, DR-3)
+2. **tests** — List tests written with name and file path
+3. **files** — List files created or modified
+
+This data flows into the task.completed event for traceability.
+
 ## Completion
 
 When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Any issues encountered
+4. Provenance: implements (requirement IDs), tests (name + file), files (paths)
+5. Any issues encountered
 ```
 
 ## Usage Example
