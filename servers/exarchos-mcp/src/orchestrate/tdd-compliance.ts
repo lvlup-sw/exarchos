@@ -114,6 +114,7 @@ export async function handleTddCompliance(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'tdd-compliance', 'testing', passed, {
       dimension: 'D1',
+      phase: 'delegate',
       taskId: args.taskId,
       branch: args.branch,
       passCount: counts.passCount,

@@ -188,6 +188,39 @@ describe('handleProvenanceChain', () => {
     );
   });
 
+  it('handleProvenanceChain_EmitsGateEvent_IncludesPhasePlanInDetails', async () => {
+    // Arrange
+    const report = [
+      '## Provenance Chain Report',
+      '### Summary',
+      '- Requirements: 2',
+      '- Covered: 2',
+      '- Gaps: 0',
+      '- Orphan refs: 0',
+      '**Result: PASS**',
+    ].join('\n');
+
+    mockedExecSync.mockReturnValueOnce(Buffer.from(report));
+
+    // Act
+    await handleProvenanceChain(
+      { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
+      stateDir,
+    );
+
+    // Assert
+    expect(mockedEmitGateEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      'test-feat',
+      'provenance-chain',
+      'planning',
+      true,
+      expect.objectContaining({
+        phase: 'plan',
+      }),
+    );
+  });
+
   it('should be resilient to gate emission failure', async () => {
     const report = [
       '## Provenance Chain Report',

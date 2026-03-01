@@ -187,6 +187,33 @@ describe('handleTddCompliance', () => {
     expect(details.totalCommits).toBe(2);
   });
 
+  // ─── Test: Phase in event details ──────────────────────────────────────
+
+  it('handleTddCompliance_EmitsGateEvent_IncludesPhaseDelegateInDetails', async () => {
+    // Arrange
+    const report = makePassReport(2, 2);
+    vi.mocked(execSync).mockReturnValue(report);
+
+    const args = {
+      featureId: 'feat-widget',
+      taskId: 'T-phase',
+      branch: 'feature/widget',
+    };
+
+    // Act
+    await handleTddCompliance(args, STATE_DIR);
+
+    // Assert
+    expect(mockStore.append).toHaveBeenCalledOnce();
+    const [, event] = mockStore.append.mock.calls[0] as [
+      string,
+      { type: string; data: Record<string, unknown> },
+    ];
+    expect(event.type).toBe('gate.executed');
+    const details = event.data.details as Record<string, unknown>;
+    expect(details.phase).toBe('delegate');
+  });
+
   // ─── Test 4: Missing args returns error ─────────────────────────────────
 
   it('handleTddCompliance_MissingFeatureId_ReturnsError', async () => {

@@ -117,6 +117,7 @@ export async function handlePlanCoverage(
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', passed, {
       dimension: 'D1',
+      phase: 'plan',
       covered: metrics.covered,
       gaps: metrics.gaps,
       deferred: metrics.deferred,

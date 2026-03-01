@@ -230,6 +230,47 @@ describe('handleDesignCompleteness', () => {
     });
   });
 
+  // ─── Phase in Details ───────────────────────────────────────────────────
+
+  describe('phase in event details', () => {
+    it('handleDesignCompleteness_EmitsGateEvent_IncludesPhaseIdeateInDetails', async () => {
+      // Arrange
+      const stdout = [
+        '## Ideation Artifact Verification Report',
+        '',
+        '- **PASS**: Design document exists (/tmp/design.md)',
+        '- **PASS**: Required sections present (6/6)',
+        '- **PASS**: Multiple options evaluated (3 options found)',
+        '- **PASS**: State file has design path (/tmp/design.md)',
+        '',
+        '---',
+        '',
+        '**Result: PASS** (4/4 checks passed)',
+      ].join('\n');
+
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      // Act
+      await handleDesignCompleteness(
+        { featureId: 'test-feature' },
+        STATE_DIR,
+      );
+
+      // Assert — gate.executed event includes phase: 'ideate' in details
+      const gateExecutedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'gate.executed',
+      );
+      expect(gateExecutedCalls.length).toBe(1);
+      const event = gateExecutedCalls[0][1] as {
+        type: string;
+        data: {
+          details: Record<string, unknown>;
+        };
+      };
+      expect(event.data.details.phase).toBe('ideate');
+    });
+  });
+
   // ─── Usage Error ────────────────────────────────────────────────────────
 
   describe('usage error', () => {
