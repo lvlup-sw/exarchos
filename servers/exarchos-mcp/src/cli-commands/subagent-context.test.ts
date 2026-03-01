@@ -105,7 +105,8 @@ describe('subagent-context', () => {
       );
       expect(deniedOrchestrate).toBeDefined();
       expect(deniedOrchestrate!.actions).toContain('review_triage');
-      expect(deniedOrchestrate!.actions).toHaveLength(1);
+      expect(deniedOrchestrate!.actions).toContain('prepare_delegation');
+      expect(deniedOrchestrate!.actions).toHaveLength(2);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -153,7 +154,7 @@ describe('subagent-context', () => {
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      expect(deniedOrchestrate!.actions.length).toBe(4);
+      expect(deniedOrchestrate!.actions.length).toBe(5);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {

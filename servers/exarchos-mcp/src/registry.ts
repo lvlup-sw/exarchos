@@ -397,6 +397,16 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'prepare_delegation',
+    description: 'Query delegation readiness and prepare quality hints for subagent dispatch',
+    schema: z.object({
+      featureId: z.string().min(1),
+      tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
