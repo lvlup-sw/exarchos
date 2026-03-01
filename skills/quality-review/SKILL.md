@@ -132,16 +132,20 @@ Exit 0: triage routing correct — continue to Step 1. Exit 1: triage issues fou
 
 ### Step 1: Static Analysis
 
-Run the static analysis gate:
+Run the static analysis gate via orchestrate:
 
-```bash
-scripts/static-analysis-gate.sh --repo-root <repo-root>
+```typescript
+exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "<id>",
+  repoRoot: "<repo-root>"
+})
 ```
 
-The script runs lint, typecheck, and quality-check (if available), distinguishing errors from warnings.
+The handler runs lint, typecheck, and quality-check (if available), distinguishing errors from warnings. It automatically emits a `gate.executed` event with dimension D2.
 
-**On exit 0:** All analysis passes -- proceed to Step 2.
-**On exit 1:** Errors found -- fix before continuing review.
+**On `passed: true`:** All analysis passes — proceed to Step 2.
+**On `passed: false`:** Errors found — fix before continuing review.
 
 ### Step 2: Code Walkthrough
 
@@ -152,14 +156,38 @@ Assess each modified file against the quality checklists:
 
 ### Step 2.5: Security Scan (Automated)
 
-Run automated security pattern detection:
+Run automated security pattern detection via orchestrate:
 
-```bash
-scripts/security-scan.sh --repo-root <repo-root> --base-branch main
+```typescript
+exarchos_orchestrate({
+  action: "check_security_scan",
+  featureId: "<id>",
+  repoRoot: "<repo-root>",
+  baseBranch: "main"
+})
 ```
 
-**On exit 0:** No security patterns detected.
-**On exit 1:** Potential security issues found -- include in review report.
+The handler automatically emits a `gate.executed` event with dimension D1.
+
+**On `passed: true`:** No security patterns detected.
+**On `passed: false`:** Potential security issues found — include in review report.
+
+### Step 2.6: Extended Quality Gates (Optional)
+
+When available, run additional quality gates for D3-D5 dimensions:
+
+```typescript
+// D3: Context Economy — code complexity impacting LLM context
+exarchos_orchestrate({ action: "check_context_economy", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
+
+// D4: Operational Resilience — empty catches, swallowed errors, console.log
+exarchos_orchestrate({ action: "check_operational_resilience", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
+
+// D5: Workflow Determinism — .only/.skip, non-deterministic time/random, debug artifacts
+exarchos_orchestrate({ action: "check_workflow_determinism", featureId: "<id>", repoRoot: "<repo-root>", baseBranch: "main" })
+```
+
+Each handler automatically emits `gate.executed` events with the appropriate dimension. Findings from these checks are advisory and feed into the convergence view but do not independently block the review.
 
 ### Step 3: Generate Report
 
@@ -273,17 +301,52 @@ action: "set", featureId: "<id>", phase: "synthesize"
 - [ ] Code is maintainable
 - [ ] State file updated with review results
 
-## Determine Verdict
+## Check Convergence
 
-Classify review findings into a routing verdict:
+Before computing the verdict, query the convergence view for the aggregate D1-D5 status from all gate events emitted during the pipeline:
 
-```bash
-scripts/review-verdict.sh --high <N> --medium <N> --low <N>
+```typescript
+exarchos_orchestrate({
+  action: "check_convergence",
+  featureId: "<id>"
+})
 ```
 
-**On exit 0 (APPROVED):** Proceed to synthesis.
-**On exit 1 (NEEDS_FIXES):** Route to `/exarchos:delegate --fixes`.
-**On exit 2 (BLOCKED):** Return to design phase.
+The handler returns:
+- `passed: true` — all five dimensions (D1-D5) have at least one gate result and all gates passed
+- `passed: false` — one or more dimensions have failing gates or no gate coverage yet
+- `uncheckedDimensions` — dimensions with no gate events (cold pipeline)
+- `dimensions` — per-dimension summary with gate counts and convergence status
+
+Use the convergence result as structured input to the verdict:
+- If `uncheckedDimensions` is non-empty, note which dimensions lack gate coverage in the review report
+- If a dimension has `converged: false`, include it as a finding in the verdict input
+- If `passed: true`, it provides strong evidence for APPROVED (pending qualitative assessment)
+
+## Determine Verdict
+
+Classify review findings into a routing verdict via orchestrate:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_review_verdict",
+  featureId: "<id>",
+  high: <N>,
+  medium: <N>,
+  low: <N>,
+  dimensionResults: {
+    "D1": { passed: true, findingCount: 0 },
+    "D2": { passed: true, findingCount: 0 },
+    // ... include results from each gate run above
+  }
+})
+```
+
+The handler automatically emits per-dimension and summary `gate.executed` events. No manual event emission needed.
+
+**On `verdict: "APPROVED"`:** Proceed to synthesis.
+**On `verdict: "NEEDS_FIXES"`:** Route to `/exarchos:delegate --fixes`.
+**On `verdict: "BLOCKED"`:** Return to design phase.
 
 ## Transition
 
@@ -317,12 +380,13 @@ This is NOT a human checkpoint - workflow continues autonomously.
 
 ## Exarchos Integration
 
-When Exarchos MCP tools are available, emit gate events during review:
+Gate events are automatically emitted by the orchestrate handlers — do NOT manually emit `gate.executed` events via `exarchos_event`.
 
 1. **Read CI status** via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
-2. **Emit gate events** via `exarchos_event` with `action: "append"`, type `gate.executed` (include `gateName`, `layer`, `passed`, `duration`)
+2. **Gate events** — emitted automatically by `check_static_analysis`, `check_security_scan`, `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`, and `check_review_verdict` handlers
 3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
-4. **When all per-PR gates pass**, apply `stack-ready` label to the PR
+4. **Query convergence** via `exarchos_view` with `action: "convergence"`, `workflowId: "<featureId>"` for per-dimension gate results
+5. **When all per-PR gates pass**, apply `stack-ready` label to the PR
 
 ## Performance Notes
 

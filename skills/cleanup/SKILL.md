@@ -61,6 +61,21 @@ Collect from merged PRs:
 
 For detailed verification guidance, see `references/merge-verification.md`.
 
+### 2.5. Post-Merge Regression Check (Advisory)
+
+After verifying merge status, run the post-merge regression check:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_post_merge",
+  featureId: "<id>",
+  prUrl: "<url>",
+  mergeSha: "<sha>"
+})
+```
+
+This check is **advisory** — findings are reported but do not block cleanup. If findings are detected, log them for the user's awareness before proceeding.
+
 ### 3. Invoke Cleanup Action
 
 Call the MCP cleanup action with collected data:

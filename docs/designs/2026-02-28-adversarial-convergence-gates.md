@@ -1,7 +1,7 @@
 # Design: Adversarial Convergence Gates
 
 **Date:** 2026-02-28
-**Status:** Draft
+**Status:** Implemented
 **ADR:** `docs/adrs/adversarial-convergence-theory.md`
 
 ## Problem
@@ -50,7 +50,7 @@ Each phase gate gets a lightweight adversarial check implemented as a validation
 2. **Task quality** — Each task has: clear description, file targets, test expectations, TDD compliance notes. Flag under-specified tasks.
 3. **Dependency coherence** — `blockedBy` relationships form a DAG (no cycles). Parallel tasks don't modify the same files.
 
-**Implementation:** `scripts/check-plan-coverage.sh`
+**Implementation:** `scripts/verify-plan-coverage.sh`
 - Input: design document path, plan document path
 - Output: exit 0 (pass), exit 1 (findings), exit 2 (blocked)
 - Exit 2 if >30% of requirements have no implementing task
@@ -241,7 +241,7 @@ Add to the design presentation phase:
 
 Add to the plan generation phase:
 - Each task must include an `Implements:` field mapping to design requirement IDs
-- After generating plan, run `check-plan-coverage.sh` and present findings alongside the plan at the human checkpoint
+- After generating plan, run `verify-plan-coverage.sh` and present findings alongside the plan at the human checkpoint
 
 #### `/delegate` (delegation skill)
 
@@ -259,13 +259,20 @@ Add to the review workflow:
 
 ### 6. Implementation Order
 
-1. **Provenance view** — New CQRS projection in the MCP server (enables all downstream changes)
-2. **Event schema** — Add `gate.check` and `task.provenance` event types
-3. **Design completeness script** — `scripts/check-design-completeness.sh` (ideate gate)
-4. **Plan coverage script** — `scripts/check-plan-coverage.sh` (plan gate)
-5. **Feature-audit convergence framing** — Update `docs/prompts/feature-audit.md` (done in this session)
-6. **Skill updates** — Update `/ideate`, `/plan`, `/delegate`, `/review` skills to emit provenance and run gate checks
-7. **Post-merge check** — `scripts/check-post-merge.sh` (synthesize gate)
+> **Status: IMPLEMENTED** (refactor-gate-integration, 2026-02-28)
+
+1. ~~**Provenance view**~~ — `servers/exarchos-mcp/src/views/provenance-view.ts` (T-08)
+2. ~~**Event schema**~~ — `TaskCompletedData` extended with `implements[]`, `tests[]`, `files[]` (T-07)
+3. ~~**Design completeness script + handler**~~ — `scripts/check-design-completeness.sh` + `orchestrate/design-completeness.ts` (T-02)
+4. ~~**Plan coverage handler**~~ — `orchestrate/plan-coverage.ts` wrapping existing `verify-plan-coverage.sh` (T-03)
+5. ~~**Feature-audit convergence framing**~~ — `docs/prompts/feature-audit.md` (done in prior session)
+6. ~~**Skill updates**~~ — Brainstorming skill migrated to orchestrate (T-09), delegation skill per-task gates + provenance (T-10)
+7. ~~**Post-merge check + handler**~~ — `scripts/check-post-merge.sh` + `orchestrate/post-merge.ts` (T-05, T-06)
+8. ~~**TDD compliance handler**~~ — `orchestrate/tdd-compliance.ts` wrapping existing `check-tdd-compliance.sh` (T-04)
+9. ~~**IdeateReadinessView**~~ — `views/ideate-readiness-view.ts` (T-12)
+10. ~~**View handlers + composite routing**~~ — `handleViewProvenance`, `handleViewIdeateReadiness` in `views/tools.ts` + `views/composite.ts` (T-13)
+11. ~~**Gate event emission**~~ — Shared `gate-utils.ts` (T-01), `prepare-delegation.ts` emits plan-coverage (T-11)
+12. ~~**Eval datasets**~~ — 13 new cases in `evals/feature-audit/datasets/` (T-14)
 
 ### 7. Non-Goals
 

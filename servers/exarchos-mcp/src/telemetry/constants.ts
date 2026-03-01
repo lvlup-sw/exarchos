@@ -10,3 +10,8 @@ export const EVENT_QUERY_INVOCATION_THRESHOLD = 20;
 export const ERROR_RATE_THRESHOLD = 0.2;
 export const TEAM_STATUS_INVOCATION_THRESHOLD = 10;
 export const CONSISTENCY_WINDOW_SIZE = 5;
+
+// ─── Gate Threshold ─────────────────────────────────────────────────────────
+
+/** Token estimate threshold above which a D3 gate.executed event is emitted. ~8KB response. */
+export const TOKEN_GATE_THRESHOLD = 2048;

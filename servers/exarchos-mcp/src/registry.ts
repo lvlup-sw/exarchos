@@ -228,6 +228,11 @@ const SYNTHESIS_REVIEW_PHASES: ReadonlySet<string> = new Set([
   'overhaul-review',
   'debug-review',
 ]);
+const PLAN_PHASES: ReadonlySet<string> = new Set([
+  'plan',
+  'plan-review',
+  'overhaul-plan',
+]);
 
 // ─── Shared Schema Fragments ────────────────────────────────────────────────
 
@@ -432,6 +437,100 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'check_static_analysis',
+    description: 'Run static analysis gate (lint + typecheck). Emits gate.executed event with dimension D2.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      skipLint: z.boolean().optional(),
+      skipTypecheck: z.boolean().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_security_scan',
+    description: 'Run security pattern scan on diff. Emits gate.executed event with dimension D1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      baseBranch: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_context_economy',
+    description: 'Check code complexity impacting LLM context consumption. Emits gate.executed event with dimension D3.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      baseBranch: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_operational_resilience',
+    description: 'Check for operational anti-patterns (empty catches, swallowed errors, console.log). Emits gate.executed event with dimension D4.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      baseBranch: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_workflow_determinism',
+    description: 'Check test reliability and determinism (.only/.skip, non-deterministic time/random, debug artifacts). Emits gate.executed event with dimension D5.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      baseBranch: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_review_verdict',
+    description: 'Compute review verdict from finding counts. Emits per-dimension and summary gate.executed events.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      high: coercedNonnegativeInt(),
+      medium: coercedNonnegativeInt(),
+      low: coercedNonnegativeInt(),
+      blockedReason: z.string().optional(),
+      dimensionResults: z.record(z.string(), z.object({
+        passed: z.boolean(),
+        findingCount: z.number().int().nonnegative(),
+      })).optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_convergence',
+    description: 'Query D1-D5 convergence status from gate.executed events. Returns overall pass/fail and per-dimension summary.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      workflowId: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_provenance_chain',
+    description: 'Verify design requirement traceability (DR-N) from design doc to plan tasks. Emits gate.executed event with dimension D1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      designPath: z.string().min(1),
+      planPath: z.string().min(1),
+    }),
+    phases: PLAN_PHASES,
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
@@ -556,6 +655,15 @@ const viewActions: readonly ToolAction[] = [
   {
     name: 'shepherd_status',
     description: 'PR shepherd status: CI, comments, unresolved findings, and iteration tracking',
+    schema: z.object({
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'convergence',
+    description: 'Per-dimension gate convergence status (D1-D5) from gate.executed events',
     schema: z.object({
       workflowId: z.string().optional(),
     }),

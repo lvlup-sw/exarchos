@@ -259,6 +259,26 @@ describe('TaskCompletedData', () => {
     expect(data.artifacts).toBeUndefined();
     expect(data.duration).toBeUndefined();
   });
+
+  it('TaskCompletedData_WithProvenance_ParsesSuccessfully', () => {
+    const data = {
+      taskId: 'T-3',
+      implements: ['DR-1', 'DR-2'],
+      tests: [{ name: 'Reset_Valid_Resets', file: 'src/reset.test.ts' }],
+      files: ['src/reset.ts'],
+    };
+    expect(TaskCompletedData.parse(data)).toMatchObject(data);
+  });
+
+  it('TaskCompletedData_WithoutProvenance_StillParsesSuccessfully', () => {
+    const data = { taskId: 'T-1' };
+    expect(TaskCompletedData.parse(data)).toMatchObject({ taskId: 'T-1' });
+  });
+
+  it('TaskCompletedData_PartialProvenance_ParsesSuccessfully', () => {
+    const data = { taskId: 'T-2', implements: ['DR-1'] };
+    expect(TaskCompletedData.parse(data)).toMatchObject(data);
+  });
 });
 
 describe('TaskFailedData', () => {

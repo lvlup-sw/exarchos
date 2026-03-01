@@ -3,7 +3,7 @@
   "metadata": {
     "skill": "quality-review",
     "phaseAffinity": "review",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "assertions": [
     {
@@ -12,7 +12,9 @@
       "threshold": 1.0,
       "config": {
         "required": [
-          { "tool": "exarchos_workflow", "action": "get" }
+          { "tool": "exarchos_workflow", "action": "get" },
+          { "tool": "exarchos_orchestrate", "action": "check_static_analysis" },
+          { "tool": "exarchos_orchestrate", "action": "check_review_verdict" }
         ]
       }
     },

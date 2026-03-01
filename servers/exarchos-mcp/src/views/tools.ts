@@ -61,6 +61,11 @@ import {
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
 import {
+  ideateReadinessProjection,
+  IDEATE_READINESS_VIEW,
+} from './ideate-readiness-view.js';
+import type { IdeateReadinessState } from './ideate-readiness-view.js';
+import {
   synthesisReadinessProjection,
   SYNTHESIS_READINESS_VIEW,
 } from './synthesis-readiness-view.js';
@@ -70,6 +75,16 @@ import {
   SHEPHERD_STATUS_VIEW,
 } from './shepherd-status-view.js';
 import type { ShepherdStatusState } from './shepherd-status-view.js';
+import {
+  provenanceProjection,
+  PROVENANCE_VIEW,
+} from './provenance-view.js';
+import type { ProvenanceViewState } from './provenance-view.js';
+import {
+  convergenceProjection,
+  CONVERGENCE_VIEW,
+} from './convergence-view.js';
+import type { ConvergenceViewState } from './convergence-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -91,8 +106,11 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
+  materializer.register(IDEATE_READINESS_VIEW, ideateReadinessProjection);
   materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
+  materializer.register(PROVENANCE_VIEW, provenanceProjection);
+  materializer.register(CONVERGENCE_VIEW, convergenceProjection);
   return materializer;
 }
 
@@ -829,6 +847,97 @@ export async function handleViewShepherdStatus(
     };
   }
 }
+
+// ─── View Provenance Handler ──────────────────────────────────────────────
+
+export async function handleViewProvenance(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, PROVENANCE_VIEW);
+    const view = materializer.materialize<ProvenanceViewState>(
+      streamId,
+      PROVENANCE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Convergence Handler ──────────────────────────────────────────────
+
+export async function handleViewConvergence(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, CONVERGENCE_VIEW);
+    const view = materializer.materialize<ConvergenceViewState>(
+      streamId,
+      CONVERGENCE_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Ideate Readiness Handler ────────────────────────────────────────
+
+export async function handleViewIdeateReadiness(
+  args: { workflowId?: string },
+  stateDir: string,
+): Promise<ToolResult> {
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, IDEATE_READINESS_VIEW);
+    const view = materializer.materialize<IdeateReadinessState>(
+      streamId,
+      IDEATE_READINESS_VIEW,
+      events,
+    );
+
+    return { success: true, data: view };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {

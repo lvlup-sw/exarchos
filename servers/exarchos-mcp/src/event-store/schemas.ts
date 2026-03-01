@@ -125,6 +125,10 @@ export const TaskCompletedData = z.object({
     passed: z.boolean(),
   }).optional(),
   verified: z.boolean().optional(),
+  // Provenance chain fields (optional, backward-compatible)
+  implements: z.array(z.string()).optional(),
+  tests: z.array(z.object({ name: z.string(), file: z.string() })).optional(),
+  files: z.array(z.string()).optional(),
 });
 
 export const TaskFailedData = z.object({

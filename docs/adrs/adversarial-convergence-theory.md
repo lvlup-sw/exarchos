@@ -303,12 +303,22 @@ VSDD is a **methodology** — it prescribes what actors should do. The extended 
 ## 7. Open Questions
 
 1. **Graduated gate cost**: How much context budget do lightweight adversarial checks consume? Need empirical measurement before committing to checks at every gate.
+   > *Addressed (2026-02-28)*: Gate checks are routed through `exarchos_orchestrate` handlers that wrap deterministic bash scripts. Scripts execute in <5s each. Context cost is the structured result JSON (~200 tokens), not the full script output. Per-task gates (D1 blocking, D2 advisory) add ~400 tokens per task. Delegation completion gate (D4) adds ~200 tokens once. The `check_convergence` meta-action adds ~300 tokens for the aggregate view. Total per-workflow overhead is bounded and proportional to task count.
 
 2. **Provenance automation**: Can requirement IDs be extracted from design docs automatically, or does the human architect need to assign them explicitly during `/ideate`?
+   > *Addressed (2026-02-28)*: Provenance chain implemented via `TaskCompletedData` schema extensions (`implements[]`, `tests[]`, `files[]`) and `ProvenanceView` CQRS projection. Requirement IDs are manually assigned during `/ideate` (DR-N pattern in design template). The `verify-provenance-chain.sh` script + `check_provenance_chain` orchestrate handler provide deterministic validation that every DR-N identifier in the design traces to at least one plan task via `**Implements:** DR-N` fields. Orphan references (task claims DR-99 but DR-99 not in design) are also detected. The handler emits `gate.executed` with dimension D1. Wired into the implementation-planning skill as an advisory check at the plan→plan-review boundary.
 
 3. **Convergence dimension weights**: While dimensions are conjunctive (all must pass), should the severity thresholds within each dimension be calibrated differently for different project types?
+   > *Note (2026-03-01)*: D5 (Workflow Determinism) now has concrete enforcement at the plan boundary via `check_task_decomposition` handler, which validates task decomposition quality (description completeness, file targets, test expectations, dependency DAG validity, parallel safety). This gives D5 a measurable threshold rather than a subjective assessment.
 
 4. **Feedback loops**: When $C_{adv}$ fails at an early gate (e.g., plan → plan-review), how far back should the workflow regress? Always to the immediately prior phase, or conditionally to an earlier phase based on the dimension that failed?
+   > *Addressed (2026-02-28)*: Gate handlers return structured results with `passed` boolean. Skill instructions gate on this: brainstorming skill treats design-completeness as advisory (doesn't block), delegation skill keeps tasks in-progress on TDD failure, review skill routes to `--fixes` on failure or `--redesign` on blocked.
+
+5. **Convergence enforcement model**: Should δ' (the transition function) be conditioned on convergence view state directly, or should skills mediate convergence gating?
+   > *Resolved (2026-02-28)*: HSM guards remain pure (no I/O, per §3.2) — they check structural prerequisites only. Convergence gating is mediated by skills: quality-review calls `check_convergence` before computing the verdict, which queries the ConvergenceView CQRS projection. This preserves guard purity while providing convergence-conditioned advancement. The `check_convergence` orchestrate action returns `{ passed, overallConverged, uncheckedDimensions, dimensions }` — skills interpret this structured result to gate transitions.
+
+6. **Per-gate dimension coverage vs. ADR §3.3 graduated depth**: The ADR specifies dimension subsets per gate (e.g., D1+D2 per-task, D1+D4 at delegate→review). Should all specified dimensions be checked at each gate, or is progressive accumulation sufficient?
+   > *Resolved (2026-02-28)*: Progressive accumulation. Each gate checks the dimensions natural to its concern: ideate→plan checks D1 (design completeness), per-task checks D1 (TDD) + D2 (static analysis, advisory), delegation completion checks D4 (operational resilience, advisory), review checks D1-D5 (all). The ConvergenceView aggregates results across all gates. The `check_convergence` action reports which dimensions have coverage and which are unchecked, allowing the review gate to focus manual effort on gaps rather than re-running all checks.
 
 ---
 

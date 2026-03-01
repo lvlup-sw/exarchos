@@ -112,27 +112,20 @@ scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/des
 
 After artifact verification passes, run the design completeness gate check. This is the D1 (spec fidelity) lightweight adversarial check at the ideate → plan boundary.
 
-```bash
-scripts/check-design-completeness.sh --design-file <design-path>
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_design_completeness",
+  featureId: "<id>",
+  designPath: "<path>"
+})
 ```
 
-**On exit 0:** Design complete — all requirements have acceptance criteria and error coverage.
-**On exit 1 (advisory):** Findings detected. These are advisory (MEDIUM severity) — they do NOT block the auto-chain to `/plan`. Present findings to the user alongside the transition message, and emit a `gate.check` event.
+The handler returns a structured result: `{ passed, advisory, findings[], checkCount, passCount, failCount }`.
 
-### Gate Event Emission
+- **`passed=true`:** Design complete — all requirements have acceptance criteria and error coverage.
+- **`passed=false, advisory=true`:** Findings detected. These are advisory — they do NOT block the auto-chain to `/plan`. Present `result.data.findings` to the user alongside the transition message.
 
-When Exarchos MCP tools are available, emit the gate check result as an event:
-
-```
-action: "event", featureId: "<id>", eventType: "gate.check", payload: {
-  gate: "ideate-to-plan",
-  dimensions: ["D1"],
-  verdict: "pass" | "advisory",
-  findings: [{ dimension: 1, severity: "MEDIUM", criterion: "...", evidence: "..." }]
-}
-```
-
-Parse the script's stderr output for structured findings (lines matching `FINDING [D1] [MEDIUM] ...`).
+Gate events (`gate.executed`) are emitted automatically by the handler — no manual event emission is needed.
 
 ## Transition
 
@@ -143,19 +136,17 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 Before invoking `/exarchos:plan`:
 1. Verify `artifacts.design` exists in workflow state
 2. Verify the design file exists on disk: `test -f "$DESIGN_PATH"`
-3. Run `scripts/check-design-completeness.sh --design-file <design-path>` (advisory — record findings but don't block)
+3. Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "check_design_completeness", featureId: "<id>", designPath: "<path>" })` (advisory — record findings but don't block)
 4. If steps 1 or 2 fail: "Design artifact not found, cannot auto-chain to /exarchos:plan"
 
 ### Chain Steps
 
 1. Update state: `action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
 
-2. If gate check had findings (exit 1): Output findings summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
-   If gate check passed (exit 0): Output: "Design complete. Auto-continuing to implementation planning..."
+2. If `result.data.passed === false` and `result.data.advisory === true`: Output `result.data.findings` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
+   If `result.data.passed === true`: Output: "Design complete. Auto-continuing to implementation planning..."
 
-3. Emit `gate.check` event (see Gate Event Emission above)
-
-4. Invoke immediately:
+3. Invoke immediately:
    ```typescript
    Skill({ skill: "exarchos:plan", args: "<design-path>" })
    ```

@@ -128,29 +128,74 @@ Poll background tasks and collect results:
 TaskOutput({ task_id: "<id>", block: true })
 ```
 
-After all tasks report completion:
+After each subagent reports completion:
 
-1. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
-2. **Update workflow state** — set each `tasks[].status` to `"complete"` via `exarchos_workflow set`
-3. **Emit gate events** — for each verification result:
+1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (`implements`, `tests`, `files`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
+
+2. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
+
+3. **TDD compliance gate (MANDATORY)** — MUST invoke the compliance check BEFORE marking the task as complete:
 
 ```typescript
-exarchos_event({
-  action: "append",
-  stream: "<featureId>",
-  event: {
-    type: "gate.executed",
-    data: {
-      gateName: "post-delegation-check",
-      layer: "CI",
-      passed: true,
-      details: { skill: "delegation", commit: "<sha>" }
-    }
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "<task-branch>"
+})
+```
+
+Gate on the result:
+- If `result.success !== true`: Treat as gate-execution failure. Keep task in-progress, surface the tool error, and do NOT mark the task as complete.
+- If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
+- If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
+
+4. **Static analysis gate (D2, blocking)** — after TDD compliance passes, run a D2 check on the task branch:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  repoRoot: "<worktree-path>"
+})
+```
+
+This check is **blocking** — `handleTaskComplete` enforces that a passing `static-analysis` gate event exists for the task (same pattern as TDD compliance). If `passed: false`, keep task in-progress and report findings.
+
+All handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
+
+5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the `result` parameter so they flow into the `task.completed` event:
+
+```typescript
+exarchos_orchestrate({
+  action: "task_complete",
+  taskId: "<taskId>",
+  streamId: "<featureId>",
+  result: {
+    summary: "<task summary>",
+    implements: ["DR-1", "DR-3"],
+    tests: [{ name: "testName", file: "path/to/test.ts" }],
+    files: ["path/to/impl.ts", "path/to/test.ts"]
   }
 })
 ```
 
-4. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
+6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
+7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_operational_resilience",
+  featureId: "<featureId>",
+  repoRoot: ".",
+  baseBranch: "main"
+})
+```
+
+This is advisory — findings are recorded for the convergence view but do not block the delegation→review transition. Include findings in the delegation summary for review-phase attention.
+
+8. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
 ### Agent Teams Monitoring
 

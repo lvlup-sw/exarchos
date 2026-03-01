@@ -192,13 +192,59 @@ PR creation is handled during the synthesis phase — do not create PRs from imp
 
 Commits should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one commit. For example, if you implement types + config + tests for a module, that's one commit, not three.
 
+## Provenance Reporting
+
+When completing a task, include structured provenance data in your completion report. This data flows into the `task.completed` event for traceability through the provenance chain.
+
+### Required Fields
+
+1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`)
+2. **tests** — Tests written, each with name and file path
+3. **files** — Files created or modified
+
+### Structured Format
+
+Report provenance as a JSON object in your task completion call:
+
+```json
+{
+  "implements": ["DR-1", "DR-3"],
+  "tests": [
+    { "name": "validateEmail_InvalidFormat_ReturnsError", "file": "src/validators/email.test.ts" },
+    { "name": "validateEmail_ValidFormat_ReturnsSuccess", "file": "src/validators/email.test.ts" }
+  ],
+  "files": ["src/validators/email.ts", "src/validators/email.test.ts"]
+}
+```
+
+### Passing Provenance in Task Completion
+
+When using Exarchos MCP to mark a task complete, pass provenance fields in the `result` parameter:
+
+```typescript
+exarchos_orchestrate({
+  action: "task_complete",
+  taskId: "task-001",
+  streamId: "<featureId>",
+  result: {
+    summary: "Implemented email validation with TDD",
+    implements: ["DR-1"],
+    tests: [{ name: "validateEmail_InvalidFormat_ReturnsError", file: "src/validators/email.test.ts" }],
+    files: ["src/validators/email.ts", "src/validators/email.test.ts"]
+  }
+})
+```
+
+These fields are extracted by `handleTaskComplete` and included in the `task.completed` event, enabling the ProvenanceView to trace requirements through to implementation.
+
 ## Completion
 
 When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Any issues encountered
+4. Provenance: implements (requirement IDs), tests (name + file), files (paths)
+5. Any issues encountered
 ```
 
 ## Usage Example

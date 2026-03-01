@@ -14,6 +14,8 @@ import {
   handleViewCodeQuality,
   handleViewEvalResults,
   handleViewQualityCorrelation,
+  handleViewProvenance,
+  handleViewIdeateReadiness,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
@@ -530,6 +532,61 @@ describe('View Handlers', () => {
       const data = result.data as Record<string, unknown>;
       const runs = data.runs as unknown[];
       expect(runs).toHaveLength(2);
+    });
+  });
+
+  // ─── T13: handleViewProvenance ─────────────────────────────────────────────
+
+  describe('handleViewProvenance', () => {
+    it('handleViewProvenance_ReturnsProvenanceState', async () => {
+      // Arrange: seed event store with provenance-relevant events
+      const store = new EventStore(tmpDir);
+      await store.append('test-id', {
+        streamId: 'test-id',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'workflow.started',
+        data: { featureId: 'test-id', workflowType: 'feature' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewProvenance({ workflowId: 'test-id' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('featureId');
+      expect(data).toHaveProperty('requirements');
+      expect(data).toHaveProperty('coverage');
+      expect(data).toHaveProperty('orphanTasks');
+    });
+  });
+
+  // ─── T13: handleViewIdeateReadiness ──────────────────────────────────────────
+
+  describe('handleViewIdeateReadiness', () => {
+    it('handleViewIdeateReadiness_ReturnsReadinessState', async () => {
+      // Arrange: seed event store with ideate-readiness-relevant events
+      const store = new EventStore(tmpDir);
+      await store.append('test-id', {
+        streamId: 'test-id',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'workflow.started',
+        data: { featureId: 'test-id', workflowType: 'feature' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewIdeateReadiness({ workflowId: 'test-id' }, tmpDir);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('ready');
+      expect(data).toHaveProperty('designArtifactExists');
+      expect(data).toHaveProperty('gateResult');
     });
   });
 

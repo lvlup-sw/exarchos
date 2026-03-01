@@ -13,6 +13,22 @@
 - Workflow state (`exarchos_workflow get --featureId <id>`)
 - Test results (`npm run test:run`, coverage report)
 
+### Pre-Flight: Query Convergence View
+
+Before running manual checks, query the convergence view for pre-populated D1-D5 gate results from orchestrate handlers that ran during the pipeline:
+
+```typescript
+exarchos_view({ action: "convergence", workflowId: "<featureId>" })
+```
+
+The response contains per-dimension gate results (`dimensions`), convergence status (`converged`), and unchecked dimensions (`uncheckedDimensions`). Use this to:
+
+1. **Skip redundant checks** — If a dimension has `converged: true` with recent gate results, focus the audit on qualitative assessment rather than re-running deterministic checks.
+2. **Prioritize gaps** — `uncheckedDimensions` identifies dimensions with no gate coverage yet. Focus manual effort there.
+3. **Cross-reference findings** — Compare gate results with your qualitative assessment. Divergence (gate passed but qualitative review finds issues) indicates gap in gate coverage.
+
+If the convergence view is unavailable or empty (cold pipeline), fall through to the full deterministic check suite below.
+
 ---
 
 ### Convergence Dimension 1: Specification Fidelity & TDD Compliance
