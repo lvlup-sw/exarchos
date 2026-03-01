@@ -35,7 +35,7 @@ Activate this skill when:
 
 Call the `prepare_synthesis` composite action to validate all preconditions in a single operation:
 
-```
+```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "prepare_synthesis",
   featureId: "<id>"
@@ -92,7 +92,7 @@ For the complete template, examples, and anti-patterns, see `references/pr-descr
 ### Step 3: Submit and Merge
 
 Enqueue the Graphite stack for merging:
-```
+```bash
 gt submit --no-interactive --publish --merge-when-ready
 ```
 
@@ -101,7 +101,7 @@ After submission:
 2. **Record PR URLs** -- Capture URLs from `gt log`
 3. **Update state:**
 
-```
+```typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
@@ -121,7 +121,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 ### Post-Merge Cleanup
 
 After PRs merge, invoke cleanup:
-```
+```typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "cleanup", featureId: "<id>", mergeVerified: true,
   prUrl: ["<url>", ...], mergedBranches: ["<branch>", ...]

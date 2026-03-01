@@ -81,7 +81,7 @@ Address each blocking action item from the assessment. Consult `references/fix-s
 **Remediation event protocol (FLYWHEEL):**
 
 1. **BEFORE applying a fix**, emit `remediation.attempted`:
-   ```
+   ```typescript
    mcp__plugin_exarchos_exarchos__exarchos_event({
      action: "append",
      stream: "<featureId>",

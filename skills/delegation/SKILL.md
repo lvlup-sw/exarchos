@@ -49,7 +49,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 Use the `prepare_delegation` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
-```
+```typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
   featureId: "<featureId>",
@@ -134,7 +134,7 @@ After all tasks report completion:
 2. **Update workflow state** — set each `tasks[].status` to `"complete"` via `exarchos_workflow set`
 3. **Emit gate events** — for each verification result:
 
-```
+```typescript
 exarchos_event({
   action: "append",
   stream: "<featureId>",

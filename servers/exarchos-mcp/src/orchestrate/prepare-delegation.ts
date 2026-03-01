@@ -67,7 +67,6 @@ function assessReadiness(
   }
 
   // Assess quality
-  const skillNames = qualityState ? Object.keys(qualityState.skills) : [];
   const overallPassRate = computeOverallGatePassRate(qualityState);
   const regressionNames = qualityState
     ? qualityState.regressions.map(r => `${r.skill}/${r.gate}`)

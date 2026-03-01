@@ -93,17 +93,19 @@ if [[ ! -f "$ESCALATION_REF" ]]; then
 fi
 
 # Test 14: fix-strategies.md contains remediation event emission section
-if ! grep -q 'Remediation Event Emission' "$FIXES_REF"; then
+if [[ ! -f "$FIXES_REF" ]]; then
+    fail "fix-strategies.md does not exist"
+elif ! grep -q 'Remediation Event Emission' "$FIXES_REF"; then
     fail "fix-strategies.md must contain Remediation Event Emission section"
 fi
 
 # Test 15: fix-strategies.md references remediation.attempted
-if ! grep -q 'remediation\.attempted' "$FIXES_REF"; then
+if [[ -f "$FIXES_REF" ]] && ! grep -q 'remediation\.attempted' "$FIXES_REF"; then
     fail "fix-strategies.md must reference remediation.attempted"
 fi
 
 # Test 16: fix-strategies.md references remediation.succeeded
-if ! grep -q 'remediation\.succeeded' "$FIXES_REF"; then
+if [[ -f "$FIXES_REF" ]] && ! grep -q 'remediation\.succeeded' "$FIXES_REF"; then
     fail "fix-strategies.md must reference remediation.succeeded"
 fi
 

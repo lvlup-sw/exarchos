@@ -12,7 +12,7 @@ Feature: `add-email-validation` with two plan tasks:
 
 Call the composite action:
 
-```
+```typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
   featureId: "add-email-validation",
@@ -61,13 +61,13 @@ TaskOutput({ task_id: "task-001-id", block: true })
 ```
 
 Update workflow state:
-```
+```typescript
 exarchos_workflow({ action: "set", featureId: "add-email-validation",
   updates: { "tasks[0].status": "complete" } })
 ```
 
 Emit gate event:
-```
+```typescript
 exarchos_event({ action: "append", stream: "add-email-validation",
   event: { type: "gate.executed", data: { gateName: "post-delegation-check", layer: "CI", passed: true } } })
 ```
@@ -97,7 +97,7 @@ After fix succeeds, update state and emit gate event as in the happy path.
 ## 5. Transition
 
 Both tasks complete. Auto-continue:
-```
+```typescript
 exarchos_workflow({ action: "set", featureId: "add-email-validation",
   updates: { phase: "review" } })
 Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })

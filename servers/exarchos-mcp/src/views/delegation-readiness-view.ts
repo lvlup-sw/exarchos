@@ -52,6 +52,10 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
     blockers.push('no worktrees expected');
   }
 
+  if (state.worktrees.failed.length > 0) {
+    blockers.push(`${state.worktrees.failed.length} worktrees failed baseline`);
+  }
+
   return blockers;
 }
 
@@ -60,6 +64,7 @@ function isReady(state: Omit<DelegationReadinessState, 'ready' | 'blockers'>): b
     state.plan.approved &&
     state.worktrees.ready >= state.worktrees.expected &&
     state.worktrees.expected > 0 &&
+    state.worktrees.failed.length === 0 &&
     state.quality.queried
   );
 }

@@ -67,6 +67,10 @@ function computeReadiness(state: SynthesisReadinessState): {
     blockers.push('typecheck not passing');
   }
 
+  if (state.stack.conflicts) {
+    blockers.push('stack has unresolved conflicts');
+  }
+
   const ready = blockers.length === 0;
   return { ready, blockers };
 }

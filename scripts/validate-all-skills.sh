@@ -47,7 +47,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Resolve to absolute path
-REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
+if ! REPO_ROOT="$(cd "$REPO_ROOT" 2>/dev/null && pwd)"; then
+    echo "ERROR: invalid --repo-root path: $REPO_ROOT" >&2
+    exit 2
+fi
 SKILLS_DIR="$REPO_ROOT/skills"
 
 if [[ ! -d "$SKILLS_DIR" ]]; then

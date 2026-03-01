@@ -14,7 +14,7 @@ Graphite stacked PRs merge bottom-up: the base branch merges first, then each de
 
 The merge order is determined by the Graphite stack structure established during delegation. The `gt log` output shows the exact merge order (bottom-up):
 
-```
+```text
 main
  ├── task/001-types         ← merges first
  ├── task/002-core          ← merges second
@@ -24,7 +24,7 @@ main
 ## State Tracking
 
 Record the merge order in workflow state after PR submission:
-```
+```typescript
 action: "set", featureId: "<id>", updates: {
   "synthesis": {
     "mergeOrder": ["task/001-types", "task/002-core", "task/003-integration"],

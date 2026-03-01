@@ -7,7 +7,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync } from 'node:child_process';
-import { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../event-store/store.js';
+import { getOrCreateEventStore } from '../views/tools.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -84,7 +85,9 @@ function queryPrChecks(prNumber: number): CiCheck[] {
     );
     const raw = JSON.parse(output) as GhCheckRaw[];
     return raw.map(normalizeCiCheck);
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[assess-stack] Failed to query checks for PR #${prNumber}: ${message}`);
     return [];
   }
 }
@@ -105,11 +108,14 @@ function normalizeCiCheck(raw: GhCheckRaw): CiCheck {
 function queryPrReviews(prNumber: number): PrReview[] {
   try {
     const output = execSync(
-      `gh pr reviews ${prNumber} --json state,author`,
+      `gh pr view ${prNumber} --json reviews --jq '.reviews'`,
       { encoding: 'utf-8', timeout: 30_000 },
     );
-    return JSON.parse(output) as PrReview[];
-  } catch {
+    const raw = JSON.parse(output) as Array<{ state: string; author: { login: string } }>;
+    return raw.map(r => ({ state: r.state, author: r.author.login }));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[assess-stack] Failed to query reviews for PR #${prNumber}: ${message}`);
     return [];
   }
 }
@@ -117,11 +123,15 @@ function queryPrReviews(prNumber: number): PrReview[] {
 function queryPrComments(prNumber: number): PrComment[] {
   try {
     const output = execSync(
-      `gh pr comments ${prNumber} --json body,isResolved`,
+      `gh pr view ${prNumber} --json comments --jq '.comments'`,
       { encoding: 'utf-8', timeout: 30_000 },
     );
-    return JSON.parse(output) as PrComment[];
-  } catch {
+    const raw = JSON.parse(output) as Array<{ body: string }>;
+    // General PR comments are not individually resolvable
+    return raw.map(c => ({ body: c.body, isResolved: false }));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[assess-stack] Failed to query comments for PR #${prNumber}: ${message}`);
     return [];
   }
 }
@@ -197,6 +207,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
 export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
+  prStatuses?: readonly PrStatus[],
 ): 'request-approval' | 'fix-and-resubmit' | 'escalate' {
   if (iterationCount >= MAX_SHEPHERD_ITERATIONS) {
     return 'escalate';
@@ -206,6 +217,12 @@ export function computeRecommendation(
   const hasMajor = actionItems.some(item => item.severity === 'major');
 
   if (hasCritical || hasMajor) {
+    return 'fix-and-resubmit';
+  }
+
+  // Pending CI should block approval — wait for checks to complete
+  const hasPendingCi = prStatuses?.some(pr => pr.overallCi === 'pending');
+  if (hasPendingCi) {
     return 'fix-and-resubmit';
   }
 
@@ -294,7 +311,7 @@ export async function handleAssessStack(
     };
   }
 
-  const eventStore = new EventStore(stateDir);
+  const eventStore = getOrCreateEventStore(stateDir);
 
   // Query current iteration count from event store
   const iterationCount = await getIterationCount(eventStore, args.featureId);
@@ -310,7 +327,7 @@ export async function handleAssessStack(
   const actionItems = classifyActionItems(prStatuses);
 
   // Compute recommendation
-  const recommendation = computeRecommendation(actionItems, iterationCount);
+  const recommendation = computeRecommendation(actionItems, iterationCount, prStatuses);
 
   // Build result
   const status: ShepherdStatusState = {

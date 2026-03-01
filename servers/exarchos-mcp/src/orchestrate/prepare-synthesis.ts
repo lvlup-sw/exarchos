@@ -37,6 +37,7 @@ interface TypecheckResult {
 interface StackResult {
   healthy: boolean;
   branches?: string[];
+  error?: string;
 }
 
 interface PrepareSynthesisResult {
@@ -117,9 +118,9 @@ function verifyStack(): StackResult {
       .map((line) => line.trim())
       .filter(Boolean);
     return { healthy: true, branches };
-  } catch {
-    // gt not available or stack issues — report as healthy=false
-    return { healthy: false, branches: [] };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { healthy: false, branches: [], error: message };
   }
 }
 

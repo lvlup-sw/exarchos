@@ -33,7 +33,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 Single server at `servers/exarchos-mcp/` exposing 5 composite tools:
 
 - **exarchos_workflow** — HSM-based workflow lifecycle (init/get/set/cancel)
-- **exarchos_event** — Append-only JSONL event store with 50 event types (includes `shepherd.started`, `shepherd.iteration`, `shepherd.approval_requested`, `shepherd.completed`)
+- **exarchos_event** — Append-only JSONL event store with 59 event types (includes `shepherd.started`, `shepherd.iteration`, `shepherd.approval_requested`, `shepherd.completed`)
 - **exarchos_orchestrate** — Agent team spawn/message/shutdown + task claim/complete/fail
 - **exarchos_view** — CQRS materialized views (pipeline, tasks, workflow status, team status, stack, telemetry)
 - **exarchos_sync** — Remote sync (stub)
