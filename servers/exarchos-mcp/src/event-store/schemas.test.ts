@@ -28,6 +28,15 @@ import {
   TaskProgressedData,
   TaskFailedData,
   SessionTaggedData,
+  StackRestackedData,
+  WorktreeCreatedData,
+  WorktreeBaselineData,
+  TestResultData,
+  TypecheckResultData,
+  StackSubmittedData,
+  CiStatusData,
+  CommentPostedData,
+  CommentResolvedData,
 } from './schemas.js';
 
 describe('validateAgentEvent', () => {
@@ -333,7 +342,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(51);
+    expect(EventTypes).toHaveLength(59);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -875,7 +884,7 @@ describe('ShepherdStartedData validation', () => {
 
 describe('ShepherdIterationData validation', () => {
   it('ShepherdIterationData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', iteration: 2, action: 'fix-ci', outcome: 'resolved' };
+    const payload = { iteration: 2, prsAssessed: 3, fixesApplied: 1, status: 'in-progress' };
     expect(ShepherdIterationData.safeParse(payload).success).toBe(true);
   });
 });
@@ -1170,5 +1179,387 @@ describe('SessionTaggedData', () => {
       data: { tag: 'feature-auth', sessionId: 'sess-123' },
     });
     expect(event.success).toBe(true);
+  });
+});
+
+// ─── Readiness Event Types ──────────────────────────────────────────────────
+
+describe('Readiness EventTypes', () => {
+  it('EventTypes_Contains_WorktreeCreated', () => {
+    expect(EventTypes).toContain('worktree.created');
+  });
+
+  it('EventTypes_Contains_WorktreeBaseline', () => {
+    expect(EventTypes).toContain('worktree.baseline');
+  });
+
+  it('EventTypes_Contains_TestResult', () => {
+    expect(EventTypes).toContain('test.result');
+  });
+
+  it('EventTypes_Contains_TypecheckResult', () => {
+    expect(EventTypes).toContain('typecheck.result');
+  });
+
+  it('EventTypes_Contains_StackSubmitted', () => {
+    expect(EventTypes).toContain('stack.submitted');
+  });
+
+  it('EventTypes_Contains_CiStatus', () => {
+    expect(EventTypes).toContain('ci.status');
+  });
+
+  it('EventTypes_Contains_CommentPosted', () => {
+    expect(EventTypes).toContain('comment.posted');
+  });
+
+  it('EventTypes_Contains_CommentResolved', () => {
+    expect(EventTypes).toContain('comment.resolved');
+  });
+});
+
+// ─── WorktreeCreatedData ────────────────────────────────────────────────────
+
+describe('WorktreeCreatedData', () => {
+  it('WorktreeCreatedData_ValidPayload_Parses', () => {
+    const result = WorktreeCreatedData.safeParse({
+      taskId: 'task-001',
+      path: '/tmp/.worktrees/wt-001',
+      branch: 'feature/task-001',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.taskId).toBe('task-001');
+      expect(result.data.path).toBe('/tmp/.worktrees/wt-001');
+      expect(result.data.branch).toBe('feature/task-001');
+    }
+  });
+
+  it('WorktreeCreatedData_MissingFields_Rejects', () => {
+    const result = WorktreeCreatedData.safeParse({
+      taskId: 'task-001',
+      // missing path and branch
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── WorktreeBaselineData ───────────────────────────────────────────────────
+
+describe('WorktreeBaselineData', () => {
+  it('WorktreeBaselineData_ValidPayload_Parses', () => {
+    const result = WorktreeBaselineData.safeParse({
+      taskId: 'task-001',
+      path: '/tmp/.worktrees/wt-001',
+      status: 'passed',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.taskId).toBe('task-001');
+      expect(result.data.status).toBe('passed');
+    }
+  });
+
+  it('WorktreeBaselineData_WithOptionalOutput_Parses', () => {
+    const result = WorktreeBaselineData.safeParse({
+      taskId: 'task-001',
+      path: '/tmp/.worktrees/wt-001',
+      status: 'failed',
+      output: 'Build error on line 42',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.output).toBe('Build error on line 42');
+    }
+  });
+
+  it('WorktreeBaselineData_InvalidStatus_Rejects', () => {
+    const result = WorktreeBaselineData.safeParse({
+      taskId: 'task-001',
+      path: '/tmp/.worktrees/wt-001',
+      status: 'unknown',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('WorktreeBaselineData_MissingFields_Rejects', () => {
+    const result = WorktreeBaselineData.safeParse({
+      taskId: 'task-001',
+      // missing path and status
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── TestResultData ─────────────────────────────────────────────────────────
+
+describe('TestResultData', () => {
+  it('TestResultData_ValidPayload_Parses', () => {
+    const result = TestResultData.safeParse({
+      passed: true,
+      passCount: 42,
+      failCount: 0,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.passed).toBe(true);
+      expect(result.data.passCount).toBe(42);
+      expect(result.data.failCount).toBe(0);
+    }
+  });
+
+  it('TestResultData_WithOptionalFields_Parses', () => {
+    const result = TestResultData.safeParse({
+      passed: false,
+      passCount: 38,
+      failCount: 4,
+      coveragePercent: 87.5,
+      output: 'FAIL src/utils.test.ts',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.coveragePercent).toBe(87.5);
+      expect(result.data.output).toBe('FAIL src/utils.test.ts');
+    }
+  });
+
+  it('TestResultData_MissingFields_Rejects', () => {
+    const result = TestResultData.safeParse({
+      passed: true,
+      // missing passCount and failCount
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── TypecheckResultData ────────────────────────────────────────────────────
+
+describe('TypecheckResultData', () => {
+  it('TypecheckResultData_ValidPayload_Parses', () => {
+    const result = TypecheckResultData.safeParse({
+      passed: true,
+      errorCount: 0,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.passed).toBe(true);
+      expect(result.data.errorCount).toBe(0);
+    }
+  });
+
+  it('TypecheckResultData_WithErrors_Parses', () => {
+    const result = TypecheckResultData.safeParse({
+      passed: false,
+      errorCount: 2,
+      errors: ['TS2322: Type string not assignable to number', 'TS2304: Cannot find name foo'],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.errors).toHaveLength(2);
+    }
+  });
+
+  it('TypecheckResultData_MissingFields_Rejects', () => {
+    const result = TypecheckResultData.safeParse({
+      passed: true,
+      // missing errorCount
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── StackSubmittedData ─────────────────────────────────────────────────────
+
+describe('StackSubmittedData', () => {
+  it('StackSubmittedData_ValidPayload_Parses', () => {
+    const result = StackSubmittedData.safeParse({
+      branches: ['feature/task-001', 'feature/task-002'],
+      prNumbers: [101, 102],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.branches).toEqual(['feature/task-001', 'feature/task-002']);
+      expect(result.data.prNumbers).toEqual([101, 102]);
+    }
+  });
+
+  it('StackSubmittedData_MissingFields_Rejects', () => {
+    const result = StackSubmittedData.safeParse({
+      branches: ['feature/task-001'],
+      // missing prNumbers
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── CiStatusData ───────────────────────────────────────────────────────────
+
+describe('CiStatusData', () => {
+  it('CiStatusData_ValidPayload_Parses', () => {
+    const result = CiStatusData.safeParse({
+      pr: 101,
+      status: 'passing',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(101);
+      expect(result.data.status).toBe('passing');
+    }
+  });
+
+  it('CiStatusData_WithJobUrl_Parses', () => {
+    const result = CiStatusData.safeParse({
+      pr: 101,
+      status: 'failing',
+      jobUrl: 'https://github.com/org/repo/actions/runs/123',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.jobUrl).toBe('https://github.com/org/repo/actions/runs/123');
+    }
+  });
+
+  it('CiStatusData_InvalidStatus_Rejects', () => {
+    const result = CiStatusData.safeParse({
+      pr: 101,
+      status: 'unknown',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('CiStatusData_MissingFields_Rejects', () => {
+    const result = CiStatusData.safeParse({
+      // missing pr and status
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── CommentPostedData ──────────────────────────────────────────────────────
+
+describe('CommentPostedData', () => {
+  it('CommentPostedData_ValidPayload_Parses', () => {
+    const result = CommentPostedData.safeParse({
+      pr: 101,
+      commentId: 'ic_123',
+      body: 'LGTM',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(101);
+      expect(result.data.commentId).toBe('ic_123');
+      expect(result.data.body).toBe('LGTM');
+    }
+  });
+
+  it('CommentPostedData_WithInReplyTo_Parses', () => {
+    const result = CommentPostedData.safeParse({
+      pr: 101,
+      commentId: 'ic_124',
+      body: 'Fixed in latest push',
+      inReplyTo: 'ic_123',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.inReplyTo).toBe('ic_123');
+    }
+  });
+
+  it('CommentPostedData_MissingFields_Rejects', () => {
+    const result = CommentPostedData.safeParse({
+      pr: 101,
+      // missing commentId and body
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── CommentResolvedData ────────────────────────────────────────────────────
+
+describe('CommentResolvedData', () => {
+  it('CommentResolvedData_ValidPayload_Parses', () => {
+    const result = CommentResolvedData.safeParse({
+      pr: 101,
+      threadId: 'thread-abc',
+      resolvedBy: 'author',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.pr).toBe(101);
+      expect(result.data.threadId).toBe('thread-abc');
+      expect(result.data.resolvedBy).toBe('author');
+    }
+  });
+
+  it('CommentResolvedData_InvalidResolvedBy_Rejects', () => {
+    const result = CommentResolvedData.safeParse({
+      pr: 101,
+      threadId: 'thread-abc',
+      resolvedBy: 'bot',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('CommentResolvedData_MissingFields_Rejects', () => {
+    const result = CommentResolvedData.safeParse({
+      pr: 101,
+      // missing threadId and resolvedBy
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── Modified StackRestackedData ────────────────────────────────────────────
+
+describe('StackRestackedData (updated)', () => {
+  it('StackRestackedData_NewFields_Parses', () => {
+    const result = StackRestackedData.safeParse({
+      branches: ['feature/task-001', 'feature/task-002'],
+      conflicts: false,
+      reconstructed: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.branches).toEqual(['feature/task-001', 'feature/task-002']);
+      expect(result.data.conflicts).toBe(false);
+      expect(result.data.reconstructed).toBe(true);
+    }
+  });
+
+  it('StackRestackedData_OldFields_Rejects', () => {
+    const result = StackRestackedData.safeParse({
+      affectedPositions: [1, 2, 3],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── Modified ShepherdIterationData ─────────────────────────────────────────
+
+describe('ShepherdIterationData (updated)', () => {
+  it('ShepherdIterationData_NewFields_Parses', () => {
+    const result = ShepherdIterationData.safeParse({
+      iteration: 2,
+      prsAssessed: 3,
+      fixesApplied: 1,
+      status: 'in-progress',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.iteration).toBe(2);
+      expect(result.data.prsAssessed).toBe(3);
+      expect(result.data.fixesApplied).toBe(1);
+      expect(result.data.status).toBe('in-progress');
+    }
+  });
+
+  it('ShepherdIterationData_OldFields_Rejects', () => {
+    const result = ShepherdIterationData.safeParse({
+      prUrl: 'https://github.com/org/repo/pull/1',
+      iteration: 2,
+      action: 'fix-ci',
+      outcome: 'resolved',
+    });
+    expect(result.success).toBe(false);
   });
 });

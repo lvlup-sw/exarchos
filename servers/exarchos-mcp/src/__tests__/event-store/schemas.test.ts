@@ -340,9 +340,13 @@ describe('StackPositionFilledData', () => {
 describe('StackRestackedData', () => {
   it('should parse valid restack event', () => {
     const data = StackRestackedData.parse({
-      affectedPositions: [2, 3, 4],
+      branches: ['feat/task-001', 'feat/task-002'],
+      conflicts: false,
+      reconstructed: true,
     });
-    expect(data.affectedPositions).toEqual([2, 3, 4]);
+    expect(data.branches).toEqual(['feat/task-001', 'feat/task-002']);
+    expect(data.conflicts).toBe(false);
+    expect(data.reconstructed).toBe(true);
   });
 });
 
@@ -358,8 +362,8 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('EventTypes_AllEventTypes_CountIs51', () => {
-    expect(EventTypes).toHaveLength(51);
+  it('EventTypes_AllEventTypes_CountIs59', () => {
+    expect(EventTypes).toHaveLength(59);
   });
 
   it('should include workflow-level types', () => {
@@ -742,7 +746,6 @@ describe('Dead event types removed', () => {
       'phase.transitioned',
       'task.routed',
       'context.assembled',
-      'test.result',
       'gate.self-corrected',
       'remediation.started',
     ];
