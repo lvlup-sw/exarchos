@@ -60,6 +60,10 @@ import {
   DELEGATION_READINESS_VIEW,
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
+import {
+  synthesisReadinessProjection,
+  SYNTHESIS_READINESS_VIEW,
+} from './synthesis-readiness-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -81,6 +85,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(EVAL_RESULTS_VIEW, evalResultsProjection);
   materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
   materializer.register(DELEGATION_READINESS_VIEW, delegationReadinessProjection);
+  materializer.register(SYNTHESIS_READINESS_VIEW, synthesisReadinessProjection);
   return materializer;
 }
 
