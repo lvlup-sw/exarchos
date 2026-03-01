@@ -27,8 +27,16 @@ vi.mock('./assess-stack.js', () => ({
   handleAssessStack: vi.fn(),
 }));
 
+vi.mock('./design-completeness.js', () => ({
+  handleDesignCompleteness: vi.fn(),
+}));
+
 vi.mock('./plan-coverage.js', () => ({
   handlePlanCoverage: vi.fn(),
+}));
+
+vi.mock('./tdd-compliance.js', () => ({
+  handleTddCompliance: vi.fn(),
 }));
 
 vi.mock('./post-merge.js', () => ({
@@ -40,7 +48,9 @@ import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
+import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
+import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -209,6 +219,49 @@ describe('handleOrchestrate', () => {
       expect(result).toBe(expected);
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_CheckDesignCompleteness_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, advisory: true, findings: [] });
+      vi.mocked(handleDesignCompleteness).mockResolvedValue(expected);
+      const args = {
+        action: 'check_design_completeness',
+        featureId: 'feat-200',
+        designPath: '/tmp/design.md',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleDesignCompleteness).toHaveBeenCalledWith(
+        { featureId: 'feat-200', designPath: '/tmp/design.md' },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_CheckTddCompliance_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, taskId: 't1', branch: 'feat-branch', compliance: { passCount: 5, failCount: 0, total: 5 } });
+      vi.mocked(handleTddCompliance).mockResolvedValue(expected);
+      const args = {
+        action: 'check_tdd_compliance',
+        featureId: 'feat-300',
+        taskId: 't1',
+        branch: 'feat-branch',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleTddCompliance).toHaveBeenCalledWith(
+        { featureId: 'feat-300', taskId: 't1', branch: 'feat-branch' },
         STATE_DIR,
       );
     });

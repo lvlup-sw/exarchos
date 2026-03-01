@@ -94,7 +94,6 @@ export async function handleDesignCompleteness(
 
   // 3. Run the script
   let output: string;
-  let exitCode: number;
 
   try {
     const result = execSync(cmd, {
@@ -103,7 +102,6 @@ export async function handleDesignCompleteness(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     output = result.toString('utf-8');
-    exitCode = 0;
   } catch (err: unknown) {
     const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
     const stdout = execError.stdout instanceof Buffer ? execError.stdout.toString('utf-8') : '';
@@ -122,7 +120,6 @@ export async function handleDesignCompleteness(
 
     // Exit code 1 = checks failed (expected advisory failure)
     output = stdout;
-    exitCode = execError.status ?? 1;
   }
 
   // 4. Parse output

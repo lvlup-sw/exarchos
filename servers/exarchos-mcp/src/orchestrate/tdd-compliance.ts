@@ -109,15 +109,17 @@ export async function handleTddCompliance(
   // Parse compliance counts from report
   const counts = parseComplianceCounts(report);
 
-  // Emit gate.executed event
-  const store = getOrCreateEventStore(stateDir);
-  await emitGateEvent(store, args.featureId, 'tdd-compliance', 'testing', passed, {
-    taskId: args.taskId,
-    branch: args.branch,
-    passCount: counts.passCount,
-    failCount: counts.failCount,
-    totalCommits: counts.total,
-  });
+  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    await emitGateEvent(store, args.featureId, 'tdd-compliance', 'testing', passed, {
+      taskId: args.taskId,
+      branch: args.branch,
+      passCount: counts.passCount,
+      failCount: counts.failCount,
+      totalCommits: counts.total,
+    });
+  } catch { /* fire-and-forget */ }
 
   return {
     success: true,

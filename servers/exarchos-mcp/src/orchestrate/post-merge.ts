@@ -112,13 +112,15 @@ export async function handlePostMerge(
     passed = false;
   }
 
-  // Emit gate.executed event for flywheel integration
-  const store = getOrCreateEventStore(stateDir);
-  await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
-    prUrl: args.prUrl,
-    mergeSha: args.mergeSha,
-    findings,
-  });
+  // Emit gate.executed event for flywheel integration (fire-and-forget)
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
+      prUrl: args.prUrl,
+      mergeSha: args.mergeSha,
+      findings,
+    });
+  } catch { /* fire-and-forget: emission failure must not break the gate check */ }
 
   // Build result
   const data: PostMergeResult = {

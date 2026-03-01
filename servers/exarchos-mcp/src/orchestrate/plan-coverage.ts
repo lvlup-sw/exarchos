@@ -112,14 +112,16 @@ export async function handlePlanCoverage(
   // Parse coverage metrics from stdout
   const metrics = parseCoverageMetrics(stdout);
 
-  // Emit gate.executed event
-  const store = getOrCreateEventStore(stateDir);
-  await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', passed, {
-    covered: metrics.covered,
-    gaps: metrics.gaps,
-    deferred: metrics.deferred,
-    totalSections: metrics.total,
-  });
+  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', passed, {
+      covered: metrics.covered,
+      gaps: metrics.gaps,
+      deferred: metrics.deferred,
+      totalSections: metrics.total,
+    });
+  } catch { /* fire-and-forget */ }
 
   // Return structured result
   const result: PlanCoverageResult = {
