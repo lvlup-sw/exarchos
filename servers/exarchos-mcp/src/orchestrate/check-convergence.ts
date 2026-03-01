@@ -20,6 +20,30 @@ import { emitGateEvent } from './gate-utils.js';
 interface CheckConvergenceArgs {
   readonly featureId: string;
   readonly workflowId?: string;
+  readonly phase?: string;
+}
+
+// ─── Phase Filtering ─────────────────────────────────────────────────────
+
+type DimensionSummary = Record<string, { converged: boolean; gateCount: number; lastChecked: string | null }>;
+
+function applyPhaseFilter(
+  dimensions: ConvergenceViewState['dimensions'],
+  phase?: string,
+): DimensionSummary {
+  const result: DimensionSummary = {};
+  for (const [key, dim] of Object.entries(dimensions)) {
+    const filteredResults = phase
+      ? dim.gateResults.filter((r) => r.phase === phase)
+      : dim.gateResults;
+    const converged = filteredResults.length > 0 && filteredResults.every((r) => r.passed);
+    result[key] = {
+      converged,
+      gateCount: filteredResults.length,
+      lastChecked: dim.lastChecked,
+    };
+  }
+  return result;
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -48,24 +72,27 @@ export async function handleCheckConvergence(
     events,
   );
 
-  const passed = view.overallConverged;
+  // Apply phase filter if specified — filter gate results per dimension
+  const filteredDimensions = applyPhaseFilter(view.dimensions, args.phase);
 
-  // Build compact dimension summary (gate counts, not full result arrays)
-  const dimensions: Record<string, { converged: boolean; gateCount: number; lastChecked: string | null }> = {};
-  for (const [key, dim] of Object.entries(view.dimensions)) {
-    dimensions[key] = {
-      converged: dim.converged,
-      gateCount: dim.gateResults.length,
-      lastChecked: dim.lastChecked,
-    };
-  }
+  // Recompute convergence from filtered data
+  const allDimensionKeys = ['D1', 'D2', 'D3', 'D4', 'D5'];
+  const uncheckedDimensions = allDimensionKeys.filter((d) => {
+    const dim = filteredDimensions[d];
+    return !dim || dim.gateCount === 0;
+  });
+  const overallConverged = allDimensionKeys.every((d) => {
+    const dim = filteredDimensions[d];
+    return dim && dim.gateCount > 0 && dim.converged;
+  });
+  const passed = overallConverged;
 
   // Emit meta gate.executed event (fire-and-forget)
   try {
     await emitGateEvent(store, streamId, 'convergence', 'meta', passed, {
       phase: 'meta',
-      uncheckedDimensions: view.uncheckedDimensions,
-      dimensionSummary: dimensions,
+      uncheckedDimensions,
+      dimensionSummary: filteredDimensions,
     });
   } catch { /* fire-and-forget */ }
 
@@ -73,9 +100,9 @@ export async function handleCheckConvergence(
     success: true,
     data: {
       passed,
-      overallConverged: view.overallConverged,
-      uncheckedDimensions: view.uncheckedDimensions,
-      dimensions,
+      overallConverged,
+      uncheckedDimensions,
+      dimensions: filteredDimensions,
     },
   };
 }

@@ -209,6 +209,123 @@ describe('handleCheckConvergence', () => {
     );
   });
 
+  it('CheckConvergence_WithPhaseFilter_ReturnsOnlyMatchingGateResults', async () => {
+    mockViewState = {
+      featureId: 'test-feature',
+      overallConverged: true,
+      uncheckedDimensions: [],
+      dimensions: {
+        D1: {
+          dimension: 'D1',
+          label: 'Design Completeness',
+          gateResults: [
+            { gateName: 'tdd', passed: true, timestamp: '2026-01-01', phase: 'delegate' },
+            { gateName: 'plan-coverage', passed: true, timestamp: '2026-01-02', phase: 'review' },
+          ],
+          converged: true,
+          lastChecked: '2026-01-02',
+        },
+        D2: {
+          dimension: 'D2',
+          label: 'Static Analysis',
+          gateResults: [
+            { gateName: 'lint', passed: true, timestamp: '2026-01-01', phase: 'review' },
+            { gateName: 'typecheck', passed: false, timestamp: '2026-01-02', phase: 'delegate' },
+          ],
+          converged: false,
+          lastChecked: '2026-01-02',
+        },
+        D3: {
+          dimension: 'D3',
+          label: 'Context Economy',
+          gateResults: [
+            { gateName: 'context', passed: true, timestamp: '2026-01-01', phase: 'ideate' },
+          ],
+          converged: true,
+          lastChecked: '2026-01-01',
+        },
+      },
+    };
+
+    const result: ToolResult = await handleCheckConvergence(
+      { featureId: 'test-feature', phase: 'review' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(true);
+    // D1 should have 1 gate (plan-coverage with phase: 'review'), converged
+    expect(result.data.dimensions.D1).toEqual({
+      converged: true,
+      gateCount: 1,
+      lastChecked: '2026-01-02',
+    });
+    // D2 should have 1 gate (lint with phase: 'review'), converged (the failing one was delegate)
+    expect(result.data.dimensions.D2).toEqual({
+      converged: true,
+      gateCount: 1,
+      lastChecked: '2026-01-02',
+    });
+    // D3 should have 0 gates (only ideate), so it should be unchecked
+    expect(result.data.dimensions.D3).toEqual({
+      converged: false,
+      gateCount: 0,
+      lastChecked: '2026-01-01',
+    });
+    // D3 should appear in uncheckedDimensions (no review-phase gates)
+    expect(result.data.uncheckedDimensions).toContain('D3');
+    // Overall: D4, D5 unchecked + D3 has no review gates = not converged
+    expect(result.data.overallConverged).toBe(false);
+  });
+
+  it('CheckConvergence_WithoutPhaseFilter_ReturnsAllResults', async () => {
+    mockViewState = {
+      featureId: 'test-feature',
+      overallConverged: false,
+      uncheckedDimensions: ['D3', 'D4', 'D5'],
+      dimensions: {
+        D1: {
+          dimension: 'D1',
+          label: 'Design Completeness',
+          gateResults: [
+            { gateName: 'tdd', passed: true, timestamp: '2026-01-01', phase: 'delegate' },
+            { gateName: 'plan-coverage', passed: true, timestamp: '2026-01-02', phase: 'review' },
+          ],
+          converged: true,
+          lastChecked: '2026-01-02',
+        },
+        D2: {
+          dimension: 'D2',
+          label: 'Static Analysis',
+          gateResults: [
+            { gateName: 'lint', passed: true, timestamp: '2026-01-01', phase: 'review' },
+            { gateName: 'typecheck', passed: false, timestamp: '2026-01-02', phase: 'delegate' },
+          ],
+          converged: false,
+          lastChecked: '2026-01-02',
+        },
+      },
+    };
+
+    const result: ToolResult = await handleCheckConvergence(
+      { featureId: 'test-feature' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(true);
+    // Without phase filter, all gate results should be included
+    expect(result.data.dimensions.D1).toEqual({
+      converged: true,
+      gateCount: 2,
+      lastChecked: '2026-01-02',
+    });
+    expect(result.data.dimensions.D2).toEqual({
+      converged: false,
+      gateCount: 2,
+      lastChecked: '2026-01-02',
+    });
+    expect(result.data.uncheckedDimensions).toEqual(['D3', 'D4', 'D5']);
+  });
+
   it('CheckConvergence_DimensionSummary_IncludesGateCounts', async () => {
     mockViewState = {
       featureId: 'test-feature',
