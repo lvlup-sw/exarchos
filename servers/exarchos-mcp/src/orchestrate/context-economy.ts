@@ -7,8 +7,10 @@
 
 import { execSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import { getOrCreateEventStore, getOrCreateMaterializer, queryDeltaEvents } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
+import { TELEMETRY_VIEW } from '../telemetry/telemetry-projection.js';
+import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -18,10 +20,17 @@ interface ContextEconomyArgs {
   readonly baseBranch?: string;
 }
 
+interface RuntimeMetrics {
+  readonly sessionTokens: number;
+  readonly toolCount: number;
+  readonly totalInvocations: number;
+}
+
 interface ContextEconomyResult {
   readonly passed: boolean;
   readonly findingCount: number;
   readonly report: string;
+  readonly runtimeMetrics?: RuntimeMetrics;
 }
 
 // ─── Output Parsing ────────────────────────────────────────────────────────
@@ -104,11 +113,32 @@ export async function handleContextEconomy(
     });
   } catch { /* fire-and-forget */ }
 
+  // Materialize telemetry projection for runtime token metrics (graceful degradation on failure)
+  let runtimeMetrics: RuntimeMetrics = {
+    sessionTokens: 0,
+    toolCount: 0,
+    totalInvocations: 0,
+  };
+
+  try {
+    const store = getOrCreateEventStore(stateDir);
+    const materializer = getOrCreateMaterializer(stateDir);
+    const telemetryEvents = await queryDeltaEvents(store, materializer, 'telemetry', TELEMETRY_VIEW);
+    const telemetry = materializer.materialize<TelemetryViewState>('telemetry', TELEMETRY_VIEW, telemetryEvents);
+
+    runtimeMetrics = {
+      sessionTokens: telemetry.totalTokens,
+      toolCount: Object.keys(telemetry.tools).length,
+      totalInvocations: telemetry.totalInvocations,
+    };
+  } catch { /* graceful degradation: return zero metrics on failure */ }
+
   // Return structured result
   const result: ContextEconomyResult = {
     passed,
     findingCount,
     report: stdout,
+    runtimeMetrics,
   };
 
   return { success: true, data: result };

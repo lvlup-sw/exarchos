@@ -9,16 +9,31 @@ vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }));
 
-// ─── Mock event store ────────────────────────────────────────────────────────
+// ─── Mock event store and materializer ───────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
   query: vi.fn().mockResolvedValue([]),
 };
 
+const mockTelemetryState = {
+  tools: {},
+  sessionStart: '2026-01-01T00:00:00.000Z',
+  totalInvocations: 0,
+  totalTokens: 0,
+  windowSize: 1000,
+};
+
+const mockMaterializer = {
+  materialize: vi.fn(() => mockTelemetryState),
+  getState: vi.fn(() => null),
+  loadFromSnapshot: vi.fn().mockResolvedValue(undefined),
+};
+
 vi.mock('../views/tools.js', () => ({
   getOrCreateEventStore: () => mockStore,
-  getOrCreateMaterializer: () => ({}),
+  getOrCreateMaterializer: () => mockMaterializer,
+  queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
 import { execSync } from 'node:child_process';
@@ -233,6 +248,109 @@ describe('handleContextEconomy', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('SCRIPT_ERROR');
       expect(result.error?.message).toContain('--repo-root is required');
+    });
+  });
+
+  // ─── Telemetry Integration ────────────────────────────────────────────────
+
+  describe('telemetry integration', () => {
+    it('handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult', async () => {
+      // Arrange
+      const stdout = makeCleanReport();
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      // Setup telemetry state with data
+      mockTelemetryState.tools = {
+        'exarchos_workflow': {
+          invocations: 5,
+          errors: 0,
+          totalDurationMs: 1000,
+          totalBytes: 2000,
+          totalTokens: 3000,
+          p50DurationMs: 200,
+          p95DurationMs: 400,
+          p50Bytes: 400,
+          p95Bytes: 800,
+          p50Tokens: 600,
+          p95Tokens: 1200,
+          durations: [],
+          sizes: [],
+          tokenEstimates: [],
+        },
+        'exarchos_view': {
+          invocations: 5,
+          errors: 0,
+          totalDurationMs: 500,
+          totalBytes: 1000,
+          totalTokens: 2000,
+          p50DurationMs: 100,
+          p95DurationMs: 200,
+          p50Bytes: 200,
+          p95Bytes: 400,
+          p50Tokens: 400,
+          p95Tokens: 800,
+          durations: [],
+          sizes: [],
+          tokenEstimates: [],
+        },
+      };
+      mockTelemetryState.totalTokens = 5000;
+      mockTelemetryState.totalInvocations = 10;
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      const result = await handleContextEconomy(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        findingCount: number;
+        report: string;
+        runtimeMetrics: {
+          sessionTokens: number;
+          toolCount: number;
+          totalInvocations: number;
+        };
+      };
+      expect(data.runtimeMetrics).toBeDefined();
+      expect(data.runtimeMetrics.sessionTokens).toBe(5000);
+      expect(data.runtimeMetrics.toolCount).toBe(2);
+      expect(data.runtimeMetrics.totalInvocations).toBe(10);
+    });
+
+    it('handleContextEconomy_WithoutTelemetryData_ReturnsScriptOnlyResult', async () => {
+      // Arrange
+      const stdout = makeCleanReport();
+      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+
+      // Setup empty telemetry state
+      mockTelemetryState.tools = {};
+      mockTelemetryState.totalTokens = 0;
+      mockTelemetryState.totalInvocations = 0;
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      const result = await handleContextEconomy(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        findingCount: number;
+        report: string;
+        runtimeMetrics: {
+          sessionTokens: number;
+          toolCount: number;
+          totalInvocations: number;
+        };
+      };
+      expect(data.runtimeMetrics).toBeDefined();
+      expect(data.runtimeMetrics.sessionTokens).toBe(0);
+      expect(data.runtimeMetrics.toolCount).toBe(0);
+      expect(data.runtimeMetrics.totalInvocations).toBe(0);
     });
   });
 });
