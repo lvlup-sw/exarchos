@@ -98,6 +98,7 @@ export const RefactorPhaseSchema = z.enum([
   'polish-update-docs',
   // Overhaul track phases
   'overhaul-plan',
+  'overhaul-plan-review',
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',

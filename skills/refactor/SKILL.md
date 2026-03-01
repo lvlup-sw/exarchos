@@ -116,7 +116,7 @@ Full state schema:
   "featureId": "refactor-<slug>",
   "workflowType": "refactor",
   "track": "polish | overhaul",
-  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
+  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-plan-review | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
   "explore": {
     "startedAt": "ISO8601",
     "completedAt": "ISO8601 | null",

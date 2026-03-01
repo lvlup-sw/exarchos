@@ -30,7 +30,7 @@ export function configureNextActionEventStore(store: EventStore | null): void {
 export const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
   feature: new Set(['plan-review', 'synthesize']),
   debug: new Set(['hotfix-validate', 'synthesize']),
-  refactor: new Set(['polish-update-docs', 'synthesize']),
+  refactor: new Set(['overhaul-plan-review', 'polish-update-docs', 'synthesize']),
 };
 
 // ─── Phase-to-Action Mapping ────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
     explore: 'AUTO:refactor-brief',
     'polish-implement': 'AUTO:refactor-validate',
     'polish-validate': 'AUTO:refactor-update-docs',
-    'overhaul-plan': 'AUTO:refactor-delegate',
+    'overhaul-plan': 'AUTO:refactor-plan-review',
     'overhaul-delegate': 'AUTO:refactor-review',
     'overhaul-review': 'AUTO:refactor-update-docs',
     'overhaul-update-docs': 'AUTO:refactor-synthesize',

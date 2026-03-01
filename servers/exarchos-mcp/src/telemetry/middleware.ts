@@ -110,7 +110,7 @@ export function withTelemetry(
         type: 'tool.invoked',
         data: { tool: toolName },
       })
-      .catch(() => {});
+      .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
 
     const start = performance.now();
 
@@ -140,7 +140,7 @@ export function withTelemetry(
               },
             },
           })
-          .catch(() => {});
+          .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
       }
 
       // Wait for invoke event to settle before emitting completed
@@ -152,7 +152,7 @@ export function withTelemetry(
           type: 'tool.completed',
           data: { tool: toolName, durationMs, responseBytes, tokenEstimate },
         })
-        .catch(() => {});
+        .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
 
       // Emit quality.hint.generated when auto-correction was applied
       if (appliedCorrections.length > 0) {

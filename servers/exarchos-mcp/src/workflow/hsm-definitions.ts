@@ -217,6 +217,11 @@ export function createRefactorHSM(): HSMDefinition {
       type: 'atomic',
       parent: 'overhaul-track',
     },
+    'overhaul-plan-review': {
+      id: 'overhaul-plan-review',
+      type: 'atomic',
+      parent: 'overhaul-track',
+    },
     'overhaul-delegate': {
       id: 'overhaul-delegate',
       type: 'atomic',
@@ -266,9 +271,21 @@ export function createRefactorHSM(): HSMDefinition {
     // Overhaul track flow
     {
       from: 'overhaul-plan',
-      to: 'overhaul-delegate',
+      to: 'overhaul-plan-review',
       guard: guards.planArtifactExists,
     },
+    {
+      from: 'overhaul-plan-review',
+      to: 'overhaul-delegate',
+      guard: guards.planReviewComplete,
+    },
+    {
+      from: 'overhaul-plan-review',
+      to: 'overhaul-plan',
+      guard: guards.planReviewGapsFound,
+      effects: ['log'],
+    },
+    { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
     {
       from: 'overhaul-delegate',
       to: 'overhaul-review',

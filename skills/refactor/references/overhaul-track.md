@@ -7,12 +7,13 @@ Rigorous path for architectural changes, migrations, and multi-file restructurin
 ## Phases
 
 ```
-Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
-   |         |        |         |          |            |             |
-   |         |        |         |          |            |             +-- PR creation
-   |         |        |         |          |            +-- Update architecture docs
-   |         |        |         |          +-- Quality review (emphasized)
-   |         |        |         +-- TDD implementation in worktrees
+Explore -> Brief -> Plan -> Plan-Review -> Delegate -> Review -> Update Docs -> Synthesize
+   |         |        |          |              |          |            |             |
+   |         |        |          |              |          |            |             +-- PR creation
+   |         |        |          |              |          |            +-- Update architecture docs
+   |         |        |          |              |          +-- Quality review (emphasized)
+   |         |        |          |              +-- TDD implementation in worktrees
+   |         |        |          +-- Human checkpoint: verify plan coverage
    |         |        +-- Extract tasks from brief
    |         +-- Detailed goals, approach, affected areas
    +-- Thorough scope assessment, identify affected systems
@@ -86,15 +87,17 @@ The `/exarchos:plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-**Save plan and advance:**
+**Save plan and advance to plan-review:**
 ```
 action: "set", featureId: "refactor-<slug>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
-}, phase: "overhaul-delegate"
+}, phase: "overhaul-plan-review"
 ```
 
-> **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` -> `overhaul-delegate`.
+**Human checkpoint:** Plan-review verifies plan coverage against the brief before committing to delegation. The orchestrator compares design sections against planned tasks.
+- Gaps found → set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
+- Approved → set `.planReview.approved = true`, auto-invoke delegate
 
 Then auto-invoke delegate:
 ```typescript
@@ -191,14 +194,16 @@ Creates PR via `gh pr create`, updates description via `gh pr edit`. **Human che
 ## Auto-Chain
 
 ```
-explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
-           (auto)   (auto)          (auto)               (auto)             (auto)                  (auto)        [HUMAN]
+explore -> brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+           (auto)   (auto)          [HUMAN]                  (auto)               (auto)             (auto)                  (auto)        [HUMAN]
 ```
 
 **Next actions:**
 - `AUTO:refactor-brief` after explore
 - `AUTO:overhaul-plan` after brief
-- `AUTO:refactor-delegate` after overhaul-plan
+- `AUTO:refactor-plan-review` after overhaul-plan
+- `WAIT:human-checkpoint:overhaul-plan-review` at plan-review
+- `AUTO:refactor-delegate` after overhaul-plan-review (approved)
 - `AUTO:refactor-review` after overhaul-delegate
 - `AUTO:refactor-update-docs` after overhaul-review
 - `AUTO:refactor-synthesize` after overhaul-update-docs

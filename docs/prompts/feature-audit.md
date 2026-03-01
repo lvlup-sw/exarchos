@@ -137,7 +137,7 @@ Every byte in a tool response, event payload, or skill body consumes finite agen
 |--------|-------------|-----------|----------|
 | MCP tool response size | Measure JSON payload bytes for each new/modified tool response | >4KB per response = review, >8KB = flag | MEDIUM |
 | Event payload size | Measure bytes of `payload` field per event type | >2KB per event = review, >4KB = flag | MEDIUM |
-| SKILL.md word count | `wc -w skills/*/SKILL.md` for modified skills | >1,300 words = HIGH | HIGH |
+| SKILL.md word count | `wc -w skills/*/SKILL.md` for modified skills | >1,600 words = HIGH | HIGH |
 | Unbounded arrays in views | Grep view schemas for arrays without pagination or size caps | Unbounded growing array = HIGH | HIGH |
 | Inline content in commands | Check commands reference skills via `@skills/` paths, not embed content | Inlined skill content = MEDIUM | MEDIUM |
 

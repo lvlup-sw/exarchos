@@ -737,12 +737,33 @@ register({
     },
   ],
   events: [],
-  transitionCriteria: 'Plan artifact exists → overhaul-delegate',
+  transitionCriteria: 'Plan artifact exists → overhaul-plan-review',
   guardPrerequisites: 'planArtifactExists',
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are creating an implementation plan for the overhaul refactoring. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to overhaul-delegate when plan artifact exists.',
+    'You are creating an implementation plan for the overhaul refactoring. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to overhaul-plan-review when plan artifact exists.',
+});
+
+register({
+  phase: 'overhaul-plan-review',
+  workflowType: 'refactor',
+  skill: 'implementation-planning',
+  skillRef: '@skills/implementation-planning/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record review decision',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Plan approved → overhaul-delegate | Gaps found → overhaul-plan',
+  guardPrerequisites: 'Plan review complete',
+  validationScripts: [],
+  humanCheckpoint: true,
+  compactGuidance:
+    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to overhaul-delegate on approval or back to overhaul-plan if gaps found.',
 });
 
 register({
