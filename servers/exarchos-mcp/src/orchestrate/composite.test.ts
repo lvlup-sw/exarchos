@@ -27,11 +27,16 @@ vi.mock('./assess-stack.js', () => ({
   handleAssessStack: vi.fn(),
 }));
 
+vi.mock('./plan-coverage.js', () => ({
+  handlePlanCoverage: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handlePrepareSynthesis } from './prepare-synthesis.js';
 import { handleAssessStack } from './assess-stack.js';
+import { handlePlanCoverage } from './plan-coverage.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -177,6 +182,28 @@ describe('handleOrchestrate', () => {
       expect(result).toBe(expected);
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
+        STATE_DIR,
+      );
+    });
+
+    it('HandleOrchestrate_CheckPlanCoverage_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = successResult({ passed: true, coverage: { covered: 5, gaps: 0, deferred: 0, total: 5 } });
+      vi.mocked(handlePlanCoverage).mockResolvedValue(expected);
+      const args = {
+        action: 'check_plan_coverage',
+        featureId: 'feat-100',
+        designPath: '/tmp/design.md',
+        planPath: '/tmp/plan.md',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handlePlanCoverage).toHaveBeenCalledWith(
+        { featureId: 'feat-100', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
         STATE_DIR,
       );
     });
