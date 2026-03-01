@@ -5,7 +5,7 @@
 // the quality layer.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -15,6 +15,7 @@ import { emitGateEvent } from './gate-utils.js';
 interface StaticAnalysisArgs {
   readonly featureId: string;
   readonly repoRoot?: string;
+  readonly taskId?: string;
   readonly skipLint?: boolean;
   readonly skipTypecheck?: boolean;
 }
@@ -62,23 +63,23 @@ export async function handleStaticAnalysis(
     };
   }
 
-  // Build command
+  // Build command arguments
   const repoRoot = args.repoRoot || process.cwd();
-  let scriptCmd = `scripts/static-analysis-gate.sh --repo-root ${repoRoot}`;
+  const scriptArgs = ['--repo-root', repoRoot];
 
   if (args.skipLint) {
-    scriptCmd += ' --skip-lint';
+    scriptArgs.push('--skip-lint');
   }
 
   if (args.skipTypecheck) {
-    scriptCmd += ' --skip-typecheck';
+    scriptArgs.push('--skip-typecheck');
   }
 
   let stdout = '';
   let passed = false;
 
   try {
-    const output = execSync(scriptCmd, {
+    const output = execFileSync('scripts/static-analysis-gate.sh', scriptArgs, {
       timeout: 60_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -123,6 +124,7 @@ export async function handleStaticAnalysis(
       phase: 'delegate',
       passCount,
       failCount,
+      ...(args.taskId ? { taskId: args.taskId } : {}),
     });
   } catch { /* fire-and-forget */ }
 

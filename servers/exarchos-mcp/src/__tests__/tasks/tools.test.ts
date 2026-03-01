@@ -156,6 +156,16 @@ describe('handleTaskClaim', () => {
 
 describe('handleTaskComplete', () => {
   it('with artifacts emits completed event', async () => {
+    // Seed passing TDD compliance + static analysis gates for this task
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
+    });
+
     const result = await handleTaskComplete(
       {
         taskId: 't1',
@@ -179,6 +189,16 @@ describe('handleTaskComplete', () => {
   });
 
   it('without result still emits completed event', async () => {
+    // Seed passing TDD compliance + static analysis gates for this task
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
+    });
+
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       tempDir,
@@ -216,6 +236,16 @@ describe('handleTaskComplete', () => {
   });
 
   it('with artifacts but no duration only includes artifacts in event data', async () => {
+    // Seed passing TDD compliance + static analysis gates for this task
+    await store.append('wf-002', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-002', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
+    });
+
     const result = await handleTaskComplete(
       {
         taskId: 't1',
@@ -239,6 +269,16 @@ describe('handleTaskComplete', () => {
   });
 
   it('success returns EventAck with only streamId, sequence, type keys', async () => {
+    // Seed passing TDD compliance + static analysis gates for this task
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
+    });
+    await store.append('wf-001', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
+    });
+
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       tempDir,
@@ -250,14 +290,16 @@ describe('handleTaskComplete', () => {
     expect(keys).toEqual(['sequence', 'streamId', 'type']);
   });
 
-  it('store.append() failure returns COMPLETE_FAILED error', async () => {
+  it('store.append() failure returns GATE_NOT_PASSED when no gate event exists', async () => {
+    // With a nonexistent path, the gate query returns empty results,
+    // so the gate check fails before reaching the append
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       '/nonexistent/path/complete-test',
     );
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('COMPLETE_FAILED');
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 });
 

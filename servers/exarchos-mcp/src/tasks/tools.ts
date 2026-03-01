@@ -191,6 +191,36 @@ export async function handleTaskComplete(
 
   const store = getOrCreateEventStore(stateDir);
 
+  // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
+  const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
+
+  const hasPassingGate = (gateName: string): boolean =>
+    gateEvents.some((e) => {
+      const d = e.data as Record<string, unknown>;
+      const details = d.details as Record<string, unknown> | undefined;
+      return d.gateName === gateName && d.passed === true && details?.taskId === args.taskId;
+    });
+
+  if (!hasPassingGate('tdd-compliance')) {
+    return {
+      success: false,
+      error: {
+        code: 'GATE_NOT_PASSED',
+        message: 'TDD compliance gate must pass before task completion. Run check_tdd_compliance first.',
+      },
+    };
+  }
+
+  if (!hasPassingGate('static-analysis')) {
+    return {
+      success: false,
+      error: {
+        code: 'GATE_NOT_PASSED',
+        message: 'Static analysis gate must pass before task completion. Run check_static_analysis first.',
+      },
+    };
+  }
+
   const data: Record<string, unknown> = { taskId: args.taskId };
   if (args.result) {
     if (args.result.artifacts) {

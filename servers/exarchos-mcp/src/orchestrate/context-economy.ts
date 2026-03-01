@@ -5,12 +5,12 @@
 // for quality-layer gate checks.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore, getOrCreateMaterializer, queryDeltaEvents } from '../views/tools.js';
+import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { TELEMETRY_VIEW } from '../telemetry/telemetry-projection.js';
-import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import { queryRuntimeMetrics } from '../telemetry/telemetry-queries.js';
+import type { RuntimeMetrics } from '../telemetry/telemetry-queries.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -18,12 +18,6 @@ interface ContextEconomyArgs {
   readonly featureId: string;
   readonly repoRoot?: string;
   readonly baseBranch?: string;
-}
-
-interface RuntimeMetrics {
-  readonly sessionTokens: number;
-  readonly toolCount: number;
-  readonly totalInvocations: number;
 }
 
 interface ContextEconomyResult {
@@ -60,16 +54,16 @@ export async function handleContextEconomy(
   // Build the script command
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
-  const scriptCmd = `scripts/check-context-economy.sh --repo-root ${repoRoot} --base-branch ${baseBranch}`;
 
   let stdout = '';
   let passed = false;
 
   try {
-    const output = execSync(scriptCmd, {
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const output = execFileSync(
+      'scripts/check-context-economy.sh',
+      ['--repo-root', repoRoot, '--base-branch', baseBranch],
+      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     passed = true;
   } catch (err: unknown) {
@@ -114,24 +108,8 @@ export async function handleContextEconomy(
     });
   } catch { /* fire-and-forget */ }
 
-  // Materialize telemetry projection for runtime token metrics (graceful degradation on failure)
-  let runtimeMetrics: RuntimeMetrics = {
-    sessionTokens: 0,
-    toolCount: 0,
-    totalInvocations: 0,
-  };
-
-  try {
-    const materializer = getOrCreateMaterializer(stateDir);
-    const telemetryEvents = await queryDeltaEvents(store, materializer, 'telemetry', TELEMETRY_VIEW);
-    const telemetry = materializer.materialize<TelemetryViewState>('telemetry', TELEMETRY_VIEW, telemetryEvents);
-
-    runtimeMetrics = {
-      sessionTokens: telemetry.totalTokens,
-      toolCount: Object.keys(telemetry.tools).length,
-      totalInvocations: telemetry.totalInvocations,
-    };
-  } catch { /* graceful degradation: return zero metrics on failure */ }
+  // Query runtime metrics via telemetry query abstraction (graceful degradation on failure)
+  const runtimeMetrics = await queryRuntimeMetrics(store, stateDir);
 
   // Return structured result
   const result: ContextEconomyResult = {

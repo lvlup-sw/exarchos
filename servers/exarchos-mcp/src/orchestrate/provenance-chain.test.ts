@@ -4,7 +4,7 @@ import { handleProvenanceChain } from './provenance-chain.js';
 // ─── Mocks ─────────────────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('../views/tools.js', () => ({
@@ -15,10 +15,10 @@ vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn(async () => {}),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { emitGateEvent } from './gate-utils.js';
 
-const mockedExecSync = vi.mocked(execSync);
+const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
 
 beforeEach(() => {
@@ -71,7 +71,7 @@ describe('handleProvenanceChain', () => {
       '**Result: PASS**',
     ].join('\n');
 
-    mockedExecSync.mockReturnValueOnce(Buffer.from(report));
+    mockedExecFileSync.mockReturnValueOnce(Buffer.from(report));
 
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
@@ -110,7 +110,7 @@ describe('handleProvenanceChain', () => {
     execError.status = 1;
     execError.stdout = Buffer.from(report);
     execError.stderr = Buffer.from('');
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw execError;
     });
 
@@ -140,7 +140,7 @@ describe('handleProvenanceChain', () => {
     execError.status = 2;
     execError.stdout = Buffer.from('');
     execError.stderr = Buffer.from('Error: No DR-N identifiers found');
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw execError;
     });
 
@@ -165,7 +165,7 @@ describe('handleProvenanceChain', () => {
       '**Result: PASS**',
     ].join('\n');
 
-    mockedExecSync.mockReturnValueOnce(Buffer.from(report));
+    mockedExecFileSync.mockReturnValueOnce(Buffer.from(report));
 
     await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
@@ -200,7 +200,7 @@ describe('handleProvenanceChain', () => {
       '**Result: PASS**',
     ].join('\n');
 
-    mockedExecSync.mockReturnValueOnce(Buffer.from(report));
+    mockedExecFileSync.mockReturnValueOnce(Buffer.from(report));
 
     // Act
     await handleProvenanceChain(
@@ -232,7 +232,7 @@ describe('handleProvenanceChain', () => {
       '**Result: PASS**',
     ].join('\n');
 
-    mockedExecSync.mockReturnValueOnce(Buffer.from(report));
+    mockedExecFileSync.mockReturnValueOnce(Buffer.from(report));
     mockedEmitGateEvent.mockRejectedValueOnce(new Error('Store failure'));
 
     const result = await handleProvenanceChain(
@@ -263,7 +263,7 @@ describe('handleProvenanceChain', () => {
     execError.status = 1;
     execError.stdout = Buffer.from(report);
     execError.stderr = Buffer.from('');
-    mockedExecSync.mockImplementationOnce(() => {
+    mockedExecFileSync.mockImplementationOnce(() => {
       throw execError;
     });
 

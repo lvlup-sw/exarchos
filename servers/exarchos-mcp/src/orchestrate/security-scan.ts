@@ -4,7 +4,7 @@
 // script and emitting gate.executed events for quality-layer gate checks.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -50,16 +50,16 @@ export async function handleSecurityScan(
   // Build the script command
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
-  const scriptCmd = `scripts/security-scan.sh --repo-root ${repoRoot} --base-branch ${baseBranch}`;
 
   let stdout = '';
   let passed = false;
 
   try {
-    const output = execSync(scriptCmd, {
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const output = execFileSync(
+      'scripts/security-scan.sh',
+      ['--repo-root', repoRoot, '--base-branch', baseBranch],
+      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     passed = true;
   } catch (err: unknown) {
