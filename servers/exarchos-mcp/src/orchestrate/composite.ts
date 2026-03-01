@@ -29,6 +29,7 @@ import { handleWorkflowDeterminism } from './workflow-determinism.js';
 import { handleReviewVerdict } from './review-verdict.js';
 import { handleCheckConvergence } from './check-convergence.js';
 import { handleProvenanceChain } from './provenance-chain.js';
+import { handleTaskDecomposition } from './task-decomposition.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_review_verdict: handleReviewVerdict as unknown as ActionHandler,
   check_convergence: handleCheckConvergence as unknown as ActionHandler,
   check_provenance_chain: handleProvenanceChain as unknown as ActionHandler,
+  check_task_decomposition: handleTaskDecomposition as unknown as ActionHandler,
 };
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
