@@ -627,7 +627,7 @@ export class EventStore {
       return;
     }
 
-    // Try .seq file first (O(1))
+    // Try .seq file first (O(1)), cross-validated against JSONL line count
     const seqPath = this.getSeqFilePath(streamId);
     // Clean up orphaned .seq.tmp files left by crashed atomic writes
     const tmpPath = `${seqPath}.tmp`;
@@ -636,8 +636,26 @@ export class EventStore {
       const content = await fs.readFile(seqPath, 'utf-8');
       const parsed = JSON.parse(content);
       if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
-        this.sequenceCounters.set(streamId, parsed.sequence);
-        return;
+        // Cross-validate against JSONL line count to detect stale .seq files
+        const filePath = this.getEventFilePath(streamId);
+        try {
+          const jsonlContent = await fs.readFile(filePath, 'utf-8');
+          const lineCount = jsonlContent.trim().split('\n').filter(Boolean).length;
+          if (parsed.sequence !== lineCount) {
+            storeLogger.warn(
+              { streamId, seqFile: parsed.sequence, jsonlLines: lineCount },
+              'Stale .seq detected — falling through to JSONL',
+            );
+            // Fall through to JSONL line counting below
+          } else {
+            this.sequenceCounters.set(streamId, parsed.sequence);
+            return;
+          }
+        } catch {
+          // JSONL unreadable — trust .seq value
+          this.sequenceCounters.set(streamId, parsed.sequence);
+          return;
+        }
       }
     } catch {
       // Fall through to line counting

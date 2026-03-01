@@ -191,6 +191,9 @@ export async function handleTaskComplete(
 
   const store = getOrCreateEventStore(stateDir);
 
+  // Manual evidence bypass: docs-only or non-code tasks can skip gate checks
+  const manualBypass = args.evidence?.type === 'manual' && args.evidence.passed === true;
+
   // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
   const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
 
@@ -201,7 +204,7 @@ export async function handleTaskComplete(
       return d.gateName === gateName && d.passed === true && details?.taskId === args.taskId;
     });
 
-  if (!hasPassingGate('tdd-compliance')) {
+  if (!manualBypass && !hasPassingGate('tdd-compliance')) {
     return {
       success: false,
       error: {
@@ -211,7 +214,7 @@ export async function handleTaskComplete(
     };
   }
 
-  if (!hasPassingGate('static-analysis')) {
+  if (!manualBypass && !hasPassingGate('static-analysis')) {
     return {
       success: false,
       error: {

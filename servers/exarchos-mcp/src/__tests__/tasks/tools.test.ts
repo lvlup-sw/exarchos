@@ -303,6 +303,55 @@ describe('handleTaskComplete', () => {
   });
 });
 
+describe('handleTaskComplete manual evidence bypass', () => {
+  it('handleTaskComplete_ManualEvidencePassed_BypassesGates', async () => {
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-manual',
+        evidence: { type: 'manual', output: 'docs-only task', passed: true },
+        streamId: 'wf-manual',
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    const events = await store.query('wf-manual', { type: 'task.completed' });
+    expect(events).toHaveLength(1);
+    expect(events[0].data).toEqual(
+      expect.objectContaining({ taskId: 't-manual' }),
+    );
+  });
+
+  it('handleTaskComplete_ManualEvidenceFailed_StillRequiresGates', async () => {
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-manual-fail',
+        evidence: { type: 'manual', output: 'did not pass', passed: false },
+        streamId: 'wf-manual-fail',
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  it('handleTaskComplete_NonManualEvidence_StillRequiresGates', async () => {
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-test-type',
+        evidence: { type: 'test', output: 'all passed', passed: true },
+        streamId: 'wf-test-type',
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+});
+
 describe('handleTaskFail', () => {
   it('with diagnostics emits failed event', async () => {
     const result = await handleTaskFail(

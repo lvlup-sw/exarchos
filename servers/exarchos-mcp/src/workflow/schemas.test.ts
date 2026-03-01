@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { ArtifactsSchema, SynthesisSchema } from './schemas.js';
+import { ArtifactsSchema, SynthesisSchema, TaskStatusSchema } from './schemas.js';
 import { z } from 'zod';
+
+// ─── TaskStatusSchema alias tests ─────────────────────────────────────────
+
+describe('TaskStatusSchema', () => {
+  it('TaskStatusSchema_CompletedAlias_NormalizesToComplete', () => {
+    const result = TaskStatusSchema.safeParse('completed');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('complete');
+    }
+  });
+
+  it('TaskStatusSchema_Complete_ParsesUnchanged', () => {
+    const result = TaskStatusSchema.safeParse('complete');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('complete');
+    }
+  });
+
+  it('TaskStatusSchema_InvalidValue_Rejects', () => {
+    const result = TaskStatusSchema.safeParse('done');
+    expect(result.success).toBe(false);
+  });
+});
 
 // ─── Schema Passthrough Tests ──────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { EventTypes } from './schemas.js';
@@ -139,5 +139,65 @@ describe('EventStore Property Tests', () => {
         { numRuns: 50 },
       );
     });
+  });
+});
+
+// ─── Stale .seq Cross-Validation Tests (#939) ────────────────────────────
+
+describe('EventStore Stale .seq Cross-Validation', () => {
+  it('initializeSequence_StaleSeqFile_UsesJsonlLineCount', async () => {
+    const runDir = await mkdtemp(path.join(tempDir, 'stale-seq-'));
+    const store1 = new EventStore(runDir);
+    const streamId = 'test-stale';
+
+    // Append 3 events via store1
+    await store1.append(streamId, { type: 'workflow.started', data: {} });
+    await store1.append(streamId, { type: 'task.assigned', data: {} });
+    await store1.append(streamId, { type: 'task.claimed', data: {} });
+
+    // Manually overwrite .seq with stale value (1 instead of 3)
+    const seqPath = path.join(runDir, `${streamId}.seq`);
+    await writeFile(seqPath, JSON.stringify({ sequence: 1 }), 'utf-8');
+
+    // Create a new store instance (forces re-initialization from disk)
+    const store2 = new EventStore(runDir);
+
+    // Append a 4th event — should get sequence 4, not 2
+    const event = await store2.append(streamId, { type: 'workflow.transition', data: {} });
+    expect(event.sequence).toBe(4);
+  });
+
+  it('handleTaskClaim_StaleSeqFile_ClaimSucceeds', async () => {
+    // Import the task tools
+    const { handleTaskClaim, resetModuleEventStore } = await import('../tasks/tools.js');
+    const { resetMaterializerCache } = await import('../views/tools.js');
+
+    const runDir = await mkdtemp(path.join(tempDir, 'stale-claim-'));
+    const store1 = new EventStore(runDir);
+    const streamId = 'wf-stale';
+
+    // Seed with initial events
+    await store1.append(streamId, { type: 'workflow.started', data: {} });
+    await store1.append(streamId, { type: 'task.assigned', data: {} });
+
+    // Write stale .seq (says 1, but JSONL has 2 events)
+    const seqPath = path.join(runDir, `${streamId}.seq`);
+    await writeFile(seqPath, JSON.stringify({ sequence: 1 }), 'utf-8');
+
+    // Reset module-level caches so handleTaskClaim creates a fresh store
+    resetModuleEventStore();
+    resetMaterializerCache();
+
+    // Call handleTaskClaim — should succeed, not fail with CLAIM_FAILED
+    const result = await handleTaskClaim(
+      { taskId: 't-stale', agentId: 'agent-stale', streamId },
+      runDir,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Cleanup module state
+    resetModuleEventStore();
+    resetMaterializerCache();
   });
 });

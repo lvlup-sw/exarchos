@@ -132,12 +132,10 @@ export type TestingStrategy = z.infer<typeof TestingStrategySchema>;
 
 // ─── Task Schema ────────────────────────────────────────────────────────────
 
-export const TaskStatusSchema = z.enum([
-  'pending',
-  'in_progress',
-  'complete',
-  'failed',
-]);
+export const TaskStatusSchema = z.preprocess(
+  (val) => (val === 'completed' ? 'complete' : val),
+  z.enum(['pending', 'in_progress', 'complete', 'failed']),
+);
 
 export const TaskSchema = z.object({
   id: z.string(),
