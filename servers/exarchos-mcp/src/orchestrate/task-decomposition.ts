@@ -115,10 +115,21 @@ export async function handleTaskDecomposition(
     }
 
     // Exit code 1 = decomposition gaps found — parse the report
-    stdout = execError.stdout instanceof Buffer
-      ? execError.stdout.toString('utf-8')
-      : String(execError.stdout ?? '');
-    passed = false;
+    if (execError.status === 1) {
+      stdout = execError.stdout instanceof Buffer
+        ? execError.stdout.toString('utf-8')
+        : String(execError.stdout ?? '');
+      passed = false;
+    } else {
+      // Exit code ≥3 = unexpected error — treat as script error
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
   }
 
   // Parse decomposition metrics from stdout

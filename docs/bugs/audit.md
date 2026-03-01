@@ -1,5 +1,4 @@
-```bash
-  2. Implementation status across the pipeline
+## Implementation status across the pipeline
 
   Here's the honest assessment. The theory is well-formalized but implementation is partial and inconsistent across phases:
 
@@ -57,5 +56,4 @@
     4. Returns { passed: bool, findings: [...], advisory: true }
     ↓
   Skill receives structured response, presents findings, auto-chains to /plan
-```
 

@@ -43,10 +43,14 @@ export async function handleReviewVerdict(
     };
   }
 
-  if (typeof args.high !== 'number' || typeof args.medium !== 'number' || typeof args.low !== 'number') {
+  if (
+    !Number.isFinite(args.high) || args.high < 0
+    || !Number.isFinite(args.medium) || args.medium < 0
+    || !Number.isFinite(args.low) || args.low < 0
+  ) {
     return {
       success: false,
-      error: { code: 'INVALID_INPUT', message: 'high, medium, and low must be numbers' },
+      error: { code: 'INVALID_INPUT', message: 'high, medium, and low must be non-negative finite numbers' },
     };
   }
 
