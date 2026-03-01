@@ -416,6 +416,16 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set(['synthesize', 'review']),
     roles: ROLE_LEAD,
   },
+  {
+    name: 'assess_stack',
+    description: 'Assess PR stack health: CI status, reviews, comments. Emits events for shepherd view and eval flywheel.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      prNumbers: z.array(z.number().int()),
+    }),
+    phases: new Set(['synthesize', 'review']),
+    roles: ROLE_LEAD,
+  },
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
