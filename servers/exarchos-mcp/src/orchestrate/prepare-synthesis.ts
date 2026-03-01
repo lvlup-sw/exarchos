@@ -111,9 +111,23 @@ function parseTypecheckErrors(output: string): string[] {
 
 // ─── Stack Verifier ────────────────────────────────────────────────────────
 
+function detectDefaultBranch(): string {
+  try {
+    const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return ref.replace('refs/remotes/origin/', '');
+  } catch {
+    return 'main';
+  }
+}
+
 function verifyStack(): StackResult {
   try {
-    const output = execSync('git log --oneline --graph main..HEAD', {
+    const baseBranch = detectDefaultBranch();
+    const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
