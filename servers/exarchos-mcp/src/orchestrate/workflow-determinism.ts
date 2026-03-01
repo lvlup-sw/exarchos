@@ -5,7 +5,7 @@
 // events for quality-layer gate checks.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -48,19 +48,20 @@ export async function handleWorkflowDeterminism(
     };
   }
 
-  // Build the script command
+  // Build script arguments
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
-  const scriptCmd = `scripts/check-workflow-determinism.sh --repo-root ${repoRoot} --base-branch ${baseBranch}`;
+  const scriptArgs = ['--repo-root', repoRoot, '--base-branch', baseBranch];
 
   let stdout = '';
   let passed = false;
 
   try {
-    const output = execSync(scriptCmd, {
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const output = execFileSync(
+      'scripts/check-workflow-determinism.sh',
+      scriptArgs,
+      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     passed = true;
   } catch (err: unknown) {
@@ -69,6 +70,17 @@ export async function handleWorkflowDeterminism(
       stdout?: Buffer | string;
       stderr?: Buffer | string;
     };
+
+    // Timeout or spawn errors have no status — treat as script error
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
 
     // Exit code 2 = usage error — return as script error
     if (execError.status === 2) {

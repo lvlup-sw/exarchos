@@ -146,6 +146,7 @@ exarchos_orchestrate({
 ```
 
 Gate on the result:
+- If `result.success !== true`: Treat as gate-execution failure. Keep task in-progress, surface the tool error, and do NOT mark the task as complete.
 - If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
 - If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
 

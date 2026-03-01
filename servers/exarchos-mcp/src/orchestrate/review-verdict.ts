@@ -78,6 +78,17 @@ export async function handleReviewVerdict(
       stderr?: Buffer | string;
     };
 
+    // Timeout or spawn errors have no status — treat as script error
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+
     stdout = execError.stdout instanceof Buffer
       ? execError.stdout.toString('utf-8')
       : String(execError.stdout ?? '');

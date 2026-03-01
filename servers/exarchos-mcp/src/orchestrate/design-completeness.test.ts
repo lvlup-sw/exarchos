@@ -211,6 +211,7 @@ describe('handleDesignCompleteness', () => {
           layer: string;
           passed: boolean;
           details: {
+            dimension: string;
             advisory: boolean;
             findings: string[];
             checkCount: number;

@@ -6,7 +6,7 @@
 // gate.executed event for flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -72,8 +72,9 @@ export async function handlePostMerge(
   let exitCode = 0;
 
   try {
-    const output = execSync(
-      `scripts/check-post-merge.sh --pr-url ${args.prUrl} --merge-sha ${args.mergeSha}`,
+    const output = execFileSync(
+      'scripts/check-post-merge.sh',
+      ['--pr-url', args.prUrl, '--merge-sha', args.mergeSha],
       {
         encoding: 'buffer',
         timeout: 120_000,
@@ -84,8 +85,24 @@ export async function handlePostMerge(
     passed = true;
     exitCode = 0;
   } catch (err: unknown) {
-    const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
-    exitCode = execError.status ?? 1;
+    const execError = err as {
+      status?: number;
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+
+    // Timeout or spawn errors have no status — treat as script error
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+
+    exitCode = execError.status;
 
     // Exit code 2 = usage error — this is a script-level failure, not a gate result
     if (exitCode === 2) {

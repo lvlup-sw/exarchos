@@ -5,7 +5,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // ─── Mock child_process ────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store ──────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ vi.mock('../views/tools.js', () => ({
 
 // ─── Import after mocks ───────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handlePostMerge } from './post-merge.js';
 
 const STATE_DIR = '/tmp/test-post-merge';
@@ -41,7 +41,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_CIPassing_ReturnsPassed', async () => {
     // Arrange
     const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
     // Act
     const result = await handlePostMerge(
@@ -74,7 +74,7 @@ describe('handlePostMerge', () => {
       + 'FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed"',
     );
     error.status = 1;
-    vi.mocked(execSync).mockImplementation(() => { throw error; });
+    vi.mocked(execFileSync).mockImplementation(() => { throw error; });
 
     // Act
     const result = await handlePostMerge(
@@ -97,7 +97,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_EmitsGateExecutedEvent', async () => {
     // Arrange
     const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
     // Act
     await handlePostMerge(
@@ -125,7 +125,7 @@ describe('handlePostMerge', () => {
   it('handlePostMerge_EmitsGateEvent_IncludesPhaseInDetails', async () => {
     // Arrange
     const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
     // Act
     await handlePostMerge(
@@ -193,7 +193,7 @@ describe('handlePostMerge', () => {
     error.stdout = Buffer.from('');
     error.stderr = Buffer.from('Error: --pr-url and --merge-sha are required');
     error.status = 2;
-    vi.mocked(execSync).mockImplementation(() => { throw error; });
+    vi.mocked(execFileSync).mockImplementation(() => { throw error; });
 
     // Act
     const result = await handlePostMerge(

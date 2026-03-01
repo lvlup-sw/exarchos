@@ -146,13 +146,15 @@ export async function handlePrepareDelegation(
     // Determine task count from args or readiness view
     const taskCount = args.tasks?.length ?? readiness.plan.taskCount;
 
-    // Emit plan-coverage gate event
-    await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
-      dimension: 'D1',
-      phase: 'delegate',
-      taskCount,
-      gatePassRate: readiness.quality.gatePassRate,
-    });
+    // Emit plan-coverage gate event (best-effort: emission failure must not break readiness)
+    try {
+      await emitGateEvent(store, streamId, 'plan-coverage', 'planning', true, {
+        dimension: 'D1',
+        phase: 'delegate',
+        taskCount,
+        gatePassRate: readiness.quality.gatePassRate,
+      });
+    } catch { /* fire-and-forget */ }
 
     const result: PrepareDelegationResult = {
       ready: true,

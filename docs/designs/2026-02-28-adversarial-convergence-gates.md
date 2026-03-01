@@ -1,7 +1,7 @@
 # Design: Adversarial Convergence Gates
 
 **Date:** 2026-02-28
-**Status:** Draft
+**Status:** Implemented
 **ADR:** `docs/adrs/adversarial-convergence-theory.md`
 
 ## Problem
@@ -50,7 +50,7 @@ Each phase gate gets a lightweight adversarial check implemented as a validation
 2. **Task quality** — Each task has: clear description, file targets, test expectations, TDD compliance notes. Flag under-specified tasks.
 3. **Dependency coherence** — `blockedBy` relationships form a DAG (no cycles). Parallel tasks don't modify the same files.
 
-**Implementation:** `scripts/check-plan-coverage.sh`
+**Implementation:** `scripts/verify-plan-coverage.sh`
 - Input: design document path, plan document path
 - Output: exit 0 (pass), exit 1 (findings), exit 2 (blocked)
 - Exit 2 if >30% of requirements have no implementing task
@@ -241,7 +241,7 @@ Add to the design presentation phase:
 
 Add to the plan generation phase:
 - Each task must include an `Implements:` field mapping to design requirement IDs
-- After generating plan, run `check-plan-coverage.sh` and present findings alongside the plan at the human checkpoint
+- After generating plan, run `verify-plan-coverage.sh` and present findings alongside the plan at the human checkpoint
 
 #### `/delegate` (delegation skill)
 

@@ -6,7 +6,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mock child_process ──────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleWorkflowDeterminism } from './workflow-determinism.js';
 
 const STATE_DIR = '/tmp/test-workflow-determinism';
@@ -87,7 +87,7 @@ describe('handleWorkflowDeterminism', () => {
     it('handleWorkflowDeterminism_CleanCode_ReturnsPassed', async () => {
       // Arrange
       const stdout = makePassReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -121,7 +121,7 @@ describe('handleWorkflowDeterminism', () => {
       error.status = 1;
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -149,7 +149,7 @@ describe('handleWorkflowDeterminism', () => {
     it('handleWorkflowDeterminism_EmitsGateEvent_WithD5Dimension', async () => {
       // Arrange
       const stdout = makePassReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -187,7 +187,7 @@ describe('handleWorkflowDeterminism', () => {
     it('handleWorkflowDeterminism_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
       const stdout = makePassReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -220,7 +220,7 @@ describe('handleWorkflowDeterminism', () => {
       error.status = 2;
       error.stdout = Buffer.from('');
       error.stderr = Buffer.from('Error: --repo-root is required');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 

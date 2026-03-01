@@ -107,6 +107,17 @@ export async function handleDesignCompleteness(
     const stdout = execError.stdout instanceof Buffer ? execError.stdout.toString('utf-8') : '';
     const stderr = execError.stderr instanceof Buffer ? execError.stderr.toString('utf-8') : '';
 
+    // Timeout or spawn errors have no status — propagate as handler failure
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+
     // Exit code 2 = usage error — propagate as handler failure
     if (execError.status === 2) {
       return {

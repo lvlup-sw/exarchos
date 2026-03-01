@@ -38,7 +38,13 @@ function isDimensionConverged(
   gateResults: Array<{ gateName: string; passed: boolean; timestamp: string; phase?: string }>,
 ): boolean {
   if (gateResults.length === 0) return false;
-  return gateResults.every((r) => r.passed);
+
+  // Check only the latest result per unique gate name so retries can recover
+  const latestByGate = new Map<string, boolean>();
+  for (const r of gateResults) {
+    latestByGate.set(r.gateName, r.passed);
+  }
+  return [...latestByGate.values()].every((passed) => passed);
 }
 
 function computeUncheckedDimensions(

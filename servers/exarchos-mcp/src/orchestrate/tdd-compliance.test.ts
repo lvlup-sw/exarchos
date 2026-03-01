@@ -6,7 +6,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mock Dependencies ──────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 const mockStore = {
@@ -19,7 +19,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleTddCompliance } from './tdd-compliance.js';
 
 const STATE_DIR = '/tmp/test-tdd-compliance';
@@ -86,7 +86,7 @@ describe('handleTddCompliance', () => {
   it('handleTddCompliance_CompliantBranch_ReturnsPassed', async () => {
     // Arrange
     const report = makePassReport(3, 3);
-    vi.mocked(execSync).mockReturnValue(report);
+    vi.mocked(execFileSync).mockReturnValue(report);
 
     const args = {
       featureId: 'feat-widget',
@@ -123,7 +123,7 @@ describe('handleTddCompliance', () => {
     const error = new Error('Command failed');
     (error as NodeJS.ErrnoException & { status: number }).status = 1;
     (error as NodeJS.ErrnoException & { stdout: string }).stdout = report;
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw error;
     });
 
@@ -156,7 +156,7 @@ describe('handleTddCompliance', () => {
   it('handleTddCompliance_EmitsGateExecutedEvent_WithTaskId', async () => {
     // Arrange
     const report = makePassReport(2, 2);
-    vi.mocked(execSync).mockReturnValue(report);
+    vi.mocked(execFileSync).mockReturnValue(report);
 
     const args = {
       featureId: 'feat-widget',
@@ -192,7 +192,7 @@ describe('handleTddCompliance', () => {
   it('handleTddCompliance_EmitsGateEvent_IncludesPhaseDelegateInDetails', async () => {
     // Arrange
     const report = makePassReport(2, 2);
-    vi.mocked(execSync).mockReturnValue(report);
+    vi.mocked(execFileSync).mockReturnValue(report);
 
     const args = {
       featureId: 'feat-widget',
@@ -260,7 +260,7 @@ describe('handleTddCompliance', () => {
   it('handleTddCompliance_CustomBaseBranch_PassedToScript', async () => {
     // Arrange
     const report = makePassReport(1, 1);
-    vi.mocked(execSync).mockReturnValue(report);
+    vi.mocked(execFileSync).mockReturnValue(report);
 
     const args = {
       featureId: 'feat-widget',
@@ -273,8 +273,9 @@ describe('handleTddCompliance', () => {
     await handleTddCompliance(args, STATE_DIR);
 
     // Assert
-    const cmd = vi.mocked(execSync).mock.calls[0][0] as string;
-    expect(cmd).toContain('--base-branch develop');
+    const scriptArgs = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+    expect(scriptArgs).toContain('--base-branch');
+    expect(scriptArgs[scriptArgs.indexOf('--base-branch') + 1]).toBe('develop');
   });
 
   // ─── Test 6: Defaults baseBranch to main ────────────────────────────────
@@ -282,7 +283,7 @@ describe('handleTddCompliance', () => {
   it('handleTddCompliance_NoBaseBranch_DefaultsToMain', async () => {
     // Arrange
     const report = makePassReport(1, 1);
-    vi.mocked(execSync).mockReturnValue(report);
+    vi.mocked(execFileSync).mockReturnValue(report);
 
     const args = {
       featureId: 'feat-widget',
@@ -294,7 +295,8 @@ describe('handleTddCompliance', () => {
     await handleTddCompliance(args, STATE_DIR);
 
     // Assert
-    const cmd = vi.mocked(execSync).mock.calls[0][0] as string;
-    expect(cmd).toContain('--base-branch main');
+    const scriptArgs = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+    expect(scriptArgs).toContain('--base-branch');
+    expect(scriptArgs[scriptArgs.indexOf('--base-branch') + 1]).toBe('main');
   });
 });

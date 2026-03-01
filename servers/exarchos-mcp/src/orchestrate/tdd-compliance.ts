@@ -4,7 +4,7 @@
 // emitting a gate.executed event for per-task TDD compliance gating.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -77,22 +77,46 @@ export async function handleTddCompliance(
 
   const repoRoot = process.cwd();
   const baseBranch = args.baseBranch || 'main';
-  const cmd = `scripts/check-tdd-compliance.sh --repo-root ${repoRoot} --branch ${args.branch} --base-branch ${baseBranch}`;
+  const scriptArgs = [
+    '--repo-root', repoRoot,
+    '--branch', args.branch,
+    '--base-branch', baseBranch,
+  ];
 
   let report: string;
   let passed: boolean;
 
   try {
-    const output = execSync(cmd, { encoding: 'utf-8', timeout: 60_000 });
-    report = output;
+    const output = execFileSync(
+      'scripts/check-tdd-compliance.sh',
+      scriptArgs,
+      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+    report = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     passed = true;
   } catch (err: unknown) {
+    const execError = err as {
+      status?: number;
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+    };
+
+    // Timeout or spawn errors have no status — treat as script error
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'TDD_CHECK_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+
     // Exit code 1 = violations found (not an error, just a fail result)
-    const execError = err as { status?: number; stdout?: Buffer | string };
     if (execError.status === 1) {
-      report = typeof execError.stdout === 'string'
-        ? execError.stdout
-        : execError.stdout?.toString('utf-8') ?? '';
+      report = execError.stdout instanceof Buffer
+        ? execError.stdout.toString('utf-8')
+        : String(execError.stdout ?? '');
       passed = false;
     } else {
       // Exit code 2 or other = usage/unexpected error

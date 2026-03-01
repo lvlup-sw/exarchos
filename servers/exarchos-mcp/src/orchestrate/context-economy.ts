@@ -73,6 +73,17 @@ export async function handleContextEconomy(
       stderr?: Buffer | string;
     };
 
+    // Timeout or spawn errors have no status — treat as script error
+    if (execError.status == null) {
+      return {
+        success: false,
+        error: {
+          code: 'SCRIPT_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+
     // Exit code 2 = usage error — return as script error
     if (execError.status === 2) {
       const stderr = execError.stderr instanceof Buffer
