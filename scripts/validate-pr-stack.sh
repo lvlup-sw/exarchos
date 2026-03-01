@@ -54,7 +54,10 @@ BASE_BRANCH="$1"
 # DISCOVER OPEN PRs
 # ============================================================
 
-PR_JSON=$(gh pr list --state open --json number,baseRefName,headRefName,state 2>/dev/null || echo "[]")
+PR_JSON=$(gh pr list --state open --json number,baseRefName,headRefName,state 2>/dev/null) || {
+    echo -e "${RED}ERROR${NC}: gh pr list failed — verify gh CLI is authenticated and has repo access" >&2
+    exit 2
+}
 
 PR_COUNT=$(echo "$PR_JSON" | jq 'length')
 
@@ -92,7 +95,9 @@ done < <(echo "$PR_JSON" | jq -c '.[]')
 
 # Check 2: Exactly one PR should target the base branch (linear chain root)
 ROOT_COUNT=$(echo "$BASE_REFS" | grep -cx "$BASE_BRANCH" || true)
-if [[ "$ROOT_COUNT" -gt 1 ]]; then
+if [[ "$ROOT_COUNT" -eq 0 ]]; then
+    ERRORS+=("No PR targets '${BASE_BRANCH}' directly — stack root is missing (cyclic or disconnected)")
+elif [[ "$ROOT_COUNT" -gt 1 ]]; then
     ERRORS+=("Multiple PRs target '${BASE_BRANCH}' directly (found ${ROOT_COUNT}) — stack is not a linear chain")
 fi
 

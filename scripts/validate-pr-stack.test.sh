@@ -98,11 +98,11 @@ if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo -e "${RED}All tests will fail - script does not exist${NC}"
     echo ""
 
-    echo "0 4" > "$RESULTS_FILE"
+    echo "0 6" > "$RESULTS_FILE"
 
     echo "=== Test Summary ==="
     echo -e "Passed: ${GREEN}0${NC}"
-    echo -e "Failed: ${RED}4${NC}"
+    echo -e "Failed: ${RED}6${NC}"
     echo ""
     echo -e "${RED}Tests failed!${NC}"
     exit 1
@@ -178,6 +178,45 @@ setup_test_tmp
         pass "validate_pr_stack_BrokenChain_ExitsWithError"
     else
         fail "validate_pr_stack_BrokenChain_ExitsWithError (exit=$RESULT_EXIT, expected=1, stdout=$RESULT_STDOUT, stderr=$RESULT_STDERR)"
+    fi
+)
+
+# Test: validate_pr_stack_GhFailure_ExitsWithUsageError
+setup_test_tmp
+(
+    mkdir -p "$TEST_TMP/mock-bin"
+    cat > "$TEST_TMP/mock-bin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+echo "mock gh failure" >&2
+exit 1
+GHEOF
+    chmod +x "$TEST_TMP/mock-bin/gh"
+
+    run_script "$TEST_TMP" main
+
+    if [[ "$RESULT_EXIT" -eq 2 ]]; then
+        pass "validate_pr_stack_GhFailure_ExitsWithUsageError"
+    else
+        fail "validate_pr_stack_GhFailure_ExitsWithUsageError (exit=$RESULT_EXIT, expected=2, stderr=$RESULT_STDERR)"
+    fi
+)
+
+# Test: validate_pr_stack_NoRoot_ExitsWithError
+setup_test_tmp
+(
+    # No PR targets main directly (disconnected chain)
+    PR_JSON='[
+        {"number": 201, "baseRefName": "feat/b", "headRefName": "feat/a", "state": "OPEN"},
+        {"number": 202, "baseRefName": "feat/a", "headRefName": "feat/c", "state": "OPEN"}
+    ]'
+    create_mock_gh "$TEST_TMP" "$PR_JSON"
+
+    run_script "$TEST_TMP" main
+
+    if [[ "$RESULT_EXIT" -eq 1 ]]; then
+        pass "validate_pr_stack_NoRoot_ExitsWithError"
+    else
+        fail "validate_pr_stack_NoRoot_ExitsWithError (exit=$RESULT_EXIT, expected=1, stdout=$RESULT_STDOUT, stderr=$RESULT_STDERR)"
     fi
 )
 

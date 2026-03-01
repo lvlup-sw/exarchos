@@ -254,9 +254,9 @@ When making fixes to stack branches:
    git commit --amend -m "fix: <description>"
    ```
 
-3. **Rebase dependent branches:**
+3. **Rebase dependent branches (bottom-up, onto updated parent):**
    ```bash
-   git rebase origin/<base>
+   git rebase <updated-parent-branch>
    ```
 
 4. **Push the fixes:**

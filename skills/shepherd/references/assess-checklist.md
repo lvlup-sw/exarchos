@@ -98,7 +98,6 @@ Build a per-source summary:
 sentry: 2 total, 2 replied
 human: 3 total, 1 replied  ← 2 UNADDRESSED
 coderabbit: 5 total, 5 replied
-human: 0 total
 ```
 
 **Any unaddressed comment = assessment fails.** Every thread needs a reply — either confirming a fix, explaining a design decision, or acknowledging for a future phase.
@@ -118,6 +117,7 @@ Verify:
 
 If base branch has advanced:
 ```bash
+git fetch origin
 git rebase origin/<base>
 git push --force-with-lease
 ```

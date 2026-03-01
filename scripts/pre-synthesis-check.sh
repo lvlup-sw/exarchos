@@ -383,7 +383,11 @@ check_pr_stack() {
     fi
 
     local pr_count
-    pr_count="$(gh pr list --state open --head "$current_branch" --json number --jq 'length' 2>/dev/null || echo "0")"
+    pr_count="$(cd "$REPO_ROOT" && gh pr list --state open --head "$current_branch" --json number --jq 'length' 2>/dev/null)" || {
+        check_fail "PR stack exists" "Failed querying GitHub PRs (gh pr list error)"
+        return 1
+    }
+    pr_count="${pr_count:-0}"
     if [[ "$pr_count" -lt 1 ]]; then
         check_fail "PR stack exists" "No open PRs found for branch '$current_branch'"
         return 1
