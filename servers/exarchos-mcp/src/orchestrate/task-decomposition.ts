@@ -5,7 +5,7 @@
 // the plan→plan-review boundary (D5: Workflow Determinism).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -71,16 +71,15 @@ export async function handleTaskDecomposition(
     };
   }
 
-  const scriptCmd = `scripts/check-task-decomposition.sh --plan-file ${args.planPath}`;
-
   let stdout = '';
   let passed = false;
 
   try {
-    const output = execSync(scriptCmd, {
-      timeout: 30_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const output = execFileSync(
+      'scripts/check-task-decomposition.sh',
+      ['--plan-file', args.planPath],
+      { timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     passed = true;
   } catch (err: unknown) {

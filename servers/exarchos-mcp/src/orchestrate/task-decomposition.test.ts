@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies before importing the module under test
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('../views/tools.js', () => ({
@@ -15,12 +15,12 @@ vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
 
-const mockedExecSync = vi.mocked(execSync);
+const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
 const mockedGetOrCreateEventStore = vi.mocked(getOrCreateEventStore);
 
@@ -83,7 +83,7 @@ describe('handleTaskDecomposition', () => {
   // Test 1: Passing script emits D5 gate event
   it('HandleTaskDecomposition_PassingScript_EmitsD5GateEvent', async () => {
     // Arrange
-    mockedExecSync.mockReturnValue(Buffer.from(PASSING_OUTPUT));
+    mockedExecFileSync.mockReturnValue(Buffer.from(PASSING_OUTPUT));
 
     // Act
     const result = await handleTaskDecomposition(baseArgs, stateDir);
@@ -115,7 +115,7 @@ describe('handleTaskDecomposition', () => {
     error.status = 1;
     error.stdout = Buffer.from(FAILING_OUTPUT);
     error.stderr = Buffer.from('');
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw error;
     });
 
@@ -139,7 +139,7 @@ describe('handleTaskDecomposition', () => {
     error.status = 2;
     error.stdout = Buffer.from('');
     error.stderr = Buffer.from('Error: Plan file not found');
-    mockedExecSync.mockImplementation(() => {
+    mockedExecFileSync.mockImplementation(() => {
       throw error;
     });
 
@@ -154,7 +154,7 @@ describe('handleTaskDecomposition', () => {
   // Test 4: Parses metrics correctly from output
   it('HandleTaskDecomposition_ParsesMetrics', async () => {
     // Arrange
-    mockedExecSync.mockReturnValue(Buffer.from(PASSING_OUTPUT));
+    mockedExecFileSync.mockReturnValue(Buffer.from(PASSING_OUTPUT));
 
     // Act
     const result = await handleTaskDecomposition(baseArgs, stateDir);
