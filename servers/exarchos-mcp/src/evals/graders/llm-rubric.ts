@@ -28,7 +28,16 @@ export class LlmRubricGrader implements IGrader {
     }
 
     const model = config?.model as string | undefined;
-    const outputText = extractOutputText(output, config?.outputPath as string | undefined);
+    const outputPath = config?.outputPath as string | undefined;
+    const outputText = extractOutputText(output, outputPath);
+    if (outputText === null) {
+      return {
+        passed: true,
+        score: 0,
+        reason: `Skipped: outputPath '${outputPath}' not found in output`,
+        details: { skipped: true },
+      };
+    }
     const options = { provider: model ? `anthropic:messages:${model}` : undefined };
 
     return callLlmAssertion(

@@ -20,10 +20,10 @@ describe('extractOutputText', () => {
     expect(result).toBe('Hello, world!');
   });
 
-  it('extractOutputText_WithMissingPath_ReturnsStringifiedOutput', () => {
+  it('extractOutputText_WithMissingPath_ReturnsNull', () => {
     const output = { foo: 'bar' };
     const result = extractOutputText(output, 'nonexistent');
-    expect(result).toBe(JSON.stringify(output));
+    expect(result).toBeNull();
   });
 
   it('extractOutputText_WithArrayPath_ReturnsStringifiedArray', () => {

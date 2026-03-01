@@ -53,7 +53,7 @@ export interface ShepherdStatusState {
 export interface AssessStackResult {
   readonly status: ShepherdStatusState;
   readonly actionItems: readonly ActionItem[];
-  readonly recommendation: 'request-approval' | 'fix-and-resubmit' | 'escalate';
+  readonly recommendation: 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate';
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ export function computeRecommendation(
   actionItems: readonly ActionItem[],
   iterationCount: number,
   prStatuses?: readonly PrStatus[],
-): 'request-approval' | 'fix-and-resubmit' | 'escalate' {
+): 'request-approval' | 'fix-and-resubmit' | 'wait' | 'escalate' {
   if (iterationCount >= MAX_SHEPHERD_ITERATIONS) {
     return 'escalate';
   }
@@ -224,10 +224,20 @@ export function computeRecommendation(
   // Pending CI should block approval — wait for checks to complete
   const hasPendingCi = prStatuses?.some(pr => pr.overallCi === 'pending');
   if (hasPendingCi) {
-    return 'fix-and-resubmit';
+    return 'wait';
   }
 
   return 'request-approval';
+}
+
+// ─── Schema Value Mapping ────────────────────────────────────────────────────
+
+function toCiStatusSchemaValue(
+  status: 'pass' | 'fail' | 'pending',
+): 'passing' | 'failing' | 'pending' {
+  if (status === 'pass') return 'passing';
+  if (status === 'fail') return 'failing';
+  return 'pending';
 }
 
 // ─── Event Emission ─────────────────────────────────────────────────────────
@@ -236,16 +246,17 @@ async function emitCiStatusEvents(
   eventStore: EventStore,
   featureId: string,
   prStatuses: readonly PrStatus[],
+  iterationCount: number,
 ): Promise<void> {
   for (const prStatus of prStatuses) {
     await eventStore.append(featureId, {
       type: 'ci.status' as const,
       data: {
         pr: prStatus.pr,
-        status: prStatus.overallCi,
+        status: toCiStatusSchemaValue(prStatus.overallCi),
       },
     }, {
-      idempotencyKey: `${featureId}:ci.status:${prStatus.pr}:${Date.now()}`,
+      idempotencyKey: `${featureId}:ci.status:${prStatus.pr}:iter-${iterationCount}`,
     });
   }
 }
@@ -254,6 +265,7 @@ async function emitGateExecutedEvents(
   eventStore: EventStore,
   featureId: string,
   prStatuses: readonly PrStatus[],
+  iterationCount: number,
 ): Promise<void> {
   for (const prStatus of prStatuses) {
     for (const check of prStatus.checks) {
@@ -270,7 +282,7 @@ async function emitGateExecutedEvents(
           },
         },
       }, {
-        idempotencyKey: `${featureId}:gate.executed:${prStatus.pr}:${check.name}:${Date.now()}`,
+        idempotencyKey: `${featureId}:gate.executed:${prStatus.pr}:${check.name}:iter-${iterationCount}`,
       });
     }
   }
@@ -316,8 +328,8 @@ export async function handleAssessStack(
   const prStatuses = args.prNumbers.map(queryPrStatus);
 
   // Emit dual events
-  await emitCiStatusEvents(eventStore, args.featureId, prStatuses);
-  await emitGateExecutedEvents(eventStore, args.featureId, prStatuses);
+  await emitCiStatusEvents(eventStore, args.featureId, prStatuses, iterationCount);
+  await emitGateExecutedEvents(eventStore, args.featureId, prStatuses, iterationCount);
 
   // Classify action items
   const actionItems = classifyActionItems(prStatuses);
