@@ -10,7 +10,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mock child_process ─────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store ───────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ vi.mock('../event-store/store.js', () => ({
   })),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleDesignCompleteness } from './design-completeness.js';
 
 const STATE_DIR = '/tmp/test-design-completeness';
@@ -82,7 +82,7 @@ describe('handleDesignCompleteness', () => {
         '**Result: PASS** (4/4 checks passed)',
       ].join('\n');
 
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       const result = await handleDesignCompleteness(
@@ -138,7 +138,7 @@ describe('handleDesignCompleteness', () => {
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
       error.status = 1;
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -189,7 +189,7 @@ describe('handleDesignCompleteness', () => {
         '**Result: PASS** (4/4 checks passed)',
       ].join('\n');
 
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       await handleDesignCompleteness(
@@ -248,7 +248,7 @@ describe('handleDesignCompleteness', () => {
         '**Result: PASS** (4/4 checks passed)',
       ].join('\n');
 
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       await handleDesignCompleteness(
@@ -284,7 +284,7 @@ describe('handleDesignCompleteness', () => {
       error.stdout = Buffer.from('');
       error.stderr = Buffer.from('Error: --state-file is required');
       error.status = 2;
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -306,7 +306,7 @@ describe('handleDesignCompleteness', () => {
     it('handleDesignCompleteness_UsesProvidedStatePath_PassesItToScript', async () => {
       // Arrange
       const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       await handleDesignCompleteness(
@@ -314,15 +314,17 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script command includes the custom state file
-      const cmdCall = vi.mocked(execSync).mock.calls[0][0] as string;
-      expect(cmdCall).toContain('--state-file /custom/state.json');
+      // Assert — the script args include the custom state file
+      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+      const stateFileIdx = argsCall.indexOf('--state-file');
+      expect(stateFileIdx).toBeGreaterThanOrEqual(0);
+      expect(argsCall[stateFileIdx + 1]).toBe('/custom/state.json');
     });
 
     it('handleDesignCompleteness_NoStatePath_ConstructsFromStateDir', async () => {
       // Arrange
       const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       await handleDesignCompleteness(
@@ -330,16 +332,17 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script command uses stateDir-derived path
-      const cmdCall = vi.mocked(execSync).mock.calls[0][0] as string;
-      expect(cmdCall).toContain('--state-file');
-      expect(cmdCall).toContain(STATE_DIR);
+      // Assert — the script args use stateDir-derived path
+      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+      const stateFileIdx = argsCall.indexOf('--state-file');
+      expect(stateFileIdx).toBeGreaterThanOrEqual(0);
+      expect(argsCall[stateFileIdx + 1]).toContain(STATE_DIR);
     });
 
     it('handleDesignCompleteness_DesignPathProvided_PassesToScript', async () => {
       // Arrange
       const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Act
       await handleDesignCompleteness(
@@ -347,9 +350,11 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script command includes --design-file
-      const cmdCall = vi.mocked(execSync).mock.calls[0][0] as string;
-      expect(cmdCall).toContain('--design-file /tmp/my-design.md');
+      // Assert — the script args include --design-file
+      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+      const designFileIdx = argsCall.indexOf('--design-file');
+      expect(designFileIdx).toBeGreaterThanOrEqual(0);
+      expect(argsCall[designFileIdx + 1]).toBe('/tmp/my-design.md');
     });
   });
 });

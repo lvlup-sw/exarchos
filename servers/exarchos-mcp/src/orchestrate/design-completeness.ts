@@ -7,7 +7,7 @@
 // This gate is ADVISORY — failures inform but do not block phase transitions.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
@@ -87,20 +87,20 @@ export async function handleDesignCompleteness(
   const scriptPath = path.resolve(stateDir, '..', '..', 'scripts', 'verify-ideate-artifacts.sh');
   const stateFile = args.stateFile ?? path.join(stateDir, `${streamId}.json`);
 
-  let cmd = `bash ${scriptPath} --state-file ${stateFile}`;
+  const scriptArgs = ['--state-file', stateFile];
   if (args.designPath) {
-    cmd += ` --design-file ${args.designPath}`;
+    scriptArgs.push('--design-file', args.designPath);
   }
 
   // 3. Run the script
   let output: string;
 
   try {
-    const result = execSync(cmd, {
-      encoding: 'buffer',
-      timeout: 30_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = execFileSync(
+      scriptPath,
+      scriptArgs,
+      { encoding: 'buffer', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     output = result.toString('utf-8');
   } catch (err: unknown) {
     const execError = err as { stdout?: Buffer; stderr?: Buffer; status?: number };

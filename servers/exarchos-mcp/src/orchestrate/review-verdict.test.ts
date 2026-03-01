@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ─── Mock child_process ──────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleReviewVerdict } from './review-verdict.js';
 
 const STATE_DIR = '/tmp/test-review-verdict';
@@ -57,7 +57,7 @@ describe('handleReviewVerdict', () => {
     it('handleReviewVerdict_NoHighFindings_ReturnsApproved', async () => {
       // Arrange
       const stdout = 'Review verdict: APPROVED\nNo high-severity findings.';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', high: 0, medium: 1, low: 3 };
 
@@ -95,7 +95,7 @@ describe('handleReviewVerdict', () => {
       error.status = 1;
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -135,7 +135,7 @@ describe('handleReviewVerdict', () => {
       error.status = 2;
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -170,7 +170,7 @@ describe('handleReviewVerdict', () => {
     it('handleReviewVerdict_EmitsSummaryGateEvent', async () => {
       // Arrange
       const stdout = 'Review verdict: APPROVED';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', high: 0, medium: 2, low: 1 };
 
@@ -210,7 +210,7 @@ describe('handleReviewVerdict', () => {
     it('handleReviewVerdict_PerDimensionEvents_IncludePhaseInDetails', async () => {
       // Arrange
       const stdout = 'Review verdict: APPROVED';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = {
         featureId: 'feat-1',
@@ -237,7 +237,7 @@ describe('handleReviewVerdict', () => {
     it('handleReviewVerdict_SummaryEvent_IncludesPhaseInDetails', async () => {
       // Arrange
       const stdout = 'Review verdict: APPROVED';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', high: 0, medium: 0, low: 0 };
 
@@ -261,7 +261,7 @@ describe('handleReviewVerdict', () => {
     it('handleReviewVerdict_WithDimensionResults_EmitsPerDimensionEvents', async () => {
       // Arrange
       const stdout = 'Review verdict: APPROVED';
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = {
         featureId: 'feat-1',

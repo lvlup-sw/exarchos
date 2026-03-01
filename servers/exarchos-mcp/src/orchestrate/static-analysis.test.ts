@@ -6,7 +6,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mock child_process ──────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleStaticAnalysis } from './static-analysis.js';
 
 const STATE_DIR = '/tmp/test-static-analysis';
@@ -82,7 +82,7 @@ describe('handleStaticAnalysis', () => {
     it('handleStaticAnalysis_AllChecksPassing_ReturnsPassed', async () => {
       // Arrange
       const stdout = makePassingReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
@@ -118,7 +118,7 @@ describe('handleStaticAnalysis', () => {
       error.status = 1;
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -149,7 +149,7 @@ describe('handleStaticAnalysis', () => {
     it('handleStaticAnalysis_EmitsGateExecutedEvent', async () => {
       // Arrange
       const stdout = makePassingReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
@@ -188,7 +188,7 @@ describe('handleStaticAnalysis', () => {
     it('handleStaticAnalysis_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
       const stdout = makePassingReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
@@ -221,7 +221,7 @@ describe('handleStaticAnalysis', () => {
       error.status = 2;
       error.stdout = Buffer.from('');
       error.stderr = Buffer.from('Error: Repository not found: /nonexistent');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -243,7 +243,7 @@ describe('handleStaticAnalysis', () => {
     it('handleStaticAnalysis_SkipFlags_PassedToScript', async () => {
       // Arrange
       const stdout = makePassingReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = {
         featureId: 'feat-1',
@@ -256,11 +256,12 @@ describe('handleStaticAnalysis', () => {
       await handleStaticAnalysis(args, STATE_DIR);
 
       // Assert
-      expect(execSync).toHaveBeenCalledTimes(1);
-      const cmd = vi.mocked(execSync).mock.calls[0][0] as string;
-      expect(cmd).toContain('--skip-lint');
-      expect(cmd).toContain('--skip-typecheck');
-      expect(cmd).toContain('--repo-root /home/user/project');
+      expect(execFileSync).toHaveBeenCalledTimes(1);
+      const scriptArgs = vi.mocked(execFileSync).mock.calls[0][1] as string[];
+      expect(scriptArgs).toContain('--skip-lint');
+      expect(scriptArgs).toContain('--skip-typecheck');
+      expect(scriptArgs).toContain('--repo-root');
+      expect(scriptArgs).toContain('/home/user/project');
     });
   });
 });

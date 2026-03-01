@@ -6,7 +6,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mock child_process ──────────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 // ─── Mock event store and materializer ───────────────────────────────────────
@@ -36,7 +36,7 @@ vi.mock('../views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { handleContextEconomy } from './context-economy.js';
 
 const STATE_DIR = '/tmp/test-context-economy';
@@ -102,7 +102,7 @@ describe('handleContextEconomy', () => {
     it('handleContextEconomy_CleanCode_ReturnsPassed', async () => {
       // Arrange
       const stdout = makeCleanReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -136,7 +136,7 @@ describe('handleContextEconomy', () => {
       error.status = 1;
       error.stdout = Buffer.from(stdout);
       error.stderr = Buffer.from('');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -164,7 +164,7 @@ describe('handleContextEconomy', () => {
     it('handleContextEconomy_EmitsGateEvent_WithD3Dimension', async () => {
       // Arrange
       const stdout = makeCleanReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -202,7 +202,7 @@ describe('handleContextEconomy', () => {
     it('handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
       const stdout = makeCleanReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       const args = { featureId: 'feat-1' };
 
@@ -235,7 +235,7 @@ describe('handleContextEconomy', () => {
       error.status = 2;
       error.stdout = Buffer.from('');
       error.stderr = Buffer.from('Error: --repo-root is required');
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw error;
       });
 
@@ -257,7 +257,7 @@ describe('handleContextEconomy', () => {
     it('handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult', async () => {
       // Arrange
       const stdout = makeCleanReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Setup telemetry state with data
       mockTelemetryState.tools = {
@@ -323,7 +323,7 @@ describe('handleContextEconomy', () => {
     it('handleContextEconomy_WithoutTelemetryData_ReturnsScriptOnlyResult', async () => {
       // Arrange
       const stdout = makeCleanReport();
-      vi.mocked(execSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
 
       // Setup empty telemetry state
       mockTelemetryState.tools = {};

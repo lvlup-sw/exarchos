@@ -5,7 +5,7 @@
 // the overall review verdict.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -51,19 +51,24 @@ export async function handleReviewVerdict(
   }
 
   // Build script command
-  let scriptCmd = `scripts/review-verdict.sh --high ${args.high} --medium ${args.medium} --low ${args.low}`;
+  const scriptArgs = [
+    '--high', String(args.high),
+    '--medium', String(args.medium),
+    '--low', String(args.low),
+  ];
   if (args.blockedReason) {
-    scriptCmd += ` --blocked ${args.blockedReason}`;
+    scriptArgs.push('--blocked', args.blockedReason);
   }
 
   let stdout = '';
   let verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED' = 'APPROVED';
 
   try {
-    const output = execSync(scriptCmd, {
-      timeout: 30_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const output = execFileSync(
+      'scripts/review-verdict.sh',
+      scriptArgs,
+      { timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
     stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
     verdict = 'APPROVED';
   } catch (err: unknown) {
