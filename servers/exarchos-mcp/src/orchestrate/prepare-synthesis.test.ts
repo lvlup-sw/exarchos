@@ -188,7 +188,7 @@ describe('handlePrepareSynthesis', () => {
     const mockStore = createMockEventStore();
     vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
     vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
-    // Tests and typecheck pass, detect default branch, then git log returns commit info
+    // Tests and typecheck pass, then detect default branch, then git log returns commit info
     vi.mocked(execSync)
       .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))      // test suite
       .mockReturnValueOnce(Buffer.from(''))                       // typecheck
@@ -212,6 +212,37 @@ describe('handlePrepareSynthesis', () => {
     expect(data.stack).toBeDefined();
     expect(data.stack.healthy).toBe(true);
     expect(data.stack.branches).toBeDefined();
+  });
+
+  // ─── Test 5b: Non-main default branch propagates to git log command ──────
+
+  it('verifyStack_NonMainDefaultBranch_UsesDetectedBranch', async () => {
+    // Arrange
+    const taskView = mockTaskDetailView({
+      't1': { status: 'completed' },
+    });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
+    vi.mocked(getOrCreateEventStore).mockReturnValue(mockStore as unknown as ReturnType<typeof getOrCreateEventStore>);
+    // Tests and typecheck pass, then detect default branch returns 'trunk', then git log
+    vi.mocked(execSync)
+      .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))       // test suite
+      .mockReturnValueOnce(Buffer.from(''))                        // typecheck
+      .mockReturnValueOnce('refs/remotes/origin/trunk\n' as unknown as Buffer) // detectDefaultBranch → trunk
+      .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature')); // git log
+
+    // Act
+    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir);
+
+    // Assert — git log command uses 'trunk' not 'main'
+    const execCalls = vi.mocked(execSync).mock.calls;
+    const gitLogCall = execCalls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('git log'),
+    );
+    expect(gitLogCall).toBeDefined();
+    expect(gitLogCall![0]).toContain('trunk..HEAD');
+    expect(gitLogCall![0]).not.toContain('main..HEAD');
   });
 
   // ─── Test 6: All green returns ready ──────────────────────────────────────

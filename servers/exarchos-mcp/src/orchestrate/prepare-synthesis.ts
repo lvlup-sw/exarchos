@@ -109,7 +109,7 @@ function parseTypecheckErrors(output: string): string[] {
   return errorLines.length > 0 ? errorLines : output.trim() ? [output.trim()] : [];
 }
 
-// ─── Stack Verifier ────────────────────────────────────────────────────────
+// ─── Default Branch Detection ─────────────────────────────────────────────
 
 function detectDefaultBranch(): string {
   try {
@@ -119,11 +119,14 @@ function detectDefaultBranch(): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
     const branch = ref.replace('refs/remotes/origin/', '');
+    // Sanitize to prevent command injection via crafted ref names
     return /^[a-zA-Z0-9/_.-]+$/.test(branch) ? branch : 'main';
   } catch {
     return 'main';
   }
 }
+
+// ─── Stack Verifier ────────────────────────────────────────────────────────
 
 function verifyStack(): StackResult {
   try {
