@@ -1,8 +1,10 @@
 name: CodeRabbit Review Gate
 
 on:
-  pull_request_review:
-    types: [submitted]
+  workflow_dispatch: {}
+  # Disabled: was pull_request_review trigger
+  # pull_request_review:
+  #   types: [submitted]
 
 permissions:
   contents: read
