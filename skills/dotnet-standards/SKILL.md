@@ -72,13 +72,16 @@ Create new project with standard structure.
 
 Run .NET standards compliance check:
 
-```bash
-scripts/validate-dotnet-standards.sh --project-root <path>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "validate-dotnet-standards.sh",
+  args: ["--project-root", "<path>"]
+})
 ```
 
-**On exit 0:** Project is compliant.
-**On exit 1:** Violations found — fix before proceeding.
-**On exit 2:** Usage or dependency error — fix inputs before retrying.
+**On `passed: true`:** Project is compliant.
+**On `passed: false`:** Violations found — fix before proceeding.
 
 ### What It Checks
 

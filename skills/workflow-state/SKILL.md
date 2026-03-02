@@ -80,12 +80,16 @@ For context restoration after summarization, use `mcp__plugin_exarchos_exarchos_
 
 To verify state matches git reality, the SessionStart hook automatically reconciles on resume. For manual verification, run the reconciliation script:
 
-```bash
-scripts/reconcile-state.sh --state-file <state-file> --repo-root <repo-root>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "reconcile-state.sh",
+  args: ["--state-file", "<state-file>", "--repo-root", "<repo-root>"]
+})
 ```
 
-**On exit 0:** State is consistent.
-**On exit 1:** Discrepancies found — review output and resolve.
+**On `passed: true`:** State is consistent.
+**On `passed: false`:** Discrepancies found — review output and resolve.
 
 ## Integration Points
 

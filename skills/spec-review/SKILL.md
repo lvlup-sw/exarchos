@@ -33,7 +33,7 @@ This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
 The orchestrator provides:
 - State file path (preferred) OR design/plan paths
-- Diff output from `~/.claude/scripts/review-diff.sh` (context-efficient)
+- Diff output from `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh" })` (context-efficient)
 - Task ID being reviewed
 
 The subagent:
@@ -48,7 +48,7 @@ The subagent:
 The **orchestrator** is responsible for generating the diff before dispatching the spec-review subagent. The subagent does NOT generate its own diff.
 
 **Orchestrator responsibilities:**
-1. Generate diff: `~/.claude/scripts/review-diff.sh <integration-branch> main`
+1. Generate diff: `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh", args: ["<integration-branch>", "main"] })`
 2. Pass diff content in the subagent dispatch prompt
 3. Include state file path for artifact resolution
 
@@ -67,8 +67,8 @@ integration branch (e.g., `feature/integration-branch`) against main:
 # Generate integrated diff for review
 git diff main...integration > /tmp/combined-diff.patch
 
-# Alternative: use review-diff script against integration branch
-~/.claude/scripts/review-diff.sh integration main
+# Alternative: use review-diff script against integration branch via orchestrate
+# exarchos_orchestrate({ action: "run_script", script: "review-diff.sh", args: ["integration", "main"] })
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
@@ -108,7 +108,15 @@ For the full checklist with verification commands, tables, and report template, 
 npm run test:run
 npm run test:coverage
 npm run typecheck
-scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
+```
+
+```typescript
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "<branch>"
+})
 ```
 
 ## Fix Loop
@@ -239,10 +247,10 @@ This is NOT a human checkpoint - workflow continues autonomously.
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
 | TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
-| Diff too large for context | Many tasks with large changes | Use `review-diff.sh` with `--per-task` flag to review incrementally |
+| Diff too large for context | Many tasks with large changes | Use `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh", args: ["--per-task"] })` to review incrementally |
 
 ## Performance Notes
 
-- Use the integrated diff (`review-diff.sh`) instead of reading full files — reduces context by 80-90%
+- Use the integrated diff (`exarchos_orchestrate({ action: "run_script", script: "review-diff.sh" })`) instead of reading full files — reduces context by 80-90%
 - Review per-task when the combined diff exceeds 2,000 lines
-- Run TDD compliance check (`scripts/check-tdd-compliance.sh`) in parallel with spec tracing
+- Run TDD compliance check (`exarchos_orchestrate({ action: "check_tdd_compliance" })`) in parallel with spec tracing

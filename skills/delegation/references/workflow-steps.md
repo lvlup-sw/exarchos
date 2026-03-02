@@ -87,11 +87,15 @@ When using `--mode agent-team`:
 
 When tasks complete, run the post-delegation check:
 
-```bash
-bash scripts/post-delegation-check.sh \
-  --state-file <path-to-state.json> \
-  --repo-root <project-root> \
-  [--skip-tests]
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "post-delegation-check.sh",
+  args: [
+    "--state-file", "<path-to-state.json>",
+    "--repo-root", "<project-root>"
+  ]
+})
 ```
 
 **Validates:**
@@ -101,9 +105,9 @@ bash scripts/post-delegation-check.sh \
 - Per-worktree test runs pass (unless `--skip-tests`)
 - State file consistency (all tasks have id and status fields)
 
-**On exit 0:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
+**On `passed: true`:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
 
-**On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
+**On `passed: false`:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
 ### Agent Teams Collection (enhanced)
 
@@ -113,15 +117,19 @@ When using `--mode agent-team`:
 - On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
 - Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
 - After all teammates finish: append `team.disbanded` event with summary metrics
-- Run `post-delegation-check.sh` as usual for final validation
+- Run `exarchos_orchestrate({ action: "run_script", script: "post-delegation-check.sh" })` as usual for final validation
 
 ## Step 7: Schema Sync (Auto-Detection)
 
 After all tasks complete, check if API files were modified:
 
-```bash
-bash scripts/needs-schema-sync.sh --repo-root <path> [--base-branch main]
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "needs-schema-sync.sh",
+  args: ["--repo-root", "<path>"]
+})
 ```
 
-**On exit 0:** No sync needed — proceed to review.
-**On exit 1:** Sync needed — API files modified (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). Run `npm run sync:schemas` and commit before proceeding. See `@skills/sync-schemas/SKILL.md`.
+**On `passed: true`:** No sync needed — proceed to review.
+**On `passed: false`:** Sync needed — API files modified (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). Run `npm run sync:schemas` and commit before proceeding. See `@skills/sync-schemas/SKILL.md`.

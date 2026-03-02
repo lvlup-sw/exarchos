@@ -21,7 +21,7 @@ Agent reads design and extracts key sections:
 
 ## Step 1.5: Spec Tracing
 
-Agent runs `scripts/generate-traceability.sh` to pre-populate the traceability matrix, then fills in key requirements per section.
+Agent runs `exarchos_orchestrate({ action: "run_script", script: "generate-traceability.sh" })` to pre-populate the traceability matrix, then fills in key requirements per section.
 
 ## Step 2: Decompose into Tasks
 
@@ -38,11 +38,16 @@ Agent runs `scripts/generate-traceability.sh` to pre-populate the traceability m
 
 ## Step 3: Plan Verification
 
-Agent runs `scripts/verify-plan-coverage.sh`:
+Agent runs `exarchos_orchestrate({ action: "check_plan_coverage" })`:
 
 ```
-$ scripts/verify-plan-coverage.sh --design-file docs/designs/2026-02-20-stream-compaction.md --plan-file docs/plans/2026-02-20-stream-compaction.md
-EXIT 1: Uncovered section — "Snapshot trigger threshold configuration"
+exarchos_orchestrate({
+  action: "check_plan_coverage",
+  featureId: "<id>",
+  designPath: "docs/designs/2026-02-20-stream-compaction.md",
+  planPath: "docs/plans/2026-02-20-stream-compaction.md"
+})
+→ passed: false — Uncovered section: "Snapshot trigger threshold configuration"
 ```
 
 ## Gap Detected: Re-Planning
@@ -58,11 +63,11 @@ The design specifies a configurable threshold (default 500 events). No task cove
 Agent re-runs verification:
 
 ```
-$ scripts/verify-plan-coverage.sh ...
-EXIT 0: All design sections covered
+exarchos_orchestrate({ action: "check_plan_coverage", ... })
+→ passed: true — All design sections covered
 ```
 
-Agent runs `scripts/spec-coverage-check.sh` -- exit 0 (no pre-existing tests expected at planning time).
+Agent runs `exarchos_orchestrate({ action: "run_script", script: "spec-coverage-check.sh" })` -- passed: true (no pre-existing tests expected at planning time).
 
 ## Output
 

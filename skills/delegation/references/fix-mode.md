@@ -21,12 +21,16 @@ Or auto-invoked after review failures.
 
 2. **Extract fix tasks** from failure reports:
 
-   ```bash
-   bash scripts/extract-fix-tasks.sh --state-file <path> [--review-report <path>] [--repo-root <path>]
+   ```typescript
+   exarchos_orchestrate({
+     action: "run_script",
+     script: "extract-fix-tasks.sh",
+     args: ["--state-file", "<path>", "--review-report", "<path>", "--repo-root", "<path>"]
+   })
    ```
 
-   **On exit 0:** Tasks extracted successfully (JSON array on stdout).
-   **On exit 1:** Parse error — review report or state file malformed.
+   **On `passed: true`:** Tasks extracted successfully (JSON array in output).
+   **On `passed: false`:** Parse error — review report or state file malformed.
 
 3. **Create fix tasks** for each issue:
    - Use `fixer-prompt.md` template

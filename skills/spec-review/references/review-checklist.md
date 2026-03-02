@@ -22,9 +22,6 @@ Consult `references/rationalization-refutation.md` when you feel tempted to acce
 Run these scripts as the authoritative checks:
 
 ```bash
-# TDD compliance (test-first ordering, naming conventions, coverage)
-scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
-
 # Full test suite
 npm run test:run
 
@@ -33,6 +30,16 @@ npm run test:coverage
 
 # Type safety
 npm run typecheck
+```
+
+```typescript
+// TDD compliance (test-first ordering, naming conventions, coverage)
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "<branch>"
+})
 ```
 
 ## Manual Checks
@@ -65,7 +72,7 @@ After scripts pass, verify:
 
 ## Completion Criteria
 
-- [ ] `check-tdd-compliance.sh` passes
+- [ ] `check_tdd_compliance` orchestrate action passes
 - [ ] All tests pass
 - [ ] Coverage meets thresholds
 - [ ] All spec requirements verified
