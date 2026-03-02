@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
@@ -81,6 +81,15 @@ export async function handleEventAppend(
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
+    if (err instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Event data validation failed for type '${eventType}': ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        },
+      };
+    }
     if (err instanceof SequenceConflictError) {
       return {
         success: false,

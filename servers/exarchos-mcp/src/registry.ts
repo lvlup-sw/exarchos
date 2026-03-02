@@ -532,6 +532,16 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'check_event_emissions',
+    description: 'Check for expected-but-missing model-emitted events in the current workflow phase. Returns structured hints for missing events.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      workflowId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
     name: 'run_script',
     description: 'Run a plugin script by name with optional arguments. Scripts resolve from EXARCHOS_PLUGIN_ROOT/scripts/ with fallback to ~/.claude/scripts/.',
     schema: z.object({

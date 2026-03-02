@@ -66,6 +66,79 @@ export const EventTypes = [
 
 export type EventType = typeof EventTypes[number];
 
+// ─── Event Emission Source ───────────────────────────────────────────────────
+
+export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned';
+
+export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
+  // auto — emitted by MCP server handlers (deterministic)
+  'workflow.started': 'auto',
+  'workflow.transition': 'auto',
+  'workflow.fix-cycle': 'auto',
+  'workflow.guard-failed': 'auto',
+  'workflow.checkpoint': 'auto',
+  'workflow.compound-entry': 'auto',
+  'workflow.compound-exit': 'auto',
+  'workflow.cancel': 'auto',
+  'workflow.cleanup': 'auto',
+  'workflow.compensation': 'auto',
+  'workflow.circuit-open': 'auto',
+  'workflow.cas-failed': 'auto',
+  'task.claimed': 'auto',
+  'task.completed': 'auto',
+  'task.failed': 'auto',
+  'gate.executed': 'auto',
+  'state.patched': 'auto',
+  'tool.invoked': 'auto',
+  'tool.completed': 'auto',
+  'tool.errored': 'auto',
+  'quality.hint.generated': 'auto',
+  'quality.refinement.suggested': 'auto',
+  'stack.position-filled': 'auto',
+  'stack.restacked': 'auto',
+  'stack.enqueued': 'auto',
+
+  // model — must be emitted explicitly by the model via exarchos_event
+  'team.spawned': 'model',
+  'team.task.assigned': 'model',
+  'team.task.completed': 'model',
+  'team.task.failed': 'model',
+  'team.disbanded': 'model',
+  'team.task.planned': 'model',
+  'team.teammate.dispatched': 'model',
+  'review.routed': 'model',
+  'review.finding': 'model',
+  'review.escalated': 'model',
+  'remediation.attempted': 'model',
+  'remediation.succeeded': 'model',
+  'session.tagged': 'model',
+  'worktree.created': 'model',
+  'worktree.baseline': 'model',
+  'test.result': 'model',
+  'typecheck.result': 'model',
+  'stack.submitted': 'model',
+  'ci.status': 'model',
+  'comment.posted': 'model',
+  'comment.resolved': 'model',
+  'shepherd.iteration': 'model',
+  'quality.regression': 'model',
+  'task.assigned': 'model',
+  'task.progressed': 'model',
+
+  // hook — emitted by Claude Code hooks
+  'benchmark.completed': 'hook',
+
+  // planned — schema exists, not yet emitted in production
+  'team.context.injected': 'planned',
+  'shepherd.started': 'planned',
+  'shepherd.approval_requested': 'planned',
+  'shepherd.completed': 'planned',
+  'eval.run.started': 'planned',
+  'eval.case.completed': 'planned',
+  'eval.run.completed': 'planned',
+  'eval.judge.calibrated': 'planned',
+};
+
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
@@ -570,6 +643,96 @@ export const CommentResolvedData = z.object({
   threadId: z.string(),
   resolvedBy: z.enum(['author', 'outdated', 'manual']),
 });
+
+// ─── Event Data Schemas Map ─────────────────────────────────────────────────
+
+export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
+  // Workflow-level
+  'workflow.started': WorkflowStartedData,
+  'workflow.transition': WorkflowTransitionData,
+  'workflow.fix-cycle': WorkflowFixCycleData,
+  'workflow.guard-failed': WorkflowGuardFailedData,
+  'workflow.checkpoint': WorkflowCheckpointData,
+  'workflow.compound-entry': WorkflowCompoundEntryData,
+  'workflow.compound-exit': WorkflowCompoundExitData,
+  'workflow.cancel': WorkflowCancelData,
+  'workflow.cleanup': WorkflowCleanupData,
+  'workflow.compensation': WorkflowCompensationData,
+  'workflow.circuit-open': WorkflowCircuitOpenData,
+  'workflow.cas-failed': WorkflowCasFailedData,
+
+  // Task-level
+  'task.assigned': TaskAssignedData,
+  'task.claimed': TaskClaimedData,
+  'task.progressed': TaskProgressedData,
+  'task.completed': TaskCompletedData,
+  'task.failed': TaskFailedData,
+
+  // Quality gate
+  'gate.executed': GateExecutedData,
+
+  // Stack
+  'stack.position-filled': StackPositionFilledData,
+  'stack.restacked': StackRestackedData,
+  'stack.enqueued': StackEnqueuedData,
+  'stack.submitted': StackSubmittedData,
+
+  // Telemetry
+  'tool.invoked': ToolInvokedData,
+  'tool.completed': ToolCompletedData,
+  'tool.errored': ToolErroredData,
+
+  // Benchmark
+  'benchmark.completed': BenchmarkCompletedData,
+
+  // Team
+  'team.spawned': TeamSpawnedData,
+  'team.task.assigned': TeamTaskAssignedData,
+  'team.task.completed': TeamTaskCompletedData,
+  'team.task.failed': TeamTaskFailedData,
+  'team.disbanded': TeamDisbandedData,
+  'team.context.injected': TeamContextInjectedData,
+  'team.task.planned': TeamTaskPlannedData,
+  'team.teammate.dispatched': TeamTeammateDispatchedData,
+
+  // Quality
+  'quality.regression': QualityRegressionData,
+  'quality.hint.generated': QualityHintGeneratedData,
+  'quality.refinement.suggested': RefinementSuggestedDataSchema,
+
+  // Review
+  'review.routed': ReviewRoutedData,
+  'review.finding': ReviewFindingData,
+  'review.escalated': ReviewEscalatedData,
+
+  // Remediation
+  'remediation.attempted': RemediationAttemptedDataSchema,
+  'remediation.succeeded': RemediationSucceededDataSchema,
+
+  // Session
+  'session.tagged': SessionTaggedData,
+
+  // Readiness
+  'worktree.created': WorktreeCreatedData,
+  'worktree.baseline': WorktreeBaselineData,
+  'test.result': TestResultData,
+  'typecheck.result': TypecheckResultData,
+  'ci.status': CiStatusData,
+  'comment.posted': CommentPostedData,
+  'comment.resolved': CommentResolvedData,
+
+  // Shepherd
+  'shepherd.started': ShepherdStartedData,
+  'shepherd.iteration': ShepherdIterationData,
+  'shepherd.approval_requested': ShepherdApprovalRequestedData,
+  'shepherd.completed': ShepherdCompletedData,
+
+  // Eval
+  'eval.run.started': EvalRunStartedData,
+  'eval.case.completed': EvalCaseCompletedData,
+  'eval.run.completed': EvalRunCompletedData,
+  'eval.judge.calibrated': JudgeCalibratedDataSchema,
+};
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
