@@ -403,6 +403,26 @@ async function retryUnextractedSessions(stateDir: string): Promise<void> {
   }
 }
 
+// ─── Safety Rules Reader ─────────────────────────────────────────────────────
+
+/**
+ * Read safety rules from the plugin root's rules/ directory.
+ * Returns the content of rm-safety.md, or undefined
+ * if EXARCHOS_PLUGIN_ROOT is not set or the file doesn't exist.
+ */
+async function readSafetyRules(): Promise<string | undefined> {
+  const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+  if (!pluginRoot) return undefined;
+
+  const safetyFile = path.join(pluginRoot, 'rules', 'rm-safety.md');
+
+  try {
+    return await fs.readFile(safetyFile, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
@@ -705,6 +725,16 @@ export async function handleSessionStart(
     await retryUnextractedSessions(stateDir);
   } catch {
     // Retry failure must not break session startup
+  }
+
+  // Step 5: Inject safety rules from plugin root (L1 progressive disclosure)
+  const safetyRules = await readSafetyRules();
+  if (safetyRules) {
+    const existingContext = result.contextDocument;
+    const combinedContext = existingContext
+      ? `${existingContext}\n---\n${safetyRules}`
+      : safetyRules;
+    result = { ...result, contextDocument: combinedContext };
   }
 
   return result;

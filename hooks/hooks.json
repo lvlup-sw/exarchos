@@ -13,7 +13,7 @@
       "matcher": "startup|resume",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" session-start",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" session-start --plugin-root \"${CLAUDE_PLUGIN_ROOT}\"",
         "timeout": 10,
         "statusMessage": "Checking for active workflows..."
       }]
