@@ -792,4 +792,50 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
+
+  it('HandleTaskComplete_GateEventWithUndefinedData_DoesNotCrash', async () => {
+    // Arrange: seed with a gate event that has undefined data (data is optional in schema)
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-undef', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'Undef data gate test', assignee: 'agent-1' },
+    });
+    // Append a gate.executed event without data — simulates schema-valid event with missing data
+    await store.append('wf-gate-undef', {
+      type: 'gate.executed',
+    });
+
+    // Act: should not throw, should return GATE_NOT_PASSED gracefully
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-undef', result: { summary: 'done' } },
+      tempDir,
+    );
+
+    // Assert: graceful rejection, not a crash
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  it('HandleTaskComplete_GateEventWithNoDetails_DoesNotCrash', async () => {
+    // Arrange: gate event has data but no details field
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-nodetails', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'No details gate test', assignee: 'agent-1' },
+    });
+    await store.append('wf-gate-nodetails', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true },
+    });
+
+    // Act: should not crash — gate lacks taskId in details so should not match
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-nodetails', result: { summary: 'done' } },
+      tempDir,
+    );
+
+    // Assert: GATE_NOT_PASSED because details.taskId doesn't match
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
 });

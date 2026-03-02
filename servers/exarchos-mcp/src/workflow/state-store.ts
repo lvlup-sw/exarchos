@@ -440,7 +440,8 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 
 /**
  * Deep-merge source into target, returning a new merged object.
- * Arrays are replaced, not merged.
+ * Primitive arrays are replaced. Arrays of objects with `id` fields
+ * are merged by id (upsert semantics).
  */
 export function deepMerge(
   target: Record<string, unknown>,
@@ -453,8 +454,45 @@ export function deepMerge(
         result[key] as Record<string, unknown>,
         source[key] as Record<string, unknown>,
       );
+    } else if (Array.isArray(result[key]) && Array.isArray(source[key])) {
+      result[key] = mergeArrays(
+        result[key] as unknown[],
+        source[key] as unknown[],
+      );
     } else {
       result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * Merge two arrays. If both contain objects with `id` fields, merge by id
+ * (upsert semantics: existing items are deep-merged, new items appended).
+ * Otherwise, the incoming array replaces the existing one.
+ */
+function isArrayOfObjectsWithId(arr: unknown[]): arr is Array<Record<string, unknown>> {
+  return arr.length > 0 && arr.every(item => isPlainObject(item) && 'id' in item);
+}
+
+function mergeArrays(existing: unknown[], incoming: unknown[]): unknown[] {
+  if (!isArrayOfObjectsWithId(incoming)) {
+    return incoming;
+  }
+  if (!isArrayOfObjectsWithId(existing)) {
+    return incoming;
+  }
+
+  const result = existing.map(item => ({ ...item }));
+  for (const incomingItem of incoming) {
+    const existingIndex = result.findIndex(item => item.id === incomingItem.id);
+    if (existingIndex >= 0) {
+      result[existingIndex] = deepMerge(
+        result[existingIndex],
+        incomingItem,
+      );
+    } else {
+      result.push({ ...incomingItem });
     }
   }
   return result;
@@ -570,6 +608,11 @@ export function applyDotPath(
       record[lastSegment] = deepMerge(
         record[lastSegment] as Record<string, unknown>,
         value as Record<string, unknown>,
+      );
+    } else if (Array.isArray(record[lastSegment]) && Array.isArray(value)) {
+      record[lastSegment] = mergeArrays(
+        record[lastSegment] as unknown[],
+        value as unknown[],
       );
     } else {
       record[lastSegment] = value;

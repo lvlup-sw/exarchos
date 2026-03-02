@@ -356,10 +356,46 @@ describe('State Store', () => {
       expect(obj.count).toEqual({ nested: true });
     });
 
-    it('should replace arrays, not merge them', () => {
+    it('should replace arrays of primitives, not merge them', () => {
       const obj: Record<string, unknown> = { tags: ['a', 'b'] };
       applyDotPath(obj, 'tags', ['c']);
       expect(obj.tags).toEqual(['c']);
+    });
+
+    it('should merge arrays of objects by id field (upsert)', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: '1', status: 'complete', title: 'Task 1' },
+          { id: '2', status: 'complete', title: 'Task 2' },
+          { id: '3', status: 'in-progress', title: 'Task 3' },
+        ],
+      };
+      // Update only task 3 — tasks 1 and 2 should be preserved
+      applyDotPath(obj, 'tasks', [{ id: '3', status: 'complete' }]);
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks).toHaveLength(3);
+      expect(tasks[0]).toEqual({ id: '1', status: 'complete', title: 'Task 1' });
+      expect(tasks[1]).toEqual({ id: '2', status: 'complete', title: 'Task 2' });
+      expect(tasks[2]).toEqual({ id: '3', status: 'complete', title: 'Task 3' });
+    });
+
+    it('should append new items when merging arrays by id', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [{ id: '1', status: 'complete' }],
+      };
+      applyDotPath(obj, 'tasks', [{ id: '2', status: 'pending' }]);
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks).toHaveLength(2);
+      expect(tasks[0]).toEqual({ id: '1', status: 'complete' });
+      expect(tasks[1]).toEqual({ id: '2', status: 'pending' });
+    });
+
+    it('should replace arrays when incoming has no id fields', () => {
+      const obj: Record<string, unknown> = {
+        items: [{ id: '1', name: 'A' }],
+      };
+      applyDotPath(obj, 'items', [{ name: 'B' }, { name: 'C' }]);
+      expect(obj.items).toEqual([{ name: 'B' }, { name: 'C' }]);
     });
 
     it('should still work with dot-path notation for nested values', () => {

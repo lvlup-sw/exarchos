@@ -242,7 +242,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           ...view,
           reviews: {
             ...view.reviews,
-            [String(data.pr)]: event.data,
+            [String(data.pr)]: data,
           },
         };
       }
