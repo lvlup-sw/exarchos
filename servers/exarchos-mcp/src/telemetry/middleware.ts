@@ -70,6 +70,32 @@ function injectAutoCorrection(result: McpToolResult, applied: Correction[]): Mcp
   }
 }
 
+// ─── Event Hint Injection ──────────────────────────────────────────────────
+
+interface EventHint {
+  readonly eventType: string;
+  readonly description: string;
+}
+
+/** Injects `_eventHints` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
+function injectEventHints(result: McpToolResult, hints: EventHint[]): McpToolResult {
+  if (hints.length === 0) return result;
+
+  const entry = result.content[0];
+  if (!entry?.text) return result;
+
+  try {
+    const parsed = JSON.parse(entry.text) as Record<string, unknown>;
+    parsed._eventHints = { missing: hints, phase: 'unknown', checked: hints.length };
+    return {
+      ...result,
+      content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
+    };
+  } catch {
+    return result;
+  }
+}
+
 // ─── withTelemetry HOF ──────────────────────────────────────────────────────
 
 /**
@@ -176,6 +202,24 @@ export function withTelemetry(
 
       let finalResult = injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
       finalResult = injectAutoCorrection(finalResult, appliedCorrections);
+
+      // ─── Event Emission Hints (fire-and-forget) ───────────────────────
+      const featureIdForHints = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
+      if (featureIdForHints) {
+        try {
+          const { handleCheckEventEmissions } = await import('../orchestrate/check-event-emissions.js');
+          const hintResult = await handleCheckEventEmissions(
+            { featureId: featureIdForHints },
+            eventStore.dir,
+          );
+          if (hintResult.success && hintResult.data) {
+            const data = hintResult.data as { hints?: EventHint[]; phase?: string; checked?: number };
+            if (data.hints && data.hints.length > 0) {
+              finalResult = injectEventHints(finalResult, data.hints);
+            }
+          }
+        } catch { /* fire-and-forget — hint generation failure never blocks */ }
+      }
 
       // ─── Trace Capture (swallow failures) ──────────────────────────────
       const action = typeof correctedArgs.action === 'string' ? correctedArgs.action : '';

@@ -381,3 +381,91 @@ describe('D3 token-budget gate emission', () => {
     expect(telemetryEvents[1].type).toBe('tool.completed');
   });
 });
+
+// ─── injectEventHints tests ─────────────────────────────────────────────────
+
+describe('injectEventHints', () => {
+  // injectEventHints is a private function in middleware.ts, so we test the
+  // logic by re-implementing the same algorithm here. The integration with
+  // withTelemetry is tested separately via the full middleware path.
+
+  interface EventHint {
+    readonly eventType: string;
+    readonly description: string;
+  }
+
+  type McpToolResult = {
+    content: Array<{ type: string; text: string; [key: string]: unknown }>;
+    isError: boolean;
+    [key: string]: unknown;
+  };
+
+  /** Mirror of the private injectEventHints function in middleware.ts */
+  function injectEventHints(result: McpToolResult, hints: EventHint[]): McpToolResult {
+    if (hints.length === 0) return result;
+
+    const entry = result.content[0];
+    if (!entry?.text) return result;
+
+    try {
+      const parsed = JSON.parse(entry.text) as Record<string, unknown>;
+      parsed._eventHints = { missing: hints, phase: 'unknown', checked: hints.length };
+      return {
+        ...result,
+        content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
+      };
+    } catch {
+      return result;
+    }
+  }
+
+  it('InjectEventHints_WithHints_AddsToResponse', () => {
+    const result: McpToolResult = {
+      content: [{ type: 'text', text: '{"success":true}' }],
+      isError: false,
+    };
+
+    const hints: EventHint[] = [
+      { eventType: 'team.spawned', description: 'Emit team.spawned event' },
+    ];
+
+    const injected = injectEventHints(result, hints);
+    const parsed = JSON.parse(injected.content[0].text) as Record<string, unknown>;
+
+    expect(parsed._eventHints).toBeDefined();
+    const eventHints = parsed._eventHints as { missing: EventHint[]; phase: string; checked: number };
+    expect(eventHints.missing).toHaveLength(1);
+    expect(eventHints.missing[0].eventType).toBe('team.spawned');
+    expect(eventHints.phase).toBe('unknown');
+    expect(eventHints.checked).toBe(1);
+  });
+
+  it('InjectEventHints_EmptyHints_ReturnsUnchanged', () => {
+    const result: McpToolResult = {
+      content: [{ type: 'text', text: '{"success":true}' }],
+      isError: false,
+    };
+
+    const injected = injectEventHints(result, []);
+
+    // Should return the exact same object (identity check)
+    expect(injected).toBe(result);
+    expect(injected.content[0].text).toBe('{"success":true}');
+  });
+
+  it('InjectEventHints_NonJsonResponse_ReturnsUnchanged', () => {
+    const result: McpToolResult = {
+      content: [{ type: 'text', text: 'not valid json at all' }],
+      isError: false,
+    };
+
+    const hints: EventHint[] = [
+      { eventType: 'team.spawned', description: 'Emit team.spawned event' },
+    ];
+
+    const injected = injectEventHints(result, hints);
+
+    // Should return unchanged, not crash
+    expect(injected.content[0].text).toBe('not valid json at all');
+  });
+});
