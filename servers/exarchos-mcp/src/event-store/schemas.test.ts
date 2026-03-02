@@ -253,6 +253,15 @@ describe('Team Event Data Schemas', () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it('TeamDisbandedData_ValidData_ParsesSuccessfully', () => {
+      const result = TeamDisbandedData.safeParse({
+        totalDurationMs: 5000,
+        tasksCompleted: 3,
+        tasksFailed: 0,
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe('TeamContextInjectedData', () => {

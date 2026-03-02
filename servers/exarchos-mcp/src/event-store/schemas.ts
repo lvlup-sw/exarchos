@@ -420,7 +420,6 @@ export const TeamTaskFailedData = z.object({
   gateResults: z.record(z.string(), z.unknown()),
 });
 
-/** @planned — not yet emitted in production */
 export const TeamDisbandedData = z.object({
   totalDurationMs: z.number(),
   tasksCompleted: z.number().int(),
