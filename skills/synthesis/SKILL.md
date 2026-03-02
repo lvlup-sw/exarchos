@@ -85,7 +85,7 @@ EOF
 )"
 ```
 
-Validate each PR body with `exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })`. Projects can override the template via `.exarchos/pr-template.md`.
+Validate each PR body with `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })`. Projects can override the template via `.exarchos/pr-template.md`.
 
 For the complete template, examples, and anti-patterns, see `references/pr-descriptions.md`.
 

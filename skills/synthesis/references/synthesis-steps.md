@@ -67,16 +67,13 @@ If these fail, return to `/exarchos:review` or `/exarchos:delegate` to resolve.
 ## Step 4: Check CodeRabbit Review State
 
 Get PR numbers from the branch stack, then run the CodeRabbit review check:
-```bash
-# Get PR numbers from GitHub
-PR_NUMBERS=$(gh pr list --json number --jq '.[].number')
-
-# Check CodeRabbit review state via orchestrate
-# exarchos_orchestrate({
-#   action: "run_script",
-#   script: "check-coderabbit.sh",
-#   args: ["--owner", "<owner>", "--repo", "<repo>", ...PR_NUMBERS]
-# })
+```typescript
+// Check CodeRabbit review state via orchestrate
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "run_script",
+  script: "check-coderabbit.sh",
+  args: ["--owner", "<owner>", "--repo", "<repo>", "<pr-number-1>", "<pr-number-2>"]
+})
 ```
 
 The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.

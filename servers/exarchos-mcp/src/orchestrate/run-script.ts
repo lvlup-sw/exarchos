@@ -5,6 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import type { ToolResult } from '../format.js';
 import { resolveScript } from '../utils/paths.js';
 
@@ -28,11 +29,22 @@ export async function handleRunScript(
     };
   }
 
-  // Reject path traversal and absolute paths
-  if (args.script.includes('..') || args.script.startsWith('/')) {
+  // Reject path traversal and absolute paths (cross-platform)
+  if (args.script.includes('..') || path.isAbsolute(args.script)) {
     return {
       success: false,
       error: { code: 'INVALID_INPUT', message: 'script name must not contain path traversal or absolute paths' },
+    };
+  }
+
+  // Validate args is an array of strings if provided
+  if (
+    args.args !== undefined &&
+    (!Array.isArray(args.args) || args.args.some((arg) => typeof arg !== 'string'))
+  ) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'args must be an array of strings' },
     };
   }
 

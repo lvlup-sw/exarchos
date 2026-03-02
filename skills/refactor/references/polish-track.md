@@ -113,13 +113,13 @@ exarchos_orchestrate({
 **On `passed: true`:** Scope OK — stay on polish track.
 **On `passed: false`:** Scope expanded — switch to overhaul track.
 
-Then run the refactor validation:
+Then run the refactor validation via the static analysis gate (which has no timeout constraint, unlike `run_script`'s 30s limit):
 
 ```typescript
-exarchos_orchestrate({
-  action: "run_script",
-  script: "validate-refactor.sh",
-  args: ["--repo-root", "<path>"]
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "refactor-<slug>",
+  repoRoot: "<path>"
 })
 ```
 

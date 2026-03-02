@@ -81,6 +81,16 @@ describe('handleRunScript', () => {
     expect(result.error).toMatchObject({ code: 'INVALID_INPUT' });
   });
 
+  it('RunScript_InvalidArgs_RejectsNonStringArray', async () => {
+    const result = await handleRunScript(
+      { script: 'test.sh', args: [123 as unknown as string] },
+      stateDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatchObject({ code: 'INVALID_INPUT', message: 'args must be an array of strings' });
+  });
+
   it('RunScript_UsesResolveScript_ForPathResolution', async () => {
     vi.mocked(execFileSync).mockReturnValue('ok');
 
