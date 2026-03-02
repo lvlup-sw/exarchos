@@ -9,9 +9,14 @@ metadata:
   phase-affinity:
     - explore
     - brief
-    - implement
-    - validate
-    - update-docs
+    - polish-implement
+    - polish-validate
+    - polish-update-docs
+    - overhaul-plan
+    - overhaul-plan-review
+    - overhaul-delegate
+    - overhaul-review
+    - overhaul-update-docs
     - synthesize
 ---
 
@@ -90,7 +95,7 @@ Activate this skill when:
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.
 
-Phases: Explore -> Brief -> Implement -> Validate -> Update Docs -> Complete
+Phases: Explore -> Brief -> polish-implement -> polish-validate -> polish-update-docs -> Complete
 
 For detailed phase instructions, state management, and auto-chain behavior, see `@skills/refactor/references/polish-track.md`.
 
@@ -98,7 +103,7 @@ For detailed phase instructions, state management, and auto-chain behavior, see 
 
 Rigorous path for architectural changes, migrations, and multi-file restructuring. Uses full delegation model with worktree isolation.
 
-Phases: Explore -> Brief -> Plan -> Plan Review -> Delegate -> Review -> Update Docs -> Synthesize
+Phases: Explore -> Brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> Synthesize
 
 For detailed phase instructions, skill invocations, and auto-chain behavior, see `@skills/refactor/references/overhaul-track.md`.
 

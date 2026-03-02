@@ -183,7 +183,7 @@ Transition to `update-docs` phase when ALL conditions are met:
 ## Auto-Chain Behavior
 
 On successful validation:
-- Next action: `AUTO:refactor-update-docs`
+- Next action: `AUTO:polish-update-docs`
 - Automatically proceeds to update documentation
 
 On failed validation:

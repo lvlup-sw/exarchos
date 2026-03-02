@@ -11,9 +11,11 @@ metadata:
     - investigate
     - rca
     - design
-    - implement
-    - validate
-    - review
+    - debug-implement
+    - debug-validate
+    - debug-review
+    - hotfix-implement
+    - hotfix-validate
     - synthesize
 ---
 
@@ -96,7 +98,7 @@ Activate this skill when:
 
 Fix production issues ASAP. Speed over ceremony.
 
-**Phases:** Triage (see `references/triage-questions.md`) -> Investigate (15 min max) -> Implement (no worktree) -> Validate -> Merge
+**Phases:** Triage (see `references/triage-questions.md`) -> Investigate (15 min max) -> hotfix-implement (no worktree) -> hotfix-validate -> Merge
 
 ### Investigation Timer
 
@@ -111,7 +113,7 @@ For detailed phase instructions, see `references/hotfix-track.md`.
 
 Fix bugs with proper rigor. Full RCA documentation.
 
-**Phases:** Triage -> Investigate -> RCA -> Design -> Implement (worktree + TDD) -> Review -> Synthesize -> Merge
+**Phases:** Triage -> Investigate -> RCA -> Design -> debug-implement (worktree + TDD) -> debug-validate -> debug-review -> Synthesize -> Merge
 
 For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
 
@@ -128,14 +130,14 @@ Both tracks have ONE human checkpoint: merge confirmation.
 
 **Hotfix auto-chain:**
 ```
-triage → investigate → implement → validate → [HUMAN: merge]
-         (auto)        (auto)       (auto)
+triage → investigate → hotfix-implement → hotfix-validate → [HUMAN: merge]
+         (auto)        (auto)              (auto)
 ```
 
 **Thorough auto-chain:**
 ```
-triage → investigate → rca → design → implement → review → synthesize → [HUMAN: merge]
-         (auto)        (auto) (auto)   (auto)      (auto)   (auto)
+triage → investigate → rca → design → debug-implement → debug-validate → debug-review → synthesize → [HUMAN: merge]
+         (auto)        (auto) (auto)   (auto)           (auto)            (auto)        (auto)
 ```
 
 ## State Management

@@ -11,7 +11,7 @@ Fix bugs with proper rigor. Capture institutional knowledge through RCA.
 ## Phases
 
 ```
-Triage -> Investigate -> RCA -> Design -> Implement -> Review -> Synthesize -> Completed
+Triage -> Investigate -> RCA -> Design -> debug-implement -> debug-validate -> debug-review -> Synthesize -> Completed
   |          |          |       |         |          |          |           |
   |          |          |       |         |          |          |           +- Merge
   |          |          |       |         |          |          +- Create PR
@@ -73,7 +73,7 @@ Brief fix approach (NOT a full design document).
 ```
 action: "set", featureId: "debug-<issue-slug>", updates: {
   "artifacts.fixDesign": "<fix approach description>"
-}, phase: "implement"
+}, phase: "debug-implement"
 ```
 
 ### 5. Implement Phase
@@ -99,7 +99,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
     "branch": "feature/debug-<issue-slug>",
     "status": "active"
   }
-}, phase: "review"
+}, phase: "debug-validate"
 ```
 
 ### 6. Review Phase

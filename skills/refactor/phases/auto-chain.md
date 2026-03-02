@@ -16,7 +16,7 @@ All other transitions are automatic.
 ## Polish Track Auto-Chain
 
 ```text
-explore → brief → implement → validate → update-docs → CHECKPOINT
+explore → brief → polish-implement → polish-validate → polish-update-docs → CHECKPOINT
 ```
 
 ### Transition Rules
@@ -24,11 +24,11 @@ explore → brief → implement → validate → update-docs → CHECKPOINT
 | From | To | Condition | Auto? |
 |------|-----|-----------|-------|
 | explore | brief | Scope assessed | Yes |
-| brief | implement | Brief captured | Yes |
-| implement | validate | Changes complete | Yes |
-| validate | update-docs | Validation passed | Yes |
-| update-docs | complete | Docs updated | Yes |
-| complete | — | Human approves commit | CHECKPOINT |
+| brief | polish-implement | Brief captured | Yes |
+| polish-implement | polish-validate | Changes complete | Yes |
+| polish-validate | polish-update-docs | Validation passed | Yes |
+| polish-update-docs | completed | Docs updated | Yes |
+| completed | — | Human approves commit | CHECKPOINT |
 
 ### Polish Auto-Chain Commands
 
@@ -37,19 +37,19 @@ After each phase, use the SessionStart hook with the featureId to determine the 
 ```text
 # After explore
 The SessionStart hook determines the next action automatically.
-Returns: AUTO:refactor-brief
+Returns: AUTO:brief
 
 # After brief
 The SessionStart hook determines the next action automatically.
 Returns: AUTO:polish-implement
 
-# After implement
+# After polish-implement
 The SessionStart hook determines the next action automatically.
-Returns: AUTO:refactor-validate
+Returns: AUTO:polish-validate
 
-# After validate (passed)
+# After polish-validate (passed)
 The SessionStart hook determines the next action automatically.
-Returns: AUTO:refactor-update-docs
+Returns: AUTO:polish-update-docs
 
 # After update-docs
 The SessionStart hook determines the next action automatically.
@@ -81,9 +81,9 @@ Ready to commit changes. Approve to commit, or request modifications.
 ## Overhaul Track Auto-Chain
 
 ```text
-explore → brief → plan → delegate → review → update-docs → synthesize → CHECKPOINT
-                                        ↑                    │
-                                        └─── fixes ──────────┘ (if review fails)
+explore → brief → overhaul-plan → overhaul-plan-review → overhaul-delegate → overhaul-review → overhaul-update-docs → synthesize → CHECKPOINT
+                                                                                    ↑                           │
+                                                                                    └─────── fixes ─────────────┘ (if review fails)
 ```
 
 ### Transition Rules
@@ -91,13 +91,14 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
 | From | To | Condition | Auto? |
 |------|-----|-----------|-------|
 | explore | brief | Scope assessed | Yes |
-| brief | plan | Brief captured | Yes |
-| plan | delegate | Plan created | Yes |
-| delegate | review | All tasks complete | Yes |
-| review (pass) | update-docs | Review approved | Yes |
-| review (fail) | delegate | Fix tasks dispatched | Yes (loop) |
-| update-docs | synthesize | Docs updated | Yes |
-| synthesize | complete | Human approves PR | CHECKPOINT |
+| brief | overhaul-plan | Brief captured | Yes |
+| overhaul-plan | overhaul-plan-review | Plan created | Yes |
+| overhaul-plan-review | overhaul-delegate | Plan approved | Yes |
+| overhaul-delegate | overhaul-review | All tasks complete | Yes |
+| overhaul-review (pass) | overhaul-update-docs | Review approved | Yes |
+| overhaul-review (fail) | overhaul-delegate | Fix tasks dispatched | Yes (loop) |
+| overhaul-update-docs | synthesize | Docs updated | Yes |
+| synthesize | completed | Human approves PR | CHECKPOINT |
 
 ### Overhaul Auto-Chain Commands
 
@@ -105,28 +106,28 @@ Use the SessionStart hook with the featureId after each phase:
 
 ```text
 # After explore
-Returns: AUTO:refactor-brief
+Returns: AUTO:brief
 
 # After brief
 Returns: AUTO:overhaul-plan
 
-# After plan
-Returns: AUTO:refactor-plan-review
+# After overhaul-plan
+Returns: AUTO:overhaul-plan-review
 
-# After plan-review (approved)
-Returns: AUTO:refactor-delegate
+# After overhaul-plan-review (approved)
+Returns: AUTO:overhaul-delegate
 
-# After delegate
-Returns: AUTO:refactor-review
+# After overhaul-delegate
+Returns: AUTO:overhaul-review
 
-# After review (passed)
-Returns: AUTO:refactor-update-docs
+# After overhaul-review (passed)
+Returns: AUTO:overhaul-update-docs
 
-# After review (failed)
-Returns: AUTO:refactor-delegate:--fixes
+# After overhaul-review (failed)
+Returns: AUTO:delegate:--fixes
 
-# After update-docs
-Returns: AUTO:refactor-synthesize
+# After overhaul-update-docs
+Returns: AUTO:synthesize
 
 # After synthesize
 Returns: WAIT:human-checkpoint:synthesize
@@ -162,7 +163,7 @@ Review PR and approve merge, or request changes.
 If polish track discovers scope expansion, it switches to overhaul:
 
 ```text
-polish:implement → [scope expands] → overhaul:plan
+polish-implement → [scope expands] → overhaul-plan
 ```
 
 Auto-chain handles this via MCP tools:
@@ -173,7 +174,7 @@ Auto-chain handles this via MCP tools:
 updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
 
 # 2. Second call: Transition phase and track
-phase: "plan"
+phase: "overhaul-plan"
 updates: { "track": "overhaul" }
 
 # Next action returns
@@ -187,7 +188,7 @@ Returns: AUTO:overhaul-plan
 
 | Failure | Recovery |
 |---------|----------|
-| Validate fails | Return to implement, fix issues |
+| Validate fails | Return to polish-implement, fix issues |
 | Tests fail | Fix tests, re-validate |
 | Scope expands | Switch to overhaul track |
 
@@ -207,24 +208,24 @@ All recoveries are automatic loops until success.
 │                        REFACTOR WORKFLOW                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  START → explore → brief ─┬─→ [polish] ─→ implement ─→ validate │
-│                           │                                ↓     │
-│                           │                          update-docs │
-│                           │                                ↓     │
-│                           │                          ▣ COMPLETE  │
-│                           │                                      │
-│                           └─→ [overhaul] ─→ plan ─→ delegate     │
-│                                                          ↓       │
-│                                                      review ───┐ │
-│                                                          ↓     │ │
-│                                                    update-docs │ │
-│                                                          ↓     │ │
-│                                                    synthesize  │ │
-│                                                          ↓     │ │
-│                                                    ▣ PR-MERGE  │ │
-│                                                                │ │
-│                                  delegate:--fixes ←────────────┘ │
-│                                        (on review fail)          │
+│  START → explore → brief ─┬─→ [polish] ─→ polish-implement ─→ polish-validate │
+│                           │                                         ↓          │
+│                           │                                  polish-update-docs │
+│                           │                                         ↓          │
+│                           │                                   ▣ COMPLETE       │
+│                           │                                                    │
+│                           └─→ [overhaul] ─→ overhaul-plan ─→ overhaul-delegate │
+│                                                                    ↓           │
+│                                                          overhaul-review ───┐  │
+│                                                                    ↓        │  │
+│                                                       overhaul-update-docs  │  │
+│                                                                    ↓        │  │
+│                                                              synthesize     │  │
+│                                                                    ↓        │  │
+│                                                              ▣ PR-MERGE     │  │
+│                                                                             │  │
+│                                          overhaul-delegate:--fixes ←────────┘  │
+│                                                  (on review fail)              │
 │                                                                  │
 │  Legend: ▣ = Human Checkpoint                                   │
 └─────────────────────────────────────────────────────────────────┘
@@ -238,16 +239,16 @@ The auto-chain actions are handled by workflow-auto-resume.md rules.
 
 | Action | Skill Invocation |
 |--------|------------------|
-| AUTO:refactor-brief | Continue to brief capture (inline) |
+| AUTO:brief | Continue to brief capture (inline) |
 | AUTO:polish-implement | Continue to implement phase (inline - orchestrator implements) |
-| AUTO:refactor-validate | Continue to validate phase (inline) |
-| AUTO:refactor-update-docs | Continue to update-docs phase (inline) |
+| AUTO:polish-validate | Continue to validate phase (inline) |
+| AUTO:polish-update-docs | Continue to update-docs phase (inline) |
 | AUTO:overhaul-plan | `Skill({ skill: "exarchos:plan", args: "--refactor <state-file>" })` |
-| AUTO:refactor-plan-review | Plan-review human checkpoint (inline gap analysis) |
-| AUTO:refactor-delegate | `Skill({ skill: "exarchos:delegate", args: "<state-file>" })` |
-| AUTO:refactor-delegate:--fixes | `Skill({ skill: "exarchos:delegate", args: "--fixes <state-file>" })` |
-| AUTO:refactor-review | `Skill({ skill: "exarchos:review", args: "<state-file>" })` |
-| AUTO:refactor-synthesize | `Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })` |
+| AUTO:overhaul-plan-review | Plan-review human checkpoint (inline gap analysis) |
+| AUTO:overhaul-delegate | `Skill({ skill: "exarchos:delegate", args: "<state-file>" })` |
+| AUTO:delegate:--fixes | `Skill({ skill: "exarchos:delegate", args: "--fixes <state-file>" })` |
+| AUTO:overhaul-review | `Skill({ skill: "exarchos:review", args: "<state-file>" })` |
+| AUTO:synthesize | `Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })` |
 
 ### Example Overhaul Chain
 

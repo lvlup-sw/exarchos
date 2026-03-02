@@ -6,7 +6,7 @@ metadata:
   version: 1.0.0
   mcp-server: exarchos
   category: workflow
-  phase-affinity: cleanup
+  phase-affinity: completed
 ---
 
 # Cleanup Skill

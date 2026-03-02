@@ -11,7 +11,7 @@ Fix production issues or critical regressions ASAP. Speed over ceremony.
 ## Phases
 
 ```
-Triage -> Investigate -> Implement -> Validate -> Completed
+Triage -> Investigate -> hotfix-implement -> hotfix-validate -> Completed
   |          |            |           |           |
   |          |            |           |           +- Human checkpoint: merge
   |          |            |           +- Smoke tests only
@@ -91,7 +91,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
     "rootCause": "<root cause>",
     "completedAt": "<ISO8601>"
   }
-}, phase: "implement"
+}, phase: "hotfix-implement"
 ```
 
 ### 3. Implement Phase
@@ -104,7 +104,7 @@ Apply minimal fix directly (no worktree):
 ```
 action: "set", featureId: "debug-<issue-slug>", updates: {
   "artifacts": { "fixDesign": "<brief fix description>" }
-}, phase: "validate"
+}, phase: "hotfix-validate"
 ```
 
 ### 4. Validate Phase

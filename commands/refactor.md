@@ -11,7 +11,7 @@ Start refactor workflow for: "$ARGUMENTS"
 Refactor workflows are **exploration-first**: understand scope before committing to a track.
 
 ```
-/exarchos:refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
+/exarchos:refactor → Explore → Brief → [polish-implement|overhaul-plan] → Validate → Update Docs → [CONFIRM]
                                     │
                    ┌────────────────┼────────────────┐
                    │                                 │
@@ -120,14 +120,14 @@ Both tracks auto-chain through phases with ONE human checkpoint.
 
 **Polish:**
 ```
-explore → brief → implement → validate → update-docs → [HUMAN: complete]
-          (auto)   (auto)      (auto)     (auto)
+explore → brief → polish-implement → polish-validate → polish-update-docs → [HUMAN: complete]
+          (auto)   (auto)             (auto)             (auto)
 ```
 
 **Overhaul:**
 ```
-explore → brief → plan → delegate → review → update-docs → synthesize → [HUMAN: merge]
-          (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
+explore → brief → overhaul-plan → overhaul-delegate → overhaul-review → overhaul-update-docs → synthesize → [HUMAN: merge]
+          (auto)  (auto)          (auto)              (auto)           (auto)                  (auto)
 ```
 
 ## When to Use /exarchos:refactor vs /exarchos:debug

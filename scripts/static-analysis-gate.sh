@@ -202,12 +202,37 @@ run_quality_check() {
 }
 
 # ============================================================
+# CHECK 4: Phase name validation
+# ============================================================
+
+run_phase_names() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local validate_script="$script_dir/validate-phase-names.sh"
+
+    if [[ ! -f "$validate_script" ]]; then
+        check_skip "Phase names" "validate-phase-names.sh not found"
+        return 0
+    fi
+
+    local output
+    if output="$(bash "$validate_script" --repo-root "$REPO_ROOT" 2>&1)"; then
+        check_pass "Phase names"
+        return 0
+    else
+        check_fail "Phase names" "skill docs contain non-HSM phase names"
+        return 1
+    fi
+}
+
+# ============================================================
 # EXECUTE CHECKS
 # ============================================================
 
 run_lint || true
 run_typecheck || true
 run_quality_check || true
+run_phase_names || true
 
 # ============================================================
 # STRUCTURED OUTPUT

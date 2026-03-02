@@ -289,7 +289,7 @@ Implementation phase exits when:
 action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 ```
 
-Next action: `AUTO:refactor-validate`
+Next action: `AUTO:polish-validate`
 
 ### Track Switch Exit -> Plan Phase
 

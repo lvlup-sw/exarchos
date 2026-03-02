@@ -33,37 +33,6 @@ export const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
   refactor: new Set(['overhaul-plan-review', 'polish-update-docs', 'synthesize']),
 };
 
-// ─── Phase-to-Action Mapping ────────────────────────────────────────────────
-
-export const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
-  feature: {
-    ideate: 'AUTO:plan',
-    plan: 'AUTO:plan-review',
-    'plan-review': 'AUTO:delegate',
-    delegate: 'AUTO:review',
-    review: 'AUTO:synthesize',
-  },
-  debug: {
-    triage: 'AUTO:debug-investigate',
-    investigate: 'AUTO:debug-rca',
-    rca: 'AUTO:debug-design',
-    design: 'AUTO:debug-implement',
-    'debug-implement': 'AUTO:debug-validate',
-    'debug-validate': 'AUTO:debug-review',
-    'debug-review': 'AUTO:debug-synthesize',
-    'hotfix-implement': 'AUTO:debug-validate',
-  },
-  refactor: {
-    explore: 'AUTO:refactor-brief',
-    'polish-implement': 'AUTO:refactor-validate',
-    'polish-validate': 'AUTO:refactor-update-docs',
-    'overhaul-plan': 'AUTO:refactor-plan-review',
-    'overhaul-delegate': 'AUTO:refactor-review',
-    'overhaul-review': 'AUTO:refactor-update-docs',
-    'overhaul-update-docs': 'AUTO:refactor-synthesize',
-  },
-};
-
 // ─── Compound State Lookup ──────────────────────────────────────────────────
 
 /**
@@ -225,9 +194,8 @@ export async function handleNextAction(
         };
       }
 
-      // Use the phase-to-action map, or derive from the target
-      const actionMap = PHASE_ACTION_MAP[workflowType];
-      const action = actionMap?.[currentPhase] ?? `AUTO:${transition.to}`;
+      // Derive action from the HSM target phase
+      const action = `AUTO:${transition.to}`;
 
       return {
         success: true,

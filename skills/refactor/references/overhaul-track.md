@@ -203,14 +203,14 @@ explore -> brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -
 ```
 
 **Next actions:**
-- `AUTO:refactor-brief` after explore
+- `AUTO:brief` after explore
 - `AUTO:overhaul-plan` after brief
-- `AUTO:refactor-plan-review` after overhaul-plan
+- `AUTO:overhaul-plan-review` after overhaul-plan
 - `WAIT:human-checkpoint:overhaul-plan-review` at plan-review
-- `AUTO:refactor-delegate` after overhaul-plan-review (approved)
-- `AUTO:refactor-review` after overhaul-delegate
-- `AUTO:refactor-update-docs` after overhaul-review
-- `AUTO:refactor-synthesize` after overhaul-update-docs
+- `AUTO:overhaul-delegate` after overhaul-plan-review (approved)
+- `AUTO:overhaul-review` after overhaul-delegate
+- `AUTO:overhaul-update-docs` after overhaul-review
+- `AUTO:synthesize` after overhaul-update-docs
 - `WAIT:human-checkpoint:synthesize` after synthesize
 
 ## Completion Criteria

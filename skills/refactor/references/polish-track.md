@@ -163,10 +163,10 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 ```
 
 **Next actions:**
-- `AUTO:refactor-brief` after explore
+- `AUTO:brief` after explore
 - `AUTO:polish-implement` after brief
-- `AUTO:refactor-validate` after polish-implement
-- `AUTO:refactor-update-docs` after polish-validate
+- `AUTO:polish-validate` after polish-implement
+- `AUTO:polish-update-docs` after polish-validate
 - `AUTO:completed` after polish-update-docs
 
 ## Completion Criteria

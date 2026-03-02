@@ -1761,7 +1761,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-brief');
+    expect(data.action).toBe('AUTO:brief');
   });
 
   it('brief_PolishGuardPasses_ReturnsAutoPolishImplement', async () => {
@@ -1882,7 +1882,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-validate');
+    expect(data.action).toBe('AUTO:polish-validate');
   });
 
   it('polishUpdateDocs_HumanCheckpoint_ReturnsWait', async () => {
@@ -1919,7 +1919,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-plan-review');
+    expect(data.action).toBe('AUTO:overhaul-plan-review');
   });
 
   it('overhaulUpdateDocs_GuardPasses_ReturnsAutoRefactorSynthesize', async () => {
@@ -1938,7 +1938,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-synthesize');
+    expect(data.action).toBe('AUTO:synthesize');
   });
 
   it('polishValidate_GuardPasses_ReturnsAutoRefactorUpdateDocs', async () => {
@@ -1957,7 +1957,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-update-docs');
+    expect(data.action).toBe('AUTO:polish-update-docs');
   });
 
   it('overhaulDelegate_GuardPasses_ReturnsAutoRefactorReview', async () => {
@@ -1975,7 +1975,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-review');
+    expect(data.action).toBe('AUTO:overhaul-review');
   });
 
   it('overhaulReview_GuardPasses_ReturnsAutoRefactorUpdateDocs', async () => {
@@ -1993,7 +1993,7 @@ describe('ToolNextAction_Refactor_ReturnsCorrectActions', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data.action).toBe('AUTO:refactor-update-docs');
+    expect(data.action).toBe('AUTO:overhaul-update-docs');
   });
 
   it('synthesize_HumanCheckpoint_ReturnsWait', async () => {
