@@ -320,7 +320,16 @@ export class SqliteBackend implements StorageBackend {
         throw new VersionConflictError(featureId, expectedVersion, currentVersion);
       }
 
-      const newVersion = currentVersion + 1;
+      // When seeding from disk (no existing row, no expectedVersion),
+      // initialize backend version from state._version to stay in sync
+      // with the persisted version counter. (#948)
+      let newVersion: number;
+      if (!existing && expectedVersion === undefined) {
+        const stateVersion = (state as Record<string, unknown>)._version;
+        newVersion = typeof stateVersion === 'number' ? stateVersion : currentVersion + 1;
+      } else {
+        newVersion = currentVersion + 1;
+      }
       this.stmts.upsertState.run(
         featureId,
         JSON.stringify(state),

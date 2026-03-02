@@ -137,6 +137,64 @@ describe('InMemoryBackend State Operations', () => {
     expect(featureIds).toContain('feature-a');
     expect(featureIds).toContain('feature-b');
   });
+
+  // ─── Version Sync from state._version (Issue #948) ─────────────────────
+
+  it('InMemoryBackend_setState_Seed_SyncsVersionFromState', () => {
+    // Simulate MCP restart: state loaded from disk has _version: 3
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    const state = makeState({ featureId: 'my-feature', _version: 3 } as Partial<WorkflowState>);
+    // Seed without expectedVersion (like migrateLegacyStateFiles does)
+    backend.setState('my-feature', state);
+
+    // CAS write with expectedVersion matching state._version should succeed
+    const updatedState = makeState({ featureId: 'my-feature', phase: 'plan', _version: 3 } as Partial<WorkflowState>);
+    expect(() => backend.setState('my-feature', updatedState, 3)).not.toThrow();
+  });
+
+  it('InMemoryBackend_setState_Seed_CASFailsWithWrongVersion', () => {
+    // After seeding with _version: 3, CAS with expectedVersion: 1 should fail
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    const state = makeState({ featureId: 'my-feature', _version: 3 } as Partial<WorkflowState>);
+    backend.setState('my-feature', state);
+
+    const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
+    expect(() => backend.setState('my-feature', updatedState, 1)).toThrow();
+  });
+
+  it('InMemoryBackend_setState_Seed_FallsBackToIncrementWhenNoVersion', () => {
+    // State without _version should still work (fallback to currentVersion + 1)
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    const state = makeState({ featureId: 'my-feature' });
+    // Remove _version to simulate legacy state
+    delete (state as Record<string, unknown>)._version;
+    backend.setState('my-feature', state);
+
+    // Backend version should be 1 (0 + 1 fallback)
+    const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
+    expect(() => backend.setState('my-feature', updatedState, 1)).not.toThrow();
+  });
+
+  it('InMemoryBackend_setState_CASCreate_IgnoresStateVersion', () => {
+    // initStateFile passes expectedVersion: 0 for exclusive-create semantics.
+    // This should use currentVersion + 1, NOT state._version,
+    // because CAS-create is intentional version control.
+    const backend = new InMemoryBackend();
+    backend.initialize();
+
+    const state = makeState({ featureId: 'my-feature', _version: 1 } as Partial<WorkflowState>);
+    backend.setState('my-feature', state, 0);
+
+    // Backend version should be 1 (0 + 1), matching state._version: 1
+    const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
+    expect(() => backend.setState('my-feature', updatedState, 1)).not.toThrow();
+  });
 });
 
 // ─── Outbox Operations ──────────────────────────────────────────────────────
