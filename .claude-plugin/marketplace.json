@@ -14,10 +14,10 @@
       "source": {
         "source": "npm",
         "package": "@lvlup-sw/exarchos",
-        "version": "2.3.0"
+        "version": "2.3.1"
       },
       "description": "Durable SDLC workflows with convergence gates, agent teams, and audit trail",
-      "version": "2.3.0",
+      "version": "2.3.1",
       "author": {
         "name": "Levelup Software"
       },

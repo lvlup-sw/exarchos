@@ -10,12 +10,12 @@ Build the project and sync the build output into the local plugin installation.
 
 ## Process
 
-### 1. Build
+### 1. Sync versions and build
 
-Run from the exarchos repo root:
+Ensure plugin manifest files match `package.json`, then build:
 
 ```bash
-npm run build
+npm run version:sync && npm run build
 ```
 
 ### 2. Read the version from package.json
