@@ -691,7 +691,9 @@ export class EventStore {
             const fixed = { ...event, sequence: i + 1 };
             repaired.push(JSON.stringify(fixed));
           }
-          await fs.writeFile(filePath, repaired.join('\n') + '\n', 'utf-8');
+          const tmpJsonl = `${filePath}.repair.tmp`;
+          await fs.writeFile(tmpJsonl, repaired.join('\n') + '\n', 'utf-8');
+          await fs.rename(tmpJsonl, filePath);
           // Update .seq cache to match repaired state
           const seqPath = this.getSeqFilePath(streamId);
           const tmpPath = `${seqPath}.tmp`;
@@ -706,6 +708,10 @@ export class EventStore {
 
       this.sequenceCounters.set(streamId, lines.length);
     } catch (err) {
+      storeLogger.warn(
+        { streamId, err: err instanceof Error ? err.message : String(err) },
+        'Failed to initialize sequence from JSONL — defaulting to 0',
+      );
       this.sequenceCounters.set(streamId, 0);
     }
   }

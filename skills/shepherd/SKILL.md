@@ -16,7 +16,7 @@ Iterative loop that shepherds published PRs through CI checks and code reviews t
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. Events (`shepherd.iteration`, `ci.status`) and the `shepherd_status` view track loop progress without requiring a phase transition.
 
 **Position in workflow:**
-```
+```text
 /synthesize → /shepherd (assess → fix → resubmit → loop) → /cleanup
               ^^^^^^^^^ runs within synthesize phase
 ```
