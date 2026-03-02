@@ -103,7 +103,7 @@ action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 Verify scope hasn't expanded beyond polish limits:
 
 ```typescript
-exarchos_orchestrate({
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "run_script",
   script: "check-polish-scope.sh",
   args: ["--repo-root", "<path>"]
