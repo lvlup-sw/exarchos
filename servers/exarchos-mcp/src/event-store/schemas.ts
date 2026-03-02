@@ -645,6 +645,96 @@ export const CommentResolvedData = z.object({
   resolvedBy: z.enum(['author', 'outdated', 'manual']),
 });
 
+// ─── Event Data Schemas Map ─────────────────────────────────────────────────
+
+export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
+  // Workflow-level
+  'workflow.started': WorkflowStartedData,
+  'workflow.transition': WorkflowTransitionData,
+  'workflow.fix-cycle': WorkflowFixCycleData,
+  'workflow.guard-failed': WorkflowGuardFailedData,
+  'workflow.checkpoint': WorkflowCheckpointData,
+  'workflow.compound-entry': WorkflowCompoundEntryData,
+  'workflow.compound-exit': WorkflowCompoundExitData,
+  'workflow.cancel': WorkflowCancelData,
+  'workflow.cleanup': WorkflowCleanupData,
+  'workflow.compensation': WorkflowCompensationData,
+  'workflow.circuit-open': WorkflowCircuitOpenData,
+  'workflow.cas-failed': WorkflowCasFailedData,
+
+  // Task-level
+  'task.assigned': TaskAssignedData,
+  'task.claimed': TaskClaimedData,
+  'task.progressed': TaskProgressedData,
+  'task.completed': TaskCompletedData,
+  'task.failed': TaskFailedData,
+
+  // Quality gate
+  'gate.executed': GateExecutedData,
+
+  // Stack
+  'stack.position-filled': StackPositionFilledData,
+  'stack.restacked': StackRestackedData,
+  'stack.enqueued': StackEnqueuedData,
+  'stack.submitted': StackSubmittedData,
+
+  // Telemetry
+  'tool.invoked': ToolInvokedData,
+  'tool.completed': ToolCompletedData,
+  'tool.errored': ToolErroredData,
+
+  // Benchmark
+  'benchmark.completed': BenchmarkCompletedData,
+
+  // Team
+  'team.spawned': TeamSpawnedData,
+  'team.task.assigned': TeamTaskAssignedData,
+  'team.task.completed': TeamTaskCompletedData,
+  'team.task.failed': TeamTaskFailedData,
+  'team.disbanded': TeamDisbandedData,
+  'team.context.injected': TeamContextInjectedData,
+  'team.task.planned': TeamTaskPlannedData,
+  'team.teammate.dispatched': TeamTeammateDispatchedData,
+
+  // Quality
+  'quality.regression': QualityRegressionData,
+  'quality.hint.generated': QualityHintGeneratedData,
+  'quality.refinement.suggested': RefinementSuggestedDataSchema,
+
+  // Review
+  'review.routed': ReviewRoutedData,
+  'review.finding': ReviewFindingData,
+  'review.escalated': ReviewEscalatedData,
+
+  // Remediation
+  'remediation.attempted': RemediationAttemptedDataSchema,
+  'remediation.succeeded': RemediationSucceededDataSchema,
+
+  // Session
+  'session.tagged': SessionTaggedData,
+
+  // Readiness
+  'worktree.created': WorktreeCreatedData,
+  'worktree.baseline': WorktreeBaselineData,
+  'test.result': TestResultData,
+  'typecheck.result': TypecheckResultData,
+  'ci.status': CiStatusData,
+  'comment.posted': CommentPostedData,
+  'comment.resolved': CommentResolvedData,
+
+  // Shepherd
+  'shepherd.started': ShepherdStartedData,
+  'shepherd.iteration': ShepherdIterationData,
+  'shepherd.approval_requested': ShepherdApprovalRequestedData,
+  'shepherd.completed': ShepherdCompletedData,
+
+  // Eval
+  'eval.run.started': EvalRunStartedData,
+  'eval.case.completed': EvalCaseCompletedData,
+  'eval.run.completed': EvalRunCompletedData,
+  'eval.judge.calibrated': JudgeCalibratedDataSchema,
+};
+
 // ─── TypeScript Types ───────────────────────────────────────────────────────
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;

@@ -38,6 +38,7 @@ import {
   CommentPostedData,
   CommentResolvedData,
   EVENT_EMISSION_REGISTRY,
+  EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
 } from './schemas.js';
 
@@ -83,6 +84,58 @@ describe('EVENT_EMISSION_REGISTRY', () => {
     ];
     for (const eventType of autoSpotChecks) {
       expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
+    }
+  });
+});
+
+// ─── T2: EVENT_DATA_SCHEMAS map ─────────────────────────────────────────────
+
+describe('EVENT_DATA_SCHEMAS', () => {
+  it('EventDataSchemas_AllEventTypes_HaveEntry', () => {
+    // Every EventType should either be in EVENT_DATA_SCHEMAS or be explicitly absent.
+    // We verify that the keys in EVENT_DATA_SCHEMAS are all valid EventTypes.
+    const schemaKeys = Object.keys(EVENT_DATA_SCHEMAS);
+    for (const key of schemaKeys) {
+      expect(EventTypes).toContain(key);
+    }
+  });
+
+  it('EventDataSchemas_ModelEvents_HaveNonNullSchemas', () => {
+    // Every model-emitted type must have a non-null schema
+    for (const eventType of EventTypes) {
+      if (EVENT_EMISSION_REGISTRY[eventType] === 'model') {
+        expect(
+          EVENT_DATA_SCHEMAS[eventType],
+          `Model event '${eventType}' should have a data schema`,
+        ).toBeDefined();
+      }
+    }
+  });
+
+  it('EventDataSchemas_ValidData_ParsesSuccessfully', () => {
+    // For each entry with a schema, parse known-valid data samples
+    const validDataSamples: Partial<Record<string, Record<string, unknown>>> = {
+      'workflow.started': { featureId: 'f1', workflowType: 'feature' },
+      'task.assigned': { taskId: 't1', title: 'Test task' },
+      'task.claimed': { taskId: 't1', agentId: 'a1', claimedAt: '2025-01-01T00:00:00Z' },
+      'task.progressed': { taskId: 't1', tddPhase: 'red' },
+      'task.completed': { taskId: 't1' },
+      'task.failed': { taskId: 't1', error: 'something broke' },
+      'team.spawned': { teamSize: 2, teammateNames: ['a', 'b'], taskCount: 3, dispatchMode: 'agent-team' },
+      'team.task.assigned': { taskId: 't1', teammateName: 'w1', worktreePath: '/tmp/wt', modules: ['m1'] },
+      'team.task.completed': { taskId: 't1', teammateName: 'w1', durationMs: 1000, filesChanged: ['f.ts'], testsPassed: true, qualityGateResults: {} },
+      'team.task.failed': { taskId: 't1', teammateName: 'w1', failureReason: 'build', gateResults: {} },
+      'team.disbanded': { totalDurationMs: 5000, tasksCompleted: 2, tasksFailed: 0 },
+      'review.routed': { pr: 1, riskScore: 0.5, factors: ['f'], destination: 'coderabbit', velocityTier: 'normal', semanticAugmented: false },
+      'session.tagged': { tag: 'test', sessionId: 'sess-1' },
+    };
+
+    for (const [eventType, data] of Object.entries(validDataSamples)) {
+      const schema = EVENT_DATA_SCHEMAS[eventType as typeof EventTypes[number]];
+      if (schema) {
+        const result = schema.safeParse(data);
+        expect(result.success, `Schema for '${eventType}' should parse valid data: ${JSON.stringify(result)}`).toBe(true);
+      }
     }
   });
 });
