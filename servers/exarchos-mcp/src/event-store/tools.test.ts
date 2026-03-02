@@ -17,6 +17,51 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
+// ─── T4: VALIDATION_ERROR for malformed model-emitted event data ────────────
+
+describe('handleEventAppend data validation', () => {
+  it('HandleEventAppend_ModelEventInvalidData_ReturnsValidationError', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'validate-test',
+        event: {
+          type: 'team.task.completed',
+          data: { foo: 'bar' },
+        },
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VALIDATION_ERROR');
+    expect(result.error!.message).toContain('team.task.completed');
+  });
+
+  it('HandleEventAppend_ModelEventValidData_Succeeds', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'validate-test',
+        event: {
+          type: 'team.task.completed',
+          data: {
+            taskId: 'task-001',
+            teammateName: 'worker-1',
+            durationMs: 5000,
+            filesChanged: ['a.ts'],
+            testsPassed: true,
+            qualityGateResults: {},
+          },
+        },
+      },
+      tempDir,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+  });
+});
+
 // ─── Prototype Pollution Prevention ─────────────────────────────────────────
 
 describe('handleEventQuery field projection', () => {
