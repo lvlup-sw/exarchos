@@ -1346,6 +1346,57 @@ describe('session-start command', () => {
     });
   });
 
+  // ─── Safety Rules Injection ────────────────────────────────────────────────
+
+  describe('safety rules injection', () => {
+    const originalPluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+    let pluginRootDir: string;
+
+    beforeEach(async () => {
+      pluginRootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-plugin-'));
+    });
+
+    afterEach(async () => {
+      // Restore env var
+      if (originalPluginRoot !== undefined) {
+        process.env.EXARCHOS_PLUGIN_ROOT = originalPluginRoot;
+      } else {
+        delete process.env.EXARCHOS_PLUGIN_ROOT;
+      }
+      // Clean up temp plugin root dir
+      await fs.rm(pluginRootDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it('SessionStart_IncludesSafetyRulesInContextDocument', async () => {
+      // Arrange — create rules/rm-safety.md in the plugin root
+      const rulesDir = path.join(pluginRootDir, 'rules');
+      await fs.mkdir(rulesDir, { recursive: true });
+      await fs.writeFile(
+        path.join(rulesDir, 'rm-safety.md'),
+        '# rm Safety\n\n**NEVER:** rm -rf /',
+      );
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeDefined();
+      expect(result.contextDocument).toContain('rm Safety');
+    });
+
+    it('SessionStart_GracefulWhenNoRulesDirectory', async () => {
+      // Arrange — plugin root exists but has no rules/ subdirectory
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert — should not crash, contextDocument should be undefined or not contain safety rules
+      expect(result.contextDocument === undefined || !result.contextDocument.includes('rm Safety')).toBe(true);
+    });
+  });
+
   // ─── Session Retry Mechanism (Task 011) ────────────────────────────────────
 
   describe('session retry mechanism', () => {
