@@ -123,8 +123,8 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 })
 ```
 
-**On `passed: true`:** All checks pass (tests, lint, typecheck).
-**On `passed: false`:** One or more checks failed — fix before proceeding.
+**On `passed: true`:** All static analysis checks pass (lint, typecheck).
+**On `passed: false`:** One or more static analysis checks failed — fix before proceeding.
 
 **Save validation results and advance:**
 ```

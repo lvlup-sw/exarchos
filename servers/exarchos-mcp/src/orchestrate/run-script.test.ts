@@ -91,11 +91,15 @@ describe('handleRunScript', () => {
     expect(result.error).toMatchObject({ code: 'INVALID_INPUT', message: 'args must be an array of strings' });
   });
 
-  it('RunScript_UsesResolveScript_ForPathResolution', async () => {
+  it('RunScript_ExecutesResolvedScriptPath', async () => {
     vi.mocked(execFileSync).mockReturnValue('ok');
 
     await handleRunScript({ script: 'foo.sh' }, stateDir);
 
-    expect(resolveScript).toHaveBeenCalledWith('foo.sh');
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/resolved/scripts/foo.sh',
+      [],
+      expect.objectContaining({ timeout: 30_000 }),
+    );
   });
 });

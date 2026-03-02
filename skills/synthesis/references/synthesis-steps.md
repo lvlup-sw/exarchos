@@ -6,35 +6,30 @@ name: synthesis-steps
 
 ## Step 1: Verify Readiness
 
-Run the pre-synthesis readiness check:
+Call the `prepare_synthesis` composite action to validate all preconditions in a single operation:
 ```typescript
-exarchos_orchestrate({
-  action: "run_script",
-  script: "pre-synthesis-check.sh",
-  args: [
-    "--state-file", "~/.claude/workflow-state/<featureId>.state.json",
-    "--repo-root", "<repo-root>"
-  ]
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "prepare_synthesis",
+  featureId: "<featureId>"
 })
 ```
 
-The script validates all readiness conditions:
+The composite action validates all readiness conditions:
 - All delegated tasks complete (from state file)
 - All reviews passed (from state file)
 - No outstanding fix requests (from state file)
 - Task branches exist and are pushed to remote
 - All tests pass (`npm run test:run && npm run typecheck`)
+- Stack integrity verified
 
 **On `passed: true`:** All checks passed -- proceed to Step 2.
 **On `passed: false`:** Output identifies the failing check. Return to `/exarchos:review` or `/exarchos:delegate` as appropriate.
-
-Use `--skip-tests` if tests were already verified in review phase. Use `--skip-stack` to defer stack check to Step 2.
 
 ## Step 2: Verify Branch Stack
 
 Run the stack reconstruction script to detect and fix any broken branch state:
 ```typescript
-exarchos_orchestrate({
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "run_script",
   script: "reconstruct-stack.sh",
   args: [
@@ -112,12 +107,12 @@ EOF
 )"
 ```
 
-**Validation:** Run `exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })` to verify the body passes.
+**Validation:** Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })` to verify the body passes.
 CI enforces this via the `PR Body Check` workflow — PRs missing required sections will fail.
 
 **Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `--template`:
 ```typescript
-exarchos_orchestrate({
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "run_script",
   script: "validate-pr-body.sh",
   args: ["--pr", "<number>", "--template", ".exarchos/pr-template.md"]

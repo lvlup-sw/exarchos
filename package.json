@@ -42,6 +42,7 @@
     "claude-code-plugin",
     "sdlc",
     "workflow",
+    "agent-governance",
     "agent-teams",
     "event-sourcing",
     "code-review",

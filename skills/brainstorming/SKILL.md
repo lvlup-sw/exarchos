@@ -102,7 +102,7 @@ action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" }
 Run the ideation artifact verification:
 
 ```typescript
-exarchos_orchestrate({
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "check_design_completeness",
   featureId: "<featureId>",
   designPath: "docs/designs/<feature>.md"
