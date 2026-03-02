@@ -37,7 +37,55 @@ import {
   CiStatusData,
   CommentPostedData,
   CommentResolvedData,
+  EVENT_EMISSION_REGISTRY,
+  type EventEmissionSource,
 } from './schemas.js';
+
+// ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
+
+describe('EVENT_EMISSION_REGISTRY', () => {
+  it('EventEmissionRegistry_AllEventTypes_HaveClassification', () => {
+    for (const eventType of EventTypes) {
+      expect(EVENT_EMISSION_REGISTRY).toHaveProperty(eventType);
+      const source = EVENT_EMISSION_REGISTRY[eventType];
+      expect(['auto', 'model', 'hook', 'planned']).toContain(source);
+    }
+  });
+
+  it('EventEmissionRegistry_ModelEvents_IncludesTeamAndReview', () => {
+    const modelSpotChecks: Array<typeof EventTypes[number]> = [
+      'team.spawned',
+      'team.task.assigned',
+      'team.disbanded',
+      'review.routed',
+      'review.finding',
+      'review.escalated',
+      'session.tagged',
+      'task.assigned',
+      'task.progressed',
+    ];
+    for (const eventType of modelSpotChecks) {
+      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('model');
+    }
+  });
+
+  it('EventEmissionRegistry_AutoEvents_IncludesWorkflowAndTask', () => {
+    const autoSpotChecks: Array<typeof EventTypes[number]> = [
+      'workflow.started',
+      'workflow.transition',
+      'workflow.checkpoint',
+      'task.claimed',
+      'task.completed',
+      'task.failed',
+      'gate.executed',
+      'state.patched',
+      'tool.invoked',
+    ];
+    for (const eventType of autoSpotChecks) {
+      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
+    }
+  });
+});
 
 describe('validateAgentEvent', () => {
   describe('agent event types', () => {

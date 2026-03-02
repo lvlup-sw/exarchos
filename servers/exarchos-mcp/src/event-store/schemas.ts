@@ -66,6 +66,79 @@ export const EventTypes = [
 
 export type EventType = typeof EventTypes[number];
 
+// ─── Event Emission Source ───────────────────────────────────────────────────
+
+export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned';
+
+export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
+  // auto — emitted by MCP server handlers (deterministic)
+  'workflow.started': 'auto',
+  'workflow.transition': 'auto',
+  'workflow.fix-cycle': 'auto',
+  'workflow.guard-failed': 'auto',
+  'workflow.checkpoint': 'auto',
+  'workflow.compound-entry': 'auto',
+  'workflow.compound-exit': 'auto',
+  'workflow.cancel': 'auto',
+  'workflow.cleanup': 'auto',
+  'workflow.compensation': 'auto',
+  'workflow.circuit-open': 'auto',
+  'workflow.cas-failed': 'auto',
+  'task.claimed': 'auto',
+  'task.completed': 'auto',
+  'task.failed': 'auto',
+  'gate.executed': 'auto',
+  'state.patched': 'auto',
+  'tool.invoked': 'auto',
+  'tool.completed': 'auto',
+  'tool.errored': 'auto',
+  'quality.hint.generated': 'auto',
+  'quality.refinement.suggested': 'auto',
+  'stack.position-filled': 'auto',
+  'stack.restacked': 'auto',
+  'stack.enqueued': 'auto',
+
+  // model — must be emitted explicitly by the model via exarchos_event
+  'team.spawned': 'model',
+  'team.task.assigned': 'model',
+  'team.task.completed': 'model',
+  'team.task.failed': 'model',
+  'team.disbanded': 'model',
+  'team.task.planned': 'model',
+  'team.teammate.dispatched': 'model',
+  'review.routed': 'model',
+  'review.finding': 'model',
+  'review.escalated': 'model',
+  'remediation.attempted': 'model',
+  'remediation.succeeded': 'model',
+  'session.tagged': 'model',
+  'worktree.created': 'model',
+  'worktree.baseline': 'model',
+  'test.result': 'model',
+  'typecheck.result': 'model',
+  'stack.submitted': 'model',
+  'ci.status': 'model',
+  'comment.posted': 'model',
+  'comment.resolved': 'model',
+  'shepherd.iteration': 'model',
+  'quality.regression': 'model',
+  'task.assigned': 'model',
+  'task.progressed': 'model',
+
+  // hook — emitted by Claude Code hooks
+  'benchmark.completed': 'hook',
+
+  // planned — schema exists, not yet emitted in production
+  'team.context.injected': 'planned',
+  'shepherd.started': 'planned',
+  'shepherd.approval_requested': 'planned',
+  'shepherd.completed': 'planned',
+  'eval.run.started': 'planned',
+  'eval.case.completed': 'planned',
+  'eval.run.completed': 'planned',
+  'eval.judge.calibrated': 'planned',
+};
+
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
 export const WorkflowEventBase = z.object({
