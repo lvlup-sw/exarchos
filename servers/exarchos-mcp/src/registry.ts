@@ -429,7 +429,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'assess_stack',
-    description: 'Assess PR stack health: CI status, reviews, comments. Emits events for shepherd view and eval flywheel.',
+    description: 'Assess PR stack health during synthesize: CI status, reviews, comments. Emits events for the shepherd iteration loop (within synthesize phase) and eval flywheel.',
     schema: z.object({
       featureId: z.string().min(1),
       prNumbers: z.array(z.number().int().positive()),

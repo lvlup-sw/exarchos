@@ -1,6 +1,6 @@
 ---
 name: shepherd
-description: "Shepherd PRs through CI and reviews to merge readiness using the assess_stack composite action. Use after /synthesize to iterate on failures, address review feedback, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd."
+description: "Shepherd PRs through CI and reviews to merge readiness. Operates as an iteration loop within the synthesize phase (not a separate HSM phase). Uses assess_stack to check PR health, fix failures, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd."
 metadata:
   author: exarchos
   version: 2.0.0
@@ -13,9 +13,12 @@ metadata:
 
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
+> **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. Events (`shepherd.iteration`, `ci.status`) and the `shepherd_status` view track loop progress without requiring a phase transition.
+
 **Position in workflow:**
-```
+```text
 /synthesize → /shepherd (assess → fix → resubmit → loop) → /cleanup
+              ^^^^^^^^^ runs within synthesize phase
 ```
 
 ## Triggers

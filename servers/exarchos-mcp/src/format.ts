@@ -5,7 +5,13 @@ import type { ValidTransitionTarget } from './workflow/state-machine.js';
 export interface ToolResult {
   readonly success: boolean;
   readonly data?: unknown;
-  readonly error?: { code: string; message: string; validTargets?: readonly (string | ValidTransitionTarget)[] };
+  readonly error?: {
+    code: string;
+    message: string;
+    validTargets?: readonly (string | ValidTransitionTarget)[];
+    expectedShape?: Record<string, unknown>;
+    suggestedFix?: { tool: string; params: Record<string, unknown> };
+  };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
 }
