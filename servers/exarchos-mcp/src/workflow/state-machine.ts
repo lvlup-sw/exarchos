@@ -59,6 +59,11 @@ export interface TransitionResult {
   readonly errorMessage?: string;
   readonly guardDescription?: string;
   readonly validTargets?: readonly ValidTransitionTarget[];
+  readonly guardExpectedShape?: Record<string, unknown>;
+  readonly guardSuggestedFix?: {
+    readonly tool: string;
+    readonly params: Record<string, unknown>;
+  };
 }
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
@@ -337,6 +342,14 @@ export function executeTransition(
     const guardPassed = typeof rawResult === 'boolean' ? rawResult : rawResult.passed;
     const guardReason =
       typeof rawResult === 'object' && 'reason' in rawResult ? rawResult.reason : undefined;
+    const guardExpectedShape =
+      typeof rawResult === 'object' && 'expectedShape' in rawResult
+        ? (rawResult as unknown as Record<string, unknown>).expectedShape as Record<string, unknown> | undefined
+        : undefined;
+    const guardSuggestedFix =
+      typeof rawResult === 'object' && 'suggestedFix' in rawResult
+        ? (rawResult as unknown as Record<string, unknown>).suggestedFix as { tool: string; params: Record<string, unknown> } | undefined
+        : undefined;
     if (!guardPassed) {
       return {
         success: false,
@@ -354,6 +367,8 @@ export function executeTransition(
           ? `Guard '${transition.guard.id}' failed: ${guardReason}`
           : `Guard '${transition.guard.id}' failed: ${transition.guard.description}`,
         guardDescription: transition.guard.description,
+        ...(guardExpectedShape ? { guardExpectedShape } : {}),
+        ...(guardSuggestedFix ? { guardSuggestedFix } : {}),
       };
     }
   }

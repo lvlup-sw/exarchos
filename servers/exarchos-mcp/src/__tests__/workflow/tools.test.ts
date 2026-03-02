@@ -645,6 +645,31 @@ describe('Core Tools', () => {
       expect(result.error?.code).toBe('GUARD_FAILED');
     });
 
+    it('should include expectedShape and suggestedFix in guard failure response', async () => {
+      await handleInit({ featureId: 'guard-diag-test', workflowType: 'feature' }, tmpDir);
+
+      // Try to transition ideate -> plan without setting design artifact
+      const result = await handleSet(
+        { featureId: 'guard-diag-test', phase: 'plan' },
+        tmpDir,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GUARD_FAILED');
+
+      // expectedShape should indicate what artifact is needed
+      const error = result.error as Record<string, unknown>;
+      expect(error.expectedShape).toBeDefined();
+      expect(error.expectedShape).toEqual({ artifacts: { design: '<path-or-content>' } });
+
+      // suggestedFix should provide actionable remediation
+      expect(error.suggestedFix).toBeDefined();
+      const fix = error.suggestedFix as { tool: string; params: Record<string, unknown> };
+      expect(fix.tool).toBe('exarchos_workflow');
+      expect(fix.params.action).toBe('set');
+      expect(fix.params.featureId).toBe('guard-diag-test');
+    });
+
     it('should return INVALID_TRANSITION for invalid target phase', async () => {
       await handleInit({ featureId: 'invalid-test', workflowType: 'feature' }, tmpDir);
 

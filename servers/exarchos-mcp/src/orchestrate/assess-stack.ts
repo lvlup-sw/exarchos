@@ -1,9 +1,10 @@
 // ─── Assess Stack Composite Action ──────────────────────────────────────────
 //
-// Orchestrates PR stack health assessment for the shepherd workflow.
-// Queries CI status, reviews, and comments per PR via `gh` CLI, then emits
-// dual events: `ci.status` for ShepherdStatusView and `gate.executed` for
-// CodeQualityView/flywheel pass rate tracking.
+// Orchestrates PR stack health assessment for the shepherd iteration loop.
+// Shepherd is NOT a separate HSM phase — it operates within the `synthesize`
+// phase. This action queries CI status, reviews, and comments per PR via
+// `gh` CLI, then emits dual events: `ci.status` for ShepherdStatusView and
+// `gate.executed` for CodeQualityView/flywheel pass rate tracking.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync } from 'node:child_process';

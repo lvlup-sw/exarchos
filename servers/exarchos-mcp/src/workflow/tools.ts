@@ -530,6 +530,8 @@ export async function handleSet(
             code: errorCode,
             message: result.errorMessage ?? `Transition failed to '${input.phase}'`,
             ...(result.validTargets?.length ? { validTargets: result.validTargets } : {}),
+            ...(result.guardExpectedShape ? { expectedShape: result.guardExpectedShape } : {}),
+            ...(result.guardSuggestedFix ? { suggestedFix: result.guardSuggestedFix } : {}),
           },
         };
       }

@@ -1140,7 +1140,7 @@ describe('EventStore Sequence Invariant', () => {
     expect(event.sequence).toBe(4);
   });
 
-  it('InitializeSequence_BrokenInvariant_Throws', async () => {
+  it('InitializeSequence_BrokenInvariant_AutoRepairs', async () => {
     // Create a JSONL file where first line has wrong sequence
     const filePath = path.join(tempDir, 'broken-seq.events.jsonl');
     const events = [
@@ -1154,7 +1154,17 @@ describe('EventStore Sequence Invariant', () => {
     await fs.rm(seqPath, { force: true });
 
     const store = new EventStore(tempDir);
-    await expect(store.append('broken-seq', { type: 'task.claimed' })).rejects.toThrow(/sequence invariant/i);
+    // Auto-repair: re-sequences to 1,2 then appends as 3
+    const event = await store.append('broken-seq', { type: 'task.claimed' });
+    expect(event.sequence).toBe(3);
+
+    // Verify repaired file
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    for (let i = 0; i < lines.length; i++) {
+      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
+    }
   });
 
   // T25: Blank-line tolerance
@@ -1184,7 +1194,7 @@ describe('EventStore Sequence Invariant', () => {
 // ─── Sequence Invariant Under Compaction ──────────────────────────────────────
 
 describe('EventStore Sequence Invariant Under Compaction', () => {
-  it('initializeSequence_CompactedFile_ThrowsSequenceInvariantError', async () => {
+  it('initializeSequence_CompactedFile_AutoRepairsSequences', async () => {
     // Arrange: create a JSONL file simulating compaction where middle events
     // were removed. 3 lines but last event has sequence 5 (gap).
     const filePath = path.join(tempDir, 'compacted.events.jsonl');
@@ -1201,10 +1211,17 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
 
     const store = new EventStore(tempDir);
 
-    // Act & Assert: should throw because last event (seq 5) != line count (3)
-    await expect(
-      store.append('compacted', { type: 'task.claimed' }),
-    ).rejects.toThrow(/sequence invariant/i);
+    // Act: auto-repair re-sequences the 3 events to 1,2,3 then appends as 4
+    const event = await store.append('compacted', { type: 'task.claimed' });
+    expect(event.sequence).toBe(4);
+
+    // Verify repaired file
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(4);
+    for (let i = 0; i < lines.length; i++) {
+      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
+    }
   });
 
   it('initializeSequence_ValidFile_SetsCorrectSequence', async () => {
@@ -1230,7 +1247,7 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
     expect(event.sequence).toBe(4);
   });
 
-  it('initializeSequence_FirstEventNotOne_ThrowsSequenceInvariantError', async () => {
+  it('initializeSequence_FirstEventNotOne_AutoRepairsSequences', async () => {
     // Arrange: create a JSONL file where first event starts at sequence 2
     const filePath = path.join(tempDir, 'offset-seq.events.jsonl');
     const events = [
@@ -1246,10 +1263,17 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
 
     const store = new EventStore(tempDir);
 
-    // Act & Assert: should throw because first event seq is 2, expected 1
-    await expect(
-      store.append('offset-seq', { type: 'task.claimed' }),
-    ).rejects.toThrow(/sequence invariant/i);
+    // Act: auto-repair re-sequences to 1,2,3 then appends as 4
+    const event = await store.append('offset-seq', { type: 'task.claimed' });
+    expect(event.sequence).toBe(4);
+
+    // Verify repaired file
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(4);
+    for (let i = 0; i < lines.length; i++) {
+      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
+    }
   });
 });
 
@@ -1805,5 +1829,91 @@ describe('EventStore appendValidated', () => {
     const event = await store.appendValidated('my-workflow', prebuilt, {});
 
     expect(addEntrySpy).toHaveBeenCalledWith('my-workflow', event);
+  });
+});
+
+// ─── Sequence Corruption Detection and Repair (#943) ────────────────────────
+
+describe('EventStore Sequence Corruption Repair', () => {
+  it('initializeSequence_DuplicateSequences_RepairsAutomatically', async () => {
+    // Arrange: manually write a JSONL file with duplicate sequence numbers
+    const filePath = path.join(tempDir, 'corrupt-stream.events.jsonl');
+    const corruptEvents = [
+      JSON.stringify({ streamId: 'corrupt-stream', sequence: 1, type: 'workflow.started', timestamp: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'corrupt-stream', sequence: 2, type: 'task.assigned', timestamp: '2026-01-01T00:00:01Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'corrupt-stream', sequence: 3, type: 'ci.status', timestamp: '2026-01-01T00:00:02Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'corrupt-stream', sequence: 3, type: 'gate.executed', timestamp: '2026-01-01T00:00:02Z', schemaVersion: '1.0' }),
+    ];
+    await fs.writeFile(filePath, corruptEvents.join('\n') + '\n', 'utf-8');
+
+    // Act: create a new EventStore and append (triggers initializeSequence)
+    const store = new EventStore(tempDir);
+    const event = await store.append('corrupt-stream', { type: 'task.completed' });
+
+    // Assert: the new event gets sequence 5 (4 existing + 1 new)
+    expect(event.sequence).toBe(5);
+
+    // Verify the repaired file has monotonic sequences
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(5); // 4 repaired + 1 new
+    for (let i = 0; i < lines.length; i++) {
+      const parsed = JSON.parse(lines[i]);
+      expect(parsed.sequence).toBe(i + 1);
+    }
+  });
+
+  it('initializeSequence_GapInSequences_RepairsAutomatically', async () => {
+    // Arrange: JSONL with a gap (1, 2, 4 — missing 3)
+    const filePath = path.join(tempDir, 'gap-stream.events.jsonl');
+    const gapEvents = [
+      JSON.stringify({ streamId: 'gap-stream', sequence: 1, type: 'workflow.started', timestamp: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'gap-stream', sequence: 2, type: 'task.assigned', timestamp: '2026-01-01T00:00:01Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'gap-stream', sequence: 4, type: 'task.completed', timestamp: '2026-01-01T00:00:02Z', schemaVersion: '1.0' }),
+    ];
+    await fs.writeFile(filePath, gapEvents.join('\n') + '\n', 'utf-8');
+
+    // Act: create store and append
+    const store = new EventStore(tempDir);
+    const event = await store.append('gap-stream', { type: 'workflow.transition' });
+
+    // Assert: new event gets sequence 4 (3 existing lines + 1)
+    expect(event.sequence).toBe(4);
+
+    // Verify repaired sequences
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(4);
+    for (let i = 0; i < lines.length; i++) {
+      const parsed = JSON.parse(lines[i]);
+      expect(parsed.sequence).toBe(i + 1);
+    }
+  });
+
+  it('initializeSequence_HealthyStream_NoRepairNeeded', async () => {
+    // Arrange: write a healthy JSONL file
+    const filePath = path.join(tempDir, 'healthy-stream.events.jsonl');
+    const healthyEvents = [
+      JSON.stringify({ streamId: 'healthy-stream', sequence: 1, type: 'workflow.started', timestamp: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'healthy-stream', sequence: 2, type: 'task.assigned', timestamp: '2026-01-01T00:00:01Z', schemaVersion: '1.0' }),
+      JSON.stringify({ streamId: 'healthy-stream', sequence: 3, type: 'task.completed', timestamp: '2026-01-01T00:00:02Z', schemaVersion: '1.0' }),
+    ];
+    await fs.writeFile(filePath, healthyEvents.join('\n') + '\n', 'utf-8');
+
+    // Act: create store and append
+    const store = new EventStore(tempDir);
+    const event = await store.append('healthy-stream', { type: 'workflow.transition' });
+
+    // Assert: new event gets sequence 4 (3 existing + 1)
+    expect(event.sequence).toBe(4);
+
+    // Verify no unnecessary rewrite (original sequences preserved)
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(4);
+    for (let i = 0; i < lines.length; i++) {
+      const parsed = JSON.parse(lines[i]);
+      expect(parsed.sequence).toBe(i + 1);
+    }
   });
 });

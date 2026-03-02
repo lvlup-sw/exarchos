@@ -661,35 +661,51 @@ export class EventStore {
       // Fall through to line counting
     }
 
-    // Fallback: count lines in JSONL file (O(n)) with sequence invariant validation
+    // Fallback: count lines in JSONL file (O(n)) with full monotonicity validation
     const filePath = this.getEventFilePath(streamId);
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const lines = content.trim().split('\n').filter(Boolean);
 
-      // Sequence invariant validation: sample first and last line
       if (lines.length > 0) {
-        const firstEvent = JSON.parse(lines[0]) as WorkflowEvent;
-        if (firstEvent.sequence !== 1) {
-          throw new Error(
-            `Sequence invariant violated for stream '${streamId}': first event has sequence ${firstEvent.sequence}, expected 1`,
-          );
+        // Full monotonicity check: every event must have sequence === lineIndex + 1
+        let needsRepair = false;
+        for (let i = 0; i < lines.length; i++) {
+          const match = SEQUENCE_REGEX.exec(lines[i]);
+          const seq = match ? parseInt(match[1], 10) : NaN;
+          if (seq !== i + 1) {
+            needsRepair = true;
+            break;
+          }
         }
 
-        const lastEvent = JSON.parse(lines[lines.length - 1]) as WorkflowEvent;
-        if (lastEvent.sequence !== lines.length) {
-          throw new Error(
-            `Sequence invariant violated for stream '${streamId}': last event has sequence ${lastEvent.sequence}, expected ${lines.length}`,
+        if (needsRepair) {
+          storeLogger.warn(
+            { streamId, lineCount: lines.length },
+            'Sequence corruption detected — repairing stream with monotonic re-sequencing',
           );
+          // Re-sequence all events with correct monotonic sequence numbers
+          const repaired: string[] = [];
+          for (let i = 0; i < lines.length; i++) {
+            const event = JSON.parse(lines[i]) as WorkflowEvent;
+            const fixed = { ...event, sequence: i + 1 };
+            repaired.push(JSON.stringify(fixed));
+          }
+          await fs.writeFile(filePath, repaired.join('\n') + '\n', 'utf-8');
+          // Update .seq cache to match repaired state
+          const seqPath = this.getSeqFilePath(streamId);
+          const tmpPath = `${seqPath}.tmp`;
+          try {
+            await fs.writeFile(tmpPath, JSON.stringify({ sequence: lines.length }), 'utf-8');
+            await fs.rename(tmpPath, seqPath);
+          } catch {
+            await fs.rm(tmpPath, { force: true }).catch(() => {});
+          }
         }
       }
 
       this.sequenceCounters.set(streamId, lines.length);
     } catch (err) {
-      // Re-throw sequence invariant errors
-      if (err instanceof Error && err.message.includes('Sequence invariant')) {
-        throw err;
-      }
       this.sequenceCounters.set(streamId, 0);
     }
   }

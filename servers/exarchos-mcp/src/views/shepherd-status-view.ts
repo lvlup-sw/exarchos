@@ -2,6 +2,9 @@ import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
+// Shepherd is NOT a separate HSM phase — it operates as an iteration loop
+// within the `synthesize` phase. This view tracks loop progress (iteration
+// counts, PR health) without requiring a phase transition.
 
 export const SHEPHERD_STATUS_VIEW = 'shepherd-status';
 
