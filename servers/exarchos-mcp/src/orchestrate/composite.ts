@@ -67,6 +67,9 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   run_script: adapt(handleRunScript),
 };
 
+/** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
+export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLERS);
+
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
 /**

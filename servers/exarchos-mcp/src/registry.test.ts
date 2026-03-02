@@ -272,10 +272,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 17 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
+    it('should have 22 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(17);
+      expect(composite!.actions).toHaveLength(22);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -287,6 +287,11 @@ describe('TOOL_REGISTRY', () => {
           'prepare_delegation',
           'prepare_synthesis',
           'assess_stack',
+          'check_design_completeness',
+          'check_plan_coverage',
+          'check_tdd_compliance',
+          'check_post_merge',
+          'check_task_decomposition',
           'check_static_analysis',
           'check_security_scan',
           'check_context_economy',
@@ -300,6 +305,27 @@ describe('TOOL_REGISTRY', () => {
         ]),
       );
     });
+  });
+
+  it('OrchestrateActions_MatchCompositeHandlers_InSync', async () => {
+    const composite = findComposite('exarchos_orchestrate');
+    expect(composite).toBeDefined();
+    const registryNames = new Set(composite!.actions.map((a) => a.name));
+
+    const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
+
+    for (const handlerKey of ACTION_HANDLER_KEYS) {
+      expect(
+        registryNames.has(handlerKey),
+        `Handler '${handlerKey}' in composite.ts is missing from registry.ts orchestrateActions`,
+      ).toBe(true);
+    }
+    for (const registryName of registryNames) {
+      expect(
+        ACTION_HANDLER_KEYS.includes(registryName),
+        `Registry action '${registryName}' has no handler in composite.ts`,
+      ).toBe(true);
+    }
   });
 
   it('should have non-empty phases for every action except init', () => {

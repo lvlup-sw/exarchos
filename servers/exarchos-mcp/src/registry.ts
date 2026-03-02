@@ -532,6 +532,61 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'check_design_completeness',
+    description: 'Verify design document completeness at ideate→plan boundary. Wraps verify-ideate-artifacts.sh. Advisory gate — failures inform but do not block.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      stateFile: z.string().optional(),
+      designPath: z.string().optional(),
+    }),
+    phases: new Set<string>(['ideate', 'plan']),
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_plan_coverage',
+    description: 'Verify plan tasks cover all design sections. Wraps verify-plan-coverage.sh. Emits gate.executed event with dimension D1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      designPath: z.string().min(1),
+      planPath: z.string().min(1),
+    }),
+    phases: PLAN_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_tdd_compliance',
+    description: 'Per-task TDD compliance gate. Wraps check-tdd-compliance.sh. Emits gate.executed event with dimension D1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().min(1),
+      baseBranch: z.string().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_post_merge',
+    description: 'Post-merge regression check. Wraps check-post-merge.sh. Emits gate.executed event with dimension D4.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      prUrl: z.string().min(1),
+      mergeSha: z.string().min(1),
+    }),
+    phases: new Set<string>(['synthesize']),
+    roles: ROLE_LEAD,
+  },
+  {
+    name: 'check_task_decomposition',
+    description: 'Task decomposition quality check at plan boundary. Wraps check-task-decomposition.sh. Emits gate.executed event with dimension D5.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      planPath: z.string().min(1),
+    }),
+    phases: PLAN_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
     name: 'check_event_emissions',
     description: 'Check for expected-but-missing model-emitted events in the current workflow phase. Returns structured hints for missing events.',
     schema: z.object({
