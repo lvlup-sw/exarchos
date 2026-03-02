@@ -31,7 +31,7 @@ Activate this skill when:
 
 This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
-The orchestrator provides the state file path, diff output from `~/.claude/scripts/review-diff.sh`, task ID, and spec review results (must be PASS).
+The orchestrator provides the state file path, diff output from `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh" })`, task ID, and spec review results (must be PASS).
 
 The subagent reads the state file for artifact paths, uses the diff output instead of full files, runs static analysis, performs a code walkthrough, generates a report, and returns the verdict.
 
@@ -124,11 +124,15 @@ If ANY task has `specReview.status !== "pass"`, STOP and return:
 
 If this review follows a delegation phase, verify triage routing:
 
-```bash
-scripts/verify-review-triage.sh --state-file <state-file>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-review-triage.sh",
+  args: ["--state-file", "<state-file>"]
+})
 ```
 
-Exit 0: triage routing correct — continue to Step 1. Exit 1: triage issues found — investigate and resolve before proceeding.
+`passed: true`: triage routing correct — continue to Step 1. `passed: false`: triage issues found — investigate and resolve before proceeding.
 
 ### Step 1: Static Analysis + Security + Extended Gates
 
@@ -177,7 +181,14 @@ After the quality-review fix loop completes and quality passes, re-verify that t
    ```bash
    npm run test:run
    npm run typecheck
-   scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
+   ```
+   ```typescript
+   exarchos_orchestrate({
+     action: "check_tdd_compliance",
+     featureId: "<featureId>",
+     taskId: "<taskId>",
+     branch: "<branch>"
+   })
    ```
 2. If all pass: proceed to APPROVED transition
 3. If any fail: return to NEEDS_FIXES with spec regression noted in issues array

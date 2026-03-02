@@ -101,12 +101,16 @@ action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" }
 
 Run the ideation artifact verification:
 
-```bash
-scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/designs
+```typescript
+exarchos_orchestrate({
+  action: "check_design_completeness",
+  featureId: "<featureId>",
+  designPath: "docs/designs/<feature>.md"
+})
 ```
 
-**On exit 0:** All completion criteria met — proceed to gate check.
-**On exit 1:** Missing artifacts — review output and complete before continuing.
+**On `passed: true`:** All completion criteria met — proceed to gate check.
+**On `passed: false`:** Missing artifacts — review output and complete before continuing.
 
 ## Adversarial Gate Check (ideate → plan)
 

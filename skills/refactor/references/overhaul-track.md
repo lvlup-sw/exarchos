@@ -153,12 +153,16 @@ action: "set", featureId: "refactor-<slug>", phase: "overhaul-update-docs"
 
 Verify all documentation links are valid:
 
-```bash
-bash scripts/verify-doc-links.sh --docs-dir docs/
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-doc-links.sh",
+  args: ["--docs-dir", "docs/"]
+})
 ```
 
-**On Exit 0:** All links valid.
-**On Exit 1:** Broken links found — fix before proceeding.
+**On `passed: true`:** All links valid.
+**On `passed: false`:** Broken links found — fix before proceeding.
 
 For overhaul, typically includes:
 - Architecture documentation updates

@@ -102,21 +102,29 @@ action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 
 Verify scope hasn't expanded beyond polish limits:
 
-```bash
-bash scripts/check-polish-scope.sh --repo-root <path>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "check-polish-scope.sh",
+  args: ["--repo-root", "<path>"]
+})
 ```
 
-**On Exit 0:** Scope OK — stay on polish track.
-**On Exit 1:** Scope expanded — switch to overhaul track.
+**On `passed: true`:** Scope OK — stay on polish track.
+**On `passed: false`:** Scope expanded — switch to overhaul track.
 
 Then run the refactor validation:
 
-```bash
-bash scripts/validate-refactor.sh --repo-root <path>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "validate-refactor.sh",
+  args: ["--repo-root", "<path>"]
+})
 ```
 
-**On Exit 0:** All checks pass (tests, lint, typecheck).
-**On Exit 1:** One or more checks failed — fix before proceeding.
+**On `passed: true`:** All checks pass (tests, lint, typecheck).
+**On `passed: false`:** One or more checks failed — fix before proceeding.
 
 **Save validation results and advance:**
 ```

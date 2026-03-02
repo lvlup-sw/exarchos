@@ -57,12 +57,16 @@ Every refactor MUST update affected documentation. This is not optional. Code wi
 
 After updating documentation, run automated link verification:
 
-```bash
-bash scripts/verify-doc-links.sh --docs-dir docs/
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-doc-links.sh",
+  args: ["--docs-dir", "docs/"]
+})
 ```
 
-**On Exit 0:** All links valid.
-**On Exit 1:** Broken links found — fix before proceeding.
+**On `passed: true`:** All links valid.
+**On `passed: false`:** Broken links found — fix before proceeding.
 
 Additionally:
 

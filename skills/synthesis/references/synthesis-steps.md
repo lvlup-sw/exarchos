@@ -7,10 +7,15 @@ name: synthesis-steps
 ## Step 1: Verify Readiness
 
 Run the pre-synthesis readiness check:
-```bash
-scripts/pre-synthesis-check.sh \
-  --state-file ~/.claude/workflow-state/<featureId>.state.json \
-  --repo-root <repo-root>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "pre-synthesis-check.sh",
+  args: [
+    "--state-file", "~/.claude/workflow-state/<featureId>.state.json",
+    "--repo-root", "<repo-root>"
+  ]
+})
 ```
 
 The script validates all readiness conditions:
@@ -20,18 +25,23 @@ The script validates all readiness conditions:
 - Task branches exist and are pushed to remote
 - All tests pass (`npm run test:run && npm run typecheck`)
 
-**On exit 0:** All checks passed -- proceed to Step 2.
-**On exit 1:** Output identifies the failing check. Return to `/exarchos:review` or `/exarchos:delegate` as appropriate.
+**On `passed: true`:** All checks passed -- proceed to Step 2.
+**On `passed: false`:** Output identifies the failing check. Return to `/exarchos:review` or `/exarchos:delegate` as appropriate.
 
 Use `--skip-tests` if tests were already verified in review phase. Use `--skip-stack` to defer stack check to Step 2.
 
 ## Step 2: Verify Branch Stack
 
 Run the stack reconstruction script to detect and fix any broken branch state:
-```bash
-scripts/reconstruct-stack.sh \
-  --repo-root <repo-root> \
-  --state-file ~/.claude/workflow-state/<featureId>.state.json
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "reconstruct-stack.sh",
+  args: [
+    "--repo-root", "<repo-root>",
+    "--state-file", "~/.claude/workflow-state/<featureId>.state.json"
+  ]
+})
 ```
 
 The script has three phases:
@@ -39,10 +49,10 @@ The script has three phases:
 2. **Reconstruction** -- If issues detected: resets branch pointers, removes blocking worktrees, rebases with correct parent chain
 3. **Validation** -- Confirms all task branches are present with correct ancestry
 
-**On exit 0:** Stack is healthy (or was successfully reconstructed) -- proceed to Step 3.
-**On exit 1:** Reconstruction failed validation. Manual intervention required -- inspect branch state and resolve conflicts.
+**On `passed: true`:** Stack is healthy (or was successfully reconstructed) -- proceed to Step 3.
+**On `passed: false`:** Reconstruction failed validation. Manual intervention required -- inspect branch state and resolve conflicts.
 
-Use `--dry-run` to preview reconstruction actions without making changes.
+Use `--dry-run` arg to preview reconstruction actions without making changes.
 
 ## Step 3: Quick Test Verification
 
@@ -61,16 +71,18 @@ Get PR numbers from the branch stack, then run the CodeRabbit review check:
 # Get PR numbers from GitHub
 PR_NUMBERS=$(gh pr list --json number --jq '.[].number')
 
-# Check CodeRabbit review state
-scripts/check-coderabbit.sh \
-  --owner <owner> --repo <repo> \
-  $PR_NUMBERS
+# Check CodeRabbit review state via orchestrate
+# exarchos_orchestrate({
+#   action: "run_script",
+#   script: "check-coderabbit.sh",
+#   args: ["--owner", "<owner>", "--repo", "<repo>", ...PR_NUMBERS]
+# })
 ```
 
 The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit reviews, and classifies the latest review state.
 
-**On exit 0:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
-**On exit 1:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
+**On `passed: true`:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
+**On `passed: false`:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
 ```typescript
 Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
 ```
@@ -103,12 +115,16 @@ EOF
 )"
 ```
 
-**Validation:** Run `scripts/validate-pr-body.sh --pr <number>` to verify the body passes.
+**Validation:** Run `exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })` to verify the body passes.
 CI enforces this via the `PR Body Check` workflow — PRs missing required sections will fail.
 
 **Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `--template`:
-```bash
-scripts/validate-pr-body.sh --pr <number> --template .exarchos/pr-template.md
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "validate-pr-body.sh",
+  args: ["--pr", "<number>", "--template", ".exarchos/pr-template.md"]
+})
 ```
 
 ## Step 6: Create PRs and Enable Auto-Merge

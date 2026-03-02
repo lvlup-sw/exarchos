@@ -79,10 +79,14 @@ gh pr list --json number,baseRefName,headRefName,title,state \
 # 103: feat/step-2 <- feat/step-3 [OPEN]
 ```
 
-To validate stack integrity, use the `validate-pr-stack.sh` script:
+To validate stack integrity, use the `validate-pr-stack.sh` script via orchestrate:
 
-```bash
-bash scripts/validate-pr-stack.sh main
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "validate-pr-stack.sh",
+  args: ["main"]
+})
 ```
 
 ## 6. Merge Queue

@@ -53,16 +53,17 @@ Every implementation task MUST:
 
 **Verify TDD compliance** in git history after implementation:
 
-```bash
-scripts/check-tdd-compliance.sh \
-  --repo-root . \
-  --branch feature/<name> \
-  --base-branch main
+```typescript
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "feature/<name>"
+})
 ```
 
-- **exit 0** — All commits have test files before or alongside implementation
-- **exit 1** — Violations found; commits have implementation without corresponding tests
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — All commits have test files before or alongside implementation
+- **`passed: false`** — Violations found; commits have implementation without corresponding tests
 
 ## Planning Process
 
@@ -83,16 +84,20 @@ Consult `references/spec-tracing-guide.md` for the methodology and template.
 
 **Pre-populate the matrix** using the traceability generator script:
 
-```bash
-scripts/generate-traceability.sh \
-  --design-file docs/designs/<feature>.md \
-  --plan-file docs/plans/<date>-<feature>.md \
-  --output docs/plans/<date>-<feature>-traceability.md
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "generate-traceability.sh",
+  args: [
+    "--design-file", "docs/designs/<feature>.md",
+    "--plan-file", "docs/plans/<date>-<feature>.md",
+    "--output", "docs/plans/<date>-<feature>-traceability.md"
+  ]
+})
 ```
 
-- **exit 0** — Matrix generated; review and fill in "Key Requirements" column
-- **exit 1** — Parse error; design document may lack expected `##`/`###` headers
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — Matrix generated; review and fill in "Key Requirements" column
+- **`passed: false`** — Parse error; design document may lack expected `##`/`###` headers
 
 ### Step 2: Decompose into Tasks
 
@@ -172,16 +177,20 @@ exarchos_orchestrate({
 
 **5b. Spec coverage check** — verify planned test files exist and pass:
 
-```bash
-scripts/spec-coverage-check.sh \
-  --plan-file docs/plans/<date>-<feature>.md \
-  --repo-root . \
-  --threshold 80
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "spec-coverage-check.sh",
+  args: [
+    "--plan-file", "docs/plans/<date>-<feature>.md",
+    "--repo-root", ".",
+    "--threshold", "80"
+  ]
+})
 ```
 
-- **exit 0** — All planned tests found and passing; plan verification complete
-- **exit 1** — Missing test files or test failures; create missing tests or fix failures
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — All planned tests found and passing; plan verification complete
+- **`passed: false`** — Missing test files or test failures; create missing tests or fix failures
 
 For reference, consult `references/spec-tracing-guide.md` for the underlying methodology.
 
@@ -218,7 +227,7 @@ action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
 ## Completion Criteria
 
 - [ ] Design document read and understood
-- [ ] Spec traceability table created (`scripts/generate-traceability.sh`)
+- [ ] Spec traceability table created (`exarchos_orchestrate({ action: "run_script", script: "generate-traceability.sh" })`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
 - [ ] Each task starts with failing test
@@ -227,15 +236,20 @@ action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
 - [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
 - [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` passed (blocking; gaps must be resolved before proceeding)
 - [ ] Task decomposition checked — `exarchos_orchestrate({ action: "check_task_decomposition" })` run (advisory; findings presented but non-blocking)
-- [ ] Spec coverage check passed — `scripts/spec-coverage-check.sh` exit 0
-- [ ] Coverage thresholds met — `scripts/check-coverage-thresholds.sh` exit 0:
+- [ ] Spec coverage check passed — `exarchos_orchestrate({ action: "run_script", script: "spec-coverage-check.sh" })` passed: true
+- [ ] Coverage thresholds met — `exarchos_orchestrate({ action: "run_script", script: "check-coverage-thresholds.sh" })` passed: true:
 
-```bash
-scripts/check-coverage-thresholds.sh \
-  --coverage-file coverage/coverage-summary.json \
-  --line-threshold 80 \
-  --branch-threshold 70 \
-  --function-threshold 100
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "check-coverage-thresholds.sh",
+  args: [
+    "--coverage-file", "coverage/coverage-summary.json",
+    "--line-threshold", "80",
+    "--branch-threshold", "70",
+    "--function-threshold", "100"
+  ]
+})
 ```
 
 - [ ] Plan saved to `docs/plans/`
@@ -259,8 +273,8 @@ Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow`
 | Issue | Cause | Resolution |
 |-------|-------|------------|
 | `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
-| `spec-coverage-check.sh` exit 1 | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
-| `generate-traceability.sh` exit 1 | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
+| `spec-coverage-check.sh` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
+| `generate-traceability.sh` passed: false | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
 | Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/ideate --redesign` |
 
 ## Performance Notes
