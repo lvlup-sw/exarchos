@@ -1,12 +1,16 @@
-# HN Thread Analysis: "If AI writes code, should the session be part of the commit?"
+# HN Market Intelligence: Structured Agent Workflows
+
+Two HN threads and a detailed blog post capturing the state of structured agent development, parallel agent coordination, and plan-driven workflows in the Claude Code ecosystem. Both threads validate Exarchos's core thesis: power users are independently building the workflows Exarchos systematizes.
+
+---
+
+# Thread 1: "If AI writes code, should the session be part of the commit?"
 
 **Source:** https://news.ycombinator.com/item?id=47212355
 **Date:** 2026-03-02
 **Stats:** ~260 points, ~240 comments
 **Project:** [memento](https://github.com/mandel-macaque/memento) — git-notes-based AI session archival
 **Submitted by:** mandel_x
-
----
 
 ## Executive Summary
 
@@ -237,4 +241,288 @@ HN moderator **dang** frames a broader problem:
 
 ---
 
-*Captured 2026-03-02 for lvlup-sw market research.*
+---
+
+# Thread 2: "Parallel coding agents with tmux and Markdown specs"
+
+**Source:** https://news.ycombinator.com/item?id=47218318
+**Blog post:** https://schipper.ai/posts/parallel-coding-agents/
+**Date:** 2026-03-02
+**Stats:** ~83 points, ~56 comments
+**Author:** Manuel Schipper (schipperai) — works at Snowflake
+**System:** Feature Designs (FDs) — Markdown specs with 8-stage lifecycle, 6 slash commands, 3 agent roles
+
+## Executive Summary
+
+A detailed blog post and HN discussion about running 4-8 parallel coding agents using tmux, Markdown specifications, and bash aliases. The author has built a structured SDLC workflow strikingly similar to Exarchos — with lifecycle stages, slash commands, artifact tracking, and verification steps — but entirely through manual markdown conventions and human-mediated coordination. The thread exposes the **pain points that emerge at scale** (context drift, merge conflicts, cognitive overload, token burn) that Exarchos's event-sourced approach is designed to solve.
+
+---
+
+## The Feature Design System (Blog Post)
+
+The blog post describes a system built over **300+ specifications** in a single project:
+
+**8-stage lifecycle:** Planned → Design → Open → In Progress → Pending Verification → Complete → Deferred → Closed
+
+**6 slash commands:**
+| Command | Purpose |
+|---------|---------|
+| `/fd-new` | Create new spec from idea dump |
+| `/fd-status` | Display active/pending/completed index |
+| `/fd-explore` | Bootstrap session with project context |
+| `/fd-deep` | Launch 4 parallel Opus agents for design exploration |
+| `/fd-verify` | Proofread code, execute verification plan, commit |
+| `/fd-close` | Archive spec, update index and changelog |
+
+**3 agent roles:** PM (backlog grooming), Planner (spec design), Worker (implementation)
+
+**Development loop:**
+```
+PM: /fd-status → pick FD or /fd-new
+Planner: /fd-explore → design FD → status: Open
+Worker: /fd-explore → implement → /fd-verify → /fd-close
+```
+
+**Key parallel to Exarchos:** The FD lifecycle maps almost directly to Exarchos's workflow phases:
+
+| FD Stage | Exarchos Phase |
+|----------|---------------|
+| Planned / Design | `/ideate` |
+| Open | `/plan` (plan-review checkpoint) |
+| In Progress | `/delegate` |
+| Pending Verification | `/review` |
+| Complete | `/synthesize` → `/cleanup` |
+
+The critical difference: the FD system is **human-mediated** with no persistent state, no automated phase gates, and no event-sourced audit trail. The human is the orchestrator, the scheduler, and the quality gate.
+
+---
+
+## Key Themes
+
+### 1. Structured Spec-Driven Workflows Are the Emerging Best Practice
+
+The blog post's FD system is the most developed example yet of what jedberg, jumploops, and others described in Thread 1. It demonstrates that power users converge on the same pattern:
+
+- Write specs before implementing
+- Track specs through lifecycle stages
+- Commit specs alongside code
+- Use specs as context bootstrap for new sessions
+
+**schipperai** on how specs survive compaction:
+> "Compaction tends to work better with Workers probably because the FD has granular plan details that a newborn Worker can attend to."
+
+**schipperai** on specs as knowledge base:
+> "An emergent property of this system is that agents frequently rediscover past FDs on their own... The added context of what was considered prior helps the agents plan better, and also remind me of relevant work I may have forgotten about."
+
+**Relevance to Exarchos:** This validates two things: (1) structured specifications are the right abstraction for agent workflows, and (2) they need to survive beyond the current session. The FD system achieves the first but not the second — specs are markdown files with no persistent state, no event sourcing, and no way to resume a partially-complete workflow beyond re-reading the file.
+
+---
+
+### 2. Context Drift Is the Central Scaling Problem
+
+Multiple commenters identify context divergence across parallel agents as the #1 bottleneck:
+
+**CloakHQ:**
+> "The bottleneck wasn't the agents, it was keeping their context from drifting. Each tmux pane has its own session state, so you end up with agents that 'know' different versions of reality by the second hour."
+
+**CloakHQ** on the solution:
+> "We found we also needed a short shared 'ground truth' file the agents could read before taking any action — basically a live snapshot of what's actually done vs what the spec says."
+
+**schipperai** on avoiding drift:
+> "I avoid this with one spec = one agent, with worktrees if there is a chance of code clashing."
+
+**briantakita** (describes his agent-doc system):
+> "For context sync across agents, the key insight was: don't sync. Each agent owns one document with its own conversation history. The orchestration doc (plan.md) references feature docs but doesn't duplicate their content."
+
+**Relevance to Exarchos:** Exarchos's approach — event-sourced state per workflow, materialized views for team coordination, worktree isolation per agent — solves this at the architecture level. The "one spec = one agent" pattern is essentially what `/delegate` does, but with persistent state tracking and convergence gates at the boundaries.
+
+---
+
+### 3. Compaction Kills Decisions — Checkpointing Is Essential
+
+The blog post explicitly calls out compaction as a threat to planning quality:
+
+**schipperai:**
+> "I noticed that compaction can drop good context or even the decisions made during planning, so now I checkpoint FD progress often. This adds time to the planning cycle but results in tighter plans."
+
+**schipperai** on why workers handle compaction better:
+> "Compaction tends to work better with Workers probably because the FD has granular plan details that a newborn Worker can attend to."
+
+The `/fd-explore` command is essentially a manual rehydrate — it bootstraps context from architecture docs, dev guide, and FD index "so the agent doesn't start from zero."
+
+**Relevance to Exarchos:** This is precisely what `/checkpoint` and `/rehydrate` automate. The blog post describes the pain; Exarchos provides the solution. The ~2-3k token rehydrate cost vs. the manual `/fd-explore` context loading is a concrete advantage.
+
+---
+
+### 4. Cognitive Load of Multi-Agent Orchestration
+
+Several commenters describe orchestration fatigue:
+
+**ramoz** (describes a bell curve from single agent → multi-agent → back to single agent):
+> "I spent a ton of time enforcing Claude to use the system I put in place including documentation updates and continuous logging of work."
+
+**medi8r:**
+> "It looks cognitively like being a pilot landing a plane *all day long*, and not what I signed up for. Where is my walk in the local park where I think through stuff and come up with a great idea?"
+
+**schipperai** on practical limits:
+> "Around 8 agents is my practical max. Past that, I lose track of what each one is doing and design decisions suffer."
+> "When I have to prompt an agent to 'summarize its work' I know I need to dial it back."
+
+**Relevance to Exarchos:** The orchestration overhead is the tax for doing this manually. Exarchos's auto-continuation between human checkpoints (only 2 approvals per workflow) is a direct answer to "landing a plane all day." The event-sourced state means you don't have to remember what each agent is doing — the system tracks it.
+
+---
+
+### 5. Merge Conflicts and Sequential Dependencies
+
+**ramoz:**
+> "My problem with these extensive self-orchestrated multi-agent / spec modes is the type of drift and rot of all the changes and then integrated parts of an application that a lot of the time end up in merge conflicts."
+
+**schipperai:**
+> "Not everything parallelizes. Some features have sequential dependencies. While I could force parallelism in some features with worktrees and then try and merge things, it creates merge conflicts and can lead to confusion."
+
+**aceelric** (describes a supervisor pattern):
+> "If it sees that workers can collide it spawns them in worktrees while it handles the merging and cherry-picking."
+
+**schipperai** (on reliability of merge agents):
+> "Do you find the merging agent to be reliable? I had a few bad merges in the past that makes me nervous."
+
+**aceelric:**
+> "Opus 4.6 is great at this compared to other models."
+
+**Relevance to Exarchos:** Exarchos's worktree isolation per delegate task + stacked PR workflow (`/synthesize`) addresses this directly. Each teammate works in an isolated worktree; merging happens through the PR process, not agent-driven cherry-picking.
+
+---
+
+### 6. Token Cost Is Prohibitive at Scale
+
+**hinkley:**
+> "These setups pretty much require the top tier subscription, right?"
+
+**0x457:**
+> "Even Claude Max x1 if you run 2 agents with Opus in parallel you're going hit limits."
+
+**ecliptik:**
+> "The parallel agents burn through tokens extremely quickly and hit Max plan limits in under an hour."
+
+**Relevance to Exarchos:** Token efficiency isn't just a nice-to-have — it's a prerequisite for multi-agent workflows to be economically viable. Exarchos's field-projected state queries (90% reduction), diff-based review, and ~2-3k token rehydrate are material cost savings when running at scale.
+
+---
+
+### 7. Verification Is Still Manual and Ad-Hoc
+
+**schipperai** on `/fd-verify`:
+> "I didn't feel the need to have a separate window / agent for reviewing. The same Worker can review its own code."
+
+**kledru** (pushes back):
+> "I am currently quite impressed with a dedicated verifier that has large degree of freedom (very simple prompt)."
+
+**kledru** (on review workflow):
+> "Github issues used by implementer and reviewer for back-and-forth."
+
+**Relevance to Exarchos:** The debate about self-review vs. dedicated review mirrors Exarchos's design choice: two-stage review (spec compliance + code quality) by the orchestrator, not the implementer. Deterministic verification scripts (not LLM judgment) for quality gates.
+
+---
+
+### 8. Dev Guides Evolve to Manage Agent "Taste"
+
+**schipperai** on growing CLAUDE.md:
+> Agents "lack taste and good judgement" — "mortally terrified of errors, often duplicate code, leave dead code behind, or fail to reuse existing working patterns."
+
+Solution: split CLAUDE.md into `docs/dev_guide/` with summary-on-start and deep-dive-on-demand.
+
+**Relevance to Exarchos:** This mirrors Exarchos's architecture: safety rules in `rules/*.md` (always loaded), domain knowledge in `skills/*/references/` (loaded on demand). The pattern is the same — the dev guide IS the rules/references split.
+
+---
+
+## Tooling Landscape (Thread 2)
+
+| Tool | Author | Description |
+|------|--------|-------------|
+| **Feature Designs (FDs)** | schipperai | Markdown spec system with 8-stage lifecycle, 6 slash commands |
+| **agent-doc** | briantakita | Document-scoped agent coordination with snapshot diffs, tmux routing |
+| **plannotator** | ramoz | Plan mode review hook for Claude Code |
+| **CAS** | aceelric | Factory-mode supervisor with automatic worktree spawning and merge handling |
+| **fluxland** | ecliptik | Wayland compositor built entirely with agent teams |
+| **Claude Code Teams** | Anthropic | Built-in multi-agent orchestration (env var activated) |
+
+---
+
+## Notable Quotes for Marketing Use (Thread 2)
+
+> "Compaction can drop good context or even the decisions made during planning, so now I checkpoint FD progress often." — schipperai
+
+> "The bottleneck wasn't the agents, it was keeping their context from drifting." — CloakHQ
+
+> "For context sync across agents, the key insight was: don't sync." — briantakita
+
+> "It looks cognitively like being a pilot landing a plane all day long." — medi8r
+
+> "Around 8 agents is my practical max. Past that, I lose track of what each one is doing." — schipperai
+
+> "I spent a ton of time enforcing Claude to use the system I put in place." — ramoz
+
+> "An emergent property of this system is that agents frequently rediscover past FDs on their own." — schipperai
+
+> "The parallel agents burn through tokens extremely quickly and hit Max plan limits in under an hour." — ecliptik
+
+---
+
+## Commenters of Interest (Thread 2)
+
+| Username | Signal | Why |
+|----------|--------|-----|
+| schipperai | FD system author, Snowflake engineer | Built the most developed manual workflow system; describes exact pain points Exarchos solves |
+| CloakHQ | Context drift in multi-agent | Articulates the central scaling problem clearly |
+| briantakita | agent-doc builder | "Don't sync, own" model; backs up Exarchos's one-task-per-agent approach |
+| ramoz | Bell curve from single→multi→single agent | Validates orchestration fatigue; shows the failure mode Exarchos avoids |
+| aceelric | CAS supervisor pattern | Describes automated worktree spawning + merge — closest to Exarchos's delegate model |
+| medi8r | Cognitive load | "Landing a plane all day" — memorable framing for the manual overhead problem |
+| sluongng | Multi-agent reliability timeline | Predicts reliable multi-agent by mid-to-end 2026; validates that tooling matters now |
+| kledru | Dedicated reviewer advocate | Validates Exarchos's two-stage review with separate reviewer |
+| ecliptik | Token burn reality | Concrete data on Max plan limits hit in under an hour |
+| linsomniac | Diverse project portfolio | Demonstrates breadth of agent-team use cases |
+
+---
+
+## Combined Competitive Positioning Matrix
+
+| Feature | memento | FD System | agent-doc | CAS | plannotator | Exarchos |
+|---------|---------|-----------|-----------|-----|-------------|----------|
+| Structured spec lifecycle | No | Yes (8 stages) | Partial | Yes | No | Yes (HSM phases) |
+| Persistent state | No | No (files only) | No | Unclear | No | Yes (event-sourced) |
+| Checkpoint / resume | No | Manual (re-read FD) | No | Unclear | No | Yes (`/rehydrate`) |
+| Multi-agent coordination | No | Manual (tmux) | Manual (tmux) | Automated | No | Automated (`/delegate`) |
+| Quality gates | No | `/fd-verify` (manual) | No | Unclear | Plan review only | 5-dimension convergence |
+| Token efficiency | N/A | Manual context loading | Snapshot diffs | Unclear | N/A | Field projection, diff review |
+| Audit trail | git notes | FD commit messages | No | Unclear | No | Event-sourced log |
+| Worktree isolation | No | Manual | No | Yes (auto) | No | Yes (auto via `/delegate`) |
+| Human checkpoints | N/A | Continuous oversight | Continuous | Unclear | Plan review | 2 only (design + merge) |
+
+---
+
+## Combined Market Signals (Both Threads)
+
+### Validated Demand
+1. **Plan-file workflows** — Thread 1 shows independent invention; Thread 2 shows a mature 300+ spec implementation
+2. **Structured artifact preservation** — Consensus across both threads that specs belong alongside code
+3. **Context recovery** — Both threads identify compaction as a workflow killer; schipperai explicitly checkpoints to mitigate
+4. **Multi-agent coordination** — Thread 2 reveals scaling challenges (drift, merge conflicts, cognitive load) that manual approaches can't solve
+5. **Token efficiency** — Thread 2 shows token burn as a practical constraint that limits multi-agent viability
+
+### Differentiation Opportunities
+1. **Automated orchestration** — Most systems are human-mediated; Exarchos auto-continues between checkpoints
+2. **Event-sourced persistence** — No competitor persists state across sessions; FD system is file-only
+3. **Token-efficient rehydrate** — ~2-3k tokens vs. manual `/fd-explore` context loading
+4. **Convergence gates** — No competitor verifies quality dimensions; `/fd-verify` is manual and self-reviewing
+5. **Reduced cognitive load** — 2 checkpoints vs. "landing a plane all day"
+
+### Messaging Angles (Updated)
+1. **"Your plan.md workflow, systematized"** — target jedberg/jumploops/schipperai cohort
+2. **"300+ specs later, you'll wish it persisted"** — speak to the FD system's scaling limit
+3. **"2 checkpoints, not 8 tmux panes"** — cognitive load reduction angle
+4. **"Rehydrate in 2-3k tokens, not re-explain in 20k"** — token efficiency for resumption
+5. **"Quality gates that aren't self-review"** — verification angle vs. `/fd-verify` self-check
+
+---
+
+*Captured 2026-03-02 for lvlup-sw market research. Updated with Thread 2 analysis.*

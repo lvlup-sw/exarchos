@@ -3,22 +3,47 @@
 
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-  **Structure for agentic development**<br>
-  Durable SDLC workflows · Convergence gates · Agent teams · Audit trail
+  **Your agents forget. Exarchos doesn't.**<br>
+  Checkpoint any workflow · Rehydrate in seconds · Ship verified code
 </div>
 
 ---
 
-## Why Exarchos?
+## The problem
 
-Claude Code is powerful but unstructured. Agents lose context mid-task, skip verification, produce monolithic diffs, and leave no record of what they did or why. Exarchos adds SDLC structure.
+You already know Claude Code needs structure. You probably have a plan.md workflow — write a spec, iterate on it, tell the agent to execute, commit the artifacts alongside the code. Maybe a debug.md. Maybe separate docs per feature.
 
-- **Durable workflows.** State survives context compaction and session restarts. Checkpoint mid-task, resume tomorrow, on a different machine.
-- **Convergence gates.** Five independent quality dimensions verified at every phase boundary — spec fidelity, architectural compliance, context economy, operational resilience, workflow determinism. Code advances only when all dimensions pass.
-- **Structured phases.** Design → plan → implement → review → ship, with human checkpoints at design approval and merge. Everything between auto-continues.
+It works. Until context compaction wipes the session and your agent forgets the plan it's halfway through executing. Or the agent drifts from the spec and you don't catch it until review. Or you come back tomorrow and spend 30 minutes re-explaining what the agent already knew.
+
+The manual workflow is the right instinct. But markdown files can't persist state across sessions, enforce phase gates, or verify that the agent actually followed the plan.
+
+## How Exarchos solves it
+
+**Your plan.md workflow, systematized — with persistence, verification, and token efficiency.**
+
+Exarchos persists workflow state in an event-sourced MCP server — not markdown files, not conversation history. When context compaction hits (or you close your laptop and come back tomorrow), run `/rehydrate`. Your workflow resumes with behavioral guidance, artifact pointers, and task progress intact. No history replay. No re-reading files. ~2-3k tokens to restore full awareness.
+
+```
+# Mid-feature, context is getting long
+/checkpoint                  → state saved to MCP event store
+
+# Next day, new session
+/rehydrate                   → workflow restored: phase, tasks, design doc path, PR links
+                               behavioral guidance injected, next action suggested
+                               cost: ~2-3k tokens (not 20k)
+```
+
+**Design docs, plans, and PR links persist as references** — never inlined into context. Your workflow can generate dozens of artifacts without growing the context footprint. State size stays constant.
+
+## What you get
+
+- **Structured SDLC workflows.** Design → plan → implement → review → ship — the same lifecycle you've been building by hand, but with enforced phase transitions, auto-continuation between human checkpoints, and three workflow types (feature, debug, refactor) that handle the common patterns. Your spec, plan, and design artifacts are first-class objects, not afterthoughts.
+- **Rehydrate + artifacts.** Checkpoint mid-task, resume hours or days later. Design docs, plans, review verdicts, and PR links survive across sessions as lightweight references — not inlined into context, just pointers.
+- **Token-efficient by design.** Field-projected state queries (90% fewer tokens than full reads). Diff-based code review (only changed lines, not full files). Context economy is also a quality gate — code too complex for LLM context can't ship.
+- **Convergence gates.** Five independent quality dimensions verified at every phase boundary — spec fidelity, architectural compliance, context economy, operational resilience, workflow determinism. Code advances only when all pass.
 - **Agent teams.** Delegate tasks to parallel Claude Code instances in isolated git worktrees. The orchestrator coordinates; teammates execute.
-- **Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Automated verification scripts, not vibes.
-- **Full audit trail.** Append-only event log records every workflow transition, quality gate result, and agent decision. Trace what happened, when, and why.
+- **Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic verification scripts, not vibes.
+- **Full audit trail.** Append-only event log records every workflow transition, gate result, and agent decision. Trace what happened, when, and why.
 
 ## Installation
 
@@ -61,7 +86,10 @@ claude --plugin-dir .
 | Bug fix | `/debug` |
 | Code improvement | `/refactor` |
 
-Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoint`, `/rehydrate`, `/cleanup`) are phase commands invoked within workflows.
+| Resume any workflow | `/rehydrate` |
+| Save progress mid-task | `/checkpoint` |
+
+Phase commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/cleanup`) are invoked within workflows and auto-chain between human checkpoints.
 
 ### Feature Workflow
 
@@ -130,6 +158,18 @@ Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoin
 |-------|--------|----------|
 | **Polish** | implement → validate → update docs → completed | Small changes, ≤5 files, direct edits |
 | **Overhaul** | plan → delegate → review → update docs → synthesize | Large restructuring, delegation required |
+
+## Token Efficiency
+
+Every token spent on workflow infrastructure is a token not spent on your code. Exarchos is designed to be the cheapest possible workflow layer.
+
+| Mechanism | How it works | Savings |
+|-----------|-------------|---------|
+| **Field projection** | State queries return only requested fields, not the full object | ~90% fewer tokens |
+| **Diff-based review** | Code review operates on changed lines, not full files | ~97% for large files |
+| **Post-compaction assembly** | `/rehydrate` restores full workflow awareness in ~2-3k tokens | vs. 10-20k for manual re-explanation |
+| **Artifact references** | Design docs, plans, PRs stored as file paths — never inlined into context | Constant state size regardless of artifact count |
+| **Context economy gate** | Quality dimension (D3) that blocks code shipping if it's too complex for LLM context | Prevents bloat at the source |
 
 ## How It Works
 
