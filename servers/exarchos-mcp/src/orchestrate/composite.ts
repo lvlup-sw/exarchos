@@ -30,6 +30,7 @@ import { handleReviewVerdict } from './review-verdict.js';
 import { handleCheckConvergence } from './check-convergence.js';
 import { handleProvenanceChain } from './provenance-chain.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
+import { handleCheckEventEmissions } from './check-event-emissions.js';
 import { handleRunScript } from './run-script.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_convergence: adapt(handleCheckConvergence),
   check_provenance_chain: adapt(handleProvenanceChain),
   check_task_decomposition: adapt(handleTaskDecomposition),
+  check_event_emissions: adapt(handleCheckEventEmissions),
   run_script: adapt(handleRunScript),
 };
 
