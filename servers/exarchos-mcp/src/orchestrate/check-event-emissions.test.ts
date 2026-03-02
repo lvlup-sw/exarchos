@@ -82,6 +82,28 @@ describe('handleCheckEventEmissions', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
+  it('CheckEventEmissions_MalformedFeatureId_ReturnsError', async () => {
+    const result: ToolResult = await handleCheckEventEmissions(
+      { featureId: 'INVALID_ID!' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('featureId');
+  });
+
+  it('CheckEventEmissions_MalformedWorkflowId_ReturnsError', async () => {
+    const result: ToolResult = await handleCheckEventEmissions(
+      { featureId: 'valid-id', workflowId: 'BAD ID!!' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('workflowId');
+  });
+
   it('CheckEventEmissions_AllExpectedEventsPresent_ReturnsNoHints', async () => {
     mockViewState = { phase: 'delegate' };
 

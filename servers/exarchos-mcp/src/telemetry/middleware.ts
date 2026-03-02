@@ -77,16 +77,22 @@ interface EventHint {
   readonly description: string;
 }
 
+interface EventHintsPayload {
+  readonly missing: readonly EventHint[];
+  readonly phase: string;
+  readonly checked: number;
+}
+
 /** Injects `_eventHints` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
-function injectEventHints(result: McpToolResult, hints: EventHint[]): McpToolResult {
-  if (hints.length === 0) return result;
+function injectEventHints(result: McpToolResult, payload: EventHintsPayload): McpToolResult {
+  if (payload.missing.length === 0) return result;
 
   const entry = result.content[0];
   if (!entry?.text) return result;
 
   try {
     const parsed = JSON.parse(entry.text) as Record<string, unknown>;
-    parsed._eventHints = { missing: hints, phase: 'unknown', checked: hints.length };
+    parsed._eventHints = payload;
     return {
       ...result,
       content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
@@ -203,22 +209,32 @@ export function withTelemetry(
       let finalResult = injectPerf(result, { ms: durationMs, bytes: responseBytes, tokens: tokenEstimate });
       finalResult = injectAutoCorrection(finalResult, appliedCorrections);
 
-      // ─── Event Emission Hints (fire-and-forget) ───────────────────────
+      // ─── Event Emission Hints (bounded wait, non-critical) ────────────
       const featureIdForHints = typeof correctedArgs.featureId === 'string' ? correctedArgs.featureId : undefined;
       if (featureIdForHints) {
         try {
-          const { handleCheckEventEmissions } = await import('../orchestrate/check-event-emissions.js');
-          const hintResult = await handleCheckEventEmissions(
-            { featureId: featureIdForHints },
-            eventStore.dir,
-          );
-          if (hintResult.success && hintResult.data) {
+          const HINT_TIMEOUT_MS = 150;
+          const hintResult = await Promise.race([
+            (async () => {
+              const { handleCheckEventEmissions } = await import('../orchestrate/check-event-emissions.js');
+              return handleCheckEventEmissions(
+                { featureId: featureIdForHints },
+                eventStore.dir,
+              );
+            })(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), HINT_TIMEOUT_MS)),
+          ]);
+          if (hintResult && hintResult.success && hintResult.data) {
             const data = hintResult.data as { hints?: EventHint[]; phase?: string; checked?: number };
             if (data.hints && data.hints.length > 0) {
-              finalResult = injectEventHints(finalResult, data.hints);
+              finalResult = injectEventHints(finalResult, {
+                missing: data.hints,
+                phase: data.phase ?? 'unknown',
+                checked: data.checked ?? data.hints.length,
+              });
             }
           }
-        } catch { /* fire-and-forget — hint generation failure never blocks */ }
+        } catch { /* non-critical — hint generation failure never blocks */ }
       }
 
       // ─── Trace Capture (swallow failures) ──────────────────────────────

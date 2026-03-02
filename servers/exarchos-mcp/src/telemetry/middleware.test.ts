@@ -394,6 +394,12 @@ describe('injectEventHints', () => {
     readonly description: string;
   }
 
+  interface EventHintsPayload {
+    readonly missing: readonly EventHint[];
+    readonly phase: string;
+    readonly checked: number;
+  }
+
   type McpToolResult = {
     content: Array<{ type: string; text: string; [key: string]: unknown }>;
     isError: boolean;
@@ -401,15 +407,15 @@ describe('injectEventHints', () => {
   };
 
   /** Mirror of the private injectEventHints function in middleware.ts */
-  function injectEventHints(result: McpToolResult, hints: EventHint[]): McpToolResult {
-    if (hints.length === 0) return result;
+  function injectEventHints(result: McpToolResult, payload: EventHintsPayload): McpToolResult {
+    if (payload.missing.length === 0) return result;
 
     const entry = result.content[0];
     if (!entry?.text) return result;
 
     try {
       const parsed = JSON.parse(entry.text) as Record<string, unknown>;
-      parsed._eventHints = { missing: hints, phase: 'unknown', checked: hints.length };
+      parsed._eventHints = payload;
       return {
         ...result,
         content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
@@ -425,19 +431,21 @@ describe('injectEventHints', () => {
       isError: false,
     };
 
-    const hints: EventHint[] = [
-      { eventType: 'team.spawned', description: 'Emit team.spawned event' },
-    ];
+    const payload: EventHintsPayload = {
+      missing: [{ eventType: 'team.spawned', description: 'Emit team.spawned event' }],
+      phase: 'delegate',
+      checked: 3,
+    };
 
-    const injected = injectEventHints(result, hints);
+    const injected = injectEventHints(result, payload);
     const parsed = JSON.parse(injected.content[0].text) as Record<string, unknown>;
 
     expect(parsed._eventHints).toBeDefined();
-    const eventHints = parsed._eventHints as { missing: EventHint[]; phase: string; checked: number };
+    const eventHints = parsed._eventHints as EventHintsPayload;
     expect(eventHints.missing).toHaveLength(1);
     expect(eventHints.missing[0].eventType).toBe('team.spawned');
-    expect(eventHints.phase).toBe('unknown');
-    expect(eventHints.checked).toBe(1);
+    expect(eventHints.phase).toBe('delegate');
+    expect(eventHints.checked).toBe(3);
   });
 
   it('InjectEventHints_EmptyHints_ReturnsUnchanged', () => {
@@ -446,7 +454,8 @@ describe('injectEventHints', () => {
       isError: false,
     };
 
-    const injected = injectEventHints(result, []);
+    const payload: EventHintsPayload = { missing: [], phase: 'delegate', checked: 0 };
+    const injected = injectEventHints(result, payload);
 
     // Should return the exact same object (identity check)
     expect(injected).toBe(result);
@@ -459,11 +468,13 @@ describe('injectEventHints', () => {
       isError: false,
     };
 
-    const hints: EventHint[] = [
-      { eventType: 'team.spawned', description: 'Emit team.spawned event' },
-    ];
+    const payload: EventHintsPayload = {
+      missing: [{ eventType: 'team.spawned', description: 'Emit team.spawned event' }],
+      phase: 'delegate',
+      checked: 3,
+    };
 
-    const injected = injectEventHints(result, hints);
+    const injected = injectEventHints(result, payload);
 
     // Should return unchanged, not crash
     expect(injected.content[0].text).toBe('not valid json at all');

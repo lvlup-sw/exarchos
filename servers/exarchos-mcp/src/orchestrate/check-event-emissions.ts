@@ -85,6 +85,20 @@ export async function handleCheckEventEmissions(
     };
   }
 
+  const SAFE_STREAM_ID = /^[a-z0-9-]+$/;
+  if (!SAFE_STREAM_ID.test(args.featureId)) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId must match /^[a-z0-9-]+$/' },
+    };
+  }
+  if (args.workflowId && !SAFE_STREAM_ID.test(args.workflowId)) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'workflowId must match /^[a-z0-9-]+$/' },
+    };
+  }
+
   const store = getOrCreateEventStore(stateDir);
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
