@@ -118,7 +118,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 
 - **'yes'** -- PRs merge; transition to completed via `/exarchos:cleanup`
 - **'feedback'** -- Route to `/exarchos:delegate --pr-fixes [PR_URL]` to address comments, then return here
-- **'no'** -- Pause workflow; resume later with `/exarchos:resume`
+- **'no'** -- Pause workflow; resume later with `/exarchos:rehydrate`
 
 ### Post-Merge Cleanup
 

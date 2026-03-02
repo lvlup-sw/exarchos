@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: "Checkpoint and resume workflow state for context persistence across sessions. Use when the user says 'save progress', 'checkpoint', 'I need to stop', or runs /checkpoint or /resume. Saves current workflow phase, task progress, and artifacts for later resumption. Do NOT use for workflow initialization (handled by ideate/debug/refactor commands)."
+description: "Checkpoint and resume workflow state for context persistence across sessions. Use when the user says 'save progress', 'checkpoint', 'I need to stop', or runs /checkpoint or /rehydrate. Saves current workflow phase, task progress, and artifacts for later resumption. Do NOT use for workflow initialization (handled by ideate/debug/refactor commands)."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -27,7 +27,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (`/exarchos:ideate`)
 - Transitioning between workflow phases
-- Restoring context after summarization (`/exarchos:resume`)
+- Restoring context after summarization (`/exarchos:rehydrate`)
 - Saving progress for later continuation (`/exarchos:checkpoint`)
 
 ## Phase Transitions

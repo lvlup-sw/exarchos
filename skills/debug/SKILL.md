@@ -80,7 +80,7 @@ Activate this skill when:
 /exarchos:debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/exarchos:resume
+/exarchos:rehydrate
 ```
 
 ## Track Comparison
@@ -151,11 +151,11 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ## Integration Points
 
-### With /exarchos:resume
+### With /exarchos:rehydrate
 
 Debug workflows resume like feature workflows:
 ```bash
-/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:rehydrate
 ```
 
 ### With Existing Skills

@@ -78,7 +78,7 @@ Activate this skill when:
 /exarchos:refactor --switch-overhaul
 
 # Resume after context compaction
-/exarchos:resume
+/exarchos:rehydrate
 ```
 
 ## Track Comparison

@@ -114,4 +114,4 @@ This is one of only TWO human checkpoints in the workflow.
    ```
    After fixes complete, workflow returns here automatically.
 
-6. **On 'no'**: "Workflow paused. Run `/exarchos:resume` to continue later."
+6. **On 'no'**: "Workflow paused. Run `/exarchos:rehydrate` to continue later."

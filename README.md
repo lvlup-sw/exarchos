@@ -61,7 +61,7 @@ claude --plugin-dir .
 | Bug fix | `/debug` |
 | Code improvement | `/refactor` |
 
-Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoint`, `/resume`, `/cleanup`) are phase commands invoked within workflows.
+Supporting commands (`/plan`, `/delegate`, `/review`, `/synthesize`, `/checkpoint`, `/rehydrate`, `/cleanup`) are phase commands invoked within workflows.
 
 ### Feature Workflow
 

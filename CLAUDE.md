@@ -66,7 +66,7 @@ Human checkpoints at plan-review and merge only. Auto-continues via SessionStart
 | Bug fix | `/exarchos:debug` |
 | Code improvement | `/exarchos:refactor` |
 
-Supporting: `/exarchos:plan`, `/exarchos:delegate`, `/exarchos:review`, `/exarchos:synthesize`, `/exarchos:resume`, `/exarchos:checkpoint` — phase commands within workflows.
+Supporting: `/exarchos:plan`, `/exarchos:delegate`, `/exarchos:review`, `/exarchos:synthesize`, `/exarchos:checkpoint`, `/exarchos:rehydrate` — phase commands within workflows.
 
 ## MCP Tool Guidance
 

@@ -80,4 +80,4 @@ After checkpointing, provide:
 1. Confirmation that state is saved
 2. Summary of current progress
 3. Clear instructions for resuming
-4. The exact `/exarchos:resume` command to use
+4. The exact `/exarchos:rehydrate` command to use
