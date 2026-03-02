@@ -22,7 +22,7 @@ For a complete worked example, see `references/worked-example.md`.
 ## Triggers
 
 Activate this skill when:
-- User runs `/review` command (first stage)
+- User runs `/exarchos:review` command (first stage)
 - Task implementation is complete
 - Need to verify spec compliance before quality review
 - Subagent reports task completion

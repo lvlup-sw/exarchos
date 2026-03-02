@@ -32,7 +32,7 @@ Follow the debug skill: `@skills/debug/SKILL.md`
 ### Default: Thorough Track
 
 ```bash
-/debug "Users report cart total is wrong after removing items"
+/exarchos:debug "Users report cart total is wrong after removing items"
 ```
 
 Full investigation with RCA documentation.
@@ -40,7 +40,7 @@ Full investigation with RCA documentation.
 ### Fast Path: Hotfix Track
 
 ```bash
-/debug --hotfix "Production login is returning 500 errors"
+/exarchos:debug --hotfix "Production login is returning 500 errors"
 ```
 
 Time-boxed investigation (15 min), minimal ceremony.
@@ -48,7 +48,7 @@ Time-boxed investigation (15 min), minimal ceremony.
 ### Escalate: Feature Workflow Handoff
 
 ```bash
-/debug --escalate "This requires redesigning the auth system"
+/exarchos:debug --escalate "This requires redesigning the auth system"
 ```
 
 Hands off to `/exarchos:ideate` with preserved context.
@@ -56,7 +56,7 @@ Hands off to `/exarchos:ideate` with preserved context.
 ### Mid-Workflow: Switch to Thorough
 
 ```bash
-/debug --switch-thorough
+/exarchos:debug --switch-thorough
 ```
 
 Switch from hotfix to thorough track during investigation.
@@ -137,18 +137,18 @@ Debug workflows resume via MCP auto-discovery:
 /exarchos:rehydrate
 ```
 
-## When to Use /debug vs /refactor
+## When to Use /exarchos:debug vs /exarchos:refactor
 
-| Signal | Use /debug | Use /refactor |
+| Signal | Use /exarchos:debug | Use /exarchos:refactor |
 |--------|-----------|---------------|
 | Something is broken or wrong | Yes | No |
 | Code works but is messy/complex | No | Yes |
 | Users report a bug or regression | Yes | No |
-| Performance degradation | Start with /debug (investigate) | Escalate to /refactor if structural |
+| Performance degradation | Start with /exarchos:debug (investigate) | Escalate to /exarchos:refactor if structural |
 | "This should be reorganized" | No | Yes |
 | Error in production logs | Yes | No |
 
-**Rule of thumb:** If there is a _symptom_ (something that should work but doesn't), use `/debug`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/refactor`.
+**Rule of thumb:** If there is a _symptom_ (something that should work but doesn't), use `/exarchos:debug`. If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/exarchos:refactor`.
 
 ## Related
 

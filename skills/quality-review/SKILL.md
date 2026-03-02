@@ -23,7 +23,7 @@ Stage 2 of two-stage review: Assess code quality, maintainability, and engineeri
 
 Activate this skill when:
 - Spec review has passed
-- `/review` command (after spec review)
+- `/exarchos:review` command (after spec review)
 - Ready to assess code quality
 - Before synthesis/merge
 
@@ -171,7 +171,7 @@ If HIGH-priority issues found:
 3. Re-review quality after fixes
 4. Only mark APPROVED when all HIGH items resolved and tests pass
 
-**Fix loop iteration limit: max 3.** If HIGH-priority issues persist after 3 fix-review cycles, pause and escalate to the user with a summary of unresolved issues. The user can override: `/review --max-fix-iterations 5`
+**Fix loop iteration limit: max 3.** If HIGH-priority issues persist after 3 fix-review cycles, pause and escalate to the user with a summary of unresolved issues. The user can override: `/exarchos:review --max-fix-iterations 5`
 
 ### Post-Fix Spec Compliance Check (MANDATORY after fix cycle)
 

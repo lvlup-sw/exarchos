@@ -24,12 +24,12 @@ Two-track workflow for improving existing code. Polish track for small, containe
 ## Triggers
 
 Activate this skill when:
-- User runs `/refactor` command
+- User runs `/exarchos:refactor` command
 - User wants to improve existing code structure
 - User mentions "refactor", "restructure", "clean up", "migrate"
 - User asks to "move", "extract", "rename", or "reorganize" code
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `/refactor` when the code *works* but needs structural improvement. Use `/debug` when something is *broken* (error, crash, wrong behavior).
+**Disambiguation:** If the user says "fix" or "clean up" — use `/exarchos:refactor` when the code *works* but needs structural improvement. Use `/exarchos:debug` when something is *broken* (error, crash, wrong behavior).
 
 ## Workflow Overview
 
@@ -57,13 +57,13 @@ Activate this skill when:
 
 ```bash
 # Default: overhaul track
-/refactor "Description of what needs refactoring"
+/exarchos:refactor "Description of what needs refactoring"
 
 # Fast path: polish track
-/refactor --polish "Small contained refactor description"
+/exarchos:refactor --polish "Small contained refactor description"
 
 # Explore first, then decide track
-/refactor --explore "Unsure of scope, explore first"
+/exarchos:refactor --explore "Unsure of scope, explore first"
 ```
 
 ### Mid-Workflow Commands
@@ -193,6 +193,6 @@ When Exarchos MCP tools are available, emit events throughout the refactor workf
 1. **At workflow start (explore):** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
 2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (polish/overhaul)
 3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
-4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `git commit` + `git push` per implementer prompt)
+4. **Overhaul track stacking:** Handled by `/exarchos:delegate` (subagents use `git commit` + `git push` per implementer prompt)
 5. **Polish track commit:** Single `git commit -m "refactor: <description>"` + `git push` — no multi-branch stacking needed
 6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"

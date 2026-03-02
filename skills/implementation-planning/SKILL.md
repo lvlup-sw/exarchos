@@ -20,7 +20,7 @@ For a complete worked example, see `references/worked-example.md`.
 ## Triggers
 
 Activate this skill when:
-- User runs `/plan` command
+- User runs `/exarchos:plan` command
 - User wants to break down a design into tasks
 - A design document exists and needs implementation steps
 - User says "plan the implementation" or similar
@@ -275,7 +275,7 @@ Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow`
 | `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
 | `spec-coverage-check.sh` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
 | `generate-traceability.sh` passed: false | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
-| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/ideate --redesign` |
+| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/exarchos:ideate --redesign` |
 
 ## Performance Notes
 

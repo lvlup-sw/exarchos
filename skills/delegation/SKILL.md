@@ -16,7 +16,7 @@ Dispatch implementation tasks to Claude Code subagents with proper context, work
 ## Triggers
 
 Activate this skill when:
-- User runs `/delegate` command
+- User runs `/exarchos:delegate` command
 - Implementation plan is ready with extractable tasks
 - User wants to parallelize work across subagents
 
@@ -39,7 +39,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 | `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
-**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/delegate --mode subagent|agent-team`.
+**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
 
 **CRITICAL:** Always specify `model: "opus"` for coding tasks.
 

@@ -30,9 +30,9 @@ cd servers/exarchos-mcp && npm run test:run
 
 ## Workflows
 
-- **Feature:** `/ideate` → `/plan` → `/delegate` → `/review` → `/synthesize` → `/cleanup`
-- **Debug:** `/debug` → triage → investigate → fix → validate
-- **Refactor:** `/refactor` → explore → brief → implement → validate
+- **Feature:** `/exarchos:ideate` → `/exarchos:plan` → `/exarchos:delegate` → `/exarchos:review` → `/exarchos:synthesize` → `/exarchos:cleanup`
+- **Debug:** `/exarchos:debug` → triage → investigate → fix → validate
+- **Refactor:** `/exarchos:refactor` → explore → brief → implement → validate
 
 Human checkpoints at plan-review and merge only. Auto-continues via SessionStart hook.
 
@@ -62,11 +62,11 @@ Human checkpoints at plan-review and merge only. Auto-continues via SessionStart
 
 | Task | Command |
 |------|---------|
-| New feature/design | `/ideate` |
-| Bug fix | `/debug` |
-| Code improvement | `/refactor` |
+| New feature/design | `/exarchos:ideate` |
+| Bug fix | `/exarchos:debug` |
+| Code improvement | `/exarchos:refactor` |
 
-Supporting: `/plan`, `/delegate`, `/review`, `/synthesize`, `/resume`, `/checkpoint` — phase commands within workflows.
+Supporting: `/exarchos:plan`, `/exarchos:delegate`, `/exarchos:review`, `/exarchos:synthesize`, `/exarchos:resume`, `/exarchos:checkpoint` — phase commands within workflows.
 
 ## MCP Tool Guidance
 

@@ -30,7 +30,7 @@ Follow the refactor skill: `@skills/refactor/SKILL.md`
 ### Default: Overhaul Track
 
 ```bash
-/refactor "Restructure the authentication module into separate concerns"
+/exarchos:refactor "Restructure the authentication module into separate concerns"
 ```
 
 Full delegation workflow with worktree isolation.
@@ -38,7 +38,7 @@ Full delegation workflow with worktree isolation.
 ### Fast Path: Polish Track
 
 ```bash
-/refactor --polish "Extract validation logic into utility functions"
+/exarchos:refactor --polish "Extract validation logic into utility functions"
 ```
 
 Direct implementation, <=5 files, single concern.
@@ -46,7 +46,7 @@ Direct implementation, <=5 files, single concern.
 ### Explore First
 
 ```bash
-/refactor --explore "Not sure of scope, assess first"
+/exarchos:refactor --explore "Not sure of scope, assess first"
 ```
 
 Explore to assess scope, then decide track.
@@ -54,7 +54,7 @@ Explore to assess scope, then decide track.
 ### Mid-Workflow: Switch to Overhaul
 
 ```bash
-/refactor --switch-overhaul
+/exarchos:refactor --switch-overhaul
 ```
 
 Switch from polish to overhaul if scope expands.
@@ -130,19 +130,19 @@ explore → brief → plan → delegate → review → update-docs → synthesiz
           (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
 ```
 
-## When to Use /refactor vs /debug
+## When to Use /exarchos:refactor vs /exarchos:debug
 
-| Signal | Use /refactor | Use /debug |
+| Signal | Use /exarchos:refactor | Use /exarchos:debug |
 |--------|--------------|-----------|
 | Code works but is messy/complex | Yes | No |
 | Something is broken or wrong | No | Yes |
 | "This should be reorganized" | Yes | No |
 | Users report a bug or regression | No | Yes |
-| Performance degradation | Switch to /refactor if structural | Start with /debug (investigate) |
+| Performance degradation | Switch to /exarchos:refactor if structural | Start with /exarchos:debug (investigate) |
 | SOLID violations in working code | Yes | No |
 | Error in production logs | No | Yes |
 
-**Rule of thumb:** If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/refactor`. If there is a _symptom_ (something that should work but doesn't), use `/debug`.
+**Rule of thumb:** If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/exarchos:refactor`. If there is a _symptom_ (something that should work but doesn't), use `/exarchos:debug`.
 
 ## Resume Support
 

@@ -4,7 +4,7 @@ Common rationalizations that undermine planning rigor, with counter-arguments an
 
 | Rationalization | Counter-argument | What to do instead |
 |-----------------|------------------|--------------------|
-| "The design is clear enough to skip planning" | Designs describe *what* to build, not the sequence, dependencies, or test strategy. Skipping planning leads to ad-hoc implementation, missed edge cases, and rework. | Run `/plan` to decompose the design into granular TDD tasks with explicit dependencies and parallel groups. |
+| "The design is clear enough to skip planning" | Designs describe *what* to build, not the sequence, dependencies, or test strategy. Skipping planning leads to ad-hoc implementation, missed edge cases, and rework. | Run `/exarchos:plan` to decompose the design into granular TDD tasks with explicit dependencies and parallel groups. |
 | "Tests are implied by the implementation" | Implied tests are never written. The Iron Law exists because every "implied" test is a missing safety net that lets regressions ship. | Write each test explicitly in the plan: name, file path, method under test, expected failure reason. |
 | "Small change doesn't need tests" | Small changes break things too — especially boundary conditions and integration points. The change's size does not determine its risk. | Plan a test for every behavioral change, regardless of size. Use the task template's TDD section. |
 | "I'll add tests after the implementation" | Post-hoc tests validate what you built, not what you should have built. They miss edge cases the implementation accidentally handles and confirm bugs as features. | Plan tests first (RED step). Each task starts with a failing test that defines the expected behavior before any production code. |

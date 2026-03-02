@@ -17,16 +17,16 @@ Iterative loop that shepherds published PRs through CI checks and code reviews t
 
 **Position in workflow:**
 ```text
-/synthesize → /shepherd (assess → fix → resubmit → loop) → /cleanup
+/exarchos:synthesize → /exarchos:shepherd (assess → fix → resubmit → loop) → /exarchos:cleanup
               ^^^^^^^^^ runs within synthesize phase
 ```
 
 ## Triggers
 
 Activate when:
-- User runs `/shepherd` or says "shepherd", "tend PRs", "check CI"
+- User runs `/exarchos:shepherd` or says "shepherd", "tend PRs", "check CI"
 - PRs are published and need monitoring through the CI/review gauntlet
-- After `/synthesize` completes and PRs are enqueued
+- After `/exarchos:synthesize` completes and PRs are enqueued
 
 ## Prerequisites
 
@@ -158,7 +158,7 @@ When `assess_stack` returns `recommendation: 'request-approval'` (all checks gre
    - #123: <url>
    - #124: <url>
 
-   Run `/cleanup` after merge completes.
+   Run `/exarchos:cleanup` after merge completes.
    ```
 
 ## State Management
@@ -215,4 +215,4 @@ Consult these references for detailed guidance:
 
 ## Transition
 
-After approval is granted and PRs merge, run `/cleanup` to resolve the workflow to completed state.
+After approval is granted and PRs merge, run `/exarchos:cleanup` to resolve the workflow to completed state.

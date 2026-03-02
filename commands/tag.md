@@ -8,7 +8,7 @@ Attribute this session to **$ARGUMENTS**.
 
 ## When to Use
 
-- Working outside a structured workflow (`/ideate`, `/debug`, `/refactor`)
+- Working outside a structured workflow (`/exarchos:ideate`, `/exarchos:debug`, `/exarchos:refactor`)
 - Quick fixes, explorations, or ad-hoc changes you want linked to a feature
 - Retroactively connecting work to a project after the fact
 

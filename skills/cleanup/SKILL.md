@@ -18,7 +18,7 @@ Resolve merged workflows to `completed` state in a single operation. Replaces th
 ## Triggers
 
 Activate this skill when:
-- User runs `/cleanup` command
+- User runs `/exarchos:cleanup` command
 - User says "cleanup", "resolve workflow", "mark as done"
 - PR stack has merged and workflow needs resolution
 - User wants to close out a completed feature

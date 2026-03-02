@@ -19,7 +19,7 @@ Collaborative design exploration for new features, architecture decisions, and c
 
 Activate this skill when:
 - User says "let's brainstorm", "let's ideate", or "let's explore"
-- User runs `/ideate` command
+- User runs `/exarchos:ideate` command
 - User wants to discuss design options before implementation
 - A problem has multiple valid solutions needing evaluation
 
@@ -68,7 +68,7 @@ Document the chosen approach using the structure in `references/design-template.
 
 **Design iterations: max 3.** If Phase 2 (Exploration) cycles through 3 rounds of presenting approaches without the user converging on a choice, pause and summarize the trade-offs for the user to make a final decision.
 
-The user can override: `/ideate --max-iterations 5`
+The user can override: `/exarchos:ideate --max-iterations 5`
 
 ## Anti-Patterns
 
@@ -127,7 +127,7 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 The handler returns a structured result: `{ passed, advisory, findings[], checkCount, passCount, failCount }`.
 
 - **`passed=true`:** Design complete — all requirements have acceptance criteria and error coverage.
-- **`passed=false, advisory=true`:** Findings detected. These are advisory — they do NOT block the auto-chain to `/plan`. Present `result.data.findings` to the user alongside the transition message.
+- **`passed=false, advisory=true`:** Findings detected. These are advisory — they do NOT block the auto-chain to `/exarchos:plan`. Present `result.data.findings` to the user alongside the transition message.
 
 Gate events (`gate.executed`) are emitted automatically by the handler — no manual event emission is needed.
 

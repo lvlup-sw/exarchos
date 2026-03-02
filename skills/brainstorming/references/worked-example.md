@@ -7,7 +7,7 @@ description: "Complete trace of the brainstorming skill in action, showing happy
 
 ## Context
 
-Feature: event store deduplication for the Exarchos MCP server. The user runs `/ideate` to explore approaches.
+Feature: event store deduplication for the Exarchos MCP server. The user runs `/exarchos:ideate` to explore approaches.
 
 ## Phase 1: Understanding
 

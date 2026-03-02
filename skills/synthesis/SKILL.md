@@ -25,7 +25,7 @@ Do NOT proceed if either review is incomplete or failed -- return to `/exarchos:
 ## Triggers
 
 Activate this skill when:
-- User runs `/synthesize` command
+- User runs `/exarchos:synthesize` command
 - All reviews have passed successfully
 - Ready to submit PRs
 

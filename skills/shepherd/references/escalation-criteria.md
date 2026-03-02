@@ -37,12 +37,12 @@ When escalating, provide:
 
 ## User Override
 
-The user can override iteration limits: `/shepherd --max-iterations 10`
+The user can override iteration limits: `/exarchos:shepherd --max-iterations 10`
 
 After escalation, the user may:
 1. Ask to continue with a higher limit
-2. Manually resolve the blocking issue, then re-run `/shepherd`
-3. Accept the current state and proceed to `/cleanup`
+2. Manually resolve the blocking issue, then re-run `/exarchos:shepherd`
+3. Accept the current state and proceed to `/exarchos:cleanup`
 
 ## Non-Escalation Cases
 

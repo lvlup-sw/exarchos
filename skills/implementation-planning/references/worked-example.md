@@ -7,7 +7,7 @@ description: "Complete trace of the implementation planning skill in action, sho
 
 ## Context
 
-Feature: event stream compaction for the Exarchos MCP server. Design document exists at `docs/designs/2026-02-20-stream-compaction.md`. The user runs `/plan` (or auto-chained from `/ideate`).
+Feature: event stream compaction for the Exarchos MCP server. Design document exists at `docs/designs/2026-02-20-stream-compaction.md`. The user runs `/exarchos:plan` (or auto-chained from `/exarchos:ideate`).
 
 ## Step 1: Analyze Design Document
 

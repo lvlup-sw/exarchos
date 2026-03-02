@@ -26,12 +26,12 @@ Investigation-first workflow for debugging and regression fixes. Provides two tr
 ## Triggers
 
 Activate this skill when:
-- User runs `/debug` command
+- User runs `/exarchos:debug` command
 - User reports a bug or regression
 - User needs to investigate an error
 - User says "fix this bug" or similar
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `/debug` when something is *broken* (error, crash, wrong behavior). Use `/refactor` when the code *works* but needs structural improvement.
+**Disambiguation:** If the user says "fix" or "clean up" — use `/exarchos:debug` when something is *broken* (error, crash, wrong behavior). Use `/exarchos:refactor` when the code *works* but needs structural improvement.
 
 ## Workflow Overview
 
@@ -59,28 +59,26 @@ Activate this skill when:
 
 ```bash
 # Default: thorough track
-/debug "Description of the bug"
+/exarchos:debug "Description of the bug"
 
 # Fast path: hotfix track
-/debug --hotfix "Production is down - users can't login"
+/exarchos:debug --hotfix "Production is down - users can't login"
 
 # Escalate to feature workflow
-/debug --escalate "This needs architectural changes"
+/exarchos:debug --escalate "This needs architectural changes"
 ```
 
 ### Mid-Workflow Commands
 
-These are user-facing commands (the orchestrator resolves them to namespaced form internally):
-
 ```bash
 # Switch from hotfix to thorough (during investigation)
-/debug --switch-thorough
+/exarchos:debug --switch-thorough
 
-# Escalate to /ideate (manual handoff)
-/debug --escalate "Reason for escalation"
+# Escalate to /exarchos:ideate (manual handoff)
+/exarchos:debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/resume
+/exarchos:resume
 ```
 
 ## Track Comparison
@@ -151,11 +149,11 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 ## Integration Points
 
-### With /resume
+### With /exarchos:resume
 
 Debug workflows resume like feature workflows:
 ```bash
-/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
 ```
 
 ### With Existing Skills
