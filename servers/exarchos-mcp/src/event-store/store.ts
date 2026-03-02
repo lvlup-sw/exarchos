@@ -133,6 +133,11 @@ export class EventStore {
     this.backend = options?.backend;
   }
 
+  /** Returns the state directory path used by this event store. */
+  get dir(): string {
+    return this.stateDir;
+  }
+
   /** Configure an optional outbox for event replication. */
   setOutbox(outbox: Outbox): void {
     this.outbox = outbox;
