@@ -22,16 +22,24 @@ action: "get", featureId: "<feature-id>", query: ".artifacts.plan"
 
 Then read the specific task section:
 
-```bash
-~/.claude/scripts/extract-task.sh <plan-path> <task-id>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "extract-task.sh",
+  args: ["<plan-path>", "<task-id>"]
+})
 ```
 
 ## Reading for Review
 
 If reviewing, read the diff instead of full files:
 
-```bash
-~/.claude/scripts/review-diff.sh <worktree-path> main
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "review-diff.sh",
+  args: ["<worktree-path>", "main"]
+})
 ```
 
 ## Reading Design Context

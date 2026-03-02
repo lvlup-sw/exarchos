@@ -28,7 +28,8 @@
         "${CLAUDE_PLUGIN_ROOT}/dist/exarchos-mcp.js"
       ],
       "env": {
-        "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
+        "WORKFLOW_STATE_DIR": "~/.claude/workflow-state",
+        "EXARCHOS_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       }
     }
   }

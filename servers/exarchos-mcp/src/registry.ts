@@ -531,6 +531,16 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'run_script',
+    description: 'Run a plugin script by name with optional arguments. Scripts resolve from EXARCHOS_PLUGIN_ROOT/scripts/ with fallback to ~/.claude/scripts/.',
+    schema: z.object({
+      script: z.string().min(1),
+      args: z.array(z.string()).optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────

@@ -155,6 +155,12 @@ export async function routeCommand(
 // ─── Main Entry Point ───────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Parse --plugin-root from argv if present (used by SessionStart hook)
+  const pluginRootIdx = process.argv.indexOf('--plugin-root');
+  if (pluginRootIdx !== -1 && process.argv[pluginRootIdx + 1]) {
+    process.env.EXARCHOS_PLUGIN_ROOT = process.argv[pluginRootIdx + 1];
+  }
+
   const command = process.argv[2];
 
   if (!command) {

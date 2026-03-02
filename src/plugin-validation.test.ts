@@ -24,6 +24,15 @@ describe('Core Plugin Structure', () => {
       // Only the exarchos server should be bundled in plugin
       expect(Object.keys(plugin.mcpServers)).toEqual(['exarchos']);
     });
+
+    it('PluginJson_McpServerEnv_IncludesExarchosPluginRoot', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
+      expect(plugin.mcpServers.exarchos.env).toHaveProperty(
+        'EXARCHOS_PLUGIN_ROOT',
+        '${CLAUDE_PLUGIN_ROOT}',
+      );
+    });
   });
 
   describe('marketplace.json', () => {

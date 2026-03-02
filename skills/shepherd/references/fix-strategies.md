@@ -233,8 +233,11 @@ git push --force-with-lease
 ### Stack Reconstruction
 
 If the stack is in a broken state:
-```bash
-scripts/reconstruct-stack.sh
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "reconstruct-stack.sh"
+})
 ```
 
 Then resubmit.

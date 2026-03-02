@@ -73,25 +73,11 @@
     ],
     "ruleSets": [
       {
-        "id": "coding-standards",
-        "name": "Coding Standards",
-        "description": "SOLID, control flow, error handling, and language-specific conventions for TypeScript and C#",
+        "id": "safety",
+        "name": "Safety",
+        "description": "Critical safety rules always loaded via session-start progressive disclosure",
         "files": [
-          "coding-standards.md",
-          "tdd.md"
-        ],
-        "default": true
-      },
-      {
-        "id": "workflow",
-        "name": "Workflow & Orchestration",
-        "description": "PR descriptions, MCP tool guidance, safety, and path resolution",
-        "files": [
-          "pr-descriptions.md",
-          "mcp-tool-guidance.md",
-          "skill-path-resolution.md",
-          "rm-safety.md",
-          "telemetry-awareness.md"
+          "rm-safety.md"
         ],
         "default": true
       }

@@ -1325,14 +1325,12 @@ describe('Install Orchestrator - Hooks Integration', () => {
   });
 });
 
-describe('manifest.json workflow ruleset', () => {
-  it('manifest_WorkflowRuleSet_ExcludesAutoResume', () => {
+describe('manifest.json ruleSets', () => {
+  it('manifest_RuleSets_OnlySafetyRemains', () => {
     const manifestPath = join(repoRoot, 'manifest.json');
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
-    const workflowRuleSet = manifest.components.ruleSets.find(
-      (rs: { id: string }) => rs.id === 'workflow',
-    );
-    expect(workflowRuleSet).toBeDefined();
-    expect(workflowRuleSet.files).not.toContain('workflow-auto-resume.md');
+    const ruleSetIds = manifest.components.ruleSets.map((rs: { id: string }) => rs.id);
+    expect(ruleSetIds).toEqual(['safety']);
+    expect(manifest.components.ruleSets[0].files).toEqual(['rm-safety.md']);
   });
 });

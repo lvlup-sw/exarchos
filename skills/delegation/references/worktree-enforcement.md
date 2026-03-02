@@ -17,13 +17,16 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 
 Before dispatching ANY implementer, run the worktree setup script:
 
-```bash
-bash scripts/setup-worktree.sh \
-  --repo-root <project-root> \
-  --task-id <task-id> \
-  --task-name <task-name> \
-  [--base-branch main] \
-  [--skip-tests]
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "setup-worktree.sh",
+  args: [
+    "--repo-root", "<project-root>",
+    "--task-id", "<task-id>",
+    "--task-name", "<task-name>"
+  ]
+})
 ```
 
 **Validates:**
@@ -33,11 +36,9 @@ bash scripts/setup-worktree.sh \
 - `npm install` ran in worktree
 - Baseline tests pass in worktree
 
-**On exit 0:** Worktree is ready. Proceed with implementer dispatch.
+**On `passed: true`:** Worktree is ready. Proceed with implementer dispatch.
 
-**On exit 1:** Setup failed. Review the markdown checklist output for which step failed. Fix the issue before dispatching.
-
-**On exit 2:** Usage error. Check required arguments: `--repo-root`, `--task-id`, `--task-name`.
+**On `passed: false`:** Setup failed. Review the checklist output for which step failed. Fix the issue before dispatching.
 
 ## Worktree State Tracking
 

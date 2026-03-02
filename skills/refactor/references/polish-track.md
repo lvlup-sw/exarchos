@@ -102,21 +102,29 @@ action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 
 Verify scope hasn't expanded beyond polish limits:
 
-```bash
-bash scripts/check-polish-scope.sh --repo-root <path>
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "run_script",
+  script: "check-polish-scope.sh",
+  args: ["--repo-root", "<path>"]
+})
 ```
 
-**On Exit 0:** Scope OK — stay on polish track.
-**On Exit 1:** Scope expanded — switch to overhaul track.
+**On `passed: true`:** Scope OK — stay on polish track.
+**On `passed: false`:** Scope expanded — switch to overhaul track.
 
-Then run the refactor validation:
+Then run the refactor validation via the static analysis gate (which has no timeout constraint, unlike `run_script`'s 30s limit):
 
-```bash
-bash scripts/validate-refactor.sh --repo-root <path>
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "refactor-<slug>",
+  repoRoot: "<path>"
+})
 ```
 
-**On Exit 0:** All checks pass (tests, lint, typecheck).
-**On Exit 1:** One or more checks failed — fix before proceeding.
+**On `passed: true`:** All static analysis checks pass (lint, typecheck).
+**On `passed: false`:** One or more static analysis checks failed — fix before proceeding.
 
 **Save validation results and advance:**
 ```

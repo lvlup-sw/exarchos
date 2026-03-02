@@ -101,12 +101,16 @@ action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" }
 
 Run the ideation artifact verification:
 
-```bash
-scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/designs
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_design_completeness",
+  featureId: "<featureId>",
+  designPath: "docs/designs/YYYY-MM-DD-<feature>.md"
+})
 ```
 
-**On exit 0:** All completion criteria met — proceed to gate check.
-**On exit 1:** Missing artifacts — review output and complete before continuing.
+**On `passed: true`:** All completion criteria met — proceed to gate check.
+**On `passed: false`:** Missing artifacts — review output and complete before continuing. If the check is advisory (`advisory: true`), emit a warning but do not block auto-chain.
 
 ## Adversarial Gate Check (ideate → plan)
 

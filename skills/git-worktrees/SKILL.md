@@ -69,15 +69,18 @@ See `references/commands-reference.md` for the full environment setup table and 
 
 Run baseline tests to ensure the worktree is ready:
 
-```bash
-scripts/verify-worktree-baseline.sh --worktree-path .worktrees/task-name
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-worktree-baseline.sh",
+  args: ["--worktree-path", ".worktrees/task-name"]
+})
 ```
 
 The script auto-detects project type (Node.js, .NET, Rust) and runs the appropriate test command.
 
-**On exit 0:** Baseline tests pass — worktree is ready for implementation.
-**On exit 1:** Baseline tests failed — investigate before proceeding.
-**On exit 2:** Unknown project type — manual verification required.
+**On `passed: true`:** Baseline tests pass — worktree is ready for implementation.
+**On `passed: false`:** Baseline tests failed or unknown project type — investigate before proceeding.
 
 If baseline fails:
 1. Check if main branch has failing tests
@@ -121,18 +124,25 @@ Subagents MUST verify they're in a worktree before making changes. Working in th
 
 Run the worktree verification script before any file modifications:
 
-```bash
-scripts/verify-worktree.sh
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-worktree.sh"
+})
 ```
 
 To check a specific path instead of the current directory:
 
-```bash
-scripts/verify-worktree.sh --cwd /path/to/.worktrees/task-name
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "verify-worktree.sh",
+  args: ["--cwd", "/path/to/.worktrees/task-name"]
+})
 ```
 
-**On exit 0:** In a valid worktree — proceed with implementation.
-**On exit 1:** NOT in a worktree — STOP immediately, do not modify files.
+**On `passed: true`:** In a valid worktree — proceed with implementation.
+**On `passed: false`:** NOT in a worktree — STOP immediately, do not modify files.
 
 ### Subagent Instructions
 
@@ -143,9 +153,9 @@ Include in all implementer prompts:
 
 Before making ANY file changes, run:
 
-    scripts/verify-worktree.sh
+    exarchos_orchestrate({ action: "run_script", script: "verify-worktree.sh" })
 
-If exit code is non-zero: STOP and report error.
+If `passed: false`: STOP and report error.
 DO NOT proceed with any modifications outside a worktree.
 ```
 

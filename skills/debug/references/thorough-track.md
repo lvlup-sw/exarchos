@@ -108,12 +108,16 @@ Spec review only (not quality review - this is a fix, not new feature).
 
 Run the debug review gate to verify test coverage for the bug fix:
 
-```bash
-scripts/debug-review-gate.sh --repo-root <path> --base-branch <branch>
+```typescript
+exarchos_orchestrate({
+  action: "run_script",
+  script: "debug-review-gate.sh",
+  args: ["--repo-root", "<path>", "--base-branch", "<branch>"]
+})
 ```
 
-**On exit 0:** Review passed -- tests added and passing.
-**On exit 1:** Gaps found -- missing tests or regressions.
+**On `passed: true`:** Review passed -- tests added and passing.
+**On `passed: false`:** Gaps found -- missing tests or regressions.
 
 Additionally verify:
 - [ ] Fix matches RCA root cause
@@ -165,7 +169,7 @@ See: docs/rca/YYYY-MM-DD-<issue-slug>.md
 
 ### Hotfix -> Thorough
 
-When `scripts/investigation-timer.sh` exits with code 1 (budget exceeded), switch to thorough track:
+When `exarchos_orchestrate({ action: "run_script", script: "investigation-timer.sh" })` returns `passed: false` (budget exceeded), switch to thorough track:
 
 **Switch to thorough track:**
 

@@ -23,8 +23,9 @@ cd servers/exarchos-mcp && npm run test:run
 ## Architecture
 
 - **Installer** (`src/install.ts`) — Symlinks commands/skills/rules to `~/.claude/`, registers MCP servers in `~/.claude.json`
-- **Content layers** — Commands (`commands/*.md`), Skills (`skills/*/SKILL.md` with `references/`), Rules (`rules/*.md`). Structured Markdown, not executable code.
+- **Content layers** — Commands (`commands/*.md`), Skills (`skills/*/SKILL.md` with `references/`), Rules (`rules/*.md` — safety only; domain rules in `skills/*/references/`). Structured Markdown, not executable code.
 - **MCP server** (`servers/exarchos-mcp/`) — 5 composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`, `exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
+- **Script resolution** — Scripts resolve from `EXARCHOS_PLUGIN_ROOT/scripts/` (plugin install) with fallback to `~/.claude/scripts/` (companion installer). Skills invoke scripts via `exarchos_orchestrate({ action: "run_script" })`, not direct bash paths.
 - **Validation scripts** (`scripts/`) — Deterministic bash replacing prose checklists. Pattern: `set -euo pipefail`, exit codes 0/1/2, co-located `.test.sh`.
 
 ## Workflows
