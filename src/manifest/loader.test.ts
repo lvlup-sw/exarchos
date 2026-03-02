@@ -313,8 +313,7 @@ describe('Real Manifest File (E5)', () => {
   it('manifest_ContainsAllRuleSets', () => {
     const manifest = loadManifest(manifestPath);
     const ruleSetIds = manifest.components.ruleSets.map((r) => r.id);
-    expect(ruleSetIds).toContain('coding-standards');
-    expect(ruleSetIds).toContain('workflow');
+    expect(ruleSetIds).toContain('safety');
   });
 
   it('manifest_RuleSetFiles_AllExist', () => {
