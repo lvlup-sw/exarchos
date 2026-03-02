@@ -1,4 +1,4 @@
-import { WorkflowEventBase, type WorkflowEvent, type EventType } from './schemas.js';
+import { WorkflowEventBase, EVENT_DATA_SCHEMAS, type WorkflowEvent, type EventType } from './schemas.js';
 
 export interface EventInput {
   type: EventType;
@@ -27,12 +27,20 @@ export function buildValidatedEvent(
   sequence: number,
   input: UntrustedEventInput,
 ): WorkflowEvent {
-  return WorkflowEventBase.parse({
+  const event = WorkflowEventBase.parse({
     ...input,
     streamId,
     sequence,
     timestamp: input.timestamp ?? new Date().toISOString(),
   });
+
+  // Type-specific data validation (defense in depth for all events with schemas)
+  const dataSchema = EVENT_DATA_SCHEMAS[event.type as EventType];
+  if (dataSchema && event.data !== undefined) {
+    dataSchema.parse(event.data);
+  }
+
+  return event;
 }
 
 /**

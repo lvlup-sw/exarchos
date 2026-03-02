@@ -277,7 +277,7 @@ describe('tenant field passthrough', () => {
           type: 'workflow.started',
           tenantId: 'tenant-abc',
           organizationId: 'org-xyz',
-          data: { feature: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
         },
       },
       tempDir,

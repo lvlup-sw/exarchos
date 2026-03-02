@@ -25,7 +25,7 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
         },
       },
       tempDir,
@@ -97,7 +97,7 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
@@ -146,7 +146,7 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
@@ -163,7 +163,7 @@ describe('handleEventAppend', () => {
     expect(events[0].streamId).toBe('my-workflow');
     expect(events[0].sequence).toBe(1);
     expect(events[0].type).toBe('workflow.started');
-    expect(events[0].data).toEqual({ featureId: 'test-feature' });
+    expect(events[0].data).toEqual({ featureId: 'test-feature', workflowType: 'feature' });
     expect(events[0].correlationId).toBe('corr-1');
     expect(events[0].agentId).toBe('agent-1');
   });
@@ -329,7 +329,7 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
@@ -358,7 +358,7 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           agentId: 'agent-1',
         },
       },
@@ -369,7 +369,7 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'task.assigned',
-          data: { teamId: 'team-1' },
+          data: { taskId: 'task-1', title: 'Test task' },
         },
       },
       tempDir,
@@ -399,7 +399,7 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           correlationId: 'corr-1',
         },
       },
@@ -462,7 +462,7 @@ describe('registerEventTools', () => {
     registerEventTools(mockServer, tempDir, store);
 
     const result = await handleEventAppend(
-      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test' } } },
+      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test', workflowType: 'feature' } } },
       tempDir,
     );
     expect(result.success).toBe(true);
@@ -475,13 +475,13 @@ describe('registerEventTools', () => {
     // Without registration, the first call to a handler should cache a new EventStore
     // and subsequent calls should reuse it (no orphan instances)
     const result1 = await handleEventAppend(
-      { stream: 'wf-cache-test', event: { type: 'workflow.started', data: { featureId: 'cache1' } } },
+      { stream: 'wf-cache-test', event: { type: 'workflow.started', data: { featureId: 'cache1', workflowType: 'feature' } } },
       tempDir,
     );
     expect(result1.success).toBe(true);
 
     const result2 = await handleEventAppend(
-      { stream: 'wf-cache-test', event: { type: 'task.assigned', data: {} } },
+      { stream: 'wf-cache-test', event: { type: 'task.assigned', data: { taskId: 'task-1', title: 'Test' } } },
       tempDir,
     );
     expect(result2.success).toBe(true);

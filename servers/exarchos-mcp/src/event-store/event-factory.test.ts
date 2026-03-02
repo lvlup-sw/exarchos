@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { ZodError } from 'zod';
 import { buildValidatedEvent, buildEvent } from './event-factory.js';
 
 describe('buildValidatedEvent', () => {
@@ -45,6 +46,56 @@ describe('buildValidatedEvent', () => {
       type: 'workflow.started',
     });
     expect(event.schemaVersion).toBe('1.0');
+  });
+
+  // ─── T3: Type-specific data validation ──────────────────────────────────────
+
+  it('BuildValidatedEvent_ModelEventWithValidData_Succeeds', () => {
+    // team.spawned is a model event with a known data schema
+    const event = buildValidatedEvent('stream-1', 1, {
+      type: 'team.spawned',
+      data: {
+        teamSize: 3,
+        teammateNames: ['a', 'b', 'c'],
+        taskCount: 5,
+        dispatchMode: 'agent-team',
+      },
+    });
+    expect(event.type).toBe('team.spawned');
+    expect(event.data).toBeDefined();
+  });
+
+  it('BuildValidatedEvent_ModelEventWithInvalidData_Throws', () => {
+    // team.spawned with garbage data should throw a ZodError
+    expect(() =>
+      buildValidatedEvent('stream-1', 1, {
+        type: 'team.spawned',
+        data: { foo: 'bar' },
+      }),
+    ).toThrow(ZodError);
+  });
+
+  it('BuildValidatedEvent_AutoEventWithValidData_Succeeds', () => {
+    // workflow.transition is auto-emitted but has a mapped schema — use valid data
+    const event = buildValidatedEvent('stream-1', 1, {
+      type: 'workflow.transition',
+      data: {
+        from: 'ideate',
+        to: 'plan',
+        trigger: 'approve',
+        featureId: 'feat-1',
+      },
+    });
+    expect(event.type).toBe('workflow.transition');
+  });
+
+  it('BuildValidatedEvent_EventWithNoData_Succeeds', () => {
+    // event with data: undefined passes regardless of schema
+    const event = buildValidatedEvent('stream-1', 1, {
+      type: 'team.spawned',
+    });
+    expect(event.type).toBe('team.spawned');
+    expect(event.data).toBeUndefined();
   });
 });
 
