@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="720">
-  <title>Exarchos vs Obra Superpowers</title>
-  <desc>Side-by-side comparison of what happens after context compaction: Superpowers loses state while Exarchos rehydrates in ~2-3k tokens.</desc>
+  <title>Claude Skills vs Exarchos</title>
+  <desc>Side-by-side comparison of what happens after context compaction: Claude skills lose state while Exarchos persists it locally via event-sourced MCP.</desc>
 
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
@@ -20,10 +20,10 @@
   <text class="title" x="360" y="32" text-anchor="middle">After Context Compaction</text>
   <line x1="60" y1="46" x2="660" y2="46" stroke="#374151" stroke-width="1"/>
 
-  <!-- Left panel: Superpowers -->
+  <!-- Left panel: Claude Skills -->
   <rect x="24" y="58" width="326" height="276" rx="6" fill="#1f2937" stroke="#374151" stroke-width="1"/>
-  <text class="head" x="187" y="84" text-anchor="middle">Obra Superpowers</text>
-  <text class="label" x="187" y="100" text-anchor="middle">Behavioral skill files</text>
+  <text class="head" x="187" y="84" text-anchor="middle">Claude Skills</text>
+  <text class="label" x="187" y="100" text-anchor="middle">Markdown-based workflows</text>
   <line x1="44" y1="112" x2="330" y2="112" stroke="#374151" stroke-width="0.5"/>
 
   <!-- Superpowers items -->
@@ -60,12 +60,12 @@
 
   <text class="label" x="390" y="242">Workflow state</text>
   <text class="cm" x="390" y="262">&#x2713;</text>
-  <text class="val" x="408" y="262">Event-sourced MCP (persistent)</text>
+  <text class="val" x="408" y="262">Local MCP server (no cloud deps)</text>
 
   <text class="label" x="390" y="294">Agent coordination</text>
   <text class="cm" x="390" y="314">&#x2713;</text>
   <text class="val" x="408" y="314">Automated worktree delegation</text>
 
   <!-- Footer -->
-  <text class="foot" x="360" y="362" text-anchor="middle">Complementary tools. Use both.</text>
+  <text class="foot" x="360" y="362" text-anchor="middle">All state persisted locally.</text>
 </svg>

@@ -1,180 +1,377 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" width="720">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 580" width="720">
   <title>Exarchos Architecture</title>
-  <desc>Claude Code orchestrates workflows through the Exarchos MCP server. Teammates execute tasks in isolated git worktrees. Task packets flow down, PRs flow back up, convergence gates verify quality.</desc>
+  <desc>Event-sourced SDLC workflows for Claude Code. HSM state machine enforces phase transitions. Agent teammates execute in isolated git worktrees. The verification flywheel — evals, benchmarks, quality hints, refinement signals — continuously improves output quality.</desc>
+
+  <defs>
+    <!-- Subtle grain texture -->
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feBlend in="SourceGraphic" mode="multiply" result="grain"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.03"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" in2="grain"/>
+    </filter>
+    <!-- Glow for active elements -->
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Arrow marker -->
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+    </marker>
+    <marker id="arr-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+    </marker>
+  </defs>
 
   <style>
     text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
-    .tt { fill: #e5e7eb; font-size: 13px; font-weight: 600 }
-    .ts { fill: #9ca3af; font-size: 10px }
-    .td { fill: #6b7280; font-size: 10px }
-    .tx { fill: #6b7280; font-size: 9px }
-    .tok { fill: #10B981; font-size: 9px }
-    .box { fill: #1f2937; stroke: #374151; stroke-width: 1.5 }
+    .h1 { fill: #f0f0f0; font-size: 14px; font-weight: 700; letter-spacing: 0.5px }
+    .h2 { fill: #e5e7eb; font-size: 11px; font-weight: 600 }
+    .h3 { fill: #d1d5db; font-size: 10px; font-weight: 600 }
+    .sub { fill: #9ca3af; font-size: 9px }
+    .dim { fill: #6b7280; font-size: 9px }
+    .tiny { fill: #6b7280; font-size: 8px }
+    .accent { fill: #22d3ee; font-size: 9px; font-weight: 600 }
+    .ok { fill: #10B981; font-size: 9px; font-weight: 600 }
+    .warn { fill: #f59e0b; font-size: 9px; font-weight: 600 }
+    .box { fill: #111827; stroke: #1e293b; stroke-width: 1.5 }
+    .box-hi { fill: #0f172a; stroke: #334155; stroke-width: 1.5 }
 
-    /* Flowing dashed lines */
+    /* Flowing connections */
     @keyframes dash { to { stroke-dashoffset: -20 } }
-    .conn { stroke: #4b5563; stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; animation: dash 0.8s linear infinite }
+    .conn { stroke: #374151; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; animation: dash 1s linear infinite }
 
-    /* Task packets down: MCP → worktrees */
-    @keyframes t1 {
-      0%,14% { opacity:0; transform:translate(0,0) }
-      17% { opacity:1 }
-      33% { opacity:1; transform:translate(-170px,112px) }
-      36%,100% { opacity:0 }
+    /* Pipeline phase highlight sweep */
+    @keyframes sweep {
+      0%,8%   { fill: #22d3ee; opacity: 0.9 }
+      12%,100% { fill: #1e293b; opacity: 1 }
     }
-    @keyframes t2 {
-      0%,17% { opacity:0; transform:translate(0,0) }
-      20% { opacity:1 }
-      36% { opacity:1; transform:translate(0,112px) }
-      39%,100% { opacity:0 }
-    }
-    @keyframes t3 {
-      0%,20% { opacity:0; transform:translate(0,0) }
-      23% { opacity:1 }
-      39% { opacity:1; transform:translate(170px,112px) }
-      42%,100% { opacity:0 }
-    }
-    .pt1 { animation: t1 14s ease-in-out infinite }
-    .pt2 { animation: t2 14s ease-in-out infinite }
-    .pt3 { animation: t3 14s ease-in-out infinite }
+    .ph1 { animation: sweep 16s ease-in-out infinite }
+    .ph2 { animation: sweep 16s ease-in-out infinite; animation-delay: 2.5s }
+    .ph3 { animation: sweep 16s ease-in-out infinite; animation-delay: 5s }
+    .ph4 { animation: sweep 16s ease-in-out infinite; animation-delay: 7.5s }
+    .ph5 { animation: sweep 16s ease-in-out infinite; animation-delay: 10s }
 
-    /* Progress bars fill */
-    @keyframes p1 { 0%,35% { transform:scaleX(0) } 62% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
-    @keyframes p2 { 0%,38% { transform:scaleX(0) } 65% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
-    @keyframes p3 { 0%,41% { transform:scaleX(0) } 68% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
-    .b1 { transform-box: fill-box; transform-origin: left center; animation: p1 14s ease-in-out infinite }
-    .b2 { transform-box: fill-box; transform-origin: left center; animation: p2 14s ease-in-out infinite }
-    .b3 { transform-box: fill-box; transform-origin: left center; animation: p3 14s ease-in-out infinite }
+    /* Task dispatch pulses — travel from gates bar bottom (y=288) to worktree top (y=330) = 42px */
+    @keyframes dispatch {
+      0%,30%  { opacity: 0; transform: translate(0,0) }
+      35%     { opacity: 1 }
+      55%     { opacity: 1; transform: translate(0, 42px) }
+      60%,100%{ opacity: 0 }
+    }
+    .task-pkt { animation: dispatch 16s ease-in-out infinite }
 
-    /* PR packets up: worktrees → MCP */
-    @keyframes r1 {
-      0%,64% { opacity:0; transform:translate(0,0) }
-      67% { opacity:1 }
-      80% { opacity:1; transform:translate(170px,-112px) }
-      83%,100% { opacity:0 }
+    /* PR return pulses — travel from worktree top (y=330) back up to gates bar bottom (y=288) = -42px */
+    @keyframes pr-up {
+      0%,60%  { opacity: 0; transform: translate(0,0) }
+      65%     { opacity: 1 }
+      80%     { opacity: 1; transform: translate(0, -42px) }
+      85%,100%{ opacity: 0 }
     }
-    @keyframes r2 {
-      0%,67% { opacity:0; transform:translate(0,0) }
-      70% { opacity:1 }
-      83% { opacity:1; transform:translate(0,-112px) }
-      86%,100% { opacity:0 }
-    }
-    @keyframes r3 {
-      0%,70% { opacity:0; transform:translate(0,0) }
-      73% { opacity:1 }
-      86% { opacity:1; transform:translate(-170px,-112px) }
-      89%,100% { opacity:0 }
-    }
-    .pr1 { animation: r1 14s ease-in-out infinite }
-    .pr2 { animation: r2 14s ease-in-out infinite }
-    .pr3 { animation: r3 14s ease-in-out infinite }
+    .pr-pkt { animation: pr-up 16s ease-in-out infinite }
 
-    /* Gate indicators: gray → green */
-    @keyframes gate {
-      0%,79% { fill: #374151 }
-      84% { fill: #10B981 }
-      96% { fill: #10B981 }
-      100% { fill: #374151 }
-    }
-    .g { animation: gate 14s ease-in-out infinite }
+    /* Progress bar fill */
+    @keyframes fill-bar { 0%,35% { transform: scaleX(0) } 58% { transform: scaleX(1) } 100% { transform: scaleX(1) } }
+    .bar-fill { transform-box: fill-box; transform-origin: left center; animation: fill-bar 16s ease-in-out infinite }
 
-    /* MCP border glow */
-    @keyframes glow {
-      0%,88% { stroke: #374151 }
-      92% { stroke: #10B981 }
-      97% { stroke: #10B981 }
-      100% { stroke: #374151 }
-    }
-    .mcp { animation: glow 14s ease-in-out infinite }
+    /* Flywheel rotation */
+    @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+    .fw-spin { transform-origin: 600px 290px; animation: spin 24s linear infinite }
 
-    /* Status text fades */
-    @keyframes si { 0%,34% { opacity:0 } 38% { opacity:1 } 60% { opacity:1 } 64%,100% { opacity:0 } }
-    @keyframes sd { 0%,62% { opacity:0 } 66% { opacity:1 } 96% { opacity:1 } 100% { opacity:0 } }
-    .si { animation: si 14s ease-in-out infinite }
-    .sd { animation: sd 14s ease-in-out infinite }
+    /* Gate pulse */
+    @keyframes gate-pulse {
+      0%,75%  { fill: #1e293b }
+      80%     { fill: #10B981 }
+      95%     { fill: #10B981 }
+      100%    { fill: #1e293b }
+    }
+    .gate-dot { animation: gate-pulse 16s ease-in-out infinite }
+
+    /* MCP glow */
+    @keyframes mcp-glow {
+      0%,85%  { stroke: #334155 }
+      90%     { stroke: #22d3ee }
+      97%     { stroke: #22d3ee }
+      100%    { stroke: #334155 }
+    }
+    .mcp-border { animation: mcp-glow 16s ease-in-out infinite }
+
+    /* Flywheel segment highlights */
+    @keyframes fw-seg {
+      0%,20%  { opacity: 0.4 }
+      25%     { opacity: 1 }
+      45%     { opacity: 1 }
+      50%,100%{ opacity: 0.4 }
+    }
+    .fw1 { animation: fw-seg 8s ease-in-out infinite }
+    .fw2 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 2s }
+    .fw3 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 4s }
+    .fw4 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 6s }
   </style>
 
   <!-- Background -->
-  <rect width="720" height="470" fill="#1a1a2e" rx="8"/>
+  <rect width="720" height="580" fill="#0a0a14" rx="8"/>
+  <rect width="720" height="580" fill="#0a0a14" rx="8" filter="url(#grain)"/>
 
-  <!-- Lead Box -->
-  <rect class="box" x="185" y="16" width="350" height="56" rx="6"/>
-  <text class="tt" x="360" y="42" text-anchor="middle">Claude Code (Lead)</text>
-  <text class="td" x="360" y="58" text-anchor="middle">/ideate · /plan · /delegate</text>
+  <!-- ═══════════════ WORKFLOW PIPELINE ═══════════════ -->
+  <text class="h1" x="24" y="30">WORKFLOW PIPELINE</text>
+  <line x1="24" y1="38" x2="200" y2="38" stroke="#22d3ee" stroke-width="1" opacity="0.4"/>
 
-  <!-- Lead → MCP -->
-  <line class="conn" x1="360" y1="72" x2="360" y2="112"/>
+  <!-- Phase boxes -->
+  <g transform="translate(24, 48)">
+    <rect class="ph1" x="0" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="61" y="16" text-anchor="middle">/ideate</text>
+    <text class="dim" x="61" y="28" text-anchor="middle">design</text>
 
-  <!-- MCP Box -->
-  <rect class="box mcp" x="220" y="112" width="280" height="108" rx="6"/>
-  <text class="tt" x="360" y="138" text-anchor="middle">Exarchos MCP</text>
-  <text class="td" x="360" y="156" text-anchor="middle">state · events · teams · gates</text>
+    <path d="M 126 18 L 138 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
 
-  <!-- Gate indicators -->
-  <circle class="g" cx="316" cy="180" r="5" fill="#374151"/>
-  <circle class="g" cx="338" cy="180" r="5" fill="#374151" style="animation-delay:.3s"/>
-  <circle class="g" cx="360" cy="180" r="5" fill="#374151" style="animation-delay:.6s"/>
-  <circle class="g" cx="382" cy="180" r="5" fill="#374151" style="animation-delay:.9s"/>
-  <circle class="g" cx="404" cy="180" r="5" fill="#374151" style="animation-delay:1.2s"/>
-  <text class="td" x="360" y="204" text-anchor="middle">convergence gates</text>
+    <rect class="ph2" x="142" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="203" y="16" text-anchor="middle">/plan</text>
+    <text class="dim" x="203" y="28" text-anchor="middle">TDD tasks</text>
 
-  <!-- MCP → Worktrees -->
-  <line class="conn" x1="290" y1="220" x2="120" y2="332"/>
-  <line class="conn" x1="360" y1="220" x2="360" y2="332"/>
-  <line class="conn" x1="430" y1="220" x2="600" y2="332"/>
+    <path d="M 268 18 L 280 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
 
-  <!-- Task packets (blue, down) -->
-  <rect class="pt1" x="284" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
-  <rect class="pt2" x="354" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
-  <rect class="pt3" x="424" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
+    <rect class="ph3" x="284" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="345" y="16" text-anchor="middle">/delegate</text>
+    <text class="dim" x="345" y="28" text-anchor="middle">parallel agents</text>
 
-  <!-- PR packets (violet, up) -->
-  <rect class="pr1" x="114" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
-  <rect class="pr2" x="354" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
-  <rect class="pr3" x="594" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
+    <path d="M 410 18 L 422 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
 
-  <!-- Worktree 1 -->
-  <g>
-    <rect class="box" x="25" y="332" width="190" height="96" rx="6"/>
-    <text class="ts" x="120" y="356" text-anchor="middle">keen-panther</text>
-    <text class="td" x="120" y="372" text-anchor="middle">(worktree)</text>
-    <rect x="45" y="386" width="150" height="6" rx="3" fill="#374151"/>
-    <rect class="b1" x="45" y="386" width="150" height="6" rx="3" fill="#10B981"/>
-    <text class="tx si" x="120" y="414" text-anchor="middle">implementing...</text>
-    <text class="tok sd" x="120" y="414" text-anchor="middle">complete</text>
+    <rect class="ph4" x="426" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="487" y="16" text-anchor="middle">/review</text>
+    <text class="dim" x="487" y="28" text-anchor="middle">two-stage</text>
+
+    <path d="M 552 18 L 564 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
+
+    <rect class="ph5" x="568" y="0" width="112" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="624" y="16" text-anchor="middle">/synthesize</text>
+    <text class="dim" x="624" y="28" text-anchor="middle">stacked PRs</text>
   </g>
 
-  <!-- Worktree 2 -->
-  <g>
-    <rect class="box" x="265" y="332" width="190" height="96" rx="6"/>
-    <text class="ts" x="360" y="356" text-anchor="middle">wise-lynx</text>
-    <text class="td" x="360" y="372" text-anchor="middle">(worktree)</text>
-    <rect x="285" y="386" width="150" height="6" rx="3" fill="#374151"/>
-    <rect class="b2" x="285" y="386" width="150" height="6" rx="3" fill="#10B981"/>
-    <text class="tx si" x="360" y="414" text-anchor="middle">tests passing...</text>
-    <text class="tok sd" x="360" y="414" text-anchor="middle">complete</text>
+  <!-- Human checkpoint markers -->
+  <g transform="translate(24, 48)">
+    <circle cx="203" cy="42" r="3" fill="#f59e0b"/>
+    <text class="tiny" x="203" y="52" text-anchor="middle" fill="#f59e0b">approve</text>
+    <circle cx="624" cy="42" r="3" fill="#f59e0b"/>
+    <text class="tiny" x="624" y="52" text-anchor="middle" fill="#f59e0b">merge</text>
   </g>
 
-  <!-- Worktree 3 -->
-  <g>
-    <rect class="box" x="505" y="332" width="190" height="96" rx="6"/>
-    <text class="ts" x="600" y="356" text-anchor="middle">solid-newt</text>
-    <text class="td" x="600" y="372" text-anchor="middle">(worktree)</text>
-    <rect x="525" y="386" width="150" height="6" rx="3" fill="#374151"/>
-    <rect class="b3" x="525" y="386" width="150" height="6" rx="3" fill="#10B981"/>
-    <text class="tx si" x="600" y="414" text-anchor="middle">implementing...</text>
-    <text class="tok sd" x="600" y="414" text-anchor="middle">complete</text>
+  <!-- Connector: pipeline row bottom → MCP box top -->
+  <line class="conn" x1="244" y1="84" x2="244" y2="114"/>
+
+  <!-- ═══════════════ EXARCHOS MCP CORE ═══════════════ -->
+  <rect class="box-hi mcp-border" x="24" y="114" width="440" height="120" rx="6"/>
+  <text class="h1" x="44" y="138">EXARCHOS MCP</text>
+  <line x1="44" y1="144" x2="170" y2="144" stroke="#22d3ee" stroke-width="1" opacity="0.3"/>
+
+  <!-- HSM -->
+  <g transform="translate(44, 154)">
+    <rect x="0" y="0" width="120" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="60" y="16" text-anchor="middle">HSM</text>
+    <text class="dim" x="60" y="30" text-anchor="middle">state machine</text>
+    <text class="dim" x="60" y="42" text-anchor="middle">26 guards</text>
   </g>
 
-  <!-- Legend -->
-  <g transform="translate(216,450)">
+  <!-- Event Store -->
+  <g transform="translate(178, 154)">
+    <rect x="0" y="0" width="120" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="60" y="16" text-anchor="middle">Event Store</text>
+    <text class="dim" x="60" y="30" text-anchor="middle">append-only</text>
+    <text class="dim" x="60" y="42" text-anchor="middle">CQRS views</text>
+  </g>
+
+  <!-- Team Coordinator -->
+  <g transform="translate(312, 154)">
+    <rect x="0" y="0" width="136" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="68" y="16" text-anchor="middle">Teams</text>
+    <text class="dim" x="68" y="30" text-anchor="middle">spawn · message</text>
+    <text class="dim" x="68" y="42" text-anchor="middle">shutdown · monitor</text>
+  </g>
+
+  <!-- Connector: MCP bottom (y=234) → Gates top (y=244) -->
+  <line class="conn" x1="244" y1="234" x2="244" y2="244"/>
+
+  <!-- ═══════════════ QUALITY GATES BAR ═══════════════ -->
+  <rect x="24" y="244" width="440" height="44" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="44" y="264" fill="#d1d5db">QUALITY GATES</text>
+
+  <!-- Gate layer dots -->
+  <g transform="translate(160, 260)">
+    <circle class="gate-dot" cx="0" cy="0" r="4"/>
+    <text class="tiny" x="0" y="14" text-anchor="middle">security</text>
+
+    <circle class="gate-dot" cx="66" cy="0" r="4" style="animation-delay:.4s"/>
+    <text class="tiny" x="66" y="14" text-anchor="middle">govern</text>
+
+    <circle class="gate-dot" cx="132" cy="0" r="4" style="animation-delay:.8s"/>
+    <text class="tiny" x="132" y="14" text-anchor="middle">integration</text>
+
+    <circle class="gate-dot" cx="198" cy="0" r="4" style="animation-delay:1.2s"/>
+    <text class="tiny" x="198" y="14" text-anchor="middle">review</text>
+
+    <circle class="gate-dot" cx="264" cy="0" r="4" style="animation-delay:1.6s"/>
+    <text class="tiny" x="264" y="14" text-anchor="middle">deploy</text>
+  </g>
+
+  <!-- ═══════════════ DELEGATION (worktrees) ═══════════════ -->
+  <text class="h2" x="24" y="312">DELEGATION</text>
+  <line x1="24" y1="318" x2="110" y2="318" stroke="#60a5fa" stroke-width="1" opacity="0.3"/>
+
+  <!-- Connector: /delegate phase → MCP → gates → worktrees (vertical) -->
+  <!-- Each line goes straight down from gates bar bottom to worktree top -->
+  <line class="conn" x1="94" y1="288" x2="94" y2="330"/>
+  <line class="conn" x1="244" y1="288" x2="244" y2="330"/>
+  <line class="conn" x1="394" y1="288" x2="394" y2="330"/>
+
+  <!-- Task dispatch packets (follow vertical lines) -->
+  <rect class="task-pkt" x="90" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0"/>
+  <rect class="task-pkt" x="240" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:1s"/>
+  <rect class="task-pkt" x="390" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:2s"/>
+
+  <!-- PR return packets (follow vertical lines back up) -->
+  <rect class="pr-pkt" x="90" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0"/>
+  <rect class="pr-pkt" x="240" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:1s"/>
+  <rect class="pr-pkt" x="390" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:2s"/>
+
+  <!-- Subagent A -->
+  <g>
+    <rect class="box" x="24" y="330" width="140" height="76" rx="4"/>
+    <text class="sub" x="94" y="348" text-anchor="middle">Subagent A</text>
+    <text class="dim" x="94" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="38" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="38" y="370" width="112" height="5" rx="2.5" fill="#10B981"/>
+    <text class="dim" x="94" y="396" text-anchor="middle">Task 1</text>
+  </g>
+
+  <!-- Subagent B -->
+  <g>
+    <rect class="box" x="174" y="330" width="140" height="76" rx="4"/>
+    <text class="sub" x="244" y="348" text-anchor="middle">Subagent B</text>
+    <text class="dim" x="244" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="188" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="188" y="370" width="112" height="5" rx="2.5" fill="#10B981" style="animation-delay:1.5s"/>
+    <text class="dim" x="244" y="396" text-anchor="middle">Task 2</text>
+  </g>
+
+  <!-- Subagent C -->
+  <g>
+    <rect class="box" x="324" y="330" width="140" height="76" rx="4"/>
+    <text class="sub" x="394" y="348" text-anchor="middle">Subagent C</text>
+    <text class="dim" x="394" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="338" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="338" y="370" width="112" height="5" rx="2.5" fill="#10B981" style="animation-delay:3s"/>
+    <text class="dim" x="394" y="396" text-anchor="middle">Task 3</text>
+  </g>
+
+  <!-- ═══════════════ VERIFICATION FLYWHEEL ═══════════════ -->
+  <text class="h1" x="500" y="138">VERIFICATION</text>
+  <text class="h1" x="500" y="154">FLYWHEEL</text>
+  <line x1="500" y1="160" x2="630" y2="160" stroke="#22d3ee" stroke-width="1" opacity="0.3"/>
+
+  <!-- Flywheel ring (static track) -->
+  <circle cx="600" cy="290" r="72" fill="none" stroke="#1e293b" stroke-width="14" opacity="0.5"/>
+
+  <!-- Flywheel rotating indicator -->
+  <g class="fw-spin">
+    <circle cx="600" cy="218" r="4" fill="#22d3ee" opacity="0.7"/>
+  </g>
+
+  <!-- Flywheel segments (4 quadrants) -->
+  <!-- Top: Eval Suite -->
+  <g class="fw1">
+    <text class="accent" x="600" y="200" text-anchor="middle">EVAL SUITE</text>
+    <text class="tiny" x="600" y="210" text-anchor="middle">8 suites · 100+ cases</text>
+  </g>
+
+  <!-- Right: Quality Hints -->
+  <g class="fw2">
+    <text class="accent" x="682" y="278" text-anchor="middle">QUALITY</text>
+    <text class="accent" x="682" y="290" text-anchor="middle">HINTS</text>
+    <text class="tiny" x="682" y="302" text-anchor="middle">perf · gates</text>
+  </g>
+
+  <!-- Bottom: Refinement -->
+  <g class="fw3">
+    <text class="accent" x="600" y="378" text-anchor="middle">REFINEMENT</text>
+    <text class="tiny" x="600" y="388" text-anchor="middle">calibrated signals</text>
+  </g>
+
+  <!-- Left: Benchmarks -->
+  <g class="fw4">
+    <text class="accent" x="518" y="274" text-anchor="middle">BENCH</text>
+    <text class="tiny" x="518" y="284" text-anchor="middle">latency</text>
+    <text class="tiny" x="518" y="294" text-anchor="middle">tokens</text>
+    <text class="tiny" x="518" y="304" text-anchor="middle">memory</text>
+  </g>
+
+  <!-- Flywheel cycle arrows (curved) -->
+  <path d="M 630 222 A 72 72 0 0 1 668 258" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
+  <path d="M 668 322 A 72 72 0 0 1 630 358" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
+  <path d="M 570 358 A 72 72 0 0 1 532 322" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
+  <path d="M 532 258 A 72 72 0 0 1 570 222" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
+
+  <!-- Center of flywheel -->
+  <circle cx="600" cy="290" r="28" fill="#0f172a" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
+  <text class="h3" x="600" y="286" text-anchor="middle" fill="#22d3ee">CODE</text>
+  <text class="h3" x="600" y="298" text-anchor="middle" fill="#22d3ee">QUALITY</text>
+
+  <!-- Connection: MCP → Flywheel -->
+  <path d="M 464 174 L 526 240" class="conn" stroke="#22d3ee" opacity="0.3"/>
+
+  <!-- ═══════════════ CREDIBILITY METRICS ═══════════════ -->
+  <rect x="490" y="406" width="214" height="130" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="510" y="424">VERIFIED BY</text>
+  <line x1="510" y1="430" x2="620" y2="430" stroke="#22d3ee" stroke-width="0.5" opacity="0.3"/>
+
+  <text class="ok" x="510" y="448">&#x2713;</text>
+  <text class="sub" x="524" y="448">8 eval suites, 100+ test cases</text>
+
+  <text class="ok" x="510" y="466">&#x2713;</text>
+  <text class="sub" x="524" y="466">Performance benchmarks (P50/P95)</text>
+
+  <text class="ok" x="510" y="484">&#x2713;</text>
+  <text class="sub" x="524" y="484">Token economy tests</text>
+
+  <text class="ok" x="510" y="502">&#x2713;</text>
+  <text class="sub" x="524" y="502">Property-based testing</text>
+
+  <text class="ok" x="510" y="520">&#x2713;</text>
+  <text class="sub" x="524" y="520">LLM judge calibration (TPR/TNR)</text>
+
+  <!-- ═══════════════ TOKEN EFFICIENCY CALLOUT ═══════════════ -->
+  <rect x="24" y="430" width="210" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="44" y="452">TOKEN ECONOMY</text>
+  <text class="dim" x="44" y="468">field projection: 90% savings</text>
+  <text class="dim" x="44" y="480">diff review: 97% savings</text>
+
+  <!-- Checkpoint / Rehydrate callout -->
+  <rect x="248" y="430" width="220" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="268" y="452">CHECKPOINT + REHYDRATE</text>
+  <text class="dim" x="268" y="468">survives context compaction</text>
+  <text class="dim" x="268" y="480">restore in ~2-3k tokens</text>
+
+  <!-- ═══════════════ LEGEND ═══════════════ -->
+  <g transform="translate(24, 556)">
     <rect x="0" y="0" width="8" height="8" rx="1" fill="#60a5fa"/>
-    <text class="td" x="14" y="8">task</text>
-    <rect x="56" y="0" width="8" height="8" rx="1" fill="#a78bfa"/>
-    <text class="td" x="70" y="8">PR</text>
-    <circle cx="118" cy="4" r="4" fill="#10B981"/>
-    <text class="td" x="128" y="8">gate passed</text>
-    <rect x="210" y="0" width="8" height="8" rx="3" fill="#374151" stroke="#10B981" stroke-width="1.5"/>
-    <text class="td" x="224" y="8">verified</text>
+    <text class="dim" x="14" y="8">task</text>
+
+    <rect x="52" y="0" width="8" height="8" rx="1" fill="#a78bfa"/>
+    <text class="dim" x="66" y="8">PR</text>
+
+    <circle cx="106" cy="4" r="3.5" fill="#10B981"/>
+    <text class="dim" x="116" y="8">gate pass</text>
+
+    <circle cx="180" cy="4" r="3.5" fill="#f59e0b"/>
+    <text class="dim" x="190" y="8">human checkpoint</text>
+
+    <circle cx="290" cy="4" r="3.5" fill="#22d3ee"/>
+    <text class="dim" x="300" y="8">flywheel</text>
+
+    <rect x="354" y="0" width="8" height="8" rx="1" fill="#111827" stroke="#22d3ee" stroke-width="1"/>
+    <text class="dim" x="368" y="8">verified</text>
   </g>
 </svg>
