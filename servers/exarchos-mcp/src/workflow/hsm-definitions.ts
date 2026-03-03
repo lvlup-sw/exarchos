@@ -127,6 +127,7 @@ export function createDebugHSM(): HSMDefinition {
       guard: guards.hotfixTrackSelected,
     },
     { from: 'investigate', to: 'cancelled', guard: guards.escalationRequired },
+    { from: 'investigate', to: 'completed', guard: guards.fixVerifiedDirectly },
 
     // Thorough track flow
     { from: 'rca', to: 'design', guard: guards.rcaDocumentComplete },

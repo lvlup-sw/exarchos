@@ -1742,6 +1742,7 @@ describe('getValidTransitions guard metadata', () => {
       id: 'merge-verified',
       description: 'Merge must be verified by the orchestrator before cleanup',
     });
+    expect(completedTarget!.universal).toBe(true);
   });
 
   it('returns empty array for final states', () => {
@@ -2785,5 +2786,114 @@ describe('Debug HSM Hotfix-Validate to Synthesize', () => {
     expect(synthIdx).toBeGreaterThanOrEqual(0);
     expect(completedIdx).toBeGreaterThanOrEqual(0);
     expect(synthIdx).toBeLessThan(completedIdx);
+  });
+});
+
+// ─── Bug #957: Universal completed transition tagged as universal ─────────────
+
+describe('getValidTransitions universal tagging', () => {
+  it('tags universal completed target with universal: true', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const completedTarget = targets.find((t) => t.phase === 'completed');
+    expect(completedTarget).toBeDefined();
+    expect(completedTarget!.universal).toBe(true);
+  });
+
+  it('tags universal cancelled target with universal: true', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const cancelTarget = targets.find((t) => t.phase === 'cancelled');
+    expect(cancelTarget).toBeDefined();
+    expect(cancelTarget!.universal).toBe(true);
+  });
+
+  it('does not tag explicit transitions as universal', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const planTarget = targets.find((t) => t.phase === 'plan');
+    expect(planTarget).toBeDefined();
+    expect(planTarget!.universal).toBeUndefined();
+  });
+
+  it('does not tag explicit completed transition as universal (hotfix-validate)', () => {
+    const hsm = getHSMDefinition('debug');
+    const targets = getValidTransitions(hsm, 'hotfix-validate');
+
+    const completedTarget = targets.find((t) => t.phase === 'completed');
+    expect(completedTarget).toBeDefined();
+    // hotfix-validate has an explicit completed transition, so it should NOT be universal
+    expect(completedTarget!.universal).toBeUndefined();
+  });
+});
+
+// ─── Bug #958: Direct-to-main hotfix completion ──────────────────────────────
+
+describe('Debug HSM direct-push completion', () => {
+  it('fixVerifiedDirectly guard passes with directPush and commitSha', () => {
+    expect(guards.fixVerifiedDirectly).toBeDefined();
+    const state = {
+      resolution: { directPush: true, commitSha: 'abc123' },
+    } as Record<string, unknown>;
+    expect(guards.fixVerifiedDirectly.evaluate(state)).toBe(true);
+  });
+
+  it('fixVerifiedDirectly guard fails without directPush', () => {
+    const state = {
+      resolution: { commitSha: 'abc123' },
+    } as Record<string, unknown>;
+    const result = guards.fixVerifiedDirectly.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as { passed: boolean }).passed).toBe(false);
+  });
+
+  it('fixVerifiedDirectly guard fails without commitSha', () => {
+    const state = {
+      resolution: { directPush: true },
+    } as Record<string, unknown>;
+    const result = guards.fixVerifiedDirectly.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as { passed: boolean }).passed).toBe(false);
+  });
+
+  it('debugHSM_InvestigateToCompleted_SucceedsWithDirectPush', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      resolution: { directPush: true, commitSha: 'abc123' },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('debugHSM_InvestigateToCompleted_FailsWithoutDirectPush', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(false);
+  });
+
+  it('debugHSM_InvestigateToCompleted_TransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'completed',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('fix-verified-directly');
   });
 });

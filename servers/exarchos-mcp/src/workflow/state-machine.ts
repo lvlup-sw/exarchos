@@ -46,6 +46,7 @@ export interface TransitionEvent {
 export interface ValidTransitionTarget {
   readonly phase: string;
   readonly guard?: { readonly id: string; readonly description: string };
+  readonly universal?: boolean;
 }
 
 export interface TransitionResult {
@@ -154,12 +155,12 @@ export function getValidTransitions(
 
   // Add universal cancel if not already present
   if (!seen.has('cancelled') && hsm.states['cancelled']) {
-    targets.push({ phase: 'cancelled' });
+    targets.push({ phase: 'cancelled', universal: true });
   }
 
   // Add universal cleanup (completed) if not already present
   if (!seen.has('completed') && hsm.states['completed']) {
-    targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description } });
+    targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description }, universal: true });
   }
 
   return targets;

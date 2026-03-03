@@ -591,6 +591,20 @@ export const guards = {
     },
   },
 
+  fixVerifiedDirectly: {
+    id: 'fix-verified-directly',
+    description: 'Fix was pushed directly to main without PR',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const resolution = state.resolution as Record<string, unknown> | undefined;
+      if (resolution?.directPush === true && resolution.commitSha != null) return true;
+      return {
+        passed: false,
+        reason: 'fix-verified-directly not satisfied: resolution.directPush and resolution.commitSha required',
+        expectedShape: { resolution: { directPush: true, commitSha: '<commit-sha>' } },
+      };
+    },
+  },
+
   always: {
     id: 'always',
     description: 'Always passes',
