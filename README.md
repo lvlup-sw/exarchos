@@ -112,44 +112,32 @@ Requires Node.js >= 20. Migrating from the legacy installer? See the [migration 
 
 ### Feature workflow
 
-```
-/ideate → /plan → [CONFIRM] → /delegate → /review → /synthesize → [CONFIRM]
-                  design        agents in     spec +      stacked       merge
-                  approval      worktrees     quality     PRs
+```mermaid
+graph LR
+    A["/ideate"] --> B["/plan"]
+    B --> C{"design\napproval"}
+    C --> D["/delegate"]
+    D --> E["/review"]
+    E --> F["/synthesize"]
+    F --> G{"merge"}
+
+    style C fill:#f59e0b,stroke:#d97706,color:#000
+    style G fill:#f59e0b,stroke:#d97706,color:#000
 ```
 
-Phase commands auto-chain between the two human checkpoints. Debug and refactor workflows follow similar patterns — see [workflow docs](docs/).
+Phase commands auto-chain between the two human checkpoints (amber). Debug and refactor workflows follow similar patterns — see [workflow docs](docs/).
 
 ## How it works
 
 Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint. Teammates execute in isolated git worktrees.
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                     Claude Code (Lead)                      │
-│             Orchestrator — /ideate, /plan, /delegate        │
-└───────────────────────────┬────────────────────────────────┘
-                            │
-                   ┌────────┴────────┐
-                   │  Exarchos MCP   │
-                   │                 │
-                   │  Workflow State  │  Persistent across sessions
-                   │  Event Log      │  Full audit trail
-                   │  Team Coord     │  Spawn / message / shutdown
-                   │  Quality Gates  │  5-dimension verification
-                   └────────┬────────┘
-                            │
-             ┌──────────────┼──────────────┐
-             │              │              │
-        Teammate 1    Teammate 2    Teammate N
-        (worktree)    (worktree)    (worktree)
-```
-
-<!-- TODO: Create a clean SVG version of this architecture diagram
-     Style: dark background (#1a1a2e), monospace labels, muted accent colors
-     Save to: docs/assets/architecture.svg
-     Then replace the ASCII block above with: <img src="docs/assets/architecture.svg" width="720" />
--->
+<div align="center">
+  <a href="docs/assets/architecture.svg">
+    <img src="docs/assets/architecture.svg" alt="Exarchos architecture: Claude Code lead orchestrates through Exarchos MCP server, dispatching tasks to agent teammates in isolated git worktrees" width="720" />
+  </a>
+  <br>
+  <sub>Click to view animated version — task dispatch, progress, PR review, convergence gates.</sub>
+</div>
 
 ### Integrations
 
@@ -163,6 +151,13 @@ Your Claude Code session is the orchestrator. Exarchos manages state; you make d
 
 ## Compared to alternatives
 
+<div align="center">
+  <img src="docs/assets/superpowers-comparison.svg" alt="Obra Superpowers vs Exarchos: after context compaction, Superpowers loses state while Exarchos rehydrates in ~2-3k tokens" width="720" />
+</div>
+
+<details>
+<summary>Full comparison matrix</summary>
+
 |  | Exarchos | Superpowers | Task Master | Auto-Claude | Raw Claude Code |
 |:--|:--:|:--:|:--:|:--:|:--:|
 | Durable state (survives compaction) | **Yes** | No | Partial | No | No |
@@ -173,6 +168,8 @@ Your Claude Code session is the orchestrator. Exarchos manages state; you make d
 | Event-sourced audit trail | **Yes** | No | No | No | No |
 | Enforced vs. suggested | **Enforced** | Suggested | N/A | N/A | N/A |
 | Free & open-source | Yes | Yes | Yes | Yes | N/A |
+
+</details>
 
 Superpowers shapes behavior; Exarchos persists and verifies it. They're complementary — use both.
 

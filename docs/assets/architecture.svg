@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 470" width="720">
+  <title>Exarchos Architecture</title>
+  <desc>Claude Code orchestrates workflows through the Exarchos MCP server. Teammates execute tasks in isolated git worktrees. Task packets flow down, PRs flow back up, convergence gates verify quality.</desc>
+
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
+    .tt { fill: #e5e7eb; font-size: 13px; font-weight: 600 }
+    .ts { fill: #9ca3af; font-size: 10px }
+    .td { fill: #6b7280; font-size: 10px }
+    .tx { fill: #6b7280; font-size: 9px }
+    .tok { fill: #10B981; font-size: 9px }
+    .box { fill: #1f2937; stroke: #374151; stroke-width: 1.5 }
+
+    /* Flowing dashed lines */
+    @keyframes dash { to { stroke-dashoffset: -20 } }
+    .conn { stroke: #4b5563; stroke-width: 1.5; stroke-dasharray: 6 4; fill: none; animation: dash 0.8s linear infinite }
+
+    /* Task packets down: MCP → worktrees */
+    @keyframes t1 {
+      0%,14% { opacity:0; transform:translate(0,0) }
+      17% { opacity:1 }
+      33% { opacity:1; transform:translate(-170px,112px) }
+      36%,100% { opacity:0 }
+    }
+    @keyframes t2 {
+      0%,17% { opacity:0; transform:translate(0,0) }
+      20% { opacity:1 }
+      36% { opacity:1; transform:translate(0,112px) }
+      39%,100% { opacity:0 }
+    }
+    @keyframes t3 {
+      0%,20% { opacity:0; transform:translate(0,0) }
+      23% { opacity:1 }
+      39% { opacity:1; transform:translate(170px,112px) }
+      42%,100% { opacity:0 }
+    }
+    .pt1 { animation: t1 14s ease-in-out infinite }
+    .pt2 { animation: t2 14s ease-in-out infinite }
+    .pt3 { animation: t3 14s ease-in-out infinite }
+
+    /* Progress bars fill */
+    @keyframes p1 { 0%,35% { transform:scaleX(0) } 62% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
+    @keyframes p2 { 0%,38% { transform:scaleX(0) } 65% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
+    @keyframes p3 { 0%,41% { transform:scaleX(0) } 68% { transform:scaleX(1) } 100% { transform:scaleX(1) } }
+    .b1 { transform-box: fill-box; transform-origin: left center; animation: p1 14s ease-in-out infinite }
+    .b2 { transform-box: fill-box; transform-origin: left center; animation: p2 14s ease-in-out infinite }
+    .b3 { transform-box: fill-box; transform-origin: left center; animation: p3 14s ease-in-out infinite }
+
+    /* PR packets up: worktrees → MCP */
+    @keyframes r1 {
+      0%,64% { opacity:0; transform:translate(0,0) }
+      67% { opacity:1 }
+      80% { opacity:1; transform:translate(170px,-112px) }
+      83%,100% { opacity:0 }
+    }
+    @keyframes r2 {
+      0%,67% { opacity:0; transform:translate(0,0) }
+      70% { opacity:1 }
+      83% { opacity:1; transform:translate(0,-112px) }
+      86%,100% { opacity:0 }
+    }
+    @keyframes r3 {
+      0%,70% { opacity:0; transform:translate(0,0) }
+      73% { opacity:1 }
+      86% { opacity:1; transform:translate(-170px,-112px) }
+      89%,100% { opacity:0 }
+    }
+    .pr1 { animation: r1 14s ease-in-out infinite }
+    .pr2 { animation: r2 14s ease-in-out infinite }
+    .pr3 { animation: r3 14s ease-in-out infinite }
+
+    /* Gate indicators: gray → green */
+    @keyframes gate {
+      0%,79% { fill: #374151 }
+      84% { fill: #10B981 }
+      96% { fill: #10B981 }
+      100% { fill: #374151 }
+    }
+    .g { animation: gate 14s ease-in-out infinite }
+
+    /* MCP border glow */
+    @keyframes glow {
+      0%,88% { stroke: #374151 }
+      92% { stroke: #10B981 }
+      97% { stroke: #10B981 }
+      100% { stroke: #374151 }
+    }
+    .mcp { animation: glow 14s ease-in-out infinite }
+
+    /* Status text fades */
+    @keyframes si { 0%,34% { opacity:0 } 38% { opacity:1 } 60% { opacity:1 } 64%,100% { opacity:0 } }
+    @keyframes sd { 0%,62% { opacity:0 } 66% { opacity:1 } 96% { opacity:1 } 100% { opacity:0 } }
+    .si { animation: si 14s ease-in-out infinite }
+    .sd { animation: sd 14s ease-in-out infinite }
+  </style>
+
+  <!-- Background -->
+  <rect width="720" height="470" fill="#1a1a2e" rx="8"/>
+
+  <!-- Lead Box -->
+  <rect class="box" x="185" y="16" width="350" height="56" rx="6"/>
+  <text class="tt" x="360" y="42" text-anchor="middle">Claude Code (Lead)</text>
+  <text class="td" x="360" y="58" text-anchor="middle">/ideate · /plan · /delegate</text>
+
+  <!-- Lead → MCP -->
+  <line class="conn" x1="360" y1="72" x2="360" y2="112"/>
+
+  <!-- MCP Box -->
+  <rect class="box mcp" x="220" y="112" width="280" height="108" rx="6"/>
+  <text class="tt" x="360" y="138" text-anchor="middle">Exarchos MCP</text>
+  <text class="td" x="360" y="156" text-anchor="middle">state · events · teams · gates</text>
+
+  <!-- Gate indicators -->
+  <circle class="g" cx="316" cy="180" r="5" fill="#374151"/>
+  <circle class="g" cx="338" cy="180" r="5" fill="#374151" style="animation-delay:.3s"/>
+  <circle class="g" cx="360" cy="180" r="5" fill="#374151" style="animation-delay:.6s"/>
+  <circle class="g" cx="382" cy="180" r="5" fill="#374151" style="animation-delay:.9s"/>
+  <circle class="g" cx="404" cy="180" r="5" fill="#374151" style="animation-delay:1.2s"/>
+  <text class="td" x="360" y="204" text-anchor="middle">convergence gates</text>
+
+  <!-- MCP → Worktrees -->
+  <line class="conn" x1="290" y1="220" x2="120" y2="332"/>
+  <line class="conn" x1="360" y1="220" x2="360" y2="332"/>
+  <line class="conn" x1="430" y1="220" x2="600" y2="332"/>
+
+  <!-- Task packets (blue, down) -->
+  <rect class="pt1" x="284" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
+  <rect class="pt2" x="354" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
+  <rect class="pt3" x="424" y="214" width="12" height="12" rx="2" fill="#60a5fa" opacity="0"/>
+
+  <!-- PR packets (violet, up) -->
+  <rect class="pr1" x="114" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
+  <rect class="pr2" x="354" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
+  <rect class="pr3" x="594" y="326" width="12" height="12" rx="2" fill="#a78bfa" opacity="0"/>
+
+  <!-- Worktree 1 -->
+  <g>
+    <rect class="box" x="25" y="332" width="190" height="96" rx="6"/>
+    <text class="ts" x="120" y="356" text-anchor="middle">keen-panther</text>
+    <text class="td" x="120" y="372" text-anchor="middle">(worktree)</text>
+    <rect x="45" y="386" width="150" height="6" rx="3" fill="#374151"/>
+    <rect class="b1" x="45" y="386" width="150" height="6" rx="3" fill="#10B981"/>
+    <text class="tx si" x="120" y="414" text-anchor="middle">implementing...</text>
+    <text class="tok sd" x="120" y="414" text-anchor="middle">complete</text>
+  </g>
+
+  <!-- Worktree 2 -->
+  <g>
+    <rect class="box" x="265" y="332" width="190" height="96" rx="6"/>
+    <text class="ts" x="360" y="356" text-anchor="middle">wise-lynx</text>
+    <text class="td" x="360" y="372" text-anchor="middle">(worktree)</text>
+    <rect x="285" y="386" width="150" height="6" rx="3" fill="#374151"/>
+    <rect class="b2" x="285" y="386" width="150" height="6" rx="3" fill="#10B981"/>
+    <text class="tx si" x="360" y="414" text-anchor="middle">tests passing...</text>
+    <text class="tok sd" x="360" y="414" text-anchor="middle">complete</text>
+  </g>
+
+  <!-- Worktree 3 -->
+  <g>
+    <rect class="box" x="505" y="332" width="190" height="96" rx="6"/>
+    <text class="ts" x="600" y="356" text-anchor="middle">solid-newt</text>
+    <text class="td" x="600" y="372" text-anchor="middle">(worktree)</text>
+    <rect x="525" y="386" width="150" height="6" rx="3" fill="#374151"/>
+    <rect class="b3" x="525" y="386" width="150" height="6" rx="3" fill="#10B981"/>
+    <text class="tx si" x="600" y="414" text-anchor="middle">implementing...</text>
+    <text class="tok sd" x="600" y="414" text-anchor="middle">complete</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(216,450)">
+    <rect x="0" y="0" width="8" height="8" rx="1" fill="#60a5fa"/>
+    <text class="td" x="14" y="8">task</text>
+    <rect x="56" y="0" width="8" height="8" rx="1" fill="#a78bfa"/>
+    <text class="td" x="70" y="8">PR</text>
+    <circle cx="118" cy="4" r="4" fill="#10B981"/>
+    <text class="td" x="128" y="8">gate passed</text>
+    <rect x="210" y="0" width="8" height="8" rx="3" fill="#374151" stroke="#10B981" stroke-width="1.5"/>
+    <text class="td" x="224" y="8">verified</text>
+  </g>
+</svg>
