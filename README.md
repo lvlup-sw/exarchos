@@ -36,13 +36,13 @@ You have a plan.md. Maybe a spec file per feature. You iterate with Claude, tell
 
 Until context compaction wipes the session halfway through. Or the agent drifts from the spec and you don't catch it until review. Or you come back tomorrow and spend 30 minutes re-explaining what the agent already knew.
 
-Dozens of developers have independently converged on this pattern — iterate on a plan file, execute it, commit the artifacts. The most popular attempt to systematize it is [Obra Superpowers](https://github.com/obra/superpowers) — 20+ skill files that shape agent behavior through markdown prompts. But it's stateless: nothing persists across context compaction, behavioral suggestions get ignored as conversations grow, and there's no way to verify the agent followed the plan.
+Developers keep reinventing this on their own: iterate on a plan file, execute it, commit the artifacts. The most popular attempt to systematize it, [Obra Superpowers](https://github.com/obra/superpowers), shapes agent behavior through 20+ markdown skill files. But it's stateless. Nothing persists across context compaction, suggestions get ignored as conversations grow, and there's no verification that the agent followed through.
 
 The plan-file workflow is the right instinct. Markdown files just can't persist state across sessions, enforce phase gates, or prove that the agent actually did what you asked.
 
 ## Your plan.md workflow, with teeth
 
-Exarchos saves workflow state to an event-sourced MCP server — not markdown files, not conversation history. When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Your workflow picks up where it left off.
+Exarchos saves workflow state to an event-sourced MCP server, not markdown files or conversation history. When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Your workflow picks up where it left off.
 
 ```
 # Friday afternoon, mid-feature
@@ -86,17 +86,17 @@ Requires Node.js >= 20. Migrating from the legacy installer? See the [migration 
 
 ## What you get
 
-**Structured SDLC workflows.** Design → plan → implement → review → ship. Three workflow types (feature, debug, refactor) with enforced phase transitions and auto-continuation. You approve twice — the design and the merge. Everything between flows automatically.
+**Structured SDLC workflows.** Design, plan, implement, review, ship. Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve twice: the design and the merge. Everything between auto-continues.
 
-**Checkpoint + rehydrate.** Save mid-task, resume days later. ~2-3k tokens to restore full awareness — not 20k to re-explain your project from scratch.
+**Checkpoint + rehydrate.** Save mid-task, resume days later. `/rehydrate` restores full awareness in ~2-3k tokens instead of re-explaining your project from scratch.
 
-**Agent teams.** Delegate tasks to parallel Claude Code instances in isolated git worktrees. No tmux panes. No manual context management. Two approvals instead of all-day orchestration.
+**Agent teams.** Delegate to parallel Claude Code instances, each in its own git worktree. Two approvals, not eight tmux panes.
 
-**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic verification scripts — not LLM self-review, not vibes.
+**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic verification scripts, not vibes.
 
-**Full audit trail.** Append-only event log records every transition, gate result, and agent decision. When something goes wrong, you can trace exactly what happened and why.
+**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you trace what happened.
 
-**Token-efficient.** Field-projected state queries (90% fewer tokens). Diff-based code review (97% savings on large files). Context economy as a quality gate — code too complex for LLM context can't ship.
+**Token-efficient.** State queries use field projection (90% fewer tokens). Code review sends diffs, not full files (97% savings on large repos). Context economy is a quality gate: code too complex for LLM context can't ship.
 
 ## Workflows
 
