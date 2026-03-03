@@ -36,11 +36,7 @@ You have a plan.md. Maybe a spec file per feature. You iterate with Claude, tell
 
 Until context compaction wipes the session halfway through. Or the agent drifts from the spec and you don't catch it until review. Or you come back tomorrow and spend 30 minutes re-explaining what the agent already knew.
 
-> *"I start with a project.md file, iterate on plan.md with the AI until it's what I want, then tell it to execute the plan."*
-> — jedberg ([HN](https://news.ycombinator.com/item?id=47212355), 260+ points), describing what dozens of devs independently invented
-
-> *"Compaction can drop good context or even the decisions made during planning."*
-> — schipperai ([HN](https://news.ycombinator.com/item?id=47218318)), who built a 300+ spec system and still needs persistent state
+Dozens of developers have independently converged on this pattern — iterate on a plan file, execute it, commit the artifacts. One power user built a [300+ spec system](https://news.ycombinator.com/item?id=47218318) with an 8-stage lifecycle and 6 slash commands, mirroring Exarchos's phases almost exactly. The missing piece: persistent state and automated quality gates.
 
 The plan-file workflow is the right instinct. But markdown files can't persist state across sessions, enforce phase gates, or verify that the agent actually followed the plan.
 
@@ -94,7 +90,7 @@ Requires Node.js >= 20. Migrating from the legacy installer? See the [migration 
 
 **Checkpoint + rehydrate.** Save mid-task, resume days later. ~2-3k tokens to restore full awareness — not 20k to re-explain your project from scratch.
 
-**Agent teams.** Delegate tasks to parallel Claude Code instances in isolated git worktrees. No tmux panes. No manual context management. No [landing planes all day](https://news.ycombinator.com/item?id=47218318).
+**Agent teams.** Delegate tasks to parallel Claude Code instances in isolated git worktrees. No tmux panes. No manual context management. Two approvals instead of all-day orchestration.
 
 **Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic verification scripts — not LLM self-review, not vibes.
 
