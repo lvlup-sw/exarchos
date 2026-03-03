@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="exarchos-logo.png" alt="Exarchos" width="280" />
+  <img src="exarchos-logo.svg" alt="Exarchos" width="280" />
 
   **Your agents forget. Exarchos doesn't.**<br>
   Durable SDLC workflows for Claude Code — checkpoint any task, rehydrate in seconds, ship verified code.
@@ -42,12 +42,17 @@ The plan-file workflow is the right instinct. Markdown files just can't persist 
 
 ## Your plan.md workflow, with teeth
 
-Exarchos saves workflow state to an event-sourced MCP server, not markdown files or conversation history. When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Your workflow picks up where it left off.
+Exarchos replaces markdown files with an event-sourced MCP server. An HSM state machine enforces phase transitions — design, plan, implement, review, ship — with quality gates between each step. Parallel agents execute in isolated git worktrees while the verification flywheel continuously validates output.
+
+When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Design docs, plans, and PR links persist as references, never inlined into context. Your workflow picks up where it left off.
 
 <div align="center">
-  <img src="docs/assets/superpowers-comparison.svg" alt="Claude Skills vs Exarchos: after context compaction, markdown-based workflows lose state while Exarchos persists it locally via event-sourced MCP" width="720" />
+  <a href="docs/assets/architecture.svg">
+    <img src="docs/assets/architecture.svg" alt="Exarchos architecture: workflow pipeline, HSM state machine, agent teams in worktrees, verification flywheel with evals and benchmarks, layered quality gates" width="720" />
+  </a>
+  <br>
+  <sub>Click to view animated version — workflow phases, agent dispatch, verification flywheel, quality gates.</sub>
 </div>
-Design docs, plans, and PR links persist as references — never inlined into context. State size grows efficiently regardless of how many artifacts your workflow generates.
 
 ## Install
 
@@ -91,14 +96,6 @@ Requires Node.js >= 20. Migrating from the legacy installer? See the [migration 
 **Token-efficient.** State queries use field projection (90% fewer tokens). Code review sends diffs, not full files (97% savings on large repos).
 
 Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint. Teammates execute in isolated git worktrees.
-
-<div align="center">
-  <a href="docs/assets/architecture.svg">
-    <img src="docs/assets/architecture.svg" alt="Exarchos architecture: workflow pipeline, HSM state machine, agent teams in worktrees, verification flywheel with evals and benchmarks, layered quality gates" width="720" />
-  </a>
-  <br>
-  <sub>Click to view animated version — workflow phases, agent dispatch, verification flywheel, quality gates.</sub>
-</div>
 
 
 ### Integrations
