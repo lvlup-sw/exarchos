@@ -36,9 +36,9 @@ You have a plan.md. Maybe a spec file per feature. You iterate with Claude, tell
 
 Until context compaction wipes the session halfway through. Or the agent drifts from the spec and you don't catch it until review. Or you come back tomorrow and spend 30 minutes re-explaining what the agent already knew.
 
-Dozens of developers have independently converged on this pattern — iterate on a plan file, execute it, commit the artifacts. One power user built a [300+ spec system](https://news.ycombinator.com/item?id=47218318) with an 8-stage lifecycle and 6 slash commands, mirroring Exarchos's phases almost exactly. The missing piece: persistent state and automated quality gates.
+Dozens of developers have independently converged on this pattern — iterate on a plan file, execute it, commit the artifacts. The most popular attempt to systematize it is [Obra Superpowers](https://github.com/obra/superpowers) — 20+ skill files that shape agent behavior through markdown prompts. But it's stateless: nothing persists across context compaction, behavioral suggestions get ignored as conversations grow, and there's no way to verify the agent followed the plan.
 
-The plan-file workflow is the right instinct. But markdown files can't persist state across sessions, enforce phase gates, or verify that the agent actually followed the plan.
+The plan-file workflow is the right instinct. Markdown files just can't persist state across sessions, enforce phase gates, or prove that the agent actually did what you asked.
 
 ## Your plan.md workflow, with teeth
 
