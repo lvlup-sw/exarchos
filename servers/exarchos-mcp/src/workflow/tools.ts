@@ -26,7 +26,9 @@ import {
   isStale,
 } from './checkpoint.js';
 import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
-import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { getHSMDefinition, executeTransition, findTransition } from './state-machine.js';
+import { getRegisteredGuard } from '../config/register.js';
+import { executeGuard } from '../config/guards.js';
 import { getPlaybook } from './playbooks.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
@@ -513,6 +515,43 @@ export async function handleSet(
               message: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
             },
           };
+        }
+      }
+
+      // ─── Custom guard pre-check (async) ──────────────────────────────
+      // Custom guards run shell commands (async) so they execute here at
+      // the orchestrator layer, before the synchronous HSM transition.
+      // Built-in guards remain inline in executeTransition.
+      const fromPhase = state.phase;
+      const pendingTransition = findTransition(hsm, fromPhase, input.phase);
+      if (pendingTransition?.guard) {
+        const registeredGuard = getRegisteredGuard(
+          `${state.workflowType}:${pendingTransition.guard.id}`,
+        );
+        if (registeredGuard) {
+          const guardResult = await executeGuard(registeredGuard);
+          if (!guardResult.passed) {
+            if (moduleEventStore) {
+              await emitTransitionEvents(input.featureId, [{
+                type: 'guard-failed',
+                from: fromPhase,
+                to: input.phase,
+                trigger: 'execute-transition',
+                metadata: {
+                  guard: pendingTransition.guard.id,
+                  error: guardResult.error,
+                },
+              }]);
+            }
+            return {
+              success: false,
+              error: {
+                code: ErrorCode.GUARD_FAILED,
+                message: `Custom guard '${pendingTransition.guard.id}' failed: ${guardResult.error ?? 'command exited non-zero'}`,
+                ...(guardResult.output ? { output: guardResult.output } : {}),
+              },
+            };
+          }
         }
       }
 

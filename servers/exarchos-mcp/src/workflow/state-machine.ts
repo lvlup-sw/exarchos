@@ -303,6 +303,20 @@ export function getValidTransitions(
 }
 
 /**
+ * Find a transition in the HSM from one phase to another.
+ * Returns undefined if no matching transition exists.
+ */
+export function findTransition(
+  hsm: HSMDefinition,
+  fromPhase: string,
+  toPhase: string,
+): Transition | undefined {
+  return hsm.transitions.find(
+    (t) => t.from === fromPhase && t.to === toPhase,
+  );
+}
+
+/**
  * Execute a transition in the HSM. This is a PURE function that computes
  * what should happen but does not perform I/O. The caller handles persistence.
  *
@@ -437,9 +451,7 @@ export function executeTransition(
   }
 
   // Find matching transition
-  const transition = hsm.transitions.find(
-    (t) => t.from === currentPhase && t.to === targetPhase
-  );
+  const transition = findTransition(hsm, currentPhase, targetPhase);
 
   if (!transition) {
     const validTargets = getValidTransitions(hsm, currentPhase);

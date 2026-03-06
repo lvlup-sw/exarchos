@@ -71,6 +71,8 @@ export function registerCustomWorkflows(config: ExarchosConfig): void {
     for (const name of registeredWorkflows) {
       unregisterWorkflowType(name);
     }
-    throw error;
+    throw new Error(
+      `Failed to register custom workflows: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }

@@ -47,9 +47,16 @@ function formatTable(data: ReadonlyArray<Record<string, unknown>>): string {
 
 // ─── Tree Formatter ─────────────────────────────────────────────────────────
 
+const MAX_TREE_DEPTH = 5;
+
 function formatTree(data: Record<string, unknown>, indent: number = 0): string {
   const prefix = '  '.repeat(indent);
   let output = '';
+
+  if (indent >= MAX_TREE_DEPTH) {
+    output += `${prefix}[...]\n`;
+    return output;
+  }
 
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {

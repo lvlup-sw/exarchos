@@ -92,4 +92,21 @@ describe('Registration Pipeline', () => {
     expect(guardedTransition!.guard!.description).toBe('Check if system is ready');
     expect(typeof guardedTransition!.guard!.evaluate).toBe('function');
   });
+
+  it('RegisterCustomWorkflows_InvalidConfig_RollsBackAndWrapsError', () => {
+    // A config with a built-in name will fail during registerWorkflowType
+    const invalidConfig: ExarchosConfig = {
+      workflows: {
+        feature: {
+          phases: ['a', 'b'],
+          initialPhase: 'a',
+          transitions: [{ from: 'a', to: 'b', event: 'go' }],
+        },
+      },
+    };
+
+    expect(() => registerCustomWorkflows(invalidConfig)).toThrow(
+      'Failed to register custom workflows',
+    );
+  });
 });

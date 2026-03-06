@@ -202,6 +202,19 @@ describe('prettyPrint', () => {
     expect(stdoutOutput).toContain('level2');
     expect(stdoutOutput).toContain('42');
   });
+
+  it('PrettyPrint_DeeplyNestedTree_TruncatesAtMaxDepth', () => {
+    const result = {
+      success: true,
+      data: { a: { b: { c: { d: { e: { f: { g: 'deep' } } } } } } },
+    };
+
+    prettyPrint(result, 'tree');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    expect(stdoutOutput).toContain('[...]');
+    expect(stdoutOutput).not.toContain('deep');
+  });
 });
 
 describe('printError', () => {

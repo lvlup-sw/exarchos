@@ -3,6 +3,7 @@ import {
   getHSMDefinition,
   executeTransition,
   getValidTransitions,
+  findTransition,
   registerWorkflowType,
   unregisterWorkflowType,
 } from '../../workflow/state-machine.js';
@@ -3006,5 +3007,45 @@ describe('HSM Registry Extension', () => {
     expect(() => registerWorkflowType('refactor', definition)).toThrow(
       'Cannot override built-in workflow type: refactor',
     );
+  });
+});
+
+describe('findTransition', () => {
+  it('FindTransition_ExistingTransition_ReturnsTransition', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'plan');
+    expect(transition).toBeDefined();
+    expect(transition!.from).toBe('ideate');
+    expect(transition!.to).toBe('plan');
+  });
+
+  it('FindTransition_NoMatch_ReturnsUndefined', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'completed');
+    expect(transition).toBeUndefined();
+  });
+
+  it('FindTransition_CustomWorkflowWithGuard_ReturnsGuard', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['build', 'deploy'],
+      initialPhase: 'build',
+      transitions: [
+        { from: 'build', to: 'deploy', event: 'build-done', guard: 'check-build' },
+      ],
+      guards: {
+        'check-build': { command: 'echo ok' },
+      },
+    };
+
+    registerWorkflowType('find-test', definition);
+    try {
+      const hsm = getHSMDefinition('find-test');
+      const transition = findTransition(hsm, 'build', 'deploy');
+      expect(transition).toBeDefined();
+      expect(transition!.guard).toBeDefined();
+      expect(transition!.guard!.id).toBe('check-build');
+    } finally {
+      unregisterWorkflowType('find-test');
+    }
   });
 });
