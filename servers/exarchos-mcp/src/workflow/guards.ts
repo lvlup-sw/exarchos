@@ -258,7 +258,16 @@ export const guards = {
       if (synthesis?.prUrl != null) return true;
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
       if (artifacts?.pr != null) return true;
-      return { passed: false, reason: 'pr-url-exists not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'pr-url-exists not satisfied: synthesis.prUrl or artifacts.pr must be set',
+        expectedShape: { synthesis: { prUrl: '<pr-url>' } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { synthesis: { prUrl: '<pr-url>' } } },
+        },
+      };
     },
   },
 
@@ -267,7 +276,16 @@ export const guards = {
     description: 'Human must have unblocked the workflow',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.unblocked === true) return true;
-      return { passed: false, reason: 'human-unblocked not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'human-unblocked not satisfied: set state.unblocked to true',
+        expectedShape: { unblocked: true },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { unblocked: true } },
+        },
+      };
     },
   },
 
@@ -304,7 +322,16 @@ export const guards = {
     description: 'Hotfix track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'hotfix') return true;
-      return { passed: false, reason: 'hotfix-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `hotfix-track-selected not satisfied: state.track must be 'hotfix' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'hotfix' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'hotfix' } },
+        },
+      };
     },
   },
 
@@ -313,7 +340,16 @@ export const guards = {
     description: 'Thorough track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'thorough') return true;
-      return { passed: false, reason: 'thorough-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `thorough-track-selected not satisfied: state.track must be 'thorough' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'thorough' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'thorough' } },
+        },
+      };
     },
   },
 
@@ -410,7 +446,16 @@ export const guards = {
     description: 'Polish track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'polish') return true;
-      return { passed: false, reason: 'polish-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `polish-track-selected not satisfied: state.track must be 'polish' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'polish' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'polish' } },
+        },
+      };
     },
   },
 
@@ -419,7 +464,16 @@ export const guards = {
     description: 'Overhaul track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'overhaul') return true;
-      return { passed: false, reason: 'overhaul-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `overhaul-track-selected not satisfied: state.track must be 'overhaul' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'overhaul' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'overhaul' } },
+        },
+      };
     },
   },
 
@@ -457,7 +511,16 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       if (planReview?.approved === true) return true;
-      return { passed: false, reason: 'plan-review-complete not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'plan-review-complete not satisfied: planReview.approved must be true',
+        expectedShape: { planReview: { approved: true } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { planReview: { approved: true } } },
+        },
+      };
     },
   },
 
@@ -467,7 +530,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       if (planReview?.gapsFound === true) return true;
-      return { passed: false, reason: 'plan-review-gaps-found not satisfied' };
+      return {
+        passed: false,
+        reason: 'plan-review-gaps-found not satisfied: planReview.gapsFound must be true',
+        expectedShape: { planReview: { gapsFound: true } },
+      };
     },
   },
 

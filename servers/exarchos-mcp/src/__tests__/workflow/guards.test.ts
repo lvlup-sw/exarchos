@@ -584,6 +584,83 @@ describe('Review Status fixes-applied', () => {
   });
 });
 
+// ─── Track & Field Guards: expectedShape and suggestedFix (#959) ─────────────
+
+describe('Track Selection Guards Structured Failures', () => {
+  const trackGuards = [
+    { key: 'polishTrackSelected', expectedTrack: 'polish' },
+    { key: 'overhaulTrackSelected', expectedTrack: 'overhaul' },
+    { key: 'hotfixTrackSelected', expectedTrack: 'hotfix' },
+    { key: 'thoroughTrackSelected', expectedTrack: 'thorough' },
+  ] as const;
+
+  for (const { key, expectedTrack } of trackGuards) {
+    describe(`${key}_WrongTrack_ReturnsExpectedShapeAndSuggestedFix`, () => {
+      it(`should include expectedShape { track: '${expectedTrack}' } and suggestedFix`, () => {
+        const state = { featureId: 'test-feature', track: 'wrong' };
+        const result = guards[key].evaluate(state);
+        expect(result).not.toBe(true);
+        const failure = result as GuardFailure;
+        expect(failure.passed).toBe(false);
+        expect(failure.reason).toContain(expectedTrack);
+        expect(failure.reason).toContain('wrong');
+        expect(failure.expectedShape).toEqual({ track: expectedTrack });
+        expect(failure.suggestedFix).toEqual({
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId: 'test-feature', updates: { track: expectedTrack } },
+        });
+      });
+    });
+  }
+});
+
+describe('PrUrlExists Structured Failure', () => {
+  it('PrUrlExists_Missing_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.prUrlExists.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ synthesis: { prUrl: '<pr-url>' } });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix?.params.updates).toEqual({ synthesis: { prUrl: '<pr-url>' } });
+  });
+});
+
+describe('HumanUnblocked Structured Failure', () => {
+  it('HumanUnblocked_NotSet_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.humanUnblocked.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ unblocked: true });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix?.params.updates).toEqual({ unblocked: true });
+  });
+});
+
+describe('PlanReviewComplete Structured Failure', () => {
+  it('PlanReviewComplete_NotApproved_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.planReviewComplete.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ planReview: { approved: true } });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+  });
+});
+
+describe('PlanReviewGapsFound Structured Failure', () => {
+  it('PlanReviewGapsFound_NoGaps_ReturnsExpectedShape', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.planReviewGapsFound.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ planReview: { gapsFound: true } });
+    // No suggestedFix — gaps are discovered, not forced
+    expect(failure.suggestedFix).toBeUndefined();
+  });
+});
+
 // ─── T7: Guard consistent return types (ARCH-6) ─────────────────────────────
 
 describe('Guard Consistent Return Types', () => {

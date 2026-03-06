@@ -90,7 +90,7 @@ Address each blocking action item from the assessment. Consult `references/fix-s
      stream: "<featureId>",
      event: {
        type: "remediation.attempted",
-       data: { skill: "shepherd", gate: "<failing-gate>", attemptNumber: <N>, strategy: "direct-fix" }
+       data: { taskId: "<taskId>", skill: "shepherd", gateName: "<failing-gate>", attemptNumber: <N>, strategy: "direct-fix" }
      }
    })
    ```
@@ -104,7 +104,7 @@ Address each blocking action item from the assessment. Consult `references/fix-s
      stream: "<featureId>",
      event: {
        type: "remediation.succeeded",
-       data: { skill: "shepherd", gate: "<gate>", totalAttempts: <N>, finalStrategy: "direct-fix" }
+       data: { taskId: "<taskId>", skill: "shepherd", gateName: "<gate>", totalAttempts: <N>, finalStrategy: "direct-fix" }
      }
    })
    ```
@@ -185,15 +185,15 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 
 ## Event Emission
 
-| Event | When | Purpose |
-|-------|------|---------|
-| `shepherd.started` | On skill start | Audit trail |
-| `shepherd.iteration` | After each assess cycle | Track progress |
-| `gate.executed` | Per CI check (emitted by `assess_stack`) | CodeQualityView — gate pass rates |
-| `remediation.attempted` | Before applying a fix | selfCorrectionRate metric |
-| `remediation.succeeded` | After fix confirmed | avgRemediationAttempts metric |
-| `shepherd.approval_requested` | On requesting review | Audit trail |
-| `shepherd.completed` | On completion | Audit trail |
+| Event | Required Fields (`data`) | When | Purpose |
+|-------|--------------------------|------|---------|
+| `shepherd.started` | `prUrl` (string), `stackSize` (number), `ciStatus` (string) | On skill start | Audit trail |
+| `shepherd.iteration` | `iteration` (number), `prsAssessed` (number), `fixesApplied` (number), `status` (string) | After each assess cycle | Track progress |
+| `gate.executed` | `gateName`, `layer`, `passed`, `details` | Per CI check (emitted by `assess_stack`) | CodeQualityView — gate pass rates |
+| `remediation.attempted` | `taskId` (string), `skill` (string), `gateName` (string), `attemptNumber` (number), `strategy` (string) | Before applying a fix | selfCorrectionRate metric |
+| `remediation.succeeded` | `taskId` (string), `skill` (string), `gateName` (string), `totalAttempts` (number), `finalStrategy` (string) | After fix confirmed | avgRemediationAttempts metric |
+| `shepherd.approval_requested` | `prUrl` (string), `reviewers` (string[]) | On requesting review | Audit trail |
+| `shepherd.completed` | `prUrl` (string), `totalIterations` (number), `outcome` (string) | On completion | Audit trail |
 
 ## Domain Knowledge
 

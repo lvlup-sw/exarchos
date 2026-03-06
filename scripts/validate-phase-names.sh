@@ -69,11 +69,15 @@ fi
 # EXTRACT VALID PHASE IDS FROM HSM
 # ============================================================
 
-# Build the MCP server first if dist doesn't exist
+# Skip gracefully if dist doesn't exist (e.g. in worktrees)
 MCP_DIST="$REPO_ROOT/servers/exarchos-mcp/dist"
 if [[ ! -d "$MCP_DIST" ]]; then
-    echo "Error: MCP server not built. Run 'npm run build' first." >&2
-    exit 2
+    echo "## Phase Name Validation Report"
+    echo ""
+    echo "Skipped: MCP server not built (dist/ not found). Run 'npm run build' first."
+    echo ""
+    echo "**Result: SKIP**"
+    exit 0
 fi
 
 # Extract phase IDs from HSM definitions via Node

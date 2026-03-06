@@ -98,7 +98,9 @@ Activate this skill when:
 
 Fix production issues ASAP. Speed over ceremony.
 
-**Phases:** Triage (see `references/triage-questions.md`) -> Investigate (15 min max) -> hotfix-implement (no worktree) -> hotfix-validate -> Merge
+**HSM phases:** `triage` → `investigate` (15 min max) → `hotfix-implement` (no worktree) → `hotfix-validate` → `completed`
+
+See `references/triage-questions.md` for triage guidance.
 
 ### Investigation Timer
 
@@ -113,7 +115,7 @@ For detailed phase instructions, see `references/hotfix-track.md`.
 
 Fix bugs with proper rigor. Full RCA documentation.
 
-**Phases:** Triage -> Investigate -> RCA -> Design -> debug-implement (worktree + TDD) -> debug-validate -> debug-review -> Synthesize -> Merge
+**HSM phases:** `triage` → `investigate` → `rca` → `design` → `debug-implement` (worktree + TDD) → `debug-validate` → `debug-review` → `synthesize` → `completed`
 
 For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
 

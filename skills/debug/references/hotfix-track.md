@@ -11,10 +11,10 @@ Fix production issues or critical regressions ASAP. Speed over ceremony.
 ## Phases
 
 ```
-Triage -> Investigate -> hotfix-implement -> hotfix-validate -> Completed
-  |          |            |           |           |
-  |          |            |           |           +- Human checkpoint: merge
-  |          |            |           +- Smoke tests only
+triage -> investigate -> hotfix-implement -> hotfix-validate -> completed
+  |          |            |                   |                  |
+  |          |            |                   |                  +- Human checkpoint: merge
+  |          |            |                   +- Smoke tests only
   |          |            +- Minimal fix, no worktree
   |          +- 15 min max, focused on root cause
   +- Capture symptom, select track
