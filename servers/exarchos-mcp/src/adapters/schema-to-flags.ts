@@ -135,10 +135,20 @@ export function addFlagsFromSchema(
     const desc = override?.description ?? field.description ?? field.name;
     const alias = override?.alias;
 
-    let flagStr: string;
     if (field.type === 'boolean') {
-      flagStr = alias ? `-${alias}, --[no-]${kebab}` : `--[no-]${kebab}`;
-    } else if (field.type === 'enum' && field.enumValues) {
+      // Commander requires separate positive and negative options for boolean negation
+      const posFlag = alias ? `-${alias}, --${kebab}` : `--${kebab}`;
+      if (field.required) {
+        cmd.requiredOption(posFlag, desc);
+      } else {
+        cmd.option(posFlag, desc);
+      }
+      cmd.option(`--no-${kebab}`, `Negate --${kebab}`);
+      continue;
+    }
+
+    let flagStr: string;
+    if (field.type === 'enum' && field.enumValues) {
       const choicesStr = field.enumValues.join('|');
       flagStr = alias
         ? `-${alias}, --${kebab} <${choicesStr}>`

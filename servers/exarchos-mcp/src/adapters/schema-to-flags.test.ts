@@ -178,10 +178,13 @@ describe('addFlagsFromSchema', () => {
 
     addFlagsFromSchema(cmd, schema);
 
-    const opt = cmd.options.find((o) => o.long === '--[no-]dry-run');
+    const opt = cmd.options.find((o) => o.long === '--dry-run');
     expect(opt).toBeDefined();
-    // Boolean flags use --[no-] pattern for true/false support
+    // Boolean flags don't take a value argument
     expect(opt!.flags).not.toContain('<value>');
+    // Negation flag is also registered
+    const negOpt = cmd.options.find((o) => o.long === '--no-dry-run');
+    expect(negOpt).toBeDefined();
   });
 
   it('AddFlags_WithOverrides_UsesAliasAndDescription', () => {

@@ -26,7 +26,8 @@ export const workflowDefinitionSchema = z.object({
   transitions: z.array(transitionDefinitionSchema),
   guards: z.record(z.string(), guardDefinitionSchema).optional(),
 }).strict().superRefine((workflow, ctx) => {
-  const phaseSet = new Set(workflow.phases);
+  // Include implicit terminal states that convertToHSM auto-adds
+  const phaseSet = new Set([...workflow.phases, 'cancelled', 'completed']);
 
   // initialPhase must be in phases
   if (!phaseSet.has(workflow.initialPhase)) {

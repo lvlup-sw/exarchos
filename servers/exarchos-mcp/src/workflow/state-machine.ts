@@ -115,9 +115,15 @@ function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): 
     id: guardId,
     description: guardDef.description ?? `Custom guard: ${guardId}`,
     evaluate: (_state: Record<string, unknown>) => {
-      // Config guards are evaluated at runtime via the orchestrator's
-      // guard execution pipeline (config/guards.ts), not inline.
-      // At HSM level, we pass through — the orchestrator calls executeGuard().
+      // DESIGN: Custom config guards use a two-layer execution model:
+      // 1. HSM layer (here): pass-through — returns true to allow the transition
+      // 2. Orchestrator layer: calls executeGuard() from config/guards.ts
+      //    before attempting the HSM transition, blocking if the guard fails.
+      //
+      // This split exists because HSM evaluate() is synchronous but custom
+      // guards shell out to external commands (async). The orchestrator
+      // checks getRegisteredGuard() and runs executeGuard() pre-transition.
+      // Built-in guards (workflow/guards.ts) remain inline/synchronous.
       return true;
     },
   };
