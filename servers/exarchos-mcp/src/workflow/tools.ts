@@ -26,7 +26,7 @@ import {
   isStale,
 } from './checkpoint.js';
 import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
-import { getHSMDefinition, executeTransition, findTransition } from './state-machine.js';
+import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { getPlaybook } from './playbooks.js';
@@ -552,6 +552,15 @@ export async function handleSet(
               },
             };
           }
+        } else if (!isBuiltInWorkflowType(state.workflowType)) {
+          // Fail closed: custom workflow guard not found in registry
+          return {
+            success: false,
+            error: {
+              code: ErrorCode.GUARD_FAILED,
+              message: `Custom guard '${pendingTransition.guard.id}' is not registered. Ensure registerCustomWorkflows() was called.`,
+            },
+          };
         }
       }
 

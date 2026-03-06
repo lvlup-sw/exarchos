@@ -5,6 +5,7 @@ import {
   extractSchemaFields,
   addFlagsFromSchema,
   coerceFlags,
+  validateRequiredBooleans,
   toKebab,
   toCamel,
 } from './schema-to-flags.js';
@@ -269,6 +270,62 @@ describe('coerceFlags', () => {
     );
 
     expect(result).toEqual({ updates: { key: 'value' } });
+  });
+});
+
+// ─── Required boolean validation ─────────────────────────────────────────────
+
+describe('validateRequiredBooleans', () => {
+  it('ValidateRequiredBooleans_MissingRequired_ReturnsFieldNames', () => {
+    const schema = z.object({
+      mergeVerified: z.boolean(),
+    });
+
+    const missing = validateRequiredBooleans({}, schema);
+    expect(missing).toEqual(['--merge-verified']);
+  });
+
+  it('ValidateRequiredBooleans_ProvidedTrue_ReturnsEmpty', () => {
+    const schema = z.object({
+      mergeVerified: z.boolean(),
+    });
+
+    const missing = validateRequiredBooleans({ 'merge-verified': true }, schema);
+    expect(missing).toEqual([]);
+  });
+
+  it('ValidateRequiredBooleans_ProvidedFalse_ReturnsEmpty', () => {
+    const schema = z.object({
+      mergeVerified: z.boolean(),
+    });
+
+    // --no-merge-verified sets merge-verified to false
+    const missing = validateRequiredBooleans({ 'merge-verified': false }, schema);
+    expect(missing).toEqual([]);
+  });
+
+  it('ValidateRequiredBooleans_OptionalBoolean_IgnoresIt', () => {
+    const schema = z.object({
+      dryRun: z.boolean().optional(),
+    });
+
+    const missing = validateRequiredBooleans({}, schema);
+    expect(missing).toEqual([]);
+  });
+
+  it('AddFlags_RequiredBoolean_RegistersAsOptionalNotRequired', () => {
+    const schema = z.object({
+      action: z.string(),
+      mergeVerified: z.boolean(),
+    });
+
+    const parent = new Command('exarchos').exitOverride();
+    const sub = parent.command('cleanup');
+    addFlagsFromSchema(sub, schema);
+
+    // --no-merge-verified should work without triggering requiredOption error
+    parent.parse(['node', 'exarchos', 'cleanup', '--no-merge-verified']);
+    expect(sub.opts()['mergeVerified']).toBe(false);
   });
 });
 

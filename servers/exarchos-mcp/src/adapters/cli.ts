@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { TOOL_REGISTRY } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { addFlagsFromSchema, coerceFlags, toKebab } from './schema-to-flags.js';
+import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
 import { prettyPrint, printError } from './cli-format.js';
 import { listSchemas, resolveSchemaRef } from './schema-introspection.js';
 import { createMcpServer } from './mcp.js';
@@ -42,6 +42,18 @@ export function buildCli(ctx: DispatchContext): Command {
 
       actionCmd.action(async (opts: Record<string, unknown>) => {
         const { json, ...flagOpts } = opts;
+
+        // Validate required booleans (Commander can't enforce --flag vs --no-flag)
+        const missingBools = validateRequiredBooleans(flagOpts, action.schema);
+        if (missingBools.length > 0) {
+          printError({
+            code: 'MISSING_REQUIRED',
+            message: `Required option(s) not specified: ${missingBools.join(', ')}`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
         const args = { action: action.name, ...coerceFlags(flagOpts, action.schema) };
         const result = await dispatch(tool.name, args, ctx);
 

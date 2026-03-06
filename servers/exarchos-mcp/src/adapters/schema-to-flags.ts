@@ -136,13 +136,12 @@ export function addFlagsFromSchema(
     const alias = override?.alias;
 
     if (field.type === 'boolean') {
-      // Commander requires separate positive and negative options for boolean negation
+      // Register both --flag and --no-flag as optional; required validation
+      // happens in validateRequiredBooleans() after parsing, because Commander
+      // treats them as independent options and requiredOption('--flag') rejects
+      // valid '--no-flag' input.
       const posFlag = alias ? `-${alias}, --${kebab}` : `--${kebab}`;
-      if (field.required) {
-        cmd.requiredOption(posFlag, desc);
-      } else {
-        cmd.option(posFlag, desc);
-      }
+      cmd.option(posFlag, desc);
       cmd.option(`--no-${kebab}`, `Negate --${kebab}`);
       continue;
     }
@@ -167,6 +166,29 @@ export function addFlagsFromSchema(
   }
 
   cmd.option('--json', 'Output raw JSON');
+}
+
+// ─── Required Boolean Validation ─────────────────────────────────────────────
+
+/**
+ * Validates that required boolean fields were provided (either --flag or --no-flag).
+ * Commander can't enforce this because --flag and --no-flag are independent options.
+ * Returns an array of missing field names (empty = valid).
+ */
+export function validateRequiredBooleans(
+  opts: Record<string, unknown>,
+  schema: z.ZodObject<z.ZodRawShape>,
+): string[] {
+  const fields = extractSchemaFields(schema);
+  const missing: string[] = [];
+
+  for (const field of fields) {
+    if (field.type === 'boolean' && field.required && opts[toKebab(field.name)] === undefined) {
+      missing.push(`--${toKebab(field.name)}`);
+    }
+  }
+
+  return missing;
 }
 
 // ─── Flag Coercion ──────────────────────────────────────────────────────────

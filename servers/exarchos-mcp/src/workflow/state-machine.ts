@@ -83,6 +83,10 @@ const initialPhaseRegistry: Record<string, string> = {
   refactor: 'explore',
 };
 
+export function isBuiltInWorkflowType(workflowType: string): boolean {
+  return BUILT_IN_TYPES.has(workflowType);
+}
+
 export function getHSMDefinition(workflowType: string): HSMDefinition {
   const hsm = hsmRegistry[workflowType];
   if (!hsm) {
