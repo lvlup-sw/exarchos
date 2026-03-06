@@ -1,5 +1,5 @@
 import { EventStore } from '../event-store/store.js';
-import type { McpToolResult } from '../format.js';
+import type { ToolResult, PerfMetrics } from '../format.js';
 import { telemetryLogger } from '../logger.js';
 import { TELEMETRY_STREAM, TOKEN_GATE_THRESHOLD } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';
@@ -13,7 +13,8 @@ const traceWriter = new TraceWriter();
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<McpToolResult>;
+/** Transport-agnostic handler type: accepts args, returns ToolResult. */
+export type CoreHandler = (args: Record<string, unknown>) => Promise<ToolResult>;
 
 /** Optional configuration for auto-correction behavior in withTelemetry. */
 export interface AutoCorrectionOptions {
@@ -27,47 +28,15 @@ export interface AutoCorrectionOptions {
 
 // ─── Perf Injection ─────────────────────────────────────────────────────────
 
-interface PerfMetrics {
-  readonly ms: number;
-  readonly bytes: number;
-  readonly tokens: number;
+/** Sets `_perf` directly on the ToolResult object. */
+function injectPerf(result: ToolResult, perf: PerfMetrics): ToolResult {
+  return { ...result, _perf: perf };
 }
 
-/** Injects `_perf` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
-function injectPerf(result: McpToolResult, perf: PerfMetrics): McpToolResult {
-  const entry = result.content[0];
-  if (!entry?.text) return result;
-
-  try {
-    const parsed = JSON.parse(entry.text) as Record<string, unknown>;
-    parsed._perf = perf;
-    return {
-      ...result,
-      content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
-    };
-  } catch {
-    // Not valid JSON — return unchanged
-    return result;
-  }
-}
-
-/** Injects `_autoCorrection` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
-function injectAutoCorrection(result: McpToolResult, applied: Correction[]): McpToolResult {
+/** Sets `_corrections` directly on the ToolResult object. */
+function injectAutoCorrection(result: ToolResult, applied: Correction[]): ToolResult {
   if (applied.length === 0) return result;
-
-  const entry = result.content[0];
-  if (!entry?.text) return result;
-
-  try {
-    const parsed = JSON.parse(entry.text) as Record<string, unknown>;
-    parsed._autoCorrection = { applied };
-    return {
-      ...result,
-      content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
-    };
-  } catch {
-    return result;
-  }
+  return { ...result, _corrections: { applied } };
 }
 
 // ─── Event Hint Injection ──────────────────────────────────────────────────
@@ -77,50 +46,31 @@ interface EventHint {
   readonly description: string;
 }
 
-interface EventHintsPayload {
-  readonly missing: readonly EventHint[];
-  readonly phase: string;
-  readonly checked: number;
-}
-
-/** Injects `_eventHints` into the JSON payload of the first content entry. Fails silently if text is not valid JSON. */
-function injectEventHints(result: McpToolResult, payload: EventHintsPayload): McpToolResult {
+/** Sets `_eventHints` directly on the ToolResult object. */
+function injectEventHints(result: ToolResult, payload: { missing: readonly EventHint[]; phase: string; checked: number }): ToolResult {
   if (payload.missing.length === 0) return result;
-
-  const entry = result.content[0];
-  if (!entry?.text) return result;
-
-  try {
-    const parsed = JSON.parse(entry.text) as Record<string, unknown>;
-    parsed._eventHints = payload;
-    return {
-      ...result,
-      content: [{ ...entry, text: JSON.stringify(parsed) }, ...result.content.slice(1)],
-    };
-  } catch {
-    return result;
-  }
+  return { ...result, _eventHints: payload };
 }
 
 // ─── withTelemetry HOF ──────────────────────────────────────────────────────
 
 /**
- * Wraps an MCP tool handler with telemetry instrumentation.
+ * Wraps a CoreHandler with telemetry instrumentation.
  *
  * Emits `tool.invoked` before execution, `tool.completed` after success (with
  * duration, response size, and token estimate), or `tool.errored` on failure.
  *
  * When `autoCorrectionOptions` is provided, applies auto-correction rules before
- * calling the handler and injects `_autoCorrection` metadata into the response.
+ * calling the handler and injects `_corrections` metadata into the response.
  *
  * Telemetry failures are swallowed — they never break the underlying handler.
  */
 export function withTelemetry(
-  handler: ToolHandler,
+  handler: CoreHandler,
   toolName: string,
   eventStore: EventStore,
   autoCorrectionOptions?: AutoCorrectionOptions,
-): ToolHandler {
+): CoreHandler {
   return async (args) => {
     // ─── Auto-Correction ───────────────────────────────────────────────
     let correctedArgs = args;
@@ -149,7 +99,14 @@ export function withTelemetry(
     try {
       const result = await handler(correctedArgs);
       const durationMs = Math.round(performance.now() - start);
-      const responseText = result.content[0]?.text ?? '';
+
+      // Serialize ToolResult to compute response size/token estimate
+      let responseText: string;
+      try {
+        responseText = JSON.stringify(result);
+      } catch {
+        responseText = '{}';
+      }
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
       const tokenEstimate = Math.ceil(responseBytes / 4);
 
@@ -286,14 +243,14 @@ interface McpServer {
 }
 
 /**
- * Creates a registration function that transparently wraps MCP tool handlers
+ * Creates a registration function that transparently wraps CoreHandlers
  * with telemetry instrumentation before delegating to `server.tool()`.
  */
 export function createInstrumentedRegistrar(
   server: McpServer,
   eventStore: EventStore,
 ) {
-  return (name: string, description: string, schema: unknown, handler: ToolHandler) => {
+  return (name: string, description: string, schema: unknown, handler: CoreHandler) => {
     server.tool(name, description, schema, withTelemetry(handler, name, eventStore));
   };
 }

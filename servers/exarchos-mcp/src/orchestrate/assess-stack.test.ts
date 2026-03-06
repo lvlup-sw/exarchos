@@ -205,6 +205,75 @@ describe('handleAssessStack', () => {
     });
   });
 
+  // ─── Comment Truncation (#965) ──────────────────────────────────────────
+
+  describe('comment body truncation', () => {
+    it('AssessStack_LongCommentBody_TruncatedTo200Chars', async () => {
+      // Arrange
+      const longBody = 'x'.repeat(500);
+      const checksOutput = makeChecksOutput([{ name: 'ci/build', status: 'pass' }]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([
+        { body: longBody, isResolved: false },
+      ]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        return Buffer.from('[]');
+      });
+
+      // Act
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      const commentBody = data.status.prs[0].unresolvedComments[0].body;
+      expect(commentBody.length).toBeLessThanOrEqual(203); // 200 + '...'
+      expect(commentBody.endsWith('...')).toBe(true);
+    });
+
+    it('AssessStack_ShortCommentBody_NotTruncated', async () => {
+      // Arrange
+      const shortBody = 'This is a short comment';
+      const checksOutput = makeChecksOutput([{ name: 'ci/build', status: 'pass' }]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([
+        { body: shortBody, isResolved: false },
+      ]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        return Buffer.from('[]');
+      });
+
+      // Act
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
+      };
+      const commentBody = data.status.prs[0].unresolvedComments[0].body;
+      expect(commentBody).toBe(shortBody);
+    });
+  });
+
   // ─── Recommendation Logic ───────────────────────────────────────────────
 
   describe('recommendation logic', () => {

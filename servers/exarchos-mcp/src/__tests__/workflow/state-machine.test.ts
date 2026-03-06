@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   getHSMDefinition,
   executeTransition,
   getValidTransitions,
+  findTransition,
+  registerWorkflowType,
+  unregisterWorkflowType,
 } from '../../workflow/state-machine.js';
-import type { HSMDefinition, State, Transition } from '../../workflow/state-machine.js';
+import type { HSMDefinition, State, Transition, WorkflowDefinition } from '../../workflow/state-machine.js';
 import { guards } from '../../workflow/guards.js';
 
 // ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
@@ -2895,5 +2898,154 @@ describe('Debug HSM direct-push completion', () => {
     expect(transition).toBeDefined();
     expect(transition!.guard).toBeDefined();
     expect(transition!.guard!.id).toBe('fix-verified-directly');
+  });
+});
+
+// ─── Task 19: HSM Registry Extension for Custom Workflows ──────────────────
+
+describe('HSM Registry Extension', () => {
+  const CUSTOM_NAME = 'custom-deploy';
+
+  afterEach(() => {
+    try { unregisterWorkflowType(CUSTOM_NAME); } catch { /* ignore if not registered */ }
+  });
+
+  it('RegisterWorkflowType_AddsToHsmRegistry', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['init', 'build', 'deploy', 'done'],
+      initialPhase: 'init',
+      transitions: [
+        { from: 'init', to: 'build', event: 'start-build' },
+        { from: 'build', to: 'deploy', event: 'build-complete' },
+        { from: 'deploy', to: 'done', event: 'deploy-complete' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+    expect(hsm).toBeDefined();
+    expect(hsm.id).toBe(CUSTOM_NAME);
+    expect(hsm.states['init']).toBeDefined();
+    expect(hsm.states['build']).toBeDefined();
+    expect(hsm.states['deploy']).toBeDefined();
+    expect(hsm.states['done']).toBeDefined();
+  });
+
+  it('RegisterWorkflowType_ExtendsBuiltIn_InheritsTransitions', () => {
+    const featureHsm = getHSMDefinition('feature');
+    const featureTransitionCount = featureHsm.transitions.length;
+
+    const definition: WorkflowDefinition = {
+      extends: 'feature',
+      phases: ['extra-review'],
+      initialPhase: 'ideate',
+      transitions: [
+        { from: 'synthesize', to: 'extra-review', event: 'needs-extra-review' },
+        { from: 'extra-review', to: 'completed', event: 'extra-review-done' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+    expect(hsm.id).toBe(CUSTOM_NAME);
+
+    // Should have inherited states from feature
+    expect(hsm.states['ideate']).toBeDefined();
+    expect(hsm.states['plan']).toBeDefined();
+    expect(hsm.states['delegate']).toBeDefined();
+
+    // Should have the new state
+    expect(hsm.states['extra-review']).toBeDefined();
+
+    // Should have more transitions than just the custom ones (inherited + new)
+    expect(hsm.transitions.length).toBeGreaterThan(2);
+
+    // The custom transition should exist
+    const customTransition = hsm.transitions.find(
+      (t) => t.from === 'synthesize' && t.to === 'extra-review',
+    );
+    expect(customTransition).toBeDefined();
+  });
+
+  it('RegisterWorkflowType_CustomPhases_ValidTransitions', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['start', 'middle', 'end'],
+      initialPhase: 'start',
+      transitions: [
+        { from: 'start', to: 'middle', event: 'advance' },
+        { from: 'middle', to: 'end', event: 'finish' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+
+    // Execute a transition
+    const state = { phase: 'start', _events: [], _history: {} };
+    const result = executeTransition(hsm, state, 'middle');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('middle');
+  });
+
+  it('RegisterWorkflowType_DuplicateName_Throws', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['a', 'b'],
+      initialPhase: 'a',
+      transitions: [{ from: 'a', to: 'b', event: 'go' }],
+    };
+
+    expect(() => registerWorkflowType('feature', definition)).toThrow(
+      'Cannot override built-in workflow type: feature',
+    );
+    expect(() => registerWorkflowType('debug', definition)).toThrow(
+      'Cannot override built-in workflow type: debug',
+    );
+    expect(() => registerWorkflowType('refactor', definition)).toThrow(
+      'Cannot override built-in workflow type: refactor',
+    );
+  });
+});
+
+describe('findTransition', () => {
+  it('FindTransition_ExistingTransition_ReturnsTransition', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'plan');
+    expect(transition).toBeDefined();
+    expect(transition!.from).toBe('ideate');
+    expect(transition!.to).toBe('plan');
+  });
+
+  it('FindTransition_NoMatch_ReturnsUndefined', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'completed');
+    expect(transition).toBeUndefined();
+  });
+
+  it('FindTransition_CustomWorkflowWithGuard_ReturnsGuard', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['build', 'deploy'],
+      initialPhase: 'build',
+      transitions: [
+        { from: 'build', to: 'deploy', event: 'build-done', guard: 'check-build' },
+      ],
+      guards: {
+        'check-build': { command: 'echo ok' },
+      },
+    };
+
+    registerWorkflowType('find-test', definition);
+    try {
+      const hsm = getHSMDefinition('find-test');
+      const transition = findTransition(hsm, 'build', 'deploy');
+      expect(transition).toBeDefined();
+      expect(transition!.guard).toBeDefined();
+      expect(transition!.guard!.id).toBe('check-build');
+    } finally {
+      unregisterWorkflowType('find-test');
+    }
   });
 });

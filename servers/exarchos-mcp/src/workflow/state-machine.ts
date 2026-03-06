@@ -69,11 +69,23 @@ export interface TransitionResult {
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
 
+const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor']);
+
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
   debug: createDebugHSM(),
   refactor: createRefactorHSM(),
 };
+
+const initialPhaseRegistry: Record<string, string> = {
+  feature: 'ideate',
+  debug: 'triage',
+  refactor: 'explore',
+};
+
+export function isBuiltInWorkflowType(workflowType: string): boolean {
+  return BUILT_IN_TYPES.has(workflowType);
+}
 
 export function getHSMDefinition(workflowType: string): HSMDefinition {
   const hsm = hsmRegistry[workflowType];
@@ -81,6 +93,135 @@ export function getHSMDefinition(workflowType: string): HSMDefinition {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return hsm;
+}
+
+export function getInitialPhase(workflowType: string): string {
+  const phase = initialPhaseRegistry[workflowType];
+  if (!phase) {
+    throw new Error(`Unknown workflow type: ${workflowType}`);
+  }
+  return phase;
+}
+
+// ─── Workflow Definition → HSM Conversion ────────────────────────────────────
+
+import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
+
+// Re-export for consumers that imported from here
+export type { WorkflowDefinition };
+
+/**
+ * Create a Guard object from a config guard definition.
+ * The guard shells out to the command and treats exit code 0 as pass.
+ */
+function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
+  return {
+    id: guardId,
+    custom: true,
+    description: guardDef.description ?? `Custom guard: ${guardId}`,
+    evaluate: (_state: Record<string, unknown>) => {
+      // DESIGN: Custom config guards use a two-layer execution model:
+      // 1. HSM layer (here): pass-through — returns true to allow the transition
+      // 2. Orchestrator layer: calls executeGuard() from config/guards.ts
+      //    before attempting the HSM transition, blocking if the guard fails.
+      //
+      // This split exists because HSM evaluate() is synchronous but custom
+      // guards shell out to external commands (async). The orchestrator
+      // checks getRegisteredGuard() and runs executeGuard() pre-transition.
+      // Built-in guards (workflow/guards.ts) remain inline/synchronous.
+      return true;
+    },
+  };
+}
+
+function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
+  let baseStates: Record<string, State> = {};
+  let baseTransitions: readonly Transition[] = [];
+
+  // Build guard lookup from definition
+  const guardLookup = new Map<string, Guard>();
+  if (definition.guards) {
+    for (const [guardId, guardDef] of Object.entries(definition.guards)) {
+      guardLookup.set(guardId, createGuardFromDefinition(guardId, guardDef));
+    }
+  }
+
+  if (definition.extends) {
+    const parent = hsmRegistry[definition.extends];
+    if (!parent) {
+      throw new Error(`Cannot extend unknown workflow type: ${definition.extends}`);
+    }
+    // Deep clone the parent
+    baseStates = Object.fromEntries(
+      Object.entries(parent.states).map(([k, v]) => [k, { ...v }]),
+    );
+    baseTransitions = [...parent.transitions];
+  }
+
+  // Add custom phases as atomic states
+  for (const phase of definition.phases) {
+    if (!baseStates[phase]) {
+      baseStates[phase] = { id: phase, type: 'atomic' };
+    }
+  }
+
+  // Ensure cancelled/completed final states exist
+  if (!baseStates['cancelled']) {
+    baseStates['cancelled'] = { id: 'cancelled', type: 'final' };
+  }
+  if (!baseStates['completed']) {
+    baseStates['completed'] = { id: 'completed', type: 'final' };
+  }
+
+  // Convert transitions, resolving string guard IDs to Guard objects
+  const customTransitions: Transition[] = definition.transitions.map((t) => {
+    const base: { from: string; to: string; guard?: Guard } = { from: t.from, to: t.to };
+    if (t.guard) {
+      const resolved = guardLookup.get(t.guard);
+      if (!resolved) {
+        throw new Error(`Transition ${t.from} → ${t.to} references unknown guard '${t.guard}'. Define it in guards.`);
+      }
+      base.guard = resolved;
+    }
+    return base;
+  });
+
+  // Merge: custom transitions override base transitions with same from+to
+  const transitionKey = (t: Transition): string => `${t.from}->${t.to}`;
+  const mergedMap = new Map<string, Transition>();
+  for (const t of baseTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+  for (const t of customTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+
+  return {
+    id: name,
+    states: baseStates,
+    transitions: [...mergedMap.values()],
+  };
+}
+
+export function registerWorkflowType(name: string, definition: WorkflowDefinition): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot override built-in workflow type: ${name}`);
+  }
+  const hsm = convertToHSM(name, definition);
+  hsmRegistry[name] = hsm;
+  initialPhaseRegistry[name] = definition.initialPhase;
+}
+
+/**
+ * Remove a custom workflow type from the registry.
+ * Only non-built-in types can be removed. Used for test cleanup.
+ */
+export function unregisterWorkflowType(name: string): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot unregister built-in workflow type: ${name}`);
+  }
+  delete hsmRegistry[name];
+  delete initialPhaseRegistry[name];
 }
 
 // ─── Transition Algorithm (10 Steps) ────────────────────────────────────────
@@ -164,6 +305,20 @@ export function getValidTransitions(
   }
 
   return targets;
+}
+
+/**
+ * Find a transition in the HSM from one phase to another.
+ * Returns undefined if no matching transition exists.
+ */
+export function findTransition(
+  hsm: HSMDefinition,
+  fromPhase: string,
+  toPhase: string,
+): Transition | undefined {
+  return hsm.transitions.find(
+    (t) => t.from === fromPhase && t.to === toPhase,
+  );
 }
 
 /**
@@ -301,9 +456,7 @@ export function executeTransition(
   }
 
   // Find matching transition
-  const transition = hsm.transitions.find(
-    (t) => t.from === currentPhase && t.to === targetPhase
-  );
+  const transition = findTransition(hsm, currentPhase, targetPhase);
 
   if (!transition) {
     const validTargets = getValidTransitions(hsm, currentPhase);

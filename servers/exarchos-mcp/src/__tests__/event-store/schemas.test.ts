@@ -24,6 +24,7 @@ import {
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
+import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
@@ -138,13 +139,35 @@ describe('WorkflowStartedData', () => {
     }
   });
 
-  it('should reject invalid workflow type', () => {
+  it('should reject empty workflow type', () => {
     expect(() =>
       WorkflowStartedData.parse({
         featureId: 'test',
-        workflowType: 'invalid',
+        workflowType: '',
       }),
     ).toThrow();
+  });
+
+  it('should reject unregistered workflow type', () => {
+    expect(() =>
+      WorkflowStartedData.parse({
+        featureId: 'test',
+        workflowType: 'unregistered-type',
+      }),
+    ).toThrow();
+  });
+
+  it('should accept registered custom workflow type', () => {
+    extendWorkflowTypeEnum('deploy');
+    try {
+      const data = WorkflowStartedData.parse({
+        featureId: 'test',
+        workflowType: 'deploy',
+      });
+      expect(data.workflowType).toBe('deploy');
+    } finally {
+      unextendWorkflowTypeEnum('deploy');
+    }
   });
 
   it('should allow optional designPath', () => {

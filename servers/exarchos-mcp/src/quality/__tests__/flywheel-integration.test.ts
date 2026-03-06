@@ -92,15 +92,16 @@ function makeCalibrationEvent(seq: number, opts: {
 
 function makeRemediationEvent(seq: number, opts: {
   skill: string;
-  gate: string;
-  attempts?: number;
-  durationMs?: number;
+  gateName: string;
+  totalAttempts?: number;
+  taskId?: string;
 }): WorkflowEvent {
   return makeEvent('remediation.succeeded', {
     skill: opts.skill,
-    gate: opts.gate,
-    attempts: opts.attempts ?? 2,
-    durationMs: opts.durationMs ?? 5000,
+    gateName: opts.gateName,
+    totalAttempts: opts.totalAttempts ?? 2,
+    taskId: opts.taskId ?? 'task-001',
+    finalStrategy: 'direct-fix',
   }, seq);
 }
 
@@ -392,8 +393,8 @@ describe('Flywheel Integration', () => {
       makeGateEvent(5, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(6, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       // Remediation events
-      makeRemediationEvent(7, { skill: 'delegation', gate: 'typecheck' }),
-      makeRemediationEvent(8, { skill: 'delegation', gate: 'typecheck', attempts: 3 }),
+      makeRemediationEvent(7, { skill: 'delegation', gateName: 'typecheck' }),
+      makeRemediationEvent(8, { skill: 'delegation', gateName: 'typecheck', totalAttempts: 3 }),
       // Calibration event
       makeCalibrationEvent(9, { skill: 'delegation', tpr: 0.90, tnr: 0.85 }),
     ];

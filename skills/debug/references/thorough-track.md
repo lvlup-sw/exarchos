@@ -11,14 +11,14 @@ Fix bugs with proper rigor. Capture institutional knowledge through RCA.
 ## Phases
 
 ```
-Triage -> Investigate -> RCA -> Design -> debug-implement -> debug-validate -> debug-review -> Synthesize -> Completed
-  |          |          |       |         |          |          |           |
-  |          |          |       |         |          |          |           +- Merge
-  |          |          |       |         |          |          +- Create PR
-  |          |          |       |         |          +- Spec review only
-  |          |          |       |         +- TDD in worktree
-  |          |          |       +- Brief fix approach
-  |          |          +- Full RCA document
+triage -> investigate -> rca -> design -> debug-implement -> debug-validate -> debug-review -> synthesize -> completed
+  |          |           |       |         |                  |                 |                |
+  |          |           |       |         |                  |                 |                +- Merge
+  |          |           |       |         |                  |                 +- Create PR
+  |          |           |       |         |                  +- Spec review only
+  |          |           |       |         +- TDD in worktree
+  |          |           |       +- Brief fix approach
+  |          |           +- Full RCA document
   |          +- Systematic investigation
   +- Capture symptom, select track
 ```

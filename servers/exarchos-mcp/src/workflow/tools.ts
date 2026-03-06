@@ -8,7 +8,7 @@ import type {
   CheckpointInput,
   WorkflowState,
 } from './types.js';
-import { ErrorCode, isReservedField } from './schemas.js';
+import { ErrorCode, isReservedField, WorkflowTypeSchema } from './schemas.js';
 import {
   initStateFile,
   readStateFile,
@@ -26,7 +26,9 @@ import {
   isStale,
 } from './checkpoint.js';
 import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
-import { getHSMDefinition, executeTransition } from './state-machine.js';
+import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
+import { getRegisteredGuard } from '../config/register.js';
+import { executeGuard } from '../config/guards.js';
 import { getPlaybook } from './playbooks.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
@@ -516,6 +518,54 @@ export async function handleSet(
         }
       }
 
+      // ─── Custom guard pre-check (async) ──────────────────────────────
+      // Custom guards run shell commands (async) so they execute here at
+      // the orchestrator layer, before the synchronous HSM transition.
+      // Built-in guards remain inline in executeTransition.
+      const fromPhase = state.phase;
+      const pendingTransition = findTransition(hsm, fromPhase, input.phase);
+      if (pendingTransition?.guard) {
+        const registeredGuard = getRegisteredGuard(
+          `${state.workflowType}:${pendingTransition.guard.id}`,
+        );
+        if (registeredGuard) {
+          const guardResult = await executeGuard(registeredGuard);
+          if (!guardResult.passed) {
+            if (moduleEventStore) {
+              await emitTransitionEvents(input.featureId, [{
+                type: 'guard-failed',
+                from: fromPhase,
+                to: input.phase,
+                trigger: 'execute-transition',
+                metadata: {
+                  guard: pendingTransition.guard.id,
+                  error: guardResult.error,
+                },
+              }]);
+            }
+            return {
+              success: false,
+              error: {
+                code: ErrorCode.GUARD_FAILED,
+                message: `Custom guard '${pendingTransition.guard.id}' failed: ${guardResult.error ?? 'command exited non-zero'}`,
+                ...(guardResult.output ? { output: guardResult.output } : {}),
+              },
+            };
+          }
+        } else if (pendingTransition.guard.custom) {
+          // Fail closed: custom guard not found in registry — only applies to
+          // guards explicitly defined in custom workflow configs (guard.custom
+          // flag), not inherited built-in guards from extended parent HSMs.
+          return {
+            success: false,
+            error: {
+              code: ErrorCode.GUARD_FAILED,
+              message: `Custom guard '${pendingTransition.guard.id}' is not registered. Ensure registerCustomWorkflows() was called.`,
+            },
+          };
+        }
+      }
+
       const result = executeTransition(hsm, mutableState, input.phase);
 
       if (!result.success) {
@@ -925,7 +975,7 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 // ─── Shared Schema Components ───────────────────────────────────────────────
 
 const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
-const workflowTypeParam = z.enum(['feature', 'debug', 'refactor']);
+const workflowTypeParam = WorkflowTypeSchema;
 
 // ─── Registration Function ──────────────────────────────────────────────────
 

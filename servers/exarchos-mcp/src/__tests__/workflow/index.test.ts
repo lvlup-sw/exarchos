@@ -296,6 +296,11 @@ describe('MCP Server Entry Point', () => {
       try {
         delete process.env.EXARCHOS_TELEMETRY;
         createServer('/tmp/test-state-dir');
+        // Telemetry wrapping now happens during dispatch (tool invocation),
+        // not during registration. Invoke a handler to trigger withTelemetry.
+        await toolRegistrations.get('exarchos_workflow')!.handler({
+          action: 'init', featureId: 'test-feat', workflowType: 'feature',
+        });
         expect(withTelemetry).toHaveBeenCalled();
       } finally {
         if (originalEnv === undefined) { delete process.env.EXARCHOS_TELEMETRY; }

@@ -7,14 +7,14 @@ Rigorous path for architectural changes, migrations, and multi-file restructurin
 ## Phases
 
 ```
-Explore -> Brief -> Plan -> Plan-Review -> Delegate -> Review -> Update Docs -> Synthesize
-   |         |        |          |              |          |            |             |
-   |         |        |          |              |          |            |             +-- PR creation
-   |         |        |          |              |          |            +-- Update architecture docs
-   |         |        |          |              |          +-- Quality review (emphasized)
-   |         |        |          |              +-- TDD implementation in worktrees
-   |         |        |          +-- Human checkpoint: verify plan coverage
-   |         |        +-- Extract tasks from brief
+explore -> brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+   |         |           |                  |                       |                  |                    |                     |
+   |         |           |                  |                       |                  |                    |                     +-- PR creation
+   |         |           |                  |                       |                  |                    +-- Update architecture docs
+   |         |           |                  |                       |                  +-- Quality review (emphasized)
+   |         |           |                  |                       +-- TDD implementation in worktrees
+   |         |           |                  +-- Human checkpoint: verify plan coverage
+   |         |           +-- Extract tasks from brief
    |         +-- Detailed goals, approach, affected areas
    +-- Thorough scope assessment, identify affected systems
 ```

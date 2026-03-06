@@ -214,7 +214,7 @@ describe('LlmRubricGrader', () => {
   });
 });
 
-describe.skipIf(!process.env.ANTHROPIC_API_KEY)('LlmRubricGrader (live)', () => {
+describe.skipIf(!process.env.RUN_EVALS)('LlmRubricGrader (live)', () => {
   it('should grade with real Anthropic API call', async () => {
     const grader = new LlmRubricGrader();
     const result = await grader.grade(

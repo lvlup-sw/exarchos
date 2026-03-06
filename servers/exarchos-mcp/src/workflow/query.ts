@@ -6,7 +6,7 @@ import type {
   TransitionsInput,
   WorkflowState,
 } from './types.js';
-import { ErrorCode } from './schemas.js';
+import { ErrorCode, WorkflowTypeSchema } from './schemas.js';
 import {
   readStateFile,
   StateStoreError,
@@ -450,7 +450,7 @@ export function registerQueryTools(server: McpServer, stateDir: string): void {
     'exarchos_workflow_transitions',
     'Get available state machine transitions for a workflow type',
     {
-      workflowType: z.enum(['feature', 'debug', 'refactor']),
+      workflowType: WorkflowTypeSchema,
       fromPhase: z.string().optional(),
     },
     async (args) => formatResult(await handleTransitions(args, stateDir)),

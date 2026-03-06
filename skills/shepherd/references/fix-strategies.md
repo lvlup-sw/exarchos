@@ -25,8 +25,9 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
   event: {
     type: "remediation.attempted",
     data: {
+      taskId: "<taskId>",
       skill: "shepherd",
-      gate: "<failing-check-name-or-review-source>",
+      gateName: "<failing-check-name-or-review-source>",
       attemptNumber: <N>,
       strategy: "direct-fix"
     }
@@ -42,8 +43,9 @@ mcp__plugin_exarchos_exarchos__exarchos_event({
   event: {
     type: "remediation.succeeded",
     data: {
+      taskId: "<taskId>",
       skill: "shepherd",
-      gate: "<check-name-or-review-source>",
+      gateName: "<check-name-or-review-source>",
       totalAttempts: <N>,
       finalStrategy: "direct-fix"
     }

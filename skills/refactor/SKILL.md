@@ -95,7 +95,7 @@ Activate this skill when:
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.
 
-Phases: Explore -> Brief -> polish-implement -> polish-validate -> polish-update-docs -> Complete
+HSM phases: `explore` → `brief` → `polish-implement` → `polish-validate` → `polish-update-docs` → `completed`
 
 For detailed phase instructions, state management, and auto-chain behavior, see `@skills/refactor/references/polish-track.md`.
 
@@ -103,7 +103,7 @@ For detailed phase instructions, state management, and auto-chain behavior, see 
 
 Rigorous path for architectural changes, migrations, and multi-file restructuring. Uses full delegation model with worktree isolation.
 
-Phases: Explore -> Brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> Synthesize
+HSM phases: `explore` → `brief` → `overhaul-plan` → `overhaul-plan-review` → `overhaul-delegate` → `overhaul-review` → `overhaul-update-docs` → `synthesize` → `completed`
 
 For detailed phase instructions, skill invocations, and auto-chain behavior, see `@skills/refactor/references/overhaul-track.md`.
 

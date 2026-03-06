@@ -79,6 +79,15 @@ interface GhCommentRaw {
   readonly isResolved: boolean;
 }
 
+// ─── Comment Truncation ─────────────────────────────────────────────────────
+
+const COMMENT_BODY_LIMIT = 200;
+
+function truncateBody(body: string): string {
+  if (body.length <= COMMENT_BODY_LIMIT) return body;
+  return body.slice(0, COMMENT_BODY_LIMIT) + '...';
+}
+
 function queryPrChecks(prNumber: number): CiCheck[] {
   try {
     const output = execSync(
@@ -128,9 +137,10 @@ function queryPrComments(prNumber: number): PrComment[] {
       `gh pr view ${prNumber} --json comments --jq '.comments'`,
       { encoding: 'utf-8', timeout: 30_000 },
     );
-    const raw = JSON.parse(output) as Array<{ body: string }>;
-    // General PR comments are not individually resolvable
-    return raw.map(c => ({ body: c.body, isResolved: false }));
+    const raw = JSON.parse(output) as GhCommentRaw[];
+    // Truncate bodies to limit context consumption — the agent sees enough
+    // to decide if a comment is actionable without consuming full bodies
+    return raw.map(c => ({ body: truncateBody(c.body), isResolved: false }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');

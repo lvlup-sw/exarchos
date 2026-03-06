@@ -221,10 +221,10 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       ).rejects.toThrow(/STATE_CORRUPT/);
     });
 
-    it('should throw StateStoreError when workflowType is missing from init', async () => {
+    it('should throw when workflowType is missing from init', async () => {
       await expect(
         handleWorkflow({ action: 'init', featureId: 'missing-type' }, tmpDir),
-      ).rejects.toThrow(/STATE_CORRUPT/);
+      ).rejects.toThrow(/Unknown workflow type/);
     });
 
     it('should return error for init with invalid featureId format', async () => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WorkflowTypeSchema } from './workflow/schemas.js';
 
 // ─── Type Coercion Helpers ──────────────────────────────────────────────────
 // LLM tool callers sometimes pass objects as JSON strings and numbers as
@@ -46,18 +47,36 @@ export function coercedNonnegativeInt() {
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
+export interface CliActionHints {
+  readonly alias?: string;
+  readonly group?: string;
+  readonly examples?: readonly string[];
+  readonly flags?: Readonly<Record<string, {
+    readonly alias?: string;
+    readonly description?: string;
+  }>>;
+  readonly format?: 'table' | 'json' | 'tree';
+}
+
+export interface CliToolHints {
+  readonly alias?: string;
+  readonly group?: string;
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
   readonly schema: z.ZodObject<z.ZodRawShape>;
   readonly phases: ReadonlySet<string>;
   readonly roles: ReadonlySet<string>;
+  readonly cli?: CliActionHints;
 }
 
 export interface CompositeTool {
   readonly name: string;
   readonly description: string;
   readonly actions: readonly ToolAction[];
+  readonly cli?: CliToolHints;
 }
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
@@ -246,10 +265,14 @@ const workflowActions: readonly ToolAction[] = [
     description: 'Initialize a new workflow. Auto-emits workflow.started event',
     schema: z.object({
       featureId: featureIdSchema,
-      workflowType: z.enum(['feature', 'debug', 'refactor']),
+      workflowType: WorkflowTypeSchema,
     }),
     phases: new Set<string>(),
     roles: ROLE_LEAD,
+    cli: {
+      flags: { featureId: { alias: 'f' }, workflowType: { alias: 't' } },
+      examples: ['exarchos wf init -f my-feature -t feature'],
+    },
   },
   {
     name: 'get',
@@ -261,6 +284,11 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    cli: {
+      alias: 'status',
+      flags: { featureId: { alias: 'f' }, query: { alias: 'q' } },
+      examples: ['exarchos wf status -f my-feature', 'exarchos wf status -f my-feature -q phase'],
+    },
   },
   {
     name: 'set',
@@ -272,6 +300,10 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    cli: {
+      flags: { featureId: { alias: 'f' } },
+      examples: ['exarchos wf set -f my-feature --phase plan'],
+    },
   },
   {
     name: 'cancel',
@@ -321,6 +353,9 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    cli: {
+      examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
+    },
   },
   {
     name: 'query',
@@ -620,6 +655,10 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    cli: {
+      alias: 'ls',
+      examples: ['exarchos vw ls'],
+    },
   },
   {
     name: 'tasks',
@@ -633,6 +672,10 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    cli: {
+      flags: { workflowId: { alias: 'w' }, limit: { alias: 'l' } },
+      examples: ['exarchos vw tasks -w my-feature'],
+    },
   },
   {
     name: 'workflow_status',
@@ -766,25 +809,30 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     name: 'exarchos_workflow',
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, and reconcile workflows',
     actions: workflowActions,
+    cli: { alias: 'wf' },
   },
   {
     name: 'exarchos_event',
     description: 'Event sourcing — append and query events in streams',
     actions: eventActions,
+    cli: { alias: 'ev' },
   },
   {
     name: 'exarchos_orchestrate',
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
+    cli: { alias: 'orch' },
   },
   {
     name: 'exarchos_view',
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
+    cli: { alias: 'vw' },
   },
   {
     name: 'exarchos_sync',
     description: 'Remote synchronization — trigger immediate sync',
     actions: syncActions,
+    cli: { alias: 'sy' },
   },
 ];

@@ -6,20 +6,15 @@ import { homedir } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from './registry.js';
-import { formatResult, type ToolResult } from './format.js';
 import { logger } from './logger.js';
 import { expandTilde } from './utils/paths.js';
+import { EventStore } from './event-store/store.js';
+import { SnapshotStore } from './views/snapshot-store.js';
 
-// Composite handlers
-import { handleWorkflow } from './workflow/composite.js';
-import { handleEvent } from './event-store/composite.js';
-import { handleOrchestrate } from './orchestrate/composite.js';
-import { handleView } from './views/composite.js';
-import { handleSync } from './sync/composite.js';
+// Storage backend
+import type { StorageBackend } from './storage/backend.js';
 
 // EventStore configuration — workflow modules require explicit injection
-// (non-workflow modules use lazy init via getStore())
 import { configureWorkflowEventStore } from './workflow/tools.js';
 import { configureNextActionEventStore } from './workflow/next-action.js';
 import { configureCancelEventStore } from './workflow/cancel.js';
@@ -27,34 +22,17 @@ import { configureCleanupEventStore, configureCleanupSnapshotStore } from './wor
 import { configureQueryEventStore } from './workflow/query.js';
 import { configureQualityEventStore } from './quality/hints.js';
 import { configureStateStoreBackend } from './workflow/state-store.js';
-import { EventStore } from './event-store/store.js';
-import { SnapshotStore } from './views/snapshot-store.js';
 
-// Storage backend
-import type { StorageBackend } from './storage/backend.js';
-
-// Telemetry middleware
-import { withTelemetry } from './telemetry/middleware.js';
+// New dispatch layer
+import { initializeContext } from './core/context.js';
+import { createMcpServer } from './adapters/mcp.js';
+import { buildCli } from './adapters/cli.js';
+import type { DispatchContext } from './core/dispatch.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
 export const SERVER_VERSION = '1.1.0';
-
-// ─── Composite Handler Map ──────────────────────────────────────────────────
-
-type CompositeHandler = (
-  args: Record<string, unknown>,
-  stateDir: string,
-) => Promise<ToolResult>;
-
-const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
-  exarchos_workflow: handleWorkflow,
-  exarchos_event: handleEvent,
-  exarchos_orchestrate: handleOrchestrate,
-  exarchos_view: handleView,
-  exarchos_sync: handleSync,
-};
 
 // ─── Server Options ─────────────────────────────────────────────────────────
 
@@ -153,21 +131,27 @@ export function registerBackendCleanup(backend: StorageBackend): void {
   });
 }
 
-// ─── Server Factory ──────────────────────────────────────────────────────────
+// ─── Server Factory (backward compat) ────────────────────────────────────────
 
+/**
+ * Creates an MCP server with the given state directory and options.
+ *
+ * Synchronous wrapper that initializes DispatchContext inline and delegates
+ * to createMcpServer(). Kept for backward compatibility with existing tests.
+ *
+ * For new code, prefer initializeContext() + createMcpServer() directly.
+ */
 export function createServer(
   stateDir: string,
   options?: CreateServerOptions,
 ): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   const backend = options?.backend;
 
-  // Configure the module-level storage backend for state operations
+  // Configure module-level stores (same as initializeContext, but synchronous)
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
 
-  // Configure module-level EventStore for workflow modules (no lazy init)
   configureWorkflowEventStore(eventStore);
   configureNextActionEventStore(eventStore);
   configureCancelEventStore(eventStore);
@@ -176,32 +160,10 @@ export function createServer(
   configureQueryEventStore(eventStore);
   configureQualityEventStore(eventStore);
 
-  // Register composite tools from registry
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
-  for (const tool of TOOL_REGISTRY) {
-    const handler = COMPOSITE_HANDLERS[tool.name];
-    if (!handler) continue;
-
-    const inputSchema = buildRegistrationSchema(tool.actions);
-    const description = buildToolDescription(tool);
-
-    const baseHandler = async (args: Record<string, unknown>) =>
-      formatResult(await handler(args, stateDir));
-
-    // Use registerTool() so the strict ZodObject is passed as inputSchema
-    // directly, preserving .strict() validation that rejects unrecognized keys.
-    // The server.tool() overload treats ZodObjects as annotations, not schemas.
-    server.registerTool(
-      tool.name,
-      { description, inputSchema },
-      enableTelemetry
-        ? withTelemetry(baseHandler, tool.name, eventStore)
-        : baseHandler,
-    );
-  }
-
-  return server;
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry };
+  return createMcpServer(ctx);
 }
 
 // ─── State Directory Resolution ──────────────────────────────────────────────
@@ -259,9 +221,29 @@ async function main() {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
     });
 
-  const server = createServer(stateDir, { backend });
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Use new dispatch layer
+  const ctx = await initializeContext(stateDir, {
+    backend,
+    projectRoot: process.cwd(),
+  });
+
+  // Route between MCP mode (piped stdin) and CLI mode (terminal with args)
+  const args = process.argv.slice(2);
+
+  if (args.length > 0) {
+    // CLI mode — explicit commands take priority (works in piped/non-interactive shells too)
+    const program = buildCli(ctx);
+    await program.parseAsync(process.argv);
+  } else if (!process.stdin.isTTY) {
+    // Piped input with no args — MCP server mode (existing behavior, e.g. Claude Code)
+    const server = createMcpServer(ctx);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  } else {
+    // No args, TTY — show help
+    const program = buildCli(ctx);
+    program.outputHelp();
+  }
 }
 
 // Only run main when executed directly (not when imported for testing)

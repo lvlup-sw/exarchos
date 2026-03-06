@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WorkflowTypeSchema } from '../workflow/schemas.js';
 
 // ─── Event Type Discriminated Union ─────────────────────────────────────────
 
@@ -162,7 +163,7 @@ export const WorkflowEventBase = z.object({
 
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
-  workflowType: z.enum(['feature', 'debug', 'refactor']),
+  workflowType: WorkflowTypeSchema,
   designPath: z.string().optional(),
 });
 

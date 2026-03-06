@@ -16,10 +16,11 @@ exarchos_event append:
   stream: {featureId}
   event:
     type: "team.spawned"
-    teamName: {featureId}
-    teamSize: {N}
-    taskCount: {M}
-    dispatchMode: "agent-team"
+    data:
+      teamSize: {N}
+      teammateNames: ["teammate-1", "teammate-2"]
+      taskCount: {M}
+      dispatchMode: "agent-team"
 
 # Execute side effect
 TeamCreate:
@@ -227,7 +228,7 @@ This implements a **layered coordination** model:
 When using Agent Teams mode, the delegation saga emits events at each lifecycle boundary:
 
 **Orchestrator-emitted events (saga steps):**
-- `team.spawned` -- Step 1: team creation (includes teamName, teamSize, taskCount, dispatchMode)
+- `team.spawned` -- Step 1: team creation (`event.data`: teamSize, teammateNames, taskCount, dispatchMode)
 - `team.task.planned` -- Step 2: task planning via `batch_append` (includes taskId, title, modules, blockedBy)
 - `team.teammate.dispatched` -- Step 3: teammate spawn (includes teammateName, worktreePath, assignedTaskIds, model)
 - `team.disbanded` -- Step 5: team disbandment (includes totalDurationMs, tasksCompleted, tasksFailed)

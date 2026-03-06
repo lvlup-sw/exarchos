@@ -1,6 +1,24 @@
 // ─── Shared Tool Result Formatting ──────────────────────────────────────────
 
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
+import type { Correction } from './telemetry/auto-correction.js';
+
+export interface PerfMetrics {
+  readonly ms: number;
+  readonly bytes: number;
+  readonly tokens: number;
+}
+
+export interface EventHintsPayload {
+  readonly missing: readonly { readonly eventType: string; readonly description: string }[];
+  readonly phase: string;
+  readonly checked: number;
+}
+
+export interface CorrectionsPayload {
+  readonly applied: readonly Correction[];
+}
+
 
 export interface ToolResult {
   readonly success: boolean;
@@ -14,6 +32,9 @@ export interface ToolResult {
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
+  readonly _perf?: PerfMetrics;
+  readonly _eventHints?: EventHintsPayload;
+  readonly _corrections?: CorrectionsPayload;
 }
 
 // ─── Event Acknowledgement ──────────────────────────────────────────────────

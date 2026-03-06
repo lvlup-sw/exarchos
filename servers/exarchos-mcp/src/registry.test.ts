@@ -8,7 +8,7 @@ import {
   coercedNonnegativeInt,
   TOOL_REGISTRY,
 } from './registry.js';
-import type { ToolAction } from './registry.js';
+import type { ToolAction, CompositeTool } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -518,5 +518,179 @@ describe('TOOL_REGISTRY', () => {
       const result = action!.schema.safeParse({});
       expect(result.success).toBe(true);
     });
+  });
+});
+
+// ─── CLI Hints Tests ──────────────────────────────────────────────────────────
+
+describe('CLI hints', () => {
+  it('ToolAction_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a ToolAction with cli hints
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test action',
+      schema: z.object({ id: z.string() }),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      cli: {
+        alias: 'ls',
+        group: 'Inspection',
+        examples: ['exarchos test ls'],
+        flags: { id: { alias: 'i', description: 'The ID' } },
+        format: 'table',
+      },
+    };
+    // Assert: cli fields are accessible
+    expect(action.cli?.alias).toBe('ls');
+    expect(action.cli?.flags?.id?.alias).toBe('i');
+    expect(action.cli?.format).toBe('table');
+  });
+
+  it('CompositeTool_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a CompositeTool with cli hints
+    const tool: CompositeTool = {
+      name: 'exarchos_test',
+      description: 'test tool',
+      actions: [],
+      cli: { alias: 'tst', group: 'Testing' },
+    };
+    // Assert
+    expect(tool.cli?.alias).toBe('tst');
+  });
+
+  it('ToolAction_WithoutCliHints_StillWorks', () => {
+    // Arrange: ToolAction without cli field (backward compat)
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test',
+      schema: z.object({}),
+      phases: new Set([]),
+      roles: new Set([]),
+    };
+    // Assert: cli is undefined
+    expect(action.cli).toBeUndefined();
+  });
+
+  it('TOOL_REGISTRY_EntriesStillTypeCheck', () => {
+    // Assert: existing registry is valid (no cli field = still works)
+    expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
+    for (const tool of TOOL_REGISTRY) {
+      expect(tool.name).toBeTruthy();
+      expect(tool.actions.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ─── Task 23: CLI Hints on Core Actions ──────────────────────────────────────
+
+describe('CLI hints on core workflow actions', () => {
+  it('WorkflowTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('wf');
+  });
+
+  it('InitAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.workflowType?.alias).toBe('t');
+  });
+
+  it('GetAction_HasStatusAlias', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('status');
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.query?.alias).toBe('q');
+  });
+
+  it('SetAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'set');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+  });
+
+  it('ViewTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('vw');
+  });
+
+  it('PipelineAction_HasLsAlias', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('ls');
+  });
+
+  it('TasksAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_view', 'tasks');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.workflowId?.alias).toBe('w');
+    expect(action!.cli?.flags?.limit?.alias).toBe('l');
+  });
+
+  it('EventTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('ev');
+  });
+
+  it('OrchestrateTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('orch');
+  });
+
+  it('SyncTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_sync');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('sy');
+  });
+});
+
+// ─── Task 24: CLI Examples on Common Actions ─────────────────────────────────
+
+describe('CLI examples on common actions', () => {
+  it('CliHints_ExamplesPresent_ForCommonActions', () => {
+    const initAction = findAction('exarchos_workflow', 'init');
+    expect(initAction!.cli?.examples).toBeDefined();
+    expect(initAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const getAction = findAction('exarchos_workflow', 'get');
+    expect(getAction!.cli?.examples).toBeDefined();
+    expect(getAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const setAction = findAction('exarchos_workflow', 'set');
+    expect(setAction!.cli?.examples).toBeDefined();
+    expect(setAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const pipelineAction = findAction('exarchos_view', 'pipeline');
+    expect(pipelineAction!.cli?.examples).toBeDefined();
+    expect(pipelineAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const tasksAction = findAction('exarchos_view', 'tasks');
+    expect(tasksAction!.cli?.examples).toBeDefined();
+    expect(tasksAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const appendAction = findAction('exarchos_event', 'append');
+    expect(appendAction!.cli?.examples).toBeDefined();
+    expect(appendAction!.cli!.examples!.length).toBeGreaterThan(0);
+  });
+
+  it('InitAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action!.cli!.examples).toContain('exarchos wf init -f my-feature -t feature');
+  });
+
+  it('GetAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature -q phase');
+  });
+
+  it('PipelineAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action!.cli!.examples).toContain('exarchos vw ls');
   });
 });

@@ -11,10 +11,10 @@ Fast path for small, contained refactors. Single session, minimal ceremony. Orch
 ## Phases
 
 ```
-Explore -> Brief -> Implement -> Validate -> Update Docs -> Complete
-   |         |          |           |             |
-   |         |          |           |             +-- Update affected documentation
-   |         |          |           +-- Run tests, verify goals met
+explore -> brief -> polish-implement -> polish-validate -> polish-update-docs -> completed
+   |         |          |                    |                    |
+   |         |          |                    |                    +-- Update affected documentation
+   |         |          |                    +-- Run tests, verify goals met
    |         |          +-- Direct implementation (no worktree)
    |         +-- Capture goals and approach in state
    +-- Quick scope assessment, confirm polish-appropriate
