@@ -146,7 +146,7 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
   }
 
   // Enriched metadata fields (set by telemetry middleware)
-  const enriched = result as Record<string, unknown>;
+  const enriched = result as unknown as Record<string, unknown>;
 
   // _perf footer
   const perf = enriched['_perf'] as PerfMeta | undefined;

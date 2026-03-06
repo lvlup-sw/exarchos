@@ -26,6 +26,7 @@ import { configureStateStoreBackend } from './workflow/state-store.js';
 // New dispatch layer
 import { initializeContext } from './core/context.js';
 import { createMcpServer } from './adapters/mcp.js';
+import { buildCli } from './adapters/cli.js';
 import type { DispatchContext } from './core/dispatch.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -222,9 +223,24 @@ async function main() {
 
   // Use new dispatch layer
   const ctx = await initializeContext(stateDir, { backend });
-  const server = createMcpServer(ctx);
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+
+  // Route between MCP mode (piped stdin) and CLI mode (terminal with args)
+  const args = process.argv.slice(2);
+
+  if (!process.stdin.isTTY && args[0] !== 'mcp') {
+    // Piped input — MCP server mode (existing behavior, e.g. Claude Code)
+    const server = createMcpServer(ctx);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  } else if (args.length > 0) {
+    // Terminal with args — CLI mode (new commands)
+    const program = buildCli(ctx);
+    await program.parseAsync(process.argv);
+  } else {
+    // No args, TTY — show help
+    const program = buildCli(ctx);
+    program.outputHelp();
+  }
 }
 
 // Only run main when executed directly (not when imported for testing)
