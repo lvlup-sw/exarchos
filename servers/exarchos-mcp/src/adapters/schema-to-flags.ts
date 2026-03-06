@@ -137,7 +137,7 @@ export function addFlagsFromSchema(
 
     let flagStr: string;
     if (field.type === 'boolean') {
-      flagStr = alias ? `-${alias}, --${kebab}` : `--${kebab}`;
+      flagStr = alias ? `-${alias}, --[no-]${kebab}` : `--[no-]${kebab}`;
     } else if (field.type === 'enum' && field.enumValues) {
       const choicesStr = field.enumValues.join('|');
       flagStr = alias

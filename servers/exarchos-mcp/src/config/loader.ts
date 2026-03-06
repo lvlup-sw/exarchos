@@ -40,8 +40,28 @@ export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
     return {};
   }
 
-  // Dynamic import for ESM compatibility
-  const configModule: unknown = await import(pathToFileURL(configPath).href);
+  // Dynamic import for ESM compatibility.
+  // .ts files require a TypeScript-capable loader (tsx, bun, ts-node).
+  // If the import fails for a .ts file, fall back to .js sibling.
+  let configModule: unknown;
+  try {
+    configModule = await import(pathToFileURL(configPath).href);
+  } catch (err: unknown) {
+    if (configPath.endsWith('.ts')) {
+      const jsFallback = configPath.replace(/\.ts$/, '.js');
+      if (fs.existsSync(jsFallback)) {
+        configPath = jsFallback;
+        configModule = await import(pathToFileURL(jsFallback).href);
+      } else {
+        throw new Error(
+          `Cannot load ${configPath}: TypeScript config requires a TS-capable loader (tsx, bun). ` +
+          `Either use exarchos.config.js or run with a TypeScript loader.`,
+        );
+      }
+    } else {
+      throw err;
+    }
+  }
 
   // Extract default export
   const rawConfig = extractDefaultExport(configModule);

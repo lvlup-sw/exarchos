@@ -106,7 +106,7 @@ describe('prettyPrint', () => {
 
     const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(stderrOutput).toContain('Checkpoint advised');
-    expect(stderrOutput).toContain('exarchos workflow checkpoint');
+    expect(stderrOutput).toContain('exarchos wf checkpoint');
   });
 
   it('PrettyPrint_WithCorrections_PrintsNoticeToStderr', () => {

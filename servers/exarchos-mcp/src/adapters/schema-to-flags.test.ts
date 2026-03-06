@@ -178,9 +178,9 @@ describe('addFlagsFromSchema', () => {
 
     addFlagsFromSchema(cmd, schema);
 
-    const opt = cmd.options.find((o) => o.long === '--dry-run');
+    const opt = cmd.options.find((o) => o.long === '--[no-]dry-run');
     expect(opt).toBeDefined();
-    // Boolean flags don't take a value argument
+    // Boolean flags use --[no-] pattern for true/false support
     expect(opt!.flags).not.toContain('<value>');
   });
 

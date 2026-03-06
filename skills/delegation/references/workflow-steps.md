@@ -62,7 +62,7 @@ When using `--mode agent-team`:
 2. **Team creation:** Create team with named teammates, each assigned to a worktree
 3. **Task list setup:** Create native Claude Code tasks with dependency annotations
 4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content (MUST include Commit Strategy section with `git commit`/`git push` instructions)
-5. **Event emission:** Append `team.spawned` event with teamSize, teammateNames, taskCount
+5. **Event emission:** Append `team.spawned` event with `event.data`: teamSize, teammateNames, taskCount, dispatchMode
 
 Teammates self-coordinate via shared task list. No `Task()` calls needed.
 

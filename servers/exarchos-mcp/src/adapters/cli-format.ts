@@ -106,10 +106,12 @@ export function printError(error: ToolResult['error']): void {
   if (error.suggestedFix) {
     const params = Object.entries(error.suggestedFix.params)
       .filter(([, v]) => v !== undefined && v !== null)
-      .map(([k, v]) => {
-        const flag = `--${k}`;
-        if (typeof v === 'object') return `${flag} '${JSON.stringify(v)}'`;
-        return `${flag} ${String(v)}`;
+      .flatMap(([k, v]) => {
+        const flag = `--${k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}`;
+        if (v === true) return [flag];
+        if (v === false) return [];
+        if (typeof v === 'object') return [`${flag} '${JSON.stringify(v)}'`];
+        return [`${flag} ${String(v)}`];
       })
       .join(' ');
     process.stderr.write(`  Suggested fix: exarchos ${error.suggestedFix.tool} ${params}\n`);

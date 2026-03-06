@@ -95,7 +95,7 @@ Activate this skill when:
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.
 
-HSM phases: `explore` → `brief` → `polish-implement` → `polish-validate` → `polish-update-docs` → `synthesize` → `completed`
+HSM phases: `explore` → `brief` → `polish-implement` → `polish-validate` → `polish-update-docs` → `completed`
 
 For detailed phase instructions, state management, and auto-chain behavior, see `@skills/refactor/references/polish-track.md`.
 

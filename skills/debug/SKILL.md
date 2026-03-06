@@ -128,18 +128,18 @@ For detailed switching logic, see `references/thorough-track.md`.
 
 ## Auto-Chain Behavior
 
-Both tracks have ONE human checkpoint: merge confirmation.
+Both tracks have ONE human checkpoint before completion.
 
 **Hotfix auto-chain:**
 ```
-triage → investigate → hotfix-implement → hotfix-validate → [HUMAN: merge]
-         (auto)        (auto)              (auto)
+triage → investigate → hotfix-implement → [HUMAN: hotfix-validate] → completed
+         (auto)        (auto)
 ```
 
 **Thorough auto-chain:**
 ```
-triage → investigate → rca → design → debug-implement → debug-validate → debug-review → synthesize → [HUMAN: merge]
-         (auto)        (auto) (auto)   (auto)           (auto)            (auto)        (auto)
+triage → investigate → rca → design → debug-implement → debug-validate → debug-review → [HUMAN: synthesize] → completed
+         (auto)        (auto) (auto)   (auto)           (auto)            (auto)
 ```
 
 ## State Management

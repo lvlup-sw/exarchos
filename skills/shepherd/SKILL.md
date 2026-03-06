@@ -190,6 +190,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 | `shepherd.started` | `prUrl` (string), `stackSize` (number), `ciStatus` (string) | On skill start | Audit trail |
 | `shepherd.iteration` | `iteration` (number), `prsAssessed` (number), `fixesApplied` (number), `status` (string) | After each assess cycle | Track progress |
 | `gate.executed` | `gateName`, `layer`, `passed`, `details` | Per CI check (emitted by `assess_stack`) | CodeQualityView — gate pass rates |
+| `ci.status` | `pr` (number), `status` (string) | Per CI check result | ShepherdStatusView — PR health tracking |
 | `remediation.attempted` | `taskId` (string), `skill` (string), `gateName` (string), `attemptNumber` (number), `strategy` (string) | Before applying a fix | selfCorrectionRate metric |
 | `remediation.succeeded` | `taskId` (string), `skill` (string), `gateName` (string), `totalAttempts` (number), `finalStrategy` (string) | After fix confirmed | avgRemediationAttempts metric |
 | `shepherd.approval_requested` | `prUrl` (string), `reviewers` (string[]) | On requesting review | Audit trail |
