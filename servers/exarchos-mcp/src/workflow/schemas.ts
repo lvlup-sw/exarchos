@@ -199,9 +199,17 @@ export const WorkflowTypeSchema = z.string().refine(
 
 /**
  * Extend the WorkflowTypeSchema to accept a custom workflow type name.
+ * Validates that the name is non-empty, lowercase kebab-case, and not a built-in type.
  */
 export function extendWorkflowTypeEnum(name: string): void {
-  customWorkflowTypes.add(name);
+  const trimmed = name.trim();
+  if (!trimmed || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(trimmed)) {
+    throw new Error(`Invalid custom workflow type name: '${name}'. Must be non-empty lowercase kebab-case.`);
+  }
+  if ((BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(trimmed)) {
+    throw new Error(`Cannot extend built-in workflow type: '${trimmed}'`);
+  }
+  customWorkflowTypes.add(trimmed);
 }
 
 /**

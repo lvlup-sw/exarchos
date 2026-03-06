@@ -75,6 +75,7 @@ function formatTree(data: Record<string, unknown>, indent: number = 0): string {
 // ─── Data Formatting ────────────────────────────────────────────────────────
 
 function formatData(data: unknown, format: 'table' | 'json' | 'tree'): string {
+  if (data === undefined || data === null) return '';
   if (format === 'table' && isTabular(data)) {
     return formatTable(data);
   }
@@ -104,24 +105,28 @@ export function printError(error: ToolResult['error']): void {
 
   if (error.suggestedFix) {
     const params = Object.entries(error.suggestedFix.params)
-      .map(([k, v]) => `${k}=${String(v)}`)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([k, v]) => {
+        const flag = `--${k}`;
+        if (typeof v === 'object') return `${flag} '${JSON.stringify(v)}'`;
+        return `${flag} ${String(v)}`;
+      })
       .join(' ');
     process.stderr.write(`  Suggested fix: exarchos ${error.suggestedFix.tool} ${params}\n`);
   }
 }
 
 export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tree'): void {
-  // Error case: delegate to printError
+  // Error case: delegate to printError, then fall through to metadata
   if (!result.success) {
     printError(result.error);
-    return;
+  } else {
+    // Main data to stdout
+    const effectiveFormat = format ?? inferFormat(result.data);
+    process.stdout.write(formatData(result.data, effectiveFormat));
   }
 
-  // Main data to stdout
-  const effectiveFormat = format ?? inferFormat(result.data);
-  process.stdout.write(formatData(result.data, effectiveFormat));
-
-  // Warnings to stderr
+  // Warnings to stderr (present on both success and error results)
   if (result.warnings && result.warnings.length > 0) {
     for (const warning of result.warnings) {
       process.stderr.write(`  ! ${warning}\n`);

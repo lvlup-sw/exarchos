@@ -53,7 +53,7 @@ describe('Registration Pipeline', () => {
     expect(getHSMDefinition('feature')).toBeDefined();
   });
 
-  it('RegisterCustomWorkflows_WithGuards_GuardsRegistered', () => {
+  it('RegisterCustomWorkflows_WithGuards_GuardsRegisteredAndResolved', () => {
     const config: ExarchosConfig = {
       workflows: {
         [TEST_WORKFLOW_NAME]: {
@@ -82,5 +82,14 @@ describe('Registration Pipeline', () => {
     expect(guard!.command).toBe('echo ready');
     expect(guard!.timeout).toBe(5000);
     expect(guard!.description).toBe('Check if system is ready');
+
+    // Verify the guard is resolved to a Guard object in the HSM
+    const hsm = getHSMDefinition(TEST_WORKFLOW_NAME);
+    const guardedTransition = hsm.transitions.find(t => t.from === 'init' && t.to === 'validate');
+    expect(guardedTransition).toBeDefined();
+    expect(guardedTransition!.guard).toBeDefined();
+    expect(guardedTransition!.guard!.id).toBe('check-ready');
+    expect(guardedTransition!.guard!.description).toBe('Check if system is ready');
+    expect(typeof guardedTransition!.guard!.evaluate).toBe('function');
   });
 });

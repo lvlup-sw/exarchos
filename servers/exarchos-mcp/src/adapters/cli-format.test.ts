@@ -37,6 +37,19 @@ describe('prettyPrint', () => {
     expect(stdoutOutput).not.toContain('Phase not found');
   });
 
+  it('PrettyPrint_ErrorWithPerf_StillPrintsMetadata', () => {
+    const result = Object.assign(
+      { success: false, error: { code: 'FAIL', message: 'Oops' } },
+      { _perf: { ms: 5, bytes: 50, tokens: 12 } },
+    );
+
+    prettyPrint(result);
+
+    const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(stderrOutput).toContain('Error [FAIL]: Oops');
+    expect(stderrOutput).toContain('5ms | 50B | ~12 tokens');
+  });
+
   it('PrettyPrint_WithWarnings_PrintsWarningsToStderr', () => {
     const result = {
       success: true,
@@ -219,7 +232,7 @@ describe('printError', () => {
     expect(output).toContain('Valid targets: plan, review');
   });
 
-  it('PrintError_WithSuggestedFix_ShowsFix', () => {
+  it('PrintError_WithSuggestedFix_ShowsFixWithFlags', () => {
     printError({
       code: 'MISSING_FIELD',
       message: 'Field required',
@@ -228,5 +241,7 @@ describe('printError', () => {
 
     const output = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(output).toContain('Suggested fix: exarchos workflow');
+    expect(output).toContain('--action set');
+    expect(output).toContain('--field phase');
   });
 });

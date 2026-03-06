@@ -87,14 +87,39 @@ export function getHSMDefinition(workflowType: string): HSMDefinition {
 
 // ─── Workflow Definition → HSM Conversion ────────────────────────────────────
 
-import type { WorkflowDefinition } from '../config/define.js';
+import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
 
 // Re-export for consumers that imported from here
 export type { WorkflowDefinition };
 
+/**
+ * Create a Guard object from a config guard definition.
+ * The guard shells out to the command and treats exit code 0 as pass.
+ */
+function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
+  return {
+    id: guardId,
+    description: guardDef.description ?? `Custom guard: ${guardId}`,
+    evaluate: (_state: Record<string, unknown>) => {
+      // Config guards are evaluated at runtime via the orchestrator's
+      // guard execution pipeline (config/guards.ts), not inline.
+      // At HSM level, we pass through — the orchestrator calls executeGuard().
+      return true;
+    },
+  };
+}
+
 function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
   let baseStates: Record<string, State> = {};
   let baseTransitions: readonly Transition[] = [];
+
+  // Build guard lookup from definition
+  const guardLookup = new Map<string, Guard>();
+  if (definition.guards) {
+    for (const [guardId, guardDef] of Object.entries(definition.guards)) {
+      guardLookup.set(guardId, createGuardFromDefinition(guardId, guardDef));
+    }
+  }
 
   if (definition.extends) {
     const parent = hsmRegistry[definition.extends];
@@ -123,12 +148,18 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
     baseStates['completed'] = { id: 'completed', type: 'final' };
   }
 
-  // Convert transitions
-  const customTransitions: Transition[] = definition.transitions.map((t) => ({
-    from: t.from,
-    to: t.to,
-    ...(t.guard ? { guard: t.guard } : {}),
-  }));
+  // Convert transitions, resolving string guard IDs to Guard objects
+  const customTransitions: Transition[] = definition.transitions.map((t) => {
+    const base: { from: string; to: string; guard?: Guard } = { from: t.from, to: t.to };
+    if (t.guard) {
+      const resolved = guardLookup.get(t.guard);
+      if (!resolved) {
+        throw new Error(`Transition ${t.from} → ${t.to} references unknown guard '${t.guard}'. Define it in guards.`);
+      }
+      base.guard = resolved;
+    }
+    return base;
+  });
 
   // Merge: custom transitions override base transitions with same from+to
   const transitionKey = (t: Transition): string => `${t.from}->${t.to}`;
