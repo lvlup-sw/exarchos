@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { withTelemetry, createInstrumentedRegistrar } from './middleware.js';
+import type { CoreHandler } from './middleware.js';
 import { EventStore } from '../event-store/store.js';
 import { TELEMETRY_STREAM } from './constants.js';
 import { initToolMetrics } from './telemetry-projection.js';
 import type { ToolMetrics } from './telemetry-projection.js';
+import type { ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -24,9 +26,9 @@ describe('withTelemetry', () => {
   describe('successful handler', () => {
     it('should emit tool.invoked and tool.completed events', async () => {
       // Arrange
-      const handler = async () => ({
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: { key: 'val' } }) }],
-        isError: false,
+      const handler: CoreHandler = async () => ({
+        success: true,
+        data: { key: 'val' },
       });
 
       // Act
@@ -46,49 +48,68 @@ describe('withTelemetry', () => {
       expect(completedData.tokenEstimate).toBeGreaterThan(0);
     });
 
-    it('should inject _perf field into response', async () => {
+    it('WithTelemetry_ReturnsToolResult_NotMcpToolResult', async () => {
       // Arrange
-      const handler = async () => ({
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: { key: 'val' } }) }],
-        isError: false,
+      const handler: CoreHandler = async () => ({
+        success: true,
+        data: { key: 'val' },
       });
 
       // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       const result = await wrapped({});
-      const parsed = JSON.parse(result.content[0].text);
 
-      // Assert
-      expect(parsed._perf).toBeDefined();
-      expect(parsed._perf.ms).toBeGreaterThanOrEqual(0);
-      expect(parsed._perf.bytes).toBeGreaterThan(0);
-      expect(parsed._perf.tokens).toBeGreaterThan(0);
-      // Original data preserved
-      expect(parsed.data.key).toBe('val');
+      // Assert — result should be a ToolResult with _perf directly, not wrapped in content[0].text
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ key: 'val' });
+      expect(result._perf).toBeDefined();
+      expect(result._perf!.ms).toBeGreaterThanOrEqual(0);
+      expect(result._perf!.bytes).toBeGreaterThan(0);
+      expect(result._perf!.tokens).toBeGreaterThan(0);
+      // Should NOT have content/isError (MCP envelope shape)
+      expect((result as Record<string, unknown>).content).toBeUndefined();
+      expect((result as Record<string, unknown>).isError).toBeUndefined();
+    });
+
+    it('InjectPerf_SetsFieldDirectly_NoJsonParsing', async () => {
+      // Arrange
+      const handler: CoreHandler = async () => ({
+        success: true,
+        data: { key: 'val' },
+      });
+
+      // Act
+      const wrapped = withTelemetry(handler, 'test_tool', eventStore);
+      const result = await wrapped({});
+
+      // Assert — _perf is set directly on ToolResult object
+      expect(result._perf).toBeDefined();
+      expect(typeof result._perf!.ms).toBe('number');
+      expect(typeof result._perf!.bytes).toBe('number');
+      expect(typeof result._perf!.tokens).toBe('number');
     });
 
     it('should preserve _meta field if present', async () => {
       // Arrange
-      const handler = async () => ({
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, _meta: { hint: 'test' } }) }],
-        isError: false,
+      const handler: CoreHandler = async () => ({
+        success: true,
+        _meta: { hint: 'test' },
       });
 
       // Act
       const wrapped = withTelemetry(handler, 'test_tool', eventStore);
       const result = await wrapped({});
-      const parsed = JSON.parse(result.content[0].text);
 
       // Assert
-      expect(parsed._meta).toEqual({ hint: 'test' });
-      expect(parsed._perf).toBeDefined();
+      expect(result._meta).toEqual({ hint: 'test' });
+      expect(result._perf).toBeDefined();
     });
   });
 
   describe('failing handler', () => {
     it('should emit tool.errored event and re-throw', async () => {
       // Arrange
-      const handler = async () => {
+      const handler: CoreHandler = async () => {
         throw new Error('Handler failed');
       };
 
@@ -111,9 +132,9 @@ describe('withTelemetry', () => {
       // Arrange - Create a store pointing to a non-existent dir
       const brokenStore = new EventStore('/nonexistent/path/that/wont/work');
 
-      const handler = async () => ({
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
-        isError: false,
+      const handler: CoreHandler = async () => ({
+        success: true,
+        data: {},
       });
 
       // Act
@@ -121,11 +142,8 @@ describe('withTelemetry', () => {
       // Should not throw even though telemetry fails
       const result = await wrapped({});
 
-      // Assert
-      expect(result.content[0]).toBeDefined();
-      // _perf may be absent when telemetry fails (graceful degradation)
-      const parsed = JSON.parse(result.content[0].text);
-      expect(parsed.success).toBe(true);
+      // Assert — result is a ToolResult directly
+      expect(result.success).toBe(true);
     });
   });
 });
@@ -166,9 +184,8 @@ describe('createInstrumentedRegistrar', () => {
     };
 
     const registrar = createInstrumentedRegistrar(mockServer as unknown as { tool: (...args: unknown[]) => void }, eventStore);
-    const originalHandler = async () => ({
-      content: [{ type: 'text' as const, text: '{}' }],
-      isError: false,
+    const originalHandler: CoreHandler = async () => ({
+      success: true,
     });
 
     // Act
@@ -203,12 +220,9 @@ describe('auto-correction integration', () => {
   it('WithTelemetry_ThresholdExceeded_AppliesAutoCorrection', async () => {
     // Arrange
     let receivedArgs: Record<string, unknown> | undefined;
-    const handler = async (args: Record<string, unknown>) => {
+    const handler: CoreHandler = async (args) => {
       receivedArgs = args;
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
-        isError: false,
-      };
+      return { success: true, data: {} };
     };
 
     const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
@@ -226,22 +240,18 @@ describe('auto-correction integration', () => {
     expect(receivedArgs).toBeDefined();
     expect(receivedArgs!.fields).toEqual(['id', 'title', 'status', 'assignee']);
 
-    // Response should include _autoCorrection metadata
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed._autoCorrection).toBeDefined();
-    expect(parsed._autoCorrection.applied).toHaveLength(1);
-    expect(parsed._autoCorrection.applied[0].param).toBe('fields');
+    // Response should include _corrections metadata directly on ToolResult
+    expect(result._corrections).toBeDefined();
+    expect(result._corrections!.applied).toHaveLength(1);
+    expect(result._corrections!.applied[0].param).toBe('fields');
   });
 
   it('WithTelemetry_SkipAutoCorrection_BypassesCorrection', async () => {
     // Arrange
     let receivedArgs: Record<string, unknown> | undefined;
-    const handler = async (args: Record<string, unknown>) => {
+    const handler: CoreHandler = async (args) => {
       receivedArgs = args;
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
-        isError: false,
-      };
+      return { success: true, data: {} };
     };
 
     const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
@@ -260,16 +270,15 @@ describe('auto-correction integration', () => {
     expect(receivedArgs!.fields).toBeUndefined();
     expect(receivedArgs!.skipAutoCorrection).toBe(true);
 
-    // Response should not include _autoCorrection
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed._autoCorrection).toBeUndefined();
+    // Response should not include _corrections
+    expect(result._corrections).toBeUndefined();
   });
 
   it('WithTelemetry_AutoCorrectionApplied_EmitsQualityHintGenerated', async () => {
     // Arrange
-    const handler = async () => ({
-      content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
-      isError: false,
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: {},
     });
 
     const metricsGetter = () => makeMetrics({ p95Bytes: 1500 });
@@ -311,10 +320,9 @@ describe('D3 token-budget gate emission', () => {
 
   it('withTelemetry_TokenThresholdExceeded_EmitsGateExecutedForD3', async () => {
     // Arrange: ~10KB response -> ~2560 tokens (exceeds 2048 threshold)
-    const largePayload = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
-    const handler = async () => ({
-      content: [{ type: 'text' as const, text: largePayload }],
-      isError: false,
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: { content: 'x'.repeat(10_000) },
     });
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
@@ -340,10 +348,9 @@ describe('D3 token-budget gate emission', () => {
 
   it('withTelemetry_TokenBelowThreshold_NoGateEvent', async () => {
     // Arrange: small response (~25 tokens, well below 2048 threshold)
-    const smallPayload = JSON.stringify({ success: true, data: {} });
-    const handler = async () => ({
-      content: [{ type: 'text' as const, text: smallPayload }],
-      isError: false,
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: {},
     });
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
@@ -359,10 +366,9 @@ describe('D3 token-budget gate emission', () => {
 
   it('withTelemetry_NoFeatureIdInArgs_SkipsGateEmission', async () => {
     // Arrange: large response but no featureId in args
-    const largePayload = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
-    const handler = async () => ({
-      content: [{ type: 'text' as const, text: largePayload }],
-      isError: false,
+    const handler: CoreHandler = async () => ({
+      success: true,
+      data: { content: 'x'.repeat(10_000) },
     });
 
     const wrapped = withTelemetry(handler, 'test-tool', eventStore);
