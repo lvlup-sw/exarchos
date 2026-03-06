@@ -93,6 +93,47 @@ describe('Registration Pipeline', () => {
     expect(typeof guardedTransition!.guard!.evaluate).toBe('function');
   });
 
+  it('RegisterCustomWorkflows_ChildBeforeParent_RegistersInCorrectOrder', () => {
+    // Child is defined before parent in the config object
+    const config: ExarchosConfig = {
+      workflows: {
+        'child-pipeline': {
+          extends: TEST_WORKFLOW_NAME,
+          phases: ['init', 'build', 'extra'],
+          initialPhase: 'init',
+          transitions: [
+            { from: 'init', to: 'build', event: 'start' },
+            { from: 'build', to: 'extra', event: 'extend' },
+          ],
+        },
+        [TEST_WORKFLOW_NAME]: {
+          phases: ['init', 'build', 'done'],
+          initialPhase: 'init',
+          transitions: [
+            { from: 'init', to: 'build', event: 'start' },
+            { from: 'build', to: 'done', event: 'finish' },
+          ],
+        },
+      },
+    };
+
+    // Should NOT throw despite child being listed before parent
+    registerCustomWorkflows(config);
+
+    // Both should be registered
+    expect(getHSMDefinition(TEST_WORKFLOW_NAME)).toBeDefined();
+    expect(getHSMDefinition('child-pipeline')).toBeDefined();
+
+    // Child should have inherited parent's states
+    const childHsm = getHSMDefinition('child-pipeline');
+    expect(childHsm.states['done']).toBeDefined();
+    expect(childHsm.states['extra']).toBeDefined();
+
+    // Cleanup child
+    unregisterWorkflowType('child-pipeline');
+    unextendWorkflowTypeEnum('child-pipeline');
+  });
+
   it('RegisterCustomWorkflows_InvalidConfig_RollsBackAndWrapsError', () => {
     // A config with a built-in name will fail during registerWorkflowType
     const invalidConfig: ExarchosConfig = {

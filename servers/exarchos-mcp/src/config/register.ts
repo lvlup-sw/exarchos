@@ -32,9 +32,39 @@ export function clearRegisteredGuards(): void {
 // ─── Registration Pipeline ──────────────────────────────────────────────────
 
 /**
+ * Topologically sort workflow entries so parents register before children.
+ * Workflows extending built-in types have no sibling dependency and sort first.
+ */
+function topoSortWorkflows(
+  workflows: Record<string, WorkflowDefinition>,
+): [string, WorkflowDefinition][] {
+  const entries = Object.entries(workflows);
+  const nameSet = new Set(entries.map(([n]) => n));
+  const sorted: [string, WorkflowDefinition][] = [];
+  const visited = new Set<string>();
+
+  function visit(name: string): void {
+    if (visited.has(name)) return;
+    visited.add(name);
+    const def = workflows[name];
+    // If extends a sibling, visit parent first
+    if (def.extends && nameSet.has(def.extends)) {
+      visit(def.extends);
+    }
+    sorted.push([name, def]);
+  }
+
+  for (const [name] of entries) {
+    visit(name);
+  }
+  return sorted;
+}
+
+/**
  * Register all custom workflows from an ExarchosConfig.
  * For each workflow: registers the HSM definition, extends the type schema,
- * and stores any guard definitions.
+ * and stores any guard definitions. Workflows are topologically sorted so
+ * parents register before children that extend them.
  */
 export function registerCustomWorkflows(config: ExarchosConfig): void {
   if (!config.workflows) return;
@@ -44,7 +74,7 @@ export function registerCustomWorkflows(config: ExarchosConfig): void {
   const registeredGuardKeys: string[] = [];
 
   try {
-    for (const [name, definition] of Object.entries(config.workflows)) {
+    for (const [name, definition] of topoSortWorkflows(config.workflows)) {
       registerWorkflowType(name, definition);
       registeredWorkflows.push(name);
 
