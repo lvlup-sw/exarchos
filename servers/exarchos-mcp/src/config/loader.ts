@@ -1,0 +1,61 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { ExarchosConfig } from './define.js';
+import { validateConfig } from './validation.js';
+
+// ─── Config File Names ─────────────────────────────────────────────────────
+
+const CONFIG_FILENAMES = ['exarchos.config.ts', 'exarchos.config.js'] as const;
+
+// ─── Config Loader ─────────────────────────────────────────────────────────
+
+/**
+ * Loads an ExarchosConfig from the project root directory.
+ *
+ * Looks for `exarchos.config.ts` or `exarchos.config.js` in projectRoot.
+ * Uses dynamic `import()` for ESM-compatible loading.
+ * Returns `{}` if no config file is found.
+ * Validates the loaded config with Zod schema.
+ *
+ * @throws Error if config file exists but is invalid
+ */
+export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
+  let configPath: string | undefined;
+
+  for (const filename of CONFIG_FILENAMES) {
+    const candidate = path.join(projectRoot, filename);
+    if (fs.existsSync(candidate)) {
+      configPath = candidate;
+      break;
+    }
+  }
+
+  if (!configPath) {
+    return {};
+  }
+
+  // Dynamic import for ESM compatibility
+  const configModule: unknown = await import(configPath);
+
+  // Extract default export
+  const rawConfig = extractDefaultExport(configModule);
+
+  // Validate with Zod
+  const result = validateConfig(rawConfig);
+  if (!result.success) {
+    throw new Error(
+      `Invalid exarchos config at ${configPath}:\n${result.errors?.join('\n')}`,
+    );
+  }
+
+  return result.data as ExarchosConfig;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function extractDefaultExport(module: unknown): unknown {
+  if (module !== null && typeof module === 'object' && 'default' in module) {
+    return (module as Record<string, unknown>).default;
+  }
+  return module;
+}

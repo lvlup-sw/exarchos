@@ -1,5 +1,6 @@
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+import type { ExarchosConfig } from '../config/define.js';
 import { withTelemetry } from '../telemetry/middleware.js';
 
 // Composite handlers
@@ -20,6 +21,7 @@ export interface DispatchContext {
   readonly stateDir: string;
   readonly eventStore: EventStore;
   readonly enableTelemetry: boolean;
+  readonly config?: ExarchosConfig;
 }
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────

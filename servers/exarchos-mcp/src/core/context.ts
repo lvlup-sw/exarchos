@@ -2,6 +2,7 @@ import { EventStore } from '../event-store/store.js';
 import { SnapshotStore } from '../views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
+import { loadConfig } from '../config/loader.js';
 
 // EventStore configuration — workflow modules require explicit injection
 import { configureWorkflowEventStore } from '../workflow/tools.js';
@@ -17,6 +18,8 @@ import { configureStateStoreBackend } from '../workflow/state-store.js';
 export interface InitializeContextOptions {
   /** Optional storage backend for test injection. When omitted, JSONL-only mode. */
   readonly backend?: StorageBackend;
+  /** Optional project root directory to load exarchos.config.ts/.js from. */
+  readonly projectRoot?: string;
 }
 
 // ─── Context Initialization ─────────────────────────────────────────────────
@@ -50,5 +53,10 @@ export async function initializeContext(
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
-  return { stateDir, eventStore, enableTelemetry };
+  // Load config from project root if provided
+  const config = options?.projectRoot
+    ? await loadConfig(options.projectRoot)
+    : undefined;
+
+  return { stateDir, eventStore, enableTelemetry, config };
 }

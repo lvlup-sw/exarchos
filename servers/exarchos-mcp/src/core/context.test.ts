@@ -64,4 +64,63 @@ describe('initializeContext', () => {
     // Assert — configureStateStoreBackend should have been called
     expect(configureStateStoreBackend).toHaveBeenCalled();
   });
+
+  it('InitializeContext_NoProjectRoot_ConfigUndefined', async () => {
+    // Arrange
+    const { initializeContext } = await import('./context.js');
+
+    // Act
+    const ctx = await initializeContext(tmpDir);
+
+    // Assert
+    expect(ctx.config).toBeUndefined();
+  });
+
+  it('InitializeContext_WithProjectRoot_LoadsConfig', async () => {
+    // Arrange
+    const { initializeContext } = await import('./context.js');
+    const { writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+
+    // Create a config file in a separate project root dir
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-proj-'));
+    await writeFile(
+      join(projectRoot, 'exarchos.config.js'),
+      `export default {
+        workflows: {
+          deploy: {
+            phases: ['build', 'ship'],
+            initialPhase: 'build',
+            transitions: [{ from: 'build', to: 'ship', event: 'done' }],
+          },
+        },
+      };`,
+    );
+
+    // Act
+    const ctx = await initializeContext(tmpDir, { projectRoot });
+
+    // Assert
+    expect(ctx.config).toBeDefined();
+    expect(ctx.config?.workflows?.deploy).toBeDefined();
+    expect(ctx.config?.workflows?.deploy.phases).toEqual(['build', 'ship']);
+
+    // Cleanup
+    await fs.rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it('InitializeContext_WithProjectRootNoConfig_ConfigEmpty', async () => {
+    // Arrange
+    const { initializeContext } = await import('./context.js');
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-empty-'));
+
+    // Act — projectRoot has no config file
+    const ctx = await initializeContext(tmpDir, { projectRoot });
+
+    // Assert — loadConfig returns {} which is truthy, but has no workflows
+    expect(ctx.config).toEqual({});
+
+    // Cleanup
+    await fs.rm(projectRoot, { recursive: true, force: true });
+  });
 });
