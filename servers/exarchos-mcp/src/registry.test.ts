@@ -8,7 +8,7 @@ import {
   coercedNonnegativeInt,
   TOOL_REGISTRY,
 } from './registry.js';
-import type { ToolAction } from './registry.js';
+import type { ToolAction, CompositeTool } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -518,5 +518,65 @@ describe('TOOL_REGISTRY', () => {
       const result = action!.schema.safeParse({});
       expect(result.success).toBe(true);
     });
+  });
+});
+
+// ─── CLI Hints Tests ──────────────────────────────────────────────────────────
+
+describe('CLI hints', () => {
+  it('ToolAction_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a ToolAction with cli hints
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test action',
+      schema: z.object({ id: z.string() }),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      cli: {
+        alias: 'ls',
+        group: 'Inspection',
+        examples: ['exarchos test ls'],
+        flags: { id: { alias: 'i', description: 'The ID' } },
+        format: 'table',
+      },
+    };
+    // Assert: cli fields are accessible
+    expect(action.cli?.alias).toBe('ls');
+    expect(action.cli?.flags?.id?.alias).toBe('i');
+    expect(action.cli?.format).toBe('table');
+  });
+
+  it('CompositeTool_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a CompositeTool with cli hints
+    const tool: CompositeTool = {
+      name: 'exarchos_test',
+      description: 'test tool',
+      actions: [],
+      cli: { alias: 'tst', group: 'Testing' },
+    };
+    // Assert
+    expect(tool.cli?.alias).toBe('tst');
+  });
+
+  it('ToolAction_WithoutCliHints_StillWorks', () => {
+    // Arrange: ToolAction without cli field (backward compat)
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test',
+      schema: z.object({}),
+      phases: new Set([]),
+      roles: new Set([]),
+    };
+    // Assert: cli is undefined
+    expect(action.cli).toBeUndefined();
+  });
+
+  it('TOOL_REGISTRY_EntriesStillTypeCheck', () => {
+    // Assert: existing registry is valid (no cli field = still works)
+    expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
+    for (const tool of TOOL_REGISTRY) {
+      expect(tool.name).toBeTruthy();
+      expect(tool.actions.length).toBeGreaterThan(0);
+    }
   });
 });
