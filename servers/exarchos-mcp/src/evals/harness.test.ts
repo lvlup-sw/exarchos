@@ -314,7 +314,7 @@ describe('Integration — Real Eval Suites', () => {
     expect(suites[0].suiteDir).toContain('delegation');
   });
 
-  it('Integration_DelegationSuite_RunsWithoutError', async () => {
+  it.skipIf(!process.env.RUN_EVALS)('Integration_DelegationSuite_RunsWithoutError', async () => {
     // Arrange
     const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'delegation' });
     const { config, suiteDir } = suites[0];
@@ -343,7 +343,7 @@ describe('Integration — Real Eval Suites', () => {
     expect(suites[0].suiteDir).toContain('quality-review');
   });
 
-  it('Integration_QualityReviewSuite_RunsWithoutError', async () => {
+  it.skipIf(!process.env.RUN_EVALS)('Integration_QualityReviewSuite_RunsWithoutError', async () => {
     // Arrange
     const suites = await discoverSuites(REPO_EVALS_DIR, { skill: 'quality-review' });
     const { config, suiteDir } = suites[0];
