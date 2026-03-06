@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   FeaturePhaseSchema,
   DebugPhaseSchema,
@@ -28,6 +28,8 @@ import {
   ErrorCode,
   isReservedField,
   WorkflowTypeSchema,
+  extendWorkflowTypeEnum,
+  unextendWorkflowTypeEnum,
 } from '../../workflow/schemas.js';
 import { EventTypes } from '../../event-store/schemas.js';
 import { TOOL_REGISTRY } from '../../registry.js';
@@ -969,5 +971,59 @@ describe('reconcile action registration', () => {
     const reconcileAction = workflowTool!.actions.find(a => a.name === 'reconcile');
     const shape = reconcileAction!.schema.shape;
     expect(shape.featureId).toBeDefined();
+  });
+});
+
+// ─── Task 20: Dynamic WorkflowType Enum Extension ───────────────────────────
+
+describe('Dynamic WorkflowType Enum Extension', () => {
+  const CUSTOM_TYPE = 'custom-pipeline';
+
+  afterEach(() => {
+    unextendWorkflowTypeEnum(CUSTOM_TYPE);
+  });
+
+  it('ExtendWorkflowTypeEnum_AddsCustomType', () => {
+    // Before extension, custom type should fail
+    const beforeResult = WorkflowTypeSchema.safeParse(CUSTOM_TYPE);
+    expect(beforeResult.success).toBe(false);
+
+    // Extend
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+
+    // After extension, custom type should pass
+    const afterResult = WorkflowTypeSchema.safeParse(CUSTOM_TYPE);
+    expect(afterResult.success).toBe(true);
+  });
+
+  it('ExtendWorkflowTypeEnum_BuiltInsPreserved', () => {
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+
+    // Built-in types must still work
+    expect(WorkflowTypeSchema.safeParse('feature').success).toBe(true);
+    expect(WorkflowTypeSchema.safeParse('debug').success).toBe(true);
+    expect(WorkflowTypeSchema.safeParse('refactor').success).toBe(true);
+
+    // Invalid types still rejected
+    expect(WorkflowTypeSchema.safeParse('nonexistent').success).toBe(false);
+  });
+
+  it('ExtendWorkflowTypeEnum_InitInputAcceptsCustomType', () => {
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+
+    const result = InitInputSchema.safeParse({
+      featureId: 'test-id',
+      workflowType: CUSTOM_TYPE,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('ExtendWorkflowTypeEnum_TransitionsInputAcceptsCustomType', () => {
+    extendWorkflowTypeEnum(CUSTOM_TYPE);
+
+    const result = TransitionsInputSchema.safeParse({
+      workflowType: CUSTOM_TYPE,
+    });
+    expect(result.success).toBe(true);
   });
 });

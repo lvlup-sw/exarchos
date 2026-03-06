@@ -189,7 +189,34 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
 // ─── Workflow Type ──────────────────────────────────────────────────────────
 
-export const WorkflowTypeSchema = z.enum(['feature', 'debug', 'refactor']);
+const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
+const customWorkflowTypes = new Set<string>();
+
+export const WorkflowTypeSchema = z.string().refine(
+  (val) => (BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) || customWorkflowTypes.has(val),
+  { message: 'Invalid workflow type' },
+);
+
+/**
+ * Extend the WorkflowTypeSchema to accept a custom workflow type name.
+ */
+export function extendWorkflowTypeEnum(name: string): void {
+  customWorkflowTypes.add(name);
+}
+
+/**
+ * Remove a custom workflow type from the schema. Used for test cleanup.
+ */
+export function unextendWorkflowTypeEnum(name: string): void {
+  customWorkflowTypes.delete(name);
+}
+
+/**
+ * Get all currently valid workflow type names (built-in + custom).
+ */
+export function getValidWorkflowTypes(): readonly string[] {
+  return [...BUILT_IN_WORKFLOW_TYPES, ...customWorkflowTypes];
+}
 
 // ─── Base Workflow State (shared fields) ────────────────────────────────────
 
