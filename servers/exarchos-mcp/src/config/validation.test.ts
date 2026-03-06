@@ -165,6 +165,83 @@ describe('validateConfig', () => {
     }
   });
 
+  it('ValidateConfig_ExtendsUnknownWorkflow_Fails', () => {
+    const result = validateConfig({
+      workflows: {
+        'my-workflow': {
+          extends: 'nonexistent',
+          phases: ['a'],
+          initialPhase: 'a',
+          transitions: [],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors?.some((e) => e.includes('nonexistent') && e.includes('unknown workflow'))).toBe(true);
+  });
+
+  it('ValidateConfig_ExtendsSelf_Fails', () => {
+    const result = validateConfig({
+      workflows: {
+        'my-workflow': {
+          extends: 'my-workflow',
+          phases: ['a'],
+          initialPhase: 'a',
+          transitions: [],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors?.some((e) => e.includes('cannot extend itself'))).toBe(true);
+  });
+
+  it('ValidateConfig_CircularExtends_Fails', () => {
+    const result = validateConfig({
+      workflows: {
+        alpha: {
+          extends: 'beta',
+          phases: ['a'],
+          initialPhase: 'a',
+          transitions: [],
+        },
+        beta: {
+          extends: 'alpha',
+          phases: ['b'],
+          initialPhase: 'b',
+          transitions: [],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors?.some((e) => e.includes('Circular extends chain'))).toBe(true);
+  });
+
+  it('ValidateConfig_ExtendsSiblingWorkflow_Succeeds', () => {
+    const result = validateConfig({
+      workflows: {
+        base: {
+          phases: ['a', 'b'],
+          initialPhase: 'a',
+          transitions: [{ from: 'a', to: 'b', event: 'go' }],
+        },
+        derived: {
+          extends: 'base',
+          phases: ['a', 'b', 'c'],
+          initialPhase: 'a',
+          transitions: [
+            { from: 'a', to: 'b', event: 'go' },
+            { from: 'b', to: 'c', event: 'next' },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('ValidateConfig_MultipleErrors_ReturnsAll', () => {
     const result = validateConfig({
       workflows: {

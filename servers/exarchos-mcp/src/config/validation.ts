@@ -76,13 +76,52 @@ export const exarchosConfigSchema = z.object({
     .superRefine((workflows, ctx) => {
       if (!workflows) return;
 
-      for (const name of Object.keys(workflows)) {
+      const knownWorkflowNames = new Set<string>([
+        ...BUILTIN_WORKFLOW_TYPES,
+        ...Object.keys(workflows),
+      ]);
+
+      for (const [name, workflow] of Object.entries(workflows)) {
         if ((BUILTIN_WORKFLOW_TYPES as readonly string[]).includes(name)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `Workflow name "${name}" conflicts with built-in type. Built-in types: [${BUILTIN_WORKFLOW_TYPES.join(', ')}]`,
             path: [name],
           });
+        }
+
+        if (workflow.extends && !knownWorkflowNames.has(workflow.extends)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Workflow "${name}" extends unknown workflow "${workflow.extends}"`,
+            path: [name, 'extends'],
+          });
+        }
+
+        if (workflow.extends === name) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Workflow "${name}" cannot extend itself`,
+            path: [name, 'extends'],
+          });
+        }
+      }
+
+      // Detect cycles in extends chains
+      for (const name of Object.keys(workflows)) {
+        const visited = new Set<string>();
+        let current: string | undefined = name;
+        while (current && workflows[current]?.extends) {
+          if (visited.has(current)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Circular extends chain detected: ${[...visited, current].join(' → ')}`,
+              path: [name, 'extends'],
+            });
+            break;
+          }
+          visited.add(current);
+          current = workflows[current].extends;
         }
       }
     }),
