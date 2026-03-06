@@ -16,8 +16,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.6.2",
+    "commander": "^14.0.3",
     "pino": "^10.3.1",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.1"
   },
   "devDependencies": {
     "@fast-check/vitest": "^0.2.4",
