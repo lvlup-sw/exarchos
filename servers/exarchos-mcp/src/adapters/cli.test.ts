@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import type { ToolResult } from '../format.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -79,23 +82,23 @@ describe('buildCli', () => {
     const program = buildCli(ctx);
     const commandNames = program.commands.map((c) => c.name());
 
-    // Assert — all 5 tools should be registered (with exarchos_ prefix stripped)
-    expect(commandNames).toContain('workflow');
-    expect(commandNames).toContain('event');
-    expect(commandNames).toContain('orchestrate');
-    expect(commandNames).toContain('view');
-    expect(commandNames).toContain('sync');
+    // Assert — all 5 tools registered with their CLI aliases
+    expect(commandNames).toContain('wf');
+    expect(commandNames).toContain('ev');
+    expect(commandNames).toContain('orch');
+    expect(commandNames).toContain('vw');
+    expect(commandNames).toContain('sy');
   });
 
   it('BuildCli_GeneratesActionSubcommands', () => {
     // Arrange & Act
     const program = buildCli(ctx);
-    const workflowCmd = program.commands.find((c) => c.name() === 'workflow');
+    const workflowCmd = program.commands.find((c) => c.name() === 'wf');
     const actionNames = workflowCmd?.commands.map((c) => c.name()) ?? [];
 
-    // Assert — workflow actions
+    // Assert — workflow actions (get is aliased to 'status')
     expect(actionNames).toContain('init');
-    expect(actionNames).toContain('get');
+    expect(actionNames).toContain('status');
     expect(actionNames).toContain('set');
     expect(actionNames).toContain('cancel');
     expect(actionNames).toContain('cleanup');
@@ -124,11 +127,11 @@ describe('buildCli', () => {
     // Capture stdout to avoid polluting test output
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act — parse a workflow init command
+    // Act — parse a workflow init command (using 'wf' alias)
     await program.parseAsync([
       'node',
       'exarchos',
-      'workflow',
+      'wf',
       'init',
       '--feature-id',
       'test-feature',
@@ -155,11 +158,11 @@ describe('buildCli', () => {
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act — parse with --json flag
+    // Act — parse with --json flag (using 'wf' alias)
     await program.parseAsync([
       'node',
       'exarchos',
-      'workflow',
+      'wf',
       'init',
       '--feature-id',
       'test-feature',
@@ -238,5 +241,86 @@ describe('mcp command', () => {
 
     // Assert
     expect(commandNames).toContain('mcp');
+  });
+});
+
+// ─── Task 25: Init Scaffolding Command ────────────────────────────────────────
+
+describe('init command', () => {
+  let ctx: DispatchContext;
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = createTestContext();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-cli-test-'));
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+
+  it('InitCommand_CreatesConfigFile', async () => {
+    // Arrange
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    // Assert — file created with template content
+    const configPath = path.join(tmpDir, 'exarchos.config.ts');
+    expect(fs.existsSync(configPath)).toBe(true);
+    const content = fs.readFileSync(configPath, 'utf-8');
+    expect(content).toContain('defineConfig');
+    expect(content).toContain('@lvlup-sw/exarchos');
+    expect(content).toContain('workflows');
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('InitCommand_ConfigExists_DoesNotOverwrite', async () => {
+    // Arrange — create existing config
+    const configPath = path.join(tmpDir, 'exarchos.config.ts');
+    fs.writeFileSync(configPath, 'existing content');
+    const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    // Assert — file not overwritten
+    const content = fs.readFileSync(configPath, 'utf-8');
+    expect(content).toBe('existing content');
+
+    // Assert — warning was printed
+    const output = [
+      ...stderrSpy.mock.calls.map(([s]) => s),
+      ...stdoutSpy.mock.calls.map(([s]) => s),
+    ].join('');
+    expect(output).toContain('already exists');
+
+    stderrSpy.mockRestore();
+    stdoutSpy.mockRestore();
+  });
+
+  it('InitCommand_PrintsGettingStarted', async () => {
+    // Arrange
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    // Assert — getting-started instructions printed
+    const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    expect(output).toContain('exarchos.config.ts');
+
+    stdoutSpy.mockRestore();
   });
 });

@@ -580,3 +580,117 @@ describe('CLI hints', () => {
     }
   });
 });
+
+// ─── Task 23: CLI Hints on Core Actions ──────────────────────────────────────
+
+describe('CLI hints on core workflow actions', () => {
+  it('WorkflowTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('wf');
+  });
+
+  it('InitAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.workflowType?.alias).toBe('t');
+  });
+
+  it('GetAction_HasStatusAlias', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('status');
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.query?.alias).toBe('q');
+  });
+
+  it('SetAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'set');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+  });
+
+  it('ViewTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('vw');
+  });
+
+  it('PipelineAction_HasLsAlias', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('ls');
+  });
+
+  it('TasksAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_view', 'tasks');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.workflowId?.alias).toBe('w');
+    expect(action!.cli?.flags?.limit?.alias).toBe('l');
+  });
+
+  it('EventTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('ev');
+  });
+
+  it('OrchestrateTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('orch');
+  });
+
+  it('SyncTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_sync');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('sy');
+  });
+});
+
+// ─── Task 24: CLI Examples on Common Actions ─────────────────────────────────
+
+describe('CLI examples on common actions', () => {
+  it('CliHints_ExamplesPresent_ForCommonActions', () => {
+    const initAction = findAction('exarchos_workflow', 'init');
+    expect(initAction!.cli?.examples).toBeDefined();
+    expect(initAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const getAction = findAction('exarchos_workflow', 'get');
+    expect(getAction!.cli?.examples).toBeDefined();
+    expect(getAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const setAction = findAction('exarchos_workflow', 'set');
+    expect(setAction!.cli?.examples).toBeDefined();
+    expect(setAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const pipelineAction = findAction('exarchos_view', 'pipeline');
+    expect(pipelineAction!.cli?.examples).toBeDefined();
+    expect(pipelineAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const tasksAction = findAction('exarchos_view', 'tasks');
+    expect(tasksAction!.cli?.examples).toBeDefined();
+    expect(tasksAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const appendAction = findAction('exarchos_event', 'append');
+    expect(appendAction!.cli?.examples).toBeDefined();
+    expect(appendAction!.cli!.examples!.length).toBeGreaterThan(0);
+  });
+
+  it('InitAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action!.cli!.examples).toContain('exarchos wf init -f my-feature -t feature');
+  });
+
+  it('GetAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature -q phase');
+  });
+
+  it('PipelineAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action!.cli!.examples).toContain('exarchos vw ls');
+  });
+});
