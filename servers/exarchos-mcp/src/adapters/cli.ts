@@ -5,7 +5,7 @@ import { TOOL_REGISTRY } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { addFlagsFromSchema, coerceFlags, toKebab } from './schema-to-flags.js';
-import { prettyPrint } from './cli-format.js';
+import { prettyPrint, printError } from './cli-format.js';
 import { listSchemas, resolveSchemaRef } from './schema-introspection.js';
 import { createMcpServer } from './mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -69,8 +69,16 @@ export function buildCli(ctx: DispatchContext): Command {
           }
         }
       } else {
-        const schema = resolveSchemaRef(ref);
-        process.stdout.write(JSON.stringify(schema, null, 2) + '\n');
+        try {
+          const schema = resolveSchemaRef(ref);
+          process.stdout.write(JSON.stringify(schema, null, 2) + '\n');
+        } catch (err) {
+          printError({
+            code: 'INVALID_SCHEMA_REF',
+            message: err instanceof Error ? err.message : String(err),
+          });
+          process.exitCode = 1;
+        }
       }
     });
 

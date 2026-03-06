@@ -26,11 +26,13 @@ export const workflowDefinitionSchema = z.object({
   transitions: z.array(transitionDefinitionSchema),
   guards: z.record(z.string(), guardDefinitionSchema).optional(),
 }).strict().superRefine((workflow, ctx) => {
-  // Include implicit terminal states that convertToHSM auto-adds
-  const phaseSet = new Set([...workflow.phases, 'cancelled', 'completed']);
+  // Declared phases: valid for initialPhase and transition sources (from)
+  const declaredPhases = new Set(workflow.phases);
+  // Reachable phases: includes implicit terminal states for transition targets (to)
+  const reachablePhases = new Set([...workflow.phases, 'cancelled', 'completed']);
 
-  // initialPhase must be in phases
-  if (!phaseSet.has(workflow.initialPhase)) {
+  // initialPhase must be a declared phase (not a terminal state)
+  if (!declaredPhases.has(workflow.initialPhase)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `initialPhase "${workflow.initialPhase}" is not in phases: [${workflow.phases.join(', ')}]`,
@@ -41,14 +43,14 @@ export const workflowDefinitionSchema = z.object({
   // Validate transition from/to reference valid phases
   for (let i = 0; i < workflow.transitions.length; i++) {
     const t = workflow.transitions[i];
-    if (!phaseSet.has(t.from)) {
+    if (!declaredPhases.has(t.from)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Transition from "${t.from}" references unknown phase. Valid phases: [${workflow.phases.join(', ')}]`,
         path: ['transitions', i, 'from'],
       });
     }
-    if (!phaseSet.has(t.to)) {
+    if (!reachablePhases.has(t.to)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `Transition to "${t.to}" references unknown phase. Valid phases: [${workflow.phases.join(', ')}]`,

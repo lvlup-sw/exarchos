@@ -206,6 +206,28 @@ describe('schema command', () => {
     stdoutSpy.mockRestore();
   });
 
+  it('SchemaCommand_InvalidRef_PrintsErrorGracefully', async () => {
+    // Arrange — make resolveSchemaRef throw for this test only
+    const { resolveSchemaRef } = await import('./schema-introspection.js');
+    vi.mocked(resolveSchemaRef).mockImplementationOnce(() => {
+      throw new Error('Unknown schema ref: "bogus.ref"');
+    });
+
+    const program = buildCli(ctx);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'schema', 'bogus.ref']);
+
+    // Assert — printError called with error info
+    const { printError } = await import('./cli-format.js');
+    expect(printError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'INVALID_SCHEMA_REF',
+        message: expect.stringContaining('bogus.ref'),
+      }),
+    );
+  });
+
   it('SchemaCommand_WithRef_PrintsJsonSchema', async () => {
     // Arrange
     const program = buildCli(ctx);

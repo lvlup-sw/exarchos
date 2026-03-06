@@ -242,6 +242,54 @@ describe('validateConfig', () => {
     expect(result.success).toBe(true);
   });
 
+  it('ValidateConfig_InitialPhaseIsTerminal_Fails', () => {
+    const result = validateConfig({
+      workflows: {
+        broken: {
+          phases: ['a'],
+          initialPhase: 'completed',
+          transitions: [],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors?.some((e) => e.includes('initialPhase') && e.includes('completed'))).toBe(true);
+  });
+
+  it('ValidateConfig_TransitionFromTerminal_Fails', () => {
+    const result = validateConfig({
+      workflows: {
+        broken: {
+          phases: ['a'],
+          initialPhase: 'a',
+          transitions: [
+            { from: 'cancelled', to: 'a', event: 'retry' },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errors?.some((e) => e.includes('cancelled') && e.includes('unknown phase'))).toBe(true);
+  });
+
+  it('ValidateConfig_TransitionToTerminal_Succeeds', () => {
+    const result = validateConfig({
+      workflows: {
+        pipeline: {
+          phases: ['a'],
+          initialPhase: 'a',
+          transitions: [
+            { from: 'a', to: 'completed', event: 'done' },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('ValidateConfig_MultipleErrors_ReturnsAll', () => {
     const result = validateConfig({
       workflows: {
