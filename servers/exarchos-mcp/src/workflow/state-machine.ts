@@ -69,6 +69,8 @@ export interface TransitionResult {
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
 
+const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor']);
+
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
   debug: createDebugHSM(),
@@ -81,6 +83,89 @@ export function getHSMDefinition(workflowType: string): HSMDefinition {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return hsm;
+}
+
+// ─── Workflow Definition → HSM Conversion ────────────────────────────────────
+
+export interface WorkflowDefinition {
+  extends?: string;
+  phases: string[];
+  initialPhase: string;
+  transitions: { from: string; to: string; event: string; guard?: string }[];
+  guards?: Record<string, { command: string; timeout?: number; description?: string }>;
+}
+
+function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
+  let baseStates: Record<string, State> = {};
+  let baseTransitions: readonly Transition[] = [];
+
+  if (definition.extends) {
+    const parent = hsmRegistry[definition.extends];
+    if (!parent) {
+      throw new Error(`Cannot extend unknown workflow type: ${definition.extends}`);
+    }
+    // Deep clone the parent
+    baseStates = Object.fromEntries(
+      Object.entries(parent.states).map(([k, v]) => [k, { ...v }]),
+    );
+    baseTransitions = [...parent.transitions];
+  }
+
+  // Add custom phases as atomic states
+  for (const phase of definition.phases) {
+    if (!baseStates[phase]) {
+      baseStates[phase] = { id: phase, type: 'atomic' };
+    }
+  }
+
+  // Ensure cancelled/completed final states exist
+  if (!baseStates['cancelled']) {
+    baseStates['cancelled'] = { id: 'cancelled', type: 'final' };
+  }
+  if (!baseStates['completed']) {
+    baseStates['completed'] = { id: 'completed', type: 'final' };
+  }
+
+  // Convert transitions
+  const customTransitions: Transition[] = definition.transitions.map((t) => ({
+    from: t.from,
+    to: t.to,
+  }));
+
+  // Merge: custom transitions override base transitions with same from+to
+  const transitionKey = (t: Transition): string => `${t.from}->${t.to}`;
+  const mergedMap = new Map<string, Transition>();
+  for (const t of baseTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+  for (const t of customTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+
+  return {
+    id: name,
+    states: baseStates,
+    transitions: [...mergedMap.values()],
+  };
+}
+
+export function registerWorkflowType(name: string, definition: WorkflowDefinition): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot override built-in workflow type: ${name}`);
+  }
+  const hsm = convertToHSM(name, definition);
+  hsmRegistry[name] = hsm;
+}
+
+/**
+ * Remove a custom workflow type from the registry.
+ * Only non-built-in types can be removed. Used for test cleanup.
+ */
+export function unregisterWorkflowType(name: string): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot unregister built-in workflow type: ${name}`);
+  }
+  delete hsmRegistry[name];
 }
 
 // ─── Transition Algorithm (10 Steps) ────────────────────────────────────────
