@@ -46,18 +46,36 @@ export function coercedNonnegativeInt() {
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
+export interface CliActionHints {
+  readonly alias?: string;
+  readonly group?: string;
+  readonly examples?: readonly string[];
+  readonly flags?: Readonly<Record<string, {
+    readonly alias?: string;
+    readonly description?: string;
+  }>>;
+  readonly format?: 'table' | 'json' | 'tree';
+}
+
+export interface CliToolHints {
+  readonly alias?: string;
+  readonly group?: string;
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
   readonly schema: z.ZodObject<z.ZodRawShape>;
   readonly phases: ReadonlySet<string>;
   readonly roles: ReadonlySet<string>;
+  readonly cli?: CliActionHints;
 }
 
 export interface CompositeTool {
   readonly name: string;
   readonly description: string;
   readonly actions: readonly ToolAction[];
+  readonly cli?: CliToolHints;
 }
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
