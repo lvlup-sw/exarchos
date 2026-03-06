@@ -77,12 +77,26 @@ const hsmRegistry: Record<string, HSMDefinition> = {
   refactor: createRefactorHSM(),
 };
 
+const initialPhaseRegistry: Record<string, string> = {
+  feature: 'ideate',
+  debug: 'triage',
+  refactor: 'explore',
+};
+
 export function getHSMDefinition(workflowType: string): HSMDefinition {
   const hsm = hsmRegistry[workflowType];
   if (!hsm) {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return hsm;
+}
+
+export function getInitialPhase(workflowType: string): string {
+  const phase = initialPhaseRegistry[workflowType];
+  if (!phase) {
+    throw new Error(`Unknown workflow type: ${workflowType}`);
+  }
+  return phase;
 }
 
 // ─── Workflow Definition → HSM Conversion ────────────────────────────────────
@@ -184,6 +198,7 @@ export function registerWorkflowType(name: string, definition: WorkflowDefinitio
   }
   const hsm = convertToHSM(name, definition);
   hsmRegistry[name] = hsm;
+  initialPhaseRegistry[name] = definition.initialPhase;
 }
 
 /**
@@ -195,6 +210,7 @@ export function unregisterWorkflowType(name: string): void {
     throw new Error(`Cannot unregister built-in workflow type: ${name}`);
   }
   delete hsmRegistry[name];
+  delete initialPhaseRegistry[name];
 }
 
 // ─── Transition Algorithm (10 Steps) ────────────────────────────────────────

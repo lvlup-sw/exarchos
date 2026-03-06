@@ -8,7 +8,7 @@ import type {
   CheckpointInput,
   WorkflowState,
 } from './types.js';
-import { ErrorCode, isReservedField } from './schemas.js';
+import { ErrorCode, isReservedField, WorkflowTypeSchema } from './schemas.js';
 import {
   initStateFile,
   readStateFile,
@@ -925,7 +925,7 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 // ─── Shared Schema Components ───────────────────────────────────────────────
 
 const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
-const workflowTypeParam = z.enum(['feature', 'debug', 'refactor']);
+const workflowTypeParam = WorkflowTypeSchema;
 
 // ─── Registration Function ──────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WorkflowTypeSchema } from './workflow/schemas.js';
 
 // ─── Type Coercion Helpers ──────────────────────────────────────────────────
 // LLM tool callers sometimes pass objects as JSON strings and numbers as
@@ -264,7 +265,7 @@ const workflowActions: readonly ToolAction[] = [
     description: 'Initialize a new workflow. Auto-emits workflow.started event',
     schema: z.object({
       featureId: featureIdSchema,
-      workflowType: z.enum(['feature', 'debug', 'refactor']),
+      workflowType: WorkflowTypeSchema,
     }),
     phases: new Set<string>(),
     roles: ROLE_LEAD,

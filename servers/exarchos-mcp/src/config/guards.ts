@@ -30,8 +30,8 @@ export function executeGuard(guard: GuardDefinition): Promise<GuardResult> {
   return new Promise<GuardResult>((resolve) => {
     const child = exec(guard.command, { timeout }, (error, stdout, stderr) => {
       if (error) {
-        // Check if it was killed due to timeout
-        if (child.killed) {
+        // Check if it was killed due to timeout (error.killed is the documented API)
+        if ((error as NodeJS.ErrnoException & { killed?: boolean }).killed) {
           resolve({ passed: false, error: 'timeout' });
           return;
         }

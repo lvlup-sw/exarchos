@@ -1,4 +1,5 @@
 import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
+import { getInitialPhase } from './state-machine.js';
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
@@ -46,12 +47,7 @@ function extractFeatureIdFromPath(stateFile: string): string {
 export const MAX_ARRAY_GAP = 1;
 
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
-
-const INITIAL_PHASE: Record<WorkflowType, string> = {
-  feature: 'ideate',
-  debug: 'triage',
-  refactor: 'explore',
-};
+// Now delegated to state-machine.ts getInitialPhase() for built-in + custom types
 
 // ─── State Store Error ─────────────────────────────────────────────────────
 
@@ -83,7 +79,7 @@ export async function initStateFile(
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
   const now = new Date().toISOString();
-  const initialPhase = INITIAL_PHASE[workflowType];
+  const initialPhase = getInitialPhase(workflowType);
 
   const rawState = {
     version: CURRENT_VERSION,

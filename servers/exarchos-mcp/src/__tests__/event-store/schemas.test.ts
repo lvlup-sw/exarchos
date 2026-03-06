@@ -138,13 +138,21 @@ describe('WorkflowStartedData', () => {
     }
   });
 
-  it('should reject invalid workflow type', () => {
+  it('should reject empty workflow type', () => {
     expect(() =>
       WorkflowStartedData.parse({
         featureId: 'test',
-        workflowType: 'invalid',
+        workflowType: '',
       }),
     ).toThrow();
+  });
+
+  it('should accept custom workflow type', () => {
+    const data = WorkflowStartedData.parse({
+      featureId: 'test',
+      workflowType: 'deploy',
+    });
+    expect(data.workflowType).toBe('deploy');
   });
 
   it('should allow optional designPath', () => {

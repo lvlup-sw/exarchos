@@ -162,7 +162,7 @@ export const WorkflowEventBase = z.object({
 
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
-  workflowType: z.enum(['feature', 'debug', 'refactor']),
+  workflowType: z.string().min(1), // Accepts built-in + custom workflow types
   designPath: z.string().optional(),
 });
 

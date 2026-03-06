@@ -276,12 +276,23 @@ export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   phase: RefactorPhaseSchema,
 });
 
-// ─── Discriminated Union of All Workflow States ─────────────────────────────
+// ─── Custom Workflow State Schema ───────────────────────────────────────────
 
-export const WorkflowStateSchema = z.discriminatedUnion('workflowType', [
+export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
+  workflowType: z.string().refine(
+    (val) => !(BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) && customWorkflowTypes.has(val),
+    { message: 'Must be a registered custom workflow type' },
+  ),
+  phase: z.string(), // Custom workflows define their own phases via config
+});
+
+// ─── Union of All Workflow States ───────────────────────────────────────────
+
+export const WorkflowStateSchema = z.union([
   FeatureWorkflowStateSchema,
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
+  CustomWorkflowStateSchema,
 ]);
 
 // ─── Tool Input Schemas ─────────────────────────────────────────────────────
