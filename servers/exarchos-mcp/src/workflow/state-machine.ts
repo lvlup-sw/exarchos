@@ -87,13 +87,10 @@ export function getHSMDefinition(workflowType: string): HSMDefinition {
 
 // ─── Workflow Definition → HSM Conversion ────────────────────────────────────
 
-export interface WorkflowDefinition {
-  extends?: string;
-  phases: string[];
-  initialPhase: string;
-  transitions: { from: string; to: string; event: string; guard?: string }[];
-  guards?: Record<string, { command: string; timeout?: number; description?: string }>;
-}
+import type { WorkflowDefinition } from '../config/define.js';
+
+// Re-export for consumers that imported from here
+export type { WorkflowDefinition };
 
 function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
   let baseStates: Record<string, State> = {};

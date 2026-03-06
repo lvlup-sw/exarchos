@@ -12,6 +12,15 @@ vi.mock('../workflow/state-store.js', async (importOriginal) => {
   };
 });
 
+// Mock the register module to spy on registerCustomWorkflows
+vi.mock('../config/register.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../config/register.js')>();
+  return {
+    ...original,
+    registerCustomWorkflows: vi.fn(),
+  };
+});
+
 describe('initializeContext', () => {
   let tmpDir: string;
 
@@ -119,6 +128,43 @@ describe('initializeContext', () => {
 
     // Assert — loadConfig returns {} which is truthy, but has no workflows
     expect(ctx.config).toEqual({});
+
+    // Cleanup
+    await fs.rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it('InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows', async () => {
+    // Arrange
+    const { initializeContext } = await import('./context.js');
+    const { registerCustomWorkflows } = await import('../config/register.js');
+    const { writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-reg-'));
+    await writeFile(
+      join(projectRoot, 'exarchos.config.js'),
+      `export default {
+        workflows: {
+          pipeline: {
+            phases: ['start', 'end'],
+            initialPhase: 'start',
+            transitions: [{ from: 'start', to: 'end', event: 'done' }],
+          },
+        },
+      };`,
+    );
+
+    // Act
+    await initializeContext(tmpDir, { projectRoot });
+
+    // Assert
+    expect(registerCustomWorkflows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflows: expect.objectContaining({
+          pipeline: expect.objectContaining({ phases: ['start', 'end'] }),
+        }),
+      }),
+    );
 
     // Cleanup
     await fs.rm(projectRoot, { recursive: true, force: true });

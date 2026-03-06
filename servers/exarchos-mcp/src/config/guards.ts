@@ -1,12 +1,10 @@
 import { exec } from 'node:child_process';
+import type { GuardDefinition } from './define.js';
+
+// Re-export for consumers that imported from here
+export type { GuardDefinition };
 
 // ─── Guard Types ────────────────────────────────────────────────────────────
-
-export interface GuardDefinition {
-  readonly command: string;
-  readonly timeout?: number;
-  readonly description?: string;
-}
 
 export interface GuardResult {
   passed: boolean;
@@ -19,8 +17,12 @@ export interface GuardResult {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Execute a guard command and return the result.
- * Exit 0 → passed, non-zero → failed, timeout → failed with 'timeout' error.
+ * Executes a guard command in a shell subprocess.
+ *
+ * TRUST BOUNDARY: Guard commands originate from user-authored config files
+ * (exarchos.config.ts), which are themselves executed via dynamic import.
+ * The config file already has full code execution capability, so shell
+ * command execution here does not expand the attack surface.
  */
 export function executeGuard(guard: GuardDefinition): Promise<GuardResult> {
   const timeout = guard.timeout ?? DEFAULT_TIMEOUT_MS;

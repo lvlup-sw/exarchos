@@ -1,12 +1,9 @@
 import { registerWorkflowType } from '../workflow/state-machine.js';
-import type { WorkflowDefinition } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum } from '../workflow/schemas.js';
+import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
-// ─── Config Types ───────────────────────────────────────────────────────────
-
-export interface ExarchosConfig {
-  workflows?: Record<string, WorkflowDefinition>;
-}
+// Re-export for consumers that imported from here
+export type { ExarchosConfig, WorkflowDefinition };
 
 // ─── Guard Registry ─────────────────────────────────────────────────────────
 

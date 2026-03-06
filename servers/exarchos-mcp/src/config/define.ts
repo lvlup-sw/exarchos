@@ -1,28 +1,28 @@
 // ─── Config Types ──────────────────────────────────────────────────────────
 
 export interface ExarchosConfig {
-  workflows?: Record<string, WorkflowDefinition>;
+  readonly workflows?: Record<string, WorkflowDefinition>;
 }
 
 export interface WorkflowDefinition {
-  extends?: string;
-  phases: string[];
-  initialPhase: string;
-  transitions: TransitionDefinition[];
-  guards?: Record<string, GuardDefinition>;
+  readonly extends?: string;
+  readonly phases: readonly string[];
+  readonly initialPhase: string;
+  readonly transitions: readonly TransitionDefinition[];
+  readonly guards?: Readonly<Record<string, GuardDefinition>>;
 }
 
 export interface TransitionDefinition {
-  from: string;
-  to: string;
-  event: string;
-  guard?: string;
+  readonly from: string;
+  readonly to: string;
+  readonly event: string;
+  readonly guard?: string;
 }
 
 export interface GuardDefinition {
-  command: string;
-  timeout?: number; // ms, default 30000
-  description?: string;
+  readonly command: string;
+  readonly timeout?: number; // ms, default 30000
+  readonly description?: string;
 }
 
 // ─── defineConfig Helper ───────────────────────────────────────────────────

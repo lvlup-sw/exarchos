@@ -100,16 +100,19 @@ describe('prettyPrint', () => {
     const result = Object.assign(
       { success: true, data: { ok: true } },
       {
-        _corrections: [
-          { field: 'limit', from: -5, to: 5, reason: 'must be positive' },
-        ],
+        _corrections: {
+          applied: [
+            { param: 'limit', value: 50, rule: 'exarchos_event:query:limit' },
+          ],
+        },
       },
     );
 
     prettyPrint(result);
 
     const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
-    expect(stderrOutput).toContain('Auto-corrected: limit -5 -> 5');
+    expect(stderrOutput).toContain('Auto-corrections applied');
+    expect(stderrOutput).toContain('limit: exarchos_event:query:limit');
   });
 
   it('PrettyPrint_TableFormat_PrintsAlignedColumns', () => {

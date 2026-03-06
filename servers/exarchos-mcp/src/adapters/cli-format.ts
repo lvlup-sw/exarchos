@@ -2,28 +2,7 @@
 // Converts ToolResult JSON into human-readable terminal output.
 // Main data → stdout (pipeable), metadata → stderr (human-visible).
 
-import type { ToolResult } from '../format.js';
-
-// ─── Telemetry metadata types (enriched by middleware) ──────────────────────
-
-interface PerfMeta {
-  readonly ms: number;
-  readonly bytes: number;
-  readonly tokens: number;
-}
-
-interface EventHintsMeta {
-  readonly missing: ReadonlyArray<{ eventType: string; description: string }>;
-  readonly phase: string;
-  readonly checked: number;
-}
-
-interface CorrectionEntry {
-  readonly field: string;
-  readonly from: unknown;
-  readonly to: unknown;
-  readonly reason: string;
-}
+import type { ToolResult, PerfMetrics, EventHintsPayload, CorrectionsPayload } from '../format.js';
 
 // ─── Format Inference ───────────────────────────────────────────────────────
 
@@ -146,19 +125,16 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
   }
 
   // Enriched metadata fields (set by telemetry middleware)
-  const enriched = result as unknown as Record<string, unknown>;
 
   // _perf footer
-  const perf = enriched['_perf'] as PerfMeta | undefined;
-  if (perf) {
-    process.stderr.write(`  ${perf.ms}ms | ${perf.bytes}B | ~${perf.tokens} tokens\n`);
+  if (result._perf) {
+    process.stderr.write(`  ${result._perf.ms}ms | ${result._perf.bytes}B | ~${result._perf.tokens} tokens\n`);
   }
 
   // _eventHints advisory
-  const hints = enriched['_eventHints'] as EventHintsMeta | undefined;
-  if (hints && hints.missing && hints.missing.length > 0) {
-    process.stderr.write(`  Missing events for phase "${hints.phase}":\n`);
-    for (const item of hints.missing) {
+  if (result._eventHints && result._eventHints.missing && result._eventHints.missing.length > 0) {
+    process.stderr.write(`  Missing events for phase "${result._eventHints.phase}":\n`);
+    for (const item of result._eventHints.missing) {
       process.stderr.write(`    - ${item.eventType}: ${item.description}\n`);
     }
   }
@@ -170,10 +146,10 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
   }
 
   // _corrections notice
-  const corrections = enriched['_corrections'] as ReadonlyArray<CorrectionEntry> | undefined;
-  if (corrections && corrections.length > 0) {
-    for (const c of corrections) {
-      process.stderr.write(`  Auto-corrected: ${c.field} ${String(c.from)} -> ${String(c.to)}\n`);
+  if (result._corrections && result._corrections.applied.length > 0) {
+    process.stderr.write('\n  Auto-corrections applied:\n');
+    for (const c of result._corrections.applied) {
+      process.stderr.write(`    • ${c.param}: ${c.rule}\n`);
     }
   }
 }

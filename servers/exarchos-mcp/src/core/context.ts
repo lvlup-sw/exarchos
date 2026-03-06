@@ -3,6 +3,7 @@ import { SnapshotStore } from '../views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { loadConfig } from '../config/loader.js';
+import { registerCustomWorkflows } from '../config/register.js';
 
 // EventStore configuration — workflow modules require explicit injection
 import { configureWorkflowEventStore } from '../workflow/tools.js';
@@ -57,6 +58,11 @@ export async function initializeContext(
   const config = options?.projectRoot
     ? await loadConfig(options.projectRoot)
     : undefined;
+
+  // Register custom workflows from config
+  if (config && config.workflows) {
+    registerCustomWorkflows(config);
+  }
 
   return { stateDir, eventStore, enableTelemetry, config };
 }
