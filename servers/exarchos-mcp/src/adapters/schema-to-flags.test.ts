@@ -290,7 +290,8 @@ describe('validateRequiredBooleans', () => {
       mergeVerified: z.boolean(),
     });
 
-    const missing = validateRequiredBooleans({ 'merge-verified': true }, schema);
+    // Commander stores --merge-verified as camelCase key
+    const missing = validateRequiredBooleans({ mergeVerified: true }, schema);
     expect(missing).toEqual([]);
   });
 
@@ -299,8 +300,8 @@ describe('validateRequiredBooleans', () => {
       mergeVerified: z.boolean(),
     });
 
-    // --no-merge-verified sets merge-verified to false
-    const missing = validateRequiredBooleans({ 'merge-verified': false }, schema);
+    // --no-merge-verified sets mergeVerified to false in Commander opts
+    const missing = validateRequiredBooleans({ mergeVerified: false }, schema);
     expect(missing).toEqual([]);
   });
 
@@ -326,6 +327,46 @@ describe('validateRequiredBooleans', () => {
     // --no-merge-verified should work without triggering requiredOption error
     parent.parse(['node', 'exarchos', 'cleanup', '--no-merge-verified']);
     expect(sub.opts()['mergeVerified']).toBe(false);
+  });
+
+  it('ValidateRequiredBooleans_OmittedFromCLI_DetectedAsMissing', () => {
+    const schema = z.object({
+      action: z.string(),
+      mergeVerified: z.boolean(),
+    });
+
+    const parent = new Command('exarchos').exitOverride();
+    const sub = parent.command('cleanup');
+    addFlagsFromSchema(sub, schema);
+
+    // Parse with neither --merge-verified nor --no-merge-verified
+    parent.parse(['node', 'exarchos', 'cleanup']);
+    const opts = sub.opts();
+
+    // Commander defaults to undefined when both --flag and --no-flag are
+    // registered and neither is provided — validateRequiredBooleans catches this
+    expect(opts['mergeVerified']).toBeUndefined();
+    const missing = validateRequiredBooleans(opts, schema);
+    expect(missing).toEqual(['--merge-verified']);
+  });
+
+  it('ValidateRequiredBooleans_ProvidedViaCLI_PassesValidation', () => {
+    const schema = z.object({
+      action: z.string(),
+      mergeVerified: z.boolean(),
+    });
+
+    const parent = new Command('exarchos').exitOverride();
+    const sub = parent.command('cleanup');
+    addFlagsFromSchema(sub, schema);
+
+    // Commander stores --merge-verified as camelCase { mergeVerified: true }
+    parent.parse(['node', 'exarchos', 'cleanup', '--merge-verified']);
+    const opts = sub.opts();
+
+    expect(opts['mergeVerified']).toBe(true);
+    const missing = validateRequiredBooleans(opts, schema);
+    expect(missing).toEqual([]);
   });
 });
 

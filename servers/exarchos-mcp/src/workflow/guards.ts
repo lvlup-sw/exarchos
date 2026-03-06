@@ -16,6 +16,8 @@ export interface Guard {
   readonly id: string;
   readonly evaluate: (state: Record<string, unknown>) => GuardResult;
   readonly description: string;
+  /** True for guards defined in custom workflow configs (async shell execution). */
+  readonly custom?: boolean;
 }
 
 // ─── Guard Composition ──────────────────────────────────────────────────────

@@ -236,4 +236,44 @@ describe('handleSet_CustomGuardExecution', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('deploy');
   });
+
+  it('HandleSet_ExtendsBuiltIn_InheritedGuardsNotBlockedByFailClosed', async () => {
+    // Custom workflow extending "feature" inherits guarded transitions.
+    // Inherited built-in guards must not trigger the custom-guard fail-closed
+    // path — they should be evaluated synchronously by executeTransition.
+    const EXT_TYPE = 'extended-feature';
+    registerCustomWorkflows({
+      workflows: {
+        [EXT_TYPE]: {
+          extends: 'feature',
+          phases: [],
+          initialPhase: 'ideate',
+          transitions: [],
+        },
+      },
+    });
+
+    await handleInit({ featureId: 'ext-guard', workflowType: EXT_TYPE }, tmpDir);
+
+    // Set design artifact so the built-in guard passes
+    await handleSet(
+      { featureId: 'ext-guard', updates: { artifacts: { design: 'docs/d.md' } } },
+      tmpDir,
+    );
+
+    const result = await handleSet(
+      { featureId: 'ext-guard', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Should succeed — built-in design-artifact-exists guard runs inline
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+
+    // Cleanup
+    clearRegisteredGuards();
+    try { unextendWorkflowTypeEnum(EXT_TYPE); } catch { /* ignore */ }
+    try { unregisterWorkflowType(EXT_TYPE); } catch { /* ignore */ }
+  });
 });

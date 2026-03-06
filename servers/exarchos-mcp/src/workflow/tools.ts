@@ -552,8 +552,10 @@ export async function handleSet(
               },
             };
           }
-        } else if (!isBuiltInWorkflowType(state.workflowType)) {
-          // Fail closed: custom workflow guard not found in registry
+        } else if (pendingTransition.guard.custom) {
+          // Fail closed: custom guard not found in registry — only applies to
+          // guards explicitly defined in custom workflow configs (guard.custom
+          // flag), not inherited built-in guards from extended parent HSMs.
           return {
             success: false,
             error: {

@@ -183,7 +183,7 @@ export function validateRequiredBooleans(
   const missing: string[] = [];
 
   for (const field of fields) {
-    if (field.type === 'boolean' && field.required && opts[toKebab(field.name)] === undefined) {
+    if (field.type === 'boolean' && field.required && opts[field.name] === undefined) {
       missing.push(`--${toKebab(field.name)}`);
     }
   }

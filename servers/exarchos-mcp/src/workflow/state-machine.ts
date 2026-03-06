@@ -117,6 +117,7 @@ export type { WorkflowDefinition };
 function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
   return {
     id: guardId,
+    custom: true,
     description: guardDef.description ?? `Custom guard: ${guardId}`,
     evaluate: (_state: Record<string, unknown>) => {
       // DESIGN: Custom config guards use a two-layer execution model:
