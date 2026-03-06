@@ -93,7 +93,11 @@ export function printError(error: ToolResult['error']): void {
 
   if (error.validTargets && error.validTargets.length > 0) {
     const targets = error.validTargets.map(t =>
-      typeof t === 'string' ? t : String(t),
+      typeof t === 'string'
+        ? t
+        : t.guard
+          ? `${t.phase} (guard: ${t.guard.id})`
+          : t.phase,
     );
     process.stderr.write(`  Valid targets: ${targets.join(', ')}\n`);
   }
@@ -142,7 +146,7 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
   // _meta checkpoint
   const meta = result._meta as Record<string, unknown> | undefined;
   if (meta && meta['checkpointAdvised'] === true) {
-    process.stderr.write(`  Checkpoint advised — run: exarchos workflow checkpoint\n`);
+    process.stderr.write(`  Checkpoint advised — run: exarchos wf checkpoint\n`);
   }
 
   // _corrections notice

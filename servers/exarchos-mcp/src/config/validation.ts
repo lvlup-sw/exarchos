@@ -10,14 +10,14 @@ export const guardDefinitionSchema = z.object({
   command: z.string().min(1, 'Guard command must not be empty'),
   timeout: z.number().int().positive().optional(),
   description: z.string().optional(),
-});
+}).strict();
 
 export const transitionDefinitionSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
   event: z.string().min(1),
   guard: z.string().optional(),
-});
+}).strict();
 
 export const workflowDefinitionSchema = z.object({
   extends: z.string().optional(),
@@ -25,7 +25,7 @@ export const workflowDefinitionSchema = z.object({
   initialPhase: z.string().min(1),
   transitions: z.array(transitionDefinitionSchema),
   guards: z.record(z.string(), guardDefinitionSchema).optional(),
-}).superRefine((workflow, ctx) => {
+}).strict().superRefine((workflow, ctx) => {
   const phaseSet = new Set(workflow.phases);
 
   // initialPhase must be in phases
@@ -85,7 +85,7 @@ export const exarchosConfigSchema = z.object({
         }
       }
     }),
-});
+}).strict();
 
 // ─── Validation Function ───────────────────────────────────────────────────
 

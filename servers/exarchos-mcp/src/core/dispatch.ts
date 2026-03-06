@@ -63,10 +63,20 @@ export async function dispatch(
 
   const coreHandler = async (a: Record<string, unknown>) => handler(a, ctx.stateDir);
 
-  if (ctx.enableTelemetry) {
-    const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
-    return wrappedHandler(args);
-  }
+  try {
+    if (ctx.enableTelemetry) {
+      const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
+      return await wrappedHandler(args);
+    }
 
-  return coreHandler(args);
+    return await coreHandler(args);
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : 'Unhandled dispatch error',
+      },
+    };
+  }
 }

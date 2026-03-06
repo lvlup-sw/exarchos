@@ -127,6 +127,7 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
   const customTransitions: Transition[] = definition.transitions.map((t) => ({
     from: t.from,
     to: t.to,
+    ...(t.guard ? { guard: t.guard } : {}),
   }));
 
   // Merge: custom transitions override base transitions with same from+to

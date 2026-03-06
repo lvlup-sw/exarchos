@@ -1,5 +1,5 @@
-import { registerWorkflowType } from '../workflow/state-machine.js';
-import { extendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
+import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 // Re-export for consumers that imported from here
@@ -39,15 +39,38 @@ export function clearRegisteredGuards(): void {
 export function registerCustomWorkflows(config: ExarchosConfig): void {
   if (!config.workflows) return;
 
-  for (const [name, definition] of Object.entries(config.workflows)) {
-    registerWorkflowType(name, definition);
-    extendWorkflowTypeEnum(name);
+  const registeredWorkflows: string[] = [];
+  const extendedTypes: string[] = [];
+  const registeredGuardKeys: string[] = [];
 
-    // Register guards if present
-    if (definition.guards) {
-      for (const [guardId, guardDef] of Object.entries(definition.guards)) {
-        guardRegistry.set(`${name}:${guardId}`, guardDef);
+  try {
+    for (const [name, definition] of Object.entries(config.workflows)) {
+      registerWorkflowType(name, definition);
+      registeredWorkflows.push(name);
+
+      extendWorkflowTypeEnum(name);
+      extendedTypes.push(name);
+
+      // Register guards if present
+      if (definition.guards) {
+        for (const [guardId, guardDef] of Object.entries(definition.guards)) {
+          const key = `${name}:${guardId}`;
+          guardRegistry.set(key, guardDef);
+          registeredGuardKeys.push(key);
+        }
       }
     }
+  } catch (error) {
+    // Rollback: undo all registrations to prevent partial state
+    for (const key of registeredGuardKeys) {
+      guardRegistry.delete(key);
+    }
+    for (const name of extendedTypes) {
+      unextendWorkflowTypeEnum(name);
+    }
+    for (const name of registeredWorkflows) {
+      unregisterWorkflowType(name);
+    }
+    throw error;
   }
 }

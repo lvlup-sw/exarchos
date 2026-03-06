@@ -8,7 +8,7 @@ const TEST_WORKFLOW_NAME = 'test-pipeline';
 
 afterEach(() => {
   // Clean up any registered custom workflows
-  try { unregisterWorkflowType(TEST_WORKFLOW_NAME); } catch { /* ignore */ }
+  unregisterWorkflowType(TEST_WORKFLOW_NAME);
   unextendWorkflowTypeEnum(TEST_WORKFLOW_NAME);
   clearRegisteredGuards();
 });

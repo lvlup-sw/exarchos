@@ -41,10 +41,11 @@ export function buildCli(ctx: DispatchContext): Command {
       addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
 
       actionCmd.action(async (opts: Record<string, unknown>) => {
-        const args = { action: action.name, ...coerceFlags(opts, action.schema) };
+        const { json, ...flagOpts } = opts;
+        const args = { action: action.name, ...coerceFlags(flagOpts, action.schema) };
         const result = await dispatch(tool.name, args, ctx);
 
-        if (opts.json) {
+        if (json) {
           process.stdout.write(JSON.stringify(result) + '\n');
         } else {
           prettyPrint(result, action.cli?.format);

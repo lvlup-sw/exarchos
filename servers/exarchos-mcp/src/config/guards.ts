@@ -31,7 +31,7 @@ export function executeGuard(guard: GuardDefinition): Promise<GuardResult> {
     const child = exec(guard.command, { timeout }, (error, stdout, stderr) => {
       if (error) {
         // Check if it was killed due to timeout
-        if (child.killed || error.message.includes('TIMEOUT') || ('signal' in error && error.signal === 'SIGTERM')) {
+        if (child.killed) {
           resolve({ passed: false, error: 'timeout' });
           return;
         }

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { ExarchosConfig } from './define.js';
 import { validateConfig } from './validation.js';
 
@@ -40,7 +41,7 @@ export async function loadConfig(projectRoot: string): Promise<ExarchosConfig> {
   }
 
   // Dynamic import for ESM compatibility
-  const configModule: unknown = await import(configPath);
+  const configModule: unknown = await import(pathToFileURL(configPath).href);
 
   // Extract default export
   const rawConfig = extractDefaultExport(configModule);

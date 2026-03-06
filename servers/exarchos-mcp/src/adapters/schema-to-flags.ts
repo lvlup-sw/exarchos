@@ -143,6 +143,8 @@ export function addFlagsFromSchema(
       flagStr = alias
         ? `-${alias}, --${kebab} <${choicesStr}>`
         : `--${kebab} <${choicesStr}>`;
+    } else if (field.type === 'array') {
+      flagStr = alias ? `-${alias}, --${kebab} <json-or-csv>` : `--${kebab} <json-or-csv>`;
     } else {
       flagStr = alias ? `-${alias}, --${kebab} <value>` : `--${kebab} <value>`;
     }
@@ -186,6 +188,13 @@ export function coerceFlags(
         result[camelKey] = JSON.parse(value);
       } catch {
         result[camelKey] = value;
+      }
+    } else if (field && field.type === 'array' && typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        result[camelKey] = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        result[camelKey] = value.split(',').map((s) => s.trim()).filter(Boolean);
       }
     } else {
       result[camelKey] = value;

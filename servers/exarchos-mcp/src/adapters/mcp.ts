@@ -26,9 +26,20 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
 
     const toolName = tool.name;
 
-    // MCP handler: dispatch → formatResult
-    const mcpHandler = async (args: Record<string, unknown>) =>
-      formatResult(await dispatch(toolName, args, ctx));
+    // MCP handler: dispatch → formatResult (with error boundary)
+    const mcpHandler = async (args: Record<string, unknown>) => {
+      try {
+        return formatResult(await dispatch(toolName, args, ctx));
+      } catch (error) {
+        return formatResult({
+          success: false,
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: error instanceof Error ? error.message : 'Unhandled MCP dispatch error',
+          },
+        });
+      }
+    };
 
     // Use registerTool() so the strict ZodObject is passed as inputSchema
     // directly, preserving .strict() validation that rejects unrecognized keys.

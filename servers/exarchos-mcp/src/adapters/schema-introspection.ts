@@ -10,15 +10,15 @@ import { TOOL_REGISTRY } from '../registry.js';
  * @throws Error if the ref format is invalid or the tool/action is not found.
  */
 export function resolveSchemaRef(ref: string): Record<string, unknown> {
-  const dotIndex = ref.indexOf('.');
-  if (dotIndex === -1) {
+  const parts = ref.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw new Error(
       `Invalid schema ref format: "${ref}". Expected "<tool>.<action>" (e.g., "workflow.init")`,
     );
   }
 
-  const toolShort = ref.slice(0, dotIndex);
-  const actionName = ref.slice(dotIndex + 1);
+  const toolShort = parts[0];
+  const actionName = parts[1];
   const toolFullName = `exarchos_${toolShort}`;
 
   const tool = TOOL_REGISTRY.find((t) => t.name === toolFullName);

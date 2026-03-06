@@ -353,7 +353,7 @@ const eventActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     cli: {
-      examples: ['exarchos ev append --stream-id my-feature --type task.completed --data \'{"taskId":"t1"}\''],
+      examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
     },
   },
   {

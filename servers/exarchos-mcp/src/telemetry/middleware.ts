@@ -101,7 +101,12 @@ export function withTelemetry(
       const durationMs = Math.round(performance.now() - start);
 
       // Serialize ToolResult to compute response size/token estimate
-      const responseText = JSON.stringify(result);
+      let responseText: string;
+      try {
+        responseText = JSON.stringify(result);
+      } catch {
+        responseText = '{}';
+      }
       const responseBytes = Buffer.byteLength(responseText, 'utf-8');
       const tokenEstimate = Math.ceil(responseBytes / 4);
 
