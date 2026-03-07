@@ -1,6 +1,6 @@
 ---
 name: quality-review
-description: "Stage 2 code quality review (after spec-review passes). Triggers: 'quality review', 'check code quality', or /review stage 2. Checks SOLID, DRY, security, and test quality."
+description: "Stage 2 code quality review. Triggers: 'quality review', 'check code quality', or /review stage 2. Requires spec-review to have passed first. Checks SOLID, DRY, security, and test quality. Do NOT use for spec compliance — use spec-review instead."
 metadata:
   author: exarchos
   version: 1.0.0

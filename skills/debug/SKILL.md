@@ -1,6 +1,6 @@
 ---
 name: debug
-description: "Bug investigation and fix workflow. Triggers: 'debug', 'fix bug', 'investigate issue', or /debug. Hotfix track for quick fixes, thorough track for root cause analysis. Not for feature development or refactoring."
+description: "Bug investigation and fix workflow. Triggers: 'debug', 'fix bug', 'investigate issue', 'something is broken', or /debug. Hotfix track for quick fixes, thorough track for root cause analysis. Do NOT use for feature development or refactoring. Do NOT escalate to /ideate unless the fix requires architectural redesign."
 metadata:
   author: exarchos
   version: 1.0.0

@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Requires an existing design document — use /ideate first if none exists."
+description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0

@@ -1,6 +1,6 @@
 ---
 name: git-worktrees
-description: "Git worktree management for parallel agent team development. Triggers: 'create worktree', 'worktree setup', or during /delegate dispatch."
+description: "Git worktree management for parallel agent team development. Triggers: 'create worktree', 'worktree setup', or during /delegate dispatch. Do NOT use for branch creation without delegation context."
 metadata:
   author: exarchos
   version: 1.0.0

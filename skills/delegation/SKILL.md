@@ -1,6 +1,6 @@
 ---
 name: delegation
-description: "Dispatch implementation tasks to agent teammates in git worktrees. Triggers: 'delegate', 'dispatch tasks', 'assign work', or /delegate. Spawns teammates, creates worktrees, monitors progress. Supports --fixes flag."
+description: "Dispatch implementation tasks to agent teammates in git worktrees. Triggers: 'delegate', 'dispatch tasks', 'assign work', or /delegate. Spawns teammates, creates worktrees, monitors progress. Supports --fixes flag. Do NOT use for single-file changes or polish-track refactors."
 metadata:
   author: exarchos
   version: 2.0.0

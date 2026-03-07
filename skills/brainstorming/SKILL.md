@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "Collaborative design exploration for new features. Triggers: 'brainstorm', 'ideate', 'explore options', or /ideate. Presents 2-3 approaches with trade-offs, documents chosen approach. Requires no existing design document — use /plan if one exists."
+description: "Collaborative design exploration for new features and architecture decisions. Triggers: 'brainstorm', 'ideate', 'explore options', or /ideate. Presents 2-3 approaches with trade-offs, documents chosen approach. Do NOT use for implementation planning or code review. Requires no existing design document — use /plan if one exists."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -87,7 +87,7 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"` and the featureId.
+Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId.
 
 This creates a state file tracked by the MCP server.
 

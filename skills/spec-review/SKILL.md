@@ -1,6 +1,6 @@
 ---
 name: spec-review
-description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage."
+description: "Stage 1 spec compliance review. Triggers: /review stage 1. Verifies implementation matches design specification — functional completeness, TDD compliance, and test coverage. Do NOT use for code quality checks — use quality-review instead. Do NOT use for debugging."
 metadata:
   author: exarchos
   version: 1.0.0

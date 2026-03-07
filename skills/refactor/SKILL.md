@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: "Code improvement workflow with polish and overhaul tracks. Triggers: 'refactor', 'clean up', 'restructure', or /refactor. Phases: explore, brief, implement, validate. Existing code only — not for bugs (/debug) or new features (/ideate)."
+description: "Code improvement workflow with polish and overhaul tracks. Triggers: 'refactor', 'clean up', 'restructure', 'reorganize', or /refactor. Phases: explore, brief, implement, validate. Existing code only — Do NOT use for bug fixes (/debug) or new features (/ideate)."
 metadata:
   author: exarchos
   version: 1.0.0

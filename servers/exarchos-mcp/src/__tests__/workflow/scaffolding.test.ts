@@ -13,7 +13,7 @@ describe('Package scaffold', () => {
       const pkg = JSON.parse(raw);
 
       expect(pkg.name).toBe('@lvlup-sw/exarchos-mcp');
-      expect(pkg.version).toBe('2.4.0');
+      expect(pkg.version).toBe('2.4.1');
       expect(pkg.type).toBe('module');
       expect(pkg.main).toBe('dist/index.js');
     });
