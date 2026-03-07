@@ -1,0 +1,113 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ViewRegistry } from './registry.js';
+import type { ViewProjection } from './materializer.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
+
+// ─── Test Projection ────────────────────────────────────────────────────────
+
+interface CounterView {
+  count: number;
+}
+
+const counterProjection: ViewProjection<CounterView> = {
+  init: () => ({ count: 0 }),
+  apply: (view, _event) => ({ count: view.count + 1 }),
+};
+
+// ─── Test Event Factory ──────────────────────────────────────────────────────
+
+function makeEvent(sequence: number): WorkflowEvent {
+  return {
+    type: 'test.event',
+    data: {},
+    timestamp: new Date().toISOString(),
+    sequence,
+  };
+}
+
+describe('ViewRegistry', () => {
+  let registry: ViewRegistry;
+
+  beforeEach(() => {
+    registry = new ViewRegistry();
+  });
+
+  it('ViewRegistry_RegisterCustomView_MaterializesEvents', () => {
+    // Register a custom view
+    registry.registerCustomView('my-counter', counterProjection);
+
+    // Get the materializer and verify the projection is registered
+    const materializer = registry.getMaterializer();
+    expect(materializer.hasProjection('my-counter')).toBe(true);
+
+    // Materialize some events
+    const events = [makeEvent(1), makeEvent(2), makeEvent(3)];
+    const result = materializer.materialize<CounterView>('stream-1', 'my-counter', events);
+    expect(result.count).toBe(3);
+  });
+
+  it('ViewRegistry_BuiltInViewName_Throws', () => {
+    // All built-in view names from tools.ts should be protected
+    const builtInNames = [
+      'pipeline',
+      'tasks',
+      'workflow_status',
+      'stack_status',
+      'stack_place',
+      'telemetry',
+      'team_performance',
+      'delegation_timeline',
+      'code_quality',
+      'delegation_readiness',
+      'synthesis_readiness',
+      'shepherd_status',
+      'convergence',
+    ];
+
+    for (const name of builtInNames) {
+      expect(
+        () => registry.registerCustomView(name, counterProjection),
+        `Should throw for built-in view name: ${name}`,
+      ).toThrow(/built-in/i);
+    }
+  });
+
+  it('UnregisterCustomView_RemovesView', () => {
+    // Register and verify
+    registry.registerCustomView('temp-view', counterProjection);
+    expect(registry.isCustomView('temp-view')).toBe(true);
+
+    // Unregister and verify it's gone
+    registry.unregisterCustomView('temp-view');
+    expect(registry.isCustomView('temp-view')).toBe(false);
+  });
+
+  it('UnregisterCustomView_BuiltInName_Throws', () => {
+    expect(
+      () => registry.unregisterCustomView('pipeline'),
+    ).toThrow(/built-in|cannot unregister/i);
+  });
+
+  it('UnregisterCustomView_UnknownName_Throws', () => {
+    expect(
+      () => registry.unregisterCustomView('nonexistent'),
+    ).toThrow(/not registered|not found/i);
+  });
+
+  it('RegisterCustomView_DuplicateCustomName_Throws', () => {
+    registry.registerCustomView('my-view', counterProjection);
+    expect(
+      () => registry.registerCustomView('my-view', counterProjection),
+    ).toThrow(/already registered/i);
+  });
+
+  it('GetCustomViewNames_ReturnsOnlyCustom', () => {
+    registry.registerCustomView('view-a', counterProjection);
+    registry.registerCustomView('view-b', counterProjection);
+
+    const names = registry.getCustomViewNames();
+    expect(names).toContain('view-a');
+    expect(names).toContain('view-b');
+    expect(names).not.toContain('pipeline');
+  });
+});
