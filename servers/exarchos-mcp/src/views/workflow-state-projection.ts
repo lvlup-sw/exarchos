@@ -266,7 +266,6 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'team.task.completed':
       case 'team.task.failed':
       case 'team.disbanded':
-      case 'team.context.injected':
       case 'team.task.planned':
       case 'team.teammate.dispatched':
       case 'tool.invoked':

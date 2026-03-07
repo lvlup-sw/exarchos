@@ -280,6 +280,61 @@ export async function runSuite(
     results: allResults,
   };
 
+  // Emit eval.judge.calibrated per assertion type
+  if (eventStore && allResults.length > 0) {
+    for (const assertion of suite.assertions) {
+      // Gather per-assertion outcomes across all cases
+      let tp = 0;
+      let fp = 0;
+      let tn = 0;
+      let fn = 0;
+
+      for (const result of allResults) {
+        const ar = result.assertions.find((a) => a.name === assertion.name);
+        if (!ar || ar.skipped) continue;
+
+        // Gold standard: the case passed overall (expected matches output)
+        // Prediction: this specific assertion passed
+        const goldPositive = result.passed;
+        const predicted = ar.passed;
+
+        if (goldPositive && predicted) tp++;
+        else if (!goldPositive && predicted) fp++;
+        else if (!goldPositive && !predicted) tn++;
+        else fn++;
+      }
+
+      const total = tp + fp + tn + fn;
+      if (total === 0) continue;
+
+      const tpr = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+      const tnr = (tn + fp) > 0 ? tn / (tn + fp) : 0;
+      const accuracy = total > 0 ? (tp + tn) / total : 0;
+      const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+      const recall = tpr;
+      const f1 = (precision + recall) > 0
+        ? 2 * (precision * recall) / (precision + recall)
+        : 0;
+
+      const split = 'validation';
+
+      await eventStore.append(streamId, {
+        type: 'eval.judge.calibrated',
+        data: {
+          skill: suite.metadata.skill,
+          rubricName: assertion.name,
+          split,
+          tpr,
+          tnr,
+          accuracy,
+          f1,
+          goldStandardVersion: suite.metadata.version,
+          rubricVersion: suite.metadata.version,
+        },
+      });
+    }
+  }
+
   // Detect regressions by comparing with previous run
   const regressions = await detectRegressions(
     suite.metadata.skill,
