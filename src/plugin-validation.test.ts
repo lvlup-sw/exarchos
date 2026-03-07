@@ -14,7 +14,7 @@ describe('Core Plugin Structure', () => {
       const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
       expect(plugin.name).toBe('exarchos');
       expect(plugin.version).toBe(pkgVersion);
-      expect(plugin.author).toEqual({ name: 'Levelup Software' });
+      expect(plugin.author).toEqual({ name: 'LevelUp Software' });
       expect(plugin.commands).toBe('./commands/');
       expect(plugin.skills).toBe('./skills/');
       // hooks/hooks.json is auto-loaded by Claude Code — declaring it in plugin.json causes duplicates
