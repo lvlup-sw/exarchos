@@ -43,11 +43,12 @@ for tag in $tags; do
   echo "$notes"
 
   if [[ "$DRY_RUN" == false ]]; then
-    gh release create "$tag" \
-      --title "$tag" \
-      --notes "$notes" \
-      --target "$(git rev-list -1 "$tag")" \
-      --latest=false
+    gh api repos/{owner}/{repo}/releases \
+      -f tag_name="$tag" \
+      -f name="$tag" \
+      -f body="$notes" \
+      -f make_latest="false" \
+      --silent
     echo "Created release $tag"
   fi
 
@@ -57,7 +58,12 @@ done
 # Mark the highest version as latest
 latest_tag=$(echo "$tags" | tail -1)
 if [[ "$DRY_RUN" == false ]]; then
-  gh release edit "$latest_tag" --latest
+  # Get the release ID for the latest tag and mark it as latest
+  release_id=$(gh api "repos/{owner}/{repo}/releases/tags/$latest_tag" --jq '.id')
+  gh api "repos/{owner}/{repo}/releases/$release_id" \
+    -X PATCH \
+    -f make_latest="true" \
+    --silent
   echo ""
   echo "Marked $latest_tag as latest release"
 fi
