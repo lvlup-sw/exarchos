@@ -34,7 +34,7 @@ git log --oneline -5  # Confirm all task commits present
 
 ### Step 2: Submit Stacked PRs
 
-Follow `@rules/pr-descriptions.md` for concise format.
+Follow `@skills/synthesis/references/pr-descriptions.md` for concise format.
 
 Create PRs for each branch in the stack (bottom-up) and enable auto-merge:
 ```bash
