@@ -38,8 +38,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - Add direct-push completion path for debug hotfixes and tag universal transitions (#957, #958)
 
 ### Documentation
-- Humanize README copy and tighten marketing language
-- Replace community reference with Obra Superpowers competitive positioning
+- Refresh community-facing README references
 - Revise visual asset specs for GA release
 
 ## [2.3.7] - 2026-03-02
@@ -96,7 +95,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - Stale .seq cross-validation, manual evidence gate bypass, completed status alias (#939, #940, #941)
 
 ### Documentation
-- Marketplace positioning strategy — README restructure, metadata, marketing copy
+- README restructure, metadata refresh, and copy cleanup
 
 ## [2.2.1] - 2026-03-01
 

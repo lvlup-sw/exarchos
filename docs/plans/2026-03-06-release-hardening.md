@@ -16,9 +16,9 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 
 | Design Requirement | Task(s) | Key Requirements |
 |---|---|---|
-| DR-1: Sensitive Document Removal | Task 1 | Port 7 files to basileus, delete from exarchos |
+| DR-1: Sensitive Document Removal | Task 1 | Port 10 files to basileus, delete from exarchos |
 | DR-2: Basileus Reference Scrub | Task 2, Task 13 | Replace `.local` URLs, verify code refs intact, migrate issues |
-| DR-3: Design Document Audit | Task 3 | Scan 45 design docs for sensitive terms |
+| DR-3: Design Document Audit | Task 3 | Scan 44 design docs for sensitive terms |
 | DR-4: CI Governance Hardening | Task 6, Task 7 | Required status checks, CODEOWNERS |
 | DR-5: Community Infrastructure | Task 8, Task 9 | SECURITY.md, CONTRIBUTING.md, discussion templates |
 | DR-6: README Refresh | Task 4, Task 5 | Verify commands, update stale refs, add badges |
@@ -259,8 +259,9 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 
 3. [VERIFY] Acceptance checks:
    - `gh issue list --label "blocked:basileus"` returns empty
-   - `gh issue list --label "mvp:phase4"` returns empty
-   - `gh issue list --label "mvp:phase5"` returns empty
+   - `gh label list | grep "blocked:basileus"` returns empty
+   - `gh label list | grep "mvp:phase4"` returns empty
+   - `gh label list | grep "mvp:phase5"` returns empty
    - Transferred issues are visible in basileus repo
 
 **Dependencies:** None
@@ -280,11 +281,11 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 2. [EXECUTE] Document prepare_delegation "no tasks assigned" blocker:
    - Locate the `prepare_delegation` handler in the MCP server code
    - Determine what "no tasks assigned" actually checks (workflow state task assignment metadata?)
-   - Either fix the code to auto-resolve, or document the prerequisite in the delegation skill
+   - Improve the blocker message so it states the exact missing prerequisite and next action
 
 3. [VERIFY] Acceptance checks:
    - `plan-review` phase compactGuidance includes explicit `planReview.approved` field shape
-   - `prepare_delegation` either succeeds with tasks parameter or documents the prerequisite clearly
+   - `prepare_delegation` returns an actionable message that names the missing prerequisite when delegation cannot proceed
 
 **Dependencies:** None
 **Parallelizable:** Yes (Group B)
