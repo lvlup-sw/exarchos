@@ -9,7 +9,6 @@ import {
   TeamTaskCompletedData,
   TeamTaskFailedData,
   TeamDisbandedData,
-  TeamContextInjectedData,
   TeamTaskPlannedData,
   TeamTeammateDispatchedData,
   QualityRegressionData,
@@ -264,17 +263,6 @@ describe('Team Event Data Schemas', () => {
     });
   });
 
-  describe('TeamContextInjectedData', () => {
-    it('should parse valid payload successfully', () => {
-      const result = TeamContextInjectedData.safeParse({
-        phase: 'delegate',
-        toolsAvailable: 3,
-        historicalHints: ['hint'],
-      });
-      expect(result.success).toBe(true);
-    });
-  });
-
   describe('TeamTaskAssignedData', () => {
     it('should parse valid payload successfully', () => {
       const result = TeamTaskAssignedData.safeParse({
@@ -289,14 +277,13 @@ describe('Team Event Data Schemas', () => {
 });
 
 describe('EventTypes', () => {
-  it('should include all 8 team event types', () => {
+  it('should include all 7 team event types', () => {
     const teamEventTypes = [
       'team.spawned',
       'team.task.assigned',
       'team.task.completed',
       'team.task.failed',
       'team.disbanded',
-      'team.context.injected',
       'team.task.planned',
       'team.teammate.dispatched',
     ];
@@ -452,7 +439,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(59);
+    expect(EventTypes).toHaveLength(58);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -1671,5 +1658,21 @@ describe('ShepherdIterationData (updated)', () => {
       outcome: 'resolved',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── T8: team.context.injected removal ──────────────────────────────────────
+
+describe('EventTypes_DoesNotInclude_TeamContextInjected', () => {
+  it('EventTypes_DoesNotInclude_TeamContextInjected', () => {
+    expect(EventTypes).not.toContain('team.context.injected');
+  });
+
+  it('EVENT_EMISSION_REGISTRY_DoesNotInclude_TeamContextInjected', () => {
+    expect(EVENT_EMISSION_REGISTRY).not.toHaveProperty('team.context.injected');
+  });
+
+  it('EVENT_DATA_SCHEMAS_DoesNotInclude_TeamContextInjected', () => {
+    expect(EVENT_DATA_SCHEMAS).not.toHaveProperty('team.context.injected');
   });
 });

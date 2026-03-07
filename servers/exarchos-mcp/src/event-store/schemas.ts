@@ -34,7 +34,6 @@ export const EventTypes = [
   'team.task.completed',
   'team.task.failed',
   'team.disbanded',
-  'team.context.injected',
   'team.task.planned',
   'team.teammate.dispatched',
   'quality.regression',
@@ -98,6 +97,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'stack.position-filled': 'auto',
   'stack.restacked': 'auto',
   'stack.enqueued': 'auto',
+  'eval.judge.calibrated': 'auto',
 
   // model — must be emitted explicitly by the model via exarchos_event
   'team.spawned': 'model',
@@ -130,14 +130,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'benchmark.completed': 'hook',
 
   // planned — schema exists, not yet emitted in production
-  'team.context.injected': 'planned',
   'shepherd.started': 'planned',
   'shepherd.approval_requested': 'planned',
   'shepherd.completed': 'planned',
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
-  'eval.judge.calibrated': 'planned',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -427,13 +425,6 @@ export const TeamDisbandedData = z.object({
   tasksFailed: z.number().int(),
 });
 
-/** @planned — not yet emitted in production */
-export const TeamContextInjectedData = z.object({
-  phase: z.string(),
-  toolsAvailable: z.number().int(),
-  historicalHints: z.array(z.string()),
-});
-
 export const TeamTaskPlannedData = z.object({
   taskId: z.string(),
   title: z.string(),
@@ -692,7 +683,6 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'team.task.completed': TeamTaskCompletedData,
   'team.task.failed': TeamTaskFailedData,
   'team.disbanded': TeamDisbandedData,
-  'team.context.injected': TeamContextInjectedData,
   'team.task.planned': TeamTaskPlannedData,
   'team.teammate.dispatched': TeamTeammateDispatchedData,
 
@@ -769,7 +759,6 @@ export type TeamTaskAssigned = z.infer<typeof TeamTaskAssignedData>;
 export type TeamTaskCompleted = z.infer<typeof TeamTaskCompletedData>;
 export type TeamTaskFailed = z.infer<typeof TeamTaskFailedData>;
 export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
-export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
 export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
 export type QualityRegression = z.infer<typeof QualityRegressionData>;
@@ -831,7 +820,6 @@ export type EventDataMap = {
   'team.task.completed': TeamTaskCompleted;
   'team.task.failed': TeamTaskFailed;
   'team.disbanded': TeamDisbanded;
-  'team.context.injected': TeamContextInjected;
   'team.task.planned': TeamTaskPlanned;
   'team.teammate.dispatched': TeamTeammateDispatched;
   'quality.regression': QualityRegression;
