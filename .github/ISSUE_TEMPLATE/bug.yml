@@ -33,7 +33,7 @@ body:
       label: Area
       options:
         - Workflow commands (/ideate, /plan, etc.)
-        - Jules integration
+        - MCP server
         - Templates (CI/CD, Renovate, azd)
         - Rules (TDD, coding standards)
         - Other
