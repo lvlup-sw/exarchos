@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { z } from 'zod';
 import {
   buildCompositeSchema,
@@ -7,6 +7,10 @@ import {
   coercedPositiveInt,
   coercedNonnegativeInt,
   TOOL_REGISTRY,
+  registerCustomTool,
+  unregisterCustomTool,
+  getFullRegistry,
+  clearCustomTools,
 } from './registry.js';
 import type { ToolAction, CompositeTool } from './registry.js';
 
@@ -692,5 +696,138 @@ describe('CLI examples on common actions', () => {
   it('PipelineAction_ExamplesContainExpectedContent', () => {
     const action = findAction('exarchos_view', 'pipeline');
     expect(action!.cli!.examples).toContain('exarchos vw ls');
+  });
+});
+
+// ─── Dynamic Tool Registration Tests ─────────────────────────────────────────
+
+describe('Dynamic Tool Registration', () => {
+  const customTool: CompositeTool = {
+    name: 'exarchos_deploy',
+    description: 'Custom deployment tool',
+    actions: [
+      {
+        name: 'trigger',
+        description: 'Trigger a deployment',
+        schema: z.object({ target: z.string() }),
+        phases: new Set(['deploy']),
+        roles: new Set(['lead']),
+      },
+      {
+        name: 'status',
+        description: 'Get deployment status',
+        schema: z.object({ deployId: z.string().optional() }),
+        phases: new Set(['deploy']),
+        roles: new Set(['any']),
+      },
+    ],
+  };
+
+  afterEach(() => {
+    clearCustomTools();
+  });
+
+  it('RegisterCustomTool_AddsToRegistry', () => {
+    registerCustomTool(customTool);
+
+    const full = getFullRegistry();
+    const found = full.find((t) => t.name === 'exarchos_deploy');
+    expect(found).toBeDefined();
+    expect(found!.description).toBe('Custom deployment tool');
+    expect(found!.actions).toHaveLength(2);
+  });
+
+  it('RegisterCustomTool_BuiltInName_Throws', () => {
+    const builtInNames = [
+      'exarchos_workflow',
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+      'exarchos_sync',
+    ];
+
+    for (const name of builtInNames) {
+      const badTool: CompositeTool = {
+        name,
+        description: 'trying to override',
+        actions: [
+          {
+            name: 'a',
+            description: 'a',
+            schema: z.object({}),
+            phases: new Set(['ideate']),
+            roles: new Set(['any']),
+          },
+          {
+            name: 'b',
+            description: 'b',
+            schema: z.object({}),
+            phases: new Set(['ideate']),
+            roles: new Set(['any']),
+          },
+        ],
+      };
+      expect(
+        () => registerCustomTool(badTool),
+        `Should throw for built-in tool name: ${name}`,
+      ).toThrow(/built-in/i);
+    }
+  });
+
+  it('GetFullRegistry_ReturnsBuiltInPlusCustom', () => {
+    // Before registration
+    expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length);
+
+    // After registration
+    registerCustomTool(customTool);
+    expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length + 1);
+
+    // Built-ins are still there
+    const names = getFullRegistry().map((t) => t.name);
+    expect(names).toContain('exarchos_workflow');
+    expect(names).toContain('exarchos_deploy');
+  });
+
+  it('RegisterCustomTool_GeneratesValidSchema', () => {
+    registerCustomTool(customTool);
+
+    const full = getFullRegistry();
+    const tool = full.find((t) => t.name === 'exarchos_deploy')!;
+    const schema = buildRegistrationSchema(tool.actions);
+
+    // Should accept valid input
+    const result = schema.safeParse({ action: 'trigger', target: 'production' });
+    expect(result.success).toBe(true);
+
+    // Should reject invalid action
+    const invalid = schema.safeParse({ action: 'nonexistent' });
+    expect(invalid.success).toBe(false);
+  });
+
+  it('UnregisterCustomTool_RemovesTool', () => {
+    registerCustomTool(customTool);
+    expect(getFullRegistry().find((t) => t.name === 'exarchos_deploy')).toBeDefined();
+
+    unregisterCustomTool('exarchos_deploy');
+    expect(getFullRegistry().find((t) => t.name === 'exarchos_deploy')).toBeUndefined();
+  });
+
+  it('UnregisterCustomTool_BuiltInName_Throws', () => {
+    expect(
+      () => unregisterCustomTool('exarchos_workflow'),
+    ).toThrow(/built-in|cannot unregister/i);
+  });
+
+  it('UnregisterCustomTool_UnknownName_Throws', () => {
+    expect(
+      () => unregisterCustomTool('exarchos_nonexistent'),
+    ).toThrow(/not registered|not found/i);
+  });
+
+  it('RegisterCustomTool_DuplicateName_Throws', () => {
+    registerCustomTool(customTool);
+    expect(
+      () => registerCustomTool(customTool),
+    ).toThrow(/already registered/i);
   });
 });

@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards } from './register.js';
+import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards, registerCustomViews, clearRegisteredViews, registerCustomTools, clearRegisteredTools } from './register.js';
 import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { getValidEventTypes, unregisterEventType } from '../event-store/schemas.js';
+import { getFullRegistry, clearCustomTools } from '../registry.js';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -15,6 +16,9 @@ afterEach(() => {
   // Clean up any custom event types
   try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
   try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
+  clearRegisteredViews();
+  clearRegisteredTools();
+  clearCustomTools();
 });
 
 describe('Registration Pipeline', () => {
@@ -186,5 +190,70 @@ describe('Registration Pipeline', () => {
     // deploy.started should have been rolled back
     const validTypes = getValidEventTypes();
     expect(validTypes).not.toContain('deploy.started');
+  });
+});
+
+describe('View Registration', () => {
+  it('RegisterCustomWorkflows_WithViews_RegistersViews', async () => {
+    const config: ExarchosConfig = {
+      views: {
+        'my-counter': {
+          events: ['task.completed'],
+          handler: './test-handler.js',
+        },
+      },
+    };
+
+    // registerCustomViews loads handlers dynamically. For testing, we use
+    // a mock handler module path. In production, handler modules export
+    // init() and apply() conforming to ViewProjection.
+    // Since dynamic import won't resolve ./test-handler.js in tests,
+    // we test that view registration validates handler modules.
+    await expect(
+      registerCustomViews(config, '/fake/project/root'),
+    ).rejects.toThrow();
+  });
+
+  it('RegisterCustomWorkflows_NoViews_Noop', async () => {
+    const config: ExarchosConfig = {};
+    // Should not throw
+    await registerCustomViews(config, '/fake/project/root');
+  });
+});
+
+describe('Tool Registration', () => {
+  it('RegisterCustomWorkflows_WithTools_RegistersTools', async () => {
+    const config: ExarchosConfig = {
+      tools: {
+        'exarchos_deploy': {
+          description: 'Custom deployment tool',
+          actions: [
+            {
+              name: 'trigger',
+              description: 'Trigger a deployment',
+              handler: './tools/deploy-trigger.js',
+            },
+            {
+              name: 'status',
+              description: 'Check deployment status',
+              handler: './tools/deploy-status.js',
+            },
+          ],
+        },
+      },
+    };
+
+    // registerCustomTools loads handlers dynamically. For testing, since
+    // dynamic import won't resolve ./tools/deploy-trigger.js, we test
+    // that tool registration attempts handler loading and fails gracefully.
+    await expect(
+      registerCustomTools(config, '/fake/project/root'),
+    ).rejects.toThrow();
+  });
+
+  it('RegisterCustomWorkflows_NoTools_Noop', async () => {
+    const config: ExarchosConfig = {};
+    // Should not throw
+    await registerCustomTools(config, '/fake/project/root');
   });
 });

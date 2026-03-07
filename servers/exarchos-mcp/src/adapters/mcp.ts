@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from '../registry.js';
+import { getFullRegistry, buildRegistrationSchema, buildToolDescription } from '../registry.js';
 import { formatResult } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -20,7 +20,7 @@ const SERVER_VERSION = '1.1.0';
 export function createMcpServer(ctx: DispatchContext): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
-  for (const tool of TOOL_REGISTRY) {
+  for (const tool of getFullRegistry()) {
     const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool);
 

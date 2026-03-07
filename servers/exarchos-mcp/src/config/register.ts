@@ -1,6 +1,13 @@
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { z } from 'zod';
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { registerEventType, unregisterEventType } from '../event-store/schemas.js';
+import { ViewRegistry } from '../views/registry.js';
+import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler } from '../registry.js';
+import type { CompositeTool, ToolAction } from '../registry.js';
+import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 // Re-export for consumers that imported from here
@@ -123,4 +130,224 @@ export function registerCustomWorkflows(config: ExarchosConfig): void {
       `Failed to register custom workflows: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+// ─── View Registry ──────────────────────────────────────────────────────────
+
+const viewRegistry = new ViewRegistry();
+
+export function getViewRegistry(): ViewRegistry {
+  return viewRegistry;
+}
+
+/**
+ * Clear all registered custom views. Used for test cleanup.
+ */
+export function clearRegisteredViews(): void {
+  for (const name of viewRegistry.getCustomViewNames()) {
+    viewRegistry.unregisterCustomView(name);
+  }
+}
+
+/**
+ * Validates that a dynamically imported handler module conforms to
+ * the ViewProjection interface (exports `init()` and `apply()`).
+ */
+function validateViewHandler(mod: unknown, handlerPath: string): ViewProjection<unknown> {
+  const module = mod as Record<string, unknown>;
+
+  // Support both default export and named exports
+  const target = (
+    module.default && typeof module.default === 'object'
+      ? module.default as Record<string, unknown>
+      : module
+  );
+
+  if (typeof target.init !== 'function') {
+    throw new Error(
+      `View handler at "${handlerPath}" does not export an init() function`,
+    );
+  }
+  if (typeof target.apply !== 'function') {
+    throw new Error(
+      `View handler at "${handlerPath}" does not export an apply() function`,
+    );
+  }
+
+  return target as unknown as ViewProjection<unknown>;
+}
+
+/**
+ * Register all custom views from an ExarchosConfig.
+ * Loads handler modules via dynamic import, validates they conform to
+ * ViewProjection, and registers them with the view registry.
+ * Includes rollback on failure.
+ */
+export async function registerCustomViews(
+  config: ExarchosConfig,
+  projectRoot: string,
+): Promise<void> {
+  if (!config.views) return;
+
+  const registeredViewNames: string[] = [];
+
+  try {
+    for (const [name, definition] of Object.entries(config.views)) {
+      const handlerPath = path.resolve(projectRoot, definition.handler);
+      const handlerUrl = pathToFileURL(handlerPath).href;
+
+      let mod: unknown;
+      try {
+        mod = await import(handlerUrl);
+      } catch (err) {
+        throw new Error(
+          `Failed to load view handler for "${name}" at "${handlerPath}": ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
+      const projection = validateViewHandler(mod, handlerPath);
+      viewRegistry.registerCustomView(name, projection);
+      registeredViewNames.push(name);
+    }
+  } catch (error) {
+    // Rollback: unregister all views registered so far
+    for (const name of registeredViewNames) {
+      try {
+        viewRegistry.unregisterCustomView(name);
+      } catch {
+        // Ignore rollback errors
+      }
+    }
+    throw new Error(
+      `Failed to register custom views: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+// ─── Tool Registry (Config-Driven) ──────────────────────────────────────────
+
+const registeredToolNames: string[] = [];
+
+/**
+ * Clear all registered custom tools from config. Used for test cleanup.
+ */
+export function clearRegisteredTools(): void {
+  for (const name of registeredToolNames) {
+    try {
+      unregisterCustomTool(name);
+    } catch {
+      // Ignore if already unregistered
+    }
+  }
+  registeredToolNames.length = 0;
+}
+
+/**
+ * Validates that a dynamically imported tool action handler module exports
+ * a `handle()` function. Returns the handler function.
+ */
+function validateToolActionHandler(
+  mod: unknown,
+  handlerPath: string,
+): (args: Record<string, unknown>) => Promise<unknown> {
+  const module = mod as Record<string, unknown>;
+
+  // Support both default export and named exports
+  const target = (
+    module.default && typeof module.default === 'object'
+      ? module.default as Record<string, unknown>
+      : module
+  );
+
+  // Support default export as function or object with handle()
+  if (typeof module.default === 'function') {
+    return module.default as (args: Record<string, unknown>) => Promise<unknown>;
+  }
+
+  if (typeof target.handle !== 'function') {
+    throw new Error(
+      `Tool action handler at "${handlerPath}" does not export a handle() function`,
+    );
+  }
+
+  return target.handle as (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+/**
+ * Register all custom tools from an ExarchosConfig.
+ * Loads handler modules via dynamic import, builds CompositeTool objects,
+ * and registers them via registerCustomTool().
+ * Includes rollback on failure.
+ */
+export async function registerCustomTools(
+  config: ExarchosConfig,
+  projectRoot: string,
+): Promise<void> {
+  if (!config.tools) return;
+
+  const registeredNames: string[] = [];
+
+  try {
+    for (const [toolName, toolDef] of Object.entries(config.tools)) {
+      const actions: ToolAction[] = [];
+
+      for (const actionDef of toolDef.actions) {
+        const handlerPath = path.resolve(projectRoot, actionDef.handler);
+        const handlerUrl = pathToFileURL(handlerPath).href;
+
+        let mod: unknown;
+        try {
+          mod = await import(handlerUrl);
+        } catch (err) {
+          throw new Error(
+            `Failed to load tool action handler for "${toolName}.${actionDef.name}" at "${handlerPath}": ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+
+        // Validate the handler module exports handle() and store the handler
+        const handler = validateToolActionHandler(mod, handlerPath);
+        setCustomToolActionHandler(toolName, actionDef.name, handler);
+
+        // Build a ToolAction with a permissive schema (custom tools don't
+        // declare Zod schemas in config — they accept any args and validate
+        // internally via their handler). Use passthrough() so user-provided
+        // parameters flow through the strict composite schema.
+        actions.push({
+          name: actionDef.name,
+          description: actionDef.description,
+          schema: z.object({}).passthrough(),
+          phases: new Set<string>(),
+          roles: new Set<string>(['any']),
+        });
+      }
+
+      const compositeTool: CompositeTool = {
+        name: toolName,
+        description: toolDef.description,
+        actions,
+      };
+
+      registerCustomTool(compositeTool);
+      registeredNames.push(toolName);
+    }
+  } catch (error) {
+    // Rollback: unregister all tools registered so far
+    for (const name of registeredNames) {
+      try {
+        unregisterCustomTool(name);
+      } catch {
+        // Ignore rollback errors
+      }
+    }
+    throw new Error(
+      `Failed to register custom tools: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  // Track for cleanup
+  registeredToolNames.push(...registeredNames);
 }
