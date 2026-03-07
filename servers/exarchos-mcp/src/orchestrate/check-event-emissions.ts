@@ -20,7 +20,7 @@ import { emitGateEvent } from './gate-utils.js';
 // ─── Phase-to-Expected-Events Registry ──────────────────────────────────────
 
 export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {
-  'delegate': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched'],
+  'delegate': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'task.progressed'],
   'overhaul-delegate': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched'],
   'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
   'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
@@ -49,6 +49,7 @@ const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'review.routed': 'Emit review.routed via exarchos_event after routing PRs to review',
   'stack.submitted': 'Emit stack.submitted via exarchos_event after submitting the PR stack',
   'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
+  'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',
 };
 
 // ─── Types ─────────────────────────────────────────────────────────────────
