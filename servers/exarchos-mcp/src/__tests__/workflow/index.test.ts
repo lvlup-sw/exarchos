@@ -347,7 +347,7 @@ describe('MCP Server Entry Point', () => {
 
     it('should export SERVER_VERSION', async () => {
       const { SERVER_VERSION } = await import('../../index.js');
-      expect(SERVER_VERSION).toBe('1.1.0');
+      expect(SERVER_VERSION).toBe('2.4.0');
     });
   });
 });

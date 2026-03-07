@@ -32,7 +32,7 @@ import type { DispatchContext } from './core/dispatch.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '2.4.0';
 
 // ─── Server Options ─────────────────────────────────────────────────────────
 
@@ -227,23 +227,11 @@ async function main() {
     projectRoot: process.cwd(),
   });
 
-  // Route between MCP mode (piped stdin) and CLI mode (terminal with args)
-  const args = process.argv.slice(2);
-
-  if (args.length > 0) {
-    // CLI mode — explicit commands take priority (works in piped/non-interactive shells too)
-    const program = buildCli(ctx);
-    await program.parseAsync(process.argv);
-  } else if (!process.stdin.isTTY) {
-    // Piped input with no args — MCP server mode (existing behavior, e.g. Claude Code)
-    const server = createMcpServer(ctx);
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-  } else {
-    // No args, TTY — show help
-    const program = buildCli(ctx);
-    program.outputHelp();
-  }
+  // Unified entry point — all routing via Commander CLI.
+  // `exarchos mcp` starts the MCP server; other commands are CLI mode.
+  // No args shows help.
+  const program = buildCli(ctx);
+  await program.parseAsync(process.argv);
 }
 
 // Only run main when executed directly (not when imported for testing)

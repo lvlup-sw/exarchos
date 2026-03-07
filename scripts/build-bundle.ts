@@ -1,14 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Build script for the Exarchos MCP server bundle.
+ * Unified build script for the Exarchos bundle.
  *
- * 1. Bundles with --external for better-sqlite3 and its transitive deps
- *    (bindings, file-uri-to-path) so the native binary isn't inlined
- * 2. Copies the real packages to dist/node_modules/ so Node resolution
- *    finds them at runtime
+ * Produces a single `dist/exarchos.js` that serves as both CLI and MCP server:
+ *   - `exarchos mcp`          → MCP server (stdio)
+ *   - `exarchos workflow ...`  → CLI mode
  *
- * The native .node binary (~2MB) is platform-specific to the build machine.
- * Mismatched platforms fall back to JSONL-only mode via existing graceful fallback.
+ * Uses --external for better-sqlite3 and its transitive deps so the native
+ * binary isn't inlined, then copies real packages to dist/node_modules/.
  */
 import { $ } from 'bun';
 import { cpSync, mkdirSync } from 'node:fs';
@@ -20,7 +19,7 @@ const mcpServerDir = resolve('servers/exarchos-mcp');
 const require = createRequire(join(mcpServerDir, 'package.json'));
 
 // Step 1: Bundle with externals
-await $`bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos-mcp.js --target node --minify --external better-sqlite3 --external bindings --external file-uri-to-path`;
+await $`bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos.js --target node --minify --external better-sqlite3 --external bindings --external file-uri-to-path`;
 
 // Step 2: Copy real packages to dist/node_modules/
 const destModules = join('dist', 'node_modules');

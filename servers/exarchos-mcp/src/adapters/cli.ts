@@ -23,7 +23,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 export function buildCli(ctx: DispatchContext): Command {
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
-    .version('1.1.0');
+    .version('2.4.0');
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
