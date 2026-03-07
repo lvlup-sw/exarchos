@@ -236,7 +236,7 @@ When using Agent Teams mode, the delegation saga emits events at each lifecycle 
 **Hook-emitted events (automatic via TeammateIdle):**
 - `team.task.completed` -- After quality gates pass (includes taskId, teammateName, durationMs, filesChanged, testsPassed). Hook emits only; does NOT mutate workflow state.
 - `team.task.failed` -- After quality gates fail (includes taskId, teammateName, failureReason, gateResults). Hook emits only.
-- `team.context.injected` -- From SubagentStart hook (includes phase, toolsAvailable)
+
 
 **Superseded events:**
 - `team.task.assigned` -- Superseded by the combination of `team.task.planned` (Step 2) + `team.teammate.dispatched` (Step 3). Existing event streams may still contain `team.task.assigned` events; CQRS views handle both old and new types during the transition period.

@@ -316,7 +316,7 @@ export async function runSuite(
         ? 2 * (precision * recall) / (precision + recall)
         : 0;
 
-      const split = options?.layer ?? 'validation';
+      const split = 'validation';
 
       await eventStore.append(streamId, {
         type: 'eval.judge.calibrated',
