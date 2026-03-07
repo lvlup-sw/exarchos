@@ -1,5 +1,5 @@
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { TOOL_REGISTRY } from '../registry.js';
+import { getFullRegistry } from '../registry.js';
 
 /**
  * Resolves a schema reference (e.g., "workflow.init") to its JSON Schema representation.
@@ -21,10 +21,10 @@ export function resolveSchemaRef(ref: string): Record<string, unknown> {
   const actionName = parts[1];
   const toolFullName = `exarchos_${toolShort}`;
 
-  const tool = TOOL_REGISTRY.find((t) => t.name === toolFullName);
+  const tool = getFullRegistry().find((t) => t.name === toolFullName);
   if (!tool) {
     throw new Error(
-      `Tool "${toolFullName}" not found in registry. Available: ${TOOL_REGISTRY.map((t) => t.name).join(', ')}`,
+      `Tool "${toolFullName}" not found in registry. Available: ${getFullRegistry().map((t) => t.name).join(', ')}`,
     );
   }
 
@@ -46,7 +46,7 @@ export function listSchemas(): Array<{
   tool: string;
   actions: Array<{ name: string; description: string }>;
 }> {
-  return TOOL_REGISTRY.map((tool) => ({
+  return getFullRegistry().map((tool) => ({
     tool: tool.name,
     actions: tool.actions.map((action) => ({
       name: action.name,

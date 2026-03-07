@@ -837,3 +837,65 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     cli: { alias: 'sy' },
   },
 ];
+
+// ─── Built-in Tool Names ────────────────────────────────────────────────────
+
+const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set(
+  TOOL_REGISTRY.map((t) => t.name),
+);
+
+// ─── Dynamic Tool Registration ──────────────────────────────────────────────
+
+const customTools: CompositeTool[] = [];
+
+/**
+ * Register a custom composite tool. Throws if the name collides with a
+ * built-in tool or an already-registered custom tool.
+ */
+export function registerCustomTool(tool: CompositeTool): void {
+  if (BUILTIN_TOOL_NAMES.has(tool.name)) {
+    throw new Error(
+      `Cannot register custom tool "${tool.name}": collides with built-in tool name`,
+    );
+  }
+  if (customTools.some((t) => t.name === tool.name)) {
+    throw new Error(
+      `Cannot register custom tool "${tool.name}": already registered as a custom tool`,
+    );
+  }
+  customTools.push(tool);
+}
+
+/**
+ * Unregister a custom composite tool by name. Throws if the name is a
+ * built-in tool or not registered as a custom tool.
+ */
+export function unregisterCustomTool(name: string): void {
+  if (BUILTIN_TOOL_NAMES.has(name)) {
+    throw new Error(
+      `Cannot unregister built-in tool "${name}"`,
+    );
+  }
+  const index = customTools.findIndex((t) => t.name === name);
+  if (index === -1) {
+    throw new Error(
+      `Cannot unregister tool "${name}": not registered as a custom tool`,
+    );
+  }
+  customTools.splice(index, 1);
+}
+
+/**
+ * Returns the full registry: built-in TOOL_REGISTRY + custom tools.
+ */
+export function getFullRegistry(): readonly CompositeTool[] {
+  if (customTools.length === 0) return TOOL_REGISTRY;
+  return [...TOOL_REGISTRY, ...customTools];
+}
+
+/**
+ * Clear all registered custom tools. Used for test cleanup.
+ */
+export function clearCustomTools(): void {
+  customTools.length = 0;
+}
