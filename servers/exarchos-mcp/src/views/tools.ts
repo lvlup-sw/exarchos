@@ -317,32 +317,38 @@ export async function handleViewTasks(
 // ─── View Pipeline Handler ─────────────────────────────────────────────────
 
 export async function handleViewPipeline(
-  args: { limit?: number; offset?: number },
+  args: { limit?: number; offset?: number; includeCompleted?: boolean },
   stateDir: string,
 ): Promise<ToolResult> {
+  const TERMINAL_PHASES = ['completed', 'cancelled'];
   try {
     const store = getOrCreateEventStore(stateDir);
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Discover all streams and paginate IDs before materialization
+    // Materialize all streams to get phase info for filtering
     const streamIds = await discoverStreams(stateDir, store);
-    const total = streamIds.length;
-    const start = args.offset ?? 0;
-    const end = args.limit !== undefined ? start + args.limit : undefined;
-    const paginatedIds = streamIds.slice(start, end);
+    const allWorkflows: PipelineViewState[] = [];
 
-    // Only materialize the paginated subset
-    const workflows: PipelineViewState[] = [];
-
-    for (const streamId of paginatedIds) {
+    for (const streamId of streamIds) {
       const events = await queryDeltaEvents(store, materializer, streamId, PIPELINE_VIEW);
       const view = materializer.materialize<PipelineViewState>(
         streamId,
         PIPELINE_VIEW,
         events,
       );
-      workflows.push(view);
+      allWorkflows.push(view);
     }
+
+    // Filter out terminal-state workflows unless explicitly requested
+    const filtered = args.includeCompleted
+      ? allWorkflows
+      : allWorkflows.filter((w) => !TERMINAL_PHASES.includes(w.phase));
+
+    // Paginate the filtered results
+    const total = filtered.length;
+    const start = args.offset ?? 0;
+    const end = args.limit !== undefined ? start + args.limit : undefined;
+    const workflows = filtered.slice(start, end);
 
     return { success: true, data: { workflows, total } };
   } catch (err) {
@@ -948,6 +954,7 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
     {
       limit: z.number().int().positive().optional(),
       offset: z.number().int().nonnegative().optional(),
+      includeCompleted: z.boolean().optional(),
     },
     async (args) => formatResult(await handleViewPipeline(args, stateDir)),
   );

@@ -624,6 +624,65 @@ describe('handleViewPipeline', () => {
     expect(result.error!.code).toBe('VIEW_ERROR');
     expect(result.error!.message).toBeTruthy();
   });
+
+  it('handleViewPipeline_ExcludesTerminalPhases_ByDefault', async () => {
+    // Arrange: 3 workflows — one active, one completed, one cancelled
+    await store.append('wf-active', {
+      type: 'workflow.started',
+      data: { featureId: 'active-feat', workflowType: 'feature' },
+    });
+    await store.append('wf-done', {
+      type: 'workflow.started',
+      data: { featureId: 'done-feat', workflowType: 'feature' },
+    });
+    await store.append('wf-done', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'completed' },
+    });
+    await store.append('wf-cancelled', {
+      type: 'workflow.started',
+      data: { featureId: 'cancelled-feat', workflowType: 'debug' },
+    });
+    await store.append('wf-cancelled', {
+      type: 'workflow.transition',
+      data: { from: 'investigate', to: 'cancelled' },
+    });
+
+    // Act: default (no includeCompleted)
+    const result = await handleViewPipeline({}, tempDir);
+
+    // Assert: only the active workflow is returned
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
+    expect(data.total).toBe(1);
+    expect(data.workflows).toHaveLength(1);
+    expect(data.workflows[0].featureId).toBe('active-feat');
+  });
+
+  it('handleViewPipeline_IncludesTerminalPhases_WhenRequested', async () => {
+    // Arrange: 2 workflows — one active, one completed
+    await store.append('wf-inc-active', {
+      type: 'workflow.started',
+      data: { featureId: 'inc-active', workflowType: 'feature' },
+    });
+    await store.append('wf-inc-done', {
+      type: 'workflow.started',
+      data: { featureId: 'inc-done', workflowType: 'feature' },
+    });
+    await store.append('wf-inc-done', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'completed' },
+    });
+
+    // Act: includeCompleted=true
+    const result = await handleViewPipeline({ includeCompleted: true }, tempDir);
+
+    // Assert: both workflows returned
+    expect(result.success).toBe(true);
+    const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
+    expect(data.total).toBe(2);
+    expect(data.workflows).toHaveLength(2);
+  });
 });
 
 // ─── B2: Singleton ViewMaterializer Cache ──────────────────────────────────

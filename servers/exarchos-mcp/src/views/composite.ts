@@ -39,7 +39,7 @@ export async function handleView(
   switch (action) {
     case 'pipeline':
       return handleViewPipeline(
-        rest as { limit?: number; offset?: number },
+        rest as { limit?: number; offset?: number; includeCompleted?: boolean },
         stateDir,
       );
 

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 580" width="720">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" width="720">
   <title>Exarchos Architecture</title>
-  <desc>Event-sourced SDLC workflows for Claude Code. HSM state machine enforces phase transitions. Agent teammates execute in isolated git worktrees. The verification flywheel — evals, benchmarks, quality hints, refinement signals — continuously improves output quality.</desc>
+  <desc>Event-sourced SDLC workflows for Claude Code. HSM state machine enforces phase transitions. Agent teammates execute in isolated git worktrees.</desc>
 
   <defs>
     <!-- Subtle grain texture -->
@@ -13,17 +13,9 @@
       </feComponentTransfer>
       <feBlend in="SourceGraphic" in2="grain"/>
     </filter>
-    <!-- Glow for active elements -->
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
     <!-- Arrow marker -->
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
-    </marker>
-    <marker id="arr-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
     </marker>
   </defs>
 
@@ -35,9 +27,6 @@
     .sub { fill: #9ca3af; font-size: 9px }
     .dim { fill: #6b7280; font-size: 9px }
     .tiny { fill: #6b7280; font-size: 8px }
-    .accent { fill: #22d3ee; font-size: 9px; font-weight: 600 }
-    .ok { fill: #10B981; font-size: 9px; font-weight: 600 }
-    .warn { fill: #f59e0b; font-size: 9px; font-weight: 600 }
     .box { fill: #111827; stroke: #1e293b; stroke-width: 1.5 }
     .box-hi { fill: #0f172a; stroke: #334155; stroke-width: 1.5 }
 
@@ -78,10 +67,6 @@
     @keyframes fill-bar { 0%,35% { transform: scaleX(0) } 58% { transform: scaleX(1) } 100% { transform: scaleX(1) } }
     .bar-fill { transform-box: fill-box; transform-origin: left center; animation: fill-bar 16s ease-in-out infinite }
 
-    /* Flywheel rotation */
-    @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
-    .fw-spin { transform-origin: 600px 290px; animation: spin 24s linear infinite }
-
     /* Gate pulse */
     @keyframes gate-pulse {
       0%,75%  { fill: #1e293b }
@@ -100,26 +85,15 @@
     }
     .mcp-border { animation: mcp-glow 16s ease-in-out infinite }
 
-    /* Flywheel segment highlights */
-    @keyframes fw-seg {
-      0%,20%  { opacity: 0.4 }
-      25%     { opacity: 1 }
-      45%     { opacity: 1 }
-      50%,100%{ opacity: 0.4 }
-    }
-    .fw1 { animation: fw-seg 8s ease-in-out infinite }
-    .fw2 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 2s }
-    .fw3 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 4s }
-    .fw4 { animation: fw-seg 8s ease-in-out infinite; animation-delay: 6s }
   </style>
 
   <!-- Background -->
-  <rect width="720" height="580" fill="#0a0a14" rx="8"/>
-  <rect width="720" height="580" fill="#0a0a14" rx="8" filter="url(#grain)"/>
+  <rect width="720" height="520" fill="#0a0a14" rx="8"/>
+  <rect width="720" height="520" fill="#0a0a14" rx="8" filter="url(#grain)"/>
 
   <!-- ═══════════════ WORKFLOW PIPELINE ═══════════════ -->
-  <text class="h1" x="24" y="30">WORKFLOW PIPELINE</text>
-  <line x1="24" y1="38" x2="200" y2="38" stroke="#22d3ee" stroke-width="1" opacity="0.4"/>
+  <text class="h1" x="24" y="30">FEATURE WORKFLOW PIPELINE</text>
+  <line x1="24" y1="38" x2="248" y2="38" stroke="#22d3ee" stroke-width="1" opacity="0.4"/>
 
   <!-- Phase boxes -->
   <g transform="translate(24, 48)">
@@ -267,81 +241,6 @@
     <text class="dim" x="394" y="396" text-anchor="middle">Task 3</text>
   </g>
 
-  <!-- ═══════════════ VERIFICATION FLYWHEEL ═══════════════ -->
-  <text class="h1" x="500" y="138">VERIFICATION</text>
-  <text class="h1" x="500" y="154">FLYWHEEL</text>
-  <line x1="500" y1="160" x2="630" y2="160" stroke="#22d3ee" stroke-width="1" opacity="0.3"/>
-
-  <!-- Flywheel ring (static track) -->
-  <circle cx="600" cy="290" r="72" fill="none" stroke="#1e293b" stroke-width="14" opacity="0.5"/>
-
-  <!-- Flywheel rotating indicator -->
-  <g class="fw-spin">
-    <circle cx="600" cy="218" r="4" fill="#22d3ee" opacity="0.7"/>
-  </g>
-
-  <!-- Flywheel segments (4 quadrants) -->
-  <!-- Top: Eval Suite -->
-  <g class="fw1">
-    <text class="accent" x="600" y="200" text-anchor="middle">EVAL SUITE</text>
-    <text class="tiny" x="600" y="210" text-anchor="middle">8 suites · 100+ cases</text>
-  </g>
-
-  <!-- Right: Quality Hints -->
-  <g class="fw2">
-    <text class="accent" x="682" y="278" text-anchor="middle">QUALITY</text>
-    <text class="accent" x="682" y="290" text-anchor="middle">HINTS</text>
-    <text class="tiny" x="682" y="302" text-anchor="middle">perf · gates</text>
-  </g>
-
-  <!-- Bottom: Refinement -->
-  <g class="fw3">
-    <text class="accent" x="600" y="378" text-anchor="middle">REFINEMENT</text>
-    <text class="tiny" x="600" y="388" text-anchor="middle">calibrated signals</text>
-  </g>
-
-  <!-- Left: Benchmarks -->
-  <g class="fw4">
-    <text class="accent" x="518" y="274" text-anchor="middle">BENCH</text>
-    <text class="tiny" x="518" y="284" text-anchor="middle">latency</text>
-    <text class="tiny" x="518" y="294" text-anchor="middle">tokens</text>
-    <text class="tiny" x="518" y="304" text-anchor="middle">memory</text>
-  </g>
-
-  <!-- Flywheel cycle arrows (curved) -->
-  <path d="M 630 222 A 72 72 0 0 1 668 258" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
-  <path d="M 668 322 A 72 72 0 0 1 630 358" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
-  <path d="M 570 358 A 72 72 0 0 1 532 322" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
-  <path d="M 532 258 A 72 72 0 0 1 570 222" fill="none" stroke="#22d3ee" stroke-width="1" opacity="0.5" marker-end="url(#arr-cyan)"/>
-
-  <!-- Center of flywheel -->
-  <circle cx="600" cy="290" r="28" fill="#0f172a" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
-  <text class="h3" x="600" y="286" text-anchor="middle" fill="#22d3ee">CODE</text>
-  <text class="h3" x="600" y="298" text-anchor="middle" fill="#22d3ee">QUALITY</text>
-
-  <!-- Connection: MCP → Flywheel -->
-  <path d="M 464 174 L 526 240" class="conn" stroke="#22d3ee" opacity="0.3"/>
-
-  <!-- ═══════════════ CREDIBILITY METRICS ═══════════════ -->
-  <rect x="490" y="406" width="214" height="130" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
-  <text class="h3" x="510" y="424">VERIFIED BY</text>
-  <line x1="510" y1="430" x2="620" y2="430" stroke="#22d3ee" stroke-width="0.5" opacity="0.3"/>
-
-  <text class="ok" x="510" y="448">&#x2713;</text>
-  <text class="sub" x="524" y="448">8 eval suites, 100+ test cases</text>
-
-  <text class="ok" x="510" y="466">&#x2713;</text>
-  <text class="sub" x="524" y="466">Performance benchmarks (P50/P95)</text>
-
-  <text class="ok" x="510" y="484">&#x2713;</text>
-  <text class="sub" x="524" y="484">Token economy tests</text>
-
-  <text class="ok" x="510" y="502">&#x2713;</text>
-  <text class="sub" x="524" y="502">Property-based testing</text>
-
-  <text class="ok" x="510" y="520">&#x2713;</text>
-  <text class="sub" x="524" y="520">LLM judge calibration (TPR/TNR)</text>
-
   <!-- ═══════════════ TOKEN EFFICIENCY CALLOUT ═══════════════ -->
   <rect x="24" y="430" width="210" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
   <text class="h3" x="44" y="452">TOKEN ECONOMY</text>
@@ -355,7 +254,7 @@
   <text class="dim" x="268" y="480">restore in ~2-3k tokens</text>
 
   <!-- ═══════════════ LEGEND ═══════════════ -->
-  <g transform="translate(24, 556)">
+  <g transform="translate(24, 500)">
     <rect x="0" y="0" width="8" height="8" rx="1" fill="#60a5fa"/>
     <text class="dim" x="14" y="8">task</text>
 
@@ -367,11 +266,5 @@
 
     <circle cx="180" cy="4" r="3.5" fill="#f59e0b"/>
     <text class="dim" x="190" y="8">human checkpoint</text>
-
-    <circle cx="290" cy="4" r="3.5" fill="#22d3ee"/>
-    <text class="dim" x="300" y="8">flywheel</text>
-
-    <rect x="354" y="0" width="8" height="8" rx="1" fill="#111827" stroke="#22d3ee" stroke-width="1"/>
-    <text class="dim" x="368" y="8">verified</text>
   </g>
 </svg>

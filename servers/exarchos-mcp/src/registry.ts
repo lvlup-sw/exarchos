@@ -648,10 +648,11 @@ const orchestrateActions: readonly ToolAction[] = [
 const viewActions: readonly ToolAction[] = [
   {
     name: 'pipeline',
-    description: 'Aggregated view of all workflows with stack positions',
+    description: 'Aggregated view of active workflows with stack positions (excludes completed/cancelled unless includeCompleted=true)',
     schema: z.object({
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
+      includeCompleted: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

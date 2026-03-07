@@ -840,8 +840,31 @@ export async function reconcileFromEvents(
     }
   }
 
-  // Write updated state with CAS guard (Fix 2)
-  await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
+  // Write updated state with CAS guard, retrying on version conflict.
+  // The backend's version counter can desync from state._version (e.g., after
+  // DB self-healing or mixed JSONL-only/backend usage). Reconcile is a recovery
+  // operation, so retry by re-reading the current backend version.
+  try {
+    await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
+  } catch (err) {
+    if (err instanceof VersionConflictError) {
+      // Re-read to get the backend's actual version, then force-write
+      try {
+        const freshState = await readStateFile(stateFile);
+        const freshVersion = getStateVersion(freshState);
+        await writeStateFile(stateFile, state, { expectedVersion: freshVersion });
+      } catch (retryErr) {
+        if (retryErr instanceof VersionConflictError) {
+          // Last resort: write without CAS — reconcile IS the recovery mechanism
+          await writeStateFile(stateFile, state);
+        } else {
+          throw retryErr;
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
 
   return { reconciled: eventsApplied > 0, eventsApplied };
 }

@@ -316,6 +316,42 @@ describe('reconcileFromEvents query efficiency', () => {
 
     querySpy.mockRestore();
   });
+
+  it('reconcileFromEvents_VersionConflict_RetriesAndSucceeds', async () => {
+    // Arrange: configure backend and create state
+    const backend = new InMemoryBackend();
+    configureStateStoreBackend(backend);
+
+    await initStateFile(tmpDir, 'vc-test', 'feature');
+    await eventStore.append('vc-test', {
+      type: 'workflow.started',
+      data: { featureId: 'vc-test', workflowType: 'feature' },
+    });
+    await eventStore.append('vc-test', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'vc-test' },
+    });
+
+    // Desync the backend version: manually set backend version much lower
+    // than state._version by re-seeding with a low-version state
+    const currentState = backend.getState('vc-test')!;
+    backend.setState('vc-test', { ...currentState, _version: 50 } as WorkflowState);
+    // Backend version is now 2 (initial seed + one setState), but state._version is 50
+
+    // Act: reconcile should handle the VERSION_CONFLICT internally
+    const result = await reconcileFromEvents(tmpDir, 'vc-test', eventStore);
+
+    // Assert: reconciliation succeeded despite version desync
+    expect(result.reconciled).toBe(true);
+    expect(result.eventsApplied).toBeGreaterThanOrEqual(1);
+
+    // Verify the state was actually written
+    const state = await readStateFile(path.join(tmpDir, 'vc-test.state.json'));
+    expect(state.phase).toBe('plan');
+
+    // Cleanup
+    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
+  });
 });
 
 // ─── Task 16: State Store StorageBackend Integration ─────────────────────────
