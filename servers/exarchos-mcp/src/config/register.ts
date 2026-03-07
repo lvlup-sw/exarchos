@@ -1,5 +1,6 @@
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { registerEventType, unregisterEventType } from '../event-store/schemas.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 // Re-export for consumers that imported from here
@@ -61,37 +62,54 @@ function topoSortWorkflows(
 }
 
 /**
- * Register all custom workflows from an ExarchosConfig.
+ * Register all custom workflows and events from an ExarchosConfig.
  * For each workflow: registers the HSM definition, extends the type schema,
  * and stores any guard definitions. Workflows are topologically sorted so
  * parents register before children that extend them.
+ * For each event: registers the event type with source and optional schema.
+ * On any failure, all registrations are rolled back to prevent partial state.
  */
 export function registerCustomWorkflows(config: ExarchosConfig): void {
-  if (!config.workflows) return;
+  if (!config.workflows && !config.events) return;
 
   const registeredWorkflows: string[] = [];
   const extendedTypes: string[] = [];
   const registeredGuardKeys: string[] = [];
+  const registeredEvents: string[] = [];
 
   try {
-    for (const [name, definition] of topoSortWorkflows(config.workflows)) {
-      registerWorkflowType(name, definition);
-      registeredWorkflows.push(name);
+    // Register workflows
+    if (config.workflows) {
+      for (const [name, definition] of topoSortWorkflows(config.workflows)) {
+        registerWorkflowType(name, definition);
+        registeredWorkflows.push(name);
 
-      extendWorkflowTypeEnum(name);
-      extendedTypes.push(name);
+        extendWorkflowTypeEnum(name);
+        extendedTypes.push(name);
 
-      // Register guards if present
-      if (definition.guards) {
-        for (const [guardId, guardDef] of Object.entries(definition.guards)) {
-          const key = `${name}:${guardId}`;
-          guardRegistry.set(key, guardDef);
-          registeredGuardKeys.push(key);
+        // Register guards if present
+        if (definition.guards) {
+          for (const [guardId, guardDef] of Object.entries(definition.guards)) {
+            const key = `${name}:${guardId}`;
+            guardRegistry.set(key, guardDef);
+            registeredGuardKeys.push(key);
+          }
         }
+      }
+    }
+
+    // Register events
+    if (config.events) {
+      for (const [name, eventDef] of Object.entries(config.events)) {
+        registerEventType(name, eventDef);
+        registeredEvents.push(name);
       }
     }
   } catch (error) {
     // Rollback: undo all registrations to prevent partial state
+    for (const name of registeredEvents) {
+      unregisterEventType(name);
+    }
     for (const key of registeredGuardKeys) {
       guardRegistry.delete(key);
     }
