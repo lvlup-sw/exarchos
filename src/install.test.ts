@@ -9,13 +9,13 @@ const repoRoot = join(__dirname, '..');
 
 describe('Project Configuration', () => {
   describe('package.json', () => {
-    it('should have bin entry pointing to dist/exarchos-cli.js', () => {
+    it('should have bin entry pointing to dist/exarchos.js', () => {
       const pkgPath = join(repoRoot, 'package.json');
       expect(existsSync(pkgPath)).toBe(true);
 
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.bin).toBeDefined();
-      expect(pkg.bin['exarchos-cli']).toBe('./dist/exarchos-cli.js');
+      expect(pkg.bin['exarchos']).toBe('./dist/exarchos.js');
     });
 
     it('should be type module', () => {
@@ -29,11 +29,11 @@ describe('Project Configuration', () => {
       expect(pkg.scripts['test:run']).toBeDefined();
     });
 
-    it('packageJson_HasBuildCliScript', () => {
+    it('packageJson_HasBuildBundleScript', () => {
       const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
 
-      expect(pkg.scripts['build:cli']).toBeDefined();
-      expect(pkg.scripts['build:cli']).toContain('build-cli');
+      expect(pkg.scripts['build:bundle']).toBeDefined();
+      expect(pkg.scripts['build:bundle']).toContain('build-bundle');
     });
 
     it('should have correct name', () => {

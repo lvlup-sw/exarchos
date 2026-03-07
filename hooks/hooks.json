@@ -4,7 +4,7 @@
       "matcher": "auto",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" pre-compact",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" pre-compact",
         "timeout": 30,
         "statusMessage": "Saving workflow checkpoint..."
       }]
@@ -13,7 +13,7 @@
       "matcher": "startup|resume",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" session-start --plugin-root \"${CLAUDE_PLUGIN_ROOT}\"",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" session-start --plugin-root \"${CLAUDE_PLUGIN_ROOT}\"",
         "timeout": 10,
         "statusMessage": "Checking for active workflows..."
       }]
@@ -22,14 +22,14 @@
       "matcher": "mcp__(plugin_exarchos_)?exarchos__.*",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" guard",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" guard",
         "timeout": 5
       }]
     }],
     "TaskCompleted": [{
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" task-gate",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" task-gate",
         "timeout": 120,
         "statusMessage": "Running quality gates..."
       }]
@@ -37,7 +37,7 @@
     "TeammateIdle": [{
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" teammate-gate",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" teammate-gate",
         "timeout": 120,
         "statusMessage": "Verifying teammate work..."
       }]
@@ -45,7 +45,7 @@
     "SubagentStart": [{
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" subagent-context",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" subagent-context",
         "timeout": 5
       }]
     }],
@@ -53,7 +53,7 @@
       "matcher": "auto",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos-cli.js\" session-end",
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" session-end",
         "timeout": 30
       }]
     }]

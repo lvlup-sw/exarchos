@@ -29,8 +29,7 @@
         "required": true,
         "type": "bundled",
         "bundlePath": "dist/exarchos-mcp.js",
-        "devEntryPoint": "servers/exarchos-mcp/dist/index.js",
-        "cliBundlePath": "dist/exarchos-cli.js"
+        "devEntryPoint": "servers/exarchos-mcp/dist/index.js"
       },
       {
         "id": "microsoft-learn",

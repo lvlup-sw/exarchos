@@ -19,7 +19,7 @@ const mcpServerDir = resolve('servers/exarchos-mcp');
 const require = createRequire(join(mcpServerDir, 'package.json'));
 
 // Step 1: Bundle with externals
-await $`bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos.js --target node --minify --external better-sqlite3 --external bindings --external file-uri-to-path`;
+await $`bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos.js --target node --minify --external better-sqlite3 --external bindings --external file-uri-to-path --external playwright --external playwright-core --external @playwright/browser-chromium --external electron`;
 
 // Step 2: Copy real packages to dist/node_modules/
 const destModules = join('dist', 'node_modules');

@@ -29,6 +29,14 @@ import { createMcpServer } from './adapters/mcp.js';
 import { buildCli } from './adapters/cli.js';
 import type { DispatchContext } from './core/dispatch.js';
 
+// Hook CLI commands invoked by Claude Code hooks (hooks.json).
+// These are detected early in main() and routed through a lightweight path
+// that avoids the expensive backend initialization and heavy eval deps.
+const HOOK_COMMANDS = new Set([
+  'pre-compact', 'session-start', 'guard', 'task-gate', 'teammate-gate',
+  'subagent-context', 'session-end',
+]);
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
@@ -176,9 +184,102 @@ export async function resolveStateDir(): Promise<string> {
   return path.join(homedir(), '.claude', 'workflow-state');
 }
 
+// ─── Hook CLI Utilities ──────────────────────────────────────────────────
+// Inlined from cli.ts to avoid importing the full module (and its eval deps).
+
+function hookParseStdinJson(input: string): Record<string, unknown> {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return {};
+  const parsed: unknown = JSON.parse(trimmed);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError('Expected JSON object, received ' + (Array.isArray(parsed) ? 'array' : typeof parsed));
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function hookOutputJson(obj: unknown): void {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+function hookReadStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) { resolve(''); return; }
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    process.stdin.on('error', reject);
+  });
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────────────────
 
 async function main() {
+  // ─── Hook Command Fast Path ────────────────────────────────────────────────
+  // Hook commands (session-start, pre-compact, guard, etc.) are invoked as
+  // subprocesses by Claude Code with tight timeouts (5-10s). They only need
+  // lightweight state-dir access, not the full SQLite backend or hydration.
+  // Intercept them here before the expensive initialization path.
+  const hookCommand = process.argv[2];
+  if (hookCommand && HOOK_COMMANDS.has(hookCommand)) {
+    // Parse --plugin-root from argv if present (used by SessionStart hook)
+    const pluginRootIdx = process.argv.indexOf('--plugin-root');
+    if (pluginRootIdx !== -1 && process.argv[pluginRootIdx + 1]) {
+      process.env.EXARCHOS_PLUGIN_ROOT = process.argv[pluginRootIdx + 1];
+    }
+
+    // Lightweight hook router — avoids importing cli.ts which transitively
+    // pulls in promptfoo/playwright via eval handlers.
+    const { resolveStateDir: resolveStateDirSync } = await import('./workflow/state-store.js');
+
+    const rawInput = await hookReadStdin();
+    const stdinData = hookParseStdinJson(rawInput);
+
+    type HookResult = { error?: { code: string; message: string }; [key: string]: unknown };
+
+    const handlers: Record<string, () => Promise<HookResult>> = {
+      'pre-compact': async () => {
+        const { handlePreCompact } = await import('./cli-commands/pre-compact.js');
+        return handlePreCompact(stdinData, resolveStateDirSync());
+      },
+      'session-start': async () => {
+        const { handleSessionStart } = await import('./cli-commands/session-start.js');
+        const os = await import('node:os');
+        return handleSessionStart(stdinData, resolveStateDirSync(), path.join(os.homedir(), '.claude', 'teams'));
+      },
+      'guard': async () => {
+        const { handleGuard } = await import('./cli-commands/guard.js');
+        return handleGuard(stdinData);
+      },
+      'task-gate': async () => {
+        const { handleTaskGate } = await import('./cli-commands/gates.js');
+        return handleTaskGate(stdinData);
+      },
+      'teammate-gate': async () => {
+        const { handleTeammateGate } = await import('./cli-commands/gates.js');
+        return handleTeammateGate(stdinData);
+      },
+      'subagent-context': async () => {
+        const { handleSubagentContext } = await import('./cli-commands/subagent-context.js');
+        return handleSubagentContext(stdinData);
+      },
+      'session-end': async () => {
+        const { handleSessionEnd } = await import('./cli-commands/session-end.js');
+        return handleSessionEnd(stdinData, resolveStateDirSync());
+      },
+    };
+
+    const handler = handlers[hookCommand];
+    const result = await handler();
+
+    hookOutputJson(result);
+
+    if (result.error) {
+      const isGateCommand = hookCommand === 'task-gate' || hookCommand === 'teammate-gate';
+      process.exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;
+    }
+    return;
+  }
+
   const stateDir = await resolveStateDir();
 
   // Ensure state directory exists
