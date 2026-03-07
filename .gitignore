@@ -27,3 +27,8 @@ plugins/*/servers/*/coverage/
 
 # Benchmark output
 benchmark-results.json
+
+# Sensitive/local files
+.env
+.env.local
+docs/marketing/

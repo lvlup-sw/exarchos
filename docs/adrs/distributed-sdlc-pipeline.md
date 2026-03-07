@@ -2384,8 +2384,8 @@ The Exarchos bridge is configured via a JSON file that controls operational mode
 {
   "mode": "local",
   "remote": {
-    "apiBaseUrl": "https://basileus.local/api",
-    "mcpEndpoint": "https://basileus.local/mcp/workflow",
+    "apiBaseUrl": "https://your-remote-server.example.com/api",
+    "mcpEndpoint": "https://your-remote-server.example.com/mcp/workflow",
     "auth": {
       "type": "token",
       "tokenEnvVar": "EXARCHOS_API_TOKEN"
@@ -2591,7 +2591,7 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 | CLI and documentation (Phase 1) | **Not started** | `exarchos` CLI binary, getting started docs |
 | Extension architecture (Phase 2) | **Not started** | Plugin-based extensibility for workflows, gates, views |
 | AI client abstraction (Phase 3) | **Not started** | `AgentCapabilities` interface, multi-client support |
-| SaaS tier (Phase 4) | **Not started** | Basileus integration, remote compute, web dashboard |
+| Remote backend integration (Phase 4) | **Not started** | Basileus integration, remote compute, web dashboard |
 | Flywheel and team features (Phase 5) | **Not started** | Multi-tenant analytics, cross-developer coordination |
 
 ---
@@ -2710,11 +2710,11 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 |----------|-------------|
 | [System Index](./system-index.md) | Entry-point reference mapping concepts to authoritative locations |
 | [Platform Architecture](./platform-architecture.md) | Three-tier runtime, Agentic.Workflow, event sourcing, deployment, resources |
-| [Productization Roadmap](./productization-roadmap.md) | Strategic roadmap for OSS local tool and optional SaaS tier |
+| [Productization Roadmap](./productization-roadmap.md) | Roadmap for OSS local tool and optional remote backend tier |
 | [`docs/designs/2026-01-18-agentic-coder.md`](../designs/2026-01-18-agentic-coder.md) | Full Agentic Coder design (remote tier) |
 | [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Stacked PR Integration design (historical — originally Graphite-based, now GitHub-native) |
 | [`docs/designs/2026-02-15-autonomous-code-verification.md`](../designs/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
-| [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Full productization assessment (source for Productization Roadmap ADR) |
+| [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Architecture assessment (source for Productization Roadmap ADR) |
 | [`docs/designs/2026-02-15-content-hardening.md`](../designs/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |
 | [`docs/designs/2026-02-19-remote-notification-bridge.md`](../designs/2026-02-19-remote-notification-bridge.md) | Remote Notification Bridge: MCP streaming sync, three-layer notification delivery, watcher teammate. Supersedes Phases 4-5 transport design (polling → MCP streaming). |
 
