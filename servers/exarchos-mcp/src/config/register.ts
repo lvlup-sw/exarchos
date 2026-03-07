@@ -1,5 +1,9 @@
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { ViewRegistry } from '../views/registry.js';
+import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 // Re-export for consumers that imported from here
@@ -103,6 +107,100 @@ export function registerCustomWorkflows(config: ExarchosConfig): void {
     }
     throw new Error(
       `Failed to register custom workflows: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+// ─── View Registry ──────────────────────────────────────────────────────────
+
+const viewRegistry = new ViewRegistry();
+
+export function getViewRegistry(): ViewRegistry {
+  return viewRegistry;
+}
+
+/**
+ * Clear all registered custom views. Used for test cleanup.
+ */
+export function clearRegisteredViews(): void {
+  for (const name of viewRegistry.getCustomViewNames()) {
+    viewRegistry.unregisterCustomView(name);
+  }
+}
+
+/**
+ * Validates that a dynamically imported handler module conforms to
+ * the ViewProjection interface (exports `init()` and `apply()`).
+ */
+function validateViewHandler(mod: unknown, handlerPath: string): ViewProjection<unknown> {
+  const module = mod as Record<string, unknown>;
+
+  // Support both default export and named exports
+  const target = (
+    module.default && typeof module.default === 'object'
+      ? module.default as Record<string, unknown>
+      : module
+  );
+
+  if (typeof target.init !== 'function') {
+    throw new Error(
+      `View handler at "${handlerPath}" does not export an init() function`,
+    );
+  }
+  if (typeof target.apply !== 'function') {
+    throw new Error(
+      `View handler at "${handlerPath}" does not export an apply() function`,
+    );
+  }
+
+  return target as unknown as ViewProjection<unknown>;
+}
+
+/**
+ * Register all custom views from an ExarchosConfig.
+ * Loads handler modules via dynamic import, validates they conform to
+ * ViewProjection, and registers them with the view registry.
+ * Includes rollback on failure.
+ */
+export async function registerCustomViews(
+  config: ExarchosConfig,
+  projectRoot: string,
+): Promise<void> {
+  if (!config.views) return;
+
+  const registeredViewNames: string[] = [];
+
+  try {
+    for (const [name, definition] of Object.entries(config.views)) {
+      const handlerPath = path.resolve(projectRoot, definition.handler);
+      const handlerUrl = pathToFileURL(handlerPath).href;
+
+      let mod: unknown;
+      try {
+        mod = await import(handlerUrl);
+      } catch (err) {
+        throw new Error(
+          `Failed to load view handler for "${name}" at "${handlerPath}": ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
+      const projection = validateViewHandler(mod, handlerPath);
+      viewRegistry.registerCustomView(name, projection);
+      registeredViewNames.push(name);
+    }
+  } catch (error) {
+    // Rollback: unregister all views registered so far
+    for (const name of registeredViewNames) {
+      try {
+        viewRegistry.unregisterCustomView(name);
+      } catch {
+        // Ignore rollback errors
+      }
+    }
+    throw new Error(
+      `Failed to register custom views: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

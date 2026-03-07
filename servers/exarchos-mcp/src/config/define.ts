@@ -1,7 +1,13 @@
 // ─── Config Types ──────────────────────────────────────────────────────────
 
+export interface ViewDefinition {
+  readonly events: string[];      // Event types this view subscribes to
+  readonly handler: string;       // Path to handler module (relative to project root)
+}
+
 export interface ExarchosConfig {
   readonly workflows?: Record<string, WorkflowDefinition>;
+  readonly views?: Record<string, ViewDefinition>;
 }
 
 export interface WorkflowDefinition {

@@ -134,4 +134,45 @@ describe('loadConfig', () => {
     // Assert
     expect(result).toEqual({});
   });
+
+  it('LoadConfig_WithViews_ParsesViewDefinitions', async () => {
+    // Arrange
+    const configContent = `
+      export default {
+        views: {
+          'my-metrics': {
+            events: ['task.completed', 'task.failed'],
+            handler: './views/my-metrics.js',
+          },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act
+    const result = await loadConfig(tmpDir);
+
+    // Assert
+    expect(result.views).toBeDefined();
+    expect(result.views?.['my-metrics']).toBeDefined();
+    expect(result.views?.['my-metrics'].events).toEqual(['task.completed', 'task.failed']);
+    expect(result.views?.['my-metrics'].handler).toBe('./views/my-metrics.js');
+  });
+
+  it('LoadConfig_WithInvalidViews_Throws', async () => {
+    // Arrange — missing required handler field
+    const configContent = `
+      export default {
+        views: {
+          'bad-view': {
+            events: ['task.completed'],
+          },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act & Assert
+    await expect(loadConfig(tmpDir)).rejects.toThrow('Invalid exarchos config');
+  });
 });

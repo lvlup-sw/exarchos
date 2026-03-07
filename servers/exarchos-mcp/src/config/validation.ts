@@ -72,7 +72,13 @@ export const workflowDefinitionSchema = z.object({
   }
 });
 
+export const viewDefinitionSchema = z.object({
+  events: z.array(z.string().min(1)).min(1, 'View must subscribe to at least one event type'),
+  handler: z.string().min(1, 'View handler path must not be empty'),
+}).strict();
+
 export const exarchosConfigSchema = z.object({
+  views: z.record(z.string(), viewDefinitionSchema).optional(),
   workflows: z.record(z.string(), workflowDefinitionSchema)
     .optional()
     .superRefine((workflows, ctx) => {

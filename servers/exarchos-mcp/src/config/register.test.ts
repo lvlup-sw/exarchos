@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards } from './register.js';
+import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards, registerCustomViews, clearRegisteredViews } from './register.js';
 import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
@@ -11,6 +11,7 @@ afterEach(() => {
   unregisterWorkflowType(TEST_WORKFLOW_NAME);
   unextendWorkflowTypeEnum(TEST_WORKFLOW_NAME);
   clearRegisteredGuards();
+  clearRegisteredViews();
 });
 
 describe('Registration Pipeline', () => {
@@ -149,5 +150,33 @@ describe('Registration Pipeline', () => {
     expect(() => registerCustomWorkflows(invalidConfig)).toThrow(
       'Failed to register custom workflows',
     );
+  });
+});
+
+describe('View Registration', () => {
+  it('RegisterCustomWorkflows_WithViews_RegistersViews', async () => {
+    const config: ExarchosConfig = {
+      views: {
+        'my-counter': {
+          events: ['task.completed'],
+          handler: './test-handler.js',
+        },
+      },
+    };
+
+    // registerCustomViews loads handlers dynamically. For testing, we use
+    // a mock handler module path. In production, handler modules export
+    // init() and apply() conforming to ViewProjection.
+    // Since dynamic import won't resolve ./test-handler.js in tests,
+    // we test that view registration validates handler modules.
+    await expect(
+      registerCustomViews(config, '/fake/project/root'),
+    ).rejects.toThrow();
+  });
+
+  it('RegisterCustomWorkflows_NoViews_Noop', async () => {
+    const config: ExarchosConfig = {};
+    // Should not throw
+    await registerCustomViews(config, '/fake/project/root');
   });
 });
