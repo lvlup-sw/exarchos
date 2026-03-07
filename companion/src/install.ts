@@ -20,7 +20,6 @@ interface McpConfig {
 }
 
 const PLUGINS_TO_ENABLE: Record<string, boolean> = {
-  'github@claude-plugins-official': true,
   'serena@claude-plugins-official': true,
   'context7@claude-plugins-official': true,
 };

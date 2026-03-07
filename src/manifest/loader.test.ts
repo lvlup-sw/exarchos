@@ -298,7 +298,6 @@ describe('Real Manifest File (E5)', () => {
     const manifest = loadManifest(manifestPath);
     const pluginIds = manifest.components.plugins.map((p) => p.id);
     expect(pluginIds).toContain('exarchos@lvlup-sw');
-    expect(pluginIds).toContain('github@claude-plugins-official');
     expect(pluginIds).toContain('serena@claude-plugins-official');
     expect(pluginIds).toContain('context7@claude-plugins-official');
   });

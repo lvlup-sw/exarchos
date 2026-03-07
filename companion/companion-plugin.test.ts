@@ -24,7 +24,6 @@ describe('Companion Plugin Structure', () => {
   it('companionSettings_plugins_enabled', () => {
     const settingsPath = join(companionRoot, 'settings.json');
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
     expect(settings.enabledPlugins['serena@claude-plugins-official']).toBe(true);
     expect(settings.enabledPlugins['context7@claude-plugins-official']).toBe(true);
   });

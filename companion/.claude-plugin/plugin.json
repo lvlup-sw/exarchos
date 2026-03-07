@@ -1,9 +1,9 @@
 {
   "name": "exarchos-dev-tools",
-  "description": "Developer convenience plugins for Exarchos — GitHub, Serena, Context7, Microsoft Learn",
+  "description": "Developer convenience plugins for Exarchos — Serena, Context7, Microsoft Learn",
   "version": "2.0.0",
   "author": { "name": "Levelup Software" },
   "repository": "https://github.com/lvlup-sw/exarchos",
-  "keywords": ["exarchos", "dev-tools", "github", "serena", "context7"],
+  "keywords": ["exarchos", "dev-tools", "serena", "context7"],
   "mcpServers": "./.mcp.json"
 }
