@@ -66,6 +66,84 @@ export const EventTypes = [
 
 export type EventType = typeof EventTypes[number];
 
+// ─── Extensible Event Type Registry ──────────────────────────────────────────
+
+const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
+const customEventTypes = new Set<string>();
+
+/** Name format: lowercase with hyphens, must contain at least one dot separator. */
+const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+
+/**
+ * Register a custom event type at runtime.
+ * Built-in event types cannot be overridden and duplicate custom registrations are rejected.
+ */
+export function registerEventType(
+  name: string,
+  options: { source: 'auto' | 'model' | 'hook'; schema?: z.ZodSchema },
+): void {
+  if (!name) {
+    throw new Error('Event type name must not be empty');
+  }
+  if (name !== name.toLowerCase()) {
+    throw new Error(
+      `Invalid event type name '${name}': must be lowercase with hyphens and dot separators (e.g., 'deploy.started')`,
+    );
+  }
+  if (!EVENT_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid event type name '${name}': must contain a dot separator and use lowercase with hyphens (e.g., 'deploy.started')`,
+    );
+  }
+  if (BUILT_IN_EVENT_TYPES.has(name)) {
+    throw new Error(
+      `Cannot register '${name}': collides with built-in event type`,
+    );
+  }
+  if (customEventTypes.has(name)) {
+    throw new Error(
+      `Cannot register '${name}': custom event type already registered`,
+    );
+  }
+
+  customEventTypes.add(name);
+
+  // Register source in emission registry (cast to allow string indexing)
+  (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[name] = options.source;
+
+  // Register schema if provided
+  if (options.schema) {
+    (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name] = options.schema;
+  }
+}
+
+/**
+ * Remove a custom event type. Only custom (non-built-in) types can be removed.
+ * Used for test cleanup.
+ */
+export function unregisterEventType(name: string): void {
+  if (BUILT_IN_EVENT_TYPES.has(name)) {
+    throw new Error(`Cannot unregister built-in event type: '${name}'`);
+  }
+  customEventTypes.delete(name);
+  delete (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[name];
+  delete (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name];
+}
+
+/**
+ * Returns all valid event types: built-in + custom.
+ */
+export function getValidEventTypes(): string[] {
+  return [...EventTypes, ...customEventTypes];
+}
+
+/**
+ * Check if a name is a built-in event type.
+ */
+export function isBuiltInEventType(name: string): boolean {
+  return BUILT_IN_EVENT_TYPES.has(name);
+}
+
 // ─── Event Emission Source ───────────────────────────────────────────────────
 
 export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned';

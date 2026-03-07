@@ -1,7 +1,15 @@
+import type { z } from 'zod';
+
 // ─── Config Types ──────────────────────────────────────────────────────────
+
+export interface EventDefinition {
+  readonly source: 'auto' | 'model' | 'hook';
+  readonly schema?: z.ZodSchema;
+}
 
 export interface ExarchosConfig {
   readonly workflows?: Record<string, WorkflowDefinition>;
+  readonly events?: Record<string, EventDefinition>;
 }
 
 export interface WorkflowDefinition {

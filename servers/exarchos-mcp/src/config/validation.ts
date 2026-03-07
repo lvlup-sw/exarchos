@@ -72,6 +72,11 @@ export const workflowDefinitionSchema = z.object({
   }
 });
 
+export const eventDefinitionSchema = z.object({
+  source: z.enum(['auto', 'model', 'hook']),
+  schema: z.unknown().optional(),
+}).strict();
+
 export const exarchosConfigSchema = z.object({
   workflows: z.record(z.string(), workflowDefinitionSchema)
     .optional()
@@ -127,6 +132,7 @@ export const exarchosConfigSchema = z.object({
         }
       }
     }),
+  events: z.record(z.string(), eventDefinitionSchema).optional(),
 }).strict();
 
 // ─── Validation Function ───────────────────────────────────────────────────

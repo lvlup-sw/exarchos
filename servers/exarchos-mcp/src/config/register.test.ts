@@ -3,6 +3,7 @@ import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards } f
 import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { getValidEventTypes, unregisterEventType } from '../event-store/schemas.js';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -11,6 +12,9 @@ afterEach(() => {
   unregisterWorkflowType(TEST_WORKFLOW_NAME);
   unextendWorkflowTypeEnum(TEST_WORKFLOW_NAME);
   clearRegisteredGuards();
+  // Clean up any custom event types
+  try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+  try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
 });
 
 describe('Registration Pipeline', () => {
@@ -149,5 +153,38 @@ describe('Registration Pipeline', () => {
     expect(() => registerCustomWorkflows(invalidConfig)).toThrow(
       'Failed to register custom workflows',
     );
+  });
+
+  it('RegisterCustomWorkflows_WithEvents_RegistersEventTypes', () => {
+    const config: ExarchosConfig = {
+      events: {
+        'deploy.started': { source: 'model' },
+        'deploy.finished': { source: 'hook' },
+      },
+    };
+
+    registerCustomWorkflows(config);
+
+    const validTypes = getValidEventTypes();
+    expect(validTypes).toContain('deploy.started');
+    expect(validTypes).toContain('deploy.finished');
+  });
+
+  it('RegisterCustomWorkflows_EventRegistrationFails_RollsBack', () => {
+    const config: ExarchosConfig = {
+      events: {
+        'deploy.started': { source: 'model' },
+        // This will fail: built-in event type collision
+        'workflow.started': { source: 'auto' },
+      },
+    };
+
+    expect(() => registerCustomWorkflows(config)).toThrow(
+      'Failed to register custom workflows',
+    );
+
+    // deploy.started should have been rolled back
+    const validTypes = getValidEventTypes();
+    expect(validTypes).not.toContain('deploy.started');
   });
 });
