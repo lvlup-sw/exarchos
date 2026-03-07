@@ -25,7 +25,7 @@ jobs:
   # (Inlined to avoid cross-repo reusable workflow access issues)
   # ============================================================
   label-sync:
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
     runs-on: self-hosted
     permissions:
       issues: write
@@ -107,7 +107,7 @@ jobs:
   # AUTO-TRIAGE: Label new issues based on content
   # ============================================================
   auto-triage:
-    if: github.event_name == 'issues' && github.event.action == 'opened'
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: self-hosted
     permissions:
       issues: write
@@ -153,7 +153,7 @@ jobs:
   # AUTO-ASSIGN: Assign PR author as assignee
   # ============================================================
   auto-assign-author:
-    if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
     runs-on: self-hosted
     permissions:
       pull-requests: write
@@ -183,8 +183,9 @@ jobs:
   # ============================================================
   project-sync:
     if: |
-      (github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened')
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      ((github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened'))
     runs-on: self-hosted
     steps:
       - name: Add to project
@@ -199,8 +200,9 @@ jobs:
   project-field-init:
     needs: project-sync
     if: |
-      (github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened')
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      ((github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened'))
     runs-on: self-hosted
     steps:
       - name: Initialize project fields
@@ -379,8 +381,9 @@ jobs:
   # ============================================================
   project-status-update:
     if: |
-      github.event_name == 'issues' ||
-      github.event_name == 'pull_request'
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      (github.event_name == 'issues' ||
+      github.event_name == 'pull_request')
     runs-on: self-hosted
     steps:
       - name: Update project status
@@ -488,7 +491,7 @@ jobs:
   # STALE MANAGEMENT: Mark and close inactive issues
   # ============================================================
   stale:
-    if: github.event_name == 'schedule'
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'schedule'
     runs-on: self-hosted
     permissions:
       issues: write
@@ -512,6 +515,7 @@ jobs:
   # ============================================================
   auto-merge-renovate:
     if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'renovate[bot]'
     runs-on: self-hosted
@@ -538,7 +542,7 @@ jobs:
   # RELEASE AUTOMATION: Generate changelog and release
   # ============================================================
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: self-hosted
     permissions:
       contents: write
