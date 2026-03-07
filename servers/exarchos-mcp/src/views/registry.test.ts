@@ -110,4 +110,24 @@ describe('ViewRegistry', () => {
     expect(names).toContain('view-b');
     expect(names).not.toContain('pipeline');
   });
+
+  it('UnregisterCustomView_RemovesProjectionFromMaterializer', () => {
+    // Register a custom view and verify its projection exists
+    registry.registerCustomView('ephemeral-view', counterProjection);
+    const materializer = registry.getMaterializer();
+    expect(materializer.hasProjection('ephemeral-view')).toBe(true);
+
+    // Materialize some events to populate cache
+    const events = [makeEvent(1), makeEvent(2)];
+    materializer.materialize('stream-1', 'ephemeral-view', events);
+
+    // Unregister and verify the projection is removed from the materializer
+    registry.unregisterCustomView('ephemeral-view');
+    expect(materializer.hasProjection('ephemeral-view')).toBe(false);
+
+    // Trying to materialize should now throw (no projection)
+    expect(
+      () => materializer.materialize('stream-1', 'ephemeral-view', [makeEvent(3)]),
+    ).toThrow(/no projection/i);
+  });
 });

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { ViewRegistry } from '../views/registry.js';
-import { registerCustomTool, unregisterCustomTool } from '../registry.js';
+import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
@@ -290,16 +290,18 @@ export async function registerCustomTools(
           );
         }
 
-        // Validate the handler module exports handle()
-        validateToolActionHandler(mod, handlerPath);
+        // Validate the handler module exports handle() and store the handler
+        const handler = validateToolActionHandler(mod, handlerPath);
+        setCustomToolActionHandler(toolName, actionDef.name, handler);
 
         // Build a ToolAction with a permissive schema (custom tools don't
         // declare Zod schemas in config — they accept any args and validate
-        // internally via their handler)
+        // internally via their handler). Use passthrough() so user-provided
+        // parameters flow through the strict composite schema.
         actions.push({
           name: actionDef.name,
           description: actionDef.description,
-          schema: z.object({}),
+          schema: z.object({}).passthrough(),
           phases: new Set<string>(),
           roles: new Set<string>(['any']),
         });

@@ -848,6 +848,11 @@ const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set(
 
 const customTools: CompositeTool[] = [];
 
+/** Maps `toolName -> actionName -> handler` for custom tool dispatch. */
+const customToolHandlers = new Map<string, Map<string, CustomToolActionHandler>>();
+
+export type CustomToolActionHandler = (args: Record<string, unknown>) => Promise<unknown>;
+
 /**
  * Register a custom composite tool. Throws if the name collides with a
  * built-in tool or an already-registered custom tool.
@@ -867,6 +872,41 @@ export function registerCustomTool(tool: CompositeTool): void {
 }
 
 /**
+ * Store a handler function for a custom tool action.
+ * Called during config-driven registration to wire handlers for dispatch.
+ */
+export function setCustomToolActionHandler(
+  toolName: string,
+  actionName: string,
+  handler: CustomToolActionHandler,
+): void {
+  let actionMap = customToolHandlers.get(toolName);
+  if (!actionMap) {
+    actionMap = new Map();
+    customToolHandlers.set(toolName, actionMap);
+  }
+  actionMap.set(actionName, handler);
+}
+
+/**
+ * Retrieve the handler for a custom tool action.
+ * Returns undefined if the tool or action is not registered.
+ */
+export function getCustomToolActionHandler(
+  toolName: string,
+  actionName: string,
+): CustomToolActionHandler | undefined {
+  return customToolHandlers.get(toolName)?.get(actionName);
+}
+
+/**
+ * Check if a custom tool has any registered handlers.
+ */
+export function hasCustomToolHandlers(toolName: string): boolean {
+  return customToolHandlers.has(toolName);
+}
+
+/**
  * Unregister a custom composite tool by name. Throws if the name is a
  * built-in tool or not registered as a custom tool.
  */
@@ -883,6 +923,7 @@ export function unregisterCustomTool(name: string): void {
     );
   }
   customTools.splice(index, 1);
+  customToolHandlers.delete(name);
 }
 
 /**
@@ -898,4 +939,5 @@ export function getFullRegistry(): readonly CompositeTool[] {
  */
 export function clearCustomTools(): void {
   customTools.length = 0;
+  customToolHandlers.clear();
 }

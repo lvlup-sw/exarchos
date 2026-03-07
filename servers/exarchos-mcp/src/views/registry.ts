@@ -98,9 +98,7 @@ export class ViewRegistry {
       );
     }
     this.customViews.delete(name);
-    // Note: ViewMaterializer doesn't expose an unregister method for projections,
-    // but removing from the tracking set is sufficient since the projection won't
-    // be discoverable through the registry.
+    this.materializer.unregister(name);
   }
 
   /**

@@ -93,6 +93,21 @@ export class ViewMaterializer {
   }
 
   /**
+   * Unregister a named projection and remove all cached state for it.
+   */
+  unregister(viewName: string): void {
+    this.projections.delete(viewName);
+    // Remove all cached states for this projection
+    const prefix = `${viewName}:`;
+    for (const key of [...this.states.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.states.delete(key);
+        this.lastSnapshotHwm.delete(key);
+      }
+    }
+  }
+
+  /**
    * Materialize a view by applying events through the registered projection.
    * Uses high-water mark tracking for incremental updates.
    */
