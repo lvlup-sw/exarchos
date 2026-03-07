@@ -1,0 +1,12 @@
+# Default owner
+* @reedsalus
+
+# MCP server
+servers/exarchos-mcp/ @reedsalus
+
+# Validation scripts
+scripts/ @reedsalus
+
+# Skills and commands
+skills/ @reedsalus
+commands/ @reedsalus
