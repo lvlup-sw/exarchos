@@ -52,6 +52,12 @@ describe('PHASE_EXPECTED_EVENTS', () => {
     expect(synthesizeEvents).toContain('shepherd.iteration');
   });
 
+  it('CheckEventEmissions_DelegatePhase_IncludesTaskProgressed', () => {
+    const delegateEvents = PHASE_EXPECTED_EVENTS['delegate'];
+    expect(delegateEvents).toBeDefined();
+    expect(delegateEvents).toContain('task.progressed');
+  });
+
   it('PhaseExpectedEvents_AllEntries_OnlyModelEmitted', () => {
     for (const [phase, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
       for (const eventType of eventTypes) {
@@ -111,6 +117,7 @@ describe('handleCheckEventEmissions', () => {
       { type: 'team.spawned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.teammate.dispatched', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -123,7 +130,7 @@ describe('handleCheckEventEmissions', () => {
       phase: 'delegate',
       hints: [],
       complete: true,
-      checked: 3,
+      checked: 4,
       missing: 0,
     });
   });
@@ -131,10 +138,11 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_MissingTeamSpawned_ReturnsHint', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // Only team.task.planned and team.teammate.dispatched present, missing team.spawned
+    // Only team.task.planned, team.teammate.dispatched, and task.progressed present, missing team.spawned
     mockStore.query.mockResolvedValueOnce([
       { type: 'team.task.planned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.teammate.dispatched', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -176,6 +184,7 @@ describe('handleCheckEventEmissions', () => {
       { type: 'team.spawned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
       { type: 'team.teammate.dispatched', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     await handleCheckEventEmissions({ featureId: 'test-feature' }, STATE_DIR);

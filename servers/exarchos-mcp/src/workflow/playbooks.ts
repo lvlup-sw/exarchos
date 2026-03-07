@@ -221,6 +221,7 @@ register({
       type: 'gate.executed',
       when: 'After post-delegation-check.sh runs',
     },
+    { type: 'task.progressed', when: 'After each TDD phase transition (red/green/refactor)' },
   ],
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
@@ -296,6 +297,9 @@ register({
       type: 'gate.executed',
       when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
     },
+    { type: 'shepherd.started', when: 'On first assess-stack invocation' },
+    { type: 'shepherd.approval_requested', when: 'When all checks pass and approval is needed' },
+    { type: 'shepherd.completed', when: 'When PR is merged or shepherd resolves' },
   ],
   transitionCriteria: 'PR created and enqueued → completed',
   guardPrerequisites: 'artifacts.pr exists',

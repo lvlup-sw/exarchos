@@ -309,6 +309,71 @@ async function getIterationCount(
   return events.length;
 }
 
+// ─── Shepherd Lifecycle Helpers ──────────────────────────────────────────────
+
+async function hasShepherdStarted(
+  eventStore: EventStore,
+  featureId: string,
+): Promise<boolean> {
+  const events = await eventStore.query(featureId, { type: 'shepherd.started' });
+  return events.length > 0;
+}
+
+async function emitShepherdStarted(
+  eventStore: EventStore,
+  featureId: string,
+): Promise<void> {
+  await eventStore.append(featureId, {
+    type: 'shepherd.started' as const,
+    data: { featureId },
+  }, {
+    idempotencyKey: `${featureId}:shepherd.started`,
+  });
+}
+
+async function emitShepherdApprovalRequested(
+  eventStore: EventStore,
+  featureId: string,
+  prNumbers: readonly number[],
+  iterationCount: number,
+): Promise<void> {
+  const prUrl = `PR#${prNumbers[0]}`;
+  await eventStore.append(featureId, {
+    type: 'shepherd.approval_requested' as const,
+    data: { prUrl },
+  }, {
+    idempotencyKey: `${featureId}:shepherd.approval_requested:${iterationCount}`,
+  });
+}
+
+function queryPrMergeState(prNumber: number): boolean {
+  try {
+    const output = execSync(
+      `gh pr view ${prNumber} --json state --jq '.state'`,
+      { encoding: 'utf-8', timeout: 30_000 },
+    );
+    return output.trim() === 'MERGED';
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query PR merge state');
+    return false;
+  }
+}
+
+async function emitShepherdCompleted(
+  eventStore: EventStore,
+  featureId: string,
+  prNumbers: readonly number[],
+): Promise<void> {
+  const prUrl = `PR#${prNumbers[0]}`;
+  await eventStore.append(featureId, {
+    type: 'shepherd.completed' as const,
+    data: { prUrl, outcome: 'merged' },
+  }, {
+    idempotencyKey: `${featureId}:shepherd.completed`,
+  });
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleAssessStack(
@@ -335,6 +400,18 @@ export async function handleAssessStack(
   // Query current iteration count from event store
   const iterationCount = await getIterationCount(eventStore, args.featureId);
 
+  // Emit shepherd.started on first invocation (idempotent)
+  const alreadyStarted = await hasShepherdStarted(eventStore, args.featureId);
+  if (!alreadyStarted) {
+    await emitShepherdStarted(eventStore, args.featureId);
+  }
+
+  // Check if any PR is merged → emit shepherd.completed
+  const anyMerged = args.prNumbers.some(queryPrMergeState);
+  if (anyMerged) {
+    await emitShepherdCompleted(eventStore, args.featureId, args.prNumbers);
+  }
+
   // Query status for each PR
   const prStatuses = args.prNumbers.map(queryPrStatus);
 
@@ -347,6 +424,11 @@ export async function handleAssessStack(
 
   // Compute recommendation
   const recommendation = computeRecommendation(actionItems, iterationCount, prStatuses);
+
+  // Emit shepherd.approval_requested when recommendation is request-approval
+  if (recommendation === 'request-approval') {
+    await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
+  }
 
   // Build result
   const status: ShepherdStatusState = {

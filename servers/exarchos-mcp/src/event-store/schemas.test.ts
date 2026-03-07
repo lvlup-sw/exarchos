@@ -974,7 +974,7 @@ describe('QualityRegressionData validation', () => {
 
 describe('ShepherdStartedData validation', () => {
   it('ShepherdStartedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', stackSize: 3, ciStatus: 'pending' };
+    const payload = { featureId: 'feat-001' };
     expect(ShepherdStartedData.safeParse(payload).success).toBe(true);
   });
 });
@@ -988,14 +988,14 @@ describe('ShepherdIterationData validation', () => {
 
 describe('ShepherdApprovalRequestedData validation', () => {
   it('ShepherdApprovalRequestedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', reviewers: ['alice', 'bob'] };
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1' };
     expect(ShepherdApprovalRequestedData.safeParse(payload).success).toBe(true);
   });
 });
 
 describe('ShepherdCompletedData validation', () => {
   it('ShepherdCompletedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', merged: true, iterations: 3, duration: 45000 };
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', outcome: 'merged' };
     expect(ShepherdCompletedData.safeParse(payload).success).toBe(true);
   });
 });

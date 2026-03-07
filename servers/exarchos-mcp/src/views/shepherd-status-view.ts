@@ -25,6 +25,10 @@ export interface ShepherdStatusState {
   readonly prs: ReadonlyArray<PrStatus>;
   readonly iteration: number;
   readonly maxIterations: number;
+  readonly startedAt?: string;
+  readonly approvalRequestedAt?: string;
+  readonly completedAt?: string;
+  readonly outcome?: string;
 }
 
 // ─── Per-PR Update Helper ──────────────────────────────────────────────────
@@ -183,6 +187,23 @@ function handleShepherdIteration(state: ShepherdStatusState, event: WorkflowEven
   return { ...next, overallStatus: computeOverallStatus(next) };
 }
 
+function handleShepherdStarted(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
+  return { ...state, startedAt: event.timestamp };
+}
+
+function handleShepherdApprovalRequested(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
+  return { ...state, approvalRequestedAt: event.timestamp };
+}
+
+function handleShepherdCompleted(state: ShepherdStatusState, event: WorkflowEvent): ShepherdStatusState {
+  const data = event.data as { outcome?: string } | undefined;
+  return {
+    ...state,
+    completedAt: event.timestamp,
+    outcome: data?.outcome,
+  };
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
@@ -212,6 +233,15 @@ export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
 
       case 'shepherd.iteration':
         return handleShepherdIteration(view, event);
+
+      case 'shepherd.started':
+        return handleShepherdStarted(view, event);
+
+      case 'shepherd.approval_requested':
+        return handleShepherdApprovalRequested(view, event);
+
+      case 'shepherd.completed':
+        return handleShepherdCompleted(view, event);
 
       default:
         return view;
