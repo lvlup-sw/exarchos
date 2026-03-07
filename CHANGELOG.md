@@ -1,6 +1,218 @@
-# Global Config Changelog
+# Changelog
 
-Update sparingly - high signal/impactful changes only.
+All notable changes to Exarchos are documented in this file. Organized by semver release.
+
+## [2.4.2] - 2026-03-06
+
+### Bug Fixes
+- Support flexible design/plan formats in validation scripts
+- Redistribute diagram layout after flywheel removal
+- Address dogfood findings, update diagram
+- Restore skill description guardrails and add workflowType to brainstorming
+
+## [2.4.0] - 2026-03-04
+
+### Features
+- Schema-driven CLI surface with config-driven custom workflows (#963)
+- New local skills for project-level customization
+- README updates and VHS terminal recordings
+
+### Bug Fixes
+- Unified binary with explicit `mcp` subcommand
+- Integrate hook CLI commands into unified binary
+
+### Refactoring
+- Remove project-specific sync-schemas skill
+- Reduce plugin token footprint by 57%
+
+### Chores
+- Prune plugins and claude/memory files
+
+## [2.3.8] - 2026-03-02
+
+### Features
+- Add visual assets for GA release
+
+### Bug Fixes
+- Update subagent-context test counts for 5 new orchestrate actions, overhaul README
+- Add direct-push completion path for debug hotfixes and tag universal transitions (#957, #958)
+
+### Documentation
+- Humanize README copy and tighten marketing language
+- Replace community reference with Obra Superpowers competitive positioning
+- Revise visual asset specs for GA release
+
+## [2.3.7] - 2026-03-02
+
+### Bug Fixes
+- Add 5 missing orchestrate actions to registry, add sync test
+
+## [2.3.6] - 2026-03-02
+
+### Features
+- Add event emission source registry and boundary data validation (#955)
+
+### Bug Fixes
+- Remove stale @planned annotation from team.disbanded (#954)
+
+## [2.3.5] - 2026-03-02
+
+### Bug Fixes
+- Remove deprecated `/resume` command, replace with `/rehydrate`
+
+## [2.3.4] - 2026-03-02
+
+### Bug Fixes
+- Array-of-objects upsert in deepMerge, harden gate check and review projection
+
+## [2.3.3] - 2026-03-02
+
+### Bug Fixes
+- Align phase names with HSM definitions, add phase-name validation
+
+## [2.3.2] - 2026-03-02
+
+### Bug Fixes
+- Sync plugin manifest versions to 2.3.1, add version:sync to rebuild
+- Sync backend version counter with state._version on seed (#948)
+
+## [2.3.1] - 2026-03-01
+
+### Refactoring
+- Namespace all skill references with `exarchos:` prefix
+
+## [2.3.0] - 2026-03-01
+
+### Bug Fixes
+- Sequence corruption auto-repair, guard diagnostics, shepherd DX (#947)
+
+### Refactoring
+- Make plugin self-contained for marketplace install (#946)
+
+## [2.2.2] - 2026-03-01
+
+### Bug Fixes
+- Expand tilde in WORKFLOW_STATE_DIR, remove stale artifacts
+- Stale .seq cross-validation, manual evidence gate bypass, completed status alias (#939, #940, #941)
+
+### Documentation
+- Marketplace positioning strategy — README restructure, metadata, marketing copy
+
+## [2.2.1] - 2026-03-01
+
+### Bug Fixes
+- Audit remediation — bound arrays, extract skill body, add overhaul-plan-review (#938)
+
+## [2.2.0] - 2026-03-01
+
+### Features
+- Event-driven skill architecture with CQRS readiness projections (#930)
+- Add judge calibration pipeline and gold standard dataset
+- Activate verification flywheel — remediation events and quality hints
+- Add eval-backed feature audit prompt and regression dataset
+
+### Bug Fixes
+- Address review feedback and eval regression check (#932)
+- Detect default branch dynamically in prepare-synthesis (#934)
+
+### Refactoring
+- Remove Graphite integration, adopt GitHub-native PR stacking (#933)
+- Consolidate gate-telemetry integration, enforce D2, harden execFileSync
+
+## [2.1.2] - 2026-02-28
+
+### Bug Fixes
+- Recognize deferred sections in plan coverage verification (#913) (#927)
+
+## [2.1.1] - 2026-02-27
+
+This was a large release spanning the v2.1.0 milestone, covering session provenance, phase playbooks, verification flywheel closure, and eval framework expansion.
+
+### Features
+- Add session provenance — event hardening, types, manifest, transcript parser, lifecycle (#896)
+- Add session provenance query layer — projection, view integration (#903)
+- Close verification flywheel loop — calibration, capture, signal wiring, integration (#914)
+- Add phase playbook module with all workflow entries (#846)
+- Add behavioral guidance section to context assembly (#856)
+- Add behavioralGuidance field to SessionStartResult (#858)
+- Add playbook virtual field to exarchos_workflow get (#860)
+- Add `/rehydrate` command and deprecate `/resume` (#861)
+- Add `/tag` command and document opt-in tracking philosophy
+- Add validate-phase-coverage.sh meta-validation script (#852)
+- Wire 4 validation scripts into skills (#845)
+- Add compaction-behavioral eval dataset and update reliability suite (#849)
+- Add cache hit/miss tracking and thrashing detection to ViewMaterializer (#917)
+- Split Zod validation from event construction for hot-path optimization (#918)
+- Enforce PR description template with CI validation and configurable overrides (#907) (#909)
+- Add write-through .state.json backup and preserve files during migration (#806) (#906)
+- Add LLM rubric assertion and dataset to brainstorming eval suite (#792)
+- Add quality-aware dataset and llm-similarity assertion to delegation eval suite (#797)
+- Add LLM rubric assertion and dataset to implementation-planning eval suite (#795)
+- Add LLM rubric assertion and dataset to debug eval suite (#796)
+- Add quality_correlation view joining CodeQuality and EvalResults by skill (#800)
+- Remove stale @planned annotations and add shepherd event schemas (#781)
+
+### Bug Fixes
+- Add iteration limits, spec re-verification, and data handoff protocol to skills (#919)
+- Extract gate event emission and add debug/refactor disambiguation (#920)
+- Harden PR validation script and CI workflow (#911)
+- Update SERVER_VERSION constant and test expectations to 1.1.0 (#912)
+- Add max-length constraints to unbounded event payload fields (#916)
+- Update pre-synthesis-check.sh for polish track and debug HSM phases (#851)
+- Update reconcile-state.sh valid phases to match HSM (#850)
+- Update refactor eval datasets to use correct HSM phase names (#848)
+- Await async property test, validate stateFile paths, fix checkpoint loop break (#863)
+- Populate _events for guard evaluation and skip team guard in subagent mode (#788)
+
+### Refactoring
+- Harden event store idempotency and sequence invariants (#822)
+- Add HSM transitions for escalation, revision limits, and hotfix (#823)
+- Add schema safety constraints and synthesize retry (#824)
+- Clean up content layer documentation and scripts (#825)
+- Add benchmark infrastructure and always-on CI gate (#826)
+
+### Tests
+- Add HSM-playbook coverage and content adequacy property tests (#847)
+- Add discovery and parse tests for new eval suites (#785)
+
+## [2.0.8] - 2026-02-23
+
+### Bug Fixes
+- Use INSERT OR IGNORE for event hydration to handle duplicate sequences
+
+## [2.0.7] - 2026-02-23
+
+### Features
+- Complete eval framework Phase 3 (#773)
+- Foundation cleanup and orphan event wiring (#774)
+- Add eval suites for brainstorming, planning, refactor, and debug skills (#784)
+- Add LLM rubric assertion and dataset to debug eval suite (#796)
+- Add LLM rubric assertion and dataset to refactor eval suite (#794)
+- Wire regression detector into code quality view + add quality-check CLI (#798)
+- Add gate.executed event emission instructions to shepherd, synthesis, and delegation skills (#793)
+
+### Bug Fixes
+- Prevent property collision in captureTrace spread ordering
+- Initialize explore field in state to prevent guard rejection (#775) (#779)
+- Hydrate _events from event store before guard evaluation
+- Bundle better-sqlite3 native binary + fix versionless state migration
+- Update rebuild
+
+### Refactoring
+- Use typed TeamTaskAssignedData schema in CQRS view (#780)
+
+### Tests
+- Add E2E round-trip and crash recovery tests for storage layer
+- Add lifecycle SQLite + hydration PBT tests
+- Add storage E2E validation suite (#772)
+
+### CI
+- Switch all workflows to self-hosted runners
+- Install gh CLI on self-hosted runners for review gate and project automation
+
+---
+
+## Legacy Changelog (pre-semver)
 
 ## 2026-02-09
 
@@ -42,11 +254,11 @@ Added explicit integration phase and orchestrator constraints:
 
 **Updated flow:**
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↑
+/ideate -> [CONFIRM] -> /plan -> /delegate -> /integrate -> /review -> /synthesize -> [CONFIRM] -> merge
+            ^           (auto)   (auto)      (auto)      (auto)     (auto)           ^
           HUMAN                                                                    HUMAN
-                                   ↑                        │
-                                   └──── --fixes ───────────┘
+                                   ^                        |
+                                   +---- --fixes -----------+
 ```
 
 **Files added:**
@@ -83,9 +295,9 @@ Added support for human interaction with PRs:
 
 **Updated flow:**
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-                                            ▲                                       │
-                                            └─────────── --pr-fixes ────────────────┘
+/ideate -> [CONFIRM] -> /plan -> /delegate -> /integrate -> /review -> /synthesize -> [CONFIRM] -> merge
+                                            ^                                       |
+                                            +----------- --pr-fixes ----------------+
 ```
 
 ---
@@ -96,17 +308,17 @@ Reduced confirmation prompts in the workflow pipeline:
 
 **New flow:**
 ```
-/ideate → [CONFIRM] → /plan → /delegate → /integrate → /review → /synthesize → [CONFIRM] → merge
-            ↑           (auto)   (auto)      (auto)      (auto)     (auto)           ↓
-            └──────────── ON BLOCKED ──────────────────────────────────────────────────┘
-                          ON FAIL → /delegate --fixes (auto)
+/ideate -> [CONFIRM] -> /plan -> /delegate -> /integrate -> /review -> /synthesize -> [CONFIRM] -> merge
+            ^           (auto)   (auto)      (auto)      (auto)     (auto)           |
+            +------------ ON BLOCKED ------------------------------------------------+
+                          ON FAIL -> /delegate --fixes (auto)
 ```
 
 **Changes:**
-- `/plan` → `/delegate`: Now auto-invokes (no confirmation)
-- `/delegate` → `/review`: Now auto-invokes (no confirmation)
-- `/review` → `/synthesize`: Now auto-invokes on PASS (no confirmation)
-- `/synthesize` → merge: Added confirmation before merging PR
+- `/plan` -> `/delegate`: Now auto-invokes (no confirmation)
+- `/delegate` -> `/review`: Now auto-invokes (no confirmation)
+- `/review` -> `/synthesize`: Now auto-invokes on PASS (no confirmation)
+- `/synthesize` -> merge: Added confirmation before merging PR
 - `/review`: Now dispatches to subagents (preserves orchestrator context)
 
 **Files modified:**
