@@ -17,7 +17,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 
 | Directory | Purpose |
 |-----------|---------|
-| `commands/` | Slash commands (`/ideate`, `/plan`, `/delegate`, `/debug`, `/refactor`, `/review`, `/synthesize`, `/checkpoint`, `/rehydrate`, `/tdd`, `/sync-schemas`) |
+| `commands/` | Slash commands (`/ideate`, `/plan`, `/delegate`, `/debug`, `/refactor`, `/review`, `/synthesize`, `/checkpoint`, `/rehydrate`, `/tdd`) |
 | `skills/` | Reusable workflow modules with `SKILL.md` and `references/` subdirectories |
 | `rules/` | Global behavioral constraints (coding standards, TDD, orchestrator constraints) |
 | `scripts/` | Deterministic validation scripts replacing prose checklists in skills |

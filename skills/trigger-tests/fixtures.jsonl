@@ -31,6 +31,3 @@
 {"skill": "dotnet-standards", "phrase": "check .NET standards", "expected": "trigger", "tags": ["obvious"]}
 {"skill": "dotnet-standards", "phrase": "validate C# conventions", "expected": "trigger", "tags": ["paraphrased"]}
 {"skill": "dotnet-standards", "phrase": "write TypeScript tests", "expected": "no-trigger", "tags": ["unrelated"]}
-{"skill": "sync-schemas", "phrase": "sync schemas", "expected": "trigger", "tags": ["obvious"]}
-{"skill": "sync-schemas", "phrase": "update types from API", "expected": "trigger", "tags": ["paraphrased"]}
-{"skill": "sync-schemas", "phrase": "deploy to staging", "expected": "no-trigger", "tags": ["unrelated"]}
