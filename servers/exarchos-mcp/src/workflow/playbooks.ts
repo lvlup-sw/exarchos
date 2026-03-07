@@ -172,7 +172,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to delegate on approval or back to plan if gaps found.',
+    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found.',
 });
 
 register({
@@ -763,7 +763,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Use exarchos_workflow set to record review decision. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted.',
+    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted.',
 });
 
 register({
