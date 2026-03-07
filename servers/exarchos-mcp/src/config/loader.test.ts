@@ -134,4 +134,40 @@ describe('loadConfig', () => {
     // Assert
     expect(result).toEqual({});
   });
+
+  it('LoadConfig_WithEvents_ParsesEventDefinitions', async () => {
+    // Arrange
+    const configContent = `
+      export default {
+        events: {
+          'deploy.started': { source: 'model' },
+          'deploy.finished': { source: 'hook' },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act
+    const result = await loadConfig(tmpDir);
+
+    // Assert
+    expect(result.events).toBeDefined();
+    expect(result.events?.['deploy.started']).toEqual({ source: 'model' });
+    expect(result.events?.['deploy.finished']).toEqual({ source: 'hook' });
+  });
+
+  it('LoadConfig_WithInvalidEventSource_Fails', async () => {
+    // Arrange
+    const configContent = `
+      export default {
+        events: {
+          'deploy.started': { source: 'invalid-source' },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act & Assert
+    await expect(loadConfig(tmpDir)).rejects.toThrow('Invalid exarchos config');
+  });
 });
