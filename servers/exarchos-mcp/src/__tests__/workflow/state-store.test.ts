@@ -1489,7 +1489,12 @@ describe('State Store', () => {
       expect(failures).toHaveLength(1);
 
       const failureReason = (failures[0] as PromiseRejectedResult).reason;
-      expect(failureReason.message).toContain(ErrorCode.STATE_ALREADY_EXISTS);
+      // Race loser may get STATE_ALREADY_EXISTS (EEXIST from link) or
+      // FILE_IO_ERROR (ENOENT if temp file cleanup races with link) — both valid
+      const msg = failureReason.message;
+      expect(
+        msg.includes(ErrorCode.STATE_ALREADY_EXISTS) || msg.includes(ErrorCode.FILE_IO_ERROR),
+      ).toBe(true);
     });
 
     it('InitStateFile_SimulatedCrashBeforeLink_OnlyTempExists', async () => {
