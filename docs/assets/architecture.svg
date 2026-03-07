@@ -135,42 +135,42 @@
   </g>
 
   <!-- Connector: pipeline row bottom → MCP box top -->
-  <line class="conn" x1="244" y1="84" x2="244" y2="114"/>
+  <line class="conn" x1="352" y1="84" x2="352" y2="114"/>
 
   <!-- ═══════════════ EXARCHOS MCP CORE ═══════════════ -->
-  <rect class="box-hi mcp-border" x="24" y="114" width="440" height="120" rx="6"/>
+  <rect class="box-hi mcp-border" x="24" y="114" width="656" height="120" rx="6"/>
   <text class="h1" x="44" y="138">EXARCHOS MCP</text>
   <line x1="44" y1="144" x2="170" y2="144" stroke="#22d3ee" stroke-width="1" opacity="0.3"/>
 
   <!-- HSM -->
   <g transform="translate(44, 154)">
-    <rect x="0" y="0" width="120" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
-    <text class="h3" x="60" y="16" text-anchor="middle">HSM</text>
-    <text class="dim" x="60" y="30" text-anchor="middle">state machine</text>
-    <text class="dim" x="60" y="42" text-anchor="middle">26 guards</text>
+    <rect x="0" y="0" width="190" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="95" y="16" text-anchor="middle">HSM</text>
+    <text class="dim" x="95" y="30" text-anchor="middle">state machine</text>
+    <text class="dim" x="95" y="42" text-anchor="middle">26 guards</text>
   </g>
 
   <!-- Event Store -->
-  <g transform="translate(178, 154)">
-    <rect x="0" y="0" width="120" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
-    <text class="h3" x="60" y="16" text-anchor="middle">Event Store</text>
-    <text class="dim" x="60" y="30" text-anchor="middle">append-only</text>
-    <text class="dim" x="60" y="42" text-anchor="middle">CQRS views</text>
+  <g transform="translate(249, 154)">
+    <rect x="0" y="0" width="190" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="95" y="16" text-anchor="middle">Event Store</text>
+    <text class="dim" x="95" y="30" text-anchor="middle">append-only</text>
+    <text class="dim" x="95" y="42" text-anchor="middle">CQRS views</text>
   </g>
 
   <!-- Team Coordinator -->
-  <g transform="translate(312, 154)">
-    <rect x="0" y="0" width="136" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
-    <text class="h3" x="68" y="16" text-anchor="middle">Teams</text>
-    <text class="dim" x="68" y="30" text-anchor="middle">spawn · message</text>
-    <text class="dim" x="68" y="42" text-anchor="middle">shutdown · monitor</text>
+  <g transform="translate(454, 154)">
+    <rect x="0" y="0" width="210" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="105" y="16" text-anchor="middle">Teams</text>
+    <text class="dim" x="105" y="30" text-anchor="middle">spawn · message</text>
+    <text class="dim" x="105" y="42" text-anchor="middle">shutdown · monitor</text>
   </g>
 
   <!-- Connector: MCP bottom (y=234) → Gates top (y=244) -->
-  <line class="conn" x1="244" y1="234" x2="244" y2="244"/>
+  <line class="conn" x1="352" y1="234" x2="352" y2="244"/>
 
   <!-- ═══════════════ QUALITY GATES BAR ═══════════════ -->
-  <rect x="24" y="244" width="440" height="44" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <rect x="24" y="244" width="656" height="44" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
   <text class="h3" x="44" y="264" fill="#d1d5db">QUALITY GATES</text>
 
   <!-- Gate layer dots -->
@@ -178,80 +178,79 @@
     <circle class="gate-dot" cx="0" cy="0" r="4"/>
     <text class="tiny" x="0" y="14" text-anchor="middle">security</text>
 
-    <circle class="gate-dot" cx="66" cy="0" r="4" style="animation-delay:.4s"/>
-    <text class="tiny" x="66" y="14" text-anchor="middle">govern</text>
+    <circle class="gate-dot" cx="100" cy="0" r="4" style="animation-delay:.4s"/>
+    <text class="tiny" x="100" y="14" text-anchor="middle">govern</text>
 
-    <circle class="gate-dot" cx="132" cy="0" r="4" style="animation-delay:.8s"/>
-    <text class="tiny" x="132" y="14" text-anchor="middle">integration</text>
+    <circle class="gate-dot" cx="200" cy="0" r="4" style="animation-delay:.8s"/>
+    <text class="tiny" x="200" y="14" text-anchor="middle">integration</text>
 
-    <circle class="gate-dot" cx="198" cy="0" r="4" style="animation-delay:1.2s"/>
-    <text class="tiny" x="198" y="14" text-anchor="middle">review</text>
+    <circle class="gate-dot" cx="300" cy="0" r="4" style="animation-delay:1.2s"/>
+    <text class="tiny" x="300" y="14" text-anchor="middle">review</text>
 
-    <circle class="gate-dot" cx="264" cy="0" r="4" style="animation-delay:1.6s"/>
-    <text class="tiny" x="264" y="14" text-anchor="middle">deploy</text>
+    <circle class="gate-dot" cx="400" cy="0" r="4" style="animation-delay:1.6s"/>
+    <text class="tiny" x="400" y="14" text-anchor="middle">deploy</text>
   </g>
 
   <!-- ═══════════════ DELEGATION (worktrees) ═══════════════ -->
   <text class="h2" x="24" y="312">DELEGATION</text>
   <line x1="24" y1="318" x2="110" y2="318" stroke="#60a5fa" stroke-width="1" opacity="0.3"/>
 
-  <!-- Connector: /delegate phase → MCP → gates → worktrees (vertical) -->
-  <!-- Each line goes straight down from gates bar bottom to worktree top -->
-  <line class="conn" x1="94" y1="288" x2="94" y2="330"/>
-  <line class="conn" x1="244" y1="288" x2="244" y2="330"/>
-  <line class="conn" x1="394" y1="288" x2="394" y2="330"/>
+  <!-- Connector lines: gates bar bottom → worktree top -->
+  <line class="conn" x1="124" y1="288" x2="124" y2="330"/>
+  <line class="conn" x1="352" y1="288" x2="352" y2="330"/>
+  <line class="conn" x1="580" y1="288" x2="580" y2="330"/>
 
-  <!-- Task dispatch packets (follow vertical lines) -->
-  <rect class="task-pkt" x="90" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0"/>
-  <rect class="task-pkt" x="240" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:1s"/>
-  <rect class="task-pkt" x="390" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:2s"/>
+  <!-- Task dispatch packets -->
+  <rect class="task-pkt" x="120" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0"/>
+  <rect class="task-pkt" x="348" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:1s"/>
+  <rect class="task-pkt" x="576" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:2s"/>
 
-  <!-- PR return packets (follow vertical lines back up) -->
-  <rect class="pr-pkt" x="90" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0"/>
-  <rect class="pr-pkt" x="240" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:1s"/>
-  <rect class="pr-pkt" x="390" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:2s"/>
+  <!-- PR return packets -->
+  <rect class="pr-pkt" x="120" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0"/>
+  <rect class="pr-pkt" x="348" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:1s"/>
+  <rect class="pr-pkt" x="576" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:2s"/>
 
   <!-- Subagent A -->
   <g>
-    <rect class="box" x="24" y="330" width="140" height="76" rx="4"/>
-    <text class="sub" x="94" y="348" text-anchor="middle">Subagent A</text>
-    <text class="dim" x="94" y="360" text-anchor="middle">worktree · isolated</text>
-    <rect x="38" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
-    <rect class="bar-fill" x="38" y="370" width="112" height="5" rx="2.5" fill="#10B981"/>
-    <text class="dim" x="94" y="396" text-anchor="middle">Task 1</text>
+    <rect class="box" x="24" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="124" y="348" text-anchor="middle">Subagent A</text>
+    <text class="dim" x="124" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="38" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="38" y="370" width="172" height="5" rx="2.5" fill="#10B981"/>
+    <text class="dim" x="124" y="396" text-anchor="middle">Task 1</text>
   </g>
 
   <!-- Subagent B -->
   <g>
-    <rect class="box" x="174" y="330" width="140" height="76" rx="4"/>
-    <text class="sub" x="244" y="348" text-anchor="middle">Subagent B</text>
-    <text class="dim" x="244" y="360" text-anchor="middle">worktree · isolated</text>
-    <rect x="188" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
-    <rect class="bar-fill" x="188" y="370" width="112" height="5" rx="2.5" fill="#10B981" style="animation-delay:1.5s"/>
-    <text class="dim" x="244" y="396" text-anchor="middle">Task 2</text>
+    <rect class="box" x="252" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="352" y="348" text-anchor="middle">Subagent B</text>
+    <text class="dim" x="352" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="266" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="266" y="370" width="172" height="5" rx="2.5" fill="#10B981" style="animation-delay:1.5s"/>
+    <text class="dim" x="352" y="396" text-anchor="middle">Task 2</text>
   </g>
 
   <!-- Subagent C -->
   <g>
-    <rect class="box" x="324" y="330" width="140" height="76" rx="4"/>
-    <text class="sub" x="394" y="348" text-anchor="middle">Subagent C</text>
-    <text class="dim" x="394" y="360" text-anchor="middle">worktree · isolated</text>
-    <rect x="338" y="370" width="112" height="5" rx="2.5" fill="#1e293b"/>
-    <rect class="bar-fill" x="338" y="370" width="112" height="5" rx="2.5" fill="#10B981" style="animation-delay:3s"/>
-    <text class="dim" x="394" y="396" text-anchor="middle">Task 3</text>
+    <rect class="box" x="480" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="580" y="348" text-anchor="middle">Subagent C</text>
+    <text class="dim" x="580" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="494" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="494" y="370" width="172" height="5" rx="2.5" fill="#10B981" style="animation-delay:3s"/>
+    <text class="dim" x="580" y="396" text-anchor="middle">Task 3</text>
   </g>
 
   <!-- ═══════════════ TOKEN EFFICIENCY CALLOUT ═══════════════ -->
-  <rect x="24" y="430" width="210" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <rect x="24" y="430" width="316" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
   <text class="h3" x="44" y="452">TOKEN ECONOMY</text>
   <text class="dim" x="44" y="468">field projection: 90% savings</text>
   <text class="dim" x="44" y="480">diff review: 97% savings</text>
 
   <!-- Checkpoint / Rehydrate callout -->
-  <rect x="248" y="430" width="220" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
-  <text class="h3" x="268" y="452">CHECKPOINT + REHYDRATE</text>
-  <text class="dim" x="268" y="468">survives context compaction</text>
-  <text class="dim" x="268" y="480">restore in ~2-3k tokens</text>
+  <rect x="356" y="430" width="324" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="376" y="452">CHECKPOINT + REHYDRATE</text>
+  <text class="dim" x="376" y="468">survives context compaction</text>
+  <text class="dim" x="376" y="480">restore in ~2-3k tokens</text>
 
   <!-- ═══════════════ LEGEND ═══════════════ -->
   <g transform="translate(24, 500)">
