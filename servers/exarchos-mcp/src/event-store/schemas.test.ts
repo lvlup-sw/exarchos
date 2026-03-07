@@ -1679,6 +1679,8 @@ describe('EventTypes_DoesNotInclude_TeamContextInjected', () => {
 
   it('EVENT_DATA_SCHEMAS_DoesNotInclude_TeamContextInjected', () => {
     expect(EVENT_DATA_SCHEMAS).not.toHaveProperty('team.context.injected');
+  });
+});
 
 // ─── T9: registerEventType / unregisterEventType / getValidEventTypes ────
 
