@@ -404,6 +404,198 @@ describe('handleAssessStack', () => {
     });
   });
 
+  // ─── Shepherd Lifecycle Events ──────────────────────────────────────────
+
+  describe('shepherd lifecycle events', () => {
+    it('HandleAssessStack_FirstInvocation_EmitsShepherdStarted', async () => {
+      // Arrange — no prior shepherd.started event
+      mockQuery.mockResolvedValue([]);
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pass' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — shepherd.started event emitted
+      const shepherdStartedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.started',
+      );
+      expect(shepherdStartedCalls.length).toBe(1);
+      expect(shepherdStartedCalls[0][0]).toBe('test-feature');
+      const startedData = (shepherdStartedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(startedData.featureId).toBe('test-feature');
+      const idempotencyKey = (shepherdStartedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(idempotencyKey).toBe('test-feature:shepherd.started');
+    });
+
+    it('HandleAssessStack_SubsequentInvocation_DoesNotReEmitShepherdStarted', async () => {
+      // Arrange — prior shepherd.started event exists
+      mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) => {
+        if (opts?.type === 'shepherd.started') {
+          return [{
+            type: 'shepherd.started',
+            streamId: 'test-feature',
+            sequence: 1,
+            timestamp: new Date().toISOString(),
+            data: { featureId: 'test-feature' },
+          }];
+        }
+        if (opts?.type === 'shepherd.iteration') {
+          return [];
+        }
+        return [];
+      });
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pass' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — NO shepherd.started event emitted
+      const shepherdStartedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.started',
+      );
+      expect(shepherdStartedCalls.length).toBe(0);
+    });
+
+    it('HandleAssessStack_AllChecksPassing_EmitsApprovalRequested', async () => {
+      // Arrange — all checks pass, recommendation will be 'request-approval'
+      mockQuery.mockResolvedValue([]);
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pass' },
+        { name: 'ci/test', status: 'pass' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([
+        { state: 'APPROVED', author: 'reviewer1' },
+      ]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — shepherd.approval_requested event emitted
+      const approvalCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
+      );
+      expect(approvalCalls.length).toBe(1);
+      const approvalData = (approvalCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(approvalData.prUrl).toBeDefined();
+      const idempotencyKey = (approvalCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(idempotencyKey).toBe('test-feature:shepherd.approval_requested:0');
+    });
+
+    it('HandleAssessStack_ChecksFailing_DoesNotEmitApprovalRequested', async () => {
+      // Arrange — CI failing, recommendation will NOT be 'request-approval'
+      mockQuery.mockResolvedValue([]);
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'fail' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — NO shepherd.approval_requested event emitted
+      const approvalCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
+      );
+      expect(approvalCalls.length).toBe(0);
+    });
+
+    it('HandleAssessStack_PrMerged_EmitsShepherdCompleted', async () => {
+      // Arrange — PR is merged
+      mockQuery.mockResolvedValue([]);
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pass' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        if (cmdStr.includes('state')) return 'MERGED' as unknown as Buffer;
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — shepherd.completed event emitted
+      const completedCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.completed',
+      );
+      expect(completedCalls.length).toBe(1);
+      const completedData = (completedCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(completedData.outcome).toBe('merged');
+      const idempotencyKey = (completedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(idempotencyKey).toBe('test-feature:shepherd.completed');
+    });
+  });
+
   // ─── Event Emission ──────────────────────────────────────────────────────
 
   describe('event emission', () => {

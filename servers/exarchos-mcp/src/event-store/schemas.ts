@@ -129,11 +129,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // hook — emitted by Claude Code hooks
   'benchmark.completed': 'hook',
 
+  // auto — emitted by assess-stack orchestration
+  'shepherd.started': 'auto',
+  'shepherd.approval_requested': 'auto',
+  'shepherd.completed': 'auto',
+
   // planned — schema exists, not yet emitted in production
   'team.context.injected': 'planned',
-  'shepherd.started': 'planned',
-  'shepherd.approval_requested': 'planned',
-  'shepherd.completed': 'planned',
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
@@ -490,11 +492,8 @@ export const RefinementSuggestedDataSchema = z.object({
 
 // ─── Shepherd Event Data ──────────────────────────────────────────────────
 
-/** @planned — not yet emitted in production */
 export const ShepherdStartedData = z.object({
-  prUrl: z.string(),
-  stackSize: z.number().int().nonnegative(),
-  ciStatus: z.string(),
+  featureId: z.string(),
 });
 
 export const ShepherdIterationData = z.object({
@@ -504,18 +503,13 @@ export const ShepherdIterationData = z.object({
   status: z.string(),
 });
 
-/** @planned — not yet emitted in production */
 export const ShepherdApprovalRequestedData = z.object({
   prUrl: z.string(),
-  reviewers: z.array(z.string()),
 });
 
-/** @planned — not yet emitted in production */
 export const ShepherdCompletedData = z.object({
   prUrl: z.string(),
-  merged: z.boolean(),
-  iterations: z.number().int().nonnegative(),
-  duration: z.number().nonnegative(),
+  outcome: z.string(),
 });
 
 // ─── Eval Event Data ────────────────────────────────────────────────────────
