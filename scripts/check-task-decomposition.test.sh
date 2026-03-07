@@ -465,6 +465,98 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 10: PlainNumericIds_AllFieldsPresent_ExitsZero
+# --------------------------------------------------
+# Tasks use "### Task 1:" format instead of "### Task T-01:"
+setup
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 1: Create the widget component with full rendering support
+
+**Description:** Build the widget rendering component that handles all display logic including template compilation and DOM updates for the main dashboard view.
+
+**Files:**
+- `src/components/widget.ts`
+- `src/components/widget.test.ts`
+
+**Tests:**
+- [RED] `Widget_Render_DisplaysContent` — verify widget renders content
+
+**Dependencies:** None
+**Parallelizable:** No
+
+### Task 2: Create the API client module for backend communication
+
+**Description:** Implement the HTTP client wrapper that handles authentication headers, retry logic, and response parsing for all backend API calls in the application.
+
+**Files:**
+- `src/api/client.ts`
+- `src/api/client.test.ts`
+
+**Tests:**
+- [RED] `ApiClient_Fetch_ReturnsData` — verify data fetching
+- [RED] `ApiClient_Error_ThrowsHttpError` — verify error handling
+
+**Dependencies:** None
+**Parallelizable:** Yes
+
+### Task 3: Create the state manager for application state
+
+**Description:** Build the centralized state management module that handles all application state transitions, subscriptions, and persistence using an event-sourced architecture pattern.
+
+**Files:**
+- `src/state/manager.ts`
+- `src/state/manager.test.ts`
+
+**Tests:**
+- [RED] `StateManager_Set_UpdatesState` — verify state update
+
+**Dependencies:** Task 1, Task 2
+**Parallelizable:** No
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "PlainNumericIds_AllFieldsPresent_ExitsZero"
+else
+    fail "PlainNumericIds_AllFieldsPresent_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 11: PlainNumericIds_MissingTests_ExitsOne
+# --------------------------------------------------
+setup
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 1: Create widget with full rendering
+
+**Description:** Build the widget rendering component that handles all display logic including template compilation and DOM updates for the main dashboard view.
+
+**Files:**
+- `src/components/widget.ts`
+
+**Dependencies:** None
+**Parallelizable:** No
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "PlainNumericIds_MissingTests_ExitsOne"
+else
+    fail "PlainNumericIds_MissingTests_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================

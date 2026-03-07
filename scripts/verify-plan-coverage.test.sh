@@ -735,6 +735,117 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 16: DesignRequirements_DRHeaders_ExitsZero
+# --------------------------------------------------
+# Design doc uses "## Design Requirements" with "### DR-N" headers
+# instead of "## Technical Design"
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Release Hardening
+
+## Problem Statement
+
+Preparing for public release.
+
+## Design Requirements
+
+### DR-1: Sensitive Document Removal
+
+Remove internal docs.
+
+### DR-2: Reference Scrub
+
+Scrub internal references.
+
+### DR-3: CI Hardening
+
+Add required status checks.
+
+## Out of Scope
+
+Not doing semantic-release.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 1: Sensitive document removal and gitignore hardening
+
+Implements DR-1. Move sensitive documents to other repo and remove from this one.
+
+### Task 2: Reference scrub across docs
+
+Implements DR-2. Scrub and replace internal reference URLs.
+
+### Task 3: CI hardening and branch protection
+
+Implements DR-3. Add required CI status checks and branch protection rules.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "DesignRequirements_DRHeaders_ExitsZero"
+else
+    fail "DesignRequirements_DRHeaders_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 17: DesignRequirements_GapFound_ExitsOne
+# --------------------------------------------------
+# Design doc uses "## Design Requirements" but a DR-N section has no matching task
+setup
+cat > "$TMPDIR_ROOT/design.md" << 'EOF'
+# Feature
+
+## Design Requirements
+
+### DR-1: Widget Component
+
+Build widget.
+
+### DR-2: Cache Layer
+
+Build cache.
+
+### DR-3: Monitoring Dashboard
+
+Add monitoring.
+EOF
+
+cat > "$TMPDIR_ROOT/plan.md" << 'EOF'
+# Implementation Plan
+
+## Tasks
+
+### Task 1: Build widget component
+
+Widget implementation.
+
+### Task 2: Build cache layer
+
+Cache implementation.
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --design-file "$TMPDIR_ROOT/design.md" --plan-file "$TMPDIR_ROOT/plan.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "DesignRequirements_GapFound_ExitsOne"
+else
+    fail "DesignRequirements_GapFound_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+if echo "$OUTPUT" | grep -qi "Monitoring"; then
+    pass "DesignRequirements_IdentifiesGap"
+else
+    fail "DesignRequirements_IdentifiesGap (expected 'Monitoring' in output)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================

@@ -5,7 +5,7 @@
 # Usage: verify-plan-coverage.sh --design-file <path> --plan-file <path>
 #
 # Exit codes:
-#   0 = complete coverage (every Technical Design subsection maps to >= 1 task)
+#   0 = complete coverage (every design subsection maps to >= 1 task)
 #   1 = gaps found (unmapped sections) or no '### Task' headers found in plan
 #   2 = usage error (missing required args, empty design, missing files)
 
@@ -30,7 +30,7 @@ Optional:
   --help                 Show this help message
 
 Exit codes:
-  0  Complete coverage (all Technical Design subsections mapped to tasks)
+  0  Complete coverage (all design subsections mapped to tasks)
   1  Gaps found (unmapped design sections)
   2  Usage error (missing required args, empty design, missing files)
 USAGE
@@ -86,9 +86,9 @@ fi
 # EXTRACT DESIGN SECTIONS
 # ============================================================
 
-# Extract design subsections under ## Technical Design.
+# Extract design subsections under ## Technical Design or ## Design Requirements.
 # Strategy:
-#   1. Collect all ### headers and their child #### headers within ## Technical Design
+#   1. Collect all ### headers and their child #### headers within the design section
 #   2. For each ### that has #### children, use the #### headers (more granular)
 #   3. For each ### that has NO #### children, use the ### header itself (fallback)
 
@@ -99,8 +99,9 @@ IN_TECH_DESIGN=false
 CURRENT_H3_INDEX=-1
 
 while IFS= read -r line; do
-    # Detect start of Technical Design section
-    if [[ "$line" =~ ^##[[:space:]]+Technical[[:space:]]+Design ]]; then
+    # Detect start of Technical Design or Design Requirements section
+    if [[ "$line" =~ ^##[[:space:]]+Technical[[:space:]]+Design ]] || \
+       [[ "$line" =~ ^##[[:space:]]+Design[[:space:]]+Requirements ]]; then
         IN_TECH_DESIGN=true
         continue
     fi
@@ -110,7 +111,7 @@ while IFS= read -r line; do
         continue
     fi
 
-    # Detect next ## section (end of Technical Design) — must NOT be ### or ####
+    # Detect next ## section (end of design section) — must NOT be ### or ####
     if [[ "$line" =~ ^##[[:space:]] && ! "$line" =~ ^### ]]; then
         IN_TECH_DESIGN=false
         continue
@@ -158,8 +159,8 @@ done
 
 # Validate we found sections
 if [[ -z "${DESIGN_SECTIONS+x}" ]] || [[ ${#DESIGN_SECTIONS[@]} -eq 0 ]]; then
-    echo "Error: No Technical Design subsections found in design document" >&2
-    echo "Expected ### headers under '## Technical Design'" >&2
+    echo "Error: No design subsections found in design document" >&2
+    echo "Expected ### headers under '## Technical Design' or '## Design Requirements'" >&2
     exit 2
 fi
 

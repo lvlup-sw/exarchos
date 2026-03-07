@@ -73,7 +73,8 @@ fi
 # ============================================================
 
 # Extract task IDs and their content blocks.
-# Each task starts with "### Task T-XX:" and ends at the next "### Task" or EOF.
+# Each task starts with "### Task T-XX:" or "### Task N:" and ends at the next "### Task" or EOF.
+# Accepts both "T-01" prefix format and plain numeric "1", "001" format.
 
 TASK_IDS=()
 TASK_BLOCKS=()
@@ -81,7 +82,7 @@ CURRENT_BLOCK=""
 CURRENT_ID=""
 
 while IFS= read -r line; do
-    if [[ "$line" =~ ^###[[:space:]]+Task[[:space:]]+(T-[0-9]+) ]]; then
+    if [[ "$line" =~ ^###[[:space:]]+Task[[:space:]]+(T-[0-9]+|[0-9]+) ]]; then
         # Save the previous block if any
         if [[ -n "$CURRENT_ID" ]]; then
             TASK_IDS+=("$CURRENT_ID")
@@ -103,7 +104,7 @@ fi
 
 # Validate we found tasks
 if [[ ${#TASK_IDS[@]} -eq 0 ]]; then
-    echo "Error: No '### Task T-XX' headers found in plan file: $PLAN_FILE" >&2
+    echo "Error: No '### Task' headers found in plan file: $PLAN_FILE" >&2
     exit 2
 fi
 
@@ -235,10 +236,18 @@ for i in "${!TASK_IDS[@]}"; do
         fi
     done <<< "$block"
 
-    # Parse T-XX references from deps_line
+    # Parse task ID references from deps_line (T-XX or plain numeric formats)
     dep_refs=""
     if [[ -n "$deps_line" && "$deps_line" != "None" && "$deps_line" != "none" ]]; then
+        # Try T-XX format first, fall back to plain numeric
         dep_refs="$(echo "$deps_line" | grep -oE 'T-[0-9]+' || true)"
+        if [[ -z "$dep_refs" ]]; then
+            # Extract quoted or standalone numeric IDs (e.g., "001", "002" or Task 1, Task 2)
+            dep_refs="$(echo "$deps_line" | grep -oE '"[0-9]+"' | tr -d '"' || true)"
+            if [[ -z "$dep_refs" ]]; then
+                dep_refs="$(echo "$deps_line" | grep -oE '[0-9]+' || true)"
+            fi
+        fi
     fi
 
     TASK_DEPS["$task_id"]="$dep_refs"
