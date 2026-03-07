@@ -8,7 +8,7 @@ Triage session failures for: "$ARGUMENTS"
 
 ## Skill Reference
 
-Follow the dogfood skill: `@skills/dogfood/SKILL.md`
+Follow the dogfood skill: `@.claude/skills/dogfood/SKILL.md`
 
 ## Quick Start
 

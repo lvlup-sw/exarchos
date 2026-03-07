@@ -28,6 +28,3 @@
 {"skill": "git-worktrees", "phrase": "create worktree", "expected": "trigger", "tags": ["obvious"]}
 {"skill": "git-worktrees", "phrase": "set up parallel workspace", "expected": "trigger", "tags": ["paraphrased"]}
 {"skill": "git-worktrees", "phrase": "sync schemas", "expected": "no-trigger", "tags": ["unrelated"]}
-{"skill": "dotnet-standards", "phrase": "check .NET standards", "expected": "trigger", "tags": ["obvious"]}
-{"skill": "dotnet-standards", "phrase": "validate C# conventions", "expected": "trigger", "tags": ["paraphrased"]}
-{"skill": "dotnet-standards", "phrase": "write TypeScript tests", "expected": "no-trigger", "tags": ["unrelated"]}
