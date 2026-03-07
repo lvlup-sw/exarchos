@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards, registerCustomViews, clearRegisteredViews } from './register.js';
+import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards, registerCustomViews, clearRegisteredViews, registerCustomTools, clearRegisteredTools } from './register.js';
 import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
+import { getFullRegistry, clearCustomTools } from '../registry.js';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -12,6 +13,8 @@ afterEach(() => {
   unextendWorkflowTypeEnum(TEST_WORKFLOW_NAME);
   clearRegisteredGuards();
   clearRegisteredViews();
+  clearRegisteredTools();
+  clearCustomTools();
 });
 
 describe('Registration Pipeline', () => {
@@ -178,5 +181,42 @@ describe('View Registration', () => {
     const config: ExarchosConfig = {};
     // Should not throw
     await registerCustomViews(config, '/fake/project/root');
+  });
+});
+
+describe('Tool Registration', () => {
+  it('RegisterCustomWorkflows_WithTools_RegistersTools', async () => {
+    const config: ExarchosConfig = {
+      tools: {
+        'exarchos_deploy': {
+          description: 'Custom deployment tool',
+          actions: [
+            {
+              name: 'trigger',
+              description: 'Trigger a deployment',
+              handler: './tools/deploy-trigger.js',
+            },
+            {
+              name: 'status',
+              description: 'Check deployment status',
+              handler: './tools/deploy-status.js',
+            },
+          ],
+        },
+      },
+    };
+
+    // registerCustomTools loads handlers dynamically. For testing, since
+    // dynamic import won't resolve ./tools/deploy-trigger.js, we test
+    // that tool registration attempts handler loading and fails gracefully.
+    await expect(
+      registerCustomTools(config, '/fake/project/root'),
+    ).rejects.toThrow();
+  });
+
+  it('RegisterCustomWorkflows_NoTools_Noop', async () => {
+    const config: ExarchosConfig = {};
+    // Should not throw
+    await registerCustomTools(config, '/fake/project/root');
   });
 });

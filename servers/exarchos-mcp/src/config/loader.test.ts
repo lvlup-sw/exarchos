@@ -175,4 +175,58 @@ describe('loadConfig', () => {
     // Act & Assert
     await expect(loadConfig(tmpDir)).rejects.toThrow('Invalid exarchos config');
   });
+
+  it('LoadConfig_WithTools_ParsesToolDefinitions', async () => {
+    // Arrange
+    const configContent = `
+      export default {
+        tools: {
+          'exarchos_deploy': {
+            description: 'Custom deployment tool',
+            actions: [
+              {
+                name: 'trigger',
+                description: 'Trigger a deployment',
+                handler: './tools/deploy-trigger.js',
+              },
+              {
+                name: 'status',
+                description: 'Check deployment status',
+                handler: './tools/deploy-status.js',
+              },
+            ],
+          },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act
+    const result = await loadConfig(tmpDir);
+
+    // Assert
+    expect(result.tools).toBeDefined();
+    expect(result.tools?.['exarchos_deploy']).toBeDefined();
+    expect(result.tools?.['exarchos_deploy'].description).toBe('Custom deployment tool');
+    expect(result.tools?.['exarchos_deploy'].actions).toHaveLength(2);
+    expect(result.tools?.['exarchos_deploy'].actions[0].name).toBe('trigger');
+    expect(result.tools?.['exarchos_deploy'].actions[0].handler).toBe('./tools/deploy-trigger.js');
+  });
+
+  it('LoadConfig_WithInvalidTools_Throws', async () => {
+    // Arrange — missing required description field
+    const configContent = `
+      export default {
+        tools: {
+          'bad-tool': {
+            actions: [],
+          },
+        },
+      };
+    `;
+    await fs.writeFile(path.join(tmpDir, 'exarchos.config.js'), configContent);
+
+    // Act & Assert
+    await expect(loadConfig(tmpDir)).rejects.toThrow('Invalid exarchos config');
+  });
 });

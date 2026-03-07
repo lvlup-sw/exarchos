@@ -77,8 +77,20 @@ export const viewDefinitionSchema = z.object({
   handler: z.string().min(1, 'View handler path must not be empty'),
 }).strict();
 
+export const toolActionDefinitionSchema = z.object({
+  name: z.string().min(1, 'Action name must not be empty'),
+  description: z.string().min(1, 'Action description must not be empty'),
+  handler: z.string().min(1, 'Action handler path must not be empty'),
+}).strict();
+
+export const toolDefinitionSchema = z.object({
+  description: z.string().min(1, 'Tool description must not be empty'),
+  actions: z.array(toolActionDefinitionSchema).min(1, 'Tool must have at least one action'),
+}).strict();
+
 export const exarchosConfigSchema = z.object({
   views: z.record(z.string(), viewDefinitionSchema).optional(),
+  tools: z.record(z.string(), toolDefinitionSchema).optional(),
   workflows: z.record(z.string(), workflowDefinitionSchema)
     .optional()
     .superRefine((workflows, ctx) => {
