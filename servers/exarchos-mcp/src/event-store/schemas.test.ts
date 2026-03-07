@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -40,6 +40,10 @@ import {
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
+  registerEventType,
+  unregisterEventType,
+  getValidEventTypes,
+  isBuiltInEventType,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -1671,5 +1675,122 @@ describe('ShepherdIterationData (updated)', () => {
       outcome: 'resolved',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── T9: registerEventType / unregisterEventType / getValidEventTypes ────
+
+import { z } from 'zod';
+
+describe('registerEventType', () => {
+  afterEach(() => {
+    // Clean up any custom event types registered during tests
+    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+    try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
+    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+  });
+
+  it('RegisterEventType_CustomType_AddsToValidEventTypes', () => {
+    registerEventType('deploy.started', { source: 'model' });
+
+    const valid = getValidEventTypes();
+    expect(valid).toContain('deploy.started');
+  });
+
+  it('RegisterEventType_BuiltInType_ThrowsCollisionError', () => {
+    expect(() =>
+      registerEventType('workflow.started', { source: 'auto' }),
+    ).toThrow(/built-in/i);
+  });
+
+  it('RegisterEventType_DuplicateCustomType_Throws', () => {
+    registerEventType('deploy.started', { source: 'model' });
+
+    expect(() =>
+      registerEventType('deploy.started', { source: 'hook' }),
+    ).toThrow(/already registered/i);
+  });
+
+  it('RegisterEventType_InvalidNameFormat_Throws', () => {
+    // No dot separator
+    expect(() =>
+      registerEventType('nodot', { source: 'model' }),
+    ).toThrow(/dot separator/i);
+
+    // Uppercase
+    expect(() =>
+      registerEventType('Deploy.Started', { source: 'model' }),
+    ).toThrow(/lowercase/i);
+
+    // Empty
+    expect(() =>
+      registerEventType('', { source: 'model' }),
+    ).toThrow();
+  });
+
+  it('RegisterEventType_WithSchema_RegistersInDataSchemas', () => {
+    const schema = z.object({ url: z.string() });
+    registerEventType('deploy.started', { source: 'hook', schema });
+
+    // The schema should be accessible in EVENT_DATA_SCHEMAS
+    expect(EVENT_DATA_SCHEMAS['deploy.started']).toBe(schema);
+  });
+
+  it('RegisterEventType_WithSource_RegistersInEmissionRegistry', () => {
+    registerEventType('deploy.started', { source: 'hook' });
+
+    expect(EVENT_EMISSION_REGISTRY['deploy.started']).toBe('hook');
+  });
+});
+
+describe('unregisterEventType', () => {
+  afterEach(() => {
+    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+  });
+
+  it('UnregisterEventType_CustomType_RemovesIt', () => {
+    registerEventType('deploy.started', { source: 'model' });
+    expect(getValidEventTypes()).toContain('deploy.started');
+
+    unregisterEventType('deploy.started');
+    expect(getValidEventTypes()).not.toContain('deploy.started');
+  });
+
+  it('UnregisterEventType_BuiltInType_Throws', () => {
+    expect(() =>
+      unregisterEventType('workflow.started'),
+    ).toThrow(/built-in/i);
+  });
+});
+
+describe('getValidEventTypes', () => {
+  afterEach(() => {
+    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+  });
+
+  it('GetValidEventTypes_ReturnsBuiltInPlusCustom', () => {
+    const beforeCount = getValidEventTypes().length;
+
+    registerEventType('custom.hello', { source: 'model' });
+
+    const after = getValidEventTypes();
+    expect(after.length).toBe(beforeCount + 1);
+    expect(after).toContain('custom.hello');
+
+    // All built-in types should still be present
+    for (const builtIn of EventTypes) {
+      expect(after).toContain(builtIn);
+    }
+  });
+});
+
+describe('isBuiltInEventType', () => {
+  it('IsBuiltInEventType_BuiltInType_ReturnsTrue', () => {
+    expect(isBuiltInEventType('workflow.started')).toBe(true);
+    expect(isBuiltInEventType('task.completed')).toBe(true);
+  });
+
+  it('IsBuiltInEventType_CustomType_ReturnsFalse', () => {
+    expect(isBuiltInEventType('deploy.started')).toBe(false);
   });
 });
