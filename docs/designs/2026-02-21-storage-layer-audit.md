@@ -21,13 +21,13 @@ The Exarchos MCP server uses JSONL files as its event store, JSON files for work
 
 These issues don't cause pain today at low event counts (<100 per workflow), but they create a scaling ceiling as event counts grow and block planned features like concurrent teammate access and real-time views.
 
-### Business Context
+### Design Context
 
-Exarchos is the **free-tier entry point** for the lvlup-sw SaaS model. Basileus (with Marten/PostgreSQL) is the paid tier. The local storage layer must:
+Exarchos is the **local-first** agent governance layer. The optional remote backend (Basileus, with Marten/PostgreSQL) provides cloud-tier persistence. The local storage layer must:
 
 - Be **self-contained** — zero infrastructure dependencies beyond Node.js and the filesystem
 - **Mirror Marten patterns** — same event sourcing + CQRS model, smaller scale
-- Support **offline-first** operation — no hard dependency on Basileus being deployed
+- Support **offline-first** operation — no hard dependency on a remote backend being deployed
 - Provide **human-readable debugging** — developers must be able to inspect workflow state with standard Unix tools
 
 ---

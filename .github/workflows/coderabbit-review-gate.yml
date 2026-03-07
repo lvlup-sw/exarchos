@@ -10,6 +10,7 @@ permissions:
 jobs:
   review-gate:
     if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
       github.event.review.user.login == 'coderabbitai[bot]' &&
       github.event.review.state != 'approved'
     runs-on: self-hosted

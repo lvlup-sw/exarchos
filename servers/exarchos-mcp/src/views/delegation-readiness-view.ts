@@ -36,7 +36,7 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
   }
 
   if (state.plan.taskCount === 0) {
-    blockers.push('no tasks assigned');
+    blockers.push('no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation');
   }
 
   if (!state.quality.queried) {
@@ -204,7 +204,7 @@ function handleWorktreeBaseline(
 export const delegationReadinessProjection: ViewProjection<DelegationReadinessState> = {
   init: (): DelegationReadinessState => ({
     ready: false,
-    blockers: ['plan not approved', 'no tasks assigned', 'quality signals not queried'],
+    blockers: ['plan not approved', 'no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation', 'quality signals not queried'],
     plan: { approved: false, taskCount: 0 },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },

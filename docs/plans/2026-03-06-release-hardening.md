@@ -8,7 +8,7 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 **Excluded:** None
 
 ## Summary
-- Total tasks: 12
+- Total tasks: 14
 - Parallel groups: 3
 - Design coverage: 9 of 9 requirements covered
 
@@ -16,9 +16,9 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 
 | Design Requirement | Task(s) | Key Requirements |
 |---|---|---|
-| DR-1: Sensitive Document Removal | Task 1 | Port 7 files to basileus, delete from exarchos |
-| DR-2: Basileus Reference Scrub | Task 2 | Replace `.local` URLs, verify code refs intact |
-| DR-3: Design Document Audit | Task 3 | Scan 45 design docs for sensitive terms |
+| DR-1: Sensitive Document Removal | Task 1 | Port 10 files to basileus, delete from exarchos |
+| DR-2: Basileus Reference Scrub | Task 2, Task 13 | Replace `.local` URLs, verify code refs intact, migrate issues |
+| DR-3: Design Document Audit | Task 3 | Scan 44 design docs for sensitive terms |
 | DR-4: CI Governance Hardening | Task 6, Task 7 | Required status checks, CODEOWNERS |
 | DR-5: Community Infrastructure | Task 8, Task 9 | SECURITY.md, CONTRIBUTING.md, discussion templates |
 | DR-6: README Refresh | Task 4, Task 5 | Verify commands, update stale refs, add badges |
@@ -239,6 +239,59 @@ Link: `docs/designs/2026-03-06-release-hardening.md`
 
 ---
 
+### Task 13: Migrate Basileus integration issues to Basileus repo
+**Implements:** DR-2 (reference scrub)
+**Phase:** EXECUTE → VERIFY
+
+1. [EXECUTE] Transfer 7 open `blocked:basileus` issues to Basileus repo:
+   - #528: feat: Semantic scoring layer for review triage
+   - #599: Epic: Streaming Sync Engine
+   - #600: Epic: Remote Event Types & Schema Mapping
+   - #601: Epic: Task Router
+   - #602: Epic: Notification Delivery Layer
+   - #603: Epic: Cross-Session Coordination
+   - #604: Epic: Agentic Coder Dispatch Integration
+   - Use `gh issue transfer <number> lvlup-sw/basileus` for each issue
+
+2. [EXECUTE] Clean up labels:
+   - Delete the `blocked:basileus` label from exarchos repo after all issues are transferred
+   - Delete the `mvp:phase4` and `mvp:phase5` labels if no remaining issues use them
+
+3. [VERIFY] Acceptance checks:
+   - `gh issue list --label "blocked:basileus"` returns empty
+   - `gh label list | grep "blocked:basileus"` returns empty
+   - `gh label list | grep "mvp:phase4"` returns empty
+   - `gh label list | grep "mvp:phase5"` returns empty
+   - Transferred issues are visible in basileus repo
+
+**Dependencies:** None
+**Parallelizable:** Yes (Group B)
+
+---
+
+### Task 14: Fix dogfood findings (plan-review field shape, prepare_delegation blocker)
+**Implements:** Internal quality
+**Phase:** EXECUTE → VERIFY
+
+1. [EXECUTE] Fix plan-review compactGuidance field shape:
+   - Locate the HSM/workflow engine phase playbook definition for `plan-review`
+   - Update `compactGuidance` to specify the exact field shape: `updates: { planReview: { approved: true } }`
+   - The current guidance says "Use exarchos_workflow set to record review decision" without specifying the payload
+
+2. [EXECUTE] Document prepare_delegation "no tasks assigned" blocker:
+   - Locate the `prepare_delegation` handler in the MCP server code
+   - Determine what "no tasks assigned" actually checks (workflow state task assignment metadata?)
+   - Improve the blocker message so it states the exact missing prerequisite and next action
+
+3. [VERIFY] Acceptance checks:
+   - `plan-review` phase compactGuidance includes explicit `planReview.approved` field shape
+   - `prepare_delegation` returns an actionable message that names the missing prerequisite when delegation cannot proceed
+
+**Dependencies:** None
+**Parallelizable:** Yes (Group B)
+
+---
+
 ### Task 11: Changelog and version tag sync
 **Implements:** DR-7
 **Phase:** EXECUTE → VERIFY
@@ -292,6 +345,8 @@ Group B (parallel, independent — can start immediately):
   Task 8: Create SECURITY.md
   Task 9: Create CONTRIBUTING.md + discussion templates
   Task 10: Self-hosted runner fork guard
+  Task 13: Migrate Basileus integration issues to Basileus repo
+  Task 14: Fix dogfood findings (plan-review field shape, prepare_delegation blocker)
 
 Group C (sequential, must be last):
   Task 11: Changelog + version tag (after all other tasks)
@@ -319,4 +374,6 @@ Groups A and B can run concurrently. Group C runs after both complete.
 - [ ] Issue templates updated (Jules removed)
 - [ ] Self-hosted runner fork guards added
 - [ ] Changelog updated and version tag created
+- [ ] Basileus integration issues migrated to basileus repo
+- [ ] Dogfood findings fixed (plan-review guidance, prepare_delegation docs)
 - [ ] Final validation sweep passes

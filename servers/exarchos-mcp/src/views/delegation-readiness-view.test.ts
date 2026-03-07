@@ -28,7 +28,7 @@ describe('DelegationReadinessView', () => {
 
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('plan not approved');
-      expect(state.blockers).toContain('no tasks assigned');
+      expect(state.blockers).toContain('no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation');
       expect(state.blockers).toContain('quality signals not queried');
       expect(state.plan).toEqual({ approved: false, taskCount: 0 });
       expect(state.quality).toEqual({
@@ -146,7 +146,7 @@ describe('DelegationReadinessView', () => {
 
       expect(next.plan.taskCount).toBe(1);
       expect(next.worktrees.expected).toBe(1);
-      expect(next.blockers).not.toContain('no tasks assigned');
+      expect(next.blockers).not.toContain('no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation');
     });
 
     it('Apply_MultipleTasksAssigned_IncrementsCorrectly', () => {

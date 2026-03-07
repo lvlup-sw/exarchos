@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   update-prs:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: self-hosted
     steps:
       - uses: actions/setup-node@v6
