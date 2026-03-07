@@ -468,7 +468,8 @@ describe('runSuite — event emission', () => {
     expect(types[0]).toBe('eval.run.started');
     expect(types[types.length - 1]).toBe('eval.run.completed');
     const middleTypes = types.slice(1, -1);
-    expect(middleTypes.every((t: unknown) => t === 'eval.case.completed')).toBe(true);
+    const allowedMiddle = new Set(['eval.case.completed', 'eval.judge.calibrated']);
+    expect(middleTypes.every((t: unknown) => allowedMiddle.has(t as string))).toBe(true);
   });
 
   it('runSuite_WithoutEventStore_NoEventsEmitted', async () => {
@@ -738,6 +739,97 @@ describe('discoverSuites_RealEvalSuites', () => {
     expect(skills).toEqual(
       expect.arrayContaining(['brainstorming', 'implementation-planning', 'refactor', 'debug']),
     );
+  });
+});
+
+// ─── T7: eval.judge.calibrated emission ──────────────────────────────────────
+
+describe('runSuite — eval.judge.calibrated emission', () => {
+  it('runSuite_WithEventStore_EmitsJudgeCalibratedEvent', async () => {
+    // Arrange: cases with a mix of pass/fail to produce calibration metrics
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+      makeEvalCase('c-2', { input: { value: 'b' }, expected: { value: 'b' } }),
+      makeEvalCase('c-3', { input: { value: 'c' }, expected: { value: 'different' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('calibration-suite', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — should emit eval.judge.calibrated after grading
+    const calibratedCalls = mockStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type === 'eval.judge.calibrated',
+    );
+    expect(calibratedCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the event data shape matches the schema
+    const data = (calibratedCalls[0][1] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(data).toHaveProperty('skill');
+    expect(data).toHaveProperty('rubricName');
+    expect(data).toHaveProperty('split');
+    expect(data).toHaveProperty('tpr');
+    expect(data).toHaveProperty('tnr');
+    expect(data).toHaveProperty('accuracy');
+    expect(data).toHaveProperty('f1');
+    expect(data).toHaveProperty('goldStandardVersion');
+    expect(data).toHaveProperty('rubricVersion');
+
+    // Verify metrics are numbers in [0, 1]
+    expect(data.tpr).toBeGreaterThanOrEqual(0);
+    expect(data.tpr).toBeLessThanOrEqual(1);
+    expect(data.tnr).toBeGreaterThanOrEqual(0);
+    expect(data.tnr).toBeLessThanOrEqual(1);
+    expect(data.accuracy).toBeGreaterThanOrEqual(0);
+    expect(data.accuracy).toBeLessThanOrEqual(1);
+    expect(data.f1).toBeGreaterThanOrEqual(0);
+    expect(data.f1).toBeLessThanOrEqual(1);
+  });
+
+  it('runSuite_WithoutEventStore_NoJudgeCalibratedEmitted', async () => {
+    // Arrange
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('no-calibration', config, { main: cases });
+
+    // Act — no eventStore, should not throw
+    const summary = await runSuite(config, tmpDir, suiteDir, registry);
+
+    // Assert
+    expect(summary.total).toBe(1);
+  });
+
+  it('runSuite_CalibratedEvent_EmittedBeforeRunCompleted', async () => {
+    // Arrange
+    const cases = [
+      makeEvalCase('c-1', { input: { value: 'a' }, expected: { value: 'a' } }),
+    ];
+    const config = makeValidSuiteConfig();
+    const suiteDir = await createSuite('order-calibration', config, { main: cases });
+    const mockStore = createMockEventStore();
+
+    // Act
+    await runSuite(config, tmpDir, suiteDir, registry, {
+      eventStore: mockStore,
+      streamId: 'eval-stream',
+    });
+
+    // Assert — calibrated events come before run.completed
+    const types = mockStore.append.mock.calls.map(
+      (call: unknown[]) => (call[1] as Record<string, unknown>).type,
+    );
+    const calibratedIndex = types.indexOf('eval.judge.calibrated');
+    const completedIndex = types.indexOf('eval.run.completed');
+    expect(calibratedIndex).toBeGreaterThan(-1);
+    expect(completedIndex).toBeGreaterThan(-1);
+    expect(calibratedIndex).toBeLessThan(completedIndex);
   });
 });
 
