@@ -330,7 +330,64 @@ else
 fi
 
 # --------------------------------------------------
-# Test 15: PrNumberFlag_FetchesBody (mock)
+# Test 15: BodyFile_ValidBody_ExitsZero
+# --------------------------------------------------
+TMPDIR_ROOT="$(mktemp -d)"
+BODY_FILE="$TMPDIR_ROOT/pr-body.md"
+cat > "$BODY_FILE" <<'EOF'
+## Summary
+
+This PR adds a feature.
+
+## Changes
+
+- **Component** — Changed something
+
+## Test Plan
+
+Added tests.
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --body-file "$BODY_FILE" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "BodyFile_ValidBody_ExitsZero"
+else
+    fail "BodyFile_ValidBody_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+rm -rf "$TMPDIR_ROOT"
+
+# --------------------------------------------------
+# Test 16: BodyFile_MissingSections_ExitsOne
+# --------------------------------------------------
+TMPDIR_ROOT="$(mktemp -d)"
+BODY_FILE="$TMPDIR_ROOT/pr-body.md"
+cat > "$BODY_FILE" <<'EOF'
+## Summary
+
+This PR adds a feature.
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --body-file "$BODY_FILE" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "BodyFile_MissingSections_ExitsOne"
+else
+    fail "BodyFile_MissingSections_ExitsOne (exit=$EXIT_CODE, expected 1)"
+    echo "  Output: $OUTPUT"
+fi
+rm -rf "$TMPDIR_ROOT"
+
+# --------------------------------------------------
+# Test 17: BodyFile_NotFound_ExitsTwo
+# --------------------------------------------------
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --body-file "/nonexistent/body.md" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "BodyFile_NotFound_ExitsTwo"
+else
+    fail "BodyFile_NotFound_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
+
+# --------------------------------------------------
+# Test 18: PrNumberFlag_FetchesBody (mock)
 # --------------------------------------------------
 # This test verifies --pr flag parsing, not actual GH API
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" --pr 999 --dry-run 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?

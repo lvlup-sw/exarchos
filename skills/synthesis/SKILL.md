@@ -58,16 +58,15 @@ For the full breakdown of individual checks the composite action performs, see `
 
 If any quality hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user before proceeding.
 
-### Step 2: Write PR Descriptions
+### Step 2: Write and Validate PR Descriptions
 
-For each PR in the stack, write a structured description following `references/pr-descriptions.md`.
+For each PR in the stack, write a structured description following `references/pr-descriptions.md`. Required sections: **Summary**, **Changes**, **Test Plan**, plus a footer. Projects can override required sections via `.exarchos/pr-template.md`.
 
 **Title format:** `<type>: <what>` (max 72 chars)
-**Body structure:** Summary (2-3 sentences) -> Changes (bulleted) -> Test Plan -> Footer
 
-After PR creation (Step 3), update each PR's metadata:
+Write the PR body to a temp file:
 ```bash
-gh pr edit <number> --title "<type>: <what>" --body "$(cat <<'EOF'
+cat > /tmp/pr-body.md <<'EOF'
 ## Summary
 [2-3 sentences: what changed, why it matters]
 
@@ -82,19 +81,25 @@ gh pr edit <number> --title "<type>: <what>" --body "$(cat <<'EOF'
 **Design:** [doc](path)
 **Related:** #issue
 EOF
-)"
 ```
 
-Validate each PR body with `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })`. Projects can override the template via `.exarchos/pr-template.md`.
+Validate **before** creating the PR:
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "run_script",
+  script: "validate-pr-body.sh",
+  args: ["--body-file", "/tmp/pr-body.md"]
+})
+```
 
-For the complete template, examples, and anti-patterns, see `references/pr-descriptions.md`.
+**Do NOT call `gh pr create` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs for each stack branch and enable auto-merge:
+Create PRs using the validated body and enable auto-merge:
 ```bash
 # For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body "<pr-body>"
+gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
 gh pr merge <number> --auto --squash
 ```
 

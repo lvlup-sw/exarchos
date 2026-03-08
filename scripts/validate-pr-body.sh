@@ -5,6 +5,7 @@
 # Usage:
 #   echo "$PR_BODY" | validate-pr-body.sh
 #   validate-pr-body.sh --pr 906 [--repo owner/repo]
+#   validate-pr-body.sh --body-file /tmp/pr-body.md
 #   validate-pr-body.sh --template path/to/template.md < body.md
 #   validate-pr-body.sh --dry-run --pr 906
 #
@@ -24,6 +25,7 @@ REPO=""
 AUTHOR=""
 HEAD_REF=""
 TEMPLATE=""
+BODY_FILE=""
 DRY_RUN=false
 
 # ─── Parse Arguments ──────────────────────────────────────────────────────────
@@ -48,6 +50,11 @@ while [[ $# -gt 0 ]]; do
     --head-ref)
       [[ $# -ge 2 ]] || { echo "Missing value for --head-ref" >&2; exit 2; }
       HEAD_REF="$2"
+      shift 2
+      ;;
+    --body-file)
+      [[ $# -ge 2 ]] || { echo "Missing value for --body-file" >&2; exit 2; }
+      BODY_FILE="$2"
       shift 2
       ;;
     --template)
@@ -75,7 +82,14 @@ fi
 # ─── Fetch PR Body ───────────────────────────────────────────────────────────
 
 BODY=""
-if [[ -n "$PR_NUMBER" ]]; then
+if [[ -n "$BODY_FILE" ]]; then
+  # Read from file (pre-creation validation)
+  if [[ ! -f "$BODY_FILE" ]]; then
+    echo "Body file not found: $BODY_FILE" >&2
+    exit 2
+  fi
+  BODY=$(cat "$BODY_FILE")
+elif [[ -n "$PR_NUMBER" ]]; then
   # Fetch from GitHub API
   REPO_FLAG=""
   if [[ -n "$REPO" ]]; then
