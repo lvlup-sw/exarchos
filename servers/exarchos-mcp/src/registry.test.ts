@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   buildCompositeSchema,
   buildRegistrationSchema,
+  buildToolDescription,
   coercedRecord,
   coercedPositiveInt,
   coercedNonnegativeInt,
@@ -829,5 +830,64 @@ describe('Dynamic Tool Registration', () => {
     expect(
       () => registerCustomTool(customTool),
     ).toThrow(/already registered/i);
+  });
+});
+
+// ─── Gate Metadata Tests ──────────────────────────────────────────────────────
+
+describe('Gate Metadata', () => {
+  it('GateMetadata_CheckActions_HaveGateField', () => {
+    const checkActions = [
+      'check_tdd_compliance', 'check_static_analysis', 'check_security_scan',
+      'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
+      'check_review_verdict', 'check_convergence', 'check_provenance_chain',
+      'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
+      'check_post_merge',
+    ];
+    for (const composite of TOOL_REGISTRY) {
+      for (const action of composite.actions) {
+        if (checkActions.includes(action.name)) {
+          expect(action.gate, `${action.name} should have gate metadata`).toBeDefined();
+          expect(typeof action.gate!.blocking).toBe('boolean');
+        }
+      }
+    }
+  });
+});
+
+// ─── Slim Description Tests ───────────────────────────────────────────────────
+
+describe('Slim Description', () => {
+  it('SlimDescription_AllVisibleTools_HaveSlimDescription', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      expect(tool.slimDescription, `${tool.name} should have slimDescription`).toBeDefined();
+      expect(tool.slimDescription!.length).toBeGreaterThan(0);
+      expect(tool.slimDescription!).toContain('describe');  // Must mention describe action
+    }
+  });
+});
+
+// ─── Dual Mode buildToolDescription Tests ─────────────────────────────────────
+
+describe('buildToolDescription dual mode', () => {
+  it('BuildToolDescription_SlimMode_ReturnsSlimDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool, true);
+    expect(desc).toBe(tool.slimDescription);
+  });
+
+  it('BuildToolDescription_FullMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const full = buildToolDescription(tool, false);
+    expect(full).toContain('Actions:');
+    expect(full).toContain('- init(');
+  });
+
+  it('BuildToolDescription_DefaultMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool);
+    expect(desc).toContain('Actions:');
+    expect(desc).toContain('- init(');
   });
 });

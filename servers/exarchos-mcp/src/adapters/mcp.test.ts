@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventStore } from '../event-store/store.js';
-import { TOOL_REGISTRY } from '../registry.js';
+import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 // Mock the state-store module
@@ -54,5 +54,26 @@ describe('createMcpServer', () => {
     expect(server).toBeDefined();
     // Verify the expected number of tools are in the registry
     expect(TOOL_REGISTRY.length).toBe(5);
+  });
+
+  it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
+    // Arrange: create context with slimRegistration enabled
+    const slimCtx: DispatchContext = { ...ctx, slimRegistration: true };
+    const { createMcpServer } = await import('./mcp.js');
+
+    // Act: buildToolDescription with slim=true should return slim descriptions
+    const visibleTools = TOOL_REGISTRY.filter(t => !t.hidden);
+    for (const tool of visibleTools) {
+      const slimDesc = buildToolDescription(tool, true);
+      const fullDesc = buildToolDescription(tool, false);
+
+      // Assert: slim description should be different (shorter) than full description
+      expect(slimDesc).toBe(tool.slimDescription);
+      expect(slimDesc.length).toBeLessThan(fullDesc.length);
+    }
+
+    // Assert: server creates successfully with slim context
+    const server = createMcpServer(slimCtx);
+    expect(server).toBeDefined();
   });
 });

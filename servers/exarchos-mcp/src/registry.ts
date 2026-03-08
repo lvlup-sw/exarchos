@@ -63,6 +63,11 @@ export interface CliToolHints {
   readonly group?: string;
 }
 
+export interface GateMetadata {
+  readonly blocking: boolean;
+  readonly dimension?: string;
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -70,6 +75,7 @@ export interface ToolAction {
   readonly phases: ReadonlySet<string>;
   readonly roles: ReadonlySet<string>;
   readonly cli?: CliActionHints;
+  readonly gate?: GateMetadata;
 }
 
 export interface CompositeTool {
@@ -79,6 +85,8 @@ export interface CompositeTool {
   readonly cli?: CliToolHints;
   /** When true, the tool is excluded from MCP registration (not exposed to agents). CLI access is preserved. */
   readonly hidden?: boolean;
+  /** One-line summary for slim MCP registration. Used when slimRegistration is enabled. */
+  readonly slimDescription?: string;
 }
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
@@ -177,7 +185,10 @@ export function buildRegistrationSchema(
  * Builds a tool description that includes action signatures.
  * Appends action names and their parameters to the base description.
  */
-export function buildToolDescription(tool: CompositeTool): string {
+export function buildToolDescription(tool: CompositeTool, slim = false): string {
+  if (slim && tool.slimDescription) {
+    return tool.slimDescription;
+  }
   const actionSigs = tool.actions.map((action) => {
     const fields = Object.entries(action.schema.shape);
     const params = fields.map(([key, zodType]) => {
@@ -485,6 +496,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D2' },
   },
   {
     name: 'check_security_scan',
@@ -496,6 +508,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D1' },
   },
   {
     name: 'check_context_economy',
@@ -507,6 +520,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D3' },
   },
   {
     name: 'check_operational_resilience',
@@ -518,6 +532,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D4' },
   },
   {
     name: 'check_workflow_determinism',
@@ -529,6 +544,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D5' },
   },
   {
     name: 'check_review_verdict',
@@ -546,6 +562,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true },
   },
   {
     name: 'check_convergence',
@@ -556,6 +573,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false },
   },
   {
     name: 'check_provenance_chain',
@@ -567,6 +585,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
   },
   {
     name: 'check_design_completeness',
@@ -578,6 +597,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['ideate', 'plan']),
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D1' },
   },
   {
     name: 'check_plan_coverage',
@@ -589,6 +609,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
   },
   {
     name: 'check_tdd_compliance',
@@ -601,6 +622,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
   },
   {
     name: 'check_post_merge',
@@ -612,6 +634,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D4' },
   },
   {
     name: 'check_task_decomposition',
@@ -622,6 +645,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D5' },
   },
   {
     name: 'check_event_emissions',
@@ -813,24 +837,28 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, and reconcile workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile',
   },
   {
     name: 'exarchos_event',
     description: 'Event sourcing — append and query events in streams',
     actions: eventActions,
     cli: { alias: 'ev' },
+    slimDescription: 'Event sourcing — append and query events. Use describe(actions) for schemas.\n\nActions: append, query, batch_append',
   },
   {
     name: 'exarchos_orchestrate',
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
+    slimDescription: 'Task coordination, quality gates, and script execution. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, run_script',
   },
   {
     name: 'exarchos_view',
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
   },
   {
     name: 'exarchos_sync',
@@ -838,6 +866,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     actions: syncActions,
     cli: { alias: 'sy' },
     hidden: true,
+    slimDescription: 'Remote synchronization. Use describe(actions) for schemas.\n\nActions: now',
   },
 ];
 
