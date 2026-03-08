@@ -83,8 +83,8 @@ function makeCalibrationEvent(seq: number, opts: {
     tpr: opts.tpr,
     tnr: opts.tnr,
     accuracy: opts.accuracy ?? 0.87,
-    totalCases: opts.totalCases ?? 30,
     f1: opts.f1 ?? 0.88,
+    tp: 27, fp: 2, tn: 25, fn: 3,
     goldStandardVersion: '1.0.0',
     rubricVersion: '1.0.0',
   }, seq);

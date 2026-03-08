@@ -293,9 +293,11 @@ export async function runSuite(
         const ar = result.assertions.find((a) => a.name === assertion.name);
         if (!ar || ar.skipped) continue;
 
-        // Gold standard: the case passed overall (expected matches output)
-        // Prediction: this specific assertion passed
-        const goldPositive = result.passed;
+        // Gold standard: per-assertion expected outcome (defaults to true
+        // when the assertion is expected to pass, i.e. the case is valid)
+        const goldPositive = (ar as Record<string, unknown>).expected !== undefined
+          ? Boolean((ar as Record<string, unknown>).expected)
+          : result.passed;
         const predicted = ar.passed;
 
         if (goldPositive && predicted) tp++;
@@ -316,7 +318,7 @@ export async function runSuite(
         ? 2 * (precision * recall) / (precision + recall)
         : 0;
 
-      const split = 'validation';
+      const split = options?.layer === 'capability' ? 'test' : 'validation';
 
       await eventStore.append(streamId, {
         type: 'eval.judge.calibrated',

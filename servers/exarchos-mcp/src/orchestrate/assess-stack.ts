@@ -346,26 +346,26 @@ async function emitShepherdApprovalRequested(
   });
 }
 
-function queryPrMergeState(prNumber: number): boolean {
+function queryPrMergeState(prNumber: number): number | null {
   try {
     const output = execSync(
       `gh pr view ${prNumber} --json state --jq '.state'`,
       { encoding: 'utf-8', timeout: 30_000 },
     );
-    return output.trim() === 'MERGED';
+    return output.trim() === 'MERGED' ? prNumber : null;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query PR merge state');
-    return false;
+    return null;
   }
 }
 
 async function emitShepherdCompleted(
   eventStore: EventStore,
   featureId: string,
-  prNumbers: readonly number[],
+  mergedPr: number,
 ): Promise<void> {
-  const prUrl = `PR#${prNumbers[0]}`;
+  const prUrl = `PR#${mergedPr}`;
   await eventStore.append(featureId, {
     type: 'shepherd.completed' as const,
     data: { prUrl, outcome: 'merged' },
@@ -407,9 +407,10 @@ export async function handleAssessStack(
   }
 
   // Check if any PR is merged → emit shepherd.completed
-  const anyMerged = args.prNumbers.some(queryPrMergeState);
+  const mergedPr = args.prNumbers.map(queryPrMergeState).find((pr) => pr !== null);
+  const anyMerged = mergedPr !== undefined && mergedPr !== null;
   if (anyMerged) {
-    await emitShepherdCompleted(eventStore, args.featureId, args.prNumbers);
+    await emitShepherdCompleted(eventStore, args.featureId, mergedPr);
   }
 
   // Query status for each PR

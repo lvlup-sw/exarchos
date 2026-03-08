@@ -903,7 +903,8 @@ export function getCustomToolActionHandler(
  * Check if a custom tool has any registered handlers.
  */
 export function hasCustomToolHandlers(toolName: string): boolean {
-  return customToolHandlers.has(toolName);
+  const actionMap = customToolHandlers.get(toolName);
+  return actionMap !== undefined && actionMap.size > 0;
 }
 
 /**

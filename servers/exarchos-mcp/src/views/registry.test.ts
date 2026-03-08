@@ -18,10 +18,12 @@ const counterProjection: ViewProjection<CounterView> = {
 
 function makeEvent(sequence: number): WorkflowEvent {
   return {
+    streamId: 'test-stream',
     type: 'test.event',
     data: {},
     timestamp: new Date().toISOString(),
     sequence,
+    schemaVersion: '1.0',
   };
 }
 

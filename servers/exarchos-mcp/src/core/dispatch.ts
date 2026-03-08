@@ -2,7 +2,7 @@ import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ExarchosConfig } from '../config/define.js';
 import { withTelemetry } from '../telemetry/middleware.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler } from '../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 
 // Composite handlers
 import { handleWorkflow } from '../workflow/composite.js';
@@ -58,13 +58,13 @@ function createCustomToolHandler(
   toolName: string,
 ): (args: Record<string, unknown>) => Promise<ToolResult> {
   return async (args: Record<string, unknown>): Promise<ToolResult> => {
-    const actionName = args.action as string | undefined;
-    if (!actionName) {
+    const actionName = args.action;
+    if (typeof actionName !== 'string' || !actionName) {
       return {
         success: false,
         error: {
           code: 'MISSING_ACTION',
-          message: `Custom tool "${toolName}" requires an "action" field`,
+          message: `Custom tool "${toolName}" requires an "action" field (string)`,
         },
       };
     }
@@ -112,7 +112,7 @@ export async function dispatch(
       success: false,
       error: {
         code: 'UNKNOWN_TOOL',
-        message: `Unknown tool: ${tool}. Available tools: ${Object.keys(COMPOSITE_HANDLERS).join(', ')}`,
+        message: `Unknown tool: ${tool}. Available tools: ${getFullRegistry().map((t) => t.name).join(', ')}`,
       },
     };
   }
