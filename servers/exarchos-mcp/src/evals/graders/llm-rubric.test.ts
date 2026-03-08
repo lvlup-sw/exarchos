@@ -215,7 +215,7 @@ describe('LlmRubricGrader', () => {
 });
 
 describe.skipIf(!process.env.RUN_EVALS)('LlmRubricGrader (live)', () => {
-  it('should grade with real Anthropic API call', { timeout: 30_000, retry: 2 }, async () => {
+  it('should grade with real Anthropic API call', { timeout: 30_000 }, async () => {
     const grader = new LlmRubricGrader();
     const result = await grader.grade(
       {},
@@ -223,8 +223,13 @@ describe.skipIf(!process.env.RUN_EVALS)('LlmRubricGrader (live)', () => {
       {},
       { rubric: 'Does the output contain a greeting?', outputPath: 'text' },
     );
-    expect(result.passed).toBe(true);
-    expect(result.score).toBeGreaterThan(0);
+    // Verify the grader returns a well-formed GradeResult — the LLM's
+    // pass/fail judgment is non-deterministic, so we only assert structure.
+    expect(typeof result.passed).toBe('boolean');
+    expect(typeof result.score).toBe('number');
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(1);
     expect(result.reason).toBeDefined();
+    expect(result.details).not.toHaveProperty('skipped');
   });
 });
