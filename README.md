@@ -9,28 +9,10 @@
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
   [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-  [Install](#install) · [What You Get](#what-you-get) · [Workflows](#workflows) · [Docs](docs/)
+  [Install](#install) · [What You Get](#what-you-get) · [Architecture](#agent-first-architecture) · [Workflows](#workflows) · [Docs](docs/)
 </div>
 
 ---
-
-<!-- TODO: Hero demo — uncomment the block below after creating docs/assets/demo-rehydrate.gif
-     What to record:
-       1. Mid-feature workflow: show /checkpoint saving state
-       2. New session: show /rehydrate restoring phase, tasks, artifact pointers
-       3. Agent continues exactly where it left off
-     Tools: vhs (https://github.com/charmbracelet/vhs) or asciinema + agg
-     Specs: 720px wide, 15-20s, dark terminal, no typing delays > 50ms
-     See docs/assets/PRODUCTION-GUIDE.md for full instructions
-
-<div align="center">
-  <a href="docs/assets/demo-rehydrate.gif">
-    <img src="docs/assets/demo-rehydrate.gif" alt="Checkpoint a workflow mid-feature, rehydrate in a new session — full awareness restored in ~2k tokens" width="720" />
-  </a>
-  <br>
-  <sub>Checkpoint mid-feature. Rehydrate next day. Full workflow restored in ~2k tokens.</sub>
-</div>
--->
 
 ## You probably already do this
 
@@ -44,16 +26,16 @@ The plan-file workflow is the right instinct. Markdown files just can't persist 
 
 ## Your plan.md workflow, with teeth
 
-Exarchos replaces markdown files with an event-sourced MCP server. An HSM state machine enforces phase transitions — design, plan, implement, review, ship — with quality gates between each step. Parallel agents execute in isolated git worktrees while the verification flywheel continuously validates output.
+Exarchos replaces markdown files with an event-sourced MCP server. A state machine enforces phase transitions (design, plan, implement, review, ship) with quality gates between each step. Parallel agents execute in isolated git worktrees. Lifecycle hooks run validation scripts automatically, so the agent can't skip steps even if it wants to.
 
 When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Design docs, plans, and PR links persist as references, never inlined into context. Your workflow picks up where it left off.
 
 <div align="center">
   <a href="docs/assets/architecture.svg">
-    <img src="docs/assets/architecture.svg" alt="Exarchos architecture: workflow pipeline, HSM state machine, agent teams in worktrees, verification flywheel with evals and benchmarks, layered quality gates" width="720" />
+    <img src="docs/assets/architecture.svg" alt="Exarchos architecture: workflow pipeline, state machine, agent teams in worktrees, quality gates" width="720" />
   </a>
   <br>
-  <sub>Click to view animated version — workflow phases, agent dispatch, verification flywheel, quality gates.</sub>
+  <sub>Architecture: workflow phases, agent dispatch, quality gates.</sub>
 </div>
 
 ## Install
@@ -66,7 +48,7 @@ When context compaction hits (or you close your laptop and come back Monday), ru
 
 That's it. Installs the MCP server, all workflow commands, lifecycle hooks, and validation scripts.
 
-**Dev companion** (optional — adds GitHub, Serena, Context7, Microsoft Learn MCP servers):
+**Dev companion** (optional, adds Serena, Context7, and Microsoft Learn MCP servers):
 ```bash
 npx @lvlup-sw/exarchos-dev
 ```
@@ -80,47 +62,77 @@ npm install && npm run build
 claude --plugin-dir .
 ```
 
-Requires Node.js >= 20. Migrating from the legacy installer? See the [migration guide](docs/migration-from-legacy-installer.md).
+Requires Node.js >= 20.
 </details>
 
 ## What you get
 
-**Structured SDLC workflows.** Design, plan, implement, review, ship. Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve twice: the design and the merge. Everything between auto-continues.
+Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve twice: the design and the merge. Everything between auto-continues.
 
-**Checkpoint + rehydrate.** Save mid-task, resume days later. `/rehydrate` restores full awareness in ~2-3k tokens instead of re-explaining your project from scratch.
+**Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens. No re-explaining your project from scratch when you come back the next day.
 
-**Native Task delegation.** Delegate to parallel Claude Code instances (subagents or agent teams), each in its own git worktree.
+**Native Task delegation.** Delegate to parallel Claude Code instances, each in its own git worktree. The orchestrator tracks their progress and runs quality gates on completion.
 
-**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic verification scripts, not vibes.
+**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Verification scripts, not vibes.
 
-**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you can trace what happened.
+**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you can trace exactly what happened and why.
 
-**Token-efficient.** State queries use field projection (90% fewer tokens). Code review sends diffs, not full files (97% savings on large repos).
+**Token-efficient.** State queries use field projection (90% fewer tokens). Code review sends diffs, not full files.
 
-Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint. Teammates execute in isolated git worktrees.
+Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint.
 
+### Agent-first architecture
+
+Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude Code spawns it as a stdio MCP server and talks to it with structured JSON. Four composite tools cover the surface:
+
+| Tool | What it does |
+|------|-------------|
+| `exarchos_workflow` | Workflow lifecycle: init, get, set, cancel, cleanup, reconcile |
+| `exarchos_event` | Append-only event store: append, query, batch |
+| `exarchos_orchestrate` | Team coordination: task dispatch, review triage, script execution |
+| `exarchos_view` | CQRS projections: pipeline status, task boards, stack health |
+
+Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so you can call `exarchos workflow get --featureId my-feature` from a terminal and get the same result the agent gets. Lifecycle hooks (pre-compact, session-start, guard, task-gate) run as fast-path subcommands that skip heavy initialization.
+
+The design is agent-first: structured input over natural language, strict schema validation over loose parsing, and a single binary that does one thing whether an agent or a human is driving it.
 
 ### Integrations
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| **Exarchos** | Core plugin | Workflow orchestration, event log, team coordination, quality gates |
-| **GitHub** | [Dev companion](companion/) | PRs, issues, code search, stacked PR management |
-| **Serena** | [Dev companion](companion/) | Semantic code analysis |
-| **Context7** | [Dev companion](companion/) | Up-to-date library documentation |
-| **Microsoft Learn** | [Dev companion](companion/) | Official Azure/.NET documentation |
+| Exarchos | Core plugin | Workflow state, event log, team coordination, quality gates |
+| Serena | [Dev companion](companion/) | Semantic code analysis |
+| Context7 | [Dev companion](companion/) | Up-to-date library documentation |
+| Microsoft Learn | [Dev companion](companion/) | Azure and .NET documentation |
 
 ## Workflows
 
 > Commands shown in short form (`/ideate`). As a plugin, they're namespaced: `/exarchos:ideate`, `/exarchos:plan`, etc.
 
-| Start here | Command | What it does |
-|:-----------|:--------|:-------------|
-| New feature | `/ideate` | Design exploration → TDD plan → parallel implementation |
-| Bug fix | `/debug` | Triage → investigate → fix → validate (hotfix or thorough) |
-| Code improvement | `/refactor` | Scope → brief → implement (polish or full overhaul) |
-| Resume anything | `/rehydrate` | Restore workflow state after compaction or session break |
-| Save progress | `/checkpoint` | Persist current state for later resumption |
+**Start a workflow:**
+
+| When you need to... | Command | What it does |
+|:---------------------|:--------|:-------------|
+| Build a feature | `/ideate` | Design exploration, TDD plan, parallel implementation |
+| Fix a bug | `/debug` | Triage, investigate, fix, validate (hotfix or thorough) |
+| Improve code | `/refactor` | Assess scope, brief, implement (polish or full overhaul) |
+
+**Lifecycle commands:**
+
+| Command | What it does |
+|:--------|:-------------|
+| `/plan` | Create TDD implementation plan from a design doc |
+| `/delegate` | Dispatch tasks to agent teammates in worktrees |
+| `/review` | Run two-stage review (spec compliance + code quality) |
+| `/synthesize` | Create PR from feature branch |
+| `/shepherd` | Push PRs through CI and reviews to merge readiness |
+| `/cleanup` | Resolve merged workflow to completed state |
+| `/checkpoint` | Save workflow state for later resumption |
+| `/rehydrate` | Restore workflow state after compaction or session break |
+| `/reload` | Re-inject context after degradation |
+| `/autocompact` | Toggle autocompact or set threshold |
+| `/tag` | Attribute current session to a feature or project |
+| `/tdd` | Plan implementation using strict Red-Green-Refactor |
 
 ## Build & test
 

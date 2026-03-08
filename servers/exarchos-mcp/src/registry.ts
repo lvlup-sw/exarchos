@@ -77,6 +77,8 @@ export interface CompositeTool {
   readonly description: string;
   readonly actions: readonly ToolAction[];
   readonly cli?: CliToolHints;
+  /** When true, the tool is excluded from MCP registration (not exposed to agents). CLI access is preserved. */
+  readonly hidden?: boolean;
 }
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
@@ -832,9 +834,10 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
   },
   {
     name: 'exarchos_sync',
-    description: 'Remote synchronization — trigger immediate sync',
+    description: 'Remote synchronization — trigger immediate sync (planned)',
     actions: syncActions,
     cli: { alias: 'sy' },
+    hidden: true,
   },
 ];
 

@@ -21,6 +21,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   for (const tool of getFullRegistry()) {
+    if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool);
 
