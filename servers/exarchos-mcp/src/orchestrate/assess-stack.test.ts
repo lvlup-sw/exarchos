@@ -600,6 +600,46 @@ describe('handleAssessStack', () => {
       );
       expect(approvalCalls).toHaveLength(0);
     });
+
+    it('HandleAssessStack_PriorCompleted_SkipsApprovalRequested', async () => {
+      // Arrange — PR is not merged, but shepherd.completed already exists in event store
+      // This covers transient merge query failures where the PR was previously detected as merged
+      mockQuery.mockImplementation((_stream: string, filter?: { type: string }) => {
+        if (filter?.type === 'shepherd.completed') {
+          return Promise.resolve([{ type: 'shepherd.completed', data: { prUrl: 'https://github.com/test/42', outcome: 'merged' } }]);
+        }
+        return Promise.resolve([]);
+      });
+
+      const checksOutput = makeChecksOutput([
+        { name: 'ci/build', status: 'pass' },
+      ]);
+      const reviewsOutput = makeReviewsOutput([
+        { state: 'APPROVED', author: 'reviewer1' },
+      ]);
+      const commentsOutput = makeCommentsOutput([]);
+
+      vi.mocked(execSync).mockImplementation((cmd: string) => {
+        const cmdStr = String(cmd);
+        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
+        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
+        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
+        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
+        return Buffer.from('[]');
+      });
+
+      // Act
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+      );
+
+      // Assert — shepherd.approval_requested must NOT be emitted when shepherd.completed exists
+      const approvalCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
+      );
+      expect(approvalCalls).toHaveLength(0);
+    });
   });
 
   // ─── Event Emission ──────────────────────────────────────────────────────

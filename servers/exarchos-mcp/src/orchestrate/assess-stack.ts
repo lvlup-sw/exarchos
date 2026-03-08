@@ -428,8 +428,12 @@ export async function handleAssessStack(
 
   // Emit shepherd.approval_requested when recommendation is request-approval
   // Guard: never emit approval_requested when a PR is already merged (shepherd.completed wins)
+  // Also check event store for prior shepherd.completed to handle transient merge query failures
   if (recommendation === 'request-approval' && !anyMerged) {
-    await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
+    const completedEvents = await eventStore.query(args.featureId, { type: 'shepherd.completed' });
+    if (completedEvents.length === 0) {
+      await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
+    }
   }
 
   // Build result

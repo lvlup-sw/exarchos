@@ -5,6 +5,9 @@ import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-mach
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { getValidEventTypes, unregisterEventType } from '../event-store/schemas.js';
 import { getFullRegistry, clearCustomTools, hasCustomToolHandlers } from '../registry.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -259,38 +262,46 @@ describe('Tool Registration', () => {
   });
 
   it('RegisterCustomTools_PartialFailure_RollsBackPreviousTools', async () => {
-    // Config with two tools: both will fail on dynamic import, but if the
-    // first tool somehow registered before the second fails, rollback must
-    // clean up all previously registered tools and their handlers.
-    const config: ExarchosConfig = {
-      tools: {
-        'exarchos_tool_a': {
-          description: 'First tool',
-          actions: [
-            { name: 'run', description: 'Run A', handler: './tools/a-run.js' },
-          ],
+    // Tool A uses a real temp module that exports handle(), so it registers
+    // successfully. Tool B uses an unresolvable path, forcing a failure after
+    // tool A is already registered. Rollback must clean up tool A.
+    const tmpDir = mkdtempSync(join(tmpdir(), 'exarchos-test-'));
+    const handlerPath = join(tmpDir, 'a-run.mjs');
+    writeFileSync(handlerPath, 'export async function handle(args) { return { ok: true }; }\n');
+
+    try {
+      const config: ExarchosConfig = {
+        tools: {
+          'exarchos_tool_a': {
+            description: 'First tool (resolvable handler)',
+            actions: [
+              { name: 'run', description: 'Run A', handler: './a-run.mjs' },
+            ],
+          },
+          'exarchos_tool_b': {
+            description: 'Second tool (unresolvable handler)',
+            actions: [
+              { name: 'run', description: 'Run B', handler: './b-run.mjs' },
+            ],
+          },
         },
-        'exarchos_tool_b': {
-          description: 'Second tool',
-          actions: [
-            { name: 'run', description: 'Run B', handler: './tools/b-run.js' },
-          ],
-        },
-      },
-    };
+      };
 
-    await expect(
-      registerCustomTools(config, '/fake/project/root'),
-    ).rejects.toThrow('Failed to register custom tools');
+      await expect(
+        registerCustomTools(config, tmpDir),
+      ).rejects.toThrow('Failed to register custom tools');
 
-    // Neither tool should be in the registry
-    const registry = getFullRegistry();
-    expect(registry.some((t) => t.name === 'exarchos_tool_a')).toBe(false);
-    expect(registry.some((t) => t.name === 'exarchos_tool_b')).toBe(false);
+      // Tool A was registered before tool B failed — rollback must clean it up
+      const registry = getFullRegistry();
+      expect(registry.some((t) => t.name === 'exarchos_tool_a')).toBe(false);
+      expect(registry.some((t) => t.name === 'exarchos_tool_b')).toBe(false);
 
-    // No handlers should remain for either tool
-    expect(hasCustomToolHandlers('exarchos_tool_a')).toBe(false);
-    expect(hasCustomToolHandlers('exarchos_tool_b')).toBe(false);
+      // No handlers should remain for either tool
+      expect(hasCustomToolHandlers('exarchos_tool_a')).toBe(false);
+      expect(hasCustomToolHandlers('exarchos_tool_b')).toBe(false);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('RegisterCustomWorkflows_NoTools_Noop', async () => {

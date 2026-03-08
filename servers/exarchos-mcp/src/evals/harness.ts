@@ -293,11 +293,12 @@ export async function runSuite(
         const ar = result.assertions.find((a) => a.name === assertion.name);
         if (!ar || ar.skipped) continue;
 
-        // Gold standard: per-assertion expected outcome (defaults to true
-        // when the assertion is expected to pass, i.e. the case is valid)
+        // Gold standard: per-assertion expected outcome. Uses explicit
+        // ar.expected when set (for negative test cases), otherwise defaults
+        // to true — assertions are expected to pass on valid input.
         const goldPositive = (ar as Record<string, unknown>).expected !== undefined
           ? Boolean((ar as Record<string, unknown>).expected)
-          : result.passed;
+          : true;
         const predicted = ar.passed;
 
         if (goldPositive && predicted) tp++;

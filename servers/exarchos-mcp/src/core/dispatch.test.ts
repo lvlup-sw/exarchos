@@ -206,6 +206,24 @@ describe('dispatch', () => {
       expect(result.error!.code).toBe('UNKNOWN_ACTION');
     });
 
+    it('Dispatch_LeakedHandler_WithoutRegistration_ReturnsUnknownTool', async () => {
+      // Arrange — set handler without registering the tool in the registry
+      setCustomToolActionHandler('exarchos_leaked', 'run', async () => ({ leaked: true }));
+
+      const { dispatch } = await import('./dispatch.js');
+
+      // Act
+      const result = await dispatch(
+        'exarchos_leaked',
+        { action: 'run' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // Assert — leaked handlers must not be executable without registration
+      expect(result.success).toBe(false);
+      expect(result.error!.code).toBe('UNKNOWN_TOOL');
+    });
+
     it('Dispatch_CustomTool_HandlerReturnsToolResult_PassesThrough', async () => {
       // Arrange — handler returns a ToolResult directly
       const customTool: CompositeTool = {
@@ -215,6 +233,13 @@ describe('dispatch', () => {
           {
             name: 'check',
             description: 'Check',
+            schema: z.object({}).passthrough(),
+            phases: new Set<string>(),
+            roles: new Set<string>(['any']),
+          },
+          {
+            name: 'warnings',
+            description: 'Return warnings-only result',
             schema: z.object({}).passthrough(),
             phases: new Set<string>(),
             roles: new Set<string>(['any']),
@@ -232,6 +257,9 @@ describe('dispatch', () => {
       setCustomToolActionHandler('exarchos_passthrough', 'check', async () => {
         return { success: false, error: { code: 'CUSTOM_ERROR', message: 'Custom check failed' } };
       });
+      setCustomToolActionHandler('exarchos_passthrough', 'warnings', async () => {
+        return { success: true, warnings: ['Deprecated API usage'] };
+      });
       setCustomToolActionHandler('exarchos_passthrough', 'noop', async () => ({ success: true }));
 
       const { dispatch } = await import('./dispatch.js');
@@ -246,6 +274,18 @@ describe('dispatch', () => {
       // Assert — the ToolResult from the handler passes through
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('CUSTOM_ERROR');
+
+      // Act — warnings-only result should pass through (not be wrapped as data)
+      const warningsResult = await dispatch(
+        'exarchos_passthrough',
+        { action: 'warnings' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // Assert — warnings field recognized as ToolResult, not wrapped
+      expect(warningsResult.success).toBe(true);
+      expect(warningsResult.warnings).toEqual(['Deprecated API usage']);
+      expect(warningsResult.data).toBeUndefined();
     });
   });
 });

@@ -46,7 +46,15 @@ function isToolResult(value: unknown): value is ToolResult {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return typeof candidate.success === 'boolean' &&
-    ('data' in candidate || 'error' in candidate || '_meta' in candidate || '_perf' in candidate);
+    (
+      'data' in candidate ||
+      'error' in candidate ||
+      'warnings' in candidate ||
+      '_meta' in candidate ||
+      '_perf' in candidate ||
+      '_eventHints' in candidate ||
+      '_corrections' in candidate
+    );
 }
 
 /**
@@ -106,8 +114,11 @@ export async function dispatch(
 ): Promise<ToolResult> {
   const builtInHandler = COMPOSITE_HANDLERS[tool];
 
+  const registeredTool = !builtInHandler ? getFullRegistry().find((t) => t.name === tool) : undefined;
+
   // Fall back to custom tool dispatch if not a built-in handler
-  if (!builtInHandler && !hasCustomToolHandlers(tool)) {
+  // Require both registry presence AND handlers to prevent leaked handlers from bypassing registration
+  if (!builtInHandler && (!registeredTool || !hasCustomToolHandlers(tool))) {
     return {
       success: false,
       error: {
