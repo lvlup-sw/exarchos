@@ -187,14 +187,16 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 
 | Event | Required Fields (`data`) | When | Purpose |
 |-------|--------------------------|------|---------|
-| `shepherd.started` | `prUrl` (string), `stackSize` (number), `ciStatus` (string) | On skill start | Audit trail |
+| `shepherd.started` | `featureId` (string) | On skill start (emitted by `assess_stack`) | Audit trail |
 | `shepherd.iteration` | `iteration` (number), `prsAssessed` (number), `fixesApplied` (number), `status` (string) | After each assess cycle | Track progress |
 | `gate.executed` | `gateName`, `layer`, `passed`, `details` | Per CI check (emitted by `assess_stack`) | CodeQualityView — gate pass rates |
 | `ci.status` | `pr` (number), `status` (string) | Per CI check result | ShepherdStatusView — PR health tracking |
 | `remediation.attempted` | `taskId` (string), `skill` (string), `gateName` (string), `attemptNumber` (number), `strategy` (string) | Before applying a fix | selfCorrectionRate metric |
 | `remediation.succeeded` | `taskId` (string), `skill` (string), `gateName` (string), `totalAttempts` (number), `finalStrategy` (string) | After fix confirmed | avgRemediationAttempts metric |
-| `shepherd.approval_requested` | `prUrl` (string), `reviewers` (string[]) | On requesting review | Audit trail |
-| `shepherd.completed` | `prUrl` (string), `totalIterations` (number), `outcome` (string) | On completion | Audit trail |
+| `shepherd.approval_requested` | `prUrl` (string) | On requesting review | Audit trail |
+| `shepherd.completed` | `prUrl` (string), `outcome` (string) | On merge detected (emitted by `assess_stack`) | Audit trail |
+
+See `references/shepherd-event-schemas.md` for full schema details with examples.
 
 ## Domain Knowledge
 
@@ -202,6 +204,7 @@ Consult these references for detailed guidance:
 - `references/fix-strategies.md` — Fix approaches per issue type, response templates, remediation event emission details
 - `references/escalation-criteria.md` — When to stop iterating and escalate to the user
 - `references/gate-event-emission.md` — Event format for `gate.executed` (now emitted by `assess_stack`)
+- `references/shepherd-event-schemas.md` — Full Zod-aligned schemas for all four shepherd lifecycle events
 
 ## Anti-Patterns
 

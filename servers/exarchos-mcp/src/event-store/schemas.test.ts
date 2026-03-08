@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -9,7 +10,6 @@ import {
   TeamTaskCompletedData,
   TeamTaskFailedData,
   TeamDisbandedData,
-  TeamContextInjectedData,
   TeamTaskPlannedData,
   TeamTeammateDispatchedData,
   QualityRegressionData,
@@ -40,6 +40,10 @@ import {
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
+  registerEventType,
+  unregisterEventType,
+  getValidEventTypes,
+  isBuiltInEventType,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -264,17 +268,6 @@ describe('Team Event Data Schemas', () => {
     });
   });
 
-  describe('TeamContextInjectedData', () => {
-    it('should parse valid payload successfully', () => {
-      const result = TeamContextInjectedData.safeParse({
-        phase: 'delegate',
-        toolsAvailable: 3,
-        historicalHints: ['hint'],
-      });
-      expect(result.success).toBe(true);
-    });
-  });
-
   describe('TeamTaskAssignedData', () => {
     it('should parse valid payload successfully', () => {
       const result = TeamTaskAssignedData.safeParse({
@@ -289,14 +282,13 @@ describe('Team Event Data Schemas', () => {
 });
 
 describe('EventTypes', () => {
-  it('should include all 8 team event types', () => {
+  it('should include all 7 team event types', () => {
     const teamEventTypes = [
       'team.spawned',
       'team.task.assigned',
       'team.task.completed',
       'team.task.failed',
       'team.disbanded',
-      'team.context.injected',
       'team.task.planned',
       'team.teammate.dispatched',
     ];
@@ -452,7 +444,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(59);
+    expect(EventTypes).toHaveLength(58);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -987,7 +979,7 @@ describe('QualityRegressionData validation', () => {
 
 describe('ShepherdStartedData validation', () => {
   it('ShepherdStartedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', stackSize: 3, ciStatus: 'pending' };
+    const payload = { featureId: 'feat-001' };
     expect(ShepherdStartedData.safeParse(payload).success).toBe(true);
   });
 });
@@ -1001,14 +993,14 @@ describe('ShepherdIterationData validation', () => {
 
 describe('ShepherdApprovalRequestedData validation', () => {
   it('ShepherdApprovalRequestedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', reviewers: ['alice', 'bob'] };
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1' };
     expect(ShepherdApprovalRequestedData.safeParse(payload).success).toBe(true);
   });
 });
 
 describe('ShepherdCompletedData validation', () => {
   it('ShepherdCompletedData_ValidPayload_PassesValidation', () => {
-    const payload = { prUrl: 'https://github.com/org/repo/pull/1', merged: true, iterations: 3, duration: 45000 };
+    const payload = { prUrl: 'https://github.com/org/repo/pull/1', outcome: 'merged' };
     expect(ShepherdCompletedData.safeParse(payload).success).toBe(true);
   });
 });
@@ -1671,5 +1663,136 @@ describe('ShepherdIterationData (updated)', () => {
       outcome: 'resolved',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── T8: team.context.injected removal ──────────────────────────────────────
+
+describe('EventTypes_DoesNotInclude_TeamContextInjected', () => {
+  it('EventTypes_DoesNotInclude_TeamContextInjected', () => {
+    expect(EventTypes).not.toContain('team.context.injected');
+  });
+
+  it('EVENT_EMISSION_REGISTRY_DoesNotInclude_TeamContextInjected', () => {
+    expect(EVENT_EMISSION_REGISTRY).not.toHaveProperty('team.context.injected');
+  });
+
+  it('EVENT_DATA_SCHEMAS_DoesNotInclude_TeamContextInjected', () => {
+    expect(EVENT_DATA_SCHEMAS).not.toHaveProperty('team.context.injected');
+  });
+});
+
+// ─── T9: registerEventType / unregisterEventType / getValidEventTypes ────
+
+describe('registerEventType', () => {
+  afterEach(() => {
+    // Clean up any custom event types registered during tests
+    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+    try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
+    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+  });
+
+  it('RegisterEventType_CustomType_AddsToValidEventTypes', () => {
+    registerEventType('deploy.started', { source: 'model' });
+
+    const valid = getValidEventTypes();
+    expect(valid).toContain('deploy.started');
+  });
+
+  it('RegisterEventType_BuiltInType_ThrowsCollisionError', () => {
+    expect(() =>
+      registerEventType('workflow.started', { source: 'auto' }),
+    ).toThrow(/built-in/i);
+  });
+
+  it('RegisterEventType_DuplicateCustomType_Throws', () => {
+    registerEventType('deploy.started', { source: 'model' });
+
+    expect(() =>
+      registerEventType('deploy.started', { source: 'hook' }),
+    ).toThrow(/already registered/i);
+  });
+
+  it('RegisterEventType_InvalidNameFormat_Throws', () => {
+    // No dot separator
+    expect(() =>
+      registerEventType('nodot', { source: 'model' }),
+    ).toThrow(/dot separator/i);
+
+    // Uppercase
+    expect(() =>
+      registerEventType('Deploy.Started', { source: 'model' }),
+    ).toThrow(/lowercase/i);
+
+    // Empty
+    expect(() =>
+      registerEventType('', { source: 'model' }),
+    ).toThrow();
+  });
+
+  it('RegisterEventType_WithSchema_RegistersInDataSchemas', () => {
+    const schema = z.object({ url: z.string() });
+    registerEventType('deploy.started', { source: 'hook', schema });
+
+    // The schema should be accessible in EVENT_DATA_SCHEMAS
+    expect(EVENT_DATA_SCHEMAS['deploy.started']).toBe(schema);
+  });
+
+  it('RegisterEventType_WithSource_RegistersInEmissionRegistry', () => {
+    registerEventType('deploy.started', { source: 'hook' });
+
+    expect(EVENT_EMISSION_REGISTRY['deploy.started']).toBe('hook');
+  });
+});
+
+describe('unregisterEventType', () => {
+  afterEach(() => {
+    try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
+  });
+
+  it('UnregisterEventType_CustomType_RemovesIt', () => {
+    registerEventType('deploy.started', { source: 'model' });
+    expect(getValidEventTypes()).toContain('deploy.started');
+
+    unregisterEventType('deploy.started');
+    expect(getValidEventTypes()).not.toContain('deploy.started');
+  });
+
+  it('UnregisterEventType_BuiltInType_Throws', () => {
+    expect(() =>
+      unregisterEventType('workflow.started'),
+    ).toThrow(/built-in/i);
+  });
+});
+
+describe('getValidEventTypes', () => {
+  afterEach(() => {
+    try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+  });
+
+  it('GetValidEventTypes_ReturnsBuiltInPlusCustom', () => {
+    const beforeCount = getValidEventTypes().length;
+
+    registerEventType('custom.hello', { source: 'model' });
+
+    const after = getValidEventTypes();
+    expect(after.length).toBe(beforeCount + 1);
+    expect(after).toContain('custom.hello');
+
+    // All built-in types should still be present
+    for (const builtIn of EventTypes) {
+      expect(after).toContain(builtIn);
+    }
+  });
+});
+
+describe('isBuiltInEventType', () => {
+  it('IsBuiltInEventType_BuiltInType_ReturnsTrue', () => {
+    expect(isBuiltInEventType('workflow.started')).toBe(true);
+    expect(isBuiltInEventType('task.completed')).toBe(true);
+  });
+
+  it('IsBuiltInEventType_CustomType_ReturnsFalse', () => {
+    expect(isBuiltInEventType('deploy.started')).toBe(false);
   });
 });

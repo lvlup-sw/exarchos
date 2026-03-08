@@ -34,7 +34,6 @@ export const EventTypes = [
   'team.task.completed',
   'team.task.failed',
   'team.disbanded',
-  'team.context.injected',
   'team.task.planned',
   'team.teammate.dispatched',
   'quality.regression',
@@ -67,6 +66,84 @@ export const EventTypes = [
 
 export type EventType = typeof EventTypes[number];
 
+// ─── Extensible Event Type Registry ──────────────────────────────────────────
+
+const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
+const customEventTypes = new Set<string>();
+
+/** Name format: lowercase with hyphens, must contain at least one dot separator. */
+const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+
+/**
+ * Register a custom event type at runtime.
+ * Built-in event types cannot be overridden and duplicate custom registrations are rejected.
+ */
+export function registerEventType(
+  name: string,
+  options: { source: 'auto' | 'model' | 'hook'; schema?: z.ZodSchema },
+): void {
+  if (!name) {
+    throw new Error('Event type name must not be empty');
+  }
+  if (name !== name.toLowerCase()) {
+    throw new Error(
+      `Invalid event type name '${name}': must be lowercase with hyphens and dot separators (e.g., 'deploy.started')`,
+    );
+  }
+  if (!EVENT_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid event type name '${name}': must contain a dot separator and use lowercase with hyphens (e.g., 'deploy.started')`,
+    );
+  }
+  if (BUILT_IN_EVENT_TYPES.has(name)) {
+    throw new Error(
+      `Cannot register '${name}': collides with built-in event type`,
+    );
+  }
+  if (customEventTypes.has(name)) {
+    throw new Error(
+      `Cannot register '${name}': custom event type already registered`,
+    );
+  }
+
+  customEventTypes.add(name);
+
+  // Register source in emission registry (cast to allow string indexing)
+  (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[name] = options.source;
+
+  // Register schema if provided
+  if (options.schema) {
+    (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name] = options.schema;
+  }
+}
+
+/**
+ * Remove a custom event type. Only custom (non-built-in) types can be removed.
+ * Used for test cleanup.
+ */
+export function unregisterEventType(name: string): void {
+  if (BUILT_IN_EVENT_TYPES.has(name)) {
+    throw new Error(`Cannot unregister built-in event type: '${name}'`);
+  }
+  customEventTypes.delete(name);
+  delete (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[name];
+  delete (EVENT_DATA_SCHEMAS as Record<string, z.ZodSchema>)[name];
+}
+
+/**
+ * Returns all valid event types: built-in + custom.
+ */
+export function getValidEventTypes(): string[] {
+  return [...EventTypes, ...customEventTypes];
+}
+
+/**
+ * Check if a name is a built-in event type.
+ */
+export function isBuiltInEventType(name: string): boolean {
+  return BUILT_IN_EVENT_TYPES.has(name);
+}
+
 // ─── Event Emission Source ───────────────────────────────────────────────────
 
 export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned';
@@ -98,6 +175,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'stack.position-filled': 'auto',
   'stack.restacked': 'auto',
   'stack.enqueued': 'auto',
+  'eval.judge.calibrated': 'auto',
 
   // model — must be emitted explicitly by the model via exarchos_event
   'team.spawned': 'model',
@@ -129,15 +207,15 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // hook — emitted by Claude Code hooks
   'benchmark.completed': 'hook',
 
+  // auto — emitted by assess-stack orchestration
+  'shepherd.started': 'auto',
+  'shepherd.approval_requested': 'auto',
+  'shepherd.completed': 'auto',
+
   // planned — schema exists, not yet emitted in production
-  'team.context.injected': 'planned',
-  'shepherd.started': 'planned',
-  'shepherd.approval_requested': 'planned',
-  'shepherd.completed': 'planned',
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
-  'eval.judge.calibrated': 'planned',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -146,7 +224,10 @@ export const WorkflowEventBase = z.object({
   streamId: z.string().min(1).max(100),
   sequence: z.number().int().positive(),
   timestamp: z.string().datetime().default(() => new Date().toISOString()),
-  type: z.enum(EventTypes),
+  type: z.string().min(1).refine(
+    (t) => getValidEventTypes().includes(t),
+    (t) => ({ message: `Unknown event type: "${t}". Valid types: built-in EventTypes + registered custom types` }),
+  ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
   agentId: z.string().min(1).max(200).optional(),
@@ -427,13 +508,6 @@ export const TeamDisbandedData = z.object({
   tasksFailed: z.number().int(),
 });
 
-/** @planned — not yet emitted in production */
-export const TeamContextInjectedData = z.object({
-  phase: z.string(),
-  toolsAvailable: z.number().int(),
-  historicalHints: z.array(z.string()),
-});
-
 export const TeamTaskPlannedData = z.object({
   taskId: z.string(),
   title: z.string(),
@@ -490,11 +564,8 @@ export const RefinementSuggestedDataSchema = z.object({
 
 // ─── Shepherd Event Data ──────────────────────────────────────────────────
 
-/** @planned — not yet emitted in production */
 export const ShepherdStartedData = z.object({
-  prUrl: z.string(),
-  stackSize: z.number().int().nonnegative(),
-  ciStatus: z.string(),
+  featureId: z.string(),
 });
 
 export const ShepherdIterationData = z.object({
@@ -504,18 +575,13 @@ export const ShepherdIterationData = z.object({
   status: z.string(),
 });
 
-/** @planned — not yet emitted in production */
 export const ShepherdApprovalRequestedData = z.object({
   prUrl: z.string(),
-  reviewers: z.array(z.string()),
 });
 
-/** @planned — not yet emitted in production */
 export const ShepherdCompletedData = z.object({
   prUrl: z.string(),
-  merged: z.boolean(),
-  iterations: z.number().int().nonnegative(),
-  duration: z.number().nonnegative(),
+  outcome: z.string(),
 });
 
 // ─── Eval Event Data ────────────────────────────────────────────────────────
@@ -563,6 +629,10 @@ export const JudgeCalibratedDataSchema = z.object({
   tnr: z.number().min(0).max(1),
   accuracy: z.number().min(0).max(1),
   f1: z.number().min(0).max(1),
+  tp: z.number().int().nonnegative(),
+  fp: z.number().int().nonnegative(),
+  tn: z.number().int().nonnegative(),
+  fn: z.number().int().nonnegative(),
   goldStandardVersion: z.string(),
   rubricVersion: z.string(),
 });
@@ -692,7 +762,6 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'team.task.completed': TeamTaskCompletedData,
   'team.task.failed': TeamTaskFailedData,
   'team.disbanded': TeamDisbandedData,
-  'team.context.injected': TeamContextInjectedData,
   'team.task.planned': TeamTaskPlannedData,
   'team.teammate.dispatched': TeamTeammateDispatchedData,
 
@@ -769,7 +838,6 @@ export type TeamTaskAssigned = z.infer<typeof TeamTaskAssignedData>;
 export type TeamTaskCompleted = z.infer<typeof TeamTaskCompletedData>;
 export type TeamTaskFailed = z.infer<typeof TeamTaskFailedData>;
 export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
-export type TeamContextInjected = z.infer<typeof TeamContextInjectedData>;
 export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
 export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
 export type QualityRegression = z.infer<typeof QualityRegressionData>;
@@ -831,7 +899,6 @@ export type EventDataMap = {
   'team.task.completed': TeamTaskCompleted;
   'team.task.failed': TeamTaskFailed;
   'team.disbanded': TeamDisbanded;
-  'team.context.injected': TeamContextInjected;
   'team.task.planned': TeamTaskPlanned;
   'team.teammate.dispatched': TeamTeammateDispatched;
   'quality.regression': QualityRegression;

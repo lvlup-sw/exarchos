@@ -1,4 +1,4 @@
-import { TOOL_REGISTRY } from '../registry.js';
+import { getFullRegistry } from '../registry.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { resolveStateDir } from '../workflow/state-store.js';
 import type { CommandResult } from '../cli.js';
@@ -39,7 +39,7 @@ function lookupActionPhases(
   compositeToolName: string,
   actionName: string,
 ): ReadonlySet<string> | null {
-  const composite = TOOL_REGISTRY.find((c) => c.name === compositeToolName);
+  const composite = getFullRegistry().find((c) => c.name === compositeToolName);
   if (!composite) return null;
 
   const action = composite.actions.find((a) => a.name === actionName);

@@ -345,4 +345,73 @@ describe('ShepherdStatusView', () => {
 
     expect(view.overallStatus).toBe('escalate');
   });
+
+  // ─── Shepherd Lifecycle Event Handlers ──────────────────────────────────
+
+  it('ShepherdStatusView_ShepherdStarted_RecordsStartTime', () => {
+    const timestamp = '2026-03-07T10:00:00.000Z';
+    const events = [
+      {
+        streamId: 'wf-001',
+        sequence: 1,
+        timestamp,
+        type: 'shepherd.started',
+        schemaVersion: '1.0',
+        data: { featureId: 'feat-001' },
+      } as WorkflowEvent,
+    ];
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    expect(view.startedAt).toBe(timestamp);
+  });
+
+  it('ShepherdStatusView_ApprovalRequested_RecordsRequestTime', () => {
+    const timestamp = '2026-03-07T11:00:00.000Z';
+    const events = [
+      {
+        streamId: 'wf-001',
+        sequence: 1,
+        timestamp,
+        type: 'shepherd.approval_requested',
+        schemaVersion: '1.0',
+        data: { prUrl: 'https://github.com/pr/42' },
+      } as WorkflowEvent,
+    ];
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    expect(view.approvalRequestedAt).toBe(timestamp);
+  });
+
+  it('ShepherdStatusView_Completed_RecordsOutcome', () => {
+    const timestamp = '2026-03-07T12:00:00.000Z';
+    const events = [
+      {
+        streamId: 'wf-001',
+        sequence: 1,
+        timestamp,
+        type: 'shepherd.completed',
+        schemaVersion: '1.0',
+        data: { prUrl: 'https://github.com/pr/42', outcome: 'merged' },
+      } as WorkflowEvent,
+    ];
+
+    const view = materializer.materialize<ShepherdStatusState>(
+      'wf-001',
+      SHEPHERD_STATUS_VIEW,
+      events,
+    );
+
+    expect(view.completedAt).toBe(timestamp);
+    expect(view.outcome).toBe('merged');
+  });
 });

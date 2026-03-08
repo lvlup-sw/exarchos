@@ -280,6 +280,68 @@ export async function runSuite(
     results: allResults,
   };
 
+  // Emit eval.judge.calibrated per assertion type
+  if (eventStore && allResults.length > 0) {
+    for (const assertion of suite.assertions) {
+      // Gather per-assertion outcomes across all cases
+      let tp = 0;
+      let fp = 0;
+      let tn = 0;
+      let fn = 0;
+
+      for (const result of allResults) {
+        const ar = result.assertions.find((a) => a.name === assertion.name);
+        if (!ar || ar.skipped) continue;
+
+        // Gold standard: per-assertion expected outcome. Uses explicit
+        // ar.expected when set (for negative test cases), otherwise defaults
+        // to true — assertions are expected to pass on valid input.
+        const goldPositive = (ar as Record<string, unknown>).expected !== undefined
+          ? Boolean((ar as Record<string, unknown>).expected)
+          : true;
+        const predicted = ar.passed;
+
+        if (goldPositive && predicted) tp++;
+        else if (!goldPositive && predicted) fp++;
+        else if (!goldPositive && !predicted) tn++;
+        else fn++;
+      }
+
+      const total = tp + fp + tn + fn;
+      if (total === 0) continue;
+
+      const tpr = (tp + fn) > 0 ? tp / (tp + fn) : 0;
+      const tnr = (tn + fp) > 0 ? tn / (tn + fp) : 0;
+      const accuracy = total > 0 ? (tp + tn) / total : 0;
+      const precision = (tp + fp) > 0 ? tp / (tp + fp) : 0;
+      const recall = tpr;
+      const f1 = (precision + recall) > 0
+        ? 2 * (precision * recall) / (precision + recall)
+        : 0;
+
+      const split = options?.layer === 'capability' ? 'test' : 'validation';
+
+      await eventStore.append(streamId, {
+        type: 'eval.judge.calibrated',
+        data: {
+          skill: suite.metadata.skill,
+          rubricName: assertion.name,
+          split,
+          tpr,
+          tnr,
+          accuracy,
+          f1,
+          tp,
+          fp,
+          tn,
+          fn,
+          goldStandardVersion: suite.metadata.version,
+          rubricVersion: suite.metadata.version,
+        },
+      });
+    }
+  }
+
   // Detect regressions by comparing with previous run
   const regressions = await detectRegressions(
     suite.metadata.skill,

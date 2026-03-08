@@ -1,7 +1,33 @@
+import type { z } from 'zod';
+
 // ─── Config Types ──────────────────────────────────────────────────────────
+
+export interface EventDefinition {
+  readonly source: 'auto' | 'model' | 'hook';
+  readonly schema?: z.ZodSchema;
+}
+
+export interface ViewDefinition {
+  readonly events: string[];      // Event types this view subscribes to
+  readonly handler: string;       // Path to handler module (relative to project root)
+}
+
+export interface ToolActionDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly handler: string;       // Path to handler module (relative to project root)
+}
+
+export interface ToolDefinition {
+  readonly description: string;
+  readonly actions: readonly ToolActionDefinition[];
+}
 
 export interface ExarchosConfig {
   readonly workflows?: Record<string, WorkflowDefinition>;
+  readonly events?: Record<string, EventDefinition>;
+  readonly views?: Record<string, ViewDefinition>;
+  readonly tools?: Record<string, ToolDefinition>;
 }
 
 export interface WorkflowDefinition {

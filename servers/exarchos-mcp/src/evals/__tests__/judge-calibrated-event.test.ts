@@ -39,6 +39,7 @@ describe('JudgeCalibratedDataSchema', () => {
       tnr: 0.88,
       accuracy: 0.90,
       f1: 0.91,
+      tp: 46, fp: 6, tn: 44, fn: 4,
       goldStandardVersion: 'abc123def456',
       rubricVersion: '1.2.0',
     };
@@ -68,6 +69,7 @@ describe('JudgeCalibratedDataSchema', () => {
       tnr: 0.90,
       accuracy: 0.87,
       f1: 0.86,
+      tp: 42, fp: 5, tn: 45, fn: 8,
       goldStandardVersion: 'deadbeef',
       rubricVersion: '2.0.0',
     };
@@ -136,6 +138,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       tnr: 0.88,
       accuracy: 0.90,
       f1: 0.91,
+      tp: 46, fp: 6, tn: 44, fn: 4,
       goldStandardVersion: 'abc123',
       rubricVersion: '1.0.0',
     });
@@ -166,6 +169,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       tnr: 0.75,
       accuracy: 0.78,
       f1: 0.79,
+      tp: 40, fp: 12, tn: 37, fn: 10,
       goldStandardVersion: 'aaa111',
       rubricVersion: '1.0.0',
     });
@@ -177,6 +181,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
       tnr: 0.88,
       accuracy: 0.90,
       f1: 0.91,
+      tp: 46, fp: 6, tn: 44, fn: 4,
       goldStandardVersion: 'bbb222',
       rubricVersion: '1.1.0',
     });
@@ -204,6 +209,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
         tnr: 0.75,
         accuracy: 0.78,
         f1: 0.79,
+        tp: 40, fp: 12, tn: 37, fn: 10,
         goldStandardVersion: 'aaa111',
         rubricVersion: '1.0.0',
       }),
@@ -215,6 +221,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
         tnr: 0.90,
         accuracy: 0.87,
         f1: 0.86,
+        tp: 42, fp: 5, tn: 45, fn: 8,
         goldStandardVersion: 'bbb222',
         rubricVersion: '2.0.0',
       }),
@@ -226,6 +233,7 @@ describe('EvalResultsView — eval.judge.calibrated handler', () => {
         tnr: 0.93,
         accuracy: 0.94,
         f1: 0.94,
+        tp: 47, fp: 3, tn: 46, fn: 4,
         goldStandardVersion: 'ccc333',
         rubricVersion: '1.2.0',
       }),

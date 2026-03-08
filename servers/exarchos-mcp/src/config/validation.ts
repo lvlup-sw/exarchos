@@ -72,7 +72,30 @@ export const workflowDefinitionSchema = z.object({
   }
 });
 
+export const eventDefinitionSchema = z.object({
+  source: z.enum(['auto', 'model', 'hook']),
+  schema: z.unknown().optional(),
+}).strict();
+
+export const viewDefinitionSchema = z.object({
+  events: z.array(z.string().min(1)).min(1, 'View must subscribe to at least one event type'),
+  handler: z.string().min(1, 'View handler path must not be empty'),
+}).strict();
+
+export const toolActionDefinitionSchema = z.object({
+  name: z.string().min(1, 'Action name must not be empty'),
+  description: z.string().min(1, 'Action description must not be empty'),
+  handler: z.string().min(1, 'Action handler path must not be empty'),
+}).strict();
+
+export const toolDefinitionSchema = z.object({
+  description: z.string().min(1, 'Tool description must not be empty'),
+  actions: z.array(toolActionDefinitionSchema).min(1, 'Tool must have at least one action'),
+}).strict();
+
 export const exarchosConfigSchema = z.object({
+  views: z.record(z.string(), viewDefinitionSchema).optional(),
+  tools: z.record(z.string(), toolDefinitionSchema).optional(),
   workflows: z.record(z.string(), workflowDefinitionSchema)
     .optional()
     .superRefine((workflows, ctx) => {
@@ -127,6 +150,7 @@ export const exarchosConfigSchema = z.object({
         }
       }
     }),
+  events: z.record(z.string(), eventDefinitionSchema).optional(),
 }).strict();
 
 // ─── Validation Function ───────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { TOOL_REGISTRY } from '../registry.js';
+import { getFullRegistry } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
@@ -27,7 +27,7 @@ export function buildCli(ctx: DispatchContext): Command {
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
-  for (const tool of TOOL_REGISTRY) {
+  for (const tool of getFullRegistry()) {
     const toolName = tool.name.replace(/^exarchos_/, '');
     const toolCmd = program
       .command(tool.cli?.alias ?? toolName)
