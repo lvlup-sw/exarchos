@@ -78,6 +78,11 @@ export class ViewRegistry {
         `Cannot register custom view "${name}": already registered as a custom view`,
       );
     }
+    if (this.materializer.hasProjection(name)) {
+      throw new Error(
+        `Cannot register custom view "${name}": projection name already registered`,
+      );
+    }
     this.materializer.register(name, projection);
     this.customViews.add(name);
   }

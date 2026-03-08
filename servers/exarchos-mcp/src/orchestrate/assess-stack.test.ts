@@ -593,6 +593,12 @@ describe('handleAssessStack', () => {
       expect(completedData.outcome).toBe('merged');
       const idempotencyKey = (completedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
       expect(idempotencyKey).toBe('test-feature:shepherd.completed');
+
+      // Assert — shepherd.approval_requested must NOT be emitted for merged PRs
+      const approvalCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
+      );
+      expect(approvalCalls).toHaveLength(0);
     });
   });
 

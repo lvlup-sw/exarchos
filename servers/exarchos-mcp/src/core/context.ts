@@ -61,7 +61,7 @@ export async function initializeContext(
 
   // Register custom workflows, views, and tools from config
   if (config) {
-    if (config.workflows) {
+    if (config.workflows || config.events) {
       registerCustomWorkflows(config);
     }
     if (config.views && options?.projectRoot) {

@@ -426,7 +426,8 @@ export async function handleAssessStack(
   const recommendation = computeRecommendation(actionItems, iterationCount, prStatuses);
 
   // Emit shepherd.approval_requested when recommendation is request-approval
-  if (recommendation === 'request-approval') {
+  // Guard: never emit approval_requested when a PR is already merged (shepherd.completed wins)
+  if (recommendation === 'request-approval' && !anyMerged) {
     await emitShepherdApprovalRequested(eventStore, args.featureId, args.prNumbers, iterationCount);
   }
 

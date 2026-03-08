@@ -38,6 +38,18 @@ export const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
 // ─── Dispatch Function ──────────────────────────────────────────────────────
 
 /**
+ * Type guard for ToolResult — validates structural shape rather than
+ * relying on a simple `'success' in obj` check that could match any
+ * object with a `success` property.
+ */
+function isToolResult(value: unknown): value is ToolResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.success === 'boolean' &&
+    ('data' in candidate || 'error' in candidate || '_meta' in candidate || '_perf' in candidate);
+}
+
+/**
  * Creates a handler for custom tools that routes to per-action handlers
  * stored in the registry. Mirrors the action-routing pattern used by
  * built-in composite handlers.
@@ -70,12 +82,8 @@ function createCustomToolHandler(
 
     const result = await actionHandler(args);
     // If the handler already returns a ToolResult, pass it through
-    if (
-      result !== null &&
-      typeof result === 'object' &&
-      'success' in (result as Record<string, unknown>)
-    ) {
-      return result as ToolResult;
+    if (isToolResult(result)) {
+      return result;
     }
     // Otherwise wrap the result
     return { success: true, data: result };

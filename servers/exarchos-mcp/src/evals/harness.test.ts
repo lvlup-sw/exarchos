@@ -778,8 +778,22 @@ describe('runSuite — eval.judge.calibrated emission', () => {
     expect(data).toHaveProperty('tnr');
     expect(data).toHaveProperty('accuracy');
     expect(data).toHaveProperty('f1');
+    expect(data).toHaveProperty('tp');
+    expect(data).toHaveProperty('fp');
+    expect(data).toHaveProperty('tn');
+    expect(data).toHaveProperty('fn');
     expect(data).toHaveProperty('goldStandardVersion');
     expect(data).toHaveProperty('rubricVersion');
+
+    // Verify confusion matrix counts are non-negative integers
+    expect(Number.isInteger(data.tp)).toBe(true);
+    expect(Number.isInteger(data.fp)).toBe(true);
+    expect(Number.isInteger(data.tn)).toBe(true);
+    expect(Number.isInteger(data.fn)).toBe(true);
+    expect(data.tp as number).toBeGreaterThanOrEqual(0);
+    expect(data.fp as number).toBeGreaterThanOrEqual(0);
+    expect(data.tn as number).toBeGreaterThanOrEqual(0);
+    expect(data.fn as number).toBeGreaterThanOrEqual(0);
 
     // Verify metrics are numbers in [0, 1]
     expect(data.tpr).toBeGreaterThanOrEqual(0);

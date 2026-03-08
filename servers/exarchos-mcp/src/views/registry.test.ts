@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ViewRegistry } from './registry.js';
+import { ViewRegistry, BUILTIN_VIEW_NAMES } from './registry.js';
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
@@ -47,24 +47,8 @@ describe('ViewRegistry', () => {
   });
 
   it('ViewRegistry_BuiltInViewName_Throws', () => {
-    // All built-in view names from tools.ts should be protected
-    const builtInNames = [
-      'pipeline',
-      'tasks',
-      'workflow_status',
-      'stack_status',
-      'stack_place',
-      'telemetry',
-      'team_performance',
-      'delegation_timeline',
-      'code_quality',
-      'delegation_readiness',
-      'synthesis_readiness',
-      'shepherd_status',
-      'convergence',
-    ];
-
-    for (const name of builtInNames) {
+    // All built-in view names from BUILTIN_VIEW_NAMES should be protected
+    for (const name of BUILTIN_VIEW_NAMES) {
       expect(
         () => registry.registerCustomView(name, counterProjection),
         `Should throw for built-in view name: ${name}`,

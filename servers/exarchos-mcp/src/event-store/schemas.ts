@@ -224,7 +224,10 @@ export const WorkflowEventBase = z.object({
   streamId: z.string().min(1).max(100),
   sequence: z.number().int().positive(),
   timestamp: z.string().datetime().default(() => new Date().toISOString()),
-  type: z.enum(EventTypes),
+  type: z.string().min(1).refine(
+    (t) => getValidEventTypes().includes(t),
+    (t) => ({ message: `Unknown event type: "${t}". Valid types: built-in EventTypes + registered custom types` }),
+  ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
   agentId: z.string().min(1).max(200).optional(),
@@ -626,6 +629,10 @@ export const JudgeCalibratedDataSchema = z.object({
   tnr: z.number().min(0).max(1),
   accuracy: z.number().min(0).max(1),
   f1: z.number().min(0).max(1),
+  tp: z.number().int().nonnegative().optional(),
+  fp: z.number().int().nonnegative().optional(),
+  tn: z.number().int().nonnegative().optional(),
+  fn: z.number().int().nonnegative().optional(),
   goldStandardVersion: z.string(),
   rubricVersion: z.string(),
 });

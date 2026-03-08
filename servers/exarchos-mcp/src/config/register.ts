@@ -5,7 +5,7 @@ import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { registerEventType, unregisterEventType } from '../event-store/schemas.js';
 import { ViewRegistry } from '../views/registry.js';
-import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler } from '../registry.js';
+import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
@@ -292,6 +292,7 @@ export async function registerCustomTools(
   try {
     for (const [toolName, toolDef] of Object.entries(config.tools)) {
       const actions: ToolAction[] = [];
+      const pendingHandlers: Array<{ actionName: string; handler: (args: Record<string, unknown>) => Promise<unknown> }> = [];
 
       for (const actionDef of toolDef.actions) {
         const handlerPath = path.resolve(projectRoot, actionDef.handler);
@@ -308,9 +309,9 @@ export async function registerCustomTools(
           );
         }
 
-        // Validate the handler module exports handle() and store the handler
+        // Validate the handler module exports handle() and collect for deferred storage
         const handler = validateToolActionHandler(mod, handlerPath);
-        setCustomToolActionHandler(toolName, actionDef.name, handler);
+        pendingHandlers.push({ actionName: actionDef.name, handler });
 
         // Build a ToolAction with a permissive schema (custom tools don't
         // declare Zod schemas in config — they accept any args and validate
@@ -320,7 +321,7 @@ export async function registerCustomTools(
           name: actionDef.name,
           description: actionDef.description,
           schema: z.object({}).passthrough(),
-          phases: new Set<string>(),
+          phases: ALL_PHASES,
           roles: new Set<string>(['any']),
         });
       }
@@ -333,6 +334,12 @@ export async function registerCustomTools(
 
       registerCustomTool(compositeTool);
       registeredNames.push(toolName);
+
+      // Store handlers only after successful registration — if registerCustomTool
+      // throws, no orphaned handlers remain in the registry
+      for (const { actionName, handler } of pendingHandlers) {
+        setCustomToolActionHandler(toolName, actionName, handler);
+      }
     }
   } catch (error) {
     // Rollback: unregister all tools registered so far

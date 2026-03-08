@@ -189,7 +189,7 @@ export function buildToolDescription(tool: CompositeTool): string {
 
 // ─── Shared Constants ───────────────────────────────────────────────────────
 
-const ALL_PHASES: ReadonlySet<string> = new Set([
+export const ALL_PHASES: ReadonlySet<string> = new Set([
   // Feature workflow
   'ideate',
   'plan',
