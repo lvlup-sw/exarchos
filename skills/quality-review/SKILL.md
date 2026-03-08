@@ -136,6 +136,9 @@ exarchos_orchestrate({
 
 ### Step 1: Static Analysis + Security + Extended Gates
 
+> **Runbook:** Run quality evaluation gates via runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "quality-evaluation" })`
+
 Run automated gates via orchestrate actions. See `references/gate-execution.md` for orchestrate action signatures and response handling.
 
 1. `check_static_analysis` — lint, typecheck, quality-check (D2). **Must pass** before continuing.

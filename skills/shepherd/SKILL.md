@@ -36,6 +36,9 @@ Activate when:
 
 ## Process
 
+> **Runbook:** Each shepherd iteration follows the shepherd-iteration runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "shepherd-iteration" })`
+
 The shepherd loop repeats until all PRs are healthy or escalation criteria are met. Default: 5 iterations.
 
 ### Step 0 — Surface Quality Signals

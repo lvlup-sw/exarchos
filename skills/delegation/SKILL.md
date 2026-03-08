@@ -130,6 +130,10 @@ TaskOutput({ task_id: "<id>", block: true })
 
 After each subagent reports completion:
 
+> **Runbook:** For each completed task, execute the task-completion runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "task-completion" })`
+> Execute the returned steps in order. Stop on gate failure.
+
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (`implements`, `tests`, `files`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
