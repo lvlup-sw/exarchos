@@ -215,7 +215,7 @@ describe('LlmRubricGrader', () => {
 });
 
 describe.skipIf(!process.env.RUN_EVALS)('LlmRubricGrader (live)', () => {
-  it('should grade with real Anthropic API call', async () => {
+  it('should grade with real Anthropic API call', { timeout: 30_000, retry: 2 }, async () => {
     const grader = new LlmRubricGrader();
     const result = await grader.grade(
       {},
