@@ -1,8 +1,12 @@
 import type { ToolResult } from '../format.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
+import { handleDescribe } from '../describe/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
 
-const VALID_ACTIONS = ['append', 'query', 'batch_append'] as const;
+const VALID_ACTIONS = ['append', 'query', 'batch_append', 'describe'] as const;
 type EventAction = (typeof VALID_ACTIONS)[number];
+
+const eventActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!.actions;
 
 /** Composite handler that routes `action` to the appropriate event-store handler. */
 export async function handleEvent(
@@ -32,6 +36,10 @@ export async function handleEvent(
         rest as Parameters<typeof handleBatchAppend>[0],
         stateDir,
       );
+    }
+    case 'describe': {
+      const { action: _, ...rest } = args;
+      return handleDescribe(rest as { actions: string[] }, eventActions);
     }
     default:
       return {

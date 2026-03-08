@@ -270,6 +270,24 @@ const PLAN_PHASES: ReadonlySet<string> = new Set([
 
 const featureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
+// ─── Describe Action ────────────────────────────────────────────────────────
+
+const describeSchema = z.object({
+  actions: z.array(z.string()).min(1).max(10)
+    .describe('Action names to describe. Returns full schema + description for each.'),
+});
+
+/** Creates a shared describe action definition for composite tools. */
+function makeDescribeAction(): ToolAction {
+  return {
+    name: 'describe',
+    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions',
+    schema: describeSchema,
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  };
+}
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -350,6 +368,7 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
+  makeDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
@@ -393,6 +412,7 @@ const eventActions: readonly ToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
   },
+  makeDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
@@ -667,6 +687,7 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  makeDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
@@ -815,6 +836,7 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  makeDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────
@@ -973,4 +995,13 @@ export function getFullRegistry(): readonly CompositeTool[] {
 export function clearCustomTools(): void {
   customTools.length = 0;
   customToolHandlers.clear();
+}
+
+/**
+ * Find a specific action within a tool in the full registry (built-in + custom).
+ * Returns undefined if the tool or action is not found.
+ */
+export function findActionInRegistry(toolName: string, actionName: string): ToolAction | undefined {
+  const tool = getFullRegistry().find(t => t.name === toolName);
+  return tool?.actions.find(a => a.name === actionName);
 }

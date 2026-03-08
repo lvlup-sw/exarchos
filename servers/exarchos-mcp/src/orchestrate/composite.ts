@@ -5,6 +5,10 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import { handleDescribe } from '../describe/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
+
+const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
 // ─── Task Handlers ──────────────────────────────────────────────────────────
 
@@ -82,21 +86,23 @@ export async function handleOrchestrate(
   args: Record<string, unknown>,
   stateDir: string,
 ): Promise<ToolResult> {
-  const action = args.action as string | undefined;
+  const { action, ...rest } = args;
 
-  const handler = action ? ACTION_HANDLERS[action] : undefined;
+  // Handle describe specially — it needs the action list, not stateDir
+  if (action === 'describe') {
+    return handleDescribe(rest as { actions: string[] }, orchestrateActions);
+  }
+
+  const handler = typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
   if (!handler) {
     return {
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe`,
       },
     };
   }
 
-  // Strip the `action` field before forwarding to the underlying handler
-  const { action: _action, ...handlerArgs } = args;
-
-  return handler(handlerArgs as Record<string, unknown>, stateDir);
+  return handler(rest as Record<string, unknown>, stateDir);
 }

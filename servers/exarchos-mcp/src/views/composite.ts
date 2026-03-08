@@ -4,6 +4,8 @@
 // individual MCP tools with a single `exarchos_view` entry point.
 
 import type { ToolResult } from '../format.js';
+import { handleDescribe } from '../describe/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
 import {
   handleViewPipeline,
   handleViewTasks,
@@ -25,6 +27,8 @@ import {
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
+
+const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
 /**
  * Composite handler that dispatches to existing view/stack handlers
@@ -187,6 +191,9 @@ export async function handleView(
         rest as { workflowId?: string },
         stateDir,
       );
+
+    case 'describe':
+      return handleDescribe(rest as { actions: string[] }, viewActions);
 
     default:
       return {

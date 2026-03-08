@@ -12,6 +12,7 @@ import {
   unregisterCustomTool,
   getFullRegistry,
   clearCustomTools,
+  findActionInRegistry,
 } from './registry.js';
 import type { ToolAction, CompositeTool } from './registry.js';
 
@@ -268,19 +269,19 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 6 actions: init, get, set, cancel, cleanup, reconcile', () => {
+    it('should have 7 actions: init, get, set, cancel, cleanup, reconcile, describe', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'describe']);
     });
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 22 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
+    it('should have 23 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(22);
+      expect(composite!.actions).toHaveLength(23);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -319,6 +320,9 @@ describe('TOOL_REGISTRY', () => {
 
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
+    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
+    const SPECIAL_ACTIONS = new Set(['describe']);
+
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
         registryNames.has(handlerKey),
@@ -326,6 +330,7 @@ describe('TOOL_REGISTRY', () => {
       ).toBe(true);
     }
     for (const registryName of registryNames) {
+      if (SPECIAL_ACTIONS.has(registryName)) continue;
       expect(
         ACTION_HANDLER_KEYS.includes(registryName),
         `Registry action '${registryName}' has no handler in composite.ts`,
@@ -889,5 +894,35 @@ describe('buildToolDescription dual mode', () => {
     const desc = buildToolDescription(tool);
     expect(desc).toContain('Actions:');
     expect(desc).toContain('- init(');
+  });
+});
+
+// ─── findActionInRegistry Tests ──────────────────────────────────────────────
+
+describe('findActionInRegistry', () => {
+  it('FindActionInRegistry_ValidAction_ReturnsAction', () => {
+    const action = findActionInRegistry('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.name).toBe('init');
+  });
+
+  it('FindActionInRegistry_InvalidAction_ReturnsUndefined', () => {
+    expect(findActionInRegistry('exarchos_workflow', 'nonexistent')).toBeUndefined();
+  });
+
+  it('FindActionInRegistry_InvalidTool_ReturnsUndefined', () => {
+    expect(findActionInRegistry('nonexistent_tool', 'init')).toBeUndefined();
+  });
+});
+
+// ─── Describe Action Registry Tests ──────────────────────────────────────────
+
+describe('Describe action in registry', () => {
+  it('DescribeAction_AllVisibleTools_HaveDescribeAction', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      const describeAction = tool.actions.find(a => a.name === 'describe');
+      expect(describeAction, `${tool.name} should have a describe action`).toBeDefined();
+    }
   });
 });
