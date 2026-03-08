@@ -24,6 +24,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: npm ci
+      - run: cd servers/exarchos-mcp && npm ci
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run build
@@ -32,8 +33,3 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        run: gh release create "${{ github.ref_name }}" --generate-notes
-        env:
-          GH_TOKEN: ${{ github.token }}

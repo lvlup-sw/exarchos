@@ -551,12 +551,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install git-cliff
+        run: |
+          GIT_CLIFF_VERSION="2.7.0"
+          curl -fsSL "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C /tmp
+          echo "/tmp/git-cliff-${GIT_CLIFF_VERSION}" >> "$GITHUB_PATH"
+
       - name: Generate changelog
         id: changelog
-        uses: orhun/git-cliff-action@v3
-        with:
-          config: .github/cliff.toml
-          args: --latest --strip header
+        run: |
+          CHANGELOG=$(git-cliff --config .github/cliff.toml --latest --strip header 2>/dev/null || echo "")
+          echo "content<<CLIFF_EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "CLIFF_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
