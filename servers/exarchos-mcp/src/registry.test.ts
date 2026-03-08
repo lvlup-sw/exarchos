@@ -278,10 +278,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 23 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
+    it('should have 24 actions for task management, review triage, gate checks, script execution, runbooks, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(23);
+      expect(composite!.actions).toHaveLength(24);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -321,7 +321,7 @@ describe('TOOL_REGISTRY', () => {
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
     // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
-    const SPECIAL_ACTIONS = new Set(['describe']);
+    const SPECIAL_ACTIONS = new Set(['describe', 'runbook']);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
@@ -912,6 +912,22 @@ describe('findActionInRegistry', () => {
 
   it('FindActionInRegistry_InvalidTool_ReturnsUndefined', () => {
     expect(findActionInRegistry('nonexistent_tool', 'init')).toBeUndefined();
+  });
+});
+
+// ─── Runbook Action Registry Tests ──────────────────────────────────────────
+
+describe('Runbook action in registry', () => {
+  it('RunbookAction_ExistsInOrchestrateRegistry', () => {
+    const orchTool = findComposite('exarchos_orchestrate');
+    expect(orchTool).toBeDefined();
+    const runbookAction = orchTool!.actions.find(a => a.name === 'runbook');
+    expect(runbookAction, 'exarchos_orchestrate should have a runbook action').toBeDefined();
+    expect(runbookAction!.description).toBeTruthy();
+    // Should accept both empty and parameterized input
+    expect(runbookAction!.schema.safeParse({}).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ phase: 'delegate' }).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ id: 'task-completion' }).success).toBe(true);
   });
 });
 

@@ -6,6 +6,7 @@
 
 import type { ToolResult } from '../format.js';
 import { handleDescribe } from '../describe/handler.js';
+import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
@@ -91,6 +92,11 @@ export async function handleOrchestrate(
   // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {
     return handleDescribe(rest as { actions: string[] }, orchestrateActions);
+  }
+
+  // Handle runbook specially — it doesn't need stateDir
+  if (action === 'runbook') {
+    return handleRunbook(rest as { phase?: string; id?: string });
   }
 
   const handler = typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
