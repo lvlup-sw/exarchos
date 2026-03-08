@@ -4,7 +4,7 @@ import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
 import { getValidEventTypes, unregisterEventType } from '../event-store/schemas.js';
-import { getFullRegistry, clearCustomTools } from '../registry.js';
+import { getFullRegistry, clearCustomTools, hasCustomToolHandlers } from '../registry.js';
 
 const TEST_WORKFLOW_NAME = 'test-pipeline';
 
@@ -249,6 +249,48 @@ describe('Tool Registration', () => {
     await expect(
       registerCustomTools(config, '/fake/project/root'),
     ).rejects.toThrow();
+
+    // Verify no partial handlers leaked — no tool should be registered
+    // and no action handlers should remain in the registry
+    const registry = getFullRegistry();
+    const customToolRegistered = registry.some((t) => t.name === 'exarchos_deploy');
+    expect(customToolRegistered).toBe(false);
+    expect(hasCustomToolHandlers('exarchos_deploy')).toBe(false);
+  });
+
+  it('RegisterCustomTools_PartialFailure_RollsBackPreviousTools', async () => {
+    // Config with two tools: both will fail on dynamic import, but if the
+    // first tool somehow registered before the second fails, rollback must
+    // clean up all previously registered tools and their handlers.
+    const config: ExarchosConfig = {
+      tools: {
+        'exarchos_tool_a': {
+          description: 'First tool',
+          actions: [
+            { name: 'run', description: 'Run A', handler: './tools/a-run.js' },
+          ],
+        },
+        'exarchos_tool_b': {
+          description: 'Second tool',
+          actions: [
+            { name: 'run', description: 'Run B', handler: './tools/b-run.js' },
+          ],
+        },
+      },
+    };
+
+    await expect(
+      registerCustomTools(config, '/fake/project/root'),
+    ).rejects.toThrow('Failed to register custom tools');
+
+    // Neither tool should be in the registry
+    const registry = getFullRegistry();
+    expect(registry.some((t) => t.name === 'exarchos_tool_a')).toBe(false);
+    expect(registry.some((t) => t.name === 'exarchos_tool_b')).toBe(false);
+
+    // No handlers should remain for either tool
+    expect(hasCustomToolHandlers('exarchos_tool_a')).toBe(false);
+    expect(hasCustomToolHandlers('exarchos_tool_b')).toBe(false);
   });
 
   it('RegisterCustomWorkflows_NoTools_Noop', async () => {
