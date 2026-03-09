@@ -27,6 +27,12 @@ export interface GateMetadata {
   readonly dimension?: string;
 }
 
+export interface AutoEmission {
+  readonly event: string;
+  readonly condition: 'always' | 'conditional';
+  readonly description?: string;
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -35,6 +41,7 @@ export interface ToolAction {
   readonly roles: ReadonlySet<string>;
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
+  readonly autoEmits?: readonly AutoEmission[];
 }
 
 export interface CompositeTool {

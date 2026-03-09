@@ -15,7 +15,7 @@ import {
   clearCustomTools,
   findActionInRegistry,
 } from './registry.js';
-import type { ToolAction, CompositeTool } from './registry.js';
+import type { ToolAction, CompositeTool, AutoEmission } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -992,5 +992,71 @@ describe('Describe action in registry', () => {
       const describeAction = tool.actions.find(a => a.name === 'describe');
       expect(describeAction, `${tool.name} should have a describe action`).toBeDefined();
     }
+  });
+});
+
+// ─── AutoEmission Interface Tests ────────────────────────────────────────────
+
+describe('AutoEmission', () => {
+  it('AutoEmission_Interface_ExistsAndExported', () => {
+    // Assert: AutoEmission type can be used to type a value with the expected shape
+    const emission: AutoEmission = {
+      event: 'workflow.started',
+      condition: 'always',
+    };
+    expect(emission.event).toBe('workflow.started');
+    expect(emission.condition).toBe('always');
+
+    // Assert: description is optional
+    const emissionWithDesc: AutoEmission = {
+      event: 'workflow.transition',
+      condition: 'conditional',
+      description: 'Emitted when phase is provided',
+    };
+    expect(emissionWithDesc.description).toBe('Emitted when phase is provided');
+  });
+
+  it('ToolAction_AutoEmits_AcceptsEmissionArray', () => {
+    // Register a custom tool with an action that has autoEmits
+    const toolWithEmissions: CompositeTool = {
+      name: 'exarchos_test_emissions',
+      description: 'Test tool for auto-emissions',
+      actions: [
+        {
+          name: 'emit_test',
+          description: 'Action that auto-emits',
+          schema: z.object({ featureId: z.string() }),
+          phases: new Set(['ideate']),
+          roles: new Set(['lead']),
+          autoEmits: [
+            { event: 'workflow.started', condition: 'always' as const },
+          ],
+        },
+        {
+          name: 'no_emit_test',
+          description: 'Action without auto-emissions',
+          schema: z.object({ id: z.string() }),
+          phases: new Set(['ideate']),
+          roles: new Set(['any']),
+        },
+      ],
+    };
+
+    registerCustomTool(toolWithEmissions);
+
+    // Verify the action with autoEmits is findable
+    const actionWithEmits = findActionInRegistry('exarchos_test_emissions', 'emit_test');
+    expect(actionWithEmits).toBeDefined();
+    expect(actionWithEmits!.autoEmits).toBeDefined();
+    expect(actionWithEmits!.autoEmits).toHaveLength(1);
+    expect(actionWithEmits!.autoEmits![0].event).toBe('workflow.started');
+    expect(actionWithEmits!.autoEmits![0].condition).toBe('always');
+
+    // Verify the action without autoEmits works (field is optional)
+    const actionWithoutEmits = findActionInRegistry('exarchos_test_emissions', 'no_emit_test');
+    expect(actionWithoutEmits).toBeDefined();
+    expect(actionWithoutEmits!.autoEmits).toBeUndefined();
+
+    clearCustomTools();
   });
 });
