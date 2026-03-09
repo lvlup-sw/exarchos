@@ -189,6 +189,8 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 
 ## Event Emission
 
+Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. The table below is a summary — the reference has the exact shapes that MCP validation enforces.
+
 | Event | Required Fields (`data`) | When | Purpose |
 |-------|--------------------------|------|---------|
 | `shepherd.started` | `featureId` (string) | On skill start (emitted by `assess_stack`) | Audit trail |
@@ -199,8 +201,6 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 | `remediation.succeeded` | `taskId` (string), `skill` (string), `gateName` (string), `totalAttempts` (number), `finalStrategy` (string) | After fix confirmed | avgRemediationAttempts metric |
 | `shepherd.approval_requested` | `prUrl` (string) | On requesting review | Audit trail |
 | `shepherd.completed` | `prUrl` (string), `outcome` (string) | On merge detected (emitted by `assess_stack`) | Audit trail |
-
-See `references/shepherd-event-schemas.md` for full schema details with examples.
 
 ## Domain Knowledge
 
