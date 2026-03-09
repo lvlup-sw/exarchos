@@ -67,6 +67,39 @@ export interface TransitionResult {
   };
 }
 
+// ─── Serialization Types ────────────────────────────────────────────────────
+
+export interface SerializedTopology {
+  workflowType: string;
+  initialPhase: string;
+  states: Record<string, {
+    id: string;
+    type: 'atomic' | 'compound' | 'final';
+    parent?: string;
+    initial?: string;
+    maxFixCycles?: number;
+    onEntry?: readonly string[];
+    onExit?: readonly string[];
+  }>;
+  transitions: Array<{
+    from: string;
+    to: string;
+    guard?: { id: string; description: string };
+    isFixCycle?: boolean;
+    effects?: readonly string[];
+  }>;
+  tracks: Record<string, string[]>;
+}
+
+export interface WorkflowTypeSummary {
+  workflowTypes: Array<{
+    name: string;
+    initialPhase: string;
+    phaseCount: number;
+    trackCount: number;
+  }>;
+}
+
 // ─── HSM Registry ───────────────────────────────────────────────────────────
 
 const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor']);
@@ -101,6 +134,97 @@ export function getInitialPhase(workflowType: string): string {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return phase;
+}
+
+// ─── Topology Serialization ─────────────────────────────────────────────────
+
+/**
+ * Derive tracks from compound states: for each compound state, collect
+ * its children (states where parent === compoundState.id).
+ */
+function deriveTracks(hsm: HSMDefinition): Record<string, string[]> {
+  const tracks: Record<string, string[]> = {};
+  for (const state of Object.values(hsm.states)) {
+    if (state.type === 'compound') {
+      tracks[state.id] = [];
+    }
+  }
+  for (const state of Object.values(hsm.states)) {
+    if (state.parent && tracks[state.parent] !== undefined) {
+      tracks[state.parent].push(state.id);
+    }
+  }
+  return tracks;
+}
+
+/**
+ * Serialize an HSM definition into a plain JSON-serializable object.
+ * Strips evaluate functions from guards, derives tracks from compound states.
+ */
+export function serializeTopology(workflowType: string): SerializedTopology {
+  const hsm = getHSMDefinition(workflowType);
+  const initialPhase = getInitialPhase(workflowType);
+
+  const states: SerializedTopology['states'] = {};
+  for (const [id, state] of Object.entries(hsm.states)) {
+    const entry: SerializedTopology['states'][string] = {
+      id: state.id,
+      type: state.type,
+    };
+    if (state.parent !== undefined) entry.parent = state.parent;
+    if (state.initial !== undefined) entry.initial = state.initial;
+    if (state.maxFixCycles !== undefined) entry.maxFixCycles = state.maxFixCycles;
+    if (state.onEntry !== undefined) entry.onEntry = state.onEntry;
+    if (state.onExit !== undefined) entry.onExit = state.onExit;
+    states[id] = entry;
+  }
+
+  const transitions: SerializedTopology['transitions'] = hsm.transitions.map((t) => {
+    const entry: SerializedTopology['transitions'][number] = {
+      from: t.from,
+      to: t.to,
+    };
+    if (t.guard) {
+      entry.guard = { id: t.guard.id, description: t.guard.description };
+    }
+    if (t.isFixCycle !== undefined) entry.isFixCycle = t.isFixCycle;
+    if (t.effects !== undefined) entry.effects = t.effects;
+    return entry;
+  });
+
+  const tracks = deriveTracks(hsm);
+
+  return {
+    workflowType,
+    initialPhase,
+    states,
+    transitions,
+    tracks,
+  };
+}
+
+/**
+ * List all registered workflow types with summary information.
+ */
+export function listWorkflowTypes(): WorkflowTypeSummary {
+  const workflowTypes: WorkflowTypeSummary['workflowTypes'] = [];
+
+  for (const name of Object.keys(hsmRegistry)) {
+    const hsm = hsmRegistry[name];
+    const initialPhase = initialPhaseRegistry[name];
+    const phaseCount = Object.keys(hsm.states).length;
+    const tracks = deriveTracks(hsm);
+    const trackCount = Object.keys(tracks).length;
+
+    workflowTypes.push({
+      name,
+      initialPhase,
+      phaseCount,
+      trackCount,
+    });
+  }
+
+  return { workflowTypes };
 }
 
 // ─── Workflow Definition → HSM Conversion ────────────────────────────────────
