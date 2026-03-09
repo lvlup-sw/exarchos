@@ -403,6 +403,107 @@ describe('handlePrepareDelegation', () => {
     expect(data.blockers).toContain('Plan artifact is missing');
   });
 
+  // ─── T-15: nativeIsolation parameter ──────────────────────────────────────
+
+  it('PrepareDelegation_NativeIsolationTrue_SkipsWorktreeBlockers', async () => {
+    // Arrange: worktrees not ready, but nativeIsolation skips those blockers
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['no worktrees expected'],
+      plan: { approved: true, taskCount: 2 },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 0, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — should be ready despite worktree blockers
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; isolation: string; blockers?: string[] };
+    expect(data.ready).toBe(true);
+    expect(data.isolation).toBe('native');
+  });
+
+  it('PrepareDelegation_NativeIsolationFalse_PreservesWorktreeBlockers', async () => {
+    // Arrange: worktrees not ready, nativeIsolation false (default)
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['no worktrees expected'],
+      plan: { approved: true, taskCount: 2 },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 0, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — should NOT be ready because of worktree blockers
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; blockers?: string[]; isolation?: string };
+    expect(data.ready).toBe(false);
+    expect(data.blockers).toContain('no worktrees expected');
+    expect(data.isolation).toBeUndefined();
+  });
+
+  it('PrepareDelegation_NativeIsolationTrue_StillTracksState', async () => {
+    // Arrange: nativeIsolation but plan not approved — non-worktree blockers still apply
+    const state = notReadyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['plan not approved', 'no worktrees expected'],
+      plan: { approved: false, taskCount: 0 },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 0, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — still not ready because plan not approved (non-worktree blocker persists)
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; blockers?: string[]; readiness: DelegationReadinessState };
+    expect(data.ready).toBe(false);
+    expect(data.blockers).toContain('plan not approved');
+    expect(data.readiness).toBeDefined();
+  });
+
+  it('PrepareDelegation_NativeIsolationTrue_StillRunsPreChecks', async () => {
+    // Arrange: nativeIsolation with ready state — quality hints still assembled
+    const state = readyWorkflowState();
+    const drState = readyDelegationReadiness();
+    setupMaterializer(state, undefined, drState);
+    const hints = mockQualityHints();
+    vi.mocked(generateQualityHints).mockReturnValue(
+      hints as ReturnType<typeof generateQualityHints>,
+    );
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — quality hints still present
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      isolation: string;
+      qualityHints: Array<{ category: string; severity: string; hint: string }>;
+    };
+    expect(data.ready).toBe(true);
+    expect(data.isolation).toBe('native');
+    expect(data.qualityHints).toHaveLength(2);
+    expect(generateQualityHints).toHaveBeenCalled();
+  });
+
   it('HandlePrepareDelegation_ReadinessIncludesWorktreeData', async () => {
     // Arrange: ready state with worktree data
     const state = readyWorkflowState();
