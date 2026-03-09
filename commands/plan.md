@@ -85,7 +85,7 @@ Save plan to `docs/plans/YYYY-MM-DD-<feature>.md` and capture the path as `$PLAN
 Before planning, check if plan already exists:
 1. Read state file for `.artifacts.plan`
 2. If plan file exists and is valid, skip planning
-3. Auto-chain directly to delegate
+3. Auto-chain directly to plan-review
 
 ## Auto-Chain
 

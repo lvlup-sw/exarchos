@@ -1,0 +1,269 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" width="720">
+  <title>Exarchos Architecture</title>
+  <desc>Event-sourced SDLC workflows for Claude Code. HSM state machine enforces phase transitions. Agent teammates execute in isolated git worktrees.</desc>
+
+  <defs>
+    <!-- Subtle grain texture -->
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feBlend in="SourceGraphic" mode="multiply" result="grain"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.03"/>
+      </feComponentTransfer>
+      <feBlend in="SourceGraphic" in2="grain"/>
+    </filter>
+    <!-- Arrow marker -->
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
+    .h1 { fill: #f0f0f0; font-size: 14px; font-weight: 700; letter-spacing: 0.5px }
+    .h2 { fill: #e5e7eb; font-size: 11px; font-weight: 600 }
+    .h3 { fill: #d1d5db; font-size: 10px; font-weight: 600 }
+    .sub { fill: #9ca3af; font-size: 9px }
+    .dim { fill: #6b7280; font-size: 9px }
+    .tiny { fill: #6b7280; font-size: 8px }
+    .box { fill: #111827; stroke: #1e293b; stroke-width: 1.5 }
+    .box-hi { fill: #0f172a; stroke: #334155; stroke-width: 1.5 }
+
+    /* Flowing connections */
+    @keyframes dash { to { stroke-dashoffset: -20 } }
+    .conn { stroke: #374151; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; animation: dash 1s linear infinite }
+
+    /* Pipeline phase highlight sweep */
+    @keyframes sweep {
+      0%,8%   { fill: #22d3ee; opacity: 0.9 }
+      12%,100% { fill: #1e293b; opacity: 1 }
+    }
+    .ph1 { animation: sweep 16s ease-in-out infinite }
+    .ph2 { animation: sweep 16s ease-in-out infinite; animation-delay: 2.5s }
+    .ph3 { animation: sweep 16s ease-in-out infinite; animation-delay: 5s }
+    .ph4 { animation: sweep 16s ease-in-out infinite; animation-delay: 7.5s }
+    .ph5 { animation: sweep 16s ease-in-out infinite; animation-delay: 10s }
+
+    /* Task dispatch pulses — travel from gates bar bottom (y=288) to worktree top (y=330) = 42px */
+    @keyframes dispatch {
+      0%,30%  { opacity: 0; transform: translate(0,0) }
+      35%     { opacity: 1 }
+      55%     { opacity: 1; transform: translate(0, 42px) }
+      60%,100%{ opacity: 0 }
+    }
+    .task-pkt { animation: dispatch 16s ease-in-out infinite }
+
+    /* PR return pulses — travel from worktree top (y=330) back up to gates bar bottom (y=288) = -42px */
+    @keyframes pr-up {
+      0%,60%  { opacity: 0; transform: translate(0,0) }
+      65%     { opacity: 1 }
+      80%     { opacity: 1; transform: translate(0, -42px) }
+      85%,100%{ opacity: 0 }
+    }
+    .pr-pkt { animation: pr-up 16s ease-in-out infinite }
+
+    /* Progress bar fill */
+    @keyframes fill-bar { 0%,35% { transform: scaleX(0) } 58% { transform: scaleX(1) } 100% { transform: scaleX(1) } }
+    .bar-fill { transform-box: fill-box; transform-origin: left center; animation: fill-bar 16s ease-in-out infinite }
+
+    /* Gate pulse */
+    @keyframes gate-pulse {
+      0%,75%  { fill: #1e293b }
+      80%     { fill: #10B981 }
+      95%     { fill: #10B981 }
+      100%    { fill: #1e293b }
+    }
+    .gate-dot { animation: gate-pulse 16s ease-in-out infinite }
+
+    /* MCP glow */
+    @keyframes mcp-glow {
+      0%,85%  { stroke: #334155 }
+      90%     { stroke: #22d3ee }
+      97%     { stroke: #22d3ee }
+      100%    { stroke: #334155 }
+    }
+    .mcp-border { animation: mcp-glow 16s ease-in-out infinite }
+
+  </style>
+
+  <!-- Background -->
+  <rect width="720" height="520" fill="#0a0a14" rx="8"/>
+  <rect width="720" height="520" fill="#0a0a14" rx="8" filter="url(#grain)"/>
+
+  <!-- ═══════════════ WORKFLOW PIPELINE ═══════════════ -->
+  <text class="h1" x="24" y="30">FEATURE WORKFLOW PIPELINE</text>
+  <line x1="24" y1="38" x2="248" y2="38" stroke="#22d3ee" stroke-width="1" opacity="0.4"/>
+
+  <!-- Phase boxes -->
+  <g transform="translate(24, 48)">
+    <rect class="ph1" x="0" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="61" y="16" text-anchor="middle">/ideate</text>
+    <text class="dim" x="61" y="28" text-anchor="middle">design</text>
+
+    <path d="M 126 18 L 138 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
+
+    <rect class="ph2" x="142" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="203" y="16" text-anchor="middle">/plan</text>
+    <text class="dim" x="203" y="28" text-anchor="middle">TDD tasks</text>
+
+    <path d="M 268 18 L 280 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
+
+    <rect class="ph3" x="284" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="345" y="16" text-anchor="middle">/delegate</text>
+    <text class="dim" x="345" y="28" text-anchor="middle">parallel agents</text>
+
+    <path d="M 410 18 L 422 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
+
+    <rect class="ph4" x="426" y="0" width="122" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="487" y="16" text-anchor="middle">/review</text>
+    <text class="dim" x="487" y="28" text-anchor="middle">two-stage</text>
+
+    <path d="M 552 18 L 564 18" stroke="#4b5563" stroke-width="1" marker-end="url(#arr)"/>
+
+    <rect class="ph5" x="568" y="0" width="112" height="36" rx="4" stroke="#334155" stroke-width="1"/>
+    <text class="h3" x="624" y="16" text-anchor="middle">/synthesize</text>
+    <text class="dim" x="624" y="28" text-anchor="middle">stacked PRs</text>
+  </g>
+
+  <!-- Human checkpoint markers -->
+  <g transform="translate(24, 48)">
+    <circle cx="203" cy="42" r="3" fill="#f59e0b"/>
+    <text class="tiny" x="203" y="52" text-anchor="middle" fill="#f59e0b">approve</text>
+    <circle cx="624" cy="42" r="3" fill="#f59e0b"/>
+    <text class="tiny" x="624" y="52" text-anchor="middle" fill="#f59e0b">merge</text>
+  </g>
+
+  <!-- Connector: pipeline row bottom → MCP box top -->
+  <line class="conn" x1="352" y1="84" x2="352" y2="114"/>
+
+  <!-- ═══════════════ EXARCHOS MCP CORE ═══════════════ -->
+  <rect class="box-hi mcp-border" x="24" y="114" width="656" height="120" rx="6"/>
+  <text class="h1" x="44" y="138">EXARCHOS MCP</text>
+  <line x1="44" y1="144" x2="170" y2="144" stroke="#22d3ee" stroke-width="1" opacity="0.3"/>
+
+  <!-- HSM -->
+  <g transform="translate(44, 154)">
+    <rect x="0" y="0" width="190" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="95" y="16" text-anchor="middle">HSM</text>
+    <text class="dim" x="95" y="30" text-anchor="middle">state machine</text>
+    <text class="dim" x="95" y="42" text-anchor="middle">26 guards</text>
+  </g>
+
+  <!-- Event Store -->
+  <g transform="translate(249, 154)">
+    <rect x="0" y="0" width="190" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="95" y="16" text-anchor="middle">Event Store</text>
+    <text class="dim" x="95" y="30" text-anchor="middle">append-only</text>
+    <text class="dim" x="95" y="42" text-anchor="middle">CQRS views</text>
+  </g>
+
+  <!-- Team Coordinator -->
+  <g transform="translate(454, 154)">
+    <rect x="0" y="0" width="210" height="56" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+    <text class="h3" x="105" y="16" text-anchor="middle">Teams</text>
+    <text class="dim" x="105" y="30" text-anchor="middle">spawn · message</text>
+    <text class="dim" x="105" y="42" text-anchor="middle">shutdown · monitor</text>
+  </g>
+
+  <!-- Connector: MCP bottom (y=234) → Gates top (y=244) -->
+  <line class="conn" x1="352" y1="234" x2="352" y2="244"/>
+
+  <!-- ═══════════════ QUALITY GATES BAR ═══════════════ -->
+  <rect x="24" y="244" width="656" height="44" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="44" y="264" fill="#d1d5db">QUALITY GATES</text>
+
+  <!-- Gate layer dots -->
+  <g transform="translate(160, 260)">
+    <circle class="gate-dot" cx="0" cy="0" r="4"/>
+    <text class="tiny" x="0" y="14" text-anchor="middle">security</text>
+
+    <circle class="gate-dot" cx="100" cy="0" r="4" style="animation-delay:.4s"/>
+    <text class="tiny" x="100" y="14" text-anchor="middle">govern</text>
+
+    <circle class="gate-dot" cx="200" cy="0" r="4" style="animation-delay:.8s"/>
+    <text class="tiny" x="200" y="14" text-anchor="middle">integration</text>
+
+    <circle class="gate-dot" cx="300" cy="0" r="4" style="animation-delay:1.2s"/>
+    <text class="tiny" x="300" y="14" text-anchor="middle">review</text>
+
+    <circle class="gate-dot" cx="400" cy="0" r="4" style="animation-delay:1.6s"/>
+    <text class="tiny" x="400" y="14" text-anchor="middle">deploy</text>
+  </g>
+
+  <!-- ═══════════════ DELEGATION (worktrees) ═══════════════ -->
+  <text class="h2" x="24" y="312">DELEGATION</text>
+  <line x1="24" y1="318" x2="110" y2="318" stroke="#60a5fa" stroke-width="1" opacity="0.3"/>
+
+  <!-- Connector lines: gates bar bottom → worktree top -->
+  <line class="conn" x1="124" y1="288" x2="124" y2="330"/>
+  <line class="conn" x1="352" y1="288" x2="352" y2="330"/>
+  <line class="conn" x1="580" y1="288" x2="580" y2="330"/>
+
+  <!-- Task dispatch packets -->
+  <rect class="task-pkt" x="120" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0"/>
+  <rect class="task-pkt" x="348" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:1s"/>
+  <rect class="task-pkt" x="576" y="288" width="8" height="8" rx="1.5" fill="#60a5fa" opacity="0" style="animation-delay:2s"/>
+
+  <!-- PR return packets -->
+  <rect class="pr-pkt" x="120" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0"/>
+  <rect class="pr-pkt" x="348" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:1s"/>
+  <rect class="pr-pkt" x="576" y="330" width="8" height="8" rx="1.5" fill="#a78bfa" opacity="0" style="animation-delay:2s"/>
+
+  <!-- Subagent A -->
+  <g>
+    <rect class="box" x="24" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="124" y="348" text-anchor="middle">Subagent A</text>
+    <text class="dim" x="124" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="38" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="38" y="370" width="172" height="5" rx="2.5" fill="#10B981"/>
+    <text class="dim" x="124" y="396" text-anchor="middle">Task 1</text>
+  </g>
+
+  <!-- Subagent B -->
+  <g>
+    <rect class="box" x="252" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="352" y="348" text-anchor="middle">Subagent B</text>
+    <text class="dim" x="352" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="266" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="266" y="370" width="172" height="5" rx="2.5" fill="#10B981" style="animation-delay:1.5s"/>
+    <text class="dim" x="352" y="396" text-anchor="middle">Task 2</text>
+  </g>
+
+  <!-- Subagent C -->
+  <g>
+    <rect class="box" x="480" y="330" width="200" height="76" rx="4"/>
+    <text class="sub" x="580" y="348" text-anchor="middle">Subagent C</text>
+    <text class="dim" x="580" y="360" text-anchor="middle">worktree · isolated</text>
+    <rect x="494" y="370" width="172" height="5" rx="2.5" fill="#1e293b"/>
+    <rect class="bar-fill" x="494" y="370" width="172" height="5" rx="2.5" fill="#10B981" style="animation-delay:3s"/>
+    <text class="dim" x="580" y="396" text-anchor="middle">Task 3</text>
+  </g>
+
+  <!-- ═══════════════ TOKEN EFFICIENCY CALLOUT ═══════════════ -->
+  <rect x="24" y="430" width="316" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="44" y="452">TOKEN ECONOMY</text>
+  <text class="dim" x="44" y="468">field projection: 90% savings</text>
+  <text class="dim" x="44" y="480">diff review: 97% savings</text>
+
+  <!-- Checkpoint / Rehydrate callout -->
+  <rect x="356" y="430" width="324" height="62" rx="4" fill="#111827" stroke="#1e293b" stroke-width="1"/>
+  <text class="h3" x="376" y="452">CHECKPOINT + REHYDRATE</text>
+  <text class="dim" x="376" y="468">survives context compaction</text>
+  <text class="dim" x="376" y="480">restore in ~2-3k tokens</text>
+
+  <!-- ═══════════════ LEGEND ═══════════════ -->
+  <g transform="translate(24, 500)">
+    <rect x="0" y="0" width="8" height="8" rx="1" fill="#60a5fa"/>
+    <text class="dim" x="14" y="8">task</text>
+
+    <rect x="52" y="0" width="8" height="8" rx="1" fill="#a78bfa"/>
+    <text class="dim" x="66" y="8">PR</text>
+
+    <circle cx="106" cy="4" r="3.5" fill="#10B981"/>
+    <text class="dim" x="116" y="8">gate pass</text>
+
+    <circle cx="180" cy="4" r="3.5" fill="#f59e0b"/>
+    <text class="dim" x="190" y="8">human checkpoint</text>
+  </g>
+</svg>

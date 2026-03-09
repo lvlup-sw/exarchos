@@ -28,6 +28,10 @@ plugins/*/servers/*/coverage/
 # Benchmark output
 benchmark-results.json
 
+# VitePress build output
+documentation/.vitepress/dist/
+documentation/.vitepress/cache/
+
 # Sensitive/local files
 .env
 .env.local

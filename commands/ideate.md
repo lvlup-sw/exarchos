@@ -52,7 +52,7 @@ After user selects approach:
 
 ## State Management
 
-Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"` and the featureId.
+Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `featureId`, and `workflowType: "feature"`.
 
 After saving design, update state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"`:
 - Set `artifacts.design` to the design path
