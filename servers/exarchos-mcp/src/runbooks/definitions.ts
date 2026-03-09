@@ -61,7 +61,7 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Auto-emits workflow.transition' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId'],
-  autoEmits: ['workflow.transition'],
+  autoEmits: ['state.patched', 'workflow.transition'],
 };
 
 export const SYNTHESIS_FLOW: RunbookDefinition = {
@@ -78,7 +78,7 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
       note: 'Record PR URL in artifacts.prUrl' },
   ],
   templateVars: ['featureId'],
-  autoEmits: ['gate.executed'],
+  autoEmits: ['gate.executed', 'state.patched', 'workflow.transition'],
 };
 
 export const SHEPHERD_ITERATION: RunbookDefinition = {
@@ -103,7 +103,7 @@ export const SHEPHERD_ITERATION: RunbookDefinition = {
       note: 'git push to trigger CI re-run' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'prNumbers'],
-  autoEmits: ['shepherd.started', 'shepherd.approval_requested', 'shepherd.completed'],
+  autoEmits: ['gate.executed', 'shepherd.approval_requested', 'shepherd.completed', 'shepherd.started'],
 };
 
 export const TASK_FIX: RunbookDefinition = {
