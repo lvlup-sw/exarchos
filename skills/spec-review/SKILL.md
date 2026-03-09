@@ -225,10 +225,13 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 - `review` → `synthesize` requires guard `all-reviews-passed` — all `reviews.{name}.status` must be passing
 - `review` → `delegate` requires guard `any-review-failed` — triggers fix cycle when any review fails
 
-Use `describe` to discover action schemas when needed:
-```
-exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })
-```
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })`
+for orchestrate action schemas.
 
 ## Transition
 

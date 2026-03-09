@@ -155,30 +155,11 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
 
-**Quick reference — transition guards:**
-
-| Transition | Guard | Prerequisite (send in `updates` with `phase`) |
-|------------|-------|-----------------------------------------------|
-| `triage` → `investigate` | `triage-complete` | Set `triage.symptom` |
-| `investigate` → `rca` | `thorough-track-selected` | Set `track = "thorough"` |
-| `investigate` → `hotfix-implement` | `hotfix-track-selected` | Set `track = "hotfix"` |
-| `rca` → `design` | `rca-document-complete` | Set `artifacts.rca` |
-| `design` → `debug-implement` | `fix-design-complete` | Set `artifacts.fixDesign` |
-| `debug-implement` → `debug-validate` | `implementation-complete` | Always passes |
-| `debug-validate` → `debug-review` | `validation-passed` | Set `validation.testsPass = true` |
-| `debug-review` → `synthesize` | `review-passed` | All `reviews.{name}.status` passing |
-| `hotfix-implement` → `hotfix-validate` | `implementation-complete` | Always passes |
-| `hotfix-validate` → `completed` | `validation-passed` | Set `validation.testsPass = true` |
-| `synthesize` → `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
-
 ### Schema Discovery
 
-Use `describe` to discover action parameter schemas or event data schemas when needed:
-
-```typescript
-exarchos_workflow({ action: "describe", actions: ["set", "init"] })
-exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "team.spawned"] })
-```
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "debug" })`
+for phase transitions, guards, and playbook guidance.
 
 ## Integration Points
 

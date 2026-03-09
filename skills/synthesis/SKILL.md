@@ -161,10 +161,13 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — set `synthesis.prUrl` or `artifacts.pr` in the same `set` call as `phase`.
 
-Use `describe` to discover action schemas when needed:
-```
-exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })
-```
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })`
+for orchestrate action schemas.
 
 ## Completion Criteria
 
