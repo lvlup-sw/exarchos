@@ -41,7 +41,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
 
-**CRITICAL:** Always specify `model: "opus"` for coding tasks.
+**CRITICAL:** Always specify `model: "opus"` for coding tasks (when not using native agent definitions).
 
 ---
 
@@ -87,6 +87,17 @@ Build subagent prompts using `references/implementer-prompt.md` as the template.
 
 ### Prompt Construction
 
+**When using native agent definitions (preferred):**
+
+The `exarchos-implementer` agent spec already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
+1. Full task description (requirements, acceptance criteria)
+2. Working directory (worktree path from Step 1)
+3. File paths to create/modify and test file paths
+4. Quality hints (if any)
+5. PBT flag when `propertyTests: true`
+
+**When using legacy prompt template (fallback):**
+
 For each task:
 1. Fill the implementer prompt template with task-specific details
 2. Set the `Working Directory` to the worktree path from Step 1
@@ -96,7 +107,22 @@ For each task:
 
 ### Parallel Dispatch
 
-Dispatch all independent tasks in a **single message** with multiple `Task` calls:
+Dispatch all independent tasks in a **single message** with multiple `Task` calls.
+
+**Native Agent Dispatch (preferred):**
+
+```typescript
+Task({
+  subagent_type: "exarchos-implementer",
+  run_in_background: true,
+  description: "Implement task-001: [title]",
+  prompt: `Task-specific context only: requirements, file paths, acceptance criteria`
+})
+```
+
+> **Note:** The agent's system prompt, model, isolation, skills, hooks, and memory are defined by the agent specification in `servers/exarchos-mcp/src/agents/definitions.ts`. The dispatch prompt provides ONLY task-specific context.
+
+**Legacy Dispatch (fallback for non-native platforms):**
 
 ```typescript
 Task({
