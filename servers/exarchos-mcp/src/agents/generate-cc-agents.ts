@@ -163,5 +163,5 @@ const isMainModule = process.argv[1] && (
 if (isMainModule) {
   const outDir = process.argv[2] || path.resolve(import.meta.dirname, '../../../../agents');
   generateAllAgentFiles(outDir);
-  console.log(`Generated ${ALL_AGENT_SPECS.length} agent files to ${outDir}`);
+  process.stderr.write(`Generated ${ALL_AGENT_SPECS.length} agent files to ${outDir}\n`);
 }
