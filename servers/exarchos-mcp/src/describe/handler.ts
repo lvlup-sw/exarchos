@@ -93,7 +93,7 @@ function handleTopologyDescribe(topology: string): ToolResult {
   if (topology === 'all') {
     return {
       success: true,
-      data: { workflowTypes: listWorkflowTypes() },
+      data: listWorkflowTypes(),
     };
   }
 
@@ -106,7 +106,7 @@ function handleTopologyDescribe(topology: string): ToolResult {
       error: {
         code: 'UNKNOWN_WORKFLOW_TYPE',
         message: `Unknown workflow type: ${topology}`,
-        validTargets: listWorkflowTypes(),
+        validTargets: listWorkflowTypes().workflowTypes.map(wt => wt.name),
       },
     };
   }

@@ -156,10 +156,11 @@ describe('handleDescribe topology', () => {
     expect(data).toHaveProperty('topology');
     const topology = data.topology as Record<string, unknown>;
     expect(topology).toHaveProperty('workflowTypes');
-    const types = topology.workflowTypes as string[];
-    expect(types).toContain('feature');
-    expect(types).toContain('debug');
-    expect(types).toContain('refactor');
+    const types = topology.workflowTypes as Array<{ name: string }>;
+    const names = types.map(t => t.name);
+    expect(names).toContain('feature');
+    expect(names).toContain('debug');
+    expect(names).toContain('refactor');
   });
 
   it('HandleDescribe_TopologyInvalidType_ReturnsError', async () => {
