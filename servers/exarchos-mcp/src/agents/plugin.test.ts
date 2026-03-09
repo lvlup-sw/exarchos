@@ -19,14 +19,15 @@ const AGENTS_DIR = path.join(REPO_ROOT, 'agents');
 // ─── Task 7: Plugin Manifest ─────────────────────────────────────────────
 
 describe('Plugin Manifest', () => {
-  it('PluginManifest_IncludesAgentsDirectory_InComponents', () => {
+  it('PluginManifest_AgentsFieldOmitted_UntilSchemaSupported', () => {
     // Arrange: read plugin.json
     const raw = fs.readFileSync(PLUGIN_JSON_PATH, 'utf-8');
     const manifest = JSON.parse(raw);
 
-    // Assert: agents field present and points to agents/
-    expect(manifest).toHaveProperty('agents');
-    expect(manifest.agents).toBe('./agents/');
+    // Assert: agents field NOT present — Claude Code plugin schema
+    // doesn't support it yet and rejects the manifest with validation error.
+    // Re-add when Claude Code ships agents directory support.
+    expect(manifest).not.toHaveProperty('agents');
   });
 
   it('PluginManifest_AgentsDirectoryExists_HasGitkeep', () => {
