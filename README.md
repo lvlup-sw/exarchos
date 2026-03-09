@@ -2,14 +2,14 @@
   <img src="exarchos-logo.svg" alt="Exarchos" width="280" />
 
   **Your agents forget. Exarchos doesn't.**<br>
-  Durable SDLC workflows for Claude Code — checkpoint any task, rehydrate in seconds, ship verified code.
+  Durable SDLC workflows for Claude Code — checkpoint any task, resume where you left off.
 
   [![CI](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml/badge.svg)](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml)
   [![npm version](https://img.shields.io/npm/v/@lvlup-sw/exarchos)](https://www.npmjs.com/package/@lvlup-sw/exarchos)
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
   [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-  [Install](#install) · [What You Get](#what-you-get) · [Architecture](#agent-first-architecture) · [Workflows](#workflows) · [Docs](docs/)
+  [Install](#install) · [What you get](#what-you-get) · [Architecture](#agent-first-architecture) · [Workflows](#workflows) · [Docs](docs/)
 </div>
 
 ---
@@ -26,7 +26,7 @@ The plan-file workflow is the right instinct. Markdown files just can't persist 
 
 ## Your plan.md workflow, with teeth
 
-Exarchos replaces markdown files with an event-sourced MCP server. A state machine enforces phase transitions (design, plan, implement, review, ship) with quality gates between each step. Parallel agents execute in isolated git worktrees. Lifecycle hooks run validation scripts automatically, so the agent can't skip steps even if it wants to.
+Exarchos replaces markdown files with an event-sourced MCP server. A state machine enforces phase transitions (design, plan, implement, review, ship) with quality gates between each step. Typed agents (implementer, fixer, reviewer) execute in isolated git worktrees, following runbooks that encode step sequences and gate checks. Lifecycle hooks run validation scripts automatically, so the agent can't skip steps even if it wants to.
 
 When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Design docs, plans, and PR links persist as references, never inlined into context. Your workflow picks up where it left off.
 
@@ -69,15 +69,17 @@ Requires Node.js >= 20.
 
 Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve twice: the design and the merge. Everything between auto-continues.
 
-**Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens. No re-explaining your project from scratch when you come back the next day.
+**Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens. No re-explaining your project from scratch the next day.
 
-**Native Task delegation.** Delegate to parallel Claude Code instances, each in its own git worktree. The orchestrator tracks their progress and runs quality gates on completion.
+**Typed agent teams.** Three agent roles (implementer, fixer, reviewer), each with scoped tools, hooks, and worktree isolation. Fixers resume failed tasks with full context instead of starting over.
+
+**Runbooks.** The MCP server ships machine-readable orchestration sequences. Agents request the steps for a given phase, get back ordered tool calls with schemas and gate semantics. No prose to misinterpret, and any MCP client can use them.
 
 **Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Verification scripts, not vibes.
 
-**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you can trace exactly what happened and why.
+**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you can trace what happened.
 
-**Token-efficient.** State queries use field projection (90% fewer tokens). Code review sends diffs, not full files.
+**Token-efficient.** Lazy schema registration keeps MCP startup under 500 tokens. Field projection trims state queries by 90%. Code review sends diffs, not full files.
 
 Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint.
 
@@ -89,12 +91,16 @@ Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude 
 |------|-------------|
 | `exarchos_workflow` | Workflow lifecycle: init, get, set, cancel, cleanup, reconcile |
 | `exarchos_event` | Append-only event store: append, query, batch |
-| `exarchos_orchestrate` | Team coordination: task dispatch, review triage, script execution |
+| `exarchos_orchestrate` | Team coordination: task dispatch, review triage, script execution, runbooks, agent specs |
 | `exarchos_view` | CQRS projections: pipeline status, task boards, stack health |
+
+All four tools support lazy schema loading via `describe`. At startup, only slim descriptions and action enums are registered. Full schemas load on demand when the agent calls `describe` for the actions it needs.
+
+Agent specifications live in a registry and are served through `exarchos_orchestrate({ action: "agent_spec" })`. Claude Code gets compiled `.md` agent files as a native optimization; other MCP clients get the same specs via the API.
 
 Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so you can call `exarchos workflow get --featureId my-feature` from a terminal and get the same result the agent gets. Lifecycle hooks (pre-compact, session-start, guard, task-gate) run as fast-path subcommands that skip heavy initialization.
 
-The design is agent-first: structured input over natural language, strict schema validation over loose parsing, and a single binary that does one thing whether an agent or a human is driving it.
+The design is agent-first: structured input over natural language, strict schema validation over loose parsing. One binary, same behavior whether an agent or a human is driving it.
 
 ### Integrations
 
