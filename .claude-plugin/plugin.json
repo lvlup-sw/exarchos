@@ -1,7 +1,7 @@
 {
   "name": "exarchos",
   "description": "Structure for agentic development — durable SDLC workflows with convergence gates, agent teams, and full audit trail.",
-  "version": "2.4.4",
+  "version": "2.5.0",
   "author": {
     "name": "LevelUp Software"
   },
