@@ -149,6 +149,12 @@ export const TaskSchema = z.object({
   blockedBy: z.array(z.string()).default([]),
   worktreePath: z.string().optional(),
   testingStrategy: TestingStrategySchema.optional(),
+  /** Claude Code agent ID for resume capability */
+  agentId: z.string().optional(),
+  /** Whether the fixer used resume vs fresh dispatch */
+  agentResumed: z.boolean().optional(),
+  /** Completion status from SubagentStop hook */
+  lastExitReason: z.string().optional(),
 });
 
 // ─── Worktree Schema ────────────────────────────────────────────────────────

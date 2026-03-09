@@ -23,6 +23,7 @@ export interface DispatchContext {
   readonly eventStore: EventStore;
   readonly enableTelemetry: boolean;
   readonly config?: ExarchosConfig;
+  readonly slimRegistration?: boolean;
 }
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────

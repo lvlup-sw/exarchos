@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   buildCompositeSchema,
   buildRegistrationSchema,
+  buildToolDescription,
   coercedRecord,
   coercedPositiveInt,
   coercedNonnegativeInt,
@@ -11,6 +12,7 @@ import {
   unregisterCustomTool,
   getFullRegistry,
   clearCustomTools,
+  findActionInRegistry,
 } from './registry.js';
 import type { ToolAction, CompositeTool } from './registry.js';
 
@@ -267,19 +269,19 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 6 actions: init, get, set, cancel, cleanup, reconcile', () => {
+    it('should have 7 actions: init, get, set, cancel, cleanup, reconcile, describe', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'describe']);
     });
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 22 actions for task management, review triage, gate checks, script execution, and composite actions', () => {
+    it('should have 25 actions for task management, review triage, gate checks, script execution, runbooks, agent spec, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(22);
+      expect(composite!.actions).toHaveLength(25);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -318,6 +320,9 @@ describe('TOOL_REGISTRY', () => {
 
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
+    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
+    const SPECIAL_ACTIONS = new Set(['describe', 'runbook']);
+
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
         registryNames.has(handlerKey),
@@ -325,6 +330,7 @@ describe('TOOL_REGISTRY', () => {
       ).toBe(true);
     }
     for (const registryName of registryNames) {
+      if (SPECIAL_ACTIONS.has(registryName)) continue;
       expect(
         ACTION_HANDLER_KEYS.includes(registryName),
         `Registry action '${registryName}' has no handler in composite.ts`,
@@ -829,5 +835,123 @@ describe('Dynamic Tool Registration', () => {
     expect(
       () => registerCustomTool(customTool),
     ).toThrow(/already registered/i);
+  });
+});
+
+// ─── Gate Metadata Tests ──────────────────────────────────────────────────────
+
+describe('Gate Metadata', () => {
+  it('GateMetadata_CheckActions_HaveGateField', () => {
+    // check_event_emissions is intentionally excluded — it's an advisory hint action
+    // that returns missing event suggestions, not a gate with blocking/dimension metadata.
+    const expectedCheckActions = new Set([
+      'check_tdd_compliance', 'check_static_analysis', 'check_security_scan',
+      'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
+      'check_review_verdict', 'check_convergence', 'check_provenance_chain',
+      'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
+      'check_post_merge',
+    ]);
+    const visited = new Set<string>();
+
+    for (const composite of TOOL_REGISTRY) {
+      for (const action of composite.actions) {
+        if (expectedCheckActions.has(action.name)) {
+          visited.add(action.name);
+          expect(action.gate, `${action.name} should have gate metadata`).toBeDefined();
+          expect(typeof action.gate!.blocking).toBe('boolean');
+        }
+      }
+    }
+
+    // Ensure every expected check action was actually found in the registry
+    for (const expected of expectedCheckActions) {
+      expect(
+        visited.has(expected),
+        `Expected check action '${expected}' was not found in TOOL_REGISTRY`,
+      ).toBe(true);
+    }
+  });
+});
+
+// ─── Slim Description Tests ───────────────────────────────────────────────────
+
+describe('Slim Description', () => {
+  it('SlimDescription_AllVisibleTools_HaveSlimDescription', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      expect(tool.slimDescription, `${tool.name} should have slimDescription`).toBeDefined();
+      expect(tool.slimDescription!.length).toBeGreaterThan(0);
+      expect(tool.slimDescription!).toContain('describe');  // Must mention describe action
+    }
+  });
+});
+
+// ─── Dual Mode buildToolDescription Tests ─────────────────────────────────────
+
+describe('buildToolDescription dual mode', () => {
+  it('BuildToolDescription_SlimMode_ReturnsSlimDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool, true);
+    expect(desc).toBe(tool.slimDescription);
+  });
+
+  it('BuildToolDescription_FullMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const full = buildToolDescription(tool, false);
+    expect(full).toContain('Actions:');
+    expect(full).toContain('- init(');
+  });
+
+  it('BuildToolDescription_DefaultMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool);
+    expect(desc).toContain('Actions:');
+    expect(desc).toContain('- init(');
+  });
+});
+
+// ─── findActionInRegistry Tests ──────────────────────────────────────────────
+
+describe('findActionInRegistry', () => {
+  it('FindActionInRegistry_ValidAction_ReturnsAction', () => {
+    const action = findActionInRegistry('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.name).toBe('init');
+  });
+
+  it('FindActionInRegistry_InvalidAction_ReturnsUndefined', () => {
+    expect(findActionInRegistry('exarchos_workflow', 'nonexistent')).toBeUndefined();
+  });
+
+  it('FindActionInRegistry_InvalidTool_ReturnsUndefined', () => {
+    expect(findActionInRegistry('nonexistent_tool', 'init')).toBeUndefined();
+  });
+});
+
+// ─── Runbook Action Registry Tests ──────────────────────────────────────────
+
+describe('Runbook action in registry', () => {
+  it('RunbookAction_ExistsInOrchestrateRegistry', () => {
+    const orchTool = findComposite('exarchos_orchestrate');
+    expect(orchTool).toBeDefined();
+    const runbookAction = orchTool!.actions.find(a => a.name === 'runbook');
+    expect(runbookAction, 'exarchos_orchestrate should have a runbook action').toBeDefined();
+    expect(runbookAction!.description).toBeTruthy();
+    // Should accept both empty and parameterized input
+    expect(runbookAction!.schema.safeParse({}).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ phase: 'delegate' }).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ id: 'task-completion' }).success).toBe(true);
+  });
+});
+
+// ─── Describe Action Registry Tests ──────────────────────────────────────────
+
+describe('Describe action in registry', () => {
+  it('DescribeAction_AllVisibleTools_HaveDescribeAction', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      const describeAction = tool.actions.find(a => a.name === 'describe');
+      expect(describeAction, `${tool.name} should have a describe action`).toBeDefined();
+    }
   });
 });

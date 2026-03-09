@@ -31,6 +31,9 @@ Activate this skill when:
 
 ## Process
 
+> **Runbook:** Follow the synthesis-flow runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "synthesis-flow" })`
+
 ### Step 1: Verify Readiness
 
 Call the `prepare_synthesis` composite action to validate all preconditions in a single operation:

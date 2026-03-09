@@ -39,6 +39,19 @@ export interface PrepareDelegationResult {
   readonly readiness: DelegationReadinessState;
   readonly blockers?: string[];
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
+  readonly isolation?: 'native';
+}
+
+// ─── Worktree Blocker Patterns ──────────────────────────────────────────────
+
+const WORKTREE_BLOCKER_PATTERNS = [
+  'worktrees pending',
+  'worktrees failed',
+  'no worktrees expected',
+];
+
+function isWorktreeBlocker(blocker: string): boolean {
+  return WORKTREE_BLOCKER_PATTERNS.some(p => blocker.includes(p));
 }
 
 // ─── Quality Hint Assembly ──────────────────────────────────────────────────
@@ -65,7 +78,7 @@ function assembleQualityHints(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handlePrepareDelegation(
-  args: { featureId: string; tasks?: Array<{ id: string; title: string }> },
+  args: { featureId: string; tasks?: Array<{ id: string; title: string }>; nativeIsolation?: boolean },
   stateDir: string,
 ): Promise<ToolResult> {
   // Validate input
@@ -105,8 +118,15 @@ export async function handlePrepareDelegation(
     }
 
     // Merge readiness from view with supplementary checks
-    const effectiveReady = readiness.ready && additionalBlockers.length === 0;
-    const effectiveBlockers = [...readiness.blockers, ...additionalBlockers];
+    const allBlockers = [...readiness.blockers, ...additionalBlockers];
+
+    // When nativeIsolation is true, filter out worktree-related blockers
+    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`)
+    const effectiveBlockers = args.nativeIsolation
+      ? allBlockers.filter(b => !isWorktreeBlocker(b))
+      : allBlockers;
+
+    const effectiveReady = effectiveBlockers.length === 0;
 
     const effectiveReadiness: DelegationReadinessState = {
       ...readiness,
@@ -120,6 +140,7 @@ export async function handlePrepareDelegation(
         ready: false,
         readiness: effectiveReadiness,
         blockers: effectiveBlockers,
+        ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
       return { success: true, data: result };
     }
@@ -160,6 +181,7 @@ export async function handlePrepareDelegation(
       ready: true,
       readiness: effectiveReadiness,
       qualityHints,
+      ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
     };
     return { success: true, data: result };
   } catch (err) {

@@ -25,6 +25,19 @@ describe('hooks.json configuration', () => {
     expect(sessionStart.matcher).toContain('resume');
   });
 
+  it('hooksJson_SubagentStop_DefinedForExarchosAgents', () => {
+    const hooks = (hooksConfig as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> }).hooks;
+    expect(hooks.SubagentStop).toBeDefined();
+    expect(hooks.SubagentStop).toHaveLength(1);
+
+    const entry = hooks.SubagentStop[0];
+    expect(entry.matcher).toContain('exarchos-implementer');
+    expect(entry.matcher).toContain('exarchos-fixer');
+    expect(entry.hooks).toHaveLength(1);
+    expect(entry.hooks[0].type).toBe('command');
+    expect(entry.hooks[0].command).toContain('subagent-stop');
+  });
+
   it('reloadCommand_Exists_InCommandsDirectory', async () => {
     const reloadPath = path.resolve(__dirname, '../../commands/reload.md');
     const content = await fs.readFile(reloadPath, 'utf-8');

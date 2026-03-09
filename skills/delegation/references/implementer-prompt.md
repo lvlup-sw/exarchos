@@ -1,5 +1,7 @@
 # Implementer Prompt Template
 
+**Note:** When using Claude Code with native agent definitions, this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec). The native agent file `agents/exarchos-implementer.md` is generated from the registry at build time. This reference document is maintained for non-Claude-Code platforms and as the canonical prompt evolution record.
+
 Use this template when dispatching tasks via the Task tool.
 
 ## Quality Hints Integration

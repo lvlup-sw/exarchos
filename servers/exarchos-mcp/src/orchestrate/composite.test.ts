@@ -43,6 +43,18 @@ vi.mock('./post-merge.js', () => ({
   handlePostMerge: vi.fn(),
 }));
 
+vi.mock('../agents/handler.js', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    handleAgentSpec: vi.fn(),
+  };
+});
+
+vi.mock('../runbooks/handler.js', () => ({
+  handleRunbook: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
@@ -52,6 +64,8 @@ import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
+import { handleAgentSpec } from '../agents/handler.js';
+import { handleRunbook } from '../runbooks/handler.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -298,6 +312,87 @@ describe('handleOrchestrate', () => {
         expect(result.success).toBe(false);
         expect(result.error?.code).toBe('UNKNOWN_ACTION');
       }
+    });
+  });
+
+  // ─── Describe Routing ────────────────────────────────────────────────
+
+  describe('describe routing', () => {
+    it('HandleOrchestrate_Describe_RoutesToDescribeHandler', async () => {
+      // Arrange — describe is not mocked; it resolves schemas from the live registry
+      const args = { action: 'describe', actions: ['task_claim'] };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert — verify describe returns schema metadata for the requested action
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('task_claim');
+      const desc = data['task_claim'] as Record<string, unknown>;
+      expect(desc).toHaveProperty('description');
+      expect(desc).toHaveProperty('schema');
+    });
+  });
+
+  // ─── Agent Spec Routing ──────────────────────────────────────────────────
+
+  describe('agent spec routing', () => {
+    it('OrchestrateComposite_AgentSpecAction_RoutesToHandler', async () => {
+      // Arrange
+      const expected = successResult({
+        agent: 'implementer',
+        systemPrompt: 'You are a TDD implementer',
+        tools: ['Read', 'Write'],
+      });
+      vi.mocked(handleAgentSpec).mockResolvedValue(expected);
+      const args = {
+        action: 'agent_spec',
+        agent: 'implementer',
+        format: 'full',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleAgentSpec).toHaveBeenCalledWith(
+        { agent: 'implementer', format: 'full' },
+        STATE_DIR,
+      );
+    });
+  });
+
+  // ─── Runbook Routing ──────────────────────────────────────────────────
+
+  describe('runbook routing', () => {
+    it('HandleOrchestrate_RunbookList_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult([{ id: 'task-completion', phase: 'delegate', description: 'Complete a task', stepCount: 3 }]);
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', phase: 'delegate' };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ phase: 'delegate' });
+    });
+
+    it('HandleOrchestrate_RunbookDetail_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult({ id: 'task-completion', steps: [] });
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', id: 'task-completion' };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
     });
   });
 

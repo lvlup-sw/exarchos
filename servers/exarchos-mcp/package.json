@@ -11,7 +11,8 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
-    "generate:docs": "tsx scripts/generate-docs.ts"
+    "generate:docs": "tsx scripts/generate-docs.ts",
+    "generate:agents": "tsx src/agents/generate-cc-agents.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

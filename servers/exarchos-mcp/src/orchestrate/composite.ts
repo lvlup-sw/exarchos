@@ -5,6 +5,11 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import { handleDescribe } from '../describe/handler.js';
+import { handleRunbook } from '../runbooks/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
+
+const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
 // ─── Task Handlers ──────────────────────────────────────────────────────────
 
@@ -32,6 +37,7 @@ import { handleProvenanceChain } from './provenance-chain.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
 import { handleCheckEventEmissions } from './check-event-emissions.js';
 import { handleRunScript } from './run-script.js';
+import { handleAgentSpec } from '../agents/handler.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -65,6 +71,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_task_decomposition: adapt(handleTaskDecomposition),
   check_event_emissions: adapt(handleCheckEventEmissions),
   run_script: adapt(handleRunScript),
+  agent_spec: adapt(handleAgentSpec),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
@@ -82,21 +89,56 @@ export async function handleOrchestrate(
   args: Record<string, unknown>,
   stateDir: string,
 ): Promise<ToolResult> {
-  const action = args.action as string | undefined;
+  const { action, ...rest } = args;
 
-  const handler = action ? ACTION_HANDLERS[action] : undefined;
+  // Handle describe specially — it needs the action list, not stateDir
+  if (action === 'describe') {
+    if (!Array.isArray(rest.actions) || !rest.actions.every(a => typeof a === 'string')) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'describe requires actions: string[]',
+          expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+        },
+      };
+    }
+    return handleDescribe(rest as { actions: string[] }, orchestrateActions);
+  }
+
+  // Handle runbook specially — it doesn't need stateDir
+  if (action === 'runbook') {
+    if (rest.phase !== undefined && typeof rest.phase !== 'string') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'runbook phase must be a string if provided',
+        },
+      };
+    }
+    if (rest.id !== undefined && typeof rest.id !== 'string') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'runbook id must be a string if provided',
+        },
+      };
+    }
+    return handleRunbook(rest as { phase?: string; id?: string });
+  }
+
+  const handler = typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
   if (!handler) {
     return {
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook`,
       },
     };
   }
 
-  // Strip the `action` field before forwarding to the underlying handler
-  const { action: _action, ...handlerArgs } = args;
-
-  return handler(handlerArgs as Record<string, unknown>, stateDir);
+  return handler(rest as Record<string, unknown>, stateDir);
 }

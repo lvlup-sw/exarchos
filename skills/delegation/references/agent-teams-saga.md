@@ -1,5 +1,8 @@
 # Agent Teams Delegation Saga
 
+> **Machine-readable version:** `exarchos_orchestrate({ action: "runbook", id: "agent-teams-saga" })`
+> The runbook below is the authoritative sequence. The prose description provides human-readable context.
+
 Event-first delegation saga for Agent Teams mode. Every coordination action is preceded by an Exarchos event emission. The event stream is the authoritative record; native API calls are side effects.
 
 **Architectural principle:** Events record intent. Native API calls execute effects.

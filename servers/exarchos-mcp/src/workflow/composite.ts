@@ -1,7 +1,11 @@
 import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
+import { handleDescribe } from '../describe/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
 import type { ToolResult } from '../format.js';
+
+const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
 /**
  * Composite handler that routes `action` to the appropriate workflow handler.
@@ -26,12 +30,14 @@ export async function handleWorkflow(
       return handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir);
     case 'reconcile':
       return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir);
+    case 'describe':
+      return handleDescribe(rest as { actions: string[] }, workflowActions);
     default:
       return {
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, describe`,
         },
       };
   }

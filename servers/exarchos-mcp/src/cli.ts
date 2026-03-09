@@ -13,6 +13,7 @@ import { handleSessionEnd } from './cli-commands/session-end.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { handleSubagentContext } from './cli-commands/subagent-context.js';
+import { handleSubagentStop } from './cli-commands/subagent-stop.js';
 import { handleAssembleContext } from './cli-commands/assemble-context.js';
 import { handleEvalRun, resolveEvalsDir } from './cli-commands/eval-run.js';
 import { handleEvalCapture } from './cli-commands/eval-capture.js';
@@ -49,6 +50,7 @@ const KNOWN_COMMANDS = [
   'quality-check',
   'eval-calibrate',
   'session-end',
+  'subagent-stop',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -85,6 +87,7 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
     return handleCalibrate(parsed.data, resolveEvalsDir());
   },
   'session-end': async (stdinData) => handleSessionEnd(stdinData, resolveStateDir()),
+  'subagent-stop': handleSubagentStop,
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────

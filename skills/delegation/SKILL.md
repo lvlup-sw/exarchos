@@ -41,7 +41,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
 
-**CRITICAL:** Always specify `model: "opus"` for coding tasks.
+**CRITICAL:** Always specify `model: "opus"` for coding tasks (when not using native agent definitions).
 
 ---
 
@@ -87,6 +87,17 @@ Build subagent prompts using `references/implementer-prompt.md` as the template.
 
 ### Prompt Construction
 
+**When using native agent definitions (preferred):**
+
+The `exarchos-implementer` agent spec already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
+1. Full task description (requirements, acceptance criteria)
+2. Working directory (worktree path from Step 1)
+3. File paths to create/modify and test file paths
+4. Quality hints (if any)
+5. PBT flag when `propertyTests: true`
+
+**When using legacy prompt template (fallback):**
+
 For each task:
 1. Fill the implementer prompt template with task-specific details
 2. Set the `Working Directory` to the worktree path from Step 1
@@ -96,7 +107,22 @@ For each task:
 
 ### Parallel Dispatch
 
-Dispatch all independent tasks in a **single message** with multiple `Task` calls:
+Dispatch all independent tasks in a **single message** with multiple `Task` calls.
+
+**Native Agent Dispatch (preferred):**
+
+```typescript
+Task({
+  subagent_type: "exarchos-implementer",
+  run_in_background: true,
+  description: "Implement task-001: [title]",
+  prompt: `Task-specific context only: requirements, file paths, acceptance criteria`
+})
+```
+
+> **Note:** The agent's system prompt, model, isolation, skills, hooks, and memory are defined by the agent specification in `servers/exarchos-mcp/src/agents/definitions.ts`. The dispatch prompt provides ONLY task-specific context.
+
+**Legacy Dispatch (fallback for non-native platforms):**
 
 ```typescript
 Task({
@@ -130,40 +156,15 @@ TaskOutput({ task_id: "<id>", block: true })
 
 After each subagent reports completion:
 
+> **Runbook:** For each completed task, execute the task-completion runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "task-completion" })`
+> Execute the returned steps in order. Stop on gate failure.
+
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (`implements`, `tests`, `files`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
 2. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
 
-3. **TDD compliance gate (MANDATORY)** — MUST invoke the compliance check BEFORE marking the task as complete:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_tdd_compliance",
-  featureId: "<featureId>",
-  taskId: "<taskId>",
-  branch: "<task-branch>"
-})
-```
-
-Gate on the result:
-- If `result.success !== true`: Treat as gate-execution failure. Keep task in-progress, surface the tool error, and do NOT mark the task as complete.
-- If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
-- If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
-
-4. **Static analysis gate (D2, blocking)** — after TDD compliance passes, run a D2 check on the task branch:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_static_analysis",
-  featureId: "<featureId>",
-  taskId: "<taskId>",
-  repoRoot: "<worktree-path>"
-})
-```
-
-This check is **blocking** — `handleTaskComplete` enforces that a passing `static-analysis` gate event exists for the task (same pattern as TDD compliance). If `passed: false`, keep task in-progress and report findings.
-
-All handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
+3. **Run blocking gates** — the `task-completion` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the `result` parameter so they flow into the `task.completed` event:
 
@@ -209,10 +210,34 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from `TaskOutput`
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Re-dispatch with a fixer prompt (`references/fixer-prompt.md`) in the **same worktree**
-4. The fixer agent gets fresh context with the failure details embedded
+3. Fix the task using the resume-aware fixer flow below
+4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.
+
+### Fix Failed Tasks
+
+If a task fails and `agentId` is available in workflow state:
+
+**Resume (preferred — preserves full implementer context):**
+```typescript
+Task({
+  resume: "[agentId from workflow state]",
+  prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms."
+})
+```
+
+**Fresh dispatch (fallback — when agentId unavailable or platform doesn't support resume):**
+```typescript
+Task({
+  subagent_type: "exarchos-fixer",
+  run_in_background: true,
+  prompt: "[Full failure context + original task context]"
+})
+```
+
+After fix completes, run the `task-fix` runbook gate chain:
+`exarchos_orchestrate({ action: "runbook", id: "task-fix" })`
 
 ---
 

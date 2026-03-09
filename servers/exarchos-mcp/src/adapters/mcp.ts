@@ -23,7 +23,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   for (const tool of getFullRegistry()) {
     if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
-    const description = buildToolDescription(tool);
+    const description = buildToolDescription(tool, ctx.slimRegistration ?? false);
 
     const toolName = tool.name;
 
