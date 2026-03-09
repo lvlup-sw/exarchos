@@ -940,3 +940,75 @@ register({
   compactGuidance:
     'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow set to record the decision.',
 });
+
+// ─── Serialization Types ─────────────────────────────────────────────────────
+
+export interface SerializedPlaybooks {
+  workflowType: string;
+  phases: Record<string, SerializedPhasePlaybook>;
+  phaseCount: number;
+}
+
+export interface SerializedPhasePlaybook {
+  skill: string;
+  skillRef: string;
+  tools: readonly ToolInstruction[];
+  events: readonly EventInstruction[];
+  transitionCriteria: string;
+  guardPrerequisites: string;
+  validationScripts: readonly string[];
+  humanCheckpoint: boolean;
+  compactGuidance: string;
+}
+
+// ─── Serialization Functions ─────────────────────────────────────────────────
+
+/**
+ * Serialize all playbooks for a given workflow type into a plain
+ * JSON-serializable object keyed by phase name.
+ *
+ * Pure function with no side effects. Throws for unknown workflow types.
+ */
+export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
+  const phases: Record<string, SerializedPhasePlaybook> = {};
+
+  for (const [, playbook] of registry) {
+    if (playbook.workflowType !== workflowType) continue;
+
+    phases[playbook.phase] = {
+      skill: playbook.skill,
+      skillRef: playbook.skillRef,
+      tools: playbook.tools,
+      events: playbook.events,
+      transitionCriteria: playbook.transitionCriteria,
+      guardPrerequisites: playbook.guardPrerequisites,
+      validationScripts: playbook.validationScripts,
+      humanCheckpoint: playbook.humanCheckpoint,
+      compactGuidance: playbook.compactGuidance,
+    };
+  }
+
+  const phaseCount = Object.keys(phases).length;
+  if (phaseCount === 0) {
+    throw new Error(`Unknown workflow type: ${workflowType}`);
+  }
+
+  return {
+    workflowType,
+    phases,
+    phaseCount,
+  };
+}
+
+/**
+ * List distinct workflow types that have playbooks registered.
+ *
+ * Pure function with no side effects.
+ */
+export function listPlaybookWorkflowTypes(): string[] {
+  const types = new Set<string>();
+  for (const playbook of registry.values()) {
+    types.add(playbook.workflowType);
+  }
+  return [...types];
+}
