@@ -105,10 +105,30 @@ export const SHEPHERD_ITERATION: RunbookDefinition = {
   autoEmits: ['shepherd.started', 'shepherd.approval_requested', 'shepherd.completed'],
 };
 
+export const TASK_FIX: RunbookDefinition = {
+  id: 'task-fix',
+  phase: 'delegate',
+  description: 'Fix a failed task. Platforms with resume use agent context continuity; others dispatch fixer agent with failure context from event store.',
+  steps: [
+    { tool: 'native:Task', action: 'resume_or_spawn', onFail: 'stop',
+      params: {
+        resumeAgent: 'agentId',
+        fallbackAgent: 'fixer',
+      },
+      note: 'CC: resume agentId with full context. Others: agent_spec("fixer") + fresh dispatch.' },
+    { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'stop' },
+    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
+    { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
+  ],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'agentId', 'failureContext'],
+  autoEmits: ['gate.executed', 'task.completed'],
+};
+
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
   SHEPHERD_ITERATION,
+  TASK_FIX,
 ];
