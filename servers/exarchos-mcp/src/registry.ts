@@ -247,6 +247,27 @@ function makeDescribeAction(): ToolAction {
   };
 }
 
+/** Workflow-specific describe schema: supports both actions and topology. */
+const workflowDescribeSchema = z.object({
+  actions: z.array(z.string()).min(1).max(10)
+    .describe('Action names to describe. Returns full schema + description for each.')
+    .optional(),
+  topology: z.string()
+    .describe('Workflow type to return HSM topology for. Use "all" to list all types.')
+    .optional(),
+});
+
+/** Creates a workflow-specific describe action with topology support. */
+function makeWorkflowDescribeAction(): ToolAction {
+  return {
+    name: 'describe',
+    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology for a workflow type.',
+    schema: workflowDescribeSchema,
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  };
+}
+
 const eventDescribeSchema = z.object({
   actions: z.array(z.string()).min(1).max(10)
     .describe('Action names to describe. Returns full schema + description for each.')
@@ -254,13 +275,15 @@ const eventDescribeSchema = z.object({
   eventTypes: z.array(z.string()).min(1).max(20)
     .describe('Event type names to describe. Returns data schema, emission source, and built-in status for each.')
     .optional(),
+  emissionGuide: z.boolean().optional()
+    .describe('When true, returns the full event emission catalog grouped by source'),
 });
 
-/** Creates a describe action for the event tool that supports both actions and eventTypes. */
+/** Creates a describe action for the event tool that supports both actions, eventTypes, and emissionGuide. */
 function makeEventDescribeAction(): ToolAction {
   return {
     name: 'describe',
-    description: 'Return schemas for actions and/or event types. At least one of actions or eventTypes must be provided.',
+    description: 'Return schemas for actions and/or event types, or the emission guide. At least one of actions, eventTypes, or emissionGuide must be provided.',
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -347,7 +370,7 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
-  makeDescribeAction(),
+  makeWorkflowDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────

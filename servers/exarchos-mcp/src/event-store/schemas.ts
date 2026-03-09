@@ -929,6 +929,58 @@ export type EventDataMap = {
   'comment.resolved': CommentResolved;
 };
 
+// ─── Event Catalog Serialization ────────────────────────────────────────────
+
+export interface EventCatalog {
+  types: Record<string, {
+    source: string;
+    isBuiltIn: boolean;
+    hasSchema: boolean;
+  }>;
+  bySource: {
+    auto: string[];
+    model: string[];
+    hook: string[];
+    planned: string[];
+  };
+  totalCount: number;
+}
+
+/**
+ * Returns a comprehensive catalog of all registered event types (built-in + custom)
+ * with their emission source, built-in status, and whether they have a data schema.
+ *
+ * Pure function with no side effects.
+ */
+export function serializeEventCatalog(): EventCatalog {
+  const allTypes = getValidEventTypes();
+  const registry = EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>;
+  const schemas = EVENT_DATA_SCHEMAS as Partial<Record<string, z.ZodSchema>>;
+
+  const types: EventCatalog['types'] = {};
+  const bySource: EventCatalog['bySource'] = {
+    auto: [],
+    model: [],
+    hook: [],
+    planned: [],
+  };
+
+  for (const eventType of allTypes) {
+    const source = registry[eventType] ?? 'model';
+    const isBuiltIn = isBuiltInEventType(eventType);
+    const hasSchema = eventType in schemas && schemas[eventType] !== undefined;
+
+    types[eventType] = { source, isBuiltIn, hasSchema };
+    bySource[source as keyof EventCatalog['bySource']].push(eventType);
+  }
+
+  return {
+    types,
+    bySource,
+    totalCount: allTypes.length,
+  };
+}
+
 // ─── Agent Event Validation ──────────────────────────────────────────────────
 
 /** Event types that require agentId and source metadata. */

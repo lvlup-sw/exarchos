@@ -1,5 +1,12 @@
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getFullRegistry } from '../registry.js';
+import {
+  serializeTopology,
+  listWorkflowTypes,
+} from '../workflow/state-machine.js';
+import type { SerializedTopology, WorkflowTypeSummary } from '../workflow/state-machine.js';
+import { serializeEventCatalog } from '../event-store/schemas.js';
+import type { EventCatalog } from '../event-store/schemas.js';
 
 /**
  * Resolves a schema reference (e.g., "workflow.init") to its JSON Schema representation.
@@ -53,4 +60,30 @@ export function listSchemas(): Array<{
       description: action.description,
     })),
   }));
+}
+
+/**
+ * Resolves HSM topology for a specific workflow type or lists all workflow types.
+ *
+ * Delegates to canonical serialization functions in state-machine.ts.
+ * When called with a workflow type, returns the full serialized HSM topology.
+ * When called without arguments, returns a listing of all available workflow types
+ * with summary metadata.
+ *
+ * @throws Error if the workflow type is not found.
+ */
+export function resolveTopologyRef(workflowType?: string): SerializedTopology | WorkflowTypeSummary {
+  if (workflowType) {
+    return serializeTopology(workflowType);
+  }
+  return listWorkflowTypes();
+}
+
+/**
+ * Returns the event emission catalog grouped by source (auto, model, hook, planned).
+ *
+ * Delegates to canonical serializeEventCatalog() in schemas.ts.
+ */
+export function resolveEmissionCatalog(): EventCatalog {
+  return serializeEventCatalog();
 }

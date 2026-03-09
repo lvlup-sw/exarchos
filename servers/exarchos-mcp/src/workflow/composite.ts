@@ -31,7 +31,7 @@ export async function handleWorkflow(
     case 'reconcile':
       return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir);
     case 'describe':
-      return handleDescribe(rest as { actions: string[] }, workflowActions);
+      return handleDescribe(rest as { actions?: string[]; topology?: string }, workflowActions);
     default:
       return {
         success: false,

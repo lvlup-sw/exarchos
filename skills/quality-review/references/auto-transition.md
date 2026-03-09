@@ -13,7 +13,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If NEEDS_FIXES:
-1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality": { "status": "fail", "issues": [...] } } }`
+1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality-review": { "status": "fail", "issues": [...] } } }`
 2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript

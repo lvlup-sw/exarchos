@@ -44,6 +44,7 @@ import {
   unregisterEventType,
   getValidEventTypes,
   isBuiltInEventType,
+  serializeEventCatalog,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -1794,5 +1795,48 @@ describe('isBuiltInEventType', () => {
 
   it('IsBuiltInEventType_CustomType_ReturnsFalse', () => {
     expect(isBuiltInEventType('deploy.started')).toBe(false);
+  });
+});
+
+// ─── serializeEventCatalog ──────────────────────────────────────────────────
+
+describe('serializeEventCatalog', () => {
+  it('SerializeEventCatalog_ReturnsAllBuiltInEventTypes', () => {
+    const catalog = serializeEventCatalog();
+    for (const eventType of EventTypes) {
+      expect(catalog.types).toHaveProperty(eventType);
+    }
+  });
+
+  it('SerializeEventCatalog_IncludesEmissionSource', () => {
+    const catalog = serializeEventCatalog();
+    expect(catalog.types['workflow.started'].source).toBe('auto');
+    expect(catalog.types['team.spawned'].source).toBe('model');
+  });
+
+  it('SerializeEventCatalog_GroupsBySource', () => {
+    const catalog = serializeEventCatalog();
+    expect(catalog.bySource.auto).toContain('workflow.started');
+    expect(catalog.bySource.model).toContain('team.spawned');
+  });
+
+  it('SerializeEventCatalog_IncludesBuiltInFlag', () => {
+    const catalog = serializeEventCatalog();
+    expect(catalog.types['workflow.started'].isBuiltIn).toBe(true);
+    expect(catalog.types['task.completed'].isBuiltIn).toBe(true);
+    expect(catalog.types['team.spawned'].isBuiltIn).toBe(true);
+  });
+
+  it('SerializeEventCatalog_IncludesHasSchemaFlag', () => {
+    const catalog = serializeEventCatalog();
+    // task.completed has a schema in EVENT_DATA_SCHEMAS
+    expect(catalog.types['task.completed'].hasSchema).toBe(true);
+    // state.patched does NOT have a schema in EVENT_DATA_SCHEMAS
+    expect(catalog.types['state.patched'].hasSchema).toBe(false);
+  });
+
+  it('SerializeEventCatalog_TotalCount_MatchesTypeCount', () => {
+    const catalog = serializeEventCatalog();
+    expect(catalog.totalCount).toBe(Object.keys(catalog.types).length);
   });
 });

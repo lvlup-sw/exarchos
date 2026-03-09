@@ -92,7 +92,7 @@ Phases: delegate, overhaul-delegate, debug-implement. Role: `lead`.
 
 ### describe
 
-Get full schemas for specific actions.
+Get full schemas for specific actions, event type data schemas, and/or the event emission catalog.
 
 ```json
 {
@@ -101,10 +101,27 @@ Get full schemas for specific actions.
 }
 ```
 
+```json
+{
+  "action": "describe",
+  "emissionGuide": true
+}
+```
+
 | Parameter | Required | Type | Description |
 |-----------|----------|------|-------------|
-| `actions` | yes | string[] (1-10) | Action names to describe |
+| `actions` | no | string[] (1-10) | Action names to describe |
+| `eventTypes` | no | string[] (1-20) | Event type names to describe. Returns data schema, emission source, and built-in status |
+| `emissionGuide` | no | boolean | When true, returns the full event emission catalog grouped by source |
 
-Returns: Full Zod schemas, descriptions, and phase/role constraints for each requested action.
+At least one of `actions`, `eventTypes`, or `emissionGuide` must be provided.
+
+**Actions response:** Full Zod schemas, descriptions, and phase/role constraints for each requested action.
+
+**Event types response:** Data schema (JSON Schema), emission source (`auto`/`model`/`hook`/`planned`), and built-in status for each event type.
+
+**Emission guide response:** Complete catalog of all registered event types grouped by emission source, with per-type metadata (source, built-in flag, schema availability) and a total count.
+
+All parameters can be used together in a single call.
 
 Phases: all. Role: `any`.

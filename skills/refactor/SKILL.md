@@ -156,6 +156,8 @@ Full state schema:
 
 ### Phase Transitions and Guards
 
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases. For example, from `brief` you must go to `polish-implement`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
+
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
 
 **Quick reference — transition guards:**
@@ -176,6 +178,15 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 | `overhaul-review` → `overhaul-delegate` | `any-review-failed` | Any `reviews.{name}.status` failing |
 | `overhaul-update-docs` → `synthesize` | `docs-updated` | Set `validation.docsUpdated = true` |
 | `synthesize` → `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
+
+**Example — advancing from polish-validate to polish-update-docs:**
+```
+exarchos_workflow({ action: "set", featureId: "refactor-<slug>", updates: {
+  validation: { testsPass: true, goalsVerified: ["<verified goals>"] }
+}, phase: "polish-update-docs" })
+```
+
+The pattern is the same for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
 
 ### Schema Discovery
 

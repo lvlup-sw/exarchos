@@ -247,7 +247,7 @@ If an issue spans multiple tasks:
 **On review complete:**
 ```text
 action: "set", featureId: "<id>", updates: {
-  "reviews": { "quality": { "status": "pass", "summary": "...", "issues": [...] } }
+  "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 ```
 
@@ -288,6 +288,32 @@ Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_v
 
 All transitions are automatic — no user confirmation. See `references/auto-transition.md` for per-verdict transition details, Skill invocations, and integration notes.
 
-- **APPROVED** → set phase `synthesize`, invoke `/exarchos:synthesize`
-- **NEEDS_FIXES** → invoke `/exarchos:delegate --fixes`
-- **BLOCKED** → set phase `blocked`, invoke `/exarchos:ideate --redesign`
+### Recording Results
+
+Before transitioning, record the review verdict. The reviews value MUST be an object with a `status` field, not a flat string:
+
+**APPROVED:**
+```
+exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+  reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
+}, phase: "synthesize" })
+```
+Then invoke `/exarchos:synthesize`.
+
+**NEEDS_FIXES:**
+```
+exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+  reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
+}})
+```
+Then invoke `/exarchos:delegate --fixes`.
+
+**BLOCKED:**
+```
+exarchos_workflow({ action: "set", featureId: "<id>", phase: "blocked" })
+```
+Then invoke `/exarchos:ideate --redesign`.
+
+> **Gate events:** Do NOT manually emit `gate.executed` events via `exarchos_event`. Gate events are automatically emitted by the `check_review_verdict` orchestrate handler. Manual emission causes duplicates.
+
+> **Guard shape:** The `all-reviews-passed` guard requires `reviews.{name}.status` to be a passing value (`pass`, `passed`, `approved`, `fixes-applied`). Flat strings like `reviews: { "quality-review": "pass" }` are silently ignored and will block the `review → synthesize` transition.
