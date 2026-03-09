@@ -135,6 +135,49 @@ describe('handleEventDescribe', () => {
   });
 });
 
+describe('handleEventDescribe emissionGuide', () => {
+  it('HandleEventDescribe_EmissionGuide_ReturnsFullCatalog', async () => {
+    const result = await handleEventDescribe({ emissionGuide: true }, eventTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('emissionGuide');
+    const guide = data.emissionGuide as Record<string, unknown>;
+    expect(guide).toHaveProperty('types');
+    expect(guide).toHaveProperty('bySource');
+    expect(guide).toHaveProperty('totalCount');
+  });
+
+  it('HandleEventDescribe_EmissionGuideAndEventTypes_ReturnsBoth', async () => {
+    const result = await handleEventDescribe(
+      { emissionGuide: true, eventTypes: ['workflow.transition'] },
+      eventTool.actions,
+    );
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('emissionGuide');
+    expect(data).toHaveProperty('eventTypes');
+  });
+
+  it('HandleEventDescribe_EmissionGuideAndActions_ReturnsBoth', async () => {
+    const result = await handleEventDescribe(
+      { emissionGuide: true, actions: ['append'] },
+      eventTool.actions,
+    );
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('emissionGuide');
+    expect(data).toHaveProperty('actions');
+  });
+
+  it('HandleEventDescribe_ActionsOnly_BackwardCompatible', async () => {
+    const result = await handleEventDescribe({ actions: ['append'] }, eventTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('actions');
+    expect(data).not.toHaveProperty('emissionGuide');
+  });
+});
+
 describe('handleDescribe topology', () => {
   it('HandleDescribe_TopologyParam_ReturnsHSMForWorkflowType', async () => {
     const result = await handleDescribe({ topology: 'feature' }, workflowActions);

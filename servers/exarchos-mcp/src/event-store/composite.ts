@@ -40,7 +40,7 @@ export async function handleEvent(
     case 'describe': {
       const { action: _, ...rest } = args;
       return handleEventDescribe(
-        rest as { actions?: string[]; eventTypes?: string[] },
+        rest as { actions?: string[]; eventTypes?: string[]; emissionGuide?: boolean },
         eventActions,
       );
     }

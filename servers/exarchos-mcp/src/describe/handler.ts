@@ -6,6 +6,7 @@ import {
   EVENT_EMISSION_REGISTRY,
   getValidEventTypes,
   isBuiltInEventType,
+  serializeEventCatalog,
 } from '../event-store/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 
@@ -149,24 +150,27 @@ export async function handleEventTypeDescribe(
 
 /**
  * Combined describe handler for the event tool.
- * Supports both `actions` (tool action schemas) and `eventTypes` (event data schemas).
+ * Supports `actions` (tool action schemas), `eventTypes` (event data schemas),
+ * and `emissionGuide` (full event emission catalog grouped by source).
  */
 export async function handleEventDescribe(
-  args: { actions?: string[]; eventTypes?: string[] },
+  args: { actions?: string[]; eventTypes?: string[]; emissionGuide?: boolean },
   toolActions: readonly ToolAction[],
 ): Promise<ToolResult> {
   const hasActions = args.actions && args.actions.length > 0;
   const hasEventTypes = args.eventTypes && args.eventTypes.length > 0;
+  const hasEmissionGuide = args.emissionGuide === true;
 
-  if (!hasActions && !hasEventTypes) {
+  if (!hasActions && !hasEventTypes && !hasEmissionGuide) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'At least one of actions or eventTypes must be provided',
+        message: 'At least one of actions, eventTypes, or emissionGuide must be provided',
         expectedShape: {
           actions: ['append', 'query'],
           eventTypes: ['shepherd.iteration', 'team.spawned'],
+          emissionGuide: true,
         },
       },
     };
@@ -186,6 +190,11 @@ export async function handleEventDescribe(
     const eventResult = await handleEventTypeDescribe(args.eventTypes);
     if (!eventResult.success) return eventResult;
     Object.assign(results, { eventTypes: eventResult.data });
+  }
+
+  // Resolve emission guide if requested
+  if (hasEmissionGuide) {
+    results.emissionGuide = serializeEventCatalog();
   }
 
   return { success: true, data: results };

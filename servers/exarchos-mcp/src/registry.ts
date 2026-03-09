@@ -275,13 +275,15 @@ const eventDescribeSchema = z.object({
   eventTypes: z.array(z.string()).min(1).max(20)
     .describe('Event type names to describe. Returns data schema, emission source, and built-in status for each.')
     .optional(),
+  emissionGuide: z.boolean().optional()
+    .describe('When true, returns the full event emission catalog grouped by source'),
 });
 
-/** Creates a describe action for the event tool that supports both actions and eventTypes. */
+/** Creates a describe action for the event tool that supports both actions, eventTypes, and emissionGuide. */
 function makeEventDescribeAction(): ToolAction {
   return {
     name: 'describe',
-    description: 'Return schemas for actions and/or event types. At least one of actions or eventTypes must be provided.',
+    description: 'Return schemas for actions and/or event types, or the emission guide. At least one of actions, eventTypes, or emissionGuide must be provided.',
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
