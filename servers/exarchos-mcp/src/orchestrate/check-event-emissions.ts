@@ -6,7 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { EventType } from '../event-store/schemas.js';
-import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
 import type { ToolResult } from '../format.js';
 import {
   getOrCreateEventStore,
@@ -62,6 +62,7 @@ interface CheckEventEmissionsArgs {
 export interface EventEmissionHint {
   readonly eventType: EventType;
   readonly description: string;
+  readonly requiredFields?: readonly string[];
 }
 
 export interface CheckEventEmissionsResult {
@@ -70,6 +71,23 @@ export interface CheckEventEmissionsResult {
   readonly complete: boolean;
   readonly checked: number;
   readonly missing: number;
+}
+
+// ─── Zod Schema Introspection ─────────────────────────────────────────────
+
+/** Extracts required field names from a Zod object schema for an event type. */
+function extractRequiredFields(eventType: EventType): string[] | undefined {
+  const schema = EVENT_DATA_SCHEMAS[eventType];
+  if (!schema) return undefined;
+  // Use Zod's public .shape getter (available on all z.object() schemas)
+  const shape = (schema as { shape?: Record<string, unknown> }).shape;
+  if (!shape) return undefined;
+  return Object.entries(shape)
+    .filter(([, field]) => {
+      const fieldDef = (field as { _def?: { typeName?: string } })._def;
+      return fieldDef?.typeName !== 'ZodOptional';
+    })
+    .map(([name]) => name);
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -137,9 +155,11 @@ export async function handleCheckEventEmissions(
   const hints: EventEmissionHint[] = [];
   for (const eventType of expectedEvents) {
     if (!presentTypes.has(eventType)) {
+      const requiredFields = extractRequiredFields(eventType);
       hints.push({
         eventType,
         description: EVENT_DESCRIPTIONS[eventType] ?? `Missing expected event: ${eventType}`,
+        ...(requiredFields && requiredFields.length > 0 ? { requiredFields } : {}),
       });
     }
   }

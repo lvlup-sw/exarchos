@@ -44,6 +44,7 @@ function injectAutoCorrection(result: ToolResult, applied: Correction[]): ToolRe
 interface EventHint {
   readonly eventType: string;
   readonly description: string;
+  readonly requiredFields?: readonly string[];
 }
 
 /** Sets `_eventHints` directly on the ToolResult object. */
