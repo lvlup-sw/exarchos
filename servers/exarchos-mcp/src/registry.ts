@@ -289,6 +289,26 @@ function makeDescribeAction(): ToolAction {
   };
 }
 
+const eventDescribeSchema = z.object({
+  actions: z.array(z.string()).min(1).max(10)
+    .describe('Action names to describe. Returns full schema + description for each.')
+    .optional(),
+  eventTypes: z.array(z.string()).min(1).max(20)
+    .describe('Event type names to describe. Returns data schema, emission source, and built-in status for each.')
+    .optional(),
+});
+
+/** Creates a describe action for the event tool that supports both actions and eventTypes. */
+function makeEventDescribeAction(): ToolAction {
+  return {
+    name: 'describe',
+    description: 'Return schemas for actions and/or event types. At least one of actions or eventTypes must be provided.',
+    schema: eventDescribeSchema,
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  };
+}
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -413,7 +433,7 @@ const eventActions: readonly ToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
   },
-  makeDescribeAction(),
+  makeEventDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
@@ -885,7 +905,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Event sourcing — append and query events in streams',
     actions: eventActions,
     cli: { alias: 'ev' },
-    slimDescription: 'Event sourcing — append and query events. Use describe(actions) for schemas.\n\nActions: append, query, batch_append',
+    slimDescription: 'Event sourcing — append and query events. Use describe(actions) for action schemas, describe(eventTypes) for event data schemas.\n\nActions: append, query, batch_append',
   },
   {
     name: 'exarchos_orchestrate',

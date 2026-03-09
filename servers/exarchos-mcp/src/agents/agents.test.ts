@@ -19,7 +19,7 @@ describe('AgentSpec Types', () => {
       systemPrompt: 'You are an implementer',
       tools: ['Read', 'Write', 'Edit'],
       disallowedTools: ['Agent'],
-      model: 'opus',
+      model: 'inherit',
       isolation: 'worktree',
       skills: [skill],
       validationRules: [rule, ruleNoCommand],
@@ -34,7 +34,7 @@ describe('AgentSpec Types', () => {
     expect(spec.systemPrompt).toBe('You are an implementer');
     expect(spec.tools).toEqual(['Read', 'Write', 'Edit']);
     expect(spec.disallowedTools).toEqual(['Agent']);
-    expect(spec.model).toBe('opus');
+    expect(spec.model).toBe('inherit');
     expect(spec.isolation).toBe('worktree');
     expect(spec.skills).toHaveLength(1);
     expect(spec.skills[0].name).toBe('test-skill');
@@ -68,7 +68,7 @@ describe('AgentSpec Types', () => {
 describe('Agent Spec Definitions', () => {
   it('ImplementerSpec_HasRequiredFields_Complete', () => {
     expect(IMPLEMENTER.id).toBe('implementer');
-    expect(IMPLEMENTER.model).toBe('opus');
+    expect(IMPLEMENTER.model).toBe('inherit');
     expect(IMPLEMENTER.isolation).toBe('worktree');
     expect(IMPLEMENTER.resumable).toBe(true);
     expect(IMPLEMENTER.memoryScope).toBe('project');
@@ -93,7 +93,7 @@ describe('Agent Spec Definitions', () => {
   it('FixerSpec_IsNotResumable_ReturnsTrue', () => {
     expect(FIXER.id).toBe('fixer');
     expect(FIXER.resumable).toBe(false);
-    expect(FIXER.model).toBe('opus');
+    expect(FIXER.model).toBe('inherit');
     expect(FIXER.systemPrompt).toContain('{{failureContext}}');
     expect(FIXER.tools).toContain('Read');
     expect(FIXER.tools).toContain('Write');
@@ -103,7 +103,7 @@ describe('Agent Spec Definitions', () => {
 
   it('ReviewerSpec_HasReadOnlyTools_NoWriteEdit', () => {
     expect(REVIEWER.id).toBe('reviewer');
-    expect(REVIEWER.model).toBe('opus');
+    expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
     expect(REVIEWER.tools).toContain('Read');
     expect(REVIEWER.tools).toContain('Grep');

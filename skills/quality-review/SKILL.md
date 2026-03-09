@@ -256,6 +256,19 @@ action: "set", featureId: "<id>", updates: {
 action: "set", featureId: "<id>", phase: "synthesize"
 ```
 
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:**
+- `review` → `synthesize` requires guard `all-reviews-passed` — all `reviews.{name}.status` must be passing
+- `review` → `delegate` requires guard `any-review-failed` — triggers fix cycle when any review fails
+
+Use `describe` to discover action schemas when needed:
+```
+exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })
+```
+
 ## Completion Criteria
 
 - [ ] Static analysis passes

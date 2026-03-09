@@ -264,6 +264,18 @@ If context compaction occurs during delegation:
 
 ---
 
+## Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
+
+Use `describe` to discover action or event schemas when needed:
+```
+exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })
+exarchos_event({ action: "describe", eventTypes: ["team.spawned", "team.task.completed"] })
+```
+
 ## Transition
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):

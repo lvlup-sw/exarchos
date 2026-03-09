@@ -47,7 +47,7 @@ describe('GenerateAgentMarkdown', () => {
     // Assert: required frontmatter fields
     expect(fm.name).toBe('exarchos-implementer');
     expect(fm.tools).toBe('["Read", "Write", "Edit", "Bash", "Grep", "Glob"]');
-    expect(fm.model).toBe('opus');
+    expect(fm.model).toBe('inherit');
     expect(fm.color).toBe('blue');
     expect(fm.isolation).toBe('worktree');
     expect(fm.memory).toBe('project');
@@ -56,8 +56,10 @@ describe('GenerateAgentMarkdown', () => {
     expect(md).toContain('description: |');
     expect(md).toContain('<example>');
 
+    // mcpServers should appear in frontmatter
+    expect(md).toContain('mcpServers: ["exarchos"]');
+
     // maxTurns should be absent since IMPLEMENTER doesn't define it
-    // but the field should appear if the spec defines it
 
     // Body should be the system prompt
     const body = getBody(md);

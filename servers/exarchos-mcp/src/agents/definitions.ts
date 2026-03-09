@@ -62,7 +62,7 @@ When done, output a JSON completion report:
 \`\`\``,
   tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
   disallowedTools: ['Agent'],
-  model: 'opus',
+  model: 'inherit',
   isolation: 'worktree',
   skills: [
     { name: 'tdd-patterns', content: '' },
@@ -74,6 +74,7 @@ When done, output a JSON completion report:
   ],
   resumable: true,
   memoryScope: 'project',
+  mcpServers: ['exarchos'],
 };
 
 // ─── Fixer ──────────────────────────────────────────────────────────────────
@@ -128,7 +129,7 @@ When done, output a JSON completion report:
 \`\`\``,
   tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
   disallowedTools: ['Agent'],
-  model: 'opus',
+  model: 'inherit',
   skills: [
     { name: 'tdd-patterns', content: '' },
   ],
@@ -136,6 +137,7 @@ When done, output a JSON completion report:
     { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm run test:run' },
   ],
   resumable: false,
+  mcpServers: ['exarchos'],
 };
 
 // ─── Reviewer ───────────────────────────────────────────────────────────────
@@ -186,10 +188,11 @@ When done, output a JSON completion report:
 \`\`\``,
   tools: ['Read', 'Grep', 'Glob', 'Bash'],
   disallowedTools: ['Write', 'Edit', 'Agent'],
-  model: 'opus',
+  model: 'inherit',
   skills: [],
   validationRules: [],
   resumable: false,
+  mcpServers: ['exarchos'],
 };
 
 // ─── All Specs ──────────────────────────────────────────────────────────────

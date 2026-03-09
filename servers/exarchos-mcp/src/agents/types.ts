@@ -35,4 +35,5 @@ export interface AgentSpec {
   readonly resumable: boolean;
   readonly memoryScope?: 'user' | 'project' | 'local';
   readonly maxTurns?: number;
+  readonly mcpServers?: readonly string[];
 }

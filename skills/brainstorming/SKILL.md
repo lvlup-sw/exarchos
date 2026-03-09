@@ -97,6 +97,38 @@ This creates a state file tracked by the MCP server.
 action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 ```
 
+### Phase Transitions and Guards
+
+This skill is the entry point for the **feature workflow** (`workflowType: "feature"`). The full lifecycle is:
+
+```
+ideate → plan → plan-review → delegate ⇄ review → synthesize → completed
+```
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Feature workflow guard table:**
+
+| Transition | Guard | Prerequisite (send in `updates` with `phase`) |
+|------------|-------|-----------------------------------------------|
+| `ideate` → `plan` | `design-artifact-exists` | Set `artifacts.design` |
+| `plan` → `plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `plan-review` → `delegate` | `plan-review-complete` | Set `planReview.approved = true` |
+| `plan-review` → `plan` | `plan-review-gaps-found` | Set `planReview.gapsFound = true` |
+| `delegate` → `review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
+| `review` → `synthesize` | `all-reviews-passed` | All `reviews.{name}.status` passing |
+| `review` → `delegate` | `any-review-failed` | Any `reviews.{name}.status` failing (fix cycle) |
+| `synthesize` → `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
+
+### Schema Discovery
+
+Use `describe` to discover action parameter schemas or event data schemas when needed:
+
+```
+exarchos_workflow({ action: "describe", actions: ["set", "init"] })
+exarchos_event({ action: "describe", eventTypes: ["workflow.transition"] })
+```
+
 ## Completion Verification
 
 Run the ideation artifact verification:
