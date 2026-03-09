@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { WorkflowTypeSchema } from './workflow/schemas.js';
+import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 
 // ─── Type Coercion Helpers ──────────────────────────────────────────────────
 // LLM tool callers sometimes pass objects as JSON strings and numbers as
@@ -697,6 +698,13 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'agent_spec',
+    description: 'Retrieve agent specification for subagent dispatch',
+    schema: agentSpecSchemaForRegistry,
+    phases: new Set<string>(['*']),
+    roles: ROLE_ANY,
+  },
   makeDescribeAction(),
 ];
 
@@ -883,7 +891,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, and script execution. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, run_script, runbook',
+    slimDescription: 'Task coordination, quality gates, and script execution. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, run_script, runbook, agent_spec',
   },
   {
     name: 'exarchos_view',
