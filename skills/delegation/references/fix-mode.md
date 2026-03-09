@@ -37,11 +37,21 @@ Or auto-invoked after review failures.
    - Include full issue context
    - Specify target worktree
 
-4. **Dispatch fixers** (same as implementers, different prompt):
+4. **Dispatch fixers** — prefer resume when `agentId` is available, otherwise fresh dispatch:
+
+   **Resume (preferred):**
    ```typescript
    Task({
-     subagent_type: "general-purpose",
-     model: "opus",
+     resume: "[agentId from workflow state]",
+     prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
+   })
+   ```
+
+   **Fresh dispatch (fallback):**
+   ```typescript
+   Task({
+     subagent_type: "exarchos-fixer",
+     run_in_background: true,
      description: "Fix: [issue summary]",
      prompt: "[fixer-prompt template with issue details]"
    })
@@ -52,6 +62,35 @@ Or auto-invoked after review failures.
    ```typescript
    Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
+
+## Resume-First Strategy
+
+When fixing failed tasks, prefer resuming the original agent over dispatching a fresh fixer. Resume preserves the implementer's full context (file reads, reasoning, partial progress), making fixes faster and more accurate.
+
+### agentId Tracking
+
+The `agentId` is captured from the `Task()` completion output and stored in workflow task state. The `SubagentStop` hook (`hooks/hooks.json`) automatically captures `agentId` when `exarchos-implementer` or `exarchos-fixer` agents complete.
+
+Check workflow state for `agentId`:
+```
+exarchos_workflow get with fields: ["tasks"]
+→ tasks[id=<taskId>].agentId
+```
+
+### Decision Flow
+
+1. **agentId available?** → Resume with failure context (preferred)
+2. **agentId unavailable?** → Fresh dispatch with `exarchos-fixer` agent type
+3. **Resume fails or platform doesn't support it?** → Fall back to fresh dispatch
+
+### Gate Chain After Fix
+
+After any fix (resume or fresh dispatch), run the `task-fix` runbook:
+```
+exarchos_orchestrate({ action: "runbook", id: "task-fix" })
+```
+
+This executes the gate chain: re-run tests → TDD compliance check → static analysis → mark task complete if all pass.
 
 ## Fix Task Structure
 

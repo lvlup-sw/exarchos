@@ -239,10 +239,34 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from `TaskOutput`
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Re-dispatch with a fixer prompt (`references/fixer-prompt.md`) in the **same worktree**
-4. The fixer agent gets fresh context with the failure details embedded
+3. Fix the task using the resume-aware fixer flow below
+4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.
+
+### Fix Failed Tasks
+
+If a task fails and `agentId` is available in workflow state:
+
+**Resume (preferred — preserves full implementer context):**
+```
+Task({
+  resume: "[agentId from workflow state]",
+  prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms."
+})
+```
+
+**Fresh dispatch (fallback — when agentId unavailable or platform doesn't support resume):**
+```
+Task({
+  subagent_type: "exarchos-fixer",
+  run_in_background: true,
+  prompt: "[Full failure context + original task context]"
+})
+```
+
+After fix completes, run the `task-fix` runbook gate chain:
+`exarchos_orchestrate({ action: "runbook", id: "task-fix" })`
 
 ---
 
