@@ -196,6 +196,70 @@ describe('handleEventDescribe emissionGuide', () => {
   });
 });
 
+describe('handleDescribe playbook', () => {
+  it('HandleDescribe_PlaybookFeature_ReturnsSerializedPlaybooks', async () => {
+    const result = await handleDescribe({ playbook: 'feature' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    const playbook = data.playbook as Record<string, unknown>;
+    expect(playbook).toHaveProperty('workflowType');
+    expect(playbook.workflowType).toBe('feature');
+    expect(playbook).toHaveProperty('phases');
+    const phases = playbook.phases as Record<string, unknown>;
+    expect(phases).toHaveProperty('ideate');
+    expect(phases).toHaveProperty('plan');
+    expect(phases).toHaveProperty('delegate');
+  });
+
+  it('HandleDescribe_PlaybookAll_ReturnsWorkflowTypeList', async () => {
+    const result = await handleDescribe({ playbook: 'all' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    const types = data.playbook as string[];
+    expect(types).toContain('feature');
+    expect(types).toContain('debug');
+    expect(types).toContain('refactor');
+  });
+
+  it('HandleDescribe_PlaybookUnknown_ReturnsErrorWithValidTargets', async () => {
+    const result = await handleDescribe({ playbook: 'nonexistent' }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('UNKNOWN_WORKFLOW_TYPE');
+    expect(result.error?.validTargets).toBeDefined();
+    expect(result.error?.validTargets?.length).toBeGreaterThan(0);
+  });
+
+  it('HandleDescribe_NoParams_ErrorIncludesPlaybookInExpectedShape', async () => {
+    const result = await handleDescribe({} as { actions?: string[]; topology?: string; playbook?: string }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.expectedShape).toBeDefined();
+    expect(result.error?.expectedShape).toHaveProperty('playbook');
+  });
+
+  it('HandleDescribe_PlaybookAndActions_ReturnsBoth', async () => {
+    const result = await handleDescribe(
+      { actions: ['init'], playbook: 'feature' },
+      workflowActions,
+    );
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('init');
+    expect(data).toHaveProperty('playbook');
+  });
+
+  it('HandleDescribe_PlaybookOnly_ActionsNotInResult', async () => {
+    const result = await handleDescribe({ playbook: 'feature' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    expect(data).not.toHaveProperty('init');
+    expect(data).not.toHaveProperty('get');
+  });
+});
+
 describe('handleDescribe topology', () => {
   it('HandleDescribe_TopologyParam_ReturnsHSMForWorkflowType', async () => {
     const result = await handleDescribe({ topology: 'feature' }, workflowActions);

@@ -9,29 +9,33 @@ import {
   serializeEventCatalog,
 } from '../event-store/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
+import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 
 /**
  * Handles the `describe` action for composite tools.
  * Returns full schemas, descriptions, gate metadata, and phase/role info
  * for the requested action names. Optionally includes HSM topology when
- * the `topology` parameter is provided.
+ * the `topology` parameter is provided, or phase playbooks when the
+ * `playbook` parameter is provided.
  */
 export async function handleDescribe(
-  args: { actions?: string[]; topology?: string },
+  args: { actions?: string[]; topology?: string; playbook?: string },
   toolActions: readonly ToolAction[],
 ): Promise<ToolResult> {
   const hasActions = args.actions && args.actions.length > 0;
   const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
+  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
 
-  if (!hasActions && !hasTopology) {
+  if (!hasActions && !hasTopology && !hasPlaybook) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'describe requires at least one of actions or topology',
+        message: 'describe requires at least one of actions, topology, or playbook',
         expectedShape: {
           actions: ['action_name_1', 'action_name_2'],
           topology: 'feature | debug | refactor | all',
+          playbook: 'feature | debug | refactor | all',
         },
       },
     };
@@ -83,6 +87,13 @@ export async function handleDescribe(
     results.topology = topologyResult.data;
   }
 
+  // Resolve playbook if requested
+  if (hasPlaybook) {
+    const playbookResult = handlePlaybookDescribe(args.playbook as string);
+    if (!playbookResult.success) return playbookResult;
+    results.playbook = playbookResult.data;
+  }
+
   return { success: true, data: results };
 }
 
@@ -109,6 +120,34 @@ function handleTopologyDescribe(topology: string): ToolResult {
         code: 'UNKNOWN_WORKFLOW_TYPE',
         message: `Unknown workflow type: ${topology}`,
         validTargets: listWorkflowTypes().workflowTypes.map(wt => wt.name),
+      },
+    };
+  }
+}
+
+/**
+ * Handles playbook introspection for the workflow describe action.
+ * When playbook is "all", returns a listing of all workflow types with playbooks.
+ * Otherwise, returns the serialized phase playbooks for the specified type.
+ */
+function handlePlaybookDescribe(playbook: string): ToolResult {
+  if (playbook === 'all') {
+    return {
+      success: true,
+      data: listPlaybookWorkflowTypes(),
+    };
+  }
+
+  try {
+    const serialized = serializePlaybooks(playbook);
+    return { success: true, data: serialized };
+  } catch {
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_WORKFLOW_TYPE',
+        message: `Unknown workflow type: ${playbook}`,
+        validTargets: listPlaybookWorkflowTypes(),
       },
     };
   }
