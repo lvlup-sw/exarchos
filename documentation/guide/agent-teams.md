@@ -44,7 +44,7 @@ Each agent runs in its own git worktree, a separate working directory backed by 
 - Multiple implementers can work in parallel on different tasks
 - If an agent fails, its worktree contains the partial work for a fixer to continue
 
-Worktrees are created in `.worktrees/` (gitignored) during task dispatch. Each gets a task-specific branch. After merge, `/cleanup` removes worktrees and prunes branches.
+Worktrees are created in `.worktrees/` (gitignored) during task dispatch. Each gets a task-specific branch. When the workflow completes, `/cleanup` removes worktrees and prunes branches.
 
 ## Dispatch and coordination
 

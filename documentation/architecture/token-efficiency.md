@@ -71,7 +71,7 @@ This prevents state from growing unbounded as artifacts accumulate. A design doc
 
 Code review operates on git diffs, not full file contents. The review scripts use `git diff` to extract only the changed lines, then analyze those changes.
 
-For a typical feature touching 10 files with 200 lines changed across 5,000 total lines, diff-based review processes roughly 200 lines instead of 5,000. That is a 96% reduction in the tokens the reviewer agent needs to consume.
+For a typical feature touching 10 files with 200 lines changed across 5,000 total lines, diff-based review processes roughly 200 lines instead of 5,000. That is a ~97% reduction in the tokens the reviewer agent needs to consume.
 
 Review findings reference file paths and line numbers rather than quoting code blocks. The agent can read the relevant file section if it needs more context, but the review itself stays compact.
 

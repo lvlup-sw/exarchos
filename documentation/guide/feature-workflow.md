@@ -4,7 +4,7 @@ outline: deep
 
 # Feature Workflow
 
-The feature workflow handles building new functionality from initial idea through merged pull request. You describe what you want, approve two decisions (the design and the plan), and Exarchos handles the rest.
+The feature workflow handles building new functionality from initial idea through merged pull request. You describe what you want, approve the plan and confirm the merge, and Exarchos handles the rest.
 
 ## Phase chain
 
@@ -98,7 +98,7 @@ After review approval, synthesis runs pre-flight checks: tests pass, typecheck i
 /exarchos:shepherd
 ```
 
-The shepherd skill monitors CI status, review comments, and merge queue position. If CI fails or a reviewer requests changes, shepherd either fixes the issue directly or routes it to a fixer agent. This loop continues until the PR is merge-ready.
+The shepherd skill monitors CI status, review comments, and merge queue position. If CI fails or a reviewer requests changes, shepherd routes the work to a fixer agent. This loop continues until the PR is merge-ready.
 
 Human checkpoint: Exarchos presents the PR URLs and asks you to confirm the merge. You can respond with:
 - yes, merge the PRs

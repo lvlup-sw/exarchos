@@ -75,7 +75,7 @@ APPROVED -- All blocking gates pass. Informational findings are acceptable. Work
 
 NEEDS_FIXES -- Blocking gate failures or too many findings. Triggers `/exarchos:delegate --fixes` to address the issues. The fix-review cycle can repeat, with a circuit breaker to prevent infinite loops.
 
-BLOCKED -- Critical failures requiring design revision. Escalates back to `/exarchos:ideate` for redesign.
+BLOCKED -- Critical failures or architectural dead ends requiring human intervention. Escalates to you for unblock direction.
 
 ### Verdict inputs
 

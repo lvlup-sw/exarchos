@@ -53,7 +53,7 @@ Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarcho
 
 ## Skill resolution
 
-Commands reference skills via `@skills/<name>/SKILL.md`. The agent loads the skill document and its references to get process details, templates, and checklists for the current workflow phase.
+Commands reference skills via `skills/<name>/SKILL.md`. The agent loads the skill document and its references to get process details, templates, and checklists for the current workflow phase.
 
 Skills invoke validation scripts through the MCP server rather than calling bash directly:
 
