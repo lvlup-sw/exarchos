@@ -18,7 +18,6 @@
     "audit-trail",
     "code-review"
   ],
-  "agents": "./agents/",
   "commands": "./commands/",
   "skills": "./skills/",
   "mcpServers": {
