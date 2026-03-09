@@ -179,6 +179,21 @@ export function generateAllAgentFiles(outDir: string): void {
   }
 }
 
+// ─── Update Plugin Manifest ─────────────────────────────────────────────────
+
+/**
+ * Updates the agents array in plugin.json to match the generated files.
+ * Uses relative paths from the plugin root (e.g., "./agents/implementer.md").
+ */
+export function updatePluginManifest(pluginJsonPath: string): void {
+  const raw = fs.readFileSync(pluginJsonPath, 'utf-8');
+  const manifest = JSON.parse(raw);
+
+  manifest.agents = ALL_AGENT_SPECS.map(spec => `./agents/${spec.id}.md`);
+
+  fs.writeFileSync(pluginJsonPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
+}
+
 // ─── CLI Entry Point ────────────────────────────────────────────────────────
 
 const isMainModule = process.argv[1] && (
@@ -187,7 +202,12 @@ const isMainModule = process.argv[1] && (
 );
 
 if (isMainModule) {
-  const outDir = process.argv[2] || path.resolve(import.meta.dirname, '../../../../agents');
+  const repoRoot = path.resolve(import.meta.dirname, '../../../../');
+  const outDir = process.argv[2] || path.join(repoRoot, 'agents');
+  const pluginJsonPath = path.join(repoRoot, '.claude-plugin', 'plugin.json');
+
   generateAllAgentFiles(outDir);
+  updatePluginManifest(pluginJsonPath);
   process.stderr.write(`Generated ${ALL_AGENT_SPECS.length} agent files to ${outDir}\n`);
+  process.stderr.write(`Updated ${pluginJsonPath}\n`);
 }

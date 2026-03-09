@@ -18,6 +18,11 @@
     "audit-trail",
     "code-review"
   ],
+  "agents": [
+    "./agents/implementer.md",
+    "./agents/fixer.md",
+    "./agents/reviewer.md"
+  ],
   "commands": "./commands/",
   "skills": "./skills/",
   "mcpServers": {

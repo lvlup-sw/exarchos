@@ -9,6 +9,7 @@
   "files": [
     "dist/exarchos.js",
     "dist/node_modules",
+    "agents",
     "commands",
     "skills",
     "rules",
@@ -24,7 +25,8 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "tsc && bun run build:bundle",
+    "build": "tsc && npm run generate:agents && bun run build:bundle",
+    "generate:agents": "servers/exarchos-mcp/node_modules/.bin/tsx servers/exarchos-mcp/src/agents/generate-cc-agents.ts",
     "build:bundle": "bun run scripts/build-bundle.ts",
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
