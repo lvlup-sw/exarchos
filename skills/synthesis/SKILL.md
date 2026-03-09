@@ -155,6 +155,17 @@ Then sync: `git fetch --prune` and remove worktrees.
 
 See `references/troubleshooting.md` for test failures, PR check failures, merge queue rejections, and MCP tool errors.
 
+## Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — set `synthesis.prUrl` or `artifacts.pr` in the same `set` call as `phase`.
+
+Use `describe` to discover action schemas when needed:
+```
+exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })
+```
+
 ## Completion Criteria
 
 - [ ] `prepare_synthesis` readiness check passed

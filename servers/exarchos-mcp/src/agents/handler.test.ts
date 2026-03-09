@@ -18,7 +18,8 @@ describe('handleAgentSpec', () => {
     expect(data.systemPrompt).toBeDefined();
     expect(data.tools).toContain('Read');
     expect(data.tools).toContain('Write');
-    expect(data.model).toBe('opus');
+    expect(data.model).toBe('inherit');
+    expect(data.mcpServers).toEqual(['exarchos']);
     expect(data.isolation).toBe('worktree');
     expect(data.resumable).toBe(true);
     expect(data.memoryScope).toBe('project');

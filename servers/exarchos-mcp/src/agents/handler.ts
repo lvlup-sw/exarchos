@@ -97,6 +97,7 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
       resumable: spec.resumable,
       memoryScope: spec.memoryScope,
       maxTurns: spec.maxTurns,
+      mcpServers: spec.mcpServers ? [...spec.mcpServers] : undefined,
       skills: spec.skills.map(s => ({ name: s.name, content: '' })),
       unresolvedVars,
     },

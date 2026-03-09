@@ -224,6 +224,17 @@ action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
 }
 ```
 
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:** The `plan` → `plan-review` transition requires guard `plan-artifact-exists` — set `artifacts.plan` in the same `set` call as `phase`.
+
+Use `describe` to discover action schemas when needed:
+```typescript
+exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })
+```
+
 ## Completion Criteria
 
 - [ ] Design document read and understood

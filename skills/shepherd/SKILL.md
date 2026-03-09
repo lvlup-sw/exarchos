@@ -187,6 +187,15 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 
 **After each iteration:** Update `currentIteration`, record assessment summary and actions taken. On approval: set `approvalRequested: true` with timestamp and approver list.
 
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly. Use `describe` to discover event data schemas before emitting events:
+```typescript
+exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "shepherd.completed", "ci.status", "remediation.attempted"] })
+```
+
 ## Event Emission
 
 Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. The table below is a summary — the reference has the exact shapes that MCP validation enforces.

@@ -10,3 +10,9 @@
 ## Test Plan
 
 <!-- 1-2 sentences: Testing approach and coverage summary -->
+
+---
+
+**Results:** Tests X ✓ · Build 0 errors
+**Design:** <!-- link to design doc if applicable -->
+**Related:** <!-- #issue, Continues #PR -->

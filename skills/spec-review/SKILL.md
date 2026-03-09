@@ -215,6 +215,19 @@ action: "set", featureId: "<id>", updates: {
 }
 ```
 
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:**
+- `review` → `synthesize` requires guard `all-reviews-passed` — all `reviews.{name}.status` must be passing
+- `review` → `delegate` requires guard `any-review-failed` — triggers fix cycle when any review fails
+
+Use `describe` to discover action schemas when needed:
+```
+exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })
+```
+
 ## Transition
 
 All transitions happen **immediately** without user confirmation:

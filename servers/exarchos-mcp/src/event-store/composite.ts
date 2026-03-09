@@ -1,6 +1,6 @@
 import type { ToolResult } from '../format.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
-import { handleDescribe } from '../describe/handler.js';
+import { handleEventDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 
 const VALID_ACTIONS = ['append', 'query', 'batch_append', 'describe'] as const;
@@ -39,7 +39,10 @@ export async function handleEvent(
     }
     case 'describe': {
       const { action: _, ...rest } = args;
-      return handleDescribe(rest as { actions: string[] }, eventActions);
+      return handleEventDescribe(
+        rest as { actions?: string[]; eventTypes?: string[] },
+        eventActions,
+      );
     }
     default:
       return {

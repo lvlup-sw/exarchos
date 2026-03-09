@@ -154,6 +154,36 @@ Full state schema:
 }
 ```
 
+### Phase Transitions and Guards
+
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+
+**Quick reference — transition guards:**
+
+| Transition | Guard | Prerequisite (send in `updates` with `phase`) |
+|------------|-------|-----------------------------------------------|
+| `explore` → `brief` | `scope-assessment-complete` | Set `explore.scopeAssessment` |
+| `brief` → `polish-implement` | `polish-track-selected` | Set `track = "polish"` |
+| `brief` → `overhaul-plan` | `overhaul-track-selected` | Set `track = "overhaul"` |
+| `polish-implement` → `polish-validate` | `implementation-complete` | Always passes |
+| `polish-validate` → `polish-update-docs` | `goals-verified` | Set `validation.testsPass = true` |
+| `polish-update-docs` → `completed` | `docs-updated` | Set `validation.docsUpdated = true` |
+| `overhaul-plan` → `overhaul-delegate` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `overhaul-delegate` → `overhaul-review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
+| `overhaul-review` → `overhaul-update-docs` | `all-reviews-passed` | All `reviews.{name}.status` passing |
+| `overhaul-review` → `overhaul-delegate` | `any-review-failed` | Any `reviews.{name}.status` failing |
+| `overhaul-update-docs` → `synthesize` | `docs-updated` | Set `validation.docsUpdated = true` |
+| `synthesize` → `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
+
+### Schema Discovery
+
+Use `describe` to discover action parameter schemas or event data schemas when needed:
+
+```typescript
+exarchos_workflow({ action: "describe", actions: ["set", "init"] })
+exarchos_event({ action: "describe", eventTypes: ["team.spawned"] })
+```
+
 ## Track Switching
 
 If scope expands beyond polish limits during explore or brief phase, use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.

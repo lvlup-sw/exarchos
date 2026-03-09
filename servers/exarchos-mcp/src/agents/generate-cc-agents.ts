@@ -130,6 +130,16 @@ export function generateAgentMarkdown(spec: AgentSpec): string {
     frontmatter += `maxTurns: ${spec.maxTurns}\n`;
   }
 
+  // Optional: mcpServers (allowlist of MCP server names)
+  // Distinguish undefined (inherit all) from empty array (deny all)
+  if (spec.mcpServers !== undefined) {
+    if (spec.mcpServers.length > 0) {
+      frontmatter += `mcpServers: [${spec.mcpServers.map(s => `"${s}"`).join(', ')}]\n`;
+    } else {
+      frontmatter += `mcpServers: []\n`;
+    }
+  }
+
   // Optional: skills (array format)
   if (spec.skills.length > 0) {
     frontmatter += 'skills:\n';
