@@ -107,14 +107,16 @@ explore → brief → [polish-track | overhaul-track] → completed
 
 | From | To | Guard | Prerequisite |
 |------|----|-------|-------------|
-| `overhaul-plan` | `overhaul-delegate` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `overhaul-plan` | `overhaul-plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `overhaul-plan-review` | `overhaul-delegate` | `plan-review-complete` | Plan approved |
+| `overhaul-plan-review` | `overhaul-plan` | `plan-review-gaps-found` | Revise plan |
 | `overhaul-delegate` | `overhaul-review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
 | `overhaul-review` | `overhaul-update-docs` | `all-reviews-passed` | All `reviews.{name}.status` passing |
 | `overhaul-review` | `overhaul-delegate` | `any-review-failed` | Any `reviews.{name}.status` failing (fix cycle) |
 | `overhaul-update-docs` | `synthesize` | `docs-updated` | Set `validation.docsUpdated = true` |
 | `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
 
-**Compound state:** `overhaul-track` contains `overhaul-plan`, `overhaul-delegate`, `overhaul-review`, and `overhaul-update-docs`. Max 3 fix cycles.
+**Compound state:** `overhaul-track` contains `overhaul-plan`, `overhaul-plan-review`, `overhaul-delegate`, `overhaul-review`, and `overhaul-update-docs`. Max 3 fix cycles.
 
 ## Circuit Breaker
 
