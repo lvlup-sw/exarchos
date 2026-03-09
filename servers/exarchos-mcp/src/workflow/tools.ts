@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 import type {
   InitInput,
   ListInput,
@@ -997,7 +998,7 @@ export function registerWorkflowTools(server: McpServer, stateDir: string): void
   server.tool(
     'exarchos_workflow_get',
     'Query a field via dot-path (e.g. query:"phase"), project specific fields (fields:["phase","featureId"]), or get full state if neither',
-    { featureId: featureIdParam, query: z.string().optional(), fields: z.array(z.string()).optional() },
+    { featureId: featureIdParam, query: z.string().optional(), fields: coercedStringArray().optional() },
     async (args) => formatResult(await handleGet(args, stateDir)),
   );
 

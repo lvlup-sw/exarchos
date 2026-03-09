@@ -7,6 +7,7 @@ import {
   coercedRecord,
   coercedPositiveInt,
   coercedNonnegativeInt,
+  coercedStringArray,
   TOOL_REGISTRY,
   registerCustomTool,
   unregisterCustomTool,
@@ -196,6 +197,44 @@ describe('coercedNonnegativeInt', () => {
   it('should reject negative', () => {
     const result = schema.safeParse(-1);
     expect(result.success).toBe(false);
+  });
+});
+
+describe('coercedStringArray', () => {
+  const schema = coercedStringArray();
+
+  it('should accept a native array', () => {
+    const result = schema.safeParse(['a', 'b']);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(['a', 'b']);
+  });
+
+  it('should coerce a JSON-stringified array', () => {
+    const result = schema.safeParse('["phase","featureId"]');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(['phase', 'featureId']);
+  });
+
+  it('should reject a non-array string', () => {
+    const result = schema.safeParse('not-json');
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject a stringified object', () => {
+    const result = schema.safeParse('{"a":1}');
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept an empty array', () => {
+    const result = schema.safeParse([]);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual([]);
+  });
+
+  it('should coerce a stringified empty array', () => {
+    const result = schema.safeParse('[]');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual([]);
   });
 });
 

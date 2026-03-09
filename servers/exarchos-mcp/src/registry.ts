@@ -1,50 +1,8 @@
 import { z } from 'zod';
 import { WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
-
-// ─── Type Coercion Helpers ──────────────────────────────────────────────────
-// LLM tool callers sometimes pass objects as JSON strings and numbers as
-// string digits. These helpers transparently coerce before Zod validation.
-
-function tryJsonParse(val: string): unknown {
-  try {
-    const parsed = JSON.parse(val);
-    return typeof parsed === 'object' && parsed !== null ? parsed : val;
-  } catch {
-    return val;
-  }
-}
-
-/** z.record() that also accepts a JSON string and parses it to an object.
- *  Uses z.preprocess directly into z.record so zodToJsonSchema emits
- *  {"type":"object"} instead of {} — prompting the LLM to pass native objects.
- */
-export function coercedRecord() {
-  return z.preprocess(
-    (val) => (typeof val === 'string' ? tryJsonParse(val) : val),
-    z.record(z.string(), z.unknown()),
-  );
-}
-
-/** z.number().int().positive() that also accepts a numeric string.
- *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
- */
-export function coercedPositiveInt() {
-  return z.preprocess(
-    (val) => (typeof val === 'string' ? Number(val) : val),
-    z.number().int().positive(),
-  );
-}
-
-/** z.number().int().nonnegative() that also accepts a numeric string.
- *  Preprocesses directly into z.number so zodToJsonSchema emits {"type":"integer"}.
- */
-export function coercedNonnegativeInt() {
-  return z.preprocess(
-    (val) => (typeof val === 'string' ? Number(val) : val),
-    z.number().int().nonnegative(),
-  );
-}
+export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
+import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -332,7 +290,7 @@ const workflowActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: featureIdSchema,
       query: z.string().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -418,7 +376,7 @@ const eventActions: readonly ToolAction[] = [
       filter: coercedRecord().optional(),
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -755,7 +713,7 @@ const viewActions: readonly ToolAction[] = [
       filter: coercedRecord().optional(),
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

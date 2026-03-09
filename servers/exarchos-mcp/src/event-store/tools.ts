@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z, ZodError } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
@@ -262,7 +263,7 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
       filter: z.record(z.string(), z.unknown()).optional(),
       limit: z.number().int().positive().optional(),
       offset: z.number().int().nonnegative().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     },
     async (args) => formatResult(await handleEventQuery(args, stateDir)),
   );

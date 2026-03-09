@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 
 // ─── Event Types ────────────────────────────────────────────────────────────
 
@@ -313,7 +314,7 @@ export const ListInputSchema = z.object({});
 export const GetInputSchema = z.object({
   featureId: FeatureIdSchema,
   query: z.string().optional(),
-  fields: z.array(z.string()).optional(),
+  fields: coercedStringArray().optional(),
 });
 
 export const SetInputSchema = z.object({

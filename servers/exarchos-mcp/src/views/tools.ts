@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
@@ -967,7 +968,7 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
       filter: z.record(z.string(), z.unknown()).optional(),
       limit: z.number().int().positive().optional(),
       offset: z.number().int().nonnegative().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     },
     async (args) => formatResult(await handleViewTasks(args, stateDir)),
   );
