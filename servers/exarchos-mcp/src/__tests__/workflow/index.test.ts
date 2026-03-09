@@ -119,7 +119,7 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('createServer', () => {
-    it('should register exactly 5 composite tools', () => {
+    it('should register only non-hidden composite tools', () => {
       createServer('/tmp/test-state-dir');
 
       const expectedTools = [
@@ -127,21 +127,27 @@ describe('MCP Server Entry Point', () => {
         'exarchos_event',
         'exarchos_orchestrate',
         'exarchos_view',
-        'exarchos_sync',
       ];
 
-      expect(toolRegistrations.size).toBe(5);
+      expect(toolRegistrations.size).toBe(4);
 
       for (const toolName of expectedTools) {
         expect(toolRegistrations.has(toolName)).toBe(true);
       }
+
+      // Hidden tools should NOT be registered
+      expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
 
-    it('should register one tool per registry entry', () => {
+    it('should register one tool per non-hidden registry entry', () => {
       createServer('/tmp/test-state-dir');
 
       for (const tool of TOOL_REGISTRY) {
-        expect(toolRegistrations.has(tool.name)).toBe(true);
+        if (tool.hidden) {
+          expect(toolRegistrations.has(tool.name)).toBe(false);
+        } else {
+          expect(toolRegistrations.has(tool.name)).toBe(true);
+        }
       }
     });
 
@@ -275,17 +281,9 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('sync tools', () => {
-    it('should return success for exarchos_sync now action', async () => {
+    it('should not register exarchos_sync (hidden tool)', () => {
       createServer('/tmp/test-state-dir');
-      const result = await toolRegistrations.get('exarchos_sync')!.handler({
-        action: 'now',
-      });
-
-      const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
-      expect(typedResult.isError).toBe(false);
-      const parsed = JSON.parse(typedResult.content[0].text);
-      expect(parsed.success).toBe(true);
-      expect(parsed.data.message).toContain('no remote configured');
+      expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
   });
 
