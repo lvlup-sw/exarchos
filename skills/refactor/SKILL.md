@@ -168,7 +168,9 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 | `polish-implement` → `polish-validate` | `implementation-complete` | Always passes |
 | `polish-validate` → `polish-update-docs` | `goals-verified` | Set `validation.testsPass = true` |
 | `polish-update-docs` → `completed` | `docs-updated` | Set `validation.docsUpdated = true` |
-| `overhaul-plan` → `overhaul-delegate` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `overhaul-plan` → `overhaul-plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
+| `overhaul-plan-review` → `overhaul-delegate` | `plan-review-complete` | Plan approved |
+| `overhaul-plan-review` → `overhaul-plan` | `plan-review-gaps-found` | Revise plan |
 | `overhaul-delegate` → `overhaul-review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
 | `overhaul-review` → `overhaul-update-docs` | `all-reviews-passed` | All `reviews.{name}.status` passing |
 | `overhaul-review` → `overhaul-delegate` | `any-review-failed` | Any `reviews.{name}.status` failing |
