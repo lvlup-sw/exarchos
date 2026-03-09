@@ -155,7 +155,7 @@ See `@skills/debug/references/state-schema.md` for full schema.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
 
-**Quick reference — guards that require state updates:**
+**Quick reference — transition guards:**
 
 | Transition | Guard | Prerequisite (send in `updates` with `phase`) |
 |------------|-------|-----------------------------------------------|
