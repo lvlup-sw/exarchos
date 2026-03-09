@@ -2,6 +2,58 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [2.5.0] - 2026-03-09
+
+**First public release.** Lazy schema loading, runbook protocol, typed agent specs, and a documentation site — reducing tool registration overhead by 83% while making workflows self-describing.
+
+### Features
+- Slim registration mode cutting MCP tool description payload from ~3,045 to ~500 tokens (#972)
+- `describe` action on all 4 visible composite tools for on-demand schema loading (#972)
+- Runbook protocol: 5 machine-readable orchestration sequences with runtime schema resolution (#972)
+- Gate metadata with blocking/advisory classification and convergence dimension (#972)
+- Native subagent integration: agent spec registry with `agent_spec()` MCP action and template variable interpolation (#973)
+- Resume-aware fixer flow with `agentId`/`agentResumed`/`lastExitReason` on TaskSchema, `subagent-stop` hook, `TASK_FIX` runbook (#973)
+- `nativeIsolation` parameter on `prepare_delegation` to skip worktree blockers for native agents (#973)
+- Event type schema discovery via `describe(eventTypes)` on `exarchos_event` (#976)
+- `mcpServers` allowlist on agent specs restricting subagent MCP access (#976)
+- Model inheritance (`'inherit'`) replacing hardcoded `'opus'` on agent specs (#976)
+
+### Bug Fixes
+- Activate PID lock and sidecar fallback to prevent concurrent event store corruption (#971)
+- Coerce stringified arrays in `fields` parameter
+- Restore missing `overhaul-plan-review` transition in docs (#978)
+- Add `describe` fallback to runbook annotations, clarify platform tiers
+- Sync MCP server version, remove build-time agent generation
+- Remove invalid `agents` field from plugin manifest
+
+### Documentation
+- VitePress documentation site with 38 pages across 5 sections (#974)
+- README refresh for 2.5.0 — typed agents, runbooks, lazy schema
+
+## [2.4.4] - 2026-03-08
+
+### Features
+- Open issues consolidation (#968, #952, #350) (#970)
+
+### Bug Fixes
+- Use gh api for backfill releases to avoid workflow scope requirement
+- Fix release and project-automation workflow failures
+
+### Documentation
+- Refactor README for accuracy, add architecture section, hide sync tool
+
+## [2.4.3] - 2026-03-07
+
+### Bug Fixes
+- Accept both error codes in concurrent init race test
+- Support flexible design/plan formats in validation scripts
+
+### CI
+- Add automated release workflow and backfill script
+
+### Chores
+- Release hardening — sensitive doc removal, governance, CI guards (#969)
+
 ## [2.4.2] - 2026-03-06
 
 ### Bug Fixes
