@@ -698,17 +698,7 @@ async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
   // Extract featureId + taskId from agent name or environment
   const { featureId, taskId } = parseAgentContext();
 
-  // Update workflow state with agentId
-  await callMcp('exarchos_workflow', {
-    action: 'set',
-    featureId,
-    updates: {
-      [`tasks.${taskId}.agentId`]: input.agent_id,
-      [`tasks.${taskId}.lastExitReason`]: input.exit_reason,
-    },
-  });
-
-  // Emit event for observability
+  // Event-sourced: append event FIRST (the event store is the commit point)
   await callMcp('exarchos_event', {
     action: 'append',
     streamId: featureId,
@@ -718,6 +708,16 @@ async function handleSubagentStop(input: SubagentStopInput): Promise<void> {
       agentId: input.agent_id,
       taskId,
       exitReason: input.exit_reason,
+    },
+  });
+
+  // Then project workflow state from the committed event
+  await callMcp('exarchos_workflow', {
+    action: 'set',
+    featureId,
+    updates: {
+      [`tasks.${taskId}.agentId`]: input.agent_id,
+      [`tasks.${taskId}.lastExitReason`]: input.exit_reason,
     },
   });
 }

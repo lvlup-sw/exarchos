@@ -16,7 +16,8 @@ const KNOWN_TOOLS: ReadonlySet<string> = new Set([
 
 // ─── Template Var Pattern ──────────────────────────────────────────────────
 
-const TEMPLATE_VAR_PATTERN = /\{\{(\w+)\}\}/g;
+/** Matches any content between {{ and }} — captures the raw token for validation. */
+const TEMPLATE_VAR_PATTERN = /\{\{(.+?)\}\}/g;
 const VALID_IDENTIFIER = /^[a-zA-Z_]\w*$/;
 
 // ─── Drift Tests ───────────────────────────────────────────────────────────
@@ -55,10 +56,11 @@ describe('Agent Spec Drift Prevention', () => {
       let match: RegExpExecArray | null;
       const regex = new RegExp(TEMPLATE_VAR_PATTERN.source, 'g');
       while ((match = regex.exec(spec.systemPrompt)) !== null) {
-        const varName = match[1];
+        const rawToken = match[1];
+        const trimmed = rawToken.trim();
         expect(
-          VALID_IDENTIFIER.test(varName),
-          `${spec.id}: template var '{{${varName}}}' uses invalid identifier characters`,
+          VALID_IDENTIFIER.test(trimmed),
+          `${spec.id}: template var '{{${rawToken}}}' is malformed — token must be a valid identifier (got '${trimmed}')`,
         ).toBe(true);
       }
     }

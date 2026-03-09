@@ -161,6 +161,17 @@ export function generateAllAgentFiles(outDir: string): void {
     fs.mkdirSync(outDir, { recursive: true });
   }
 
+  // Compute the set of expected file names from current specs
+  const expectedFiles = new Set(ALL_AGENT_SPECS.map(spec => `${spec.id}.md`));
+
+  // Remove stale .md files from previous runs that no longer correspond to a spec
+  const existingFiles = fs.readdirSync(outDir).filter(f => f.endsWith('.md'));
+  for (const file of existingFiles) {
+    if (!expectedFiles.has(file)) {
+      fs.unlinkSync(path.join(outDir, file));
+    }
+  }
+
   for (const spec of ALL_AGENT_SPECS) {
     const markdown = generateAgentMarkdown(spec);
     const filePath = path.join(outDir, `${spec.id}.md`);

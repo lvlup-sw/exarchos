@@ -55,7 +55,9 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
     };
   }
 
-  const resolvedSteps: ResolvedRunbookStep[] = runbook.steps.map((step, index) => {
+  const resolvedSteps: ResolvedRunbookStep[] = [];
+  for (let index = 0; index < runbook.steps.length; index++) {
+    const step = runbook.steps[index];
     const isNative = step.tool.startsWith('native:');
 
     let schema: unknown = null;
@@ -68,6 +70,14 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
         schema = zodToJsonSchema(action.schema);
         description = action.description;
         gate = action.gate ?? null;
+      } else {
+        return {
+          success: false,
+          error: {
+            code: 'UNRESOLVED_STEP',
+            message: `Step ${index + 1} references unregistered action '${step.action}' on tool '${step.tool}' in runbook '${runbook.id}'`,
+          },
+        };
       }
     }
 
@@ -75,7 +85,7 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
       ? (step.params as Record<string, unknown> | undefined)?.agent
       : undefined;
 
-    return {
+    resolvedSteps.push({
       seq: index + 1,
       tool: step.tool,
       action: step.action,
@@ -93,8 +103,8 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
             },
           }
         : {}),
-    };
-  });
+    });
+  }
 
   return {
     success: true,

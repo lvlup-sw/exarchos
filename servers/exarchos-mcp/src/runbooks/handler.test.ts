@@ -152,7 +152,9 @@ describe('handleRunbook', () => {
   });
 
   it('RunbookResolve_NativeTaskWithoutAgent_NoPlatformHint', async () => {
-    // task-fix has a native:Task step without params.agent (has resumeAgent/fallbackAgent instead)
+    // task-fix uses resumeAgent/fallbackAgent (not params.agent) because
+    // platformHint only applies when a single agent spec is referenced.
+    // Resume/fallback is a runtime decision — the platform picks which agent to use.
     const result = await handleRunbook({ id: 'task-fix' });
     expect(result.success).toBe(true);
     const data = result.data as {

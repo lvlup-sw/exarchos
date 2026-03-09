@@ -63,9 +63,7 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
       error: {
         code: 'UNKNOWN_AGENT',
         message: `Unknown agent '${agent}'. Valid agents: ${AGENT_IDS.join(', ')}`,
-      },
-      data: {
-        validAgents: AGENT_IDS,
+        validTargets: AGENT_IDS,
       },
     };
   }

@@ -170,7 +170,7 @@ Code review request triggers the reviewer agent for read-only analysis.
 
 Rules:
 - You have READ-ONLY access — do not modify any files
-- Use Bash only for running read-only commands (git diff, test runners in dry-run)
+- Bash is restricted to read-only commands only (e.g., git diff, git log, test runners in dry-run mode). NEVER use Bash to create, edit, or delete files.
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
 

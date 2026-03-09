@@ -842,20 +842,33 @@ describe('Dynamic Tool Registration', () => {
 
 describe('Gate Metadata', () => {
   it('GateMetadata_CheckActions_HaveGateField', () => {
-    const checkActions = [
+    // check_event_emissions is intentionally excluded — it's an advisory hint action
+    // that returns missing event suggestions, not a gate with blocking/dimension metadata.
+    const expectedCheckActions = new Set([
       'check_tdd_compliance', 'check_static_analysis', 'check_security_scan',
       'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
       'check_review_verdict', 'check_convergence', 'check_provenance_chain',
       'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
       'check_post_merge',
-    ];
+    ]);
+    const visited = new Set<string>();
+
     for (const composite of TOOL_REGISTRY) {
       for (const action of composite.actions) {
-        if (checkActions.includes(action.name)) {
+        if (expectedCheckActions.has(action.name)) {
+          visited.add(action.name);
           expect(action.gate, `${action.name} should have gate metadata`).toBeDefined();
           expect(typeof action.gate!.blocking).toBe('boolean');
         }
       }
+    }
+
+    // Ensure every expected check action was actually found in the registry
+    for (const expected of expectedCheckActions) {
+      expect(
+        visited.has(expected),
+        `Expected check action '${expected}' was not found in TOOL_REGISTRY`,
+      ).toBe(true);
     }
   });
 });

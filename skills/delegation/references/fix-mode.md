@@ -72,7 +72,7 @@ When fixing failed tasks, prefer resuming the original agent over dispatching a 
 The `agentId` is captured from the `Task()` completion output and stored in workflow task state. The `SubagentStop` hook (`hooks/hooks.json`) automatically captures `agentId` when `exarchos-implementer` or `exarchos-fixer` agents complete.
 
 Check workflow state for `agentId`:
-```
+```text
 exarchos_workflow get with fields: ["tasks"]
 → tasks[id=<taskId>].agentId
 ```
@@ -86,7 +86,7 @@ exarchos_workflow get with fields: ["tasks"]
 ### Gate Chain After Fix
 
 After any fix (resume or fresh dispatch), run the `task-fix` runbook:
-```
+```typescript
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```
 

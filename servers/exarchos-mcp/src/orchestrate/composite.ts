@@ -93,11 +93,39 @@ export async function handleOrchestrate(
 
   // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {
+    if (!Array.isArray(rest.actions) || !rest.actions.every(a => typeof a === 'string')) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'describe requires actions: string[]',
+          expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+        },
+      };
+    }
     return handleDescribe(rest as { actions: string[] }, orchestrateActions);
   }
 
   // Handle runbook specially — it doesn't need stateDir
   if (action === 'runbook') {
+    if (rest.phase !== undefined && typeof rest.phase !== 'string') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'runbook phase must be a string if provided',
+        },
+      };
+    }
+    if (rest.id !== undefined && typeof rest.id !== 'string') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: 'runbook id must be a string if provided',
+        },
+      };
+    }
     return handleRunbook(rest as { phase?: string; id?: string });
   }
 

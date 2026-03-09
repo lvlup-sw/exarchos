@@ -51,6 +51,10 @@ vi.mock('../agents/handler.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../runbooks/handler.js', () => ({
+  handleRunbook: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
@@ -61,6 +65,7 @@ import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleAgentSpec } from '../agents/handler.js';
+import { handleRunbook } from '../runbooks/handler.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -356,6 +361,38 @@ describe('handleOrchestrate', () => {
         { agent: 'implementer', format: 'full' },
         STATE_DIR,
       );
+    });
+  });
+
+  // ─── Runbook Routing ──────────────────────────────────────────────────
+
+  describe('runbook routing', () => {
+    it('HandleOrchestrate_RunbookList_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult([{ id: 'task-completion', phase: 'delegate', description: 'Complete a task', stepCount: 3 }]);
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', phase: 'delegate' };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ phase: 'delegate' });
+    });
+
+    it('HandleOrchestrate_RunbookDetail_RoutesToHandleRunbook', async () => {
+      // Arrange
+      const expected = successResult({ id: 'task-completion', steps: [] });
+      vi.mocked(handleRunbook).mockResolvedValue(expected);
+      const args = { action: 'runbook', id: 'task-completion' };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
     });
   });
 

@@ -164,36 +164,7 @@ After each subagent reports completion:
 
 2. **Verify worktree state** — confirm each worktree has clean `git status` and passing tests
 
-3. **TDD compliance gate (MANDATORY)** — MUST invoke the compliance check BEFORE marking the task as complete:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_tdd_compliance",
-  featureId: "<featureId>",
-  taskId: "<taskId>",
-  branch: "<task-branch>"
-})
-```
-
-Gate on the result:
-- If `result.success !== true`: Treat as gate-execution failure. Keep task in-progress, surface the tool error, and do NOT mark the task as complete.
-- If `result.data.passed === true`: Task passes TDD compliance. Proceed to static analysis check.
-- If `result.data.passed === false`: Keep task in-progress. Report TDD compliance findings to the user and include violations in the task failure diagnostics. Do NOT mark the task as complete.
-
-4. **Static analysis gate (D2, blocking)** — after TDD compliance passes, run a D2 check on the task branch:
-
-```typescript
-exarchos_orchestrate({
-  action: "check_static_analysis",
-  featureId: "<featureId>",
-  taskId: "<taskId>",
-  repoRoot: "<worktree-path>"
-})
-```
-
-This check is **blocking** — `handleTaskComplete` enforces that a passing `static-analysis` gate event exists for the task (same pattern as TDD compliance). If `passed: false`, keep task in-progress and report findings.
-
-All handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
+3. **Run blocking gates** — the `task-completion` runbook (referenced above) defines the exact gate sequence (TDD compliance, static analysis, then task_complete). On any gate failure, keep the task in-progress and report findings. All gate handlers auto-emit `gate.executed` events, so manual `exarchos_event` calls are not needed.
 
 5. **Pass provenance in task completion** — when marking a task complete, pass the extracted provenance fields in the `result` parameter so they flow into the `task.completed` event:
 
@@ -249,7 +220,7 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 If a task fails and `agentId` is available in workflow state:
 
 **Resume (preferred — preserves full implementer context):**
-```
+```typescript
 Task({
   resume: "[agentId from workflow state]",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms."
@@ -257,7 +228,7 @@ Task({
 ```
 
 **Fresh dispatch (fallback — when agentId unavailable or platform doesn't support resume):**
-```
+```typescript
 Task({
   subagent_type: "exarchos-fixer",
   run_in_background: true,

@@ -35,7 +35,7 @@ describe('handleAgentSpec', () => {
 
   it('AgentSpec_UnknownAgent_ReturnsError', async () => {
     // Arrange
-    const args = { agent: 'unknown-agent' as any };
+    const args = { agent: 'unknown-agent' } as unknown as Parameters<typeof handleAgentSpec>[0];
 
     // Act
     const result = await handleAgentSpec(args);
@@ -44,13 +44,12 @@ describe('handleAgentSpec', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_AGENT');
     expect(result.error?.message).toContain('unknown-agent');
-    // Should include validAgents in the error data
-    const data = result.data as Record<string, unknown>;
-    expect(data.validAgents).toBeDefined();
-    const validAgents = data.validAgents as string[];
-    expect(validAgents).toContain('implementer');
-    expect(validAgents).toContain('fixer');
-    expect(validAgents).toContain('reviewer');
+    // Should include validTargets in the error (matching codebase error pattern)
+    expect(result.error?.validTargets).toBeDefined();
+    const validTargets = result.error!.validTargets as string[];
+    expect(validTargets).toContain('implementer');
+    expect(validTargets).toContain('fixer');
+    expect(validTargets).toContain('reviewer');
   });
 
   it('AgentSpec_WithContext_InterpolatesTemplateVars', async () => {
