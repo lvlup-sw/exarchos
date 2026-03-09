@@ -53,7 +53,8 @@
       "matcher": "exarchos-implementer|exarchos-fixer",
       "hooks": [{
         "type": "command",
-        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" subagent-stop"
+        "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js\" subagent-stop",
+        "timeout": 10
       }]
     }],
     "SessionEnd": [{

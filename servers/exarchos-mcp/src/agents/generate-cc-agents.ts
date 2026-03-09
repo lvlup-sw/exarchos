@@ -91,13 +91,28 @@ export function generateAgentMarkdown(spec: AgentSpec): string {
 
   // Required fields
   frontmatter += `name: exarchos-${spec.id}\n`;
-  frontmatter += `description: "${spec.description}"\n`;
-  frontmatter += `tools: ${spec.tools.join(', ')}\n`;
+
+  // Description: multi-line uses YAML block scalar, single-line uses quoted string
+  if (spec.description.includes('\n')) {
+    frontmatter += 'description: |\n';
+    for (const line of spec.description.split('\n')) {
+      frontmatter += `  ${line}\n`;
+    }
+  } else {
+    frontmatter += `description: "${spec.description}"\n`;
+  }
+
+  frontmatter += `tools: [${spec.tools.map(t => `"${t}"`).join(', ')}]\n`;
   frontmatter += `model: ${spec.model}\n`;
+
+  // Optional: color
+  if (spec.color) {
+    frontmatter += `color: ${spec.color}\n`;
+  }
 
   // Optional: disallowedTools
   if (spec.disallowedTools && spec.disallowedTools.length > 0) {
-    frontmatter += `disallowedTools: ${spec.disallowedTools.join(', ')}\n`;
+    frontmatter += `disallowedTools: [${spec.disallowedTools.map(t => `"${t}"`).join(', ')}]\n`;
   }
 
   // Optional: isolation

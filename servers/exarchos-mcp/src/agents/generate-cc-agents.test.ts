@@ -20,6 +20,8 @@ function parseFrontmatter(md: string): Record<string, string> {
   const yaml = parts[1].trim();
   const result: Record<string, string> = {};
   for (const line of yaml.split('\n')) {
+    // Skip indented lines (part of multi-line block scalar values)
+    if (line.startsWith('  ')) continue;
     const match = line.match(/^(\w+):\s*(.+)$/);
     if (match) {
       result[match[1]] = match[2].replace(/^"(.*)"$/, '$1');
@@ -44,11 +46,15 @@ describe('GenerateAgentMarkdown', () => {
 
     // Assert: required frontmatter fields
     expect(fm.name).toBe('exarchos-implementer');
-    expect(fm.description).toBeTruthy();
-    expect(fm.tools).toBe('Read, Write, Edit, Bash, Grep, Glob');
+    expect(fm.tools).toBe('["Read", "Write", "Edit", "Bash", "Grep", "Glob"]');
     expect(fm.model).toBe('opus');
+    expect(fm.color).toBe('blue');
     expect(fm.isolation).toBe('worktree');
     expect(fm.memory).toBe('project');
+
+    // Description uses block scalar for multi-line content with examples
+    expect(md).toContain('description: |');
+    expect(md).toContain('<example>');
 
     // maxTurns should be absent since IMPLEMENTER doesn't define it
     // but the field should appear if the spec defines it
@@ -92,8 +98,8 @@ describe('GenerateAgentMarkdown', () => {
     const md = generateAgentMarkdown(FIXER);
     const fm = parseFrontmatter(md);
 
-    // Assert: disallowedTools present
-    expect(fm.disallowedTools).toBe('Agent');
+    // Assert: disallowedTools present in JSON array format
+    expect(fm.disallowedTools).toBe('["Agent"]');
   });
 });
 

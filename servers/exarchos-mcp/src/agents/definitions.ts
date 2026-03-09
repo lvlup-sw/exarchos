@@ -11,7 +11,17 @@ import type { AgentSpec } from './types.js';
 
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
-  description: 'TDD implementer agent — writes tests first, then implements to make them pass',
+  description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
+
+<example>
+Context: Orchestrator is dispatching a task from an implementation plan
+user: "Implement the agent spec handler (task-003)"
+assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+<commentary>
+Implementation task requiring test-first development triggers the implementer agent.
+</commentary>
+</example>`,
+  color: 'blue',
   systemPrompt: `You are a TDD implementer agent working in an isolated worktree.
 
 ## Worktree Verification
@@ -70,7 +80,17 @@ When done, output a JSON completion report:
 
 export const FIXER: AgentSpec = {
   id: 'fixer',
-  description: 'Fix agent — diagnoses and repairs failing tests or build errors with adversarial verification',
+  description: `Use this agent when a task has failed and needs diagnosis and repair with adversarial verification.
+
+<example>
+Context: A delegated task failed its quality gates or tests
+user: "Task-005 failed TDD compliance — fix it"
+assistant: "I'll dispatch the exarchos-fixer agent to diagnose and repair the failure."
+<commentary>
+Failed task requiring root cause analysis and targeted fix triggers the fixer agent.
+</commentary>
+</example>`,
+  color: 'red',
   systemPrompt: `You are a fixer agent. Your job is to diagnose and repair failures.
 
 ## Failure Context
@@ -122,7 +142,17 @@ When done, output a JSON completion report:
 
 export const REVIEWER: AgentSpec = {
   id: 'reviewer',
-  description: 'Code reviewer agent — read-only analysis of code quality, design compliance, and test coverage',
+  description: `Use this agent when performing read-only code review for quality, design compliance, and test coverage.
+
+<example>
+Context: Feature implementation is complete and needs review
+user: "Review the agent spec handler for code quality"
+assistant: "I'll dispatch the exarchos-reviewer agent to analyze code quality and design compliance."
+<commentary>
+Code review request triggers the reviewer agent for read-only analysis.
+</commentary>
+</example>`,
+  color: 'green',
   systemPrompt: `You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.
 
 ## Review Scope

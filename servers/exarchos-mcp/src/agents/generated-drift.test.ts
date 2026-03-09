@@ -103,7 +103,7 @@ describe('Generated Agent File Drift', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
       const fm = parseFrontmatter(content);
 
-      const expectedTools = spec.tools.join(', ');
+      const expectedTools = `[${spec.tools.map(t => `"${t}"`).join(', ')}]`;
       expect(
         fm.tools,
         `Frontmatter tools mismatch for spec '${spec.id}'`,
@@ -115,16 +115,50 @@ describe('Generated Agent File Drift', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const filePath = path.join(tmpDir, `${spec.id}.md`);
       const content = fs.readFileSync(filePath, 'utf-8');
+
+      if (spec.description.includes('\n')) {
+        // Multi-line descriptions use block scalar — verify content is present
+        expect(
+          content,
+          `Description content missing for spec '${spec.id}'`,
+        ).toContain('description: |');
+        // First line of description should appear indented in frontmatter
+        const firstLine = spec.description.split('\n')[0];
+        expect(
+          content,
+          `Description first line missing for spec '${spec.id}'`,
+        ).toContain(`  ${firstLine}`);
+      } else {
+        const fm = parseFrontmatter(content);
+        expect(
+          fm.description,
+          `Frontmatter description missing for spec '${spec.id}'`,
+        ).toBeTruthy();
+        expect(
+          fm.description,
+          `Frontmatter description mismatch for spec '${spec.id}'`,
+        ).toBe(spec.description);
+      }
+    }
+  });
+
+  it('GeneratedAgentFiles_MatchRegistrySpecs_ColorCorrect', () => {
+    for (const spec of ALL_AGENT_SPECS) {
+      const filePath = path.join(tmpDir, `${spec.id}.md`);
+      const content = fs.readFileSync(filePath, 'utf-8');
       const fm = parseFrontmatter(content);
 
-      expect(
-        fm.description,
-        `Frontmatter description missing for spec '${spec.id}'`,
-      ).toBeTruthy();
-      expect(
-        fm.description,
-        `Frontmatter description mismatch for spec '${spec.id}'`,
-      ).toBe(spec.description);
+      if (spec.color) {
+        expect(
+          fm.color,
+          `Frontmatter color mismatch for spec '${spec.id}'`,
+        ).toBe(spec.color);
+      } else {
+        expect(
+          fm.color,
+          `Unexpected color in frontmatter for spec '${spec.id}'`,
+        ).toBeUndefined();
+      }
     }
   });
 

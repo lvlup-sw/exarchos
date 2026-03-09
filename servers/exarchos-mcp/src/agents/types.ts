@@ -28,6 +28,7 @@ export interface AgentSpec {
   readonly tools: readonly string[];
   readonly disallowedTools?: readonly string[];
   readonly model: 'opus' | 'sonnet' | 'haiku' | 'inherit';
+  readonly color?: string;
   readonly isolation?: 'worktree';
   readonly skills: readonly AgentSkill[];
   readonly validationRules: readonly AgentValidationRule[];
