@@ -270,6 +270,15 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
+### Task Status Values
+
+| Status | When to use |
+|--------|------------|
+| `pending` | Task not yet started |
+| `in_progress` | Task actively being worked on |
+| `complete` | Task finished successfully |
+| `failed` | Task encountered an error (requires fix cycle) |
+
 ### Schema Discovery
 
 Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for

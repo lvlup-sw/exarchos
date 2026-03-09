@@ -159,6 +159,29 @@ describe('handleCheckEventEmissions', () => {
     expect(result.data.hints[0].description).toEqual(expect.any(String));
   });
 
+  it('CheckEventEmissions_MissingEvent_IncludesRequiredFields', async () => {
+    mockViewState = { phase: 'delegate' };
+
+    // No events present at all — all delegate events missing
+    mockStore.query.mockResolvedValueOnce([]);
+
+    const result: ToolResult = await handleCheckEventEmissions(
+      { featureId: 'test-feature' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { hints: Array<{ eventType: string; requiredFields?: string[] }> };
+    // team.spawned has required fields: teamSize, teammateNames, taskCount, dispatchMode
+    const teamSpawnedHint = data.hints.find(h => h.eventType === 'team.spawned');
+    expect(teamSpawnedHint).toBeDefined();
+    expect(teamSpawnedHint!.requiredFields).toBeDefined();
+    expect(teamSpawnedHint!.requiredFields).toContain('teamSize');
+    expect(teamSpawnedHint!.requiredFields).toContain('teammateNames');
+    expect(teamSpawnedHint!.requiredFields).toContain('taskCount');
+    expect(teamSpawnedHint!.requiredFields).toContain('dispatchMode');
+  });
+
   it('CheckEventEmissions_UnknownPhase_ReturnsEmptyHints', async () => {
     mockViewState = { phase: 'some-unknown-phase' };
 

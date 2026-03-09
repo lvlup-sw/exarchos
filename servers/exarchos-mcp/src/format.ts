@@ -10,7 +10,7 @@ export interface PerfMetrics {
 }
 
 export interface EventHintsPayload {
-  readonly missing: readonly { readonly eventType: string; readonly description: string }[];
+  readonly missing: readonly { readonly eventType: string; readonly description: string; readonly requiredFields?: readonly string[] }[];
   readonly phase: string;
   readonly checked: number;
 }

@@ -793,6 +793,32 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
+  it('HandleTaskComplete_ProjectWideStaticAnalysis_AcceptsNoTaskId', async () => {
+    // Arrange: TDD gate has taskId, static-analysis gate is project-wide (no taskId)
+    const store = new EventStore(tempDir);
+    await store.append('wf-gate-pw-1', {
+      type: 'task.assigned',
+      data: { taskId: 'T-01', title: 'Project-wide gate test', assignee: 'agent-1' },
+    });
+    await store.append('wf-gate-pw-1', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 'T-01' } },
+    });
+    await store.append('wf-gate-pw-1', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: {} },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-pw-1' },
+      tempDir,
+    );
+
+    // Assert: should accept project-wide static-analysis gate
+    expect(result.success).toBe(true);
+  });
+
   it('HandleTaskComplete_GateEventWithUndefinedData_DoesNotCrash', async () => {
     // Arrange: seed with a gate event that has undefined data (data is optional in schema)
     const store = new EventStore(tempDir);

@@ -202,7 +202,8 @@ export async function handleTaskComplete(
       const d = e.data as Record<string, unknown> | undefined;
       if (!d) return false;
       const details = d.details as Record<string, unknown> | undefined;
-      return d.gateName === gateName && d.passed === true && details?.taskId === args.taskId;
+      return d.gateName === gateName && d.passed === true &&
+        (!details?.taskId || details.taskId === args.taskId);
     });
 
   if (!manualBypass && !hasPassingGate('tdd-compliance')) {
