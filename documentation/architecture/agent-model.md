@@ -20,7 +20,7 @@ Exarchos takes a different approach: three focused agents, each with a specific 
 
 ## Worktree Isolation
 
-Each subagent gets its own git worktree -- a separate working directory backed by the same repository. This is specified in the agent definition with `isolation: worktree`.
+Each subagent gets its own git worktree, a separate working directory backed by the same repository. This is specified in the agent definition with `isolation: worktree`.
 
 Worktree isolation prevents several real problems:
 
@@ -33,7 +33,7 @@ After a subagent completes, its changes exist on a branch in the worktree. The o
 
 ## Runbook Protocol
 
-Each workflow phase has a runbook -- a machine-readable sequence of steps the agent should follow. Agents retrieve their runbook via:
+Each workflow phase has a runbook: a machine-readable sequence of steps the agent should follow. Agents retrieve their runbook via:
 
 ```json
 { "action": "runbook", "phase": "delegate" }

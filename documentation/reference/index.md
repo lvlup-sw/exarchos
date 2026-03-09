@@ -27,4 +27,4 @@ See [MCP Tools](./tools/) for per-tool action reference.
 - [Validation Scripts](./scripts.md) -- Deterministic bash checks replacing prose checklists
 - [Events](./events.md) -- 65 event types across 13 categories
 - [Configuration](./configuration.md) -- Plugin settings, hooks, integrations
-- [Convergence Gates](./convergence-gates.md) -- 5-dimension quality checks at phase boundaries
+- [Convergence Gates](./convergence-gates.md) -- 5-dimension verification at phase boundaries

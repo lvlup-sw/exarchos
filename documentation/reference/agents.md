@@ -43,7 +43,7 @@ Diagnose and repair failed tasks.
 
 Read-only code quality analysis.
 
-- **Role:** Design compliance, test coverage, code quality checks
+- **Role:** Design compliance, test coverage, code quality analysis
 - **Tools:** Read, Grep, Glob, Bash (read-only operations only)
 - **Disallowed:** Write, Edit, Agent
 - **Key constraints:**

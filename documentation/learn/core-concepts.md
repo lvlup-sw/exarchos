@@ -37,7 +37,7 @@ The event store uses JSONL files on the local filesystem. No database. No networ
 
 ## Convergence gates
 
-Convergence gates are automated quality checks that run at phase boundaries. They check five dimensions:
+Convergence gates are automated verification checks that run at phase boundaries. They assess five dimensions:
 
 ### Specification Fidelity and TDD Compliance
 Requirements traced from the design doc to implementation code and tests. Verifies that what was specified is what was built, and that tests exist for the specified behavior.

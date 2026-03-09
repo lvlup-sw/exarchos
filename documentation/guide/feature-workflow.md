@@ -59,7 +59,7 @@ Each implementer follows strict TDD:
 - Write minimum code to pass (GREEN)
 - Clean up without changing behavior (REFACTOR)
 
-Events track each task through `claimed`, `progressed`, and `completed` (or `failed`). Failed tasks are reassigned to fixer agents with the full failure context. The fixer applies an adversarial verification posture -- it does not trust the previous agent's self-assessment.
+Events track each task through `claimed`, `progressed`, and `completed` (or `failed`). Failed tasks are reassigned to fixer agents with the full failure context. The fixer applies an adversarial verification posture and does not trust the previous agent's self-assessment.
 
 Delegation auto-continues to review when all tasks complete.
 

@@ -8,7 +8,7 @@ outline: deep
 
 Agent sessions are fragile. They end when context windows fill up and compact, when the user closes their laptop, when the process crashes, or when the network drops. Any of these can happen mid-operation.
 
-With mutable state, a crash mid-write can leave a half-updated JSON file. You can't tell what happened -- did the task complete? Did the review pass? The state says one thing, but the state might be wrong.
+With mutable state, a crash mid-write can leave a half-updated JSON file. You can't tell what happened. Did the task complete? Did the review pass? The state says one thing, but the state might be wrong.
 
 Event sourcing sidesteps this. Every action is recorded as an immutable event, appended to a log. State is computed from events, not stored directly. If state gets corrupted, you replay the events and rebuild it. The events themselves are the truth.
 
@@ -16,7 +16,7 @@ This gives you three things you can't get from mutable state:
 
 1. **Crash recovery.** If a session dies between writing an event and updating state, the next session reconciles automatically.
 2. **Full audit trail.** You can answer "what happened during this workflow?" by reading the event log. Every transition, every guard failure, every task assignment is recorded with timestamps and context.
-3. **Reconciliation.** If state gets out of sync -- from a bug, a concurrent write, or a corrupted file -- you rebuild it from events. This is not hypothetical; it happens in practice when hook subprocesses write events while the main server is restarting.
+3. **Reconciliation.** If state gets out of sync (from a bug, a concurrent write, or a corrupted file), you rebuild it from events. This is not hypothetical; it happens in practice when hook subprocesses write events while the main server is restarting.
 
 ## How It Works
 
@@ -74,4 +74,4 @@ Event sourcing is not free:
 - **Query complexity.** You can't just read a field from the event log. You need projections (the cached state file) or materialized views (the CQRS views in `exarchos_view`). This adds code, but it also cleanly separates write and read concerns.
 - **In-memory event log cap.** The internal event log in state is capped at 100 entries (configurable via `EVENT_LOG_MAX`) to prevent unbounded memory growth. This means old events are still in JSONL but not in the in-memory state `_events` array. Materialized views query the store directly when they need historical data.
 
-The benefits -- crash recovery, audit trails, reconciliation -- matter more for agent workflows than for typical applications because agent sessions are inherently unreliable. When your process can vanish at any moment, immutable event logs are cheap insurance.
+The benefits (crash recovery, audit trails, reconciliation) matter more for agent workflows than for typical applications because agent sessions are inherently unreliable. When your process can vanish at any moment, immutable event logs are cheap insurance.

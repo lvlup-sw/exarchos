@@ -27,7 +27,7 @@ The core idea: every workflow action produces an immutable event stored in an ap
 In practice, this means:
 
 - **Checkpoint and rehydrate.** Before context compaction, Exarchos snapshots the workflow state. When you come back, `/rehydrate` restores it in about 2-3k tokens. No re-explaining.
-- **Phase gates with teeth.** The agent can't move from planning to implementation without a plan. Can't move from implementation to review without passing quality checks. The state machine rejects invalid transitions.
+- **Phase gates with teeth.** The agent can't move from planning to implementation without a plan. Can't move from implementation to review without passing convergence gates. The state machine rejects invalid transitions.
 - **Typed agent teams.** Three agent roles (implementer, fixer, reviewer) run in isolated git worktrees. Each has scoped tools and specific responsibilities. The reviewer can't write files. The implementer must follow TDD.
 - **Convergence gates.** Five quality dimensions are checked automatically: specification fidelity, architectural compliance, context economy, operational resilience, and workflow determinism. These are verification scripts, not vibes.
 - **Full audit trail.** Every transition, gate result, and agent action goes into the event log. When something breaks, you can trace exactly what happened.
