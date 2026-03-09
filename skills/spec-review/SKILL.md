@@ -204,16 +204,18 @@ If an issue spans multiple tasks:
 **Pass:**
 ```
 action: "set", featureId: "<id>", updates: {
-  "reviews": { "spec": { "status": "pass", "summary": "...", "issues": [] } }
+  "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 ```
 
 **Fail:**
 ```
 action: "set", featureId: "<id>", updates: {
-  "reviews": { "spec": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
+  "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 ```
+
+> **Important:** The review value MUST be an object with a `status` field (e.g., `{ "status": "pass" }`), not a flat string (e.g., `"pass"`). The `all-reviews-passed` guard silently ignores non-object entries. Accepted statuses: `pass`, `passed`, `approved`, `fixes-applied`.
 
 ### Phase Transitions and Guards
 
@@ -235,16 +237,28 @@ All transitions happen **immediately** without user confirmation:
 ### Pre-Chain Validation (MANDATORY)
 
 Before invoking quality-review:
-1. Verify `reviews.spec.status === "pass"` in workflow state (all tasks passed)
+1. Verify `reviews["spec-review"].status === "pass"` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
 ### If PASS:
-1. Update state with review results
+1. Record results — the reviews value MUST be an object with a `status` field, not a flat string:
+   ```
+   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+     reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
+   }})
+   ```
 2. Output: "Spec review passed. Auto-continuing to quality review..."
 3. Orchestrator dispatches quality-review subagent immediately
 
+> **Gate events:** Do NOT manually emit `gate.executed` events via `exarchos_event`. Gate events are automatically emitted by the `check_review_verdict` orchestrate handler. Manual emission causes duplicates.
+
 ### If FAIL:
-1. Update state with failed issues
+1. Record results with failing status and issue details:
+   ```
+   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+     reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
+   }})
+   ```
 2. Output: "Spec review found [N] issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript

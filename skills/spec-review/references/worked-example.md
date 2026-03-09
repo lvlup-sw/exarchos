@@ -69,4 +69,4 @@ Subagent initially flags "Missing rate-limit guard" as a spec gap. On re-reading
 }
 ```
 
-State updated with `reviews.spec.status = "fail"`. Orchestrator dispatches fix task automatically.
+State updated with `reviews["spec-review"].status = "fail"`. Orchestrator dispatches fix task automatically.
