@@ -35,7 +35,10 @@
     "version:sync": "bash scripts/sync-versions.sh",
     "version:check": "bash scripts/sync-versions.sh --check",
     "validate": "bash scripts/validate-plugin.sh",
-    "validate:companion": "bash scripts/validate-companion.sh"
+    "validate:companion": "bash scripts/validate-companion.sh",
+    "docs:dev": "cd documentation && npm run docs:dev",
+    "docs:build": "cd documentation && npm run docs:build",
+    "docs:preview": "cd documentation && npm run docs:preview"
   },
   "keywords": [
     "claude-code-plugin",
