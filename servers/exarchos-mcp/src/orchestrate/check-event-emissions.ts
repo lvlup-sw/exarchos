@@ -79,10 +79,9 @@ export interface CheckEventEmissionsResult {
 function extractRequiredFields(eventType: EventType): string[] | undefined {
   const schema = EVENT_DATA_SCHEMAS[eventType];
   if (!schema) return undefined;
-  // Zod object schemas expose their shape via _def.shape()
-  const def = (schema as { _def?: { typeName?: string; shape?: () => Record<string, unknown> } })._def;
-  if (!def?.shape || def.typeName !== 'ZodObject') return undefined;
-  const shape = def.shape();
+  // Use Zod's public .shape getter (available on all z.object() schemas)
+  const shape = (schema as { shape?: Record<string, unknown> }).shape;
+  if (!shape) return undefined;
   return Object.entries(shape)
     .filter(([, field]) => {
       const fieldDef = (field as { _def?: { typeName?: string } })._def;
