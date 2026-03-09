@@ -7,6 +7,11 @@ import {
 import type { SerializedTopology, WorkflowTypeSummary } from '../workflow/state-machine.js';
 import { serializeEventCatalog } from '../event-store/schemas.js';
 import type { EventCatalog } from '../event-store/schemas.js';
+import {
+  serializePlaybooks,
+  listPlaybookWorkflowTypes,
+} from '../workflow/playbooks.js';
+import type { SerializedPlaybooks } from '../workflow/playbooks.js';
 
 /**
  * Resolves a schema reference (e.g., "workflow.init") to its JSON Schema representation.
@@ -77,6 +82,24 @@ export function resolveTopologyRef(workflowType?: string): SerializedTopology | 
     return serializeTopology(workflowType);
   }
   return listWorkflowTypes();
+}
+
+/**
+ * Resolves playbook data for a specific workflow type or lists all workflow types.
+ *
+ * Delegates to canonical serialization functions in playbooks.ts.
+ * When called with a workflow type, returns all serialized phase playbooks.
+ * When called without arguments, returns a listing of all available workflow types.
+ *
+ * @throws Error if the workflow type is not found.
+ */
+export function resolvePlaybookRef(
+  workflowType?: string,
+): SerializedPlaybooks | string[] {
+  if (workflowType) {
+    return serializePlaybooks(workflowType);
+  }
+  return listPlaybookWorkflowTypes();
 }
 
 /**

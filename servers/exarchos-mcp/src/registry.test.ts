@@ -994,3 +994,58 @@ describe('Describe action in registry', () => {
     }
   });
 });
+
+// ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
+
+describe('AutoEmits Drift Tests', () => {
+  it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
+    const { EVENT_EMISSION_REGISTRY } = await import('./event-store/schemas.js');
+
+    // At least one action must have autoEmits populated
+    let anyPopulated = false;
+    const violations: string[] = [];
+
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        anyPopulated = true;
+
+        for (const emission of action.autoEmits) {
+          const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
+          if (!source) {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' not found in EVENT_EMISSION_REGISTRY`,
+            );
+          } else if (source !== 'auto') {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' has source '${source}', expected 'auto'`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(anyPopulated, 'At least one action must have autoEmits populated').toBe(true);
+    expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
+  });
+
+  it('RegistryDrift_DescriptionEmitsImpliesAutoEmitsField', () => {
+    const emitsPatterns = [/Auto-emits/i, /Emits gate\.executed/i, /Emits task\./i];
+    const violations: string[] = [];
+
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
+        if (matchesPattern) {
+          if (!action.autoEmits || action.autoEmits.length === 0) {
+            violations.push(
+              `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
+  });
+});

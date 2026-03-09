@@ -114,45 +114,7 @@ Initialize refactor workflow:
 action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 ```
 
-Full state schema:
-```json
-{
-  "version": "1.1",
-  "featureId": "refactor-<slug>",
-  "workflowType": "refactor",
-  "track": "polish | overhaul",
-  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-plan-review | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
-  "explore": {
-    "startedAt": "ISO8601",
-    "completedAt": "ISO8601 | null",
-    "scopeAssessment": {
-      "filesAffected": ["string"],
-      "modulesAffected": ["string"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "polish | overhaul"
-    }
-  },
-  "brief": {  // See references/brief-template.md for field descriptions
-    "problem": "string",
-    "goals": ["string"],
-    "approach": "string",
-    "affectedAreas": ["string"],
-    "outOfScope": ["string"],
-    "successCriteria": ["string"],
-    "docsToUpdate": ["string"]
-  },
-  "artifacts": {
-    "plan": "string | null",
-    "pr": "string | null",
-    "updatedDocs": ["string"]
-  },
-  "validation": {
-    "testsPass": "boolean",
-    "goalsVerified": ["string"],
-    "docsUpdated": "boolean"
-  }
-}
-```
+Use `describe` to discover the full state schema at runtime: `exarchos_workflow({ action: "describe", actions: ["init"] })`.
 
 ### Phase Transitions and Guards
 
@@ -160,42 +122,13 @@ Full state schema:
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
 
-**Quick reference — transition guards:**
-
-| Transition | Guard | Prerequisite (send in `updates` with `phase`) |
-|------------|-------|-----------------------------------------------|
-| `explore` → `brief` | `scope-assessment-complete` | Set `explore.scopeAssessment` |
-| `brief` → `polish-implement` | `polish-track-selected` | Set `track = "polish"` |
-| `brief` → `overhaul-plan` | `overhaul-track-selected` | Set `track = "overhaul"` |
-| `polish-implement` → `polish-validate` | `implementation-complete` | Always passes |
-| `polish-validate` → `polish-update-docs` | `goals-verified` | Set `validation.testsPass = true` |
-| `polish-update-docs` → `completed` | `docs-updated` | Set `validation.docsUpdated = true` |
-| `overhaul-plan` → `overhaul-plan-review` | `plan-artifact-exists` | Set `artifacts.plan` |
-| `overhaul-plan-review` → `overhaul-delegate` | `plan-review-complete` | Plan approved |
-| `overhaul-plan-review` → `overhaul-plan` | `plan-review-gaps-found` | Revise plan |
-| `overhaul-delegate` → `overhaul-review` | `all-tasks-complete` | All `tasks[].status = "complete"` |
-| `overhaul-review` → `overhaul-update-docs` | `all-reviews-passed` | All `reviews.{name}.status` passing |
-| `overhaul-review` → `overhaul-delegate` | `any-review-failed` | Any `reviews.{name}.status` failing |
-| `overhaul-update-docs` → `synthesize` | `docs-updated` | Set `validation.docsUpdated = true` |
-| `synthesize` → `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
-
-**Example — advancing from polish-validate to polish-update-docs:**
-```
-exarchos_workflow({ action: "set", featureId: "refactor-<slug>", updates: {
-  validation: { testsPass: true, goalsVerified: ["<verified goals>"] }
-}, phase: "polish-update-docs" })
-```
-
-The pattern is the same for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
+The pattern for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
 
 ### Schema Discovery
 
-Use `describe` to discover action parameter schemas or event data schemas when needed:
-
-```typescript
-exarchos_workflow({ action: "describe", actions: ["set", "init"] })
-exarchos_event({ action: "describe", eventTypes: ["team.spawned"] })
-```
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "refactor" })`
+for phase transitions, guards, and playbook guidance.
 
 ## Track Switching
 

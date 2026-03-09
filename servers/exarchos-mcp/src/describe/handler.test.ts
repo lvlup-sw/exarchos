@@ -35,6 +35,24 @@ describe('handleDescribe', () => {
     expect(result.error?.validTargets?.length).toBeGreaterThan(0);
   });
 
+  it('HandleDescribe_ActionWithAutoEmits_ReturnsEmissionMetadata', async () => {
+    const result = await handleDescribe({ actions: ['init'] }, workflowTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.init.autoEmits).toEqual([
+      { event: 'workflow.started', condition: 'always' },
+    ]);
+  });
+
+  it('HandleDescribe_ActionWithoutAutoEmits_OmitsField', async () => {
+    const result = await handleDescribe({ actions: ['get'] }, workflowTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    // autoEmits should be omitted entirely (not null, not empty array)
+    expect(data.get.autoEmits).toBeUndefined();
+    expect('autoEmits' in data.get).toBe(false);
+  });
+
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
     // Use orchestrate tool which has gate metadata on check_* actions
     // Note: gate metadata may not exist yet (T1 adds it). If action.gate is undefined, expect null.
@@ -175,6 +193,97 @@ describe('handleEventDescribe emissionGuide', () => {
     const data = result.data as Record<string, unknown>;
     expect(data).toHaveProperty('actions');
     expect(data).not.toHaveProperty('emissionGuide');
+  });
+});
+
+describe('handleDescribe playbook', () => {
+  it('HandleDescribe_PlaybookFeature_ReturnsSerializedPlaybooks', async () => {
+    const result = await handleDescribe({ playbook: 'feature' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    const playbook = data.playbook as Record<string, unknown>;
+    expect(playbook).toHaveProperty('workflowType');
+    expect(playbook.workflowType).toBe('feature');
+    expect(playbook).toHaveProperty('phases');
+    const phases = playbook.phases as Record<string, unknown>;
+    expect(phases).toHaveProperty('ideate');
+    expect(phases).toHaveProperty('plan');
+    expect(phases).toHaveProperty('delegate');
+  });
+
+  it('HandleDescribe_PlaybookAll_ReturnsWorkflowTypeList', async () => {
+    const result = await handleDescribe({ playbook: 'all' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    const types = data.playbook as string[];
+    expect(types).toContain('feature');
+    expect(types).toContain('debug');
+    expect(types).toContain('refactor');
+  });
+
+  it('HandleDescribe_PlaybookUnknown_ReturnsErrorWithValidTargets', async () => {
+    const result = await handleDescribe({ playbook: 'nonexistent' }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('UNKNOWN_WORKFLOW_TYPE');
+    expect(result.error?.validTargets).toBeDefined();
+    expect(result.error?.validTargets?.length).toBeGreaterThan(0);
+  });
+
+  it('HandleDescribe_NoParams_ErrorIncludesPlaybookInExpectedShape', async () => {
+    const result = await handleDescribe({} as { actions?: string[]; topology?: string; playbook?: string }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.expectedShape).toBeDefined();
+    expect(result.error?.expectedShape).toHaveProperty('playbook');
+  });
+
+  it('HandleDescribe_PlaybookAndActions_ReturnsBoth', async () => {
+    const result = await handleDescribe(
+      { actions: ['init'], playbook: 'feature' },
+      workflowActions,
+    );
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('init');
+    expect(data).toHaveProperty('playbook');
+  });
+
+  it('HandleDescribe_ActionsMalformed_ReturnsInvalidInput', async () => {
+    const result = await handleDescribe(
+      { actions: 123 as unknown as string[], playbook: 'feature' },
+      workflowActions,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('string[]');
+  });
+
+  it('HandleDescribe_PlaybookMalformed_ReturnsInvalidInput', async () => {
+    const result = await handleDescribe(
+      { playbook: 123 as unknown as string },
+      workflowActions,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('non-empty string');
+  });
+
+  it('HandleDescribe_PlaybookEmptyString_ReturnsInvalidInput', async () => {
+    const result = await handleDescribe({ playbook: '' }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('non-empty string');
+  });
+
+  it('HandleDescribe_PlaybookOnly_ActionsNotInResult', async () => {
+    const result = await handleDescribe({ playbook: 'feature' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('playbook');
+    expect(data).not.toHaveProperty('init');
+    expect(data).not.toHaveProperty('get');
   });
 });
 

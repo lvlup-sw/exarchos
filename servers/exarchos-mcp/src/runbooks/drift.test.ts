@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { ALL_RUNBOOKS } from './definitions.js';
+import { ALL_RUNBOOKS, TASK_COMPLETION } from './definitions.js';
 import { findActionInRegistry, getFullRegistry } from '../registry.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import { computeRunbookAutoEmits } from './compute.js';
 
 describe('Runbook drift detection', () => {
   it('RunbookDrift_EveryStepReferencesValidRegistryAction', () => {
@@ -112,5 +113,23 @@ describe('Runbook drift detection', () => {
     const ids = ALL_RUNBOOKS.map(r => r.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  it('ComputeRunbookAutoEmits_TaskCompletion_MatchesDeclared', () => {
+    const computed = computeRunbookAutoEmits(TASK_COMPLETION);
+    const declared = [...TASK_COMPLETION.autoEmits].sort();
+    expect(computed).toEqual(declared);
+  });
+
+  it('RunbookDrift_AutoEmitsMatchComputedFromToolActions', () => {
+    for (const runbook of ALL_RUNBOOKS) {
+      const computed = computeRunbookAutoEmits(runbook);
+      const declared = [...runbook.autoEmits].sort();
+      expect(
+        computed,
+        `Runbook '${runbook.id}' declared autoEmits ${JSON.stringify(declared)} ` +
+        `does not match computed ${JSON.stringify(computed)} from ToolAction.autoEmits`,
+      ).toEqual(declared);
+    }
   });
 });

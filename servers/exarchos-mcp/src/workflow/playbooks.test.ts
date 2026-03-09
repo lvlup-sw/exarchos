@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getPlaybook, renderPlaybook } from './playbooks.js';
+import { getPlaybook, renderPlaybook, serializePlaybooks, listPlaybookWorkflowTypes } from './playbooks.js';
+import type { SerializedPlaybooks, SerializedPhasePlaybook } from './playbooks.js';
 
 // ─── Task 1: Core getPlaybook / renderPlaybook ──────────────────────────────
 
@@ -235,5 +236,47 @@ describe('Synthesize phase guidance references GitHub CLI', () => {
     const playbook = getPlaybook('refactor', 'synthesize')!;
     expect(playbook.compactGuidance).not.toContain('Graphite');
     expect(playbook.compactGuidance).toContain('GitHub CLI');
+  });
+});
+
+// ─── Task 5: Playbook Serialization ──────────────────────────────────────────
+
+describe('serializePlaybooks', () => {
+  it('SerializePlaybooks_Feature_ReturnsAllPhases', () => {
+    const result: SerializedPlaybooks = serializePlaybooks('feature');
+
+    expect(result.workflowType).toBe('feature');
+
+    const expectedPhases = [
+      'ideate', 'plan', 'plan-review', 'delegate',
+      'review', 'synthesize', 'completed', 'cancelled', 'blocked',
+    ];
+    for (const phase of expectedPhases) {
+      expect(result.phases).toHaveProperty(phase);
+    }
+    expect(result.phaseCount).toBe(expectedPhases.length);
+
+    // Verify structure of a representative phase
+    const ideate: SerializedPhasePlaybook = result.phases['ideate'];
+    expect(ideate.skill).toBe('brainstorming');
+    expect(ideate.skillRef).toBe('@skills/brainstorming/SKILL.md');
+    expect(ideate.tools.length).toBeGreaterThanOrEqual(1);
+    expect(ideate.transitionCriteria).toBeTruthy();
+    expect(ideate.humanCheckpoint).toBe(false);
+    expect(typeof ideate.compactGuidance).toBe('string');
+  });
+
+  it('SerializePlaybooks_Unknown_Throws', () => {
+    expect(() => serializePlaybooks('nonexistent')).toThrow();
+  });
+});
+
+describe('listPlaybookWorkflowTypes', () => {
+  it('ListPlaybookWorkflowTypes_ReturnsKnownTypes', () => {
+    const types = listPlaybookWorkflowTypes();
+    expect(types).toContain('feature');
+    expect(types).toContain('debug');
+    expect(types).toContain('refactor');
+    expect(types.length).toBeGreaterThanOrEqual(3);
   });
 });

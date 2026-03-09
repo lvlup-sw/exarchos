@@ -9,41 +9,66 @@ import {
   serializeEventCatalog,
 } from '../event-store/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
+import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 
 /**
  * Handles the `describe` action for composite tools.
  * Returns full schemas, descriptions, gate metadata, and phase/role info
  * for the requested action names. Optionally includes HSM topology when
- * the `topology` parameter is provided.
+ * the `topology` parameter is provided, or phase playbooks when the
+ * `playbook` parameter is provided.
  */
 export async function handleDescribe(
-  args: { actions?: string[]; topology?: string },
+  args: { actions?: string[]; topology?: string; playbook?: string },
   toolActions: readonly ToolAction[],
 ): Promise<ToolResult> {
-  const hasActions = args.actions && args.actions.length > 0;
-  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
-
-  if (!hasActions && !hasTopology) {
+  // Guard clauses: reject malformed values before computing flags
+  if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'describe requires at least one of actions or topology',
-        expectedShape: {
-          actions: ['action_name_1', 'action_name_2'],
-          topology: 'feature | debug | refactor | all',
-        },
+        message: 'actions must be a non-empty string[]',
+        expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+      },
+    };
+  }
+  if (args.playbook !== undefined && (typeof args.playbook !== 'string' || args.playbook.length === 0)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'playbook must be a non-empty string',
+        expectedShape: { playbook: 'feature | debug | refactor | all' },
+      },
+    };
+  }
+  if (args.topology !== undefined && (typeof args.topology !== 'string' || args.topology.length === 0)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'topology must be a non-empty string',
+        expectedShape: { topology: 'feature | debug | refactor | all' },
       },
     };
   }
 
-  if (hasActions && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
+  const hasActions = Array.isArray(args.actions) && args.actions.length > 0;
+  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
+  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
+
+  if (!hasActions && !hasTopology && !hasPlaybook) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'describe requires actions: string[]',
-        expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+        message: 'describe requires at least one of actions, topology, or playbook',
+        expectedShape: {
+          actions: ['action_name_1', 'action_name_2'],
+          topology: 'feature | debug | refactor | all',
+          playbook: 'feature | debug | refactor | all',
+        },
       },
     };
   }
@@ -71,6 +96,7 @@ export async function handleDescribe(
         gate: (action as ToolAction & { gate?: unknown }).gate ?? null,
         phases: [...action.phases],
         roles: [...action.roles],
+        ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
       };
     }
   }
@@ -80,6 +106,13 @@ export async function handleDescribe(
     const topologyResult = handleTopologyDescribe(args.topology as string);
     if (!topologyResult.success) return topologyResult;
     results.topology = topologyResult.data;
+  }
+
+  // Resolve playbook if requested
+  if (hasPlaybook) {
+    const playbookResult = handlePlaybookDescribe(args.playbook as string);
+    if (!playbookResult.success) return playbookResult;
+    results.playbook = playbookResult.data;
   }
 
   return { success: true, data: results };
@@ -108,6 +141,34 @@ function handleTopologyDescribe(topology: string): ToolResult {
         code: 'UNKNOWN_WORKFLOW_TYPE',
         message: `Unknown workflow type: ${topology}`,
         validTargets: listWorkflowTypes().workflowTypes.map(wt => wt.name),
+      },
+    };
+  }
+}
+
+/**
+ * Handles playbook introspection for the workflow describe action.
+ * When playbook is "all", returns a listing of all workflow types with playbooks.
+ * Otherwise, returns the serialized phase playbooks for the specified type.
+ */
+function handlePlaybookDescribe(playbook: string): ToolResult {
+  if (playbook === 'all') {
+    return {
+      success: true,
+      data: listPlaybookWorkflowTypes(),
+    };
+  }
+
+  try {
+    const serialized = serializePlaybooks(playbook);
+    return { success: true, data: serialized };
+  } catch {
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_WORKFLOW_TYPE',
+        message: `Unknown workflow type: ${playbook}`,
+        validTargets: listPlaybookWorkflowTypes(),
       },
     };
   }

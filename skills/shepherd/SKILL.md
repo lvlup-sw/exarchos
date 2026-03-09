@@ -191,25 +191,30 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 
 For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
 
-The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly. Use `describe` to discover event data schemas before emitting events:
-```typescript
-exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "shepherd.completed", "ci.status", "remediation.attempted"] })
-```
+The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly.
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })`
+for event data schemas before emitting events.
 
 ## Event Emission
 
-Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. The table below is a summary — the reference has the exact shapes that MCP validation enforces.
+Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. Use `exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status"] })` to discover required fields at runtime.
 
-| Event | Required Fields (`data`) | When | Purpose |
-|-------|--------------------------|------|---------|
-| `shepherd.started` | `featureId` (string) | On skill start (emitted by `assess_stack`) | Audit trail |
-| `shepherd.iteration` | `iteration` (number), `prsAssessed` (number), `fixesApplied` (number), `status` (string) | After each assess cycle | Track progress |
-| `gate.executed` | `gateName`, `layer`, `passed`, `details` | Per CI check (emitted by `assess_stack`) | CodeQualityView — gate pass rates |
-| `ci.status` | `pr` (number), `status` (string) | Per CI check result | ShepherdStatusView — PR health tracking |
-| `remediation.attempted` | `taskId` (string), `skill` (string), `gateName` (string), `attemptNumber` (number), `strategy` (string) | Before applying a fix | selfCorrectionRate metric |
-| `remediation.succeeded` | `taskId` (string), `skill` (string), `gateName` (string), `totalAttempts` (number), `finalStrategy` (string) | After fix confirmed | avgRemediationAttempts metric |
-| `shepherd.approval_requested` | `prUrl` (string) | On requesting review | Audit trail |
-| `shepherd.completed` | `prUrl` (string), `outcome` (string) | On merge detected (emitted by `assess_stack`) | Audit trail |
+| Event | When | Purpose |
+|-------|------|---------|
+| `shepherd.started` | On skill start (emitted by `assess_stack`) | Audit trail |
+| `shepherd.iteration` | After each assess cycle | Track progress |
+| `gate.executed` | Per CI check (emitted by `assess_stack`) | CodeQualityView -- gate pass rates |
+| `ci.status` | Per CI check result | ShepherdStatusView -- PR health tracking |
+| `remediation.attempted` | Before applying a fix | selfCorrectionRate metric |
+| `remediation.succeeded` | After fix confirmed | avgRemediationAttempts metric |
+| `shepherd.approval_requested` | On requesting review | Audit trail |
+| `shepherd.completed` | On merge detected (emitted by `assess_stack`) | Audit trail |
 
 ## Domain Knowledge
 

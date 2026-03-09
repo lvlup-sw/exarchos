@@ -230,10 +230,13 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `plan` → `plan-review` transition requires guard `plan-artifact-exists` — set `artifacts.plan` in the same `set` call as `phase`.
 
-Use `describe` to discover action schemas when needed:
-```typescript
-exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })
-```
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+(or `"debug"`, `"refactor"`) for phase transitions, guards, and playbook guidance.
+Use `exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })`
+for orchestrate action schemas.
 
 ## Completion Criteria
 

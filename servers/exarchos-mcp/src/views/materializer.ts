@@ -68,6 +68,9 @@ export class ViewMaterializer {
   private readonly maxCacheEntries: number;
   private readonly backend?: StorageBackend;
 
+  // Pending snapshot writes (fire-and-forget, but flushable for tests/shutdown)
+  private pendingSnapshots: Promise<void>[] = [];
+
   // Cache hit/miss counters
   private cacheHits = 0;
   private cacheMisses = 0;
@@ -188,15 +191,25 @@ export class ViewMaterializer {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Backend view cache save failed');
           }
         } else if (this.snapshotStore) {
-          // Fire and forget - snapshot is async but we don't block materialization
-          this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
+          // Fire and forget - snapshot is async but we don't block materialization.
+          // Track the promise so flush() can await completion for tests/shutdown.
+          const savePromise = this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
           });
+          this.pendingSnapshots.push(savePromise);
         }
       }
     }
 
     return currentView;
+  }
+
+  /**
+   * Await all pending snapshot writes. Useful for tests and graceful shutdown.
+   */
+  async flush(): Promise<void> {
+    await Promise.all(this.pendingSnapshots);
+    this.pendingSnapshots = [];
   }
 
   /**

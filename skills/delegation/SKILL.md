@@ -270,11 +270,13 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
-Use `describe` to discover action or event schemas when needed:
-```
-exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })
-exarchos_event({ action: "describe", eventTypes: ["team.spawned", "team.task.completed"] })
-```
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })`
+for orchestrate action schemas.
 
 ## Transition
 

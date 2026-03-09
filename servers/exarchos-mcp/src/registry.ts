@@ -27,6 +27,12 @@ export interface GateMetadata {
   readonly dimension?: string;
 }
 
+export interface AutoEmission {
+  readonly event: string;
+  readonly condition: 'always' | 'conditional';
+  readonly description?: string;
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -35,6 +41,7 @@ export interface ToolAction {
   readonly roles: ReadonlySet<string>;
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
+  readonly autoEmits?: readonly AutoEmission[];
 }
 
 export interface CompositeTool {
@@ -247,7 +254,7 @@ function makeDescribeAction(): ToolAction {
   };
 }
 
-/** Workflow-specific describe schema: supports both actions and topology. */
+/** Workflow-specific describe schema: supports actions, topology, and playbooks. */
 const workflowDescribeSchema = z.object({
   actions: z.array(z.string()).min(1).max(10)
     .describe('Action names to describe. Returns full schema + description for each.')
@@ -255,13 +262,16 @@ const workflowDescribeSchema = z.object({
   topology: z.string()
     .describe('Workflow type to return HSM topology for. Use "all" to list all types.')
     .optional(),
+  playbook: z.string()
+    .describe('Workflow type for phase playbooks. "all" lists types.')
+    .optional(),
 });
 
-/** Creates a workflow-specific describe action with topology support. */
+/** Creates a workflow-specific describe action with topology and playbook support. */
 function makeWorkflowDescribeAction(): ToolAction {
   return {
     name: 'describe',
-    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology for a workflow type.',
+    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology or phase playbooks for a workflow type.',
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -306,6 +316,9 @@ const workflowActions: readonly ToolAction[] = [
       flags: { featureId: { alias: 'f' }, workflowType: { alias: 't' } },
       examples: ['exarchos wf init -f my-feature -t feature'],
     },
+    autoEmits: [
+      { event: 'workflow.started', condition: 'always' },
+    ],
   },
   {
     name: 'get',
@@ -337,6 +350,10 @@ const workflowActions: readonly ToolAction[] = [
       flags: { featureId: { alias: 'f' } },
       examples: ['exarchos wf set -f my-feature --phase plan'],
     },
+    autoEmits: [
+      { event: 'workflow.transition', condition: 'conditional', description: 'When phase is provided' },
+      { event: 'state.patched', condition: 'always' },
+    ],
   },
   {
     name: 'cancel',
@@ -347,6 +364,10 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'workflow.cancel', condition: 'always' },
+      { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action' },
+    ],
   },
   {
     name: 'cleanup',
@@ -360,6 +381,9 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'workflow.cleanup', condition: 'always' },
+    ],
   },
   {
     name: 'reconcile',
@@ -430,6 +454,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
+    autoEmits: [
+      { event: 'task.claimed', condition: 'always' },
+    ],
   },
   {
     name: 'task_complete',
@@ -446,6 +473,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
+    autoEmits: [
+      { event: 'task.completed', condition: 'always' },
+    ],
   },
   {
     name: 'task_fail',
@@ -458,6 +488,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
+    autoEmits: [
+      { event: 'task.failed', condition: 'always' },
+    ],
   },
   {
     name: 'review_triage',
@@ -488,6 +521,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist' },
+    ],
   },
   {
     name: 'prepare_synthesis',
@@ -497,6 +533,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'assess_stack',
@@ -507,6 +546,12 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'shepherd.started', condition: 'conditional', description: 'First invocation (idempotent)' },
+      { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed' },
+      { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged' },
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_static_analysis',
@@ -520,6 +565,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D2' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_security_scan',
@@ -532,6 +580,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_context_economy',
@@ -544,6 +595,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D3' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_operational_resilience',
@@ -556,6 +610,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D4' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_workflow_determinism',
@@ -568,6 +625,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D5' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_review_verdict',
@@ -586,6 +646,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_convergence',
@@ -609,6 +672,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_design_completeness',
@@ -621,6 +687,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['ideate', 'plan']),
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_plan_coverage',
@@ -633,6 +702,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_tdd_compliance',
@@ -646,6 +718,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_post_merge',
@@ -658,6 +733,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D4' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_task_decomposition',
@@ -669,6 +747,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D5' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'check_event_emissions',
@@ -679,6 +760,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
   },
   {
     name: 'run_script',
