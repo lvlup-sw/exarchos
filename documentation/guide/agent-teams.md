@@ -70,7 +70,7 @@ Mode is auto-detected based on tmux availability. Override with `/exarchos:deleg
 
 Agents request their execution plan from the MCP server:
 
-```
+```typescript
 exarchos_orchestrate({ action: "runbook", id: "task-completion" })
 ```
 
@@ -80,7 +80,7 @@ The response is a sequence of steps: which gate to check, what parameters to pas
 
 While agents work, you can check status:
 
-```
+```typescript
 exarchos_view({ action: "pipeline" })
 ```
 

@@ -14,7 +14,7 @@ Users report that scheduled events fire at the wrong time. A user in New York sc
 
 Start the debug workflow:
 
-```
+```bash
 /exarchos:debug Scheduled events fire at wrong time for users in non-UTC timezones
 ```
 
@@ -42,7 +42,7 @@ Verify the hypothesis: set the server timezone to `America/New_York` and create 
 
 Exarchos documents the findings:
 
-```
+```text
 RCA saved to docs/rca/2026-03-08-scheduler-timezone.md
 
   Symptom: Scheduled events fire at server timezone instead of user timezone
@@ -83,10 +83,11 @@ GREEN. Replace the naive parsing:
 // Before:
 const utcTime = new Date(eventTime);
 
-// After:
-const utcTime = new Date(
-  new Date(eventTime).toLocaleString('en-US', { timeZone: event.timezone })
-);
+// After: construct a Date in UTC, then adjust by the timezone offset
+// Temporal.ZonedDateTime (or a library like date-fns-tz) handles this correctly:
+const zonedTime = Temporal.PlainDateTime.from(eventTime)
+  .toZonedDateTime(event.timezone);
+const utcTime = new Date(zonedTime.epochMilliseconds);
 ```
 
 Test passes.
@@ -123,7 +124,7 @@ Verdict: **APPROVED**.
 
 Synthesis creates a PR:
 
-```
+```text
 PR #87: fix: use timezone-aware parsing for scheduled events
 
   Summary: Scheduled events were firing at server timezone instead of the

@@ -54,7 +54,7 @@ Gates are deterministic bash scripts, not LLM judgment. Same code, same result. 
 
 You can query convergence status at any time:
 
-```
+```typescript
 exarchos_orchestrate({ action: "check_convergence", featureId: "my-feature" })
 ```
 
@@ -72,7 +72,7 @@ BLOCKED: the implementation fundamentally diverges from the spec. Rare. The work
 
 ## The flow
 
-```
+```text
 delegate completes
   → Stage 1: spec compliance
     → pass? → Stage 2: code quality

@@ -9,26 +9,26 @@ The debug workflow handles bug investigation and fixes. It provides two tracks: 
 ## Phase chains
 
 Thorough track:
-```
+```text
 triage → investigate → rca → design → debug-implement → debug-validate → debug-review → synthesize → completed
 ```
 
 Hotfix track:
-```
+```text
 triage → investigate → hotfix-implement → hotfix-validate → synthesize → completed
 ```
 
-Both tracks have one human checkpoint: merge confirmation at the end.
+The thorough track has one human checkpoint: merge confirmation at the end. The hotfix track has two: hotfix-validate (where you review validation results and decide whether to create a PR) and merge confirmation.
 
 ## Starting a debug workflow
 
-```
+```bash
 /exarchos:debug users are getting 500 errors on the /api/payments endpoint
 ```
 
 You can force a track at start:
 
-```
+```bash
 # Skip triage, go straight to hotfix
 /exarchos:debug --hotfix production is down, login returns 500
 
@@ -133,12 +133,12 @@ Synthesis creates the PR. The PR description links to the RCA document. Shepherd
 You can switch between tracks mid-workflow:
 
 Hotfix to thorough. Happens automatically when the 15-minute investigation timer expires. Also available manually:
-```
+```bash
 /exarchos:debug --switch-thorough
 ```
 
 Thorough to escalation. When investigation reveals the fix needs architectural changes:
-```
+```bash
 /exarchos:debug --escalate reason for escalation
 ```
 
@@ -148,7 +148,7 @@ This transitions the workflow to blocked and recommends `/ideate` for a proper d
 
 Debug workflows rehydrate the same way as feature workflows:
 
-```
+```bash
 /exarchos:rehydrate
 ```
 

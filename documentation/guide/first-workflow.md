@@ -11,7 +11,7 @@ This walkthrough builds a small feature from start to finish using the Exarchos 
 
 Tell Exarchos what you want to build:
 
-```
+```bash
 /exarchos:ideate Add a string utility module with camelCase and snake_case converters
 ```
 
@@ -22,11 +22,11 @@ Exarchos initializes a workflow and enters the ideate phase. Here is what happen
 3. You pick an approach.
 4. A design document is saved to `docs/designs/` in your project.
 
-You approve the design. This is the first of two human checkpoints in the entire workflow. Everything between this point and the merge decision auto-continues without asking you.
+The design is saved automatically. No approval is needed here; the workflow auto-continues to planning.
 
 ## Step 2: Planning
 
-After you approve the design, Exarchos auto-continues to `/plan`. No need to run anything manually.
+After the design is saved, Exarchos auto-continues to `/plan`. No need to run anything manually.
 
 - The design is decomposed into TDD-based implementation tasks
 - Each task has red/green/refactor phases, test file paths, and expected test names
@@ -35,7 +35,7 @@ After you approve the design, Exarchos auto-continues to `/plan`. No need to run
 
 If plan-review finds gaps, it loops back and revises the plan automatically. When coverage is complete, you see the plan.
 
-You approve the plan. This is the second and final human checkpoint. From here, the workflow runs autonomously until a PR is ready.
+You approve the plan. This is the first of two human checkpoints. From here, the workflow runs autonomously until a PR is ready.
 
 ## Step 3: Delegation
 
@@ -70,7 +70,7 @@ Review the PR on GitHub. When you are satisfied:
 - Approve the merge when Exarchos asks
 - Then run cleanup:
 
-```
+```bash
 /exarchos:cleanup
 ```
 
@@ -80,7 +80,7 @@ This resolves the workflow to completed, removes worktrees, and prunes merged br
 
 At any point during this workflow, if Claude Code compacts your context and the agent loses track of what it was doing:
 
-```
+```bash
 /exarchos:rehydrate
 ```
 
@@ -90,11 +90,11 @@ You can also use `/checkpoint` proactively before stepping away. It saves curren
 
 ## The full picture
 
-```
-/ideate → [YOU APPROVE DESIGN] → /plan → [YOU APPROVE PLAN] → /delegate → /review → /synthesize → [YOU MERGE]
+```text
+/ideate → /plan → [YOU APPROVE PLAN] → /delegate → /review → /synthesize → [YOU CONFIRM MERGE]
 ```
 
-Two decisions are yours: approve the design, approve the plan. Everything between auto-continues. The workflow is durable across context compaction, session breaks, and laptop closures.
+Two decisions are yours: approve the plan, confirm the merge. Everything between auto-continues. The workflow is durable across context compaction, session breaks, and laptop closures.
 
 ## Other workflows
 
@@ -102,13 +102,13 @@ The feature workflow is the most complete, but Exarchos has two other entry poin
 
 Debugging: when something is broken, use `/exarchos:debug` instead. It starts with triage and investigation before any fix attempt. Choose `--hotfix` for production fires (15-minute time box) or the default thorough track for full root cause analysis.
 
-```
+```bash
 /exarchos:debug Users report cart total is wrong after removing items
 ```
 
 Refactoring: when code works but needs improvement, use `/exarchos:refactor`. It assesses scope first, then picks the right track: `--polish` for small changes (five files or fewer) or the default overhaul for structural changes with full delegation.
 
-```
+```bash
 /exarchos:refactor Extract validation logic into separate utility functions
 ```
 

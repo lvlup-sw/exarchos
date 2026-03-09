@@ -14,7 +14,7 @@ Exarchos stores workflow state externally in an MCP server. Context compaction a
 
 Run this at any point during a workflow:
 
-```
+```bash
 /exarchos:checkpoint
 ```
 
@@ -37,7 +37,7 @@ The PreCompact lifecycle hook also runs `/checkpoint` automatically before conte
 
 Run this when starting a new session or after context compacts:
 
-```
+```bash
 /exarchos:rehydrate
 ```
 
@@ -53,7 +53,7 @@ The agent reads this state and knows exactly where you are in the workflow. No r
 
 ## /reload: lighter recovery
 
-```
+```bash
 /exarchos:reload
 ```
 
@@ -61,7 +61,7 @@ Use this when the agent seems confused but you have not lost full context. Reloa
 
 ## /autocompact: proactive management
 
-```
+```bash
 /exarchos:autocompact          # Show current status
 /exarchos:autocompact on       # Enable at 95%
 /exarchos:autocompact off      # Disable

@@ -81,7 +81,7 @@ BLOCKED -- Critical failures requiring design revision. Escalates back to `/exar
 
 The verdict is computed from:
 
-```
+```typescript
 exarchos_orchestrate({
   action: "check_review_verdict",
   featureId: "my-feature",
@@ -102,7 +102,7 @@ exarchos_orchestrate({
 
 Query the current convergence status across all dimensions:
 
-```
+```typescript
 exarchos_orchestrate({ action: "check_convergence", featureId: "my-feature" })
 ```
 

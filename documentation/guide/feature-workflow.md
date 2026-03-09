@@ -8,7 +8,7 @@ The feature workflow handles building new functionality from initial idea throug
 
 ## Phase chain
 
-```
+```text
 ideate → plan → plan-review → delegate → review → synthesize → completed
 ```
 
@@ -18,7 +18,7 @@ Two human checkpoints exist in this chain: plan approval and merge confirmation.
 
 Start a feature workflow:
 
-```
+```bash
 /exarchos:ideate add rate limiting to the API endpoints
 ```
 
@@ -86,7 +86,7 @@ The review produces a verdict:
 |---------|-------------|
 | APPROVED | Auto-continues to synthesis |
 | NEEDS_FIXES | Dispatches fixer agents via `/delegate --fixes` with specific findings |
-| BLOCKED | Returns to the design phase for rework |
+| BLOCKED | Escalates to you for human intervention |
 
 The fix-review cycle repeats until the verdict is APPROVED (up to 3 iterations before escalating to you).
 
@@ -94,7 +94,7 @@ The fix-review cycle repeats until the verdict is APPROVED (up to 3 iterations b
 
 After review approval, synthesis runs pre-flight checks: tests pass, typecheck is clean, stack integrity is good. Then it creates a pull request with a structured description (summary, changes, test plan).
 
-```
+```bash
 /exarchos:shepherd
 ```
 
@@ -109,7 +109,7 @@ Human checkpoint: Exarchos presents the PR URLs and asks you to confirm the merg
 
 After you merge the PR:
 
-```
+```bash
 /exarchos:cleanup
 ```
 
@@ -119,7 +119,7 @@ This verifies the merge on GitHub, removes worktrees and local branches, and tra
 
 If your session compacts mid-workflow or you close your laptop:
 
-```
+```bash
 /exarchos:rehydrate
 ```
 

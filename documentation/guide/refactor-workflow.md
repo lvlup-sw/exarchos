@@ -9,26 +9,26 @@ The refactor workflow handles code improvement without changing external behavio
 ## Phase chains
 
 Polish track:
-```
+```text
 explore → brief → polish-implement → polish-validate → polish-update-docs → completed
 ```
 
 Overhaul track:
-```
+```text
 explore → brief → overhaul-plan → overhaul-plan-review → overhaul-delegate → overhaul-review → overhaul-update-docs → synthesize → completed
 ```
 
-Polish has no human checkpoints; it runs start to finish. Overhaul has one: plan approval before delegation begins, plus merge confirmation at the end.
+Polish has no human checkpoints; it runs start to finish. Overhaul has two: plan approval before delegation begins, and merge confirmation at the end.
 
 ## Starting a refactor workflow
 
-```
+```bash
 /exarchos:refactor extract validation logic from UserService into its own module
 ```
 
 You can force a track or limit to exploration only:
 
-```
+```bash
 # Small cleanup, skip to polish track
 /exarchos:refactor --polish rename internal methods in the parser module
 
@@ -105,7 +105,7 @@ Synthesize. Creates the PR. Shepherd monitors CI. Human checkpoint: you confirm 
 
 If scope expands beyond polish limits during implementation:
 
-```
+```bash
 /exarchos:refactor --switch-overhaul
 ```
 
@@ -113,7 +113,7 @@ Exploration results and brief are preserved. The workflow picks up at the overha
 
 ## Session recovery
 
-```
+```bash
 /exarchos:rehydrate
 ```
 

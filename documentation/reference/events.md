@@ -35,7 +35,7 @@ Each event type has a designated emission source:
 
 Events marked `auto` should not be duplicated via manual `exarchos_event` calls. The MCP server emits them as side effects of workflow operations.
 
-## Event types (65 total)
+## Event types (58 total)
 
 ### Workflow (12)
 
@@ -164,7 +164,7 @@ Events marked `auto` should not be duplicated via manual `exarchos_event` calls.
 
 Query events from a stream with optional type filtering:
 
-```
+```typescript
 exarchos_event({
   action: "query",
   stream: "my-feature",
@@ -175,7 +175,7 @@ exarchos_event({
 
 Wildcard patterns are supported for type-based queries:
 
-```
+```typescript
 exarchos_event({
   action: "query",
   stream: "my-feature",
@@ -187,7 +187,7 @@ exarchos_event({
 
 Model-emitted events are appended explicitly:
 
-```
+```typescript
 exarchos_event({
   action: "append",
   stream: "my-feature",

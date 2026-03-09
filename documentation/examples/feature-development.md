@@ -14,7 +14,7 @@ You have a Node.js API server that handles requests from multiple clients. You w
 
 Start the workflow:
 
-```
+```bash
 /exarchos:ideate Add rate limiting to the API server, per-client-IP, configurable limits, return 429 when exceeded
 ```
 
@@ -28,7 +28,7 @@ After gathering context, it presents three approaches:
 
 You choose approach 1 for simplicity. The design document is saved:
 
-```
+```text
 Design saved to docs/designs/2026-03-08-rate-limiter.md
   DR-1: Token bucket data structure with configurable rate and capacity
   DR-2: Rate limiter middleware that extracts client IP and enforces limits
@@ -42,7 +42,7 @@ The design looks right. The workflow auto-continues to planning.
 
 The planning skill reads the design and generates four tasks:
 
-```
+```text
 Plan: rate-limiter (4 tasks, 2 parallel groups)
 
   Group 1 (parallel):
@@ -96,7 +96,7 @@ Verdict: **APPROVED**.
 
 Synthesis runs pre-flight checks (tests pass, typecheck clean), then creates a pull request:
 
-```
+```text
 PR #142: feat: add per-client-IP rate limiting with token bucket algorithm
 
   Summary: Adds request rate limiting using an in-memory token bucket

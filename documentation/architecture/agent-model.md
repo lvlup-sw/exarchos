@@ -41,7 +41,7 @@ Each workflow phase has a runbook: a machine-readable sequence of steps the agen
 
 The runbook returns structured data, not prose. Each entry specifies the tool to call, the action, its purpose, which events to emit, the transition criteria, and guard prerequisites:
 
-```
+```text
 Skill: @skills/delegation/SKILL.md
 Tools: exarchos_workflow (get: Read task list), exarchos_event (append: Emit task.assigned)
 Events to emit: task.assigned -- On dispatch of each task, team.spawned -- After team creation

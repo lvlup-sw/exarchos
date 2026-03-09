@@ -16,7 +16,7 @@ Every design choice in Exarchos accounts for this cost.
 
 At MCP startup, each tool registers with a slim one-line description and an enum of action names. No parameter schemas, no examples, no detailed descriptions. Here is what `exarchos_workflow` looks like at registration:
 
-```
+```text
 Workflow lifecycle management. Use describe(actions) for schemas.
 
 Actions: init, get, set, cancel, cleanup, reconcile

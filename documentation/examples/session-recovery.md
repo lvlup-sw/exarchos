@@ -14,11 +14,11 @@ You are in the middle of a feature workflow building a notification system. Dele
 
 Save your progress before stepping away:
 
-```
+```bash
 /exarchos:checkpoint
 ```
 
-```
+```text
 Checkpoint saved:
   Workflow: notification-system (feature)
   Phase: delegate
@@ -36,7 +36,7 @@ You close your laptop and go to your meeting.
 
 You open Claude Code the next morning. A new session starts. The SessionStart hook detects an active workflow:
 
-```
+```text
 Active workflow detected: notification-system (delegate phase)
   2 tasks completed, 2 in-progress, 1 pending
 Run /exarchos:rehydrate to resume.
@@ -46,13 +46,13 @@ The hook does not load the full workflow state. It tells you a workflow exists a
 
 ## Rehydrate
 
-```
+```bash
 /exarchos:rehydrate
 ```
 
 Rehydration reads the workflow state and recent events from the event store. Here is what loads into context:
 
-```
+```text
 Rehydrated: notification-system
 
   Type: feature

@@ -33,7 +33,7 @@ The workflow state machine defines valid transitions for each workflow type. Fea
 
 Guards check preconditions before each transition: does a plan document exist? Have all tasks completed? Did convergence gates pass? If a guard fails, the transition is rejected with a message explaining what's missing.
 
-```
+```text
 ideate → plan → plan-review → delegate → review → synthesize → completed
 ```
 

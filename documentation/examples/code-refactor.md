@@ -14,13 +14,13 @@ Your `handleRequest` function in `src/server/handler.ts` is 300 lines long. It a
 
 Start the refactor workflow:
 
-```
+```bash
 /exarchos:refactor Break up the monolithic handleRequest function in src/server/handler.ts
 ```
 
 Exarchos analyzes the function and produces a scope assessment:
 
-```
+```text
 Scope assessment:
   File: src/server/handler.ts (1 file)
   Function: handleRequest — 300 lines, 8 levels of nesting
@@ -39,7 +39,7 @@ One file, four clear responsibilities, existing test coverage. This is a textboo
 
 Exarchos writes a refactoring brief (stored in the workflow state, not a separate document):
 
-```
+```text
 Brief: Extract handleRequest into focused functions
 
   Problem: 300-line function with 4 tangled responsibilities.
@@ -125,7 +125,7 @@ The brief's success criteria are met: `handleRequest` is 12 lines (under 50), no
 
 The polish track creates a single commit and pushes directly:
 
-```
+```text
 PR #93: refactor: extract handleRequest into focused functions
 
   Summary: Breaks the 300-line handleRequest into four focused functions:

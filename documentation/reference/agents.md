@@ -4,7 +4,7 @@ Exarchos defines three typed agents as Claude Code native `.md` agent specs. All
 
 Agent specs are served dynamically via:
 
-```
+```typescript
 exarchos_orchestrate({ action: "agent_spec", agentType: "implementer" })
 ```
 

@@ -6,7 +6,7 @@ Skills are structured Markdown documents that provide domain knowledge and behav
 
 Each skill lives in `skills/<name>/` with two components:
 
-```
+```text
 skills/
   brainstorming/
     SKILL.md          # Main skill document with frontmatter
@@ -57,6 +57,6 @@ Commands reference skills via `@skills/<name>/SKILL.md`. The agent loads the ski
 
 Skills invoke validation scripts through the MCP server rather than calling bash directly:
 
-```
+```typescript
 exarchos_orchestrate({ action: "run_script", script: "check-tdd-compliance" })
 ```

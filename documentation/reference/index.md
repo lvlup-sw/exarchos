@@ -4,7 +4,7 @@ This section documents the interfaces and structures that make up Exarchos: comm
 
 ## MCP tool architecture
 
-Exarchos exposes 4 composite MCP tools, each a discriminated union keyed on `action`:
+Exarchos exposes 5 MCP tools (4 composite tools plus 1 hidden sync tool), each a discriminated union keyed on `action`:
 
 | Tool | Purpose | Actions |
 |------|---------|---------|
@@ -25,6 +25,6 @@ See [MCP Tools](./tools/) for per-tool action reference.
 - [Skills](./skills.md) -- 11 production skills with phase affinity
 - [Agents](./agents.md) -- 3 typed agents for isolated work
 - [Validation Scripts](./scripts.md) -- Deterministic bash checks replacing prose checklists
-- [Events](./events.md) -- 65 event types across 13 categories
+- [Events](./events.md) -- 58 event types across 13 categories
 - [Configuration](./configuration.md) -- Plugin settings, hooks, integrations
 - [Convergence Gates](./convergence-gates.md) -- 5-dimension verification at phase boundaries

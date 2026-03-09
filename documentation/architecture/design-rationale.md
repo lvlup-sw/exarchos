@@ -56,14 +56,18 @@ Gates run fast because they're bash scripts analyzing git diffs, not LLM inferen
 
 Trade-off: Gates check patterns, not intent. They can catch a swallowed error but can't judge whether a design decision is sound. They complement human review rather than replacing it. Exarchos keeps human review in the loop through typed reviewer agents and the two human checkpoints.
 
-## Why two human checkpoints
+## Why human checkpoints
 
-Most operations in an Exarchos workflow run without human intervention. The agent handles ideation, planning, implementation, review, and PR creation automatically. But two moments require your explicit approval:
+Most operations in an Exarchos workflow run without human intervention. The agent handles ideation, planning, implementation, review, and PR creation automatically. But key moments require your explicit approval.
+
+The feature workflow has two human checkpoints:
 
 Plan review (plan-review phase): you confirm the approach before any code is written. The agent presents its implementation plan with task breakdown, design decisions, and testing strategy. You can approve, request revisions (up to 3 rounds), or redirect the approach entirely.
 
 Merge approval (synthesize phase): you confirm the result before it enters your codebase. The agent has created PRs, run convergence gates, and prepared a synthesis report. You decide whether to merge.
 
-Everything between these two checkpoints auto-continues. The agent plans, delegates to implementers, runs reviews, fixes failures, and retries -- all without stopping to ask for permission. This balances two competing needs: you want control over what goes into your codebase, but you don't want to be interrupted every few minutes to approve routine operations.
+Other workflows vary. The debug workflow's hotfix track has two checkpoints (hotfix-validate and merge confirmation), while the thorough track has one (merge confirmation). The refactor workflow's overhaul track has two (plan approval and merge confirmation), while the polish track has none.
 
-Trade-off: Two checkpoints means the agent can spend significant time on an approach that you ultimately reject at plan review. A more interactive model with frequent checkpoints would catch misalignment earlier but would also interrupt the agent's flow and require more of your attention. The current design optimizes for your time at the cost of occasionally wasted agent time.
+Everything between checkpoints auto-continues. The agent plans, delegates to implementers, runs reviews, fixes failures, and retries -- all without stopping to ask for permission. This balances two competing needs: you want control over what goes into your codebase, but you don't want to be interrupted every few minutes to approve routine operations.
+
+Trade-off: Fewer checkpoints means the agent can spend significant time on an approach that you ultimately reject. A more interactive model with frequent checkpoints would catch misalignment earlier but would also interrupt the agent's flow and require more of your attention. The current design optimizes for your time at the cost of occasionally wasted agent time.

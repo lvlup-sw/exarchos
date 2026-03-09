@@ -25,7 +25,7 @@ exit 2  # skip (precondition not met)
 
 Each script has a `.test.sh` file alongside it:
 
-```
+```text
 scripts/
   check-tdd-compliance.sh
   check-tdd-compliance.test.sh
@@ -44,7 +44,7 @@ Scripts resolve from two locations, checked in order:
 
 Skills invoke scripts through the MCP server, not via direct bash paths:
 
-```
+```typescript
 exarchos_orchestrate({ action: "run_script", script: "check-tdd-compliance", args: ["--branch", "feature/my-task"] })
 ```
 

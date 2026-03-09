@@ -59,7 +59,7 @@ After installing, start a new Claude Code session. Two things confirm a working 
 
 2. Commands are available. Plugin commands are namespaced as `/exarchos:<command>`. Try running:
 
-```
+```bash
 /exarchos:ideate
 ```
 

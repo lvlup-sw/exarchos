@@ -44,7 +44,7 @@ The event store uses a `.seq` cache file alongside each JSONL stream for O(1) se
 
 When state and events get out of sync, reconciliation fixes it:
 
-```
+```typescript
 exarchos_workflow({ action: "reconcile", featureId: "my-feature" })
 ```
 
