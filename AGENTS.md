@@ -11,7 +11,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 - **Testing:** Vitest (co-located `*.test.ts`), bash integration tests (co-located `*.test.sh`)
 - **MCP Framework:** `@modelcontextprotocol/sdk` + `zod`
 - **Build:** `tsc` for type checking, `bun build` for bundling MCP server and CLI
-- **Tools:** Claude Code CLI, Graphite CLI (stacked PRs)
+- **Tools:** Claude Code CLI, GitHub CLI (`gh`) for PRs
 
 ## Code Organization
 
@@ -48,7 +48,7 @@ Single server at `servers/exarchos-mcp/` exposing 5 composite tools:
 
 ## Known Tech Debt
 
-- `docs/follow-ups/` — Empty directory, pending cleanup
+- `docs/follow-ups/` contains 73+ design/plan files, many likely completed — needs per-file triage
 - Some design docs reference completed/superseded features (Jules integration, pre-Exarchos architecture)
 
 ## Scan Preferences
