@@ -71,6 +71,7 @@ export async function handleDescribe(
         gate: (action as ToolAction & { gate?: unknown }).gate ?? null,
         phases: [...action.phases],
         roles: [...action.roles],
+        ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
       };
     }
   }

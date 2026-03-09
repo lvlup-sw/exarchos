@@ -35,6 +35,24 @@ describe('handleDescribe', () => {
     expect(result.error?.validTargets?.length).toBeGreaterThan(0);
   });
 
+  it('HandleDescribe_ActionWithAutoEmits_ReturnsEmissionMetadata', async () => {
+    const result = await handleDescribe({ actions: ['init'] }, workflowTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.init.autoEmits).toEqual([
+      { event: 'workflow.started', condition: 'always' },
+    ]);
+  });
+
+  it('HandleDescribe_ActionWithoutAutoEmits_OmitsField', async () => {
+    const result = await handleDescribe({ actions: ['get'] }, workflowTool.actions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    // autoEmits should be omitted entirely (not null, not empty array)
+    expect(data.get.autoEmits).toBeUndefined();
+    expect('autoEmits' in data.get).toBe(false);
+  });
+
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
     // Use orchestrate tool which has gate metadata on check_* actions
     // Note: gate metadata may not exist yet (T1 adds it). If action.gate is undefined, expect null.
