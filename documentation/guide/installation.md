@@ -1,6 +1,6 @@
 # Installation
 
-## From the Claude Code Marketplace
+## From the Claude Code marketplace
 
 This is the recommended path. Two commands, nothing to configure.
 
@@ -21,7 +21,7 @@ This installs:
 
 No additional configuration required. The plugin handles MCP server registration and command setup automatically.
 
-## Dev Companion (Optional)
+## Dev companion (optional)
 
 The dev companion adds three additional MCP servers for code analysis and documentation lookup:
 
@@ -31,13 +31,13 @@ npx @lvlup-sw/exarchos-dev
 
 This installs:
 
-- **Serena** - Semantic code analysis. Symbol navigation, reference finding, cross-file understanding.
-- **Context7** - Up-to-date library documentation. Pulls current docs instead of relying on training data.
-- **Microsoft Learn** - Azure and .NET documentation from the official Microsoft API.
+- Serena: semantic code analysis. Symbol navigation, reference finding, cross-file understanding.
+- Context7: up-to-date library documentation. Pulls current docs instead of relying on training data.
+- Microsoft Learn: Azure and .NET documentation from the official Microsoft API.
 
 These are optional. Exarchos works without them. They help when you need to navigate unfamiliar codebases or check library APIs during a workflow.
 
-## Development Setup
+## Development setup
 
 For contributing to Exarchos itself:
 
@@ -51,13 +51,13 @@ The `--plugin-dir .` flag tells Claude Code to load the plugin from your local c
 
 Requires Node.js >= 20.
 
-## Verifying Installation
+## Verifying installation
 
 After installing, start a new Claude Code session. Two things confirm a working install:
 
-**1. MCP server is connected.** The `exarchos` MCP server should appear in your available tools. You can check by asking Claude to list its MCP tools.
+1. MCP server is connected. The `exarchos` MCP server should appear in your available tools. You can check by asking Claude to list its MCP tools.
 
-**2. Commands are available.** Plugin commands are namespaced as `/exarchos:<command>`. Try running:
+2. Commands are available. Plugin commands are namespaced as `/exarchos:<command>`. Try running:
 
 ```
 /exarchos:ideate
@@ -67,6 +67,6 @@ If it starts a design exploration session (asking what you want to build), the i
 
 You can also verify the lifecycle hooks are active by checking that Claude mentions discovering active workflows at session start. This happens automatically via the session-start hook.
 
-## Next Step
+## Next step
 
 With Exarchos installed, walk through your first workflow: [First Workflow](/guide/first-workflow).

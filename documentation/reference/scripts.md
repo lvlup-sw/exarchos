@@ -17,11 +17,11 @@ exit 1  # fail
 exit 2  # skip (precondition not met)
 ```
 
-- **Exit 0:** Check passed
-- **Exit 1:** Check failed
-- **Exit 2:** Check skipped (missing prerequisites, not applicable)
+- Exit 0: Check passed
+- Exit 1: Check failed
+- Exit 2: Check skipped (missing prerequisites, not applicable)
 
-## Co-located Tests
+## Co-located tests
 
 Each script has a `.test.sh` file alongside it:
 
@@ -33,7 +33,7 @@ scripts/
   check-context-economy.test.sh
 ```
 
-## Resolution Order
+## Resolution order
 
 Scripts resolve from two locations, checked in order:
 
@@ -50,7 +50,7 @@ exarchos_orchestrate({ action: "run_script", script: "check-tdd-compliance", arg
 
 The `run_script` action resolves the script path, executes it, and returns structured output with the exit code and stdout/stderr.
 
-## Script Catalog
+## Script catalog
 
 Key scripts used by convergence gates:
 

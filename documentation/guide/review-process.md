@@ -6,39 +6,39 @@ outline: deep
 
 Review happens automatically after delegation completes. You do not run it manually. The delegate phase transitions to review, and the system handles both stages.
 
-## Two Stages
+## Two stages
 
 Review runs in two sequential stages. Stage 1 checks that the code matches what was designed. Stage 2 checks that the code itself is well-written. Both must pass before the workflow continues to synthesis. Each stage runs in a reviewer subagent working from an integrated diff (all task branches vs. main).
 
-## Stage 1: Spec Compliance
+## Stage 1: spec compliance
 
-**Question:** Does the implementation match the design?
+Question: does the implementation match the design?
 
-Three checks run:
+The following checks run:
 
-**Provenance chain** (blocking). Are design requirements (tagged DR-1, DR-2, etc.) traceable to implementation and tests? Every requirement should map to code that implements it and a test that verifies it.
+Provenance chain (blocking). Are design requirements (tagged DR-1, DR-2, etc.) traceable to implementation and tests? Every requirement should map to code that implements it and a test that verifies it.
 
-**TDD compliance** (blocking). Was the test-before-code protocol followed? Checks commit history for the red-green-refactor pattern.
+TDD compliance (blocking). Was the test-before-code protocol followed? Checks commit history for the red-green-refactor pattern.
 
-**Security scan** (informational). Scans the diff for hardcoded secrets, SQL injection vectors, unsafe deserialization. Findings are recorded but do not block.
+Security scan (informational). Scans the diff for hardcoded secrets, SQL injection vectors, unsafe deserialization. Findings are recorded but do not block.
 
 If spec compliance fails, fixer agents are dispatched automatically with specific findings.
 
-## Stage 2: Code Quality
+## Stage 2: code quality
 
-**Question:** Is the code well-written?
+Question: is the code well-written?
 
 Stage 2 only runs after Stage 1 passes. Four checks run:
 
-**Static analysis** (blocking). Lint violations and typecheck errors. Must pass before anything else matters.
+Static analysis (blocking). Lint violations and typecheck errors. Must pass before anything else matters.
 
-**Context economy** (informational). Long functions, deep nesting, circular dependencies. Patterns that consume disproportionate context tokens in future LLM interactions.
+Context economy (informational). Long functions, deep nesting, circular dependencies. Patterns that consume disproportionate context tokens in future LLM interactions.
 
-**Operational resilience** (informational). Empty catch blocks, swallowed errors, `console.log` in production code.
+Operational resilience (informational). Empty catch blocks, swallowed errors, `console.log` in production code.
 
-**Workflow determinism** (informational). `.only` or `.skip` left in tests, non-deterministic time/random usage, debug artifacts committed.
+Workflow determinism (informational). `.only` or `.skip` left in tests, non-deterministic time/random usage, debug artifacts committed.
 
-## Convergence Gates
+## Convergence gates
 
 The checks above map to five quality dimensions tracked across the entire pipeline:
 
@@ -64,13 +64,13 @@ This returns per-dimension status: how many gates ran, whether each dimension co
 
 After both stages complete, a verdict is computed from the gate results and finding counts:
 
-**APPROVED** — All blocking gates pass. Informational findings are acceptable or minor. The workflow continues to synthesis, where a pull request is created.
+APPROVED: all blocking gates pass. Informational findings are acceptable or minor. The workflow continues to synthesis, where a pull request is created.
 
-**NEEDS_FIXES** — Blocking gate failures or too many informational findings. Findings are dispatched to fixer agents via `/delegate --fixes`. After fixes, review runs again. The cycle repeats up to three times before escalating to you.
+NEEDS_FIXES: blocking gate failures or too many informational findings. Findings are dispatched to fixer agents via `/delegate --fixes`. After fixes, review runs again. The cycle repeats up to three times before escalating to you.
 
-**BLOCKED** — The implementation fundamentally diverges from the spec. Rare. The workflow returns to ideate for redesign.
+BLOCKED: the implementation fundamentally diverges from the spec. Rare. The workflow returns to ideate for redesign.
 
-## The Flow
+## The flow
 
 ```
 delegate completes
@@ -83,7 +83,7 @@ delegate completes
 
 All transitions are automatic. You do not need to do anything unless the verdict is BLOCKED, which requires a design discussion with you.
 
-## Finding Severity
+## Finding severity
 
 Findings from both stages are classified into three levels:
 

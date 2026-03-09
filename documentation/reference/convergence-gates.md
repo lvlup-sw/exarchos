@@ -52,7 +52,7 @@ Checks for non-deterministic patterns: `.only`/`.skip` in tests, non-determinist
 | `check_workflow_determinism` | No | Scan for non-deterministic patterns in tests and code |
 | `check_task_decomposition` | No | Evaluate task decomposition quality |
 
-## Gate Execution by Phase Boundary
+## Gate execution by phase boundary
 
 Different boundaries run different subsets of gates at varying depth:
 
@@ -71,13 +71,13 @@ The full audit at the review-to-synthesize boundary runs all gate actions across
 
 The `check_review_verdict` action computes a verdict from finding counts and dimension results:
 
-**APPROVED** -- All blocking gates pass. Informational findings are acceptable. Workflow proceeds to synthesize.
+APPROVED -- All blocking gates pass. Informational findings are acceptable. Workflow proceeds to synthesize.
 
-**NEEDS_FIXES** -- Blocking gate failures or too many findings. Triggers `/exarchos:delegate --fixes` to address the issues. The fix-review cycle can repeat, with a circuit breaker to prevent infinite loops.
+NEEDS_FIXES -- Blocking gate failures or too many findings. Triggers `/exarchos:delegate --fixes` to address the issues. The fix-review cycle can repeat, with a circuit breaker to prevent infinite loops.
 
-**BLOCKED** -- Critical failures requiring design revision. Escalates back to `/exarchos:ideate` for redesign.
+BLOCKED -- Critical failures requiring design revision. Escalates back to `/exarchos:ideate` for redesign.
 
-### Verdict Inputs
+### Verdict inputs
 
 The verdict is computed from:
 
@@ -98,7 +98,7 @@ exarchos_orchestrate({
 })
 ```
 
-## Convergence Status
+## Convergence status
 
 Query the current convergence status across all dimensions:
 

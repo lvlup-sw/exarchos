@@ -6,7 +6,7 @@ outline: deep
 
 This example walks through checkpointing a workflow, losing context, and rehydrating to continue where you left off.
 
-## Setting the Scene
+## Where we left off
 
 You are in the middle of a feature workflow building a notification system. Delegation is running with five tasks. Two have completed, two are in progress, and one is pending. You need to close your laptop for a meeting.
 
@@ -32,7 +32,7 @@ Checkpoint saved:
 
 You close your laptop and go to your meeting.
 
-## The Next Day
+## The next day
 
 You open Claude Code the next morning. A new session starts. The SessionStart hook detects an active workflow:
 
@@ -86,27 +86,27 @@ Both tasks pass their gates. Task 5 (integration tests) is dispatched. It comple
 
 The entire resumption took about 2.4k tokens of rehydration context. From there, the workflow continued as if you had never left.
 
-## What If You Don't Checkpoint?
+## What if you don't checkpoint?
 
 You do not lose your work. The PreCompact hook runs `/checkpoint` automatically before Claude Code compacts your context window. So even if you forget to checkpoint manually, your state is saved before context is lost.
 
 The manual `/checkpoint` is for intentional breaks: closing your laptop, ending your workday, switching to a different project. It confirms what was saved and gives you the rehydrate command for when you come back.
 
-## What If Context Compacts Mid-Workflow?
+## What if context compacts mid-workflow?
 
 Same process. After compaction, the agent's context is shorter but the workflow state in the event store is untouched. Run `/rehydrate` and the agent picks up where it left off.
 
 This can happen multiple times during a long workflow. Each rehydration costs about 2-3k tokens regardless of how many phases the workflow has been through. Compare that to re-explaining your project, design decisions, and progress from scratch, which could take 10-20k tokens and still miss details that the event store captured.
 
-## What Gets Preserved
+## What gets preserved
 
 The workflow state captures:
 
-- **Workflow identity.** Feature ID, type, current phase.
-- **Artifacts.** File paths to design docs, plans, and PR URLs. The documents are not stored in the state. Their paths are stored, and the agent reads them when it needs the content.
-- **Task status.** Which tasks are completed, in-progress, failed, or pending. Completion timestamps and failure details.
-- **Worktree locations.** Which branches exist, which worktrees are active, which have been merged.
-- **Gate results.** Which convergence gates have passed or failed, and what findings they produced.
-- **Event history.** The append-only log of every transition, gate execution, and task event. This is the source of truth. If state ever gets corrupted, `reconcile` rebuilds it from the event history.
+- Workflow identity: feature ID, type, current phase.
+- Artifacts: file paths to design docs, plans, and PR URLs. The documents are not stored in the state. Their paths are stored, and the agent reads them when it needs the content.
+- Task status: which tasks are completed, in-progress, failed, or pending. Completion timestamps and failure details.
+- Worktree locations: which branches exist, which worktrees are active, which have been merged.
+- Gate results: which convergence gates have passed or failed, and what findings they produced.
+- Event history: the append-only log of every transition, gate execution, and task event. This is the source of truth. If state ever gets corrupted, `reconcile` rebuilds it from the event history.
 
 All of this survives session breaks, context compaction, and laptop closures. The workflow is durable by default.

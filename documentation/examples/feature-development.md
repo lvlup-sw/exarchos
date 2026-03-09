@@ -6,7 +6,7 @@ outline: deep
 
 This example walks through building a rate limiter module for an API server, from initial idea to merged PR.
 
-## Setting the Scene
+## The scenario
 
 You have a Node.js API server that handles requests from multiple clients. You want to add per-client-IP rate limiting so that no single client can overwhelm the server. Clients that exceed their limit should get a `429 Too Many Requests` response.
 
@@ -15,16 +15,16 @@ You have a Node.js API server that handles requests from multiple clients. You w
 Start the workflow:
 
 ```
-/exarchos:ideate Add rate limiting to the API server — per-client-IP, configurable limits, return 429 when exceeded
+/exarchos:ideate Add rate limiting to the API server, per-client-IP, configurable limits, return 429 when exceeded
 ```
 
 Exarchos initializes a feature workflow and asks a few questions. What transport does the server use? Are there existing middleware patterns? Do you need distributed rate limiting or is single-process enough?
 
 After gathering context, it presents three approaches:
 
-1. **In-memory token bucket.** Each IP gets a bucket that refills at a fixed rate. Simple, no external dependencies, but state is lost on restart.
-2. **Redis-backed sliding window.** Counts requests in a sliding time window stored in Redis. Survives restarts, works across multiple server instances. Adds a Redis dependency.
-3. **Middleware with pluggable backends.** Abstract interface that supports both in-memory and Redis backends. More code upfront, but swappable later.
+1. In-memory token bucket. Each IP gets a bucket that refills at a fixed rate. Simple, no external dependencies, but state is lost on restart.
+2. Redis-backed sliding window. Counts requests in a sliding time window stored in Redis. Survives restarts, works across multiple server instances. Adds a Redis dependency.
+3. Middleware with pluggable backends. Abstract interface that supports both in-memory and Redis backends. More code upfront, but swappable later.
 
 You choose approach 1 for simplicity. The design document is saved:
 
@@ -76,9 +76,9 @@ After plan approval, delegation creates worktrees and dispatches agents.
 
 Tasks 1 and 3 are independent, so they run in parallel. Each implementer agent gets its own git worktree and follows strict TDD:
 
-**Task 1 (token bucket):** Write `tokenBucket.test.ts` with tests for consume, refill, and capacity. Run tests (RED). Write `tokenBucket.ts` with the token bucket implementation. Run tests (GREEN). Clean up naming and remove dead code (REFACTOR). Task complete.
+Task 1 (token bucket): Write `tokenBucket.test.ts` with tests for consume, refill, and capacity. Run tests (RED). Write `tokenBucket.ts` with the token bucket implementation. Run tests (GREEN). Clean up naming and remove dead code (REFACTOR). Task complete.
 
-**Task 3 (config):** Write `config.test.ts` with tests for default values, environment overrides, and invalid input. Run tests (RED). Write `config.ts` with the parser. Run tests (GREEN). Task complete.
+Task 3 (config): Write `config.test.ts` with tests for default values, environment overrides, and invalid input. Run tests (RED). Write `config.ts` with the parser. Run tests (GREEN). Task complete.
 
 Both tasks pass their convergence gates (TDD compliance, static analysis). Task 2 starts next, followed by task 4 after task 2 finishes. All four tasks complete successfully.
 
@@ -86,9 +86,9 @@ Both tasks pass their convergence gates (TDD compliance, static analysis). Task 
 
 Two-stage review runs automatically against the combined diff of all task branches.
 
-**Stage 1 (spec compliance).** The reviewer traces each design requirement to its implementation. DR-1 through DR-4 are all covered by code and tests. TDD compliance verified: test commits precede implementation commits in every task branch.
+Stage 1 (spec compliance): The reviewer traces each design requirement to its implementation. DR-1 through DR-4 are all covered by code and tests. TDD compliance verified: test commits precede implementation commits in every task branch.
 
-**Stage 2 (code quality).** Static analysis is clean. One informational finding: the `tokenBucket.ts` consume method could be shorter by extracting the refill calculation. This is a context economy suggestion, not a blocking issue.
+Stage 2 (code quality): Static analysis is clean. One informational finding: the `tokenBucket.ts` consume method could be shorter by extracting the refill calculation. This is a context economy suggestion, not a blocking issue.
 
 Verdict: **APPROVED**.
 

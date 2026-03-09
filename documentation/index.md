@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Exarchos
   text: Durable SDLC Workflows for Claude Code
-  tagline: Checkpoint any task. Resume where you left off. Ship with confidence.
+  tagline: Checkpoint any task. Resume where you left off. Know what actually happened.
   actions:
     - theme: brand
       text: Get Started

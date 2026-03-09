@@ -2,15 +2,15 @@
 
 Exarchos exposes 4 composite MCP tools plus 1 hidden sync tool. Each tool is a discriminated union keyed on the `action` parameter.
 
-## Design Principles
+## Design principles
 
-**Composite tools over many small tools.** 4 visible tools instead of 40+. Each tool groups related actions behind a single MCP tool registration. This keeps tool registration under 500 tokens total.
+Composite tools over many small tools. 4 visible tools instead of 40+. Each tool groups related actions behind a single MCP tool registration. This keeps tool registration under 500 tokens total.
 
-**Lazy schema loading.** Tools register with slim descriptions and action-name enums only. Full parameter schemas load on demand via the `describe` action, which every tool supports. Agents call `describe` when they need exact parameter shapes for a specific action.
+Lazy schema loading. Tools register with slim descriptions and action-name enums only. Full parameter schemas load on demand via the `describe` action, which every tool supports. Agents call `describe` when they need exact parameter shapes for a specific action.
 
-**Agent-first.** Structured JSON input, strict Zod validation, clear error messages with error codes. The same dispatch function backs both MCP transport and CLI, so behavior is identical regardless of interface.
+Agent-first. Structured JSON input, strict Zod validation, clear error messages with error codes. The same dispatch function backs both MCP transport and CLI, so behavior is identical regardless of interface.
 
-## The 4 Tools
+## The 4 tools
 
 | Tool | Purpose | Action Count |
 |------|---------|-------------|
@@ -31,7 +31,7 @@ Every tool supports a `describe` action. Call it with specific action names to g
 
 Returns full Zod schemas, descriptions, gate metadata (blocking status, quality dimension), and phase/role constraints for each requested action. The `actions` array accepts 1-10 action names.
 
-## Discriminated Union Dispatch
+## Discriminated union dispatch
 
 All tools use the same dispatch pattern. The `action` field is a required string enum that routes to the correct handler. Per-action parameters are validated by the handler, not at the composite schema level -- all non-`action` fields are optional in the registration schema.
 
@@ -41,7 +41,7 @@ All tools use the same dispatch pattern. The `action` field is a required string
 
 Invalid action names return a validation error listing valid actions. Missing required parameters for a specific action return a validation error listing the missing fields.
 
-## Phase and Role Constraints
+## Phase and role constraints
 
 Each action is scoped to specific workflow phases and roles. Calling an action outside its allowed phases or with the wrong role returns an error with the valid phases/roles. Use `describe` to inspect these constraints before calling.
 

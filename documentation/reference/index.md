@@ -2,7 +2,7 @@
 
 This section documents the interfaces and structures that make up Exarchos: commands, skills, agents, scripts, events, configuration, and convergence gates.
 
-## MCP Tool Architecture
+## MCP tool architecture
 
 Exarchos exposes 4 composite MCP tools, each a discriminated union keyed on `action`:
 
@@ -19,7 +19,7 @@ Each tool supports a `describe` action that returns full JSON Schema, descriptio
 
 See [MCP Tools](./tools/) for per-tool action reference.
 
-## Quick Links
+## Quick links
 
 - [Commands](./commands.md) -- 15 slash commands for workflow control
 - [Skills](./skills.md) -- 11 production skills with phase affinity

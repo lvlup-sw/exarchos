@@ -1,8 +1,8 @@
 # Skills
 
-Skills are structured Markdown documents that provide domain knowledge and behavioral guidance to the agent. Each skill covers a specific workflow concern, from brainstorming to cleanup.
+Skills are structured Markdown documents that provide domain knowledge and behavioral guidance to the agent. Each skill covers a specific workflow concern across all workflow phases.
 
-## Skill Anatomy
+## Skill anatomy
 
 Each skill lives in `skills/<name>/` with two components:
 
@@ -34,7 +34,7 @@ metadata:
 
 Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarchos` in their frontmatter. Utility or standards skills without MCP dependency are exempt.
 
-## Production Skills
+## Production skills
 
 | Skill | Description | Phase Affinity |
 |-------|-------------|----------------|
@@ -51,7 +51,7 @@ Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarcho
 | `synthesis` | PR creation from feature branch | synthesize |
 | `workflow-state` | Checkpoint and resume workflow state | any phase |
 
-## Skill Resolution
+## Skill resolution
 
 Commands reference skills via `@skills/<name>/SKILL.md`. The agent loads the skill document and its references to get process details, templates, and checklists for the current workflow phase.
 

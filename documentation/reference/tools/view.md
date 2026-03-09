@@ -2,7 +2,7 @@
 
 CQRS materialized views -- read-only projections computed from events and workflow state. All actions are read-only and produce no side effects. CLI alias: `vw`.
 
-## Pipeline and Status
+## Pipeline and status
 
 ### pipeline
 
@@ -59,7 +59,7 @@ Phases: all. Role: `any`.
 
 ---
 
-## Stack and Positioning
+## Stack and positioning
 
 ### stack_status
 
@@ -104,7 +104,7 @@ Phases: delegate, overhaul-delegate, synthesize, debug-implement. Role: `any`.
 
 ---
 
-## Telemetry and Performance
+## Telemetry and performance
 
 ### telemetry
 
@@ -153,7 +153,7 @@ Phases: all. Role: `any`.
 
 ---
 
-## Quality and Readiness
+## Quality and readiness
 
 ### code_quality
 

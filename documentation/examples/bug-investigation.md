@@ -6,7 +6,7 @@ outline: deep
 
 This example walks through investigating and fixing a timezone bug using the debug workflow's thorough track.
 
-## Setting the Scene
+## The bug
 
 Users report that scheduled events fire at the wrong time. A user in New York schedules a notification for 9:00 AM Eastern, but it fires at 9:00 AM UTC instead. The bug only affects users outside the UTC timezone.
 
@@ -26,9 +26,9 @@ Triage classifies this as a logic bug, moderate severity, root cause unknown. Th
 
 Investigation follows a systematic approach.
 
-**Reproduce.** Create a scheduled event with timezone `America/New_York` set for 2:00 PM. The event fires at 2:00 PM UTC (which is 9:00 AM Eastern), five hours early. Bug confirmed.
+Reproduce: Create a scheduled event with timezone `America/New_York` set for 2:00 PM. The event fires at 2:00 PM UTC (which is 9:00 AM Eastern), five hours early. Bug confirmed.
 
-**Narrow down.** Trace the call path from event creation to scheduling:
+Narrow down the call path from event creation to scheduling:
 
 1. `createEvent()` receives the event time and timezone from the user
 2. `schedulerService.scheduleEvent()` converts the time to UTC for internal storage
@@ -36,9 +36,9 @@ Investigation follows a systematic approach.
 
 There it is. `new Date()` parses the string in the server's local timezone (UTC in production), not the user's configured timezone. The offset is never applied.
 
-**Verify the hypothesis.** Set the server timezone to `America/New_York` and create the same event. It now fires at the correct time locally, but would be wrong for a user in `Europe/London`. The root cause is confirmed: timezone-naive date parsing.
+Verify the hypothesis: set the server timezone to `America/New_York` and create the same event. It now fires at the correct time locally, but would be wrong for a user in `Europe/London`. The root cause is confirmed: timezone-naive date parsing.
 
-## Root Cause Analysis
+## Root cause analysis
 
 Exarchos documents the findings:
 
@@ -55,13 +55,13 @@ RCA saved to docs/rca/2026-03-08-scheduler-timezone.md
     the event's timezone field
 ```
 
-No design change is needed. The scheduler already stores the user's timezone. It just does not use it during parsing.
+No design change is needed. The scheduler already stores the user's timezone; it just does not use it during parsing.
 
 ## Fix
 
 An implementer agent works in a worktree following TDD.
 
-**RED.** Write a test in `scheduler.test.ts`:
+RED. Write a test in `scheduler.test.ts`:
 
 ```typescript
 it('should schedule event at correct time for America/New_York timezone', () => {
@@ -77,7 +77,7 @@ it('should schedule event at correct time for America/New_York timezone', () => 
 
 Test fails. The actual value is `2026-03-08T14:00:00.000Z` because the timezone offset is not applied.
 
-**GREEN.** Replace the naive parsing:
+GREEN. Replace the naive parsing:
 
 ```typescript
 // Before:
@@ -91,7 +91,7 @@ const utcTime = new Date(
 
 Test passes.
 
-**Additional test.** Add a test for DST transitions. An event scheduled on March 9 (when clocks spring forward) should use UTC-4, not UTC-5:
+Additional test: add a test for DST transitions. An event scheduled on March 9 (when clocks spring forward) should use UTC-4, not UTC-5:
 
 ```typescript
 it('should handle DST transition for America/New_York', () => {

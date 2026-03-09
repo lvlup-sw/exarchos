@@ -6,7 +6,7 @@ outline: deep
 
 This example walks through a feature with parallel agent teams, including what happens when one of the agents fails.
 
-## Setting the Scene
+## The plan
 
 You are adding a notification system to your application. The plan has been approved with five tasks. Tasks 1-3 are independent and can run in parallel. Task 4 depends on all three, and task 5 depends on task 4.
 
@@ -25,7 +25,7 @@ Plan: notification-system (5 tasks, 3 parallel groups)
     Task 005: Integration tests (depends on 004)
 ```
 
-## Delegation Dispatch
+## Delegation dispatch
 
 After plan approval, `/delegate` prepares worktrees and dispatches three implementer agents simultaneously. Each agent gets its own worktree and a self-contained prompt with the full task description, file paths, and acceptance criteria.
 
@@ -42,7 +42,7 @@ Delegation started: notification-system
 
 No agent can see another agent's worktree. They work on isolated branches. Your main working tree is untouched.
 
-## Parallel Execution
+## Parallel execution
 
 The three agents work concurrently. Here is the timeline:
 
@@ -69,7 +69,7 @@ t=12m Task 003: convergence gates pass → completed
 
 Tasks 1 and 3 complete successfully. Task 2 fails with a test timeout.
 
-## Failure Recovery
+## Failure recovery
 
 When a task fails, the delegation skill reads the failure output and spawns a fixer agent. The fixer gets the full context: the original task description, the partial implementation, and the test output.
 
@@ -99,7 +99,7 @@ t=16m Task 002: fixer completed — mock wasn't returning a promise
 t=16m Task 002: convergence gates pass → completed
 ```
 
-## Sequential Tasks
+## Sequential tasks
 
 With tasks 1-3 complete, task 4 (notification router) is dispatched. It depends on the interfaces defined by all three services, so it could not start earlier.
 
@@ -136,13 +136,13 @@ Pipeline: notification-system (delegate phase)
 
 You do not need to monitor. The agents work independently. But if you want to know where things stand, the pipeline view shows it.
 
-## Review and Ship
+## Review and ship
 
 All five tasks complete. Two-stage review runs automatically against the combined diff.
 
-**Stage 1 (spec compliance).** All design requirements trace to code and tests. TDD compliance verified across all five branches, including the fixed task 2.
+Stage 1 (spec compliance): All design requirements trace to code and tests. TDD compliance verified across all five branches, including the fixed task 2.
 
-**Stage 2 (code quality).** Static analysis clean. No security findings. One context economy suggestion about the notification router's switch statement, classified as informational.
+Stage 2 (code quality): Static analysis clean. No security findings. One context economy suggestion about the notification router's switch statement, classified as informational.
 
 Verdict: **APPROVED**.
 

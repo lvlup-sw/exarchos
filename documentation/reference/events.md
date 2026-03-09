@@ -2,7 +2,7 @@
 
 The event store is an append-only JSONL log per feature. Every state change in a workflow is captured as an event, forming an audit trail that can be queried, replayed, and used for state reconciliation.
 
-## Event Structure
+## Event structure
 
 Each event conforms to the base schema:
 
@@ -22,7 +22,7 @@ Each event conforms to the base schema:
 }
 ```
 
-## Emission Sources
+## Emission sources
 
 Each event type has a designated emission source:
 
@@ -35,7 +35,7 @@ Each event type has a designated emission source:
 
 Events marked `auto` should not be duplicated via manual `exarchos_event` calls. The MCP server emits them as side effects of workflow operations.
 
-## Event Types (65 total)
+## Event types (65 total)
 
 ### Workflow (12)
 
@@ -160,7 +160,7 @@ Events marked `auto` should not be duplicated via manual `exarchos_event` calls.
 |------|--------|-------------|
 | `state.patched` | auto | Workflow state patched directly |
 
-## Querying Events
+## Querying events
 
 Query events from a stream with optional type filtering:
 
@@ -183,7 +183,7 @@ exarchos_event({
 })
 ```
 
-## Appending Events
+## Appending events
 
 Model-emitted events are appended explicitly:
 
@@ -205,6 +205,6 @@ exarchos_event({
 
 Optimistic concurrency is supported via `expectedSequence` to detect conflicting writes.
 
-## Custom Event Types
+## Custom event types
 
 Custom event types can be registered at runtime for project-specific concerns. Custom types must follow the `category.name` dot-notation pattern and cannot collide with built-in types.

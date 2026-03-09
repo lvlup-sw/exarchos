@@ -6,7 +6,7 @@ outline: deep
 
 The feature workflow handles building new functionality from initial idea through merged pull request. You describe what you want, approve two decisions (the design and the plan), and Exarchos handles the rest.
 
-## Phase Chain
+## Phase chain
 
 ```
 ideate → plan → plan-review → delegate → review → synthesize → completed
@@ -14,7 +14,7 @@ ideate → plan → plan-review → delegate → review → synthesize → compl
 
 Two human checkpoints exist in this chain: plan approval and merge confirmation. Everything else auto-continues.
 
-## Ideation Phase
+## Ideation phase
 
 Start a feature workflow:
 
@@ -30,7 +30,7 @@ Exarchos then writes a design document and saves it to `docs/designs/YYYY-MM-DD-
 
 After saving the design, the workflow auto-continues to planning. No approval needed here.
 
-## Planning Phase
+## Planning phase
 
 The planning skill reads the design document and decomposes it into TDD-based implementation tasks. Each task specifies:
 
@@ -41,14 +41,14 @@ The planning skill reads the design document and decomposes it into TDD-based im
 Tasks are grouped into parallel-safe batches. Independent tasks that don't touch the same files can run simultaneously in separate git worktrees.
 
 A plan-review step then verifies two things:
-1. **Design coverage** -- every section of the design maps to at least one task
-2. **Provenance chain** -- every DR-N requirement traces to a task via an `Implements:` field
+1. Design coverage: every section of the design maps to at least one task
+2. Provenance chain: every DR-N requirement traces to a task via an `Implements:` field
 
 If gaps exist, the plan loops back for revision automatically (up to 3 times).
 
-**Human checkpoint:** You approve the plan before delegation begins. This is your chance to adjust scope, reorder tasks, or flag concerns.
+Human checkpoint: you approve the plan before delegation begins. This is your chance to adjust scope, reorder tasks, or flag concerns.
 
-## Delegation Phase
+## Delegation phase
 
 After plan approval, delegation begins automatically.
 
@@ -63,16 +63,16 @@ Events track each task through `claimed`, `progressed`, and `completed` (or `fai
 
 Delegation auto-continues to review when all tasks complete.
 
-## Review Phase
+## Review phase
 
 Review runs in two stages, both automated:
 
-**Stage 1 -- Spec compliance.** A reviewer agent checks that the implementation matches the design. It runs:
+Stage 1, spec compliance. A reviewer agent checks that the implementation matches the design. It runs:
 - Provenance chain verification (are DR-N requirements traceable to implemented code?)
 - TDD compliance checks (did test commits precede implementation commits?)
 - Security scan
 
-**Stage 2 -- Code quality.** A second reviewer checks the code itself:
+Stage 2, code quality. A second reviewer checks the code itself:
 - Static analysis (lint + typecheck)
 - Operational resilience (error handling patterns)
 - Context economy (complexity and duplication)
@@ -90,7 +90,7 @@ The review produces a verdict:
 
 The fix-review cycle repeats until the verdict is APPROVED (up to 3 iterations before escalating to you).
 
-## Synthesis Phase
+## Synthesis phase
 
 After review approval, synthesis runs pre-flight checks: tests pass, typecheck is clean, stack integrity is good. Then it creates a pull request with a structured description (summary, changes, test plan).
 
@@ -100,10 +100,10 @@ After review approval, synthesis runs pre-flight checks: tests pass, typecheck i
 
 The shepherd skill monitors CI status, review comments, and merge queue position. If CI fails or a reviewer requests changes, shepherd either fixes the issue directly or routes it to a fixer agent. This loop continues until the PR is merge-ready.
 
-**Human checkpoint:** Exarchos presents the PR URLs and asks you to confirm the merge. You can respond with:
-- **yes** -- merge the PRs
-- **feedback** -- route PR comments to fixer agents
-- **no** -- pause the workflow (resume later with `/rehydrate`)
+Human checkpoint: Exarchos presents the PR URLs and asks you to confirm the merge. You can respond with:
+- yes, merge the PRs
+- feedback, route PR comments to fixer agents
+- no, pause the workflow (resume later with `/rehydrate`)
 
 ## Cleanup
 
@@ -115,7 +115,7 @@ After you merge the PR:
 
 This verifies the merge on GitHub, removes worktrees and local branches, and transitions the workflow to `completed`. The full audit trail remains in the event store.
 
-## Session Recovery
+## Session recovery
 
 If your session compacts mid-workflow or you close your laptop:
 
@@ -125,11 +125,11 @@ If your session compacts mid-workflow or you close your laptop:
 
 Rehydration reads the workflow state and event history, reconstructing enough context to continue from wherever you left off. It costs about 2-3k tokens regardless of how far into the workflow you are.
 
-## What You Control
+## What you control
 
 Two decisions. That is it:
 
-1. **Approve the plan** (after plan-review) -- you see every task, every test expectation, every file that will change.
-2. **Confirm the merge** (after synthesis) -- you see the PR with passing CI and a structured description.
+1. Approve the plan (after plan-review). You see every task, every test expectation, every file that will change.
+2. Confirm the merge (after synthesis). You see the PR with passing CI and a structured description.
 
 Everything between those two points runs autonomously. If something goes wrong, the system either fixes it (fixer agents) or escalates to you (BLOCKED verdict, shepherd escalation).

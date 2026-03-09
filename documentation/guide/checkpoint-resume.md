@@ -4,13 +4,13 @@ outline: deep
 
 # Checkpoint & Resume
 
-## The Problem
+## The problem
 
-Claude Code has a finite context window. When a conversation grows too large, older messages get compacted — summarized and removed. If you are mid-workflow when this happens, the agent loses awareness of your current phase, task progress, and design decisions.
+Claude Code has a finite context window. When a conversation grows too large, older messages get compacted (summarized and removed). If you are mid-workflow when this happens, the agent loses awareness of your current phase, task progress, and design decisions.
 
 Exarchos stores workflow state externally in an MCP server. Context compaction affects the conversation, not the workflow.
 
-## /checkpoint — Save Your Place
+## /checkpoint: save your place
 
 Run this at any point during a workflow:
 
@@ -33,7 +33,7 @@ Use `/checkpoint` when:
 
 The PreCompact lifecycle hook also runs `/checkpoint` automatically before context compaction occurs, so you often do not need to do it manually.
 
-## /rehydrate — Pick Up Where You Left Off
+## /rehydrate: pick up where you left off
 
 Run this when starting a new session or after context compacts:
 
@@ -51,7 +51,7 @@ What gets restored (about 2-3k tokens):
 
 The agent reads this state and knows exactly where you are in the workflow. No re-explaining your project from scratch.
 
-## /reload — Lighter Recovery
+## /reload: lighter recovery
 
 ```
 /exarchos:reload
@@ -59,7 +59,7 @@ The agent reads this state and knows exactly where you are in the workflow. No r
 
 Use this when the agent seems confused but you have not lost full context. Reload triggers `/clear`, which fires the PreCompact hook (saving a checkpoint) and then the SessionStart hook (re-injecting context). The result is a fresh conversation with full workflow awareness. Cheaper than rehydrate.
 
-## /autocompact — Proactive Management
+## /autocompact: proactive management
 
 ```
 /exarchos:autocompact          # Show current status
@@ -72,7 +72,7 @@ Autocompact triggers context compaction proactively when your context usage hits
 
 Changes take effect on the next session. The default of 95% works for most sessions. Set it lower if you run long workflows with many tool calls.
 
-## When to Use Each
+## When to use each
 
 | Situation | Command |
 |-----------|---------|
@@ -81,7 +81,7 @@ Changes take effect on the next session. The default of 95% works for most sessi
 | Agent seems confused mid-session | `/reload` |
 | Want to control compaction timing | `/autocompact` |
 
-## How It Works Under the Hood
+## How it works under the hood
 
 Workflow state lives in the MCP event store, not in conversation memory. Every phase transition, task completion, and artifact creation emits an event. State is reconstructed by replaying events through CQRS projections.
 

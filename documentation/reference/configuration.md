@@ -2,7 +2,7 @@
 
 Exarchos configuration spans plugin settings, lifecycle hooks, MCP server registration, and optional integrations.
 
-## Plugin Settings
+## Plugin settings
 
 `settings.json` defines tool permissions and model selection:
 
@@ -22,7 +22,7 @@ Exarchos configuration spans plugin settings, lifecycle hooks, MCP server regist
 
 The permissions array controls which tools and bash commands the agent can use without user approval. Patterns like `mcp__*` allow all MCP server tools. Bash permissions use `Bash(command:*)` syntax.
 
-## Lifecycle Hooks
+## Lifecycle hooks
 
 Eight hooks in `hooks/hooks.json` integrate with Claude Code's lifecycle:
 
@@ -39,21 +39,21 @@ Eight hooks in `hooks/hooks.json` integrate with Claude Code's lifecycle:
 
 Hooks execute as CLI commands against the bundled `dist/exarchos.js` binary. Each hook receives context through environment variables and stdin.
 
-### Hook Details
+### Hook details
 
-**PreCompact** saves workflow state before Claude Code compacts the conversation. This ensures no progress is lost when context is reduced.
+PreCompact saves workflow state before Claude Code compacts the conversation. This ensures no progress is lost when context is reduced.
 
-**SessionStart** runs on every session start and resume. It discovers active workflows and injects context so the agent can continue where it left off.
+SessionStart runs on every session start and resume. It discovers active workflows and injects context so the agent can continue where it left off.
 
-**PreToolUse** acts as a guard on Exarchos MCP tool calls. It can reject operations that would violate workflow constraints (e.g., skipping phases).
+PreToolUse acts as a guard on Exarchos MCP tool calls. It can reject operations that would violate workflow constraints (e.g., skipping phases).
 
-**TaskCompleted** and **TeammateIdle** run convergence gates when tasks finish or teammates go idle. The 120-second timeout accommodates script execution.
+TaskCompleted and TeammateIdle run convergence gates when tasks finish or teammates go idle. The 120-second timeout accommodates script execution.
 
-**SubagentStart** injects workflow context into newly spawned implementer, fixer, or reviewer agents.
+SubagentStart injects workflow context into newly spawned implementer, fixer, or reviewer agents.
 
-**SubagentStop** matches the `exarchos-implementer` and `exarchos-fixer` agent names. Handles cleanup when subagents terminate.
+SubagentStop matches the `exarchos-implementer` and `exarchos-fixer` agent names. Handles cleanup when subagents terminate.
 
-## Plugin Manifest
+## Plugin manifest
 
 `.claude-plugin/plugin.json` (or `manifest.json` at project root) registers the plugin with Claude Code:
 
@@ -96,7 +96,7 @@ Optional integrations are available through the dev companion:
 
 These integrations run as separate MCP servers and are not required for core Exarchos functionality. They provide additional context when available.
 
-## Environment Variables
+## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|

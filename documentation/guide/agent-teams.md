@@ -6,38 +6,38 @@ outline: deep
 
 Exarchos coordinates multiple Claude Code agents working in parallel. Each agent has a defined role, a scoped set of tools, and its own isolated git worktree. The orchestrator (your main Claude Code session) dispatches tasks and collects results.
 
-## Three Roles
+## Roles
 
 ### Implementer
 
-- **Job:** Write production code following TDD (Red-Green-Refactor)
-- **Tools:** Read, Write, Edit, Bash, Grep, Glob
-- **Constraint:** No production code without a failing test first
-- **Works in:** Isolated git worktree on a task-specific branch
-- **Commits:** Atomic commits per TDD cycle
+- Job: write production code following TDD (Red-Green-Refactor)
+- Tools: Read, Write, Edit, Bash, Grep, Glob
+- Constraint: no production code without a failing test first
+- Works in: isolated git worktree on a task-specific branch
+- Commits: atomic commits per TDD cycle
 
 ### Fixer
 
-- **Job:** Resume a failed implementer task and repair it
-- **Tools:** Same as implementer
-- **Constraint:** Must reproduce the failure before fixing. Verify the fix does not break other tests.
-- **Works in:** Same worktree as the failed task
-- **Context:** Gets full failure context (error output, test results, code state)
+- Job: resume a failed implementer task and repair it
+- Tools: same as implementer
+- Constraint: must reproduce the failure before fixing. Verify the fix does not break other tests.
+- Works in: same worktree as the failed task
+- Context: gets full failure context (error output, test results, code state)
 
 The fixer follows an adversarial verification protocol. It does not trust the failed agent's self-assessment. It traces actual error output, identifies the root cause, and applies a minimal fix.
 
 ### Reviewer
 
-- **Job:** Read-only code quality and spec compliance analysis
-- **Tools:** Read, Grep, Glob, Bash (read-only commands only)
-- **Constraint:** Never modifies code. Produces structured findings as JSON.
-- **Works in:** Isolated git worktree (read-only access)
+- Job: read-only code quality and spec compliance analysis
+- Tools: Read, Grep, Glob, Bash (read-only commands only)
+- Constraint: never modifies code. Produces structured findings as JSON.
+- Works in: isolated git worktree (read-only access)
 
 The reviewer analyzes a diff rather than full files, reducing context consumption by 80-90%.
 
-## Worktree Isolation
+## Worktree isolation
 
-Each agent runs in its own git worktree — a separate working directory backed by the same repository. This means:
+Each agent runs in its own git worktree, a separate working directory backed by the same repository. This means:
 
 - Agents cannot interfere with each other's work
 - The orchestrator's working directory stays clean
@@ -46,18 +46,18 @@ Each agent runs in its own git worktree — a separate working directory backed 
 
 Worktrees are created in `.worktrees/` (gitignored) during task dispatch. Each gets a task-specific branch. After merge, `/cleanup` removes worktrees and prunes branches.
 
-## Dispatch and Coordination
+## Dispatch and coordination
 
 When `/delegate` runs (auto-continues after plan approval):
 
-1. **Readiness check.** Validates the workflow is in the delegate phase and the plan exists.
-2. **Worktree creation.** A git worktree is created per task, and dependencies are installed.
-3. **Prompt construction.** Each agent gets a self-contained prompt with task description, file paths, TDD requirements, and quality hints. No cross-references to other tasks.
-4. **Parallel dispatch.** Independent tasks dispatch simultaneously. Dependent tasks are sequenced by the plan's dependency graph.
-5. **Monitoring.** As each agent completes, convergence gates run (TDD compliance, static analysis). If a gate fails, findings are reported.
-6. **Failure recovery.** If a task fails, a fixer agent is dispatched with full failure context.
+1. Readiness check. Validates the workflow is in the delegate phase and the plan exists.
+2. Worktree creation. A git worktree is created per task, and dependencies are installed.
+3. Prompt construction. Each agent gets a self-contained prompt with task description, file paths, TDD requirements, and quality hints. No cross-references to other tasks.
+4. Parallel dispatch. Independent tasks dispatch simultaneously. Dependent tasks are sequenced by the plan's dependency graph.
+5. Monitoring. As each agent completes, convergence gates run (TDD compliance, static analysis). If a gate fails, findings are reported.
+6. Failure recovery. If a task fails, a fixer agent is dispatched with full failure context.
 
-## Delegation Modes
+## Delegation modes
 
 | Mode | Mechanism | Best for |
 |------|-----------|----------|
@@ -76,7 +76,7 @@ exarchos_orchestrate({ action: "runbook", id: "task-completion" })
 
 The response is a sequence of steps: which gate to check, what parameters to pass, what to do on pass or fail. Structured data, not prose instructions. The orchestrator executes each step in order and stops on gate failure.
 
-## Monitoring Progress
+## Monitoring progress
 
 While agents work, you can check status:
 

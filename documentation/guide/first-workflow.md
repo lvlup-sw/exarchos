@@ -1,8 +1,8 @@
-# Your First Workflow
+# Your first workflow
 
 This walkthrough builds a small feature from start to finish using the Exarchos feature workflow. You will go from idea to merged PR. The example is simple on purpose so you can focus on the workflow mechanics.
 
-## Before You Start
+## Before you start
 
 - Have a project open in Claude Code (any codebase works)
 - Exarchos installed and verified (see [Installation](/guide/installation))
@@ -15,14 +15,14 @@ Tell Exarchos what you want to build:
 /exarchos:ideate Add a string utility module with camelCase and snake_case converters
 ```
 
-Exarchos initializes a workflow and enters the **ideate** phase. Here is what happens next:
+Exarchos initializes a workflow and enters the ideate phase. Here is what happens next:
 
 1. Claude asks clarifying questions: what problem are you solving, what constraints exist, what patterns the codebase already uses.
 2. You get 2-3 distinct approaches with trade-offs for each.
 3. You pick an approach.
 4. A design document is saved to `docs/designs/` in your project.
 
-**You approve the design.** This is the first of two human checkpoints in the entire workflow. Everything between this point and the merge decision auto-continues without asking you.
+You approve the design. This is the first of two human checkpoints in the entire workflow. Everything between this point and the merge decision auto-continues without asking you.
 
 ## Step 2: Planning
 
@@ -35,7 +35,7 @@ After you approve the design, Exarchos auto-continues to `/plan`. No need to run
 
 If plan-review finds gaps, it loops back and revises the plan automatically. When coverage is complete, you see the plan.
 
-**You approve the plan.** This is the second and final human checkpoint. From here, the workflow runs autonomously until a PR is ready.
+You approve the plan. This is the second and final human checkpoint. From here, the workflow runs autonomously until a PR is ready.
 
 ## Step 3: Delegation
 
@@ -52,8 +52,8 @@ You can watch the progress or walk away. The agents work independently in isolat
 
 When all tasks complete, two-stage review runs automatically:
 
-- **Stage 1: Spec compliance.** Does the implementation match the design? Are all requirements covered? This catches drift between what you asked for and what got built.
-- **Stage 2: Code quality.** Is it well-written? Are there operational issues, missing error handling, or test gaps?
+- Stage 1, spec compliance: does the implementation match the design? Are all requirements covered? This catches drift between what you asked for and what got built.
+- Stage 2, code quality: is it well-written? Are there operational issues, missing error handling, or test gaps?
 
 If review finds problems, fixer agents are dispatched automatically to address them. The review/fix cycle repeats until both stages pass. No manual intervention needed.
 
@@ -76,7 +76,7 @@ Review the PR on GitHub. When you are satisfied:
 
 This resolves the workflow to completed, removes worktrees, and prunes merged branches.
 
-## What If Context Compacts?
+## What if context compacts?
 
 At any point during this workflow, if Claude Code compacts your context and the agent loses track of what it was doing:
 
@@ -88,7 +88,7 @@ Workflow state, current phase, task progress, and artifact references are restor
 
 You can also use `/checkpoint` proactively before stepping away. It saves current progress and gives you the exact rehydrate command to use when you come back.
 
-## The Full Picture
+## The full picture
 
 ```
 /ideate → [YOU APPROVE DESIGN] → /plan → [YOU APPROVE PLAN] → /delegate → /review → /synthesize → [YOU MERGE]
@@ -96,17 +96,17 @@ You can also use `/checkpoint` proactively before stepping away. It saves curren
 
 Two decisions are yours: approve the design, approve the plan. Everything between auto-continues. The workflow is durable across context compaction, session breaks, and laptop closures.
 
-## Other Workflows
+## Other workflows
 
 The feature workflow is the most complete, but Exarchos has two other entry points:
 
-**Debugging:** When something is broken, use `/exarchos:debug` instead. It starts with triage and investigation before any fix attempt. Choose `--hotfix` for production fires (15-minute time box) or the default thorough track for full root cause analysis.
+Debugging: when something is broken, use `/exarchos:debug` instead. It starts with triage and investigation before any fix attempt. Choose `--hotfix` for production fires (15-minute time box) or the default thorough track for full root cause analysis.
 
 ```
 /exarchos:debug Users report cart total is wrong after removing items
 ```
 
-**Refactoring:** When code works but needs improvement, use `/exarchos:refactor`. It assesses scope first, then picks the right track: `--polish` for small changes (five files or fewer) or the default overhaul for structural changes with full delegation.
+Refactoring: when code works but needs improvement, use `/exarchos:refactor`. It assesses scope first, then picks the right track: `--polish` for small changes (five files or fewer) or the default overhaul for structural changes with full delegation.
 
 ```
 /exarchos:refactor Extract validation logic into separate utility functions
@@ -114,7 +114,7 @@ The feature workflow is the most complete, but Exarchos has two other entry poin
 
 Both workflows follow the same pattern: structured phases, durable state, automatic transitions, and convergence gates between steps.
 
-## Next Steps
+## Next steps
 
 - [Feature Workflow](/guide/feature-workflow) - Full reference for the design-plan-implement-review-ship pipeline
 - [Debug Workflow](/guide/debug-workflow) - Triage, investigate, and fix with validated results

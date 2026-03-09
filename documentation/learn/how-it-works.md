@@ -2,7 +2,7 @@
 outline: deep
 ---
 
-# How It Works
+# How it works
 
 ## MCP server as state backend
 
@@ -61,7 +61,7 @@ This reduces token consumption by roughly 90% for common queries like "what phas
 
 ## Lifecycle hooks
 
-Eight hooks automate verification at key moments in the session lifecycle:
+Eight hooks automate verification at specific moments in the session lifecycle:
 
 | Hook | Trigger | What it does |
 |------|---------|--------------|

@@ -2,7 +2,7 @@
 
 Exarchos provides 15 slash commands. As a Claude Code plugin, they are namespaced under `/exarchos:`.
 
-## Workflow Start Commands
+## Workflow start commands
 
 These commands initialize a new structured workflow and set the workflow type.
 
@@ -49,7 +49,7 @@ Code improvement. Assess scope, write brief, implement, validate.
 | `--explore` | Assess scope before selecting a track |
 | `--switch-overhaul` | Switch from polish to overhaul mid-workflow |
 
-## Lifecycle Commands
+## Lifecycle commands
 
 These commands move work through the structured workflow pipeline.
 
@@ -77,9 +77,9 @@ Checks task status before dispatching. Skips completed tasks. After all tasks fi
 
 Two-stage review dispatched to subagents. Stage 1 checks spec compliance. Stage 2 checks code quality. Reviews operate on the branch stack diff to minimize context.
 
-- **PASS** -- auto-chains to `/exarchos:synthesize`
-- **NEEDS_FIXES** -- auto-chains to `/exarchos:delegate --fixes`
-- **BLOCKED** -- auto-chains back to `/exarchos:ideate` for redesign
+- PASS -- auto-chains to `/exarchos:synthesize`
+- NEEDS_FIXES -- auto-chains to `/exarchos:delegate --fixes`
+- BLOCKED -- auto-chains back to `/exarchos:ideate` for redesign
 
 ### `/exarchos:synthesize`
 
@@ -113,7 +113,7 @@ Plan implementation using strict Red-Green-Refactor protocol. Each step is label
 /exarchos:tdd "Add rate limiting to API endpoints"
 ```
 
-## Context Management Commands
+## Context management commands
 
 These commands handle session persistence and context optimization.
 

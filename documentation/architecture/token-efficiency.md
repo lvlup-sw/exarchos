@@ -4,15 +4,15 @@ outline: deep
 
 # Token Efficiency
 
-## The Problem
+## The problem
 
-LLM context windows are finite. Every token spent on infrastructure is a token not available for actual coding work. Exarchos is infrastructure -- it adds workflow state, event history, guard descriptions, and tool schemas to the agent's context. If this overhead is large, the agent has less room to think about your code.
+LLM context windows are finite. Every token spent on infrastructure is a token not available for actual coding work. Exarchos is infrastructure: it adds workflow state, event history, guard descriptions, and tool schemas to the agent's context. If this overhead is large, the agent has less room to think about your code.
 
 This isn't a theoretical concern. A single full workflow state object can easily reach 2,000-3,000 tokens. Eagerly registering all tool schemas at MCP startup could cost thousands more. Multiply by the number of tool calls in a workflow, and infrastructure can consume a meaningful fraction of the context window.
 
 Every design choice in Exarchos accounts for this cost.
 
-## Lazy Schema Registration
+## Lazy schema registration
 
 At MCP startup, each tool registers with a slim one-line description and an enum of action names. No parameter schemas, no examples, no detailed descriptions. Here is what `exarchos_workflow` looks like at registration:
 
@@ -32,9 +32,9 @@ When the agent needs to call a specific action for the first time, it calls `des
 
 This returns the full parameter schema, description, phase restrictions, and gate metadata for just that action. The agent pays for schema tokens only when it actually needs them.
 
-Compare this to eager registration, where every tool would dump its complete schema into the system prompt at session start. The `exarchos_orchestrate` tool alone has 23 actions -- eagerly registering all of them would cost thousands of tokens that most sessions would never use.
+Compare this to eager registration, where every tool would dump its complete schema into the system prompt at session start. The `exarchos_orchestrate` tool alone has 23 actions; eagerly registering all of them would cost thousands of tokens that most sessions would never use.
 
-## Field Projection
+## Field projection
 
 State queries accept a `fields` parameter that returns only the requested fields:
 
@@ -50,7 +50,7 @@ This returns a response containing just `phase` and `tasks`, omitting the event 
 
 Agents learn to request only what they need for the current operation. A guard check might request `["phase", "artifacts"]`. A delegation step might request `["tasks", "worktrees"]`. A reconciliation might request nothing (the server handles it internally).
 
-## Artifact References
+## Artifact references
 
 Design docs, implementation plans, review findings, and PR links are stored as file paths in state, not inlined as content:
 
@@ -67,7 +67,7 @@ When the agent needs the design doc, it reads the file directly using its built-
 
 This prevents state from growing unbounded as artifacts accumulate. A design doc might be 3,000 tokens. A plan might be 2,000 tokens. Inlining both into every state response would add 5,000 tokens to every `get` call. Storing paths instead costs a few dozen tokens.
 
-## Diff-Based Review
+## Diff-based review
 
 Code review operates on git diffs, not full file contents. The review scripts use `git diff` to extract only the changed lines, then analyze those changes.
 
@@ -75,15 +75,15 @@ For a typical feature touching 10 files with 200 lines changed across 5,000 tota
 
 Review findings reference file paths and line numbers rather than quoting code blocks. The agent can read the relevant file section if it needs more context, but the review itself stays compact.
 
-## Slim Responses
+## Slim responses
 
 Beyond field projection, several other techniques keep responses small:
 
-- **Materialized views** (`exarchos_view`) pre-aggregate data. The `pipeline` view returns a summary of all active workflows with phase, task counts, and stack positions -- not the full state of every workflow.
-- **Event log cap.** The in-memory event log is capped at 100 entries. Older events are still in the JSONL file but don't inflate state responses.
-- **Compact telemetry.** The telemetry view supports a `compact` mode that returns only the top-level metrics, omitting per-tool breakdowns unless requested.
+- Materialized views (`exarchos_view`) pre-aggregate data. The `pipeline` view returns a summary of all active workflows with phase, task counts, and stack positions, not the full state of every workflow.
+- Event log cap. The in-memory event log is capped at 100 entries. Older events are still in the JSONL file but don't inflate state responses.
+- Compact telemetry. The telemetry view supports a `compact` mode that returns only the top-level metrics, omitting per-tool breakdowns unless requested.
 
-## Quantified Impact
+## Quantified impact
 
 | Technique | Token reduction | Where it applies |
 |-----------|----------------|------------------|

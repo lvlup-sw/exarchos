@@ -2,7 +2,7 @@
 
 Task coordination, quality gates, review dispatch, scripts, runbooks, and agent specs. This is the largest tool with 25 actions grouped by category. CLI alias: `orch`.
 
-## Task Lifecycle
+## Task lifecycle
 
 ### task_claim
 
@@ -79,7 +79,7 @@ Phases: delegate, overhaul-delegate, debug-implement. Role: `teammate`.
 
 ---
 
-## Review and Delegation
+## Review and delegation
 
 ### review_triage
 
@@ -171,11 +171,11 @@ Phases: synthesize, review, overhaul-review, debug-review. Role: `lead`.
 
 ---
 
-## Quality Gates
+## Quality gates
 
 Gates check specific quality dimensions. Each gate emits a `gate.executed` event. Gates are classified as **blocking** (must pass to proceed) or **informational** (findings reported but do not block progress).
 
-### Blocking Gates
+### Blocking gates
 
 | Action | Dimension | What It Checks | Extra Parameters |
 |--------|-----------|----------------|------------------|
@@ -187,7 +187,7 @@ Gates check specific quality dimensions. Each gate emits a `gate.executed` event
 
 All blocking gates require `featureId`. `check_static_analysis` runs in review phases; the provenance/coverage/TDD gates run in plan or delegate phases.
 
-### Informational Gates
+### Informational gates
 
 | Action | Dimension | What It Checks | Extra Parameters |
 |--------|-----------|----------------|------------------|
@@ -204,7 +204,7 @@ All informational gates require `featureId`.
 
 ---
 
-## Event Checks
+## Event checks
 
 ### check_event_emissions
 
@@ -263,7 +263,7 @@ Phases: all. Role: `any`.
 
 ---
 
-## Agent Specs
+## Agent specs
 
 ### agent_spec
 
