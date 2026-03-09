@@ -15,7 +15,7 @@ import {
   clearCustomTools,
   findActionInRegistry,
 } from './registry.js';
-import type { ToolAction, CompositeTool, AutoEmission } from './registry.js';
+import type { ToolAction, CompositeTool } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -995,68 +995,57 @@ describe('Describe action in registry', () => {
   });
 });
 
-// ─── AutoEmission Interface Tests ────────────────────────────────────────────
+// ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
 
-describe('AutoEmission', () => {
-  it('AutoEmission_Interface_ExistsAndExported', () => {
-    // Assert: AutoEmission type can be used to type a value with the expected shape
-    const emission: AutoEmission = {
-      event: 'workflow.started',
-      condition: 'always',
-    };
-    expect(emission.event).toBe('workflow.started');
-    expect(emission.condition).toBe('always');
+describe('AutoEmits Drift Tests', () => {
+  it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
+    const { EVENT_EMISSION_REGISTRY } = await import('./event-store/schemas.js');
 
-    // Assert: description is optional
-    const emissionWithDesc: AutoEmission = {
-      event: 'workflow.transition',
-      condition: 'conditional',
-      description: 'Emitted when phase is provided',
-    };
-    expect(emissionWithDesc.description).toBe('Emitted when phase is provided');
+    // At least one action must have autoEmits populated
+    let anyPopulated = false;
+    const violations: string[] = [];
+
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        anyPopulated = true;
+
+        for (const emission of action.autoEmits) {
+          const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
+          if (!source) {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' not found in EVENT_EMISSION_REGISTRY`,
+            );
+          } else if (source !== 'auto') {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' has source '${source}', expected 'auto'`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(anyPopulated, 'At least one action must have autoEmits populated').toBe(true);
+    expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 
-  it('ToolAction_AutoEmits_AcceptsEmissionArray', () => {
-    // Register a custom tool with an action that has autoEmits
-    const toolWithEmissions: CompositeTool = {
-      name: 'exarchos_test_emissions',
-      description: 'Test tool for auto-emissions',
-      actions: [
-        {
-          name: 'emit_test',
-          description: 'Action that auto-emits',
-          schema: z.object({ featureId: z.string() }),
-          phases: new Set(['ideate']),
-          roles: new Set(['lead']),
-          autoEmits: [
-            { event: 'workflow.started', condition: 'always' as const },
-          ],
-        },
-        {
-          name: 'no_emit_test',
-          description: 'Action without auto-emissions',
-          schema: z.object({ id: z.string() }),
-          phases: new Set(['ideate']),
-          roles: new Set(['any']),
-        },
-      ],
-    };
+  it('RegistryDrift_DescriptionEmitsImpliesAutoEmitsField', () => {
+    const emitsPatterns = [/Auto-emits/i, /Emits gate\.executed/i, /Emits task\./i];
+    const violations: string[] = [];
 
-    registerCustomTool(toolWithEmissions);
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
+        if (matchesPattern) {
+          if (!action.autoEmits || action.autoEmits.length === 0) {
+            violations.push(
+              `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
+            );
+          }
+        }
+      }
+    }
 
-    // Verify the action with autoEmits is findable
-    const actionWithEmits = findActionInRegistry('exarchos_test_emissions', 'emit_test');
-    expect(actionWithEmits).toBeDefined();
-    expect(actionWithEmits!.autoEmits).toBeDefined();
-    expect(actionWithEmits!.autoEmits).toHaveLength(1);
-    expect(actionWithEmits!.autoEmits![0].event).toBe('workflow.started');
-    expect(actionWithEmits!.autoEmits![0].condition).toBe('always');
-
-    // Verify the action without autoEmits works (field is optional)
-    const actionWithoutEmits = findActionInRegistry('exarchos_test_emissions', 'no_emit_test');
-    expect(actionWithoutEmits).toBeDefined();
-    expect(actionWithoutEmits!.autoEmits).toBeUndefined();
-
-    clearCustomTools();
+    expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 });
