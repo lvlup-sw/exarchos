@@ -152,3 +152,16 @@ export function generateAllAgentFiles(outDir: string): void {
     fs.writeFileSync(filePath, markdown, 'utf-8');
   }
 }
+
+// ─── CLI Entry Point ────────────────────────────────────────────────────────
+
+const isMainModule = process.argv[1] && (
+  process.argv[1].endsWith('generate-cc-agents.ts') ||
+  process.argv[1].endsWith('generate-cc-agents.js')
+);
+
+if (isMainModule) {
+  const outDir = process.argv[2] || path.resolve(import.meta.dirname, '../../../../agents');
+  generateAllAgentFiles(outDir);
+  console.log(`Generated ${ALL_AGENT_SPECS.length} agent files to ${outDir}`);
+}
