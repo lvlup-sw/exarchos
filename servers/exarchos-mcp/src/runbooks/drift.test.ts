@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { ALL_RUNBOOKS } from './definitions.js';
 import { findActionInRegistry, getFullRegistry } from '../registry.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
@@ -21,10 +22,31 @@ describe('Runbook drift detection', () => {
 
   it('RunbookDrift_TemplateVarsCoverRequiredParams', () => {
     for (const runbook of ALL_RUNBOOKS) {
-      expect(
-        runbook.templateVars.length,
-        `Runbook '${runbook.id}' should have a non-empty templateVars array`,
-      ).toBeGreaterThan(0);
+      for (const step of runbook.steps) {
+        if (step.tool.startsWith('native:')) continue;
+
+        const action = findActionInRegistry(step.tool, step.action);
+        if (!action) continue; // covered by EveryStepReferencesValidRegistryAction
+
+        const jsonSchema = zodToJsonSchema(action.schema) as {
+          required?: string[];
+        };
+        const required = jsonSchema.required ?? [];
+
+        for (const field of required) {
+          // The 'action' field is the discriminator — auto-filled by the composite router
+          if (field === 'action') continue;
+
+          const covered =
+            runbook.templateVars.includes(field) ||
+            (step.params != null && field in step.params);
+          expect(
+            covered,
+            `Runbook '${runbook.id}' missing coverage for required field '${field}' ` +
+            `in ${step.tool}.${step.action} — add to templateVars or step.params`,
+          ).toBe(true);
+        }
+      }
     }
   });
 
@@ -76,6 +98,12 @@ describe('Runbook drift detection', () => {
           validEventNames.has(eventName),
           `Runbook '${runbook.id}' autoEmits '${eventName}' which is not in the EVENT_EMISSION_REGISTRY`,
         ).toBe(true);
+
+        const source = EVENT_EMISSION_REGISTRY[eventName as keyof typeof EVENT_EMISSION_REGISTRY];
+        expect(
+          source,
+          `Runbook '${runbook.id}' autoEmits '${eventName}' but its source is '${source}', expected 'auto'`,
+        ).toBe('auto');
       }
     }
   });

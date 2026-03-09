@@ -9,7 +9,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch'],
   autoEmits: ['gate.executed', 'task.completed'],
 };
 
@@ -23,7 +23,7 @@ export const QUALITY_EVALUATION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_convergence', onFail: 'continue' },
     { tool: 'exarchos_orchestrate', action: 'check_review_verdict', onFail: 'stop' },
   ],
-  templateVars: ['featureId'],
+  templateVars: ['featureId', 'high', 'medium', 'low'],
   autoEmits: ['gate.executed'],
 };
 
@@ -59,7 +59,7 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       params: { phase: 'review' },
       note: 'Auto-emits workflow.transition' },
   ],
-  templateVars: ['featureId', 'streamId', 'teamId'],
+  templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId'],
   autoEmits: ['workflow.transition'],
 };
 
@@ -101,8 +101,8 @@ export const SHEPHERD_ITERATION: RunbookDefinition = {
     { tool: 'native:bash', action: 'push', onFail: 'stop',
       note: 'git push to trigger CI re-run' },
   ],
-  templateVars: ['featureId', 'streamId'],
-  autoEmits: ['ci.status', 'shepherd.started', 'shepherd.approval_requested', 'shepherd.completed'],
+  templateVars: ['featureId', 'streamId', 'stream', 'event', 'prNumbers'],
+  autoEmits: ['shepherd.started', 'shepherd.approval_requested', 'shepherd.completed'],
 };
 
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [

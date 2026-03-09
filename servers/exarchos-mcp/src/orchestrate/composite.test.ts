@@ -301,6 +301,26 @@ describe('handleOrchestrate', () => {
     });
   });
 
+  // ─── Describe Routing ────────────────────────────────────────────────
+
+  describe('describe routing', () => {
+    it('HandleOrchestrate_Describe_RoutesToDescribeHandler', async () => {
+      // Arrange — describe is not mocked; it resolves schemas from the live registry
+      const args = { action: 'describe', actions: ['task_claim'] };
+
+      // Act
+      const result = await handleOrchestrate(args, STATE_DIR);
+
+      // Assert — verify describe returns schema metadata for the requested action
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('task_claim');
+      const desc = data['task_claim'] as Record<string, unknown>;
+      expect(desc).toHaveProperty('description');
+      expect(desc).toHaveProperty('schema');
+    });
+  });
+
   // ─── Error Handling ─────────────────────────────────────────────────────
 
   describe('error handling', () => {
