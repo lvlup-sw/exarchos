@@ -247,6 +247,27 @@ function makeDescribeAction(): ToolAction {
   };
 }
 
+/** Workflow-specific describe schema: supports both actions and topology. */
+const workflowDescribeSchema = z.object({
+  actions: z.array(z.string()).min(1).max(10)
+    .describe('Action names to describe. Returns full schema + description for each.')
+    .optional(),
+  topology: z.string()
+    .describe('Workflow type to return HSM topology for. Use "all" to list all types.')
+    .optional(),
+});
+
+/** Creates a workflow-specific describe action with topology support. */
+function makeWorkflowDescribeAction(): ToolAction {
+  return {
+    name: 'describe',
+    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology for a workflow type.',
+    schema: workflowDescribeSchema,
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  };
+}
+
 const eventDescribeSchema = z.object({
   actions: z.array(z.string()).min(1).max(10)
     .describe('Action names to describe. Returns full schema + description for each.')
@@ -347,7 +368,7 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
-  makeDescribeAction(),
+  makeWorkflowDescribeAction(),
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────

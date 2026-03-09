@@ -103,6 +103,76 @@ export function getInitialPhase(workflowType: string): string {
   return phase;
 }
 
+// ─── Topology Introspection ─────────────────────────────────────────────────
+
+export interface SerializedTopology {
+  readonly workflowType: string;
+  readonly states: Record<string, {
+    readonly type: string;
+    readonly parent?: string;
+    readonly initial?: string;
+    readonly maxFixCycles?: number;
+  }>;
+  readonly transitions: readonly {
+    readonly from: string;
+    readonly to: string;
+    readonly guard?: { readonly id: string; readonly description: string };
+    readonly isFixCycle?: boolean;
+  }[];
+  readonly tracks: Record<string, readonly string[]>;
+}
+
+/**
+ * Serialize the HSM topology for a workflow type into a JSON-safe structure.
+ * Strips runtime guard functions, preserving only id + description metadata.
+ * Throws if the workflow type is unknown.
+ */
+export function serializeTopology(workflowType: string): SerializedTopology {
+  const hsm = getHSMDefinition(workflowType);
+
+  // Serialize states (strip onEntry/onExit effects — they are runtime details)
+  const states: SerializedTopology['states'] = {};
+  for (const [id, state] of Object.entries(hsm.states)) {
+    const entry: Record<string, unknown> = { type: state.type };
+    if (state.parent) entry.parent = state.parent;
+    if (state.initial) entry.initial = state.initial;
+    if (state.maxFixCycles != null) entry.maxFixCycles = state.maxFixCycles;
+    states[id] = entry as SerializedTopology['states'][string];
+  }
+
+  // Serialize transitions (replace guard functions with metadata)
+  const transitions = hsm.transitions.map((t) => {
+    const entry: Record<string, unknown> = { from: t.from, to: t.to };
+    if (t.guard) {
+      entry.guard = { id: t.guard.id, description: t.guard.description };
+    }
+    if (t.isFixCycle) entry.isFixCycle = true;
+    return entry as SerializedTopology['transitions'][number];
+  });
+
+  // Derive tracks: compound states and their children
+  const tracks: Record<string, string[]> = {};
+  for (const [id, state] of Object.entries(hsm.states)) {
+    if (state.type === 'compound') {
+      tracks[id] = [];
+    }
+  }
+  for (const [id, state] of Object.entries(hsm.states)) {
+    if (state.parent && tracks[state.parent]) {
+      tracks[state.parent].push(id);
+    }
+  }
+
+  return { workflowType, states, transitions, tracks };
+}
+
+/**
+ * List all registered workflow type names.
+ */
+export function listWorkflowTypes(): string[] {
+  return Object.keys(hsmRegistry);
+}
+
 // ─── Workflow Definition → HSM Conversion ────────────────────────────────────
 
 import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
