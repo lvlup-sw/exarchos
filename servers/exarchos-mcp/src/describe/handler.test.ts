@@ -250,6 +250,16 @@ describe('handleDescribe playbook', () => {
     expect(data).toHaveProperty('playbook');
   });
 
+  it('HandleDescribe_ActionsMalformed_ReturnsInvalidInput', async () => {
+    const result = await handleDescribe(
+      { actions: 123 as unknown as string[], playbook: 'feature' },
+      workflowActions,
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('string[]');
+  });
+
   it('HandleDescribe_PlaybookMalformed_ReturnsInvalidInput', async () => {
     const result = await handleDescribe(
       { playbook: 123 as unknown as string },

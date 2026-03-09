@@ -22,12 +22,18 @@ export async function handleDescribe(
   args: { actions?: string[]; topology?: string; playbook?: string },
   toolActions: readonly ToolAction[],
 ): Promise<ToolResult> {
-  const hasActions = args.actions && args.actions.length > 0;
-  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
-  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
-
-  // Reject malformed playbook/topology values (present but not a non-empty string)
-  if (args.playbook !== undefined && !hasPlaybook) {
+  // Guard clauses: reject malformed values before computing flags
+  if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'actions must be a non-empty string[]',
+        expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+      },
+    };
+  }
+  if (args.playbook !== undefined && (typeof args.playbook !== 'string' || args.playbook.length === 0)) {
     return {
       success: false,
       error: {
@@ -37,7 +43,7 @@ export async function handleDescribe(
       },
     };
   }
-  if (args.topology !== undefined && !hasTopology) {
+  if (args.topology !== undefined && (typeof args.topology !== 'string' || args.topology.length === 0)) {
     return {
       success: false,
       error: {
@@ -47,6 +53,10 @@ export async function handleDescribe(
       },
     };
   }
+
+  const hasActions = Array.isArray(args.actions) && args.actions.length > 0;
+  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
+  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
 
   if (!hasActions && !hasTopology && !hasPlaybook) {
     return {
@@ -59,17 +69,6 @@ export async function handleDescribe(
           topology: 'feature | debug | refactor | all',
           playbook: 'feature | debug | refactor | all',
         },
-      },
-    };
-  }
-
-  if (hasActions && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
-    return {
-      success: false,
-      error: {
-        code: 'INVALID_INPUT',
-        message: 'describe requires actions: string[]',
-        expectedShape: { actions: ['action_name_1', 'action_name_2'] },
       },
     };
   }
