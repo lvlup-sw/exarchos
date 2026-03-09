@@ -49,3 +49,36 @@ action: "set", featureId: "<id>", updates: {
 ```
 
 The `/exarchos:synthesize` skill reads `verification.hasBenchmarks` and applies the `has-benchmarks` label via `gh pr edit <number> --add-label has-benchmarks`.
+
+## Agent ID Tracking
+
+Workflow task state includes additional fields for resume-aware fixer flow:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentId` | string | Claude Code agent ID for resume. Captured from `Task()` completion output. |
+| `agentResumed` | boolean | Whether this agent was resumed (vs. fresh dispatch). |
+| `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). |
+
+The `SubagentStop` hook (`hooks/hooks.json`) automatically captures `agentId` when `exarchos-implementer` or `exarchos-fixer` agents complete. This enables the resume-first strategy in the fixer flow: when a task fails, the orchestrator can resume the original agent with failure context rather than dispatching a fresh fixer.
+
+**State update on agent completion:**
+```
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": {
+    "agentId": "<claude-code-agent-id>",
+    "agentResumed": false,
+    "lastExitReason": "success|failure"
+  }
+}
+```
+
+**State update on resume:**
+```
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": {
+    "agentResumed": true,
+    "status": "in_progress"
+  }
+}
+```

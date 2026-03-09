@@ -278,10 +278,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 24 actions for task management, review triage, gate checks, script execution, runbooks, and composite actions', () => {
+    it('should have 25 actions for task management, review triage, gate checks, script execution, runbooks, agent spec, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(24);
+      expect(composite!.actions).toHaveLength(25);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(

@@ -1114,7 +1114,8 @@ describe('hooks.json', () => {
     expect(eventTypes).toContain('TaskCompleted');
     expect(eventTypes).toContain('TeammateIdle');
     expect(eventTypes).toContain('SubagentStart');
-    expect(eventTypes).toHaveLength(7);
+    expect(eventTypes).toContain('SubagentStop');
+    expect(eventTypes).toHaveLength(8);
   });
 
   it('hooksJson_AllCommandsReferencePluginRoot', () => {

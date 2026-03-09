@@ -5,6 +5,7 @@ import {
   AGENT_TEAMS_SAGA,
   SYNTHESIS_FLOW,
   SHEPHERD_ITERATION,
+  TASK_FIX,
   ALL_RUNBOOKS,
 } from './definitions.js';
 
@@ -73,7 +74,29 @@ describe('Runbook definitions', () => {
     expect(SHEPHERD_ITERATION.phase).toBe('synthesize');
   });
 
+  it('TaskFixRunbook_HasCorrectPhase_Delegate', () => {
+    expect(TASK_FIX.phase).toBe('delegate');
+  });
+
+  it('TaskFixRunbook_FirstStepIsResumeOrSpawn_NativeTask', () => {
+    expect(TASK_FIX.steps[0].tool).toBe('native:Task');
+    expect(TASK_FIX.steps[0].action).toBe('resume_or_spawn');
+  });
+
+  it('TaskFixRunbook_IncludesGateChain_TddThenStatic', () => {
+    const actions = TASK_FIX.steps.map(s => s.action);
+    const tddIndex = actions.indexOf('check_tdd_compliance');
+    const staticIndex = actions.indexOf('check_static_analysis');
+    expect(tddIndex).toBeGreaterThan(-1);
+    expect(staticIndex).toBeGreaterThan(-1);
+    expect(tddIndex).toBeLessThan(staticIndex);
+  });
+
+  it('TaskFixRunbook_TemplateVarsIncludeAgentId_ForResume', () => {
+    expect(TASK_FIX.templateVars).toContain('agentId');
+  });
+
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(5);
+    expect(ALL_RUNBOOKS).toHaveLength(6);
   });
 });

@@ -53,6 +53,15 @@ Include in ALL implementer prompts:
 2. **Worktree verification block** (from implementer-prompt.md template)
 3. **Abort instructions** if not in worktree
 
+## Native Worktree Isolation
+
+When the `exarchos-implementer` agent definition includes `isolation: worktree` in its frontmatter, Claude Code handles worktree creation natively. The `prepare_delegation` action accepts `nativeIsolation: true` to skip manual worktree creation while preserving quality pre-checks. The worktree verification in the agent system prompt remains as defense-in-depth.
+
+When using native isolation:
+- Claude Code creates and manages the worktree lifecycle
+- The `prepare_delegation` action skips `setup-worktree.sh` but still validates state, checks quality signals, and detects benchmarks
+- The worktree verification block in the implementer prompt acts as a safety net — if native isolation fails silently, the agent self-aborts rather than modifying the main project root
+
 ## Anti-Patterns
 
 | Don't | Do Instead |

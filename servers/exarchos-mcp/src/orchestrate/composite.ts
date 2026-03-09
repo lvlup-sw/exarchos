@@ -37,6 +37,7 @@ import { handleProvenanceChain } from './provenance-chain.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
 import { handleCheckEventEmissions } from './check-event-emissions.js';
 import { handleRunScript } from './run-script.js';
+import { handleAgentSpec } from '../agents/handler.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_task_decomposition: adapt(handleTaskDecomposition),
   check_event_emissions: adapt(handleCheckEventEmissions),
   run_script: adapt(handleRunScript),
+  agent_spec: adapt(handleAgentSpec),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

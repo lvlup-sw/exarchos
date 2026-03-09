@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handleRunbook } from './handler.js';
 import { ALL_RUNBOOKS } from './definitions.js';
+import type { ResolvedRunbookStep } from './types.js';
 
 describe('handleRunbook', () => {
   // ─── List Mode ────────────────────────────────────────────────────────
@@ -124,5 +125,58 @@ describe('handleRunbook', () => {
     expect(data.templateVars.length).toBeGreaterThan(0);
     expect(Array.isArray(data.autoEmits)).toBe(true);
     expect(data.autoEmits.length).toBeGreaterThan(0);
+  });
+
+  // ─── Platform Hint ────────────────────────────────────────────────────
+
+  it('RunbookResolve_NativeTaskWithAgent_IncludesPlatformHint', async () => {
+    // agent-teams-saga has a native:Task step with params.agent = 'teammate'
+    const result = await handleRunbook({ id: 'agent-teams-saga' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<ResolvedRunbookStep & {
+        platformHint?: { claudeCode: string; generic: string };
+      }>;
+    };
+    const nativeTaskWithAgent = data.steps.find(
+      s => s.tool === 'native:Task' && (s.params as Record<string, unknown>)?.agent,
+    );
+    expect(nativeTaskWithAgent).toBeDefined();
+    expect(nativeTaskWithAgent!.platformHint).toBeDefined();
+    expect(nativeTaskWithAgent!.platformHint!.claudeCode).toBe(
+      'Uses native agent definition exarchos-teammate',
+    );
+    expect(nativeTaskWithAgent!.platformHint!.generic).toBe(
+      'Call agent_spec("teammate") to get system prompt and tool restrictions',
+    );
+  });
+
+  it('RunbookResolve_NativeTaskWithoutAgent_NoPlatformHint', async () => {
+    // task-fix has a native:Task step without params.agent (has resumeAgent/fallbackAgent instead)
+    const result = await handleRunbook({ id: 'task-fix' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<ResolvedRunbookStep & {
+        platformHint?: { claudeCode: string; generic: string };
+      }>;
+    };
+    const nativeTaskStep = data.steps.find(s => s.tool === 'native:Task');
+    expect(nativeTaskStep).toBeDefined();
+    expect(nativeTaskStep!.platformHint).toBeUndefined();
+  });
+
+  it('RunbookResolve_McpStep_NoPlatformHint', async () => {
+    // task-completion has only exarchos_orchestrate steps (non-native MCP steps)
+    const result = await handleRunbook({ id: 'task-completion' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<ResolvedRunbookStep & {
+        platformHint?: { claudeCode: string; generic: string };
+      }>;
+    };
+    for (const step of data.steps) {
+      expect(step.tool.startsWith('native:')).toBe(false);
+      expect(step.platformHint).toBeUndefined();
+    }
   });
 });
