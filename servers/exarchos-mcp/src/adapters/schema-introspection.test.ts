@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveSchemaRef, listSchemas, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
+import { resolveSchemaRef, listSchemas, resolveTopologyRef, resolveEmissionCatalog, resolvePlaybookRef } from './schema-introspection.js';
 
 describe('resolveSchemaRef', () => {
   it('ResolveSchemaRef_ValidRef_ReturnsJsonSchema', () => {
@@ -100,6 +100,25 @@ describe('resolveTopologyRef', () => {
 
   it('ResolveTopologyRef_InvalidType_ThrowsError', () => {
     expect(() => resolveTopologyRef('nonexistent')).toThrow(/Unknown workflow type/);
+  });
+});
+
+describe('resolvePlaybookRef', () => {
+  it('ResolvePlaybookRef_Feature_ReturnsSerializedPlaybooks', () => {
+    const result = resolvePlaybookRef('feature');
+    expect(result).toHaveProperty('workflowType', 'feature');
+    expect(result).toHaveProperty('phases');
+    expect(result).toHaveProperty('phaseCount');
+    expect((result as { phaseCount: number }).phaseCount).toBeGreaterThan(0);
+  });
+
+  it('ResolvePlaybookRef_NoArg_ReturnsWorkflowTypeList', () => {
+    const result = resolvePlaybookRef();
+    expect(Array.isArray(result)).toBe(true);
+    const types = result as string[];
+    expect(types).toContain('feature');
+    expect(types).toContain('debug');
+    expect(types).toContain('refactor');
   });
 });
 
