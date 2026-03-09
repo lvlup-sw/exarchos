@@ -87,6 +87,7 @@ describe('Agent Spec Definitions', () => {
     expect(IMPLEMENTER.systemPrompt).toContain('{{taskDescription}}');
     expect(IMPLEMENTER.systemPrompt).toContain('{{requirements}}');
     expect(IMPLEMENTER.systemPrompt).toContain('{{filePaths}}');
+    expect(IMPLEMENTER.mcpServers).toEqual(['exarchos']);
     expect(IMPLEMENTER.description).toBeTruthy();
   });
 
@@ -99,6 +100,7 @@ describe('Agent Spec Definitions', () => {
     expect(FIXER.tools).toContain('Write');
     expect(FIXER.tools).toContain('Edit');
     expect(FIXER.tools).toContain('Bash');
+    expect(FIXER.mcpServers).toEqual(['exarchos']);
   });
 
   it('ReviewerSpec_HasReadOnlyTools_NoWriteEdit', () => {
@@ -116,6 +118,7 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.disallowedTools).toContain('Agent');
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
+    expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 
   it('AllSpecs_HaveUniqueIds_NoDuplicates', () => {

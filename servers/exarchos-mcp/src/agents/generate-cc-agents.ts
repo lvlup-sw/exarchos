@@ -131,8 +131,13 @@ export function generateAgentMarkdown(spec: AgentSpec): string {
   }
 
   // Optional: mcpServers (allowlist of MCP server names)
-  if (spec.mcpServers && spec.mcpServers.length > 0) {
-    frontmatter += `mcpServers: [${spec.mcpServers.map(s => `"${s}"`).join(', ')}]\n`;
+  // Distinguish undefined (inherit all) from empty array (deny all)
+  if (spec.mcpServers !== undefined) {
+    if (spec.mcpServers.length > 0) {
+      frontmatter += `mcpServers: [${spec.mcpServers.map(s => `"${s}"`).join(', ')}]\n`;
+    } else {
+      frontmatter += `mcpServers: []\n`;
+    }
   }
 
   // Optional: skills (array format)

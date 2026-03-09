@@ -265,7 +265,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 - `review` → `delegate` requires guard `any-review-failed` — triggers fix cycle when any review fails
 
 Use `describe` to discover action schemas when needed:
-```
+```typescript
 exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })
 ```
 

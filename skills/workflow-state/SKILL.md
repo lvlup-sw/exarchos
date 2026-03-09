@@ -37,7 +37,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 ### Schema Discovery
 
 Use `describe` to discover action parameter schemas or event data schemas at runtime:
-```
+```typescript
 exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })
 exarchos_event({ action: "describe", eventTypes: ["workflow.transition", "task.completed"] })
 ```

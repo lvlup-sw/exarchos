@@ -175,7 +175,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 Use `describe` to discover action parameter schemas or event data schemas when needed:
 
-```
+```typescript
 exarchos_workflow({ action: "describe", actions: ["set", "init"] })
 exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "team.spawned"] })
 ```

@@ -192,7 +192,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
 
 The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly. Use `describe` to discover event data schemas before emitting events:
-```
+```typescript
 exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "shepherd.completed", "ci.status", "remediation.attempted"] })
 ```
 
