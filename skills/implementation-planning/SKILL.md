@@ -234,8 +234,8 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
-for phase transitions, guards, and playbook guidance. Use
-`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })`
+(or `"debug"`, `"refactor"`) for phase transitions, guards, and playbook guidance.
+Use `exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })`
 for orchestrate action schemas.
 
 ## Completion Criteria

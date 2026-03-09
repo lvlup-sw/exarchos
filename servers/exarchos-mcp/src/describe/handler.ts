@@ -26,6 +26,28 @@ export async function handleDescribe(
   const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
   const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
 
+  // Reject malformed playbook/topology values (present but not a non-empty string)
+  if (args.playbook !== undefined && !hasPlaybook) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'playbook must be a non-empty string',
+        expectedShape: { playbook: 'feature | debug | refactor | all' },
+      },
+    };
+  }
+  if (args.topology !== undefined && !hasTopology) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'topology must be a non-empty string',
+        expectedShape: { topology: 'feature | debug | refactor | all' },
+      },
+    };
+  }
+
   if (!hasActions && !hasTopology && !hasPlaybook) {
     return {
       success: false,

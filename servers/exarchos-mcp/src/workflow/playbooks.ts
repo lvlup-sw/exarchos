@@ -944,21 +944,21 @@ register({
 // ─── Serialization Types ─────────────────────────────────────────────────────
 
 export interface SerializedPlaybooks {
-  workflowType: string;
-  phases: Record<string, SerializedPhasePlaybook>;
-  phaseCount: number;
+  readonly workflowType: string;
+  readonly phases: Record<string, SerializedPhasePlaybook>;
+  readonly phaseCount: number;
 }
 
 export interface SerializedPhasePlaybook {
-  skill: string;
-  skillRef: string;
-  tools: readonly ToolInstruction[];
-  events: readonly EventInstruction[];
-  transitionCriteria: string;
-  guardPrerequisites: string;
-  validationScripts: readonly string[];
-  humanCheckpoint: boolean;
-  compactGuidance: string;
+  readonly skill: string;
+  readonly skillRef: string;
+  readonly tools: readonly ToolInstruction[];
+  readonly events: readonly EventInstruction[];
+  readonly transitionCriteria: string;
+  readonly guardPrerequisites: string;
+  readonly validationScripts: readonly string[];
+  readonly humanCheckpoint: boolean;
+  readonly compactGuidance: string;
 }
 
 // ─── Serialization Functions ─────────────────────────────────────────────────
@@ -978,11 +978,11 @@ export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
     phases[playbook.phase] = {
       skill: playbook.skill,
       skillRef: playbook.skillRef,
-      tools: playbook.tools,
-      events: playbook.events,
+      tools: [...playbook.tools],
+      events: [...playbook.events],
       transitionCriteria: playbook.transitionCriteria,
       guardPrerequisites: playbook.guardPrerequisites,
-      validationScripts: playbook.validationScripts,
+      validationScripts: [...playbook.validationScripts],
       humanCheckpoint: playbook.humanCheckpoint,
       compactGuidance: playbook.compactGuidance,
     };
