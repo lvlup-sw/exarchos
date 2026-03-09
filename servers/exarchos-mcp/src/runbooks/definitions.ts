@@ -47,6 +47,7 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       params: { type: 'team.teammate.dispatched' },
       note: 'Emit per teammate. PIVOT POINT: past here, compensation is partial' },
     { tool: 'native:Task', action: 'spawn', onFail: 'stop',
+      params: { agent: 'teammate' },
       note: 'Spawn N teammates in worktrees' },
     { tool: 'exarchos_view', action: 'workflow_status', onFail: 'continue',
       note: 'Monitor: poll every 30-60s (~85 tokens)' },
