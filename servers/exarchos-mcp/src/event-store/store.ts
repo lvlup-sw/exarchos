@@ -9,6 +9,7 @@ import type { StorageBackend } from '../storage/backend.js';
 import { migrateEvent } from './event-migration.js';
 import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
+import { getSidecarPath } from './hook-event-writer.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -94,9 +95,13 @@ export interface EventStoreOptions {
  * When an optional `StorageBackend` is provided, reads (query, getSequence)
  * delegate to the backend while writes still go to JSONL first (dual-write).
  *
+ * Cross-process safety: call `initialize()` before first use. The first process
+ * to initialize acquires a PID lock; subsequent processes enter sidecar mode
+ * where writes are routed to `{streamId}.hook-events.jsonl` sidecar files for
+ * later merging by the primary process. Reads always work from JSONL/backend.
+ *
  * Uses in-memory promise-chain locks that only protect within a single Node.js process.
- * Multiple EventStore instances sharing the same stateDir will corrupt data.
- * The MCP server ensures a single EventStore per stateDir via the singleton in views/tools.ts.
+ * Multiple EventStore instances sharing the same stateDir without PID lock will corrupt data.
  */
 export class EventStore {
   private sequenceCounters: Map<string, number> = new Map();
@@ -117,6 +122,13 @@ export class EventStore {
 
   /** Whether initialize() has been called */
   private initialized = false;
+
+  /**
+   * When true, the PID lock is held by another process.
+   * All writes are routed to sidecar files instead of the main JSONL.
+   * Reads still work from JSONL/backend.
+   */
+  private sidecarMode = false;
 
   /** Path to the PID lock file */
   private lockFilePath: string;
@@ -143,15 +155,35 @@ export class EventStore {
     this.outbox = outbox;
   }
 
+  /** Returns true when this instance is in sidecar mode (PID lock held by another process). */
+  get inSidecarMode(): boolean {
+    return this.sidecarMode;
+  }
+
   // ─── PID Lock ──────────────────────────────────────────────────────────────
 
   /**
    * Initialize the event store: acquire PID lock and register cleanup handler.
-   * Must be called before first use when cross-process safety is needed.
+   * Must be called before first use. When the PID lock is held by another
+   * process, enters sidecar mode where writes are routed to sidecar files
+   * and reads still work from JSONL/backend.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.acquirePidLock();
+    try {
+      await this.acquirePidLock();
+    } catch (err) {
+      if (err instanceof PidLockError) {
+        this.sidecarMode = true;
+        this.initialized = true;
+        storeLogger.info(
+          { existingPid: err.existingPid },
+          'PID lock held by another process — entering sidecar mode (writes routed to sidecar files)',
+        );
+        return;
+      }
+      throw err;
+    }
     this.initialized = true;
   }
 
@@ -220,6 +252,41 @@ export class EventStore {
     }
   }
 
+  /**
+   * Write an event to the sidecar file for later merging by the primary process.
+   * Returns a synthetic WorkflowEvent with sequence 0 (pending assignment).
+   */
+  private async writeToSidecar(
+    streamId: string,
+    event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
+    idempotencyKey?: string,
+  ): Promise<WorkflowEvent> {
+    validateStreamId(streamId);
+    const timestamp = event.timestamp || new Date().toISOString();
+    const key = idempotencyKey ?? event.idempotencyKey;
+
+    const sidecarEvent: Record<string, unknown> = {
+      type: event.type,
+      data: event.data ?? {},
+      timestamp,
+    };
+    if (key) sidecarEvent.idempotencyKey = key;
+
+    const filePath = getSidecarPath(this.stateDir, streamId);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.appendFile(filePath, JSON.stringify(sidecarEvent) + '\n', 'utf-8');
+
+    // Return synthetic event with sequence 0 (pending assignment during merge)
+    return {
+      streamId,
+      sequence: 0,
+      type: event.type,
+      data: (event.data ?? {}) as Record<string, unknown>,
+      timestamp,
+      ...(key && { idempotencyKey: key }),
+    } as WorkflowEvent;
+  }
+
   private getEventFilePath(streamId: string): string {
     validateStreamId(streamId);
     return path.join(this.stateDir, `${streamId}.events.jsonl`);
@@ -235,6 +302,9 @@ export class EventStore {
     event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
+    if (this.sidecarMode) {
+      return this.writeToSidecar(streamId, event, options?.idempotencyKey);
+    }
     return this.withLock(streamId, async () => {
       const cached = await this.checkIdempotencyAndSequence(streamId, options);
       if (cached) return cached;
@@ -265,6 +335,9 @@ export class EventStore {
     event: WorkflowEvent,
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
+    if (this.sidecarMode) {
+      return this.writeToSidecar(streamId, event, options?.idempotencyKey ?? event.idempotencyKey);
+    }
     return this.withLock(streamId, async () => {
       const cached = await this.checkIdempotencyAndSequence(streamId, options);
       if (cached) return cached;
@@ -374,6 +447,13 @@ export class EventStore {
     streamId: string,
     events: Array<Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string; idempotencyKey?: string }>,
   ): Promise<WorkflowEvent[]> {
+    if (this.sidecarMode) {
+      const results: WorkflowEvent[] = [];
+      for (const event of events) {
+        results.push(await this.writeToSidecar(streamId, event, event.idempotencyKey));
+      }
+      return results;
+    }
     return this.withLock(streamId, async () => {
       // Rebuild idempotency cache if any event has an idempotency key
       const hasIdempotencyKeys = events.some(e => e.idempotencyKey);

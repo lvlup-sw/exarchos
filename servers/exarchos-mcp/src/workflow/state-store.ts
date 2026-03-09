@@ -5,6 +5,7 @@ import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
+import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
 import { expandTilde } from '../utils/paths.js';
 import { logger } from '../logger.js';
@@ -756,6 +757,17 @@ export async function reconcileFromEvents(
   featureId: string,
   eventStore: EventStore,
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
+  // Merge sidecar events from hook subprocesses and sidecar-mode agents
+  // before querying, so reconcile sees the complete event stream.
+  if (!eventStore.inSidecarMode) {
+    await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Sidecar merge before reconcile failed — continuing with existing events',
+      );
+    });
+  }
+
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
   // Read existing state or create from workflow.started event

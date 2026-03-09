@@ -298,14 +298,22 @@ async function main() {
     await migrateLegacyOutbox(backend, stateDir);
     await cleanupLegacyFiles(stateDir);
 
-    // Merge sidecar event files written by hook subprocesses
+    registerBackendCleanup(backend);
+  }
+
+  // Use new dispatch layer — initializes EventStore with PID lock
+  const ctx = await initializeContext(stateDir, {
+    backend,
+    projectRoot: process.cwd(),
+  });
+
+  // Merge sidecar event files written by hook subprocesses / sidecar-mode agents.
+  // Must run AFTER initializeContext so we use the PID-locked EventStore.
+  if (!ctx.eventStore.inSidecarMode) {
     const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
-    const sidecarStore = new EventStore(stateDir, { backend });
-    await mergeSidecarEvents(stateDir, sidecarStore).catch((err) => {
+    await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
     });
-
-    registerBackendCleanup(backend);
   }
 
   // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
@@ -321,12 +329,6 @@ async function main() {
     .catch((err) => {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
     });
-
-  // Use new dispatch layer
-  const ctx = await initializeContext(stateDir, {
-    backend,
-    projectRoot: process.cwd(),
-  });
 
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.

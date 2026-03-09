@@ -42,6 +42,7 @@ export async function initializeContext(
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
+  await eventStore.initialize();
 
   // Configure module-level EventStore for workflow modules (no lazy init)
   configureWorkflowEventStore(eventStore);

@@ -1065,13 +1065,14 @@ describe('EventStore PID Lock', () => {
     expect(parseInt(content, 10)).toBe(process.pid);
   });
 
-  it('AcquirePidLock_ThrowsWhenLivePidHoldsLock', async () => {
+  it('AcquirePidLock_EntersSidecarMode_WhenLivePidHoldsLock', async () => {
     // Create a lock file with the current PID (simulating another live process)
     const lockPath = path.join(tempDir, '.event-store.lock');
     await fs.writeFile(lockPath, String(process.pid), 'utf-8');
 
     const store = new EventStore(tempDir);
-    await expect(store.initialize()).rejects.toThrow(PidLockError);
+    await store.initialize(); // Should not throw — enters sidecar mode
+    expect(store.inSidecarMode).toBe(true);
   });
 
   // T21: Stale lock reclaim
@@ -1114,6 +1115,109 @@ describe('EventStore PID Lock', () => {
     // After initialize, lock should exist with our PID
     const content = await fs.readFile(lockPath, 'utf-8');
     expect(parseInt(content, 10)).toBe(process.pid);
+  });
+});
+
+// ─── Sidecar Mode ─────────────────────────────────────────────────────────────
+
+describe('EventStore Sidecar Mode', () => {
+  it('SidecarMode_AppendWritesToSidecarFile', async () => {
+    // Create a lock file with the current PID (simulating another live process)
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    expect(store.inSidecarMode).toBe(true);
+
+    // Append should write to sidecar file, not main JSONL
+    const event = await store.append('my-workflow', {
+      type: 'workflow.started',
+      data: { featureId: 'test' },
+    });
+
+    expect(event.sequence).toBe(0); // Pending sequence
+    expect(event.type).toBe('workflow.started');
+
+    // Main JSONL should NOT exist
+    const jsonlPath = path.join(tempDir, 'my-workflow.events.jsonl');
+    await expect(fs.access(jsonlPath)).rejects.toThrow();
+
+    // Sidecar file should exist
+    const sidecarPath = path.join(tempDir, 'my-workflow.hook-events.jsonl');
+    const content = await fs.readFile(sidecarPath, 'utf-8');
+    const parsed = JSON.parse(content.trim());
+    expect(parsed.type).toBe('workflow.started');
+    expect(parsed.data).toEqual({ featureId: 'test' });
+  });
+
+  it('SidecarMode_AppendPreservesIdempotencyKey', async () => {
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    await store.append('my-workflow', {
+      type: 'team.task.completed',
+      data: { taskId: 'task-001' },
+    }, { idempotencyKey: 'my-workflow:team.task.completed:task-001' });
+
+    const sidecarPath = path.join(tempDir, 'my-workflow.hook-events.jsonl');
+    const content = await fs.readFile(sidecarPath, 'utf-8');
+    const parsed = JSON.parse(content.trim());
+    expect(parsed.idempotencyKey).toBe('my-workflow:team.task.completed:task-001');
+  });
+
+  it('SidecarMode_BatchAppendWritesAllToSidecar', async () => {
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const events = await store.batchAppend('my-workflow', [
+      { type: 'gate.executed', data: { gate: 'test-gate' } },
+      { type: 'state.patched', data: { field: 'status' } },
+    ]);
+
+    expect(events).toHaveLength(2);
+    expect(events.every(e => e.sequence === 0)).toBe(true);
+
+    const sidecarPath = path.join(tempDir, 'my-workflow.hook-events.jsonl');
+    const content = await fs.readFile(sidecarPath, 'utf-8');
+    const lines = content.trim().split('\n');
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]).type).toBe('gate.executed');
+    expect(JSON.parse(lines[1]).type).toBe('state.patched');
+  });
+
+  it('SidecarMode_QueryStillWorksFromJsonl', async () => {
+    // First create some events in normal mode
+    const store1 = new EventStore(tempDir);
+    await store1.append('my-workflow', { type: 'workflow.started', data: {} });
+    await store1.append('my-workflow', { type: 'workflow.transition', data: { from: 'triage', to: 'investigate' } });
+
+    // Remove any lock file, then create one to force sidecar mode
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.rm(lockPath, { force: true });
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+
+    const store2 = new EventStore(tempDir);
+    await store2.initialize();
+    expect(store2.inSidecarMode).toBe(true);
+
+    // Query should still work from JSONL
+    const events = await store2.query('my-workflow');
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe('workflow.started');
+    expect(events[1].type).toBe('workflow.transition');
+  });
+
+  it('SidecarMode_NotActiveWhenLockNotHeld', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    expect(store.inSidecarMode).toBe(false);
   });
 });
 
