@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec, AgentSkill, AgentValidationRule, AgentSpecId } from './types.js';
+import { IMPLEMENTER, FIXER, REVIEWER, ALL_AGENT_SPECS } from './definitions.js';
 
 // ─── Task 1: AgentSpec Types ────────────────────────────────────────────────
 
@@ -59,5 +60,81 @@ describe('AgentSpec Types', () => {
     expect(minimalSpec.isolation).toBeUndefined();
     expect(minimalSpec.memoryScope).toBeUndefined();
     expect(minimalSpec.maxTurns).toBeUndefined();
+  });
+});
+
+// ─── Task 2: Agent Spec Definitions ─────────────────────────────────────────
+
+describe('Agent Spec Definitions', () => {
+  it('ImplementerSpec_HasRequiredFields_Complete', () => {
+    expect(IMPLEMENTER.id).toBe('implementer');
+    expect(IMPLEMENTER.model).toBe('opus');
+    expect(IMPLEMENTER.isolation).toBe('worktree');
+    expect(IMPLEMENTER.resumable).toBe(true);
+    expect(IMPLEMENTER.memoryScope).toBe('project');
+    expect(IMPLEMENTER.tools).toContain('Read');
+    expect(IMPLEMENTER.tools).toContain('Write');
+    expect(IMPLEMENTER.tools).toContain('Edit');
+    expect(IMPLEMENTER.tools).toContain('Bash');
+    expect(IMPLEMENTER.tools).toContain('Grep');
+    expect(IMPLEMENTER.tools).toContain('Glob');
+    expect(IMPLEMENTER.disallowedTools).toContain('Agent');
+    expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(2);
+    const skillNames = IMPLEMENTER.skills.map(s => s.name);
+    expect(skillNames).toContain('tdd-patterns');
+    expect(skillNames).toContain('testing-patterns');
+    expect(IMPLEMENTER.validationRules.length).toBeGreaterThanOrEqual(2);
+    expect(IMPLEMENTER.systemPrompt).toContain('{{taskDescription}}');
+    expect(IMPLEMENTER.systemPrompt).toContain('{{requirements}}');
+    expect(IMPLEMENTER.systemPrompt).toContain('{{filePaths}}');
+    expect(IMPLEMENTER.description).toBeTruthy();
+  });
+
+  it('FixerSpec_IsNotResumable_ReturnsTrue', () => {
+    expect(FIXER.id).toBe('fixer');
+    expect(FIXER.resumable).toBe(false);
+    expect(FIXER.model).toBe('opus');
+    expect(FIXER.systemPrompt).toContain('{{failureContext}}');
+    expect(FIXER.tools).toContain('Read');
+    expect(FIXER.tools).toContain('Write');
+    expect(FIXER.tools).toContain('Edit');
+    expect(FIXER.tools).toContain('Bash');
+  });
+
+  it('ReviewerSpec_HasReadOnlyTools_NoWriteEdit', () => {
+    expect(REVIEWER.id).toBe('reviewer');
+    expect(REVIEWER.model).toBe('opus');
+    expect(REVIEWER.resumable).toBe(false);
+    expect(REVIEWER.tools).toContain('Read');
+    expect(REVIEWER.tools).toContain('Grep');
+    expect(REVIEWER.tools).toContain('Glob');
+    expect(REVIEWER.tools).toContain('Bash');
+    expect(REVIEWER.tools).not.toContain('Write');
+    expect(REVIEWER.tools).not.toContain('Edit');
+    expect(REVIEWER.disallowedTools).toContain('Write');
+    expect(REVIEWER.disallowedTools).toContain('Edit');
+    expect(REVIEWER.disallowedTools).toContain('Agent');
+    expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
+    expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
+  });
+
+  it('AllSpecs_HaveUniqueIds_NoDuplicates', () => {
+    const ids = ALL_AGENT_SPECS.map(s => s.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+
+  it('AllSpecs_ToolsAreValid_KnownToolNames', () => {
+    const KNOWN_TOOLS = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
+    for (const spec of ALL_AGENT_SPECS) {
+      for (const tool of spec.tools) {
+        expect(KNOWN_TOOLS.has(tool), `${spec.id}: unknown tool '${tool}'`).toBe(true);
+      }
+      if (spec.disallowedTools) {
+        for (const tool of spec.disallowedTools) {
+          expect(KNOWN_TOOLS.has(tool), `${spec.id}: unknown disallowed tool '${tool}'`).toBe(true);
+        }
+      }
+    }
   });
 });
