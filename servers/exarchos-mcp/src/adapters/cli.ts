@@ -6,7 +6,7 @@ import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
 import { prettyPrint, printError } from './cli-format.js';
-import { listSchemas, resolveSchemaRef } from './schema-introspection.js';
+import { listSchemas, resolveSchemaRef, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
 import { createMcpServer } from './mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
@@ -92,6 +92,34 @@ export function buildCli(ctx: DispatchContext): Command {
           process.exitCode = 1;
         }
       }
+    });
+
+  // ─── Topology introspection command ──────────────────────────────────────────
+
+  program
+    .command('topology [type]')
+    .description('Show HSM topology. Without type, lists all workflow types.')
+    .action(async (type?: string) => {
+      try {
+        const result = resolveTopologyRef(type || undefined);
+        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      } catch (err) {
+        printError({
+          code: 'INVALID_TOPOLOGY_REF',
+          message: err instanceof Error ? err.message : String(err),
+        });
+        process.exitCode = 1;
+      }
+    });
+
+  // ─── Emissions catalog command ──────────────────────────────────────────────
+
+  program
+    .command('emissions')
+    .description('Show event emission catalog grouped by source.')
+    .action(async () => {
+      const result = resolveEmissionCatalog();
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     });
 
   // ─── MCP server mode command ───────────────────────────────────────────────
