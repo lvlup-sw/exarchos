@@ -4,6 +4,7 @@ import { TOOL_REGISTRY } from '../registry.js';
 
 const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
 const eventTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!;
+const workflowActions = workflowTool.actions;
 
 describe('handleDescribe', () => {
   it('HandleDescribe_ValidAction_ReturnsSchemaAndMetadata', async () => {
@@ -131,5 +132,63 @@ describe('handleEventDescribe', () => {
     const result = await handleEventDescribe({ eventTypes: ['nonexistent.type'] }, eventTool.actions);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_EVENT_TYPE');
+  });
+});
+
+describe('handleDescribe topology', () => {
+  it('HandleDescribe_TopologyParam_ReturnsHSMForWorkflowType', async () => {
+    const result = await handleDescribe({ topology: 'feature' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('topology');
+    const topology = data.topology as Record<string, unknown>;
+    expect(topology).toHaveProperty('workflowType');
+    expect(topology.workflowType).toBe('feature');
+    expect(topology).toHaveProperty('states');
+    expect(topology).toHaveProperty('transitions');
+    expect(topology).toHaveProperty('tracks');
+  });
+
+  it('HandleDescribe_TopologyAll_ReturnsAllWorkflowTypes', async () => {
+    const result = await handleDescribe({ topology: 'all' }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('topology');
+    const topology = data.topology as Record<string, unknown>;
+    expect(topology).toHaveProperty('workflowTypes');
+    const types = topology.workflowTypes as string[];
+    expect(types).toContain('feature');
+    expect(types).toContain('debug');
+    expect(types).toContain('refactor');
+  });
+
+  it('HandleDescribe_TopologyInvalidType_ReturnsError', async () => {
+    const result = await handleDescribe({ topology: 'nonexistent' }, workflowActions);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('UNKNOWN_WORKFLOW_TYPE');
+  });
+
+  it('HandleDescribe_TopologyAndActions_ReturnsBoth', async () => {
+    const result = await handleDescribe(
+      { actions: ['init'], topology: 'feature' },
+      workflowActions,
+    );
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('init');
+    expect(data).toHaveProperty('topology');
+    const initDesc = data.init as Record<string, unknown>;
+    expect(initDesc).toHaveProperty('description');
+    expect(initDesc).toHaveProperty('schema');
+    const topology = data.topology as Record<string, unknown>;
+    expect(topology).toHaveProperty('workflowType');
+  });
+
+  it('HandleDescribe_ActionsOnly_BackwardCompatible', async () => {
+    const result = await handleDescribe({ actions: ['init'] }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data).toHaveProperty('init');
+    expect(data).not.toHaveProperty('topology');
   });
 });
