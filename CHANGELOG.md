@@ -2,6 +2,13 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [Unreleased]
+
+### Features
+- HSM topology introspection via `exarchos_workflow describe` with `topology` parameter (#979)
+- Event emission catalog via `exarchos_event describe` with `emissionGuide` parameter (#979)
+- CLI `topology [type]` and `emissions` commands for plugin-free introspection (#979)
+
 ## [2.5.0] - 2026-03-09
 
 **First public release.** Lazy schema loading, runbook protocol, typed agent specs, and a documentation site — reducing tool registration overhead by 83% while making workflows self-describing.

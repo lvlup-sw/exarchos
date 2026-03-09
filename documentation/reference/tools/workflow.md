@@ -149,7 +149,7 @@ Phases: all. Role: `lead`.
 
 ### describe
 
-Get full schemas for specific actions.
+Get full schemas for specific actions and/or HSM topology for workflow types.
 
 ```json
 {
@@ -158,10 +158,24 @@ Get full schemas for specific actions.
 }
 ```
 
+```json
+{
+  "action": "describe",
+  "topology": "feature"
+}
+```
+
 | Parameter | Required | Type | Description |
 |-----------|----------|------|-------------|
-| `actions` | yes | string[] (1-10) | Action names to describe |
+| `actions` | no | string[] (1-10) | Action names to describe |
+| `topology` | no | string | Workflow type to return HSM topology for. Use `"all"` to list all types |
 
-Returns: Full Zod schemas, descriptions, gate metadata, and phase/role constraints for each requested action.
+At least one of `actions` or `topology` must be provided.
+
+**Actions response:** Full Zod schemas, descriptions, gate metadata, and phase/role constraints for each requested action.
+
+**Topology response:** When a specific type is given (e.g. `"feature"`), returns the serialized HSM definition including states (with type, parent, initial), transitions (with guard id/description), and tracks (compound state children). When `"all"` is given, returns a listing of all registered workflow types with phase count and track count.
+
+Both parameters can be used together in a single call.
 
 Phases: all. Role: `any`.
