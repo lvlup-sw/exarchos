@@ -74,7 +74,7 @@ action: "set", featureId: "<id>", updates: {
 ```
 
 **State update on resume:**
-```
+```text
 action: "set", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": {
     "agentResumed": true,

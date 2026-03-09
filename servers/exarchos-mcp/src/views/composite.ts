@@ -222,6 +222,7 @@ export async function handleView(
             'provenance',
             'ideate_readiness',
             'convergence',
+            'describe',
           ] as const,
         },
       };

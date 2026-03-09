@@ -11,6 +11,17 @@ export async function handleDescribe(
   args: { actions: string[] },
   toolActions: readonly ToolAction[],
 ): Promise<ToolResult> {
+  if (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string')) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'describe requires actions: string[]',
+        expectedShape: { actions: ['action_name_1', 'action_name_2'] },
+      },
+    };
+  }
+
   const results: Record<string, unknown> = {};
 
   for (const actionName of args.actions) {

@@ -140,6 +140,7 @@ export async function handlePrepareDelegation(
         ready: false,
         readiness: effectiveReadiness,
         blockers: effectiveBlockers,
+        ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
       return { success: true, data: result };
     }
