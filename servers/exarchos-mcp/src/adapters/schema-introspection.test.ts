@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveSchemaRef, listSchemas } from './schema-introspection.js';
+import { resolveSchemaRef, listSchemas, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
 
 describe('resolveSchemaRef', () => {
   it('ResolveSchemaRef_ValidRef_ReturnsJsonSchema', () => {
@@ -75,5 +75,42 @@ describe('listSchemas', () => {
         expect(action.description).toBeTruthy();
       }
     }
+  });
+});
+
+describe('resolveTopologyRef', () => {
+  it('ResolveTopologyRef_ValidType_ReturnsTopology', () => {
+    const result = resolveTopologyRef('feature');
+    expect(result).toHaveProperty('workflowType', 'feature');
+    expect(result).toHaveProperty('states');
+    expect(result).toHaveProperty('transitions');
+    expect(result).toHaveProperty('tracks');
+    expect(result.initialPhase).toBe('ideate');
+  });
+
+  it('ResolveTopologyRef_NoType_ReturnsAllTypes', () => {
+    const result = resolveTopologyRef();
+    expect(result).toHaveProperty('workflowTypes');
+    expect(result.workflowTypes.length).toBeGreaterThanOrEqual(3);
+    const names = result.workflowTypes.map((t: { name: string }) => t.name);
+    expect(names).toContain('feature');
+    expect(names).toContain('debug');
+    expect(names).toContain('refactor');
+  });
+
+  it('ResolveTopologyRef_InvalidType_ThrowsError', () => {
+    expect(() => resolveTopologyRef('nonexistent')).toThrow(/Unknown workflow type/);
+  });
+});
+
+describe('resolveEmissionCatalog', () => {
+  it('ResolveEmissionCatalog_ReturnsCatalog', () => {
+    const result = resolveEmissionCatalog();
+    expect(result).toHaveProperty('types');
+    expect(result).toHaveProperty('bySource');
+    expect(result).toHaveProperty('totalCount');
+    expect(result.totalCount).toBeGreaterThan(0);
+    expect(result.bySource.auto.length).toBeGreaterThan(0);
+    expect(result.bySource.model.length).toBeGreaterThan(0);
   });
 });
