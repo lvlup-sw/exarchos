@@ -138,6 +138,7 @@ exarchos_orchestrate({
 
 > **Runbook:** Run quality evaluation gates via runbook:
 > `exarchos_orchestrate({ action: "runbook", id: "quality-evaluation" })`
+> If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_convergence", "check_review_verdict"] })`
 
 Run automated gates via orchestrate actions. See `references/gate-execution.md` for orchestrate action signatures and response handling.
 

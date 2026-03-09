@@ -87,7 +87,7 @@ Build subagent prompts using `references/implementer-prompt.md` as the template.
 
 ### Prompt Construction
 
-**When using native agent definitions (preferred):**
+**Claude Code (native agent definitions):**
 
 The `exarchos-implementer` agent spec already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
 1. Full task description (requirements, acceptance criteria)
@@ -96,7 +96,7 @@ The `exarchos-implementer` agent spec already includes the system prompt, model,
 4. Quality hints (if any)
 5. PBT flag when `propertyTests: true`
 
-**When using legacy prompt template (fallback):**
+**Cross-platform (full prompt template):**
 
 For each task:
 1. Fill the implementer prompt template with task-specific details
@@ -109,7 +109,7 @@ For each task:
 
 Dispatch all independent tasks in a **single message** with multiple `Task` calls.
 
-**Native Agent Dispatch (preferred):**
+**Claude Code Dispatch (native agents):**
 
 ```typescript
 Task({
@@ -122,7 +122,7 @@ Task({
 
 > **Note:** The agent's system prompt, model, isolation, skills, hooks, and memory are defined by the agent specification in `servers/exarchos-mcp/src/agents/definitions.ts`. The dispatch prompt provides ONLY task-specific context.
 
-**Legacy Dispatch (fallback for non-native platforms):**
+**Cross-platform Dispatch (non-Claude-Code clients):**
 
 ```typescript
 Task({
@@ -159,6 +159,8 @@ After each subagent reports completion:
 > **Runbook:** For each completed task, execute the task-completion runbook:
 > `exarchos_orchestrate({ action: "runbook", id: "task-completion" })`
 > Execute the returned steps in order. Stop on gate failure.
+> If the runbook action is unavailable, use `describe` to retrieve gate schemas and run manually:
+> `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
 
 1. **Extract provenance from subagent report** — parse the subagent's completion output and extract structured provenance fields (`implements`, `tests`, `files`). These fields are reported by the subagent following the Provenance Reporting section of the implementer prompt.
 
@@ -219,7 +221,7 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 
 If a task fails and `agentId` is available in workflow state:
 
-**Resume (preferred — preserves full implementer context):**
+**Resume (Claude Code — preserves full implementer context):**
 ```typescript
 Task({
   resume: "[agentId from workflow state]",
@@ -227,7 +229,7 @@ Task({
 })
 ```
 
-**Fresh dispatch (fallback — when agentId unavailable or platform doesn't support resume):**
+**Fresh dispatch (cross-platform — when agentId unavailable or platform doesn't support resume):**
 ```typescript
 Task({
   subagent_type: "exarchos-fixer",
@@ -238,6 +240,7 @@ Task({
 
 After fix completes, run the `task-fix` runbook gate chain:
 `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`
+If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
 
 ---
 
@@ -290,5 +293,5 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 | `references/state-management.md` | State patterns and benchmark labeling |
 | `references/troubleshooting.md` | Common failure modes and resolutions |
 | `references/adaptive-orchestration.md` | Adaptive team composition |
-| `references/workflow-steps.md` | Legacy step-by-step delegation reference |
+| `references/workflow-steps.md` | Cross-platform step-by-step delegation reference |
 | `references/worktree-enforcement.md` | Worktree isolation rules |

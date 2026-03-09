@@ -38,6 +38,7 @@ Activate when:
 
 > **Runbook:** Each shepherd iteration follows the shepherd-iteration runbook:
 > `exarchos_orchestrate({ action: "runbook", id: "shepherd-iteration" })`
+> If runbook unavailable, use `describe` to retrieve action schemas: `exarchos_orchestrate({ action: "describe", actions: ["assess_stack"] })`
 
 The shepherd loop repeats until all PRs are healthy or escalation criteria are met. Default: 5 iterations.
 

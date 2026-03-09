@@ -39,7 +39,7 @@ Or auto-invoked after review failures.
 
 4. **Dispatch fixers** — prefer resume when `agentId` is available, otherwise fresh dispatch:
 
-   **Resume (preferred):**
+   **Resume (Claude Code):**
    ```typescript
    Task({
      resume: "[agentId from workflow state]",
@@ -47,7 +47,7 @@ Or auto-invoked after review failures.
    })
    ```
 
-   **Fresh dispatch (fallback):**
+   **Fresh dispatch (cross-platform):**
    ```typescript
    Task({
      subagent_type: "exarchos-fixer",
@@ -79,9 +79,9 @@ exarchos_workflow get with fields: ["tasks"]
 
 ### Decision Flow
 
-1. **agentId available?** → Resume with failure context (preferred)
-2. **agentId unavailable?** → Fresh dispatch with `exarchos-fixer` agent type
-3. **Resume fails or platform doesn't support it?** → Fall back to fresh dispatch
+1. **agentId available + Claude Code?** → Resume with failure context
+2. **agentId unavailable or non-Claude-Code client?** → Fresh dispatch with `exarchos-fixer` agent type
+3. **Resume fails?** → Fall back to fresh dispatch
 
 ### Gate Chain After Fix
 
@@ -90,7 +90,7 @@ After any fix (resume or fresh dispatch), run the `task-fix` runbook:
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```
 
-This executes the gate chain: re-run tests → TDD compliance check → static analysis → mark task complete if all pass.
+This executes the gate chain: re-run tests → TDD compliance check → static analysis → mark task complete if all pass. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
 
 ## Fix Task Structure
 

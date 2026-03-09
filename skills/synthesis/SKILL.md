@@ -33,6 +33,7 @@ Activate this skill when:
 
 > **Runbook:** Follow the synthesis-flow runbook:
 > `exarchos_orchestrate({ action: "runbook", id: "synthesis-flow" })`
+> If runbook unavailable, use `describe` to retrieve action schemas: `exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })`
 
 ### Step 1: Verify Readiness
 
