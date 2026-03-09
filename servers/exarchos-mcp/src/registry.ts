@@ -702,7 +702,7 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'agent_spec',
     description: 'Retrieve agent specification for subagent dispatch',
     schema: agentSpecSchemaForRegistry,
-    phases: new Set<string>(['*']),
+    phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
   makeDescribeAction(),
