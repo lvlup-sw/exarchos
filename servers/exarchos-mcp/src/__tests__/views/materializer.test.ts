@@ -372,8 +372,8 @@ describe('ViewMaterializer with Snapshots', () => {
 
       materializer.materialize<CounterView>('test-stream', 'counter', events);
 
-      // Allow async snapshot write to complete
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Await pending snapshot writes
+      await materializer.flush();
 
       const snapshot = await snapshotStore.load<CounterView>('test-stream', 'counter');
       expect(snapshot).toBeDefined();
