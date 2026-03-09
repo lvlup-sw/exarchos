@@ -54,4 +54,6 @@ export interface ResolvedRunbookStep {
   readonly description?: string;
   /** Gate metadata from registry (null if not a gate action) */
   readonly gate?: { readonly blocking: boolean; readonly dimension?: string } | null;
+  /** Platform-specific hints for native steps that reference agent specs */
+  readonly platformHint?: { readonly claudeCode: string; readonly generic: string };
 }

@@ -71,6 +71,10 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
       }
     }
 
+    const agentName = isNative
+      ? (step.params as Record<string, unknown> | undefined)?.agent
+      : undefined;
+
     return {
       seq: index + 1,
       tool: step.tool,
@@ -81,6 +85,14 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
       schema,
       description,
       gate,
+      ...(typeof agentName === 'string'
+        ? {
+            platformHint: {
+              claudeCode: `Uses native agent definition exarchos-${agentName}`,
+              generic: `Call agent_spec("${agentName}") to get system prompt and tool restrictions`,
+            },
+          }
+        : {}),
     };
   });
 
