@@ -13,6 +13,7 @@ import {
   listStateFiles,
   configureStateStoreBackend,
   reconcileFromEvents,
+  hydrateEventsFromStore,
   VersionConflictError,
   StateStoreError,
 } from './state-store.js';
@@ -670,5 +671,129 @@ describe('writeStateFile_WithBackend_WritesJsonBackup', () => {
     // Backend should still have the updated state
     const backendState = backend.getState('wt-fail');
     expect(backendState!.phase).toBe('plan');
+  });
+});
+
+// ─── hydrateEventsFromStore ──────────────────────────────────────────────────
+
+describe('hydrateEventsFromStore', () => {
+  it('HydrateEventsFromStore_EmptyEventStore_ReturnsEmptyArray', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toEqual([]);
+  });
+
+  it('HydrateEventsFromStore_TransitionEvents_MapsTypeAndPreservesFields', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        {
+          type: 'workflow.transition',
+          timestamp: '2026-03-09T10:00:00.000Z',
+          data: { from: 'ideate', to: 'plan', trigger: 'user' },
+        },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('transition'); // mapped via mapExternalToInternalType
+    expect(result[0].timestamp).toBe('2026-03-09T10:00:00.000Z');
+    expect(result[0].from).toBe('ideate');
+    expect(result[0].to).toBe('plan');
+    expect(result[0].trigger).toBe('user');
+    expect(result[0].metadata).toEqual({ from: 'ideate', to: 'plan', trigger: 'user' });
+  });
+
+  it('HydrateEventsFromStore_TeamEvents_PreservesAllDataFields', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        {
+          type: 'team.spawned',
+          timestamp: '2026-03-09T10:00:00.000Z',
+          data: { featureId: 'test-feature', agentCount: 3 },
+        },
+        {
+          type: 'team.disbanded',
+          timestamp: '2026-03-09T11:00:00.000Z',
+          data: {
+            featureId: 'test-feature',
+            totalDurationMs: 5000,
+            tasksCompleted: 3,
+            tasksFailed: 0,
+          },
+        },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(2);
+
+    // team.spawned: type is NOT mapped (no workflow. prefix)
+    expect(result[0].type).toBe('team.spawned');
+    expect(result[0].featureId).toBe('test-feature');
+    expect(result[0].agentCount).toBe(3);
+    expect(result[0].metadata).toEqual({ featureId: 'test-feature', agentCount: 3 });
+
+    // team.disbanded: ALL data fields at top level AND in metadata
+    expect(result[1].type).toBe('team.disbanded');
+    expect(result[1].totalDurationMs).toBe(5000);
+    expect(result[1].tasksCompleted).toBe(3);
+    expect(result[1].tasksFailed).toBe(0);
+    expect(result[1].metadata).toEqual({
+      featureId: 'test-feature',
+      totalDurationMs: 5000,
+      tasksCompleted: 3,
+      tasksFailed: 0,
+    });
+  });
+
+  it('HydrateEventsFromStore_MixedEventTypes_MapsAllCorrectly', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        { type: 'workflow.started', timestamp: '2026-03-09T10:00:00.000Z', data: { featureId: 'test' } },
+        { type: 'workflow.transition', timestamp: '2026-03-09T10:01:00.000Z', data: { from: 'ideate', to: 'plan' } },
+        { type: 'team.spawned', timestamp: '2026-03-09T10:02:00.000Z', data: { featureId: 'test' } },
+        { type: 'task.completed', timestamp: '2026-03-09T10:03:00.000Z', data: { taskId: 't1' } },
+        { type: 'gate.executed', timestamp: '2026-03-09T10:04:00.000Z', data: { gateName: 'design', passed: true } },
+        { type: 'team.disbanded', timestamp: '2026-03-09T10:05:00.000Z', data: { totalDurationMs: 5000 } },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(6);
+    // workflow.started maps via mapExternalToInternalType (no explicit mapping, returns 'workflow.started')
+    expect(result[0].type).toBe('workflow.started');
+    // workflow.transition maps to 'transition'
+    expect(result[1].type).toBe('transition');
+    // team.spawned stays as-is
+    expect(result[2].type).toBe('team.spawned');
+    // task.completed stays as-is
+    expect(result[3].type).toBe('task.completed');
+    // gate.executed stays as-is
+    expect(result[4].type).toBe('gate.executed');
+    // team.disbanded stays as-is
+    expect(result[5].type).toBe('team.disbanded');
+
+    // Each event has its data fields at top level
+    expect(result[3].taskId).toBe('t1');
+    expect(result[4].gateName).toBe('design');
+    expect(result[5].totalDurationMs).toBe(5000);
+  });
+
+  it('HydrateEventsFromStore_EventStoreThrows_PropagatesError', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockRejectedValue(new Error('Connection lost')),
+    } as unknown as EventStore;
+
+    await expect(
+      hydrateEventsFromStore('test-feature', mockEventStore),
+    ).rejects.toThrow('Connection lost');
   });
 });
