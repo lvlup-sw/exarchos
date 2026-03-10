@@ -38,6 +38,7 @@ export const EventTypes = [
   'team.teammate.dispatched',
   'quality.regression',
   'workflow.cas-failed',
+  'review.completed',
   'review.routed',
   'review.finding',
   'review.escalated',
@@ -185,6 +186,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'team.disbanded': 'model',
   'team.task.planned': 'model',
   'team.teammate.dispatched': 'model',
+  'review.completed': 'model',
   'review.routed': 'model',
   'review.finding': 'model',
   'review.escalated': 'model',
@@ -434,6 +436,13 @@ export const ReviewEscalatedData = z.object({
   reason: z.string().describe('Why the review was escalated'),
   originalScore: z.number().min(0).max(1).describe('Risk score before escalation'),
   triggeringFinding: z.string().describe('The finding that triggered escalation'),
+});
+
+export const ReviewCompletedData = z.object({
+  stage: z.enum(['spec-review', 'quality-review', 'security-review']).describe('Review stage that completed'),
+  verdict: z.enum(['pass', 'fail', 'conditional']).describe('Review verdict: pass, fail, or conditional'),
+  findingsCount: z.number().int().nonnegative().describe('Number of findings from the review'),
+  summary: z.string().describe('Human-readable summary of review results'),
 });
 
 // ─── Telemetry Event Data ──────────────────────────────────────────────────
@@ -771,6 +780,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'quality.refinement.suggested': RefinementSuggestedDataSchema,
 
   // Review
+  'review.completed': ReviewCompletedData,
   'review.routed': ReviewRoutedData,
   'review.finding': ReviewFindingData,
   'review.escalated': ReviewEscalatedData,
@@ -841,6 +851,7 @@ export type TeamDisbanded = z.infer<typeof TeamDisbandedData>;
 export type TeamTaskPlanned = z.infer<typeof TeamTaskPlannedData>;
 export type TeamTeammateDispatched = z.infer<typeof TeamTeammateDispatchedData>;
 export type QualityRegression = z.infer<typeof QualityRegressionData>;
+export type ReviewCompleted = z.infer<typeof ReviewCompletedData>;
 export type ReviewRouted = z.infer<typeof ReviewRoutedData>;
 export type ReviewFinding = z.infer<typeof ReviewFindingData>;
 export type ReviewEscalated = z.infer<typeof ReviewEscalatedData>;
@@ -903,6 +914,7 @@ export type EventDataMap = {
   'team.teammate.dispatched': TeamTeammateDispatched;
   'quality.regression': QualityRegression;
   'workflow.cas-failed': WorkflowCasFailed;
+  'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;
   'review.finding': ReviewFinding;
   'review.escalated': ReviewEscalated;

@@ -105,7 +105,7 @@ function readyDelegationReadiness(): DelegationReadinessState {
 function notReadyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: false,
-    blockers: ['plan not approved', 'no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation', 'quality signals not queried'],
+    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation', 'quality signals not queried'],
     plan: { approved: false, taskCount: 0 },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },

@@ -446,7 +446,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(58);
+    expect(EventTypes).toHaveLength(59);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -1905,5 +1905,45 @@ describe('Model-emitted event schema descriptions', () => {
     }
 
     expect(issues).toEqual([]);
+  });
+});
+
+// ─── DR-6: review.completed event type ──────────────────────────────────────
+
+describe('review.completed event type', () => {
+  it('EventTypes_ContainsReviewCompleted', () => {
+    expect(EventTypes).toContain('review.completed');
+  });
+
+  it('ReviewCompletedSchema_ValidData_Passes', async () => {
+    const schemas = await import('./schemas.js');
+    const ReviewCompletedData = (schemas as Record<string, z.ZodSchema>)['ReviewCompletedData'];
+    expect(ReviewCompletedData).toBeDefined();
+    const result = ReviewCompletedData.safeParse({
+      stage: 'spec-review',
+      verdict: 'pass',
+      findingsCount: 0,
+      summary: 'All checks passed',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('ReviewCompletedSchema_InvalidVerdict_Fails', async () => {
+    const schemas = await import('./schemas.js');
+    const ReviewCompletedData = (schemas as Record<string, z.ZodSchema>)['ReviewCompletedData'];
+    expect(ReviewCompletedData).toBeDefined();
+    const result = ReviewCompletedData.safeParse({
+      stage: 'spec-review',
+      verdict: 'maybe',
+      findingsCount: 0,
+      summary: 'All checks passed',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventEmissionRegistry_ReviewCompleted_IsModelSource', () => {
+    expect(
+      (EVENT_EMISSION_REGISTRY as Record<string, string>)['review.completed'],
+    ).toBe('model');
   });
 });

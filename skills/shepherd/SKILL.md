@@ -224,6 +224,13 @@ Consult these references for detailed guidance:
 - `references/gate-event-emission.md` — Event format for `gate.executed` (now emitted by `assess_stack`)
 - `references/shepherd-event-schemas.md` — Full Zod-aligned schemas for all four shepherd lifecycle events
 
+### Decision Runbooks
+
+When iteration limits are reached or CI repeatedly fails, consult the escalation runbook:
+`exarchos_orchestrate({ action: "runbook", id: "shepherd-escalation" })`
+
+This runbook provides structured criteria for deciding whether to keep iterating, escalate to the user, or abort the shepherd loop based on iteration count, CI stability, and review status.
+
 ## Anti-Patterns
 
 | Don't | Do Instead |
