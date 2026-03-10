@@ -8,7 +8,7 @@ import {
   configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from './tools.js';
-import { readStateFile } from './state-store.js';
+
 import { EventStore } from '../event-store/store.js';
 import { configureQueryEventStore } from './query.js';
 import { configureNextActionEventStore } from './next-action.js';
@@ -345,14 +345,13 @@ describe('handleSet_UnifiedHydration', () => {
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     const events = raw._events as Array<Record<string, unknown>>;
 
-    // Find the team.disbanded event
+    // Find the team.disbanded event — assert it exists
     const disbanded = events?.find((e) => e.type === 'team.disbanded');
-    if (disbanded) {
-      // All data fields must be at top level (not just from/to/trigger)
-      expect(disbanded.totalDurationMs).toBe(5000);
-      expect(disbanded.tasksCompleted).toBe(1);
-      expect(disbanded.tasksFailed).toBe(0);
-    }
+    expect(disbanded).toBeDefined();
+    // All data fields must be at top level (not just from/to/trigger)
+    expect(disbanded!.totalDurationMs).toBe(5000);
+    expect(disbanded!.tasksCompleted).toBe(1);
+    expect(disbanded!.tasksFailed).toBe(0);
   });
 
   it('HandleSet_PhaseTransition_DoesNotDoubleQuery', async () => {

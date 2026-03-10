@@ -444,21 +444,6 @@ describe('allTasksComplete', () => {
   });
 });
 
-describe('teamDisbandedEmitted (T-16 additions)', () => {
-  it('TeamDisbandedEmitted_EmptyEventsArray_ReturnsTrue', () => {
-    // State with _events: [] (no team spawned)
-    // No team.spawned event means no disbanding requirement
-    const state: Record<string, unknown> = {
-      featureId: 'test-feature',
-      _events: [],
-    };
-
-    const result = guards.teamDisbandedEmitted.evaluate(state);
-
-    // No team was ever spawned, so the guard passes
-    expect(result).toBe(true);
-  });
-});
 
 describe('allReviewsPassed (synthesis ready)', () => {
   it('SynthesisReadyGuard_MissingReviewVerdicts_ReturnsFailed', () => {

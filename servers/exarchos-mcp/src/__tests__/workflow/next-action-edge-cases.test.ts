@@ -237,13 +237,9 @@ describe('handleNextAction edge cases', () => {
 
       // Act & Assert: should throw StateStoreError with STATE_CORRUPT
       const { StateStoreError } = await import('../../workflow/state-store.js');
-      await expect(
-        handleNextAction({ featureId: 'unknown-phase' }, tmpDir),
-      ).rejects.toThrow(StateStoreError);
-
-      // Verify the error has the correct code
       try {
         await handleNextAction({ featureId: 'unknown-phase' }, tmpDir);
+        expect.fail('Expected StateStoreError to be thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(StateStoreError);
         expect((err as InstanceType<typeof StateStoreError>).code).toBe('STATE_CORRUPT');
