@@ -1,4 +1,33 @@
 /**
+ * A branch in a decision tree. Advisory — the agent reads and decides.
+ */
+export interface DecisionBranch {
+  /** Human-readable label for this branch (e.g., "yes", "no", ">= 3") */
+  readonly label: string;
+  /** What to do if this branch is chosen */
+  readonly guidance: string;
+  /** Optional: jump to a specific step by id */
+  readonly nextStep?: string;
+  /** Optional: escalate to human if this branch is chosen */
+  readonly escalate?: boolean;
+}
+
+/**
+ * A decision point in a decision runbook. Advisory-only — the platform
+ * provides structure, the agent makes the decision.
+ */
+export interface DecisionField {
+  /** The question to answer at this decision point */
+  readonly question: string;
+  /** Where to get the answer: state field, gate result, event count, or human */
+  readonly source: 'state-field' | 'gate-result' | 'event-count' | 'human';
+  /** State field path or gate name (when source is 'state-field' or 'gate-result') */
+  readonly field?: string;
+  /** Decision branches keyed by answer value */
+  readonly branches: Record<string, DecisionBranch>;
+}
+
+/**
  * A single step in a runbook sequence.
  * Tools prefixed with 'native:' (e.g., 'native:Task') represent Claude Code
  * native tools — their schemas are not resolved from the MCP registry.
@@ -14,6 +43,8 @@ export interface RunbookStep {
   readonly params?: Readonly<Record<string, unknown>>;
   /** Human-readable note for this step */
   readonly note?: string;
+  /** Decision point — advisory structure for the agent to follow */
+  readonly decide?: DecisionField;
 }
 
 /**
@@ -56,4 +87,6 @@ export interface ResolvedRunbookStep {
   readonly gate?: { readonly blocking: boolean; readonly dimension?: string } | null;
   /** Platform-specific hints for native steps that reference agent specs */
   readonly platformHint?: { readonly claudeCode: string; readonly generic: string };
+  /** Decision point — advisory structure for the agent to follow */
+  readonly decide?: DecisionField;
 }

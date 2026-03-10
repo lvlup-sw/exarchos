@@ -11,6 +11,8 @@ describe('Runbook drift detection', () => {
       for (const step of runbook.steps) {
         // Skip native tools — they are Claude Code native tools, not MCP tools
         if (step.tool.startsWith('native:')) continue;
+        // Skip decision steps — they are advisory-only, not MCP tool calls
+        if (step.tool === 'none') continue;
 
         const action = findActionInRegistry(step.tool, step.action);
         expect(
@@ -25,6 +27,7 @@ describe('Runbook drift detection', () => {
     for (const runbook of ALL_RUNBOOKS) {
       for (const step of runbook.steps) {
         if (step.tool.startsWith('native:')) continue;
+        if (step.tool === 'none') continue;
 
         const action = findActionInRegistry(step.tool, step.action);
         if (!action) continue; // covered by EveryStepReferencesValidRegistryAction

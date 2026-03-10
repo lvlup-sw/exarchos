@@ -52,4 +52,79 @@ describe('Runbook types', () => {
     expect(resolved.seq).toBe(1);
     expect(resolved.gate?.blocking).toBe(true);
   });
+
+  // ─── Decision Runbook Types ──────────────────────────────────────────
+
+  it('DecisionField_ValidBranches_TypeChecks', () => {
+    // Create a decision step that compiles correctly
+    const step: RunbookStep = {
+      tool: 'none',
+      action: 'decide',
+      onFail: 'stop' as const,
+      decide: {
+        question: 'Is the bug reproducible?',
+        source: 'human' as const,
+        branches: {
+          'yes': { label: 'Reproducible', guidance: 'Write failing test first.', nextStep: 'check-scope' },
+          'no': { label: 'Not reproducible', guidance: 'Investigate further.', escalate: true },
+        },
+      },
+    };
+    expect(step.decide?.question).toBe('Is the bug reproducible?');
+    expect(step.decide?.branches['yes'].nextStep).toBe('check-scope');
+    expect(step.decide?.branches['no'].escalate).toBe(true);
+  });
+
+  it('RunbookStep_WithoutDecide_StillValid', () => {
+    // Existing steps without decide should still compile
+    const step: RunbookStep = {
+      tool: 'exarchos_orchestrate',
+      action: 'check_tdd_compliance',
+      onFail: 'stop' as const,
+    };
+    expect(step.decide).toBeUndefined();
+  });
+
+  it('ResolvedRunbookStep_WithDecide_IncludesDecisionFields', () => {
+    const resolved: ResolvedRunbookStep = {
+      seq: 1,
+      tool: 'none',
+      action: 'decide',
+      onFail: 'stop' as const,
+      decide: {
+        question: 'Test question?',
+        source: 'human' as const,
+        branches: {
+          'yes': { label: 'Yes', guidance: 'Do this.' },
+        },
+      },
+    };
+    expect(resolved.decide?.question).toBe('Test question?');
+  });
+
+  it('RunbookDefinition_WithDecisionSteps_IsValid', () => {
+    const definition: RunbookDefinition = {
+      id: 'test-decision',
+      phase: 'test',
+      description: 'Test decision runbook',
+      steps: [
+        {
+          tool: 'none',
+          action: 'decide',
+          onFail: 'stop' as const,
+          decide: {
+            question: 'Choose a path?',
+            source: 'human' as const,
+            branches: {
+              'a': { label: 'Path A', guidance: 'Go here.' },
+              'b': { label: 'Path B', guidance: 'Go there.', escalate: true },
+            },
+          },
+        },
+      ],
+      templateVars: [],
+      autoEmits: [],
+    };
+    expect(definition.steps[0].decide?.branches['b'].escalate).toBe(true);
+  });
 });

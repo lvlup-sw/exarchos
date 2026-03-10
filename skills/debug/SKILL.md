@@ -94,6 +94,16 @@ Activate this skill when:
 | Review | Smoke test only | Spec review |
 | Human Checkpoints | 1 (merge) | 1 (merge) |
 
+### Decision Runbooks
+
+For track-selection criteria at the triage phase, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "triage-decision" })`
+
+For investigation escalation criteria, query:
+`exarchos_orchestrate({ action: "runbook", id: "investigation-decision" })`
+
+These runbooks encode the structured decision trees for track selection. The agent reads the decision tree and follows the guidance — the platform does not execute branches.
+
 ## Hotfix Track
 
 Fix production issues ASAP. Speed over ceremony.

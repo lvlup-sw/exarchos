@@ -125,6 +125,270 @@ export const TASK_FIX: RunbookDefinition = {
   autoEmits: ['gate.executed', 'task.completed'],
 };
 
+export const TRIAGE_DECISION: RunbookDefinition = {
+  id: 'triage-decision',
+  phase: 'triage',
+  description: 'Decide between hotfix and thorough investigation tracks based on reproducibility and scope.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Is the bug reproducible with a specific test case?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Reproducible', guidance: 'Write the failing test first, then proceed to scope check. A reproducible bug with a test is the ideal starting point for hotfix.', nextStep: 'check-scope' },
+          'no': { label: 'Not reproducible', guidance: 'Add logging and check error patterns. Intermittent bugs require thorough investigation — do not attempt hotfix.', nextStep: 'thorough-track' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-scope',
+      decide: {
+        question: 'Does the fix touch more than 3 files or cross module boundaries?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Large scope', guidance: 'Switch to thorough track — cross-module fixes need RCA to avoid incomplete patches.' },
+          'no': { label: 'Small scope', guidance: 'Proceed with hotfix track. Apply minimal targeted fix within 15-minute time limit.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'thorough-track',
+      decide: {
+        question: 'Has 15 minutes elapsed without identifying the root cause?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Time exceeded', guidance: 'Escalate to user — the bug may require domain expertise or access to systems you cannot inspect.', escalate: true },
+          'no': { label: 'Still investigating', guidance: 'Continue investigation. Document hypotheses tested and their results for the RCA document.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const INVESTIGATION_DECISION: RunbookDefinition = {
+  id: 'investigation-decision',
+  phase: 'investigate',
+  description: 'Decide when to escalate investigation to full RCA based on complexity signals.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'How many hypotheses have been tested without finding root cause?',
+        source: 'event-count',
+        field: 'investigation.hypothesesTested',
+        branches: {
+          '< 3': { label: 'Few hypotheses', guidance: 'Continue investigating. Systematically eliminate possibilities — check logs, add breakpoints, trace data flow.' },
+          '>= 3': { label: 'Many hypotheses', guidance: 'Pattern suggests deeper issue. Transition to formal RCA with structured 5-whys analysis.', nextStep: 'check-cross-module' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-cross-module',
+      decide: {
+        question: 'Does the bug involve interactions between multiple subsystems?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Cross-module', guidance: 'Escalate to user — cross-module bugs often require architectural context the agent lacks.', escalate: true },
+          'no': { label: 'Single module', guidance: 'Proceed with RCA within the module. Focus the 5-whys on the module boundary.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const SCOPE_DECISION: RunbookDefinition = {
+  id: 'scope-decision',
+  phase: 'explore',
+  description: 'Decide between polish and overhaul refactoring tracks based on scope assessment.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'How many files does the refactoring touch?',
+        source: 'state-field',
+        field: 'exploration.fileCount',
+        branches: {
+          '<= 5': { label: 'Small scope', guidance: 'Polish track is appropriate. Focus on DRY, naming, and small structural improvements within the affected files.', nextStep: 'check-structural' },
+          '> 5': { label: 'Large scope', guidance: 'Overhaul track recommended. Create a formal plan with parallelizable tasks and dependency analysis.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-structural',
+      decide: {
+        question: 'Does the change alter module boundaries, public APIs, or data flow?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Structural change', guidance: 'Override to overhaul track — structural changes need planning even if file count is low.' },
+          'no': { label: 'Cosmetic change', guidance: 'Confirm polish track. Implement changes directly without formal planning phase.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Does the refactoring scope exceed what can ship in a single PR?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Multi-PR scope', guidance: 'Escalate to user — discuss phasing the refactor across multiple PRs with clear milestones.', escalate: true },
+          'no': { label: 'Single PR scope', guidance: 'Proceed with selected track. The entire refactor ships as one PR.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const DISPATCH_DECISION: RunbookDefinition = {
+  id: 'dispatch-decision',
+  phase: 'delegate',
+  description: 'Decide dispatch strategy: parallel vs sequential, team sizing, and isolation mode.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Do any tasks modify the same files or share module boundaries?',
+        source: 'state-field',
+        field: 'tasks[].modules',
+        branches: {
+          'yes': { label: 'File overlap', guidance: 'Sequence overlapping tasks. Only parallelize tasks with zero file overlap to avoid merge conflicts in worktrees.' },
+          'no': { label: 'Independent tasks', guidance: 'Full parallel dispatch is safe. Create one worktree per task for maximum throughput.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'How many independent tasks are there?',
+        source: 'state-field',
+        field: 'tasks.length',
+        branches: {
+          '<= 3': { label: 'Small team', guidance: 'Use subagent dispatch with run_in_background. Simple orchestration, no team coordination overhead.' },
+          '> 3': { label: 'Large team', guidance: 'Consider agent-team mode if tmux is available. Otherwise batch subagents in groups of 3-4 to manage context.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Has the same task failed 3 or more times?',
+        source: 'event-count',
+        field: 'task.failed',
+        branches: {
+          'yes': { label: 'Repeated failure', guidance: 'Escalate to user — repeated failures suggest a design issue, missing dependency, or environment problem that the agent cannot resolve alone.', escalate: true },
+          'no': { label: 'Normal progress', guidance: 'Continue dispatch. For failed tasks, use the fixer agent with adversarial verification posture.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const REVIEW_ESCALATION: RunbookDefinition = {
+  id: 'review-escalation',
+  phase: 'review',
+  description: 'Decide review outcome: pass to synthesis, route to fix cycle, or block for redesign.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Are there any HIGH severity findings?',
+        source: 'gate-result',
+        field: 'review.highFindings',
+        branches: {
+          'yes': { label: 'High findings', guidance: 'Check if findings indicate design-level issues. If so, route to BLOCKED for redesign. If implementation-only, route to fix cycle.', nextStep: 'check-design-alignment' },
+          'no': { label: 'No high findings', guidance: 'Check medium findings and fix cycle count to determine pass vs minor fixes.', nextStep: 'check-fix-cycles' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-design-alignment',
+      decide: {
+        question: 'Do the findings indicate a gap in the design specification?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Design gap', guidance: 'Verdict: BLOCKED. The implementation cannot converge without design changes. Route back to ideate phase.', escalate: true },
+          'no': { label: 'Implementation issue', guidance: 'Verdict: NEEDS_FIXES. Route to delegation with --fixes flag. Include specific findings in the fix task descriptions.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-fix-cycles',
+      decide: {
+        question: 'How many fix cycles have already been attempted?',
+        source: 'event-count',
+        field: 'workflow.fix-cycle',
+        branches: {
+          '0': { label: 'First review', guidance: 'If medium findings exist, route to fix cycle. If only low findings, consider APPROVED with advisory notes.' },
+          '1-2': { label: 'Fix cycles attempted', guidance: 'Findings should be decreasing. If the same finding reappears, escalate — the fix approach may be wrong.' },
+          '>= 3': { label: 'Many fix cycles', guidance: 'Escalate to user — the review-fix loop is not converging. May need design revision or manual intervention.', escalate: true },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const SHEPHERD_ESCALATION: RunbookDefinition = {
+  id: 'shepherd-escalation',
+  phase: 'synthesize',
+  description: 'Decide whether to continue shepherd iterations or escalate to user.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'How many shepherd iterations have been completed?',
+        source: 'event-count',
+        field: 'shepherd.iteration',
+        branches: {
+          '<= 3': { label: 'Early iterations', guidance: 'Continue iterating. Fix CI failures, address review comments, and re-push. Most PRs converge within 3 iterations.' },
+          '> 3': { label: 'Many iterations', guidance: 'Check if CI failures are stable or flaky. If the same failure repeats, escalate rather than retry.', nextStep: 'check-ci-stability' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'check-ci-stability',
+      decide: {
+        question: 'Is the CI failure the same as in the previous iteration?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Same failure', guidance: 'Escalate to user — repeated identical CI failure suggests an environment issue, flaky test, or infrastructure problem the agent cannot fix.', escalate: true },
+          'no': { label: 'Different failure', guidance: 'New failure type — one more iteration is warranted. If this also fails, escalate regardless.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Are all review comments addressed and CI passing?',
+        source: 'gate-result',
+        field: 'shepherd.allGreen',
+        branches: {
+          'yes': { label: 'All green', guidance: 'PR is ready. Request approval or enable auto-merge. No further shepherd iterations needed.' },
+          'no': { label: 'Outstanding items', guidance: 'Continue iterating on remaining items. Prioritize CI fixes over review comments — a red CI blocks everything.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -132,4 +396,10 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   SYNTHESIS_FLOW,
   SHEPHERD_ITERATION,
   TASK_FIX,
+  TRIAGE_DECISION,
+  INVESTIGATION_DECISION,
+  SCOPE_DECISION,
+  DISPATCH_DECISION,
+  REVIEW_ESCALATION,
+  SHEPHERD_ESCALATION,
 ];

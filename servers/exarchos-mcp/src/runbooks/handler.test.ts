@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { handleRunbook } from './handler.js';
 import { ALL_RUNBOOKS } from './definitions.js';
 import type { ResolvedRunbookStep } from './types.js';
@@ -180,5 +180,54 @@ describe('handleRunbook', () => {
       expect(step.tool.startsWith('native:')).toBe(false);
       expect(step.platformHint).toBeUndefined();
     }
+  });
+
+  // ─── Decision Runbook Serving ──────────────────────────────────────────
+
+  it('handleRunbook_DecisionRunbook_ReturnsDecideFields', async () => {
+    const result = await handleRunbook({ id: 'triage-decision' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ decide?: { question: string; branches: Record<string, unknown> } }>;
+    };
+    const decideSteps = data.steps.filter((s) => s.decide);
+    expect(decideSteps.length).toBeGreaterThanOrEqual(2);
+    for (const step of decideSteps) {
+      expect(step.decide!.question).toBeTruthy();
+      expect(step.decide!.branches).toBeTruthy();
+    }
+  });
+
+  it('handleRunbook_DecisionRunbook_NoSchemaForNoneSteps', async () => {
+    const result = await handleRunbook({ id: 'triage-decision' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ tool: string; schema: unknown }>;
+    };
+    const noneSteps = data.steps.filter((step) => step.tool === 'none');
+    expect(noneSteps.length).toBeGreaterThan(0);
+    for (const step of noneSteps) {
+      expect(step.schema).toBeNull();
+    }
+  });
+
+  it('handleRunbook_LinearRunbook_UnchangedResponse', async () => {
+    const result = await handleRunbook({ id: 'task-completion' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ decide?: unknown }>;
+    };
+    // Linear runbooks should have NO decide fields
+    for (const step of data.steps) {
+      expect(step.decide).toBeUndefined();
+    }
+  });
+
+  it('handleRunbook_ListMode_IncludesDecisionRunbooks', async () => {
+    const result = await handleRunbook({});
+    expect(result.success).toBe(true);
+    const ids = (result.data as Array<{ id: string }>).map((r) => r.id);
+    expect(ids).toContain('triage-decision');
+    expect(ids).toContain('review-escalation');
   });
 });

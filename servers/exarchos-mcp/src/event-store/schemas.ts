@@ -249,11 +249,11 @@ export const WorkflowStartedData = z.object({
 });
 
 export const TaskAssignedData = z.object({
-  taskId: z.string(),
-  title: z.string(),
-  branch: z.string().optional(),
-  worktree: z.string().optional(),
-  assignee: z.string().optional(),
+  taskId: z.string().describe('Unique identifier for the task'),
+  title: z.string().describe('Human-readable task title'),
+  branch: z.string().optional().describe('Git branch for this task'),
+  worktree: z.string().optional().describe('Path to the git worktree for isolation'),
+  assignee: z.string().optional().describe('Agent or user assigned to this task'),
 });
 
 // ─── Task-Level Event Data ──────────────────────────────────────────────────
@@ -265,9 +265,9 @@ export const TaskClaimedData = z.object({
 });
 
 export const TaskProgressedData = z.object({
-  taskId: z.string(),
-  tddPhase: z.enum(['red', 'green', 'refactor']),
-  detail: z.string().max(500).optional(),
+  taskId: z.string().describe('Task being progressed'),
+  tddPhase: z.enum(['red', 'green', 'refactor']).describe('Current TDD phase: red, green, or refactor'),
+  detail: z.string().max(500).optional().describe('Optional detail about the progress step'),
 });
 
 export const TaskCompletedData = z.object({
@@ -411,29 +411,29 @@ export const WorkflowCasFailedData = z.object({
 // ─── Review Event Data ─────────────────────────────────────────────────────
 
 export const ReviewRoutedData = z.object({
-  pr: z.number().int(),
-  riskScore: z.number(),
-  factors: z.array(z.string()),
-  destination: z.enum(['coderabbit', 'self-hosted', 'both']),
-  velocityTier: z.enum(['normal', 'elevated', 'high']),
-  semanticAugmented: z.boolean(),
+  pr: z.number().int().describe('Pull request number'),
+  riskScore: z.number().min(0).max(1).describe('Computed risk score (0-1) for review routing'),
+  factors: z.array(z.string()).describe('Risk factors that contributed to the score'),
+  destination: z.enum(['coderabbit', 'self-hosted', 'both']).describe('Where the review was routed'),
+  velocityTier: z.enum(['normal', 'elevated', 'high']).describe('Current review velocity tier'),
+  semanticAugmented: z.boolean().describe('Whether semantic analysis augmented the routing'),
 });
 
 export const ReviewFindingData = z.object({
-  pr: z.number().int(),
-  source: z.enum(['coderabbit', 'self-hosted']),
-  severity: z.enum(['critical', 'major', 'minor', 'suggestion']),
-  filePath: z.string(),
-  lineRange: z.tuple([z.number().int(), z.number().int()]).optional(),
-  message: z.string(),
-  rule: z.string().optional(),
+  pr: z.number().int().describe('Pull request where finding was detected'),
+  source: z.enum(['coderabbit', 'self-hosted']).describe('Review tool that produced the finding'),
+  severity: z.enum(['critical', 'major', 'minor', 'suggestion']).describe('Finding severity level'),
+  filePath: z.string().describe('File path where the finding was detected'),
+  lineRange: z.tuple([z.number().int(), z.number().int()]).optional().describe('Start and end line numbers of the finding'),
+  message: z.string().describe('Description of the review finding'),
+  rule: z.string().optional().describe('Lint or analysis rule that triggered the finding'),
 });
 
 export const ReviewEscalatedData = z.object({
-  pr: z.number().int(),
-  reason: z.string(),
-  originalScore: z.number(),
-  triggeringFinding: z.string(),
+  pr: z.number().int().describe('Pull request being escalated'),
+  reason: z.string().describe('Why the review was escalated'),
+  originalScore: z.number().min(0).max(1).describe('Risk score before escalation'),
+  triggeringFinding: z.string().describe('The finding that triggered escalation'),
 });
 
 // ─── Telemetry Event Data ──────────────────────────────────────────────────
@@ -473,64 +473,64 @@ export const BenchmarkCompletedData = z.object({
 // ─── Team Event Data ────────────────────────────────────────────────────────
 
 export const TeamSpawnedData = z.object({
-  teamSize: z.number().int(),
-  teammateNames: z.array(z.string()),
-  taskCount: z.number().int(),
-  dispatchMode: z.string(),
+  teamSize: z.number().int().nonnegative().describe('Number of agents spawned in this team'),
+  teammateNames: z.array(z.string()).describe('Names assigned to each teammate agent'),
+  taskCount: z.number().int().nonnegative().describe('Number of tasks to distribute across the team'),
+  dispatchMode: z.string().describe('Dispatch mechanism: subagent or agent-team'),
 });
 
 export const TeamTaskAssignedData = z.object({
-  taskId: z.string(),
-  teammateName: z.string(),
-  worktreePath: z.string(),
-  modules: z.array(z.string()),
+  taskId: z.string().describe('Task assigned to this teammate'),
+  teammateName: z.string().describe('Name of the teammate receiving the task'),
+  worktreePath: z.string().describe('Absolute path to the teammate worktree'),
+  modules: z.array(z.string()).describe('Module paths this task is scoped to'),
 });
 
 export const TeamTaskCompletedData = z.object({
-  taskId: z.string(),
-  teammateName: z.string(),
-  durationMs: z.number(),
-  filesChanged: z.array(z.string()),
-  testsPassed: z.boolean(),
-  qualityGateResults: z.record(z.string(), z.unknown()),
+  taskId: z.string().describe('Task that was completed'),
+  teammateName: z.string().describe('Teammate who completed the task'),
+  durationMs: z.number().nonnegative().describe('Wall-clock time in milliseconds'),
+  filesChanged: z.array(z.string()).describe('Paths of files modified by this task'),
+  testsPassed: z.boolean().describe('Whether all tests passed after implementation'),
+  qualityGateResults: z.record(z.string(), z.unknown()).describe('Per-gate pass/fail results from quality checks'),
 });
 
 export const TeamTaskFailedData = z.object({
-  taskId: z.string(),
-  teammateName: z.string(),
-  failureReason: z.string(),
-  gateResults: z.record(z.string(), z.unknown()),
+  taskId: z.string().describe('Task that failed'),
+  teammateName: z.string().describe('Teammate whose task failed'),
+  failureReason: z.string().describe('Root cause or error message for the failure'),
+  gateResults: z.record(z.string(), z.unknown()).describe('Gate results at time of failure'),
 });
 
 export const TeamDisbandedData = z.object({
-  totalDurationMs: z.number(),
-  tasksCompleted: z.number().int(),
-  tasksFailed: z.number().int(),
+  totalDurationMs: z.number().nonnegative().describe('Total wall-clock time for the team'),
+  tasksCompleted: z.number().int().nonnegative().describe('Number of tasks successfully completed'),
+  tasksFailed: z.number().int().nonnegative().describe('Number of tasks that failed'),
 });
 
 export const TeamTaskPlannedData = z.object({
-  taskId: z.string(),
-  title: z.string(),
-  modules: z.array(z.string()),
-  blockedBy: z.array(z.string()),
+  taskId: z.string().describe('Planned task identifier'),
+  title: z.string().describe('Human-readable task title'),
+  modules: z.array(z.string()).describe('Module paths this task will modify'),
+  blockedBy: z.array(z.string()).describe('Task IDs that must complete before this task'),
 });
 
 export const TeamTeammateDispatchedData = z.object({
-  teammateName: z.string(),
-  worktreePath: z.string(),
-  assignedTaskIds: z.array(z.string()),
-  model: z.string(),
+  teammateName: z.string().describe('Name of the dispatched teammate'),
+  worktreePath: z.string().describe('Absolute path to the teammate worktree'),
+  assignedTaskIds: z.array(z.string()).describe('Task IDs assigned to this teammate'),
+  model: z.string().describe('LLM model used for this teammate'),
 });
 
 // ─── Quality Regression Event Data ──────────────────────────────────────────
 
 export const QualityRegressionData = z.object({
-  skill: z.string(),
-  gate: z.string(),
-  consecutiveFailures: z.number().int().nonnegative(),
-  firstFailureCommit: z.string(),
-  lastFailureCommit: z.string(),
-  detectedAt: z.string().datetime(),
+  skill: z.string().describe('Skill where regression was detected'),
+  gate: z.string().describe('Gate that started failing'),
+  consecutiveFailures: z.number().int().nonnegative().describe('Number of consecutive gate failures'),
+  firstFailureCommit: z.string().describe('Git commit SHA of the first failure'),
+  lastFailureCommit: z.string().describe('Git commit SHA of the most recent failure'),
+  detectedAt: z.string().datetime().describe('ISO timestamp when the regression was detected'),
 });
 
 // ─── Quality Hint Event Data ─────────────────────────────────────────────
@@ -569,10 +569,10 @@ export const ShepherdStartedData = z.object({
 });
 
 export const ShepherdIterationData = z.object({
-  iteration: z.number().int().nonnegative(),
-  prsAssessed: z.number().int().nonnegative(),
-  fixesApplied: z.number().int().nonnegative(),
-  status: z.string(),
+  iteration: z.number().int().nonnegative().describe('Iteration number in the shepherd loop'),
+  prsAssessed: z.number().int().nonnegative().describe('Number of PRs assessed in this iteration'),
+  fixesApplied: z.number().int().nonnegative().describe('Number of fixes applied during this iteration'),
+  status: z.string().describe('Current shepherd status summary'),
 });
 
 export const ShepherdApprovalRequestedData = z.object({
@@ -640,79 +640,79 @@ export const JudgeCalibratedDataSchema = z.object({
 // ─── Remediation Event Data ─────────────────────────────────────────────────
 
 export const RemediationAttemptedDataSchema = z.object({
-  taskId: z.string().min(1),
-  skill: z.string().min(1),
-  gateName: z.string().min(1),
-  attemptNumber: z.number().int().min(1),
-  strategy: z.string(),
+  taskId: z.string().min(1).describe('Task being remediated'),
+  skill: z.string().min(1).describe('Skill context for the remediation'),
+  gateName: z.string().min(1).describe('Gate that failed and triggered remediation'),
+  attemptNumber: z.number().int().min(1).describe('Sequential attempt number (1-based)'),
+  strategy: z.string().describe('Remediation strategy being applied'),
 });
 
 export const RemediationSucceededDataSchema = z.object({
-  taskId: z.string().min(1),
-  skill: z.string().min(1),
-  gateName: z.string().min(1),
-  totalAttempts: z.number().int().min(1),
-  finalStrategy: z.string(),
+  taskId: z.string().min(1).describe('Task that was successfully remediated'),
+  skill: z.string().min(1).describe('Skill context for the remediation'),
+  gateName: z.string().min(1).describe('Gate that now passes after remediation'),
+  totalAttempts: z.number().int().min(1).describe('Total attempts before success'),
+  finalStrategy: z.string().describe('Strategy that ultimately succeeded'),
 });
 
 export const SessionTaggedData = z.object({
-  tag: z.string().min(1).max(100),
-  sessionId: z.string().min(1),
-  description: z.string().max(500).optional(),
-  branch: z.string().optional(),
+  tag: z.string().min(1).max(100).describe('Tag label for the session (e.g., feature name)'),
+  sessionId: z.string().min(1).describe('Claude Code session identifier'),
+  description: z.string().max(500).optional().describe('Optional description of what the session covers'),
+  branch: z.string().optional().describe('Git branch associated with this session'),
 });
 
 // ─── Readiness Event Data ───────────────────────────────────────────────────
 
 export const WorktreeCreatedData = z.object({
-  taskId: z.string(),
-  path: z.string(),
-  branch: z.string(),
+  taskId: z.string().describe('Task this worktree was created for'),
+  path: z.string().describe('Absolute filesystem path to the worktree'),
+  branch: z.string().describe('Git branch checked out in the worktree'),
 });
 
 export const WorktreeBaselineData = z.object({
-  taskId: z.string(),
-  path: z.string(),
-  status: z.enum(['passed', 'failed', 'skipped']),
-  output: z.string().optional(),
+  taskId: z.string().describe('Task whose worktree was baselined'),
+  path: z.string().describe('Absolute filesystem path to the worktree'),
+  status: z.enum(['passed', 'failed', 'skipped']).describe('Baseline test result: passed, failed, or skipped'),
+  output: z.string().optional().describe('Test runner output from the baseline run'),
 });
 
 export const TestResultData = z.object({
-  passed: z.boolean(),
-  passCount: z.number().int().nonnegative(),
-  failCount: z.number().int().nonnegative(),
-  coveragePercent: z.number().optional(),
-  output: z.string().optional(),
+  passed: z.boolean().describe('Whether the overall test suite passed'),
+  passCount: z.number().int().nonnegative().describe('Number of passing tests'),
+  failCount: z.number().int().nonnegative().describe('Number of failing tests'),
+  coveragePercent: z.number().min(0).max(100).optional().describe('Code coverage percentage (0-100)'),
+  output: z.string().optional().describe('Raw test runner output'),
 });
 
 export const TypecheckResultData = z.object({
-  passed: z.boolean(),
-  errorCount: z.number().int().nonnegative(),
-  errors: z.array(z.string()).optional(),
+  passed: z.boolean().describe('Whether TypeScript compilation succeeded'),
+  errorCount: z.number().int().nonnegative().describe('Number of type errors found'),
+  errors: z.array(z.string()).optional().describe('Individual type error messages'),
 });
 
 export const StackSubmittedData = z.object({
-  branches: z.array(z.string()),
-  prNumbers: z.array(z.number().int()),
+  branches: z.array(z.string()).describe('Branch names in the submitted stack'),
+  prNumbers: z.array(z.number().int()).describe('PR numbers created for the stack'),
 });
 
 export const CiStatusData = z.object({
-  pr: z.number().int(),
-  status: z.enum(['passing', 'failing', 'pending']),
-  jobUrl: z.string().optional(),
+  pr: z.number().int().describe('Pull request number'),
+  status: z.enum(['passing', 'failing', 'pending']).describe('Current CI pipeline status'),
+  jobUrl: z.string().optional().describe('URL to the CI job for inspection'),
 });
 
 export const CommentPostedData = z.object({
-  pr: z.number().int(),
-  commentId: z.string(),
-  body: z.string(),
-  inReplyTo: z.string().optional(),
+  pr: z.number().int().describe('Pull request where comment was posted'),
+  commentId: z.string().describe('GitHub comment identifier'),
+  body: z.string().describe('Comment body text'),
+  inReplyTo: z.string().optional().describe('Parent comment ID if this is a reply'),
 });
 
 export const CommentResolvedData = z.object({
-  pr: z.number().int(),
-  threadId: z.string(),
-  resolvedBy: z.enum(['author', 'outdated', 'manual']),
+  pr: z.number().int().describe('Pull request where thread was resolved'),
+  threadId: z.string().describe('GitHub review thread identifier'),
+  resolvedBy: z.enum(['author', 'outdated', 'manual']).describe('How the thread was resolved'),
 });
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────

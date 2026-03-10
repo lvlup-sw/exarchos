@@ -59,12 +59,13 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
   for (let index = 0; index < runbook.steps.length; index++) {
     const step = runbook.steps[index];
     const isNative = step.tool.startsWith('native:');
+    const isDecision = step.tool === 'none';
 
     let schema: unknown = null;
     let description: string | undefined;
     let gate: { readonly blocking: boolean; readonly dimension?: string } | null = null;
 
-    if (!isNative) {
+    if (!isNative && !isDecision) {
       const action = findActionInRegistry(step.tool, step.action);
       if (action) {
         schema = zodToJsonSchema(action.schema);
@@ -79,6 +80,10 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
           },
         };
       }
+    }
+
+    if (isDecision) {
+      description = step.decide?.question;
     }
 
     const agentName = isNative
@@ -103,6 +108,7 @@ export async function handleRunbook(args: RunbookArgs): Promise<ToolResult> {
             },
           }
         : {}),
+      ...(step.decide !== undefined ? { decide: step.decide } : {}),
     });
   }
 

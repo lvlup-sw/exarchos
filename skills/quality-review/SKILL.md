@@ -281,11 +281,18 @@ for orchestrate action schemas.
 - [ ] Code is maintainable
 - [ ] State file updated with review results
 
+### Decision Runbooks
+
+For review verdict routing, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`
+
+This runbook provides structured criteria for routing between APPROVED and NEEDS_FIXES verdicts based on finding severity and fix cycle count. APPROVED transitions to synthesize; NEEDS_FIXES transitions back to delegate for a fix cycle. (BLOCKED routing is only relevant in plan-review, not here.)
+
 ## Convergence & Verdict
 
 Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.
 
-Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED/NEEDS_FIXES/BLOCKED.
+Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED or NEEDS_FIXES.
 
 ## Auto-Transition
 
@@ -310,12 +317,6 @@ exarchos_workflow({ action: "set", featureId: "<id>", updates: {
 }})
 ```
 Then invoke `/exarchos:delegate --fixes`.
-
-**BLOCKED:**
-```
-exarchos_workflow({ action: "set", featureId: "<id>", phase: "blocked" })
-```
-Then invoke `/exarchos:ideate --redesign`.
 
 > **Gate events:** Do NOT manually emit `gate.executed` events via `exarchos_event`. Gate events are automatically emitted by the `check_review_verdict` orchestrate handler. Manual emission causes duplicates.
 

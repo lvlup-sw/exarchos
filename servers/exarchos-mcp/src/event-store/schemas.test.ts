@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { describe, it, expect, afterEach } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -1838,5 +1839,71 @@ describe('serializeEventCatalog', () => {
   it('SerializeEventCatalog_TotalCount_MatchesTypeCount', () => {
     const catalog = serializeEventCatalog();
     expect(catalog.totalCount).toBe(Object.keys(catalog.types).length);
+  });
+});
+
+// ─── Task 005/006: Model-emitted event schema description drift tests ────────
+
+describe('Model-emitted event schema descriptions', () => {
+  // Get all model-emitted event types
+  const modelEmittedTypes = Object.entries(EVENT_EMISSION_REGISTRY)
+    .filter(([, source]) => source === 'model')
+    .map(([type]) => type);
+
+  /** Narrowing helper for JSON Schema property objects. */
+  interface JsonSchemaProperty {
+    properties?: Record<string, { description?: string }>;
+  }
+
+  function isJsonSchemaWithProperties(
+    value: unknown,
+  ): value is Required<JsonSchemaProperty> {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'properties' in value &&
+      typeof (value as JsonSchemaProperty).properties === 'object'
+    );
+  }
+
+  it('modelEmittedEventSchemas_AllFields_HaveDescriptions', () => {
+    const missing: string[] = [];
+
+    for (const eventType of modelEmittedTypes) {
+      const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
+      if (!schema) continue; // skip types without schemas
+
+      const jsonSchema: unknown = zodToJsonSchema(schema as z.ZodSchema);
+      if (!isJsonSchemaWithProperties(jsonSchema)) continue;
+
+      for (const [field, fieldSchema] of Object.entries(jsonSchema.properties)) {
+        if (!fieldSchema.description) {
+          missing.push(`${eventType}.${field}`);
+        }
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  it('modelEmittedEventSchemas_Descriptions_AreReasonableLength', () => {
+    const issues: string[] = [];
+
+    for (const eventType of modelEmittedTypes) {
+      const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
+      if (!schema) continue;
+
+      const jsonSchema: unknown = zodToJsonSchema(schema as z.ZodSchema);
+      if (!isJsonSchemaWithProperties(jsonSchema)) continue;
+
+      for (const [field, fieldSchema] of Object.entries(jsonSchema.properties)) {
+        const desc = fieldSchema.description;
+        if (desc && (desc.length < 5 || desc.length > 80)) {
+          issues.push(`${eventType}.${field}: ${desc.length} chars`);
+        }
+      }
+    }
+
+    expect(issues).toEqual([]);
   });
 });
