@@ -28,6 +28,10 @@ import {
 const mockedReaddir = vi.mocked(fsp.readdir);
 const mockedUnlink = vi.mocked(fsp.unlink);
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {

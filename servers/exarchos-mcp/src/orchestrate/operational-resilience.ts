@@ -5,10 +5,9 @@
 // quality-layer gate checks.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkOperationalResilience } from './pure/operational-resilience.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -23,21 +22,6 @@ interface OperationalResilienceResult {
   readonly passed: boolean;
   readonly findingCount: number;
   readonly report: string;
-}
-
-// ─── Diff Fetcher ────────────────────────────────────────────────────────────
-
-function getDiff(repoRoot: string, baseBranch: string): string {
-  try {
-    const output = execFileSync(
-      'git',
-      ['diff', `${baseBranch}...HEAD`],
-      { cwd: repoRoot, encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-    return output;
-  } catch {
-    return '';
-  }
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -57,8 +41,14 @@ export async function handleOperationalResilience(
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  // Get the diff and run pure TS checker
+  // Get the diff — fail-closed if git is unavailable
   const diff = getDiff(repoRoot, baseBranch);
+  if (diff === null) {
+    return {
+      success: false,
+      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}` },
+    };
+  }
   const tsResult = checkOperationalResilience(diff);
 
   const passed = tsResult.pass;

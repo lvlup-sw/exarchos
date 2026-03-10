@@ -47,7 +47,7 @@ function makeEvents(count: number): Event[] {
 
 // ─── T-16: Compensation action error handling ───────────────────────────────
 
-describe('DeleteIntegrationBranch error handling', () => {
+describe('Compensation action error handling (close-pr)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
@@ -60,7 +60,7 @@ describe('DeleteIntegrationBranch error handling', () => {
     });
   });
 
-  it('DeleteIntegrationBranch_GitCommandFails_ReturnsFailed', async () => {
+  it('ClosePR_GhCommandFails_ReturnsFailed', async () => {
     // The deleteIntegrationBranch action has inner try-catch blocks that swallow
     // individual git command failures, with an outer try-catch (lines 142-149)
     // as a defensive safety net. The outer catch uses:
@@ -119,7 +119,7 @@ describe('DeleteIntegrationBranch error handling', () => {
     expect(closePrAction!.message).toContain('gh: failed to close PR');
   });
 
-  it('DeleteIntegrationBranch_NonErrorThrown_StringifiesMessage', async () => {
+  it('ClosePR_NonErrorThrown_StringifiesMessage', async () => {
     // Test the String(err) path: when a non-Error object is thrown,
     // the catch block should use String(err) to produce a message.
     // This tests the same pattern at lines 143-149 (via the close-pr action

@@ -75,6 +75,24 @@ const SECURITY_PATTERNS: readonly SecurityPattern[] = [
   },
 ];
 
+// ─── Ignored File Patterns ───────────────────────────────────────────────────
+
+const IGNORE_PATTERNS = [
+  /^node_modules\//,
+  /^\.git\//,
+  /^dist\//,
+  /^coverage\//,
+  /^\.worktrees\//,
+  /^\.serena\//,
+  /^\.terraform\//,
+  /\.tfstate/,
+  /\.local\.json$/,
+];
+
+function isIgnoredFile(filePath: string): boolean {
+  return IGNORE_PATTERNS.some((p) => p.test(filePath));
+}
+
 // ─── Diff Scanning ──────────────────────────────────────────────────────────
 
 /**
@@ -97,6 +115,11 @@ export function scanDiffContent(diffContent: string): SecurityFinding[] {
     if (fileMatch) {
       currentFile = fileMatch[1];
       diffLineNum = 0;
+      continue;
+    }
+
+    // Skip scanning ignored files
+    if (isIgnoredFile(currentFile)) {
       continue;
     }
 

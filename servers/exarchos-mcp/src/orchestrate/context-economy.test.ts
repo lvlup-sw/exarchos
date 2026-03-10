@@ -1,12 +1,15 @@
 // ─── Context Economy Action Tests ───────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ToolResult } from '../format.js';
 
-// ─── Mock child_process (for git diff call) ─────────────────────────────────
+// ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+const mockGetDiff = vi.fn<(repoRoot: string, baseBranch: string) => string | null>();
+const mockEmitGateEvent = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('./gate-utils.js', () => ({
+  getDiff: (...args: [string, string]) => mockGetDiff(...args),
+  emitGateEvent: (...args: unknown[]) => mockEmitGateEvent(...args),
 }));
 
 // ─── Mock pure TS context-economy module ────────────────────────────────────
@@ -42,7 +45,6 @@ vi.mock('../views/tools.js', () => ({
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
 
-import { execFileSync } from 'node:child_process';
 import { checkContextEconomy } from './pure/context-economy.js';
 import { handleContextEconomy } from './context-economy.js';
 
@@ -61,13 +63,8 @@ describe('handleContextEconomy', () => {
 
   describe('input validation', () => {
     it('handleContextEconomy_MissingFeatureId_ReturnsError', async () => {
-      // Arrange
       const args = { featureId: '' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -78,10 +75,7 @@ describe('handleContextEconomy', () => {
 
   describe('clean code', () => {
     it('handleContextEconomy_CleanCode_ReturnsPassed', async () => {
-      // Arrange — git diff returns some diff content
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
-
-      // Mock the pure TS checker to return a pass result
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: true,
         checksRun: 4,
@@ -90,11 +84,8 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;
@@ -111,10 +102,7 @@ describe('handleContextEconomy', () => {
 
   describe('findings detected', () => {
     it('handleContextEconomy_Findings_ReturnsFailWithCount', async () => {
-      // Arrange — git diff returns some diff content
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
-
-      // Mock the pure TS checker to return findings
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: false,
         checksRun: 4,
@@ -126,11 +114,8 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;
@@ -147,8 +132,7 @@ describe('handleContextEconomy', () => {
 
   describe('gate event emission', () => {
     it('handleContextEconomy_EmitsGateEvent_WithD3Dimension', async () => {
-      // Arrange
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: true,
         checksRun: 4,
@@ -157,32 +141,17 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.gateName).toBe('context-economy');
-      expect(event.data.layer).toBe('quality');
-      expect(event.data.passed).toBe(true);
-      expect(event.data.details).toEqual({
-        dimension: 'D3',
-        phase: 'review',
-        findingCount: 0,
-      });
+      expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
+      expect(mockEmitGateEvent).toHaveBeenCalledWith(
+        mockStore,
+        'feat-1',
+        'context-economy',
+        'quality',
+        true,
+        { dimension: 'D3', phase: 'review', findingCount: 0 },
+      );
     });
   });
 
@@ -190,8 +159,7 @@ describe('handleContextEconomy', () => {
 
   describe('phase in gate event details', () => {
     it('handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails', async () => {
-      // Arrange
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: true,
         checksRun: 4,
@@ -200,48 +168,26 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.data.details.phase).toBe('review');
+      expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
+      const details = mockEmitGateEvent.mock.calls[0][5] as Record<string, unknown>;
+      expect(details.phase).toBe('review');
     });
   });
 
-  // ─── Git Diff Failure (empty diff) ───────────────────────────────────────
+  // ─── Git Diff Failure (fail-closed) ───────────────────────────────────────
 
   describe('git diff failure', () => {
-    it('handleContextEconomy_GitDiffFails_PassesEmptyStringToChecker', async () => {
-      // Arrange — git diff throws (simulating missing repo, etc.)
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw new Error('git not found');
-      });
-
-      // The empty diff will be passed to the checker
-      vi.mocked(checkContextEconomy).mockReturnValue({
-        pass: true,
-        checksRun: 0,
-        checksPassed: 0,
-        findings: [],
-      });
+    it('handleContextEconomy_GitDiffFails_ReturnsError', async () => {
+      mockGetDiff.mockReturnValue(null);
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert — handler still succeeds with pass result
-      expect(result.success).toBe(true);
-      expect(checkContextEconomy).toHaveBeenCalledWith('');
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('DIFF_ERROR');
+      expect(checkContextEconomy).not.toHaveBeenCalled();
     });
   });
 
@@ -249,8 +195,7 @@ describe('handleContextEconomy', () => {
 
   describe('telemetry integration', () => {
     it('handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult', async () => {
-      // Arrange
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: true,
         checksRun: 4,
@@ -258,7 +203,6 @@ describe('handleContextEconomy', () => {
         findings: [],
       });
 
-      // Setup telemetry state with data
       mockTelemetryState.tools = {
         'exarchos_workflow': {
           invocations: 5,
@@ -297,11 +241,8 @@ describe('handleContextEconomy', () => {
       mockTelemetryState.totalInvocations = 10;
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;
@@ -320,8 +261,7 @@ describe('handleContextEconomy', () => {
     });
 
     it('handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics', async () => {
-      // Arrange
-      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      mockGetDiff.mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
       vi.mocked(checkContextEconomy).mockReturnValue({
         pass: true,
         checksRun: 4,
@@ -329,17 +269,13 @@ describe('handleContextEconomy', () => {
         findings: [],
       });
 
-      // Setup empty telemetry state
       mockTelemetryState.tools = {};
       mockTelemetryState.totalTokens = 0;
       mockTelemetryState.totalInvocations = 0;
 
       const args = { featureId: 'feat-1' };
-
-      // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;

@@ -276,11 +276,16 @@ export function computeCoverage(
       }
     }
 
-    // If no task title matches, check the full plan content
+    // If no task title matches, check task bodies (excluding traceability tables)
     if (matchedTasks.length === 0) {
-      if (planContent.toLowerCase().includes(section.toLowerCase())) {
+      // Strip markdown table rows to avoid false positives from traceability tables
+      const planBody = planContent
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('|'))
+        .join('\n');
+      if (planBody.toLowerCase().includes(section.toLowerCase())) {
         matchedTasks.push('(referenced in plan body)');
-      } else if (keywordMatch(sectionKeywords, planContent)) {
+      } else if (keywordMatch(sectionKeywords, planBody)) {
         matchedTasks.push('(keyword match in plan body)');
       }
     }

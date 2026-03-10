@@ -43,7 +43,6 @@ const execCommandRunner: RunCommandFn = (
   try {
     const output = execFileSync(cmd, args as string[], {
       encoding: 'utf-8',
-      timeout: 60_000,
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
     }) as string;

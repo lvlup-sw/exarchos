@@ -218,13 +218,22 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
   const taskIds = new Set<string>();
 
   for (const task of tasks) {
+    // Reject duplicate task IDs
+    if (taskIds.has(task.id)) {
+      return { valid: false, cyclePath: `Duplicate task ID: ${task.id}` };
+    }
     visitState.set(task.id, 0);
     taskIds.add(task.id);
   }
 
-  // Build adjacency map (task -> deps)
+  // Build adjacency map (task -> deps), reject unresolved references
   const depsMap = new Map<string, readonly string[]>();
   for (const task of tasks) {
+    for (const dep of task.deps) {
+      if (!taskIds.has(dep)) {
+        return { valid: false, cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}` };
+      }
+    }
     depsMap.set(task.id, task.deps);
   }
 
@@ -264,9 +273,6 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
       // Push dependencies
       const deps = depsMap.get(node) ?? [];
       for (const dep of deps) {
-        if (!taskIds.has(dep)) {
-          continue; // Unknown dep, skip
-        }
         const depState = visitState.get(dep);
         if (depState === 1) {
           // Cycle found

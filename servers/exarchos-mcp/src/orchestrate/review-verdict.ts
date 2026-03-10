@@ -25,6 +25,7 @@ interface ReviewVerdictResult {
   readonly high: number;
   readonly medium: number;
   readonly low: number;
+  readonly blockedReason?: string;
   readonly report: string;
 }
 
@@ -128,6 +129,7 @@ export async function handleReviewVerdict(
     high: args.high,
     medium: args.medium,
     low: args.low,
+    ...(args.blockedReason ? { blockedReason: args.blockedReason } : {}),
     report,
   };
 
