@@ -6,6 +6,12 @@ node_modules/
 dist/
 coverage/
 
+# TypeScript compiled output in src/
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
+
 # Ignore node_modules in plugins
 plugins/*/servers/*/node_modules/
 plugins/*/servers/*/dist/
