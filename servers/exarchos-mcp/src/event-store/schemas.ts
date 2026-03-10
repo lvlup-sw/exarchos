@@ -440,7 +440,7 @@ export const ReviewEscalatedData = z.object({
 
 export const ReviewCompletedData = z.object({
   stage: z.enum(['spec-review', 'quality-review', 'security-review']).describe('Review stage that completed'),
-  verdict: z.enum(['pass', 'fail', 'conditional']).describe('Review verdict: pass, fail, or conditional'),
+  verdict: z.enum(['pass', 'fail', 'blocked']).describe('Review verdict: pass, fail, or blocked'),
   findingsCount: z.number().int().nonnegative().describe('Number of findings from the review'),
   summary: z.string().describe('Human-readable summary of review results'),
 });

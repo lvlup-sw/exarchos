@@ -3,10 +3,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 
-// ─── Mock child_process ──────────────────────────────────────────────────────
+// ─── Mock child_process (for git diff call) ─────────────────────────────────
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+}));
+
+// ─── Mock pure TS context-economy module ────────────────────────────────────
+
+vi.mock('../../../../src/orchestrate/context-economy.js', () => ({
+  checkContextEconomy: vi.fn(),
 }));
 
 // ─── Mock event store and materializer ───────────────────────────────────────
@@ -17,7 +23,7 @@ const mockStore = {
 };
 
 const mockTelemetryState = {
-  tools: {},
+  tools: {} as Record<string, unknown>,
   sessionStart: '2026-01-01T00:00:00.000Z',
   totalInvocations: 0,
   totalTokens: 0,
@@ -37,38 +43,10 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
+import { checkContextEconomy } from '../../../../src/orchestrate/context-economy.js';
 import { handleContextEconomy } from './context-economy.js';
 
 const STATE_DIR = '/tmp/test-context-economy';
-
-// ─── Test Helpers ────────────────────────────────────────────────────────────
-
-function makeCleanReport(): string {
-  return [
-    '## Context Economy Report',
-    '',
-    'No context-economy concerns detected.',
-    '',
-    '---',
-    '',
-    '**Result: PASS** (4/4 checks passed)',
-  ].join('\n');
-}
-
-function makeFindingsReport(count: number): string {
-  return [
-    '## Context Economy Report',
-    '',
-    `**Findings (${count}):**`,
-    '',
-    '- **MEDIUM** `src/big-file.ts` — Source file exceeds 400 lines (520 lines)',
-    '- **MEDIUM** Diff breadth: 35 files changed (threshold: 30)',
-    '',
-    '---',
-    '',
-    `**Result: FINDINGS** (${count} findings detected)`,
-  ].join('\n');
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -100,9 +78,16 @@ describe('handleContextEconomy', () => {
 
   describe('clean code', () => {
     it('handleContextEconomy_CleanCode_ReturnsPassed', async () => {
-      // Arrange
-      const stdout = makeCleanReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+
+      // Mock the pure TS checker to return a pass result
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -126,18 +111,18 @@ describe('handleContextEconomy', () => {
 
   describe('findings detected', () => {
     it('handleContextEconomy_Findings_ReturnsFailWithCount', async () => {
-      // Arrange
-      const stdout = makeFindingsReport(2);
-      const error = new Error('script failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 1;
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+
+      // Mock the pure TS checker to return findings
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: false,
+        checksRun: 4,
+        checksPassed: 2,
+        findings: [
+          { severity: 'MEDIUM', message: '`src/big-file.ts` — Source file exceeds 400 lines (520 lines)' },
+          { severity: 'MEDIUM', message: 'Diff breadth: 35 files changed (threshold: 30)' },
+        ],
       });
 
       const args = { featureId: 'feat-1' };
@@ -163,8 +148,13 @@ describe('handleContextEconomy', () => {
   describe('gate event emission', () => {
     it('handleContextEconomy_EmitsGateEvent_WithD3Dimension', async () => {
       // Arrange
-      const stdout = makeCleanReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -201,8 +191,13 @@ describe('handleContextEconomy', () => {
   describe('phase in gate event details', () => {
     it('handleContextEconomy_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
-      const stdout = makeCleanReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -222,21 +217,21 @@ describe('handleContextEconomy', () => {
     });
   });
 
-  // ─── Usage Error ──────────────────────────────────────────────────────────
+  // ─── Git Diff Failure (empty diff) ───────────────────────────────────────
 
-  describe('usage error from script', () => {
-    it('handleContextEconomy_UsageError_ReturnsScriptError', async () => {
-      // Arrange — exit code 2 = usage error
-      const error = new Error('script usage error') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 2;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('Error: --repo-root is required');
+  describe('git diff failure', () => {
+    it('handleContextEconomy_GitDiffFails_PassesEmptyStringToChecker', async () => {
+      // Arrange — git diff throws (simulating missing repo, etc.)
       vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+        throw new Error('git not found');
+      });
+
+      // The empty diff will be passed to the checker
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 0,
+        checksPassed: 0,
+        findings: [],
       });
 
       const args = { featureId: 'feat-1' };
@@ -244,10 +239,9 @@ describe('handleContextEconomy', () => {
       // Act
       const result = await handleContextEconomy(args, STATE_DIR);
 
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
-      expect(result.error?.message).toContain('--repo-root is required');
+      // Assert — handler still succeeds with pass result
+      expect(result.success).toBe(true);
+      expect(checkContextEconomy).toHaveBeenCalledWith('');
     });
   });
 
@@ -256,8 +250,13 @@ describe('handleContextEconomy', () => {
   describe('telemetry integration', () => {
     it('handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult', async () => {
       // Arrange
-      const stdout = makeCleanReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
 
       // Setup telemetry state with data
       mockTelemetryState.tools = {
@@ -320,10 +319,15 @@ describe('handleContextEconomy', () => {
       expect(data.runtimeMetrics.totalInvocations).toBe(10);
     });
 
-    it('handleContextEconomy_WithoutTelemetryData_ReturnsScriptOnlyResult', async () => {
+    it('handleContextEconomy_WithoutTelemetryData_ReturnsZeroMetrics', async () => {
       // Arrange
-      const stdout = makeCleanReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkContextEconomy).mockReturnValue({
+        pass: true,
+        checksRun: 4,
+        checksPassed: 4,
+        findings: [],
+      });
 
       // Setup empty telemetry state
       mockTelemetryState.tools = {};
@@ -351,34 +355,6 @@ describe('handleContextEconomy', () => {
       expect(data.runtimeMetrics.sessionTokens).toBe(0);
       expect(data.runtimeMetrics.toolCount).toBe(0);
       expect(data.runtimeMetrics.totalInvocations).toBe(0);
-    });
-  });
-
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
-
-  describe('unexpected exit code', () => {
-    it('handleContextEconomy_ExitCode3Plus_ReturnsScriptError', async () => {
-      // Arrange — exit code 127 = command not found
-      const error = new Error('command not found') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 127;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      const args = { featureId: 'feat-1' };
-
-      // Act
-      const result = await handleContextEconomy(args, STATE_DIR);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
     });
   });
 });

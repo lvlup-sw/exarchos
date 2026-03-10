@@ -231,7 +231,7 @@ register({
   validationScripts: ['scripts/post-delegation-check.sh'],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope.',
+    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope.',
 });
 
 register({
@@ -267,7 +267,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles.',
+    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles.',
 });
 
 register({

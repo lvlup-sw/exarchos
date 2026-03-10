@@ -3,10 +3,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 
-// ─── Mock child_process ──────────────────────────────────────────────────────
+// ─── Mock child_process (for git diff call) ─────────────────────────────────
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+}));
+
+// ─── Mock pure TS operational-resilience module ─────────────────────────────
+
+vi.mock('../../../../src/orchestrate/operational-resilience.js', () => ({
+  checkOperationalResilience: vi.fn(),
 }));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
@@ -22,42 +28,10 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
+import { checkOperationalResilience } from '../../../../src/orchestrate/operational-resilience.js';
 import { handleOperationalResilience } from './operational-resilience.js';
 
 const STATE_DIR = '/tmp/test-operational-resilience';
-
-// ─── Test Helpers ────────────────────────────────────────────────────────────
-
-function makePassReport(): string {
-  return [
-    '## Operational Resilience Report',
-    '',
-    '**Source:** `/tmp/repo` (diff against `main`)',
-    '',
-    'No operational resilience issues detected.',
-    '',
-    '---',
-    '',
-    '**Result: PASS** (0 findings)',
-  ].join('\n');
-}
-
-function makeFindingsReport(count: number): string {
-  return [
-    '## Operational Resilience Report',
-    '',
-    '**Source:** `/tmp/repo` (diff against `main`)',
-    '',
-    '### Findings',
-    '',
-    '- **HIGH** `src/handler.ts` — Empty catch block detected',
-    '- **MEDIUM** `src/service.ts` — console.log in source file',
-    '',
-    '---',
-    '',
-    `**Result: FINDINGS** (${count} findings detected)`,
-  ].join('\n');
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -89,9 +63,15 @@ describe('handleOperationalResilience', () => {
 
   describe('clean code', () => {
     it('handleOperationalResilience_CleanCode_ReturnsPassed', async () => {
-      // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+
+      // Mock the pure TS checker to return a pass result
+      vi.mocked(checkOperationalResilience).mockReturnValue({
+        pass: true,
+        findingCount: 0,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -115,18 +95,18 @@ describe('handleOperationalResilience', () => {
 
   describe('findings detected', () => {
     it('handleOperationalResilience_Findings_ReturnsFailWithCount', async () => {
-      // Arrange
-      const stdout = makeFindingsReport(3);
-      const error = new Error('script failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 1;
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+
+      // Mock the pure TS checker to return findings
+      vi.mocked(checkOperationalResilience).mockReturnValue({
+        pass: false,
+        findingCount: 3,
+        findings: [
+          { severity: 'HIGH', message: '`src/handler.ts` — Empty catch block detected' },
+          { severity: 'MEDIUM', message: '`src/service.ts` — console.log in source file' },
+          { severity: 'MEDIUM', message: '`src/retry.ts` — Unbounded retry loop' },
+        ],
       });
 
       const args = { featureId: 'feat-1' };
@@ -152,8 +132,12 @@ describe('handleOperationalResilience', () => {
   describe('gate event emission', () => {
     it('handleOperationalResilience_EmitsGateEvent_WithD4Dimension', async () => {
       // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkOperationalResilience).mockReturnValue({
+        pass: true,
+        findingCount: 0,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -190,8 +174,12 @@ describe('handleOperationalResilience', () => {
   describe('phase in gate event details', () => {
     it('handleOperationalResilience_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkOperationalResilience).mockReturnValue({
+        pass: true,
+        findingCount: 0,
+        findings: [],
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -211,21 +199,20 @@ describe('handleOperationalResilience', () => {
     });
   });
 
-  // ─── Usage Error ──────────────────────────────────────────────────────────
+  // ─── Git Diff Failure (empty diff) ───────────────────────────────────────
 
-  describe('usage error from script', () => {
-    it('handleOperationalResilience_UsageError_ReturnsScriptError', async () => {
-      // Arrange — exit code 2 = usage error
-      const error = new Error('script usage error') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 2;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('Error: --repo-root is required');
+  describe('git diff failure', () => {
+    it('handleOperationalResilience_GitDiffFails_PassesEmptyStringToChecker', async () => {
+      // Arrange — git diff throws (simulating missing repo, etc.)
       vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+        throw new Error('git not found');
+      });
+
+      // The empty diff will be passed to the checker
+      vi.mocked(checkOperationalResilience).mockReturnValue({
+        pass: true,
+        findingCount: 0,
+        findings: [],
       });
 
       const args = { featureId: 'feat-1' };
@@ -233,38 +220,9 @@ describe('handleOperationalResilience', () => {
       // Act
       const result = await handleOperationalResilience(args, STATE_DIR);
 
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
-      expect(result.error?.message).toContain('--repo-root is required');
-    });
-  });
-
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
-
-  describe('unexpected exit code', () => {
-    it('handleOperationalResilience_ExitCode3Plus_ReturnsScriptError', async () => {
-      // Arrange — exit code 127 = command not found
-      const error = new Error('command not found') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 127;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      const args = { featureId: 'feat-1' };
-
-      // Act
-      const result = await handleOperationalResilience(args, STATE_DIR);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
+      // Assert — handler still succeeds with pass result
+      expect(result.success).toBe(true);
+      expect(checkOperationalResilience).toHaveBeenCalledWith('');
     });
   });
 });

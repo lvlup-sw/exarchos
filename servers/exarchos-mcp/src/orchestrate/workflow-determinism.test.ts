@@ -3,10 +3,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 
-// ─── Mock child_process ──────────────────────────────────────────────────────
+// ─── Mock child_process (for git diff call) ─────────────────────────────────
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+}));
+
+// ─── Mock pure TS workflow-determinism module ───────────────────────────────
+
+vi.mock('../../../../src/orchestrate/workflow-determinism.js', () => ({
+  checkWorkflowDeterminism: vi.fn(),
 }));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
@@ -22,38 +28,10 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
+import { checkWorkflowDeterminism } from '../../../../src/orchestrate/workflow-determinism.js';
 import { handleWorkflowDeterminism } from './workflow-determinism.js';
 
 const STATE_DIR = '/tmp/test-workflow-determinism';
-
-// ─── Test Helpers ────────────────────────────────────────────────────────────
-
-function makePassReport(): string {
-  return [
-    '## Workflow Determinism Report',
-    '',
-    'No determinism issues detected.',
-    '',
-    '---',
-    '',
-    '**Result: PASS** (5/5 checks passed)',
-  ].join('\n');
-}
-
-function makeFindingsReport(count: number): string {
-  return [
-    '## Workflow Determinism Report',
-    '',
-    `**Findings (${count}):**`,
-    '',
-    '- **HIGH** `src/handler.test.ts:3` — Test focus/skip modifier: `describe.only(...)`',
-    '- **LOW** `src/handler.test.ts:5` — Debug artifact in test file: `console.log(...)`',
-    '',
-    '---',
-    '',
-    `**Result: FINDINGS** (${count} findings detected)`,
-  ].join('\n');
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
@@ -85,9 +63,18 @@ describe('handleWorkflowDeterminism', () => {
 
   describe('clean code', () => {
     it('handleWorkflowDeterminism_CleanCode_ReturnsPassed', async () => {
-      // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+
+      // Mock the pure TS checker to return a pass result
+      vi.mocked(checkWorkflowDeterminism).mockReturnValue({
+        status: 'pass',
+        findingCount: 0,
+        findings: [],
+        passedChecks: 4,
+        totalChecks: 4,
+        report: '## Workflow Determinism Report\n\nNo determinism issues detected.\n\n---\n\n**Result: PASS** (4/4 checks passed)',
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -111,18 +98,21 @@ describe('handleWorkflowDeterminism', () => {
 
   describe('findings detected', () => {
     it('handleWorkflowDeterminism_Findings_ReturnsFailWithCount', async () => {
-      // Arrange
-      const stdout = makeFindingsReport(3);
-      const error = new Error('script failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 1;
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+      // Arrange — git diff returns some diff content
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.test.ts b/foo.test.ts\n');
+
+      // Mock the pure TS checker to return findings
+      vi.mocked(checkWorkflowDeterminism).mockReturnValue({
+        status: 'findings',
+        findingCount: 3,
+        findings: [
+          '- **HIGH** `src/handler.test.ts:3` — Test focus/skip modifier: `describe.only(...)`',
+          '- **LOW** `src/handler.test.ts:5` — Debug artifact in test file: `console.log(...)`',
+          '- **MEDIUM** `src/util.test.ts:10` — Non-deterministic time without fake timers: `Date.now()`',
+        ],
+        passedChecks: 1,
+        totalChecks: 4,
+        report: '## Workflow Determinism Report\n\n**Findings (3):**\n\n---\n\n**Result: FINDINGS** (3 findings detected)',
       });
 
       const args = { featureId: 'feat-1' };
@@ -148,8 +138,15 @@ describe('handleWorkflowDeterminism', () => {
   describe('gate event emission', () => {
     it('handleWorkflowDeterminism_EmitsGateEvent_WithD5Dimension', async () => {
       // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkWorkflowDeterminism).mockReturnValue({
+        status: 'pass',
+        findingCount: 0,
+        findings: [],
+        passedChecks: 4,
+        totalChecks: 4,
+        report: '**Result: PASS** (4/4 checks passed)',
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -186,8 +183,15 @@ describe('handleWorkflowDeterminism', () => {
   describe('phase in gate event details', () => {
     it('handleWorkflowDeterminism_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       // Arrange
-      const stdout = makePassReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      vi.mocked(execFileSync).mockReturnValue('diff --git a/foo.ts b/foo.ts\n');
+      vi.mocked(checkWorkflowDeterminism).mockReturnValue({
+        status: 'pass',
+        findingCount: 0,
+        findings: [],
+        passedChecks: 4,
+        totalChecks: 4,
+        report: '**Result: PASS** (4/4 checks passed)',
+      });
 
       const args = { featureId: 'feat-1' };
 
@@ -207,21 +211,23 @@ describe('handleWorkflowDeterminism', () => {
     });
   });
 
-  // ─── Usage Error ──────────────────────────────────────────────────────────
+  // ─── Git Diff Failure (empty diff) ───────────────────────────────────────
 
-  describe('usage error from script', () => {
-    it('handleWorkflowDeterminism_UsageError_ReturnsScriptError', async () => {
-      // Arrange — exit code 2 = usage error
-      const error = new Error('script usage error') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 2;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('Error: --repo-root is required');
+  describe('git diff failure', () => {
+    it('handleWorkflowDeterminism_GitDiffFails_PassesEmptyStringToChecker', async () => {
+      // Arrange — git diff throws (simulating missing repo, etc.)
       vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+        throw new Error('git not found');
+      });
+
+      // The empty diff will be passed to the checker
+      vi.mocked(checkWorkflowDeterminism).mockReturnValue({
+        status: 'pass',
+        findingCount: 0,
+        findings: [],
+        passedChecks: 4,
+        totalChecks: 4,
+        report: '**Result: PASS** (4/4 checks passed)',
       });
 
       const args = { featureId: 'feat-1' };
@@ -229,38 +235,9 @@ describe('handleWorkflowDeterminism', () => {
       // Act
       const result = await handleWorkflowDeterminism(args, STATE_DIR);
 
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
-      expect(result.error?.message).toContain('--repo-root is required');
-    });
-  });
-
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
-
-  describe('unexpected exit code', () => {
-    it('handleWorkflowDeterminism_ExitCode3Plus_ReturnsScriptError', async () => {
-      // Arrange — exit code 127 = command not found
-      const error = new Error('command not found') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 127;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      const args = { featureId: 'feat-1' };
-
-      // Act
-      const result = await handleWorkflowDeterminism(args, STATE_DIR);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
+      // Assert — handler still succeeds with pass result
+      expect(result.success).toBe(true);
+      expect(checkWorkflowDeterminism).toHaveBeenCalledWith({ diffContent: '' });
     });
   });
 });
