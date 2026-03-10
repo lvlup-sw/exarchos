@@ -1,15 +1,17 @@
 // ─── Post-Merge Gate Handler ────────────────────────────────────────────────
 //
 // Orchestrates the post-merge regression check (DR-4) at the
-// synthesize → cleanup boundary. Wraps `scripts/check-post-merge.sh`,
-// parses stdout report and stderr FINDING lines, and emits a
-// gate.executed event for flywheel integration.
+// synthesize -> cleanup boundary. Calls the pure TypeScript
+// checkPostMerge function and emits gate.executed events for
+// flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
+import { checkPostMerge } from '../../../../src/orchestrate/post-merge.js';
+import type { CommandResult } from '../../../../src/orchestrate/post-merge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,14 +29,31 @@ interface PostMergeResult {
   readonly report: string;
 }
 
-// ─── FINDING Parser ────────────────────────────────────────────────────────
+// ─── Command Runner Adapter ─────────────────────────────────────────────────
 
-const FINDING_PATTERN = /^FINDING \[.+$/;
-
-function parseFindings(stderr: string): string[] {
-  return stderr
-    .split('\n')
-    .filter((line) => FINDING_PATTERN.test(line.trim()));
+/**
+ * Wraps execFileSync to match the command runner signature expected by
+ * the pure TypeScript checkPostMerge function.
+ */
+function execCommandRunner(
+  cmd: string,
+  args: readonly string[],
+): CommandResult {
+  try {
+    const output = execFileSync(cmd, args as string[], {
+      encoding: 'utf-8',
+      timeout: 120_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as string;
+    return { exitCode: 0, stdout: output, stderr: '' };
+  } catch (err: unknown) {
+    const execErr = err as { status?: number; stdout?: string; stderr?: string };
+    return {
+      exitCode: execErr.status ?? 1,
+      stdout: execErr.stdout ?? '',
+      stderr: execErr.stderr ?? '',
+    };
+  }
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -65,80 +84,15 @@ export async function handlePostMerge(
     };
   }
 
-  // Run the post-merge check script
-  let report = '';
-  let findings: string[] = [];
-  let passed = false;
-  let exitCode = 0;
+  // Run the pure TypeScript post-merge check
+  const checkResult = checkPostMerge({
+    prUrl: args.prUrl,
+    mergeSha: args.mergeSha,
+    runCommand: execCommandRunner,
+  });
 
-  try {
-    const output = execFileSync(
-      'scripts/check-post-merge.sh',
-      ['--pr-url', args.prUrl, '--merge-sha', args.mergeSha],
-      {
-        encoding: 'buffer',
-        timeout: 120_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
-    report = output.toString('utf-8');
-    passed = true;
-    exitCode = 0;
-  } catch (err: unknown) {
-    const execError = err as {
-      status?: number;
-      stdout?: Buffer | string;
-      stderr?: Buffer | string;
-    };
-
-    // Timeout or spawn errors have no status — treat as script error
-    if (execError.status == null) {
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-
-    exitCode = execError.status;
-
-    // Exit code 2 = usage error — this is a script-level failure, not a gate result
-    if (exitCode === 2) {
-      const stderrText = execError.stderr instanceof Buffer
-        ? execError.stderr.toString('utf-8')
-        : '';
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: stderrText || 'check-post-merge.sh exited with usage error (exit 2)',
-        },
-      };
-    }
-
-    // Exit code 1 = findings detected — parse report and findings
-    if (exitCode === 1) {
-      report = execError.stdout instanceof Buffer
-        ? execError.stdout.toString('utf-8')
-        : '';
-      const stderrText = execError.stderr instanceof Buffer
-        ? execError.stderr.toString('utf-8')
-        : '';
-      findings = parseFindings(stderrText);
-      passed = false;
-    } else {
-      // Exit code ≥3 = unexpected error — treat as script error
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-  }
+  const passed = checkResult.status === 'pass';
+  const { findings, report } = checkResult;
 
   // Emit gate.executed event for flywheel integration (fire-and-forget)
   try {

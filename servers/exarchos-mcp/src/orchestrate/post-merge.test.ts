@@ -2,10 +2,12 @@
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-// ─── Mock child_process ────────────────────────────────────────────────────
+// ─── Mock the pure TS post-merge module ──────────────────────────────────────
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+const mockCheckPostMerge = vi.fn();
+
+vi.mock('../../../../src/orchestrate/post-merge.js', () => ({
+  checkPostMerge: (...args: unknown[]) => mockCheckPostMerge(...args),
 }));
 
 // ─── Mock event store ──────────────────────────────────────────────────────
@@ -22,10 +24,46 @@ vi.mock('../views/tools.js', () => ({
 
 // ─── Import after mocks ───────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
 import { handlePostMerge } from './post-merge.js';
 
 const STATE_DIR = '/tmp/test-post-merge';
+
+// ─── Test Helpers ────────────────────────────────────────────────────────────
+
+function makePassingResult() {
+  return {
+    status: 'pass' as const,
+    prUrl: 'https://github.com/org/repo/pull/42',
+    mergeSha: 'abc1234',
+    passCount: 2,
+    failCount: 0,
+    results: [
+      '- **PASS**: CI green (all checks SUCCESS or NEUTRAL)',
+      '- **PASS**: Test suite (npm run test:run passed)',
+    ],
+    findings: [],
+    report: '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)',
+  };
+}
+
+function makeFailingResult() {
+  return {
+    status: 'fail' as const,
+    prUrl: 'https://github.com/org/repo/pull/42',
+    mergeSha: 'abc1234',
+    passCount: 0,
+    failCount: 2,
+    results: [
+      '- **FAIL**: CI green -- Failed checks: ci/build (FAILURE)',
+      '- **FAIL**: Test suite -- npm run test:run failed',
+    ],
+    findings: [
+      'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: ci/build (FAILURE)"',
+      'FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: abc1234)"',
+    ],
+    report: '## Post-Merge Regression Report\n\n**Result: FAIL** (2/2 checks failed)',
+  };
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────
 
@@ -40,8 +78,7 @@ describe('handlePostMerge', () => {
 
   it('handlePostMerge_CIPassing_ReturnsPassed', async () => {
     // Arrange
-    const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     // Act
     const result = await handlePostMerge(
@@ -63,18 +100,7 @@ describe('handlePostMerge', () => {
 
   it('handlePostMerge_Regression_ReturnsFailWithFindings', async () => {
     // Arrange
-    const error = new Error('Command failed') as Error & {
-      stdout: Buffer;
-      stderr: Buffer;
-      status: number;
-    };
-    error.stdout = Buffer.from('## Post-Merge Regression Report\n\n**Result: FAIL** (1/2 checks failed)');
-    error.stderr = Buffer.from(
-      'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: ci/build (FAILURE)"\n'
-      + 'FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed"',
-    );
-    error.status = 1;
-    vi.mocked(execFileSync).mockImplementation(() => { throw error; });
+    mockCheckPostMerge.mockReturnValue(makeFailingResult());
 
     // Act
     const result = await handlePostMerge(
@@ -96,8 +122,7 @@ describe('handlePostMerge', () => {
 
   it('handlePostMerge_EmitsGateExecutedEvent', async () => {
     // Arrange
-    const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     // Act
     await handlePostMerge(
@@ -124,8 +149,7 @@ describe('handlePostMerge', () => {
 
   it('handlePostMerge_EmitsGateEvent_IncludesPhaseInDetails', async () => {
     // Arrange
-    const stdout = '## Post-Merge Regression Report\n\n**Result: PASS** (2/2 checks passed)';
-    vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     // Act
     await handlePostMerge(
@@ -181,54 +205,27 @@ describe('handlePostMerge', () => {
     expect(result.error?.message).toContain('featureId');
   });
 
-  // ─── Test 5: Usage error (exit 2) returns error ────────────────────────
+  // ─── Test 5: runCommand adapter is passed ──────────────────────────────
 
-  it('handlePostMerge_UsageError_ReturnsScriptError', async () => {
+  it('handlePostMerge_PassesRunCommandAdapter', async () => {
     // Arrange
-    const error = new Error('Command failed') as Error & {
-      stdout: Buffer;
-      stderr: Buffer;
-      status: number;
-    };
-    error.stdout = Buffer.from('');
-    error.stderr = Buffer.from('Error: --pr-url and --merge-sha are required');
-    error.status = 2;
-    vi.mocked(execFileSync).mockImplementation(() => { throw error; });
+    mockCheckPostMerge.mockReturnValue(makePassingResult());
 
     // Act
-    const result = await handlePostMerge(
+    await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
     );
 
     // Assert
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('SCRIPT_ERROR');
-  });
-
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
-
-  it('handlePostMerge_ExitCode3Plus_ReturnsScriptError', async () => {
-    // Arrange — exit code 127 = command not found
-    const error = new Error('command not found') as Error & {
-      status: number;
-      stdout: Buffer;
-      stderr: Buffer;
+    expect(mockCheckPostMerge).toHaveBeenCalledTimes(1);
+    const callArgs = mockCheckPostMerge.mock.calls[0][0] as {
+      prUrl: string;
+      mergeSha: string;
+      runCommand: unknown;
     };
-    error.status = 127;
-    error.stdout = Buffer.from('');
-    error.stderr = Buffer.from('');
-    vi.mocked(execFileSync).mockImplementation(() => {
-      throw error;
-    });
-
-    const args = { featureId: 'feat-1', prUrl: 'https://github.com/org/repo/pull/1', mergeSha: 'abc1234' };
-
-    // Act
-    const result = await handlePostMerge(args, STATE_DIR);
-
-    // Assert
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('SCRIPT_ERROR');
+    expect(callArgs.prUrl).toBe('https://github.com/org/repo/pull/42');
+    expect(callArgs.mergeSha).toBe('abc1234');
+    expect(typeof callArgs.runCommand).toBe('function');
   });
 });

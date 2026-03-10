@@ -1,14 +1,16 @@
 // ─── Static Analysis Composite Action ────────────────────────────────────────
 //
-// Orchestrates static analysis checks (lint + typecheck) by running the
-// static-analysis-gate.sh script and emitting gate.executed events for
-// the quality layer.
+// Orchestrates static analysis checks (lint + typecheck) by calling the
+// pure TypeScript runStaticAnalysis function and emitting gate.executed events
+// for the quality layer.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
+import { runStaticAnalysis } from '../../../../src/orchestrate/static-analysis.js';
+import type { RunCommandFn, CommandResult } from '../../../../src/orchestrate/static-analysis.js';
 
 // ─── Argument & Result Types ─────────────────────────────────────────────────
 
@@ -27,27 +29,34 @@ interface StaticAnalysisResult {
   readonly report: string;
 }
 
-// ─── Output Parsing ──────────────────────────────────────────────────────────
+// ─── Command Runner Adapter ─────────────────────────────────────────────────
 
-function parseStaticAnalysisOutput(output: string): { passCount: number; failCount: number } {
-  // Match "Result: PASS (2/2 checks passed)" or "Result: FAIL (1/2 checks failed)"
-  const resultMatch = output.match(/\((\d+)\/(\d+)\s+checks\s+(?:passed|failed)\)/);
-
-  if (!resultMatch) {
-    return { passCount: 0, failCount: 0 };
+/**
+ * Wraps execFileSync to match the RunCommandFn signature expected by
+ * the pure TypeScript runStaticAnalysis function.
+ */
+const execCommandRunner: RunCommandFn = (
+  cmd: string,
+  args: readonly string[],
+  options?: { cwd?: string },
+): CommandResult => {
+  try {
+    const output = execFileSync(cmd, args as string[], {
+      encoding: 'utf-8',
+      timeout: 60_000,
+      cwd: options?.cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as string;
+    return { exitCode: 0, stdout: output, stderr: '' };
+  } catch (err: unknown) {
+    const execErr = err as { status?: number; stdout?: string; stderr?: string };
+    return {
+      exitCode: execErr.status ?? 1,
+      stdout: execErr.stdout ?? '',
+      stderr: execErr.stderr ?? '',
+    };
   }
-
-  const count = parseInt(resultMatch[1], 10);
-  const total = parseInt(resultMatch[2], 10);
-
-  // PASS line: (N/M checks passed) → passCount=N, failCount=M-N
-  // FAIL line: (N/M checks failed) → failCount=N, passCount=M-N
-  if (output.includes('Result: PASS')) {
-    return { passCount: count, failCount: total - count };
-  }
-
-  return { passCount: total - count, failCount: count };
-}
+};
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
@@ -63,80 +72,29 @@ export async function handleStaticAnalysis(
     };
   }
 
-  // Build command arguments
   const repoRoot = args.repoRoot || process.cwd();
-  const scriptArgs = ['--repo-root', repoRoot];
 
-  if (args.skipLint) {
-    scriptArgs.push('--skip-lint');
-  }
+  // Run the pure TypeScript static analysis function
+  const analysisResult = runStaticAnalysis({
+    repoRoot,
+    skipLint: args.skipLint,
+    skipTypecheck: args.skipTypecheck,
+    runCommand: execCommandRunner,
+  });
 
-  if (args.skipTypecheck) {
-    scriptArgs.push('--skip-typecheck');
-  }
-
-  let stdout = '';
-  let passed = false;
-
-  try {
-    const output = execFileSync('scripts/static-analysis-gate.sh', scriptArgs, {
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
-    passed = true;
-  } catch (err: unknown) {
-    const execError = err as {
-      status?: number;
-      stdout?: Buffer | string;
-      stderr?: Buffer | string;
+  // Map 'error' status to SCRIPT_ERROR response
+  if (analysisResult.status === 'error') {
+    return {
+      success: false,
+      error: {
+        code: 'SCRIPT_ERROR',
+        message: analysisResult.error || 'Static analysis error',
+      },
     };
-
-    // Timeout or spawn errors have no status — treat as script error
-    if (execError.status == null) {
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-
-    // Exit code 2 = usage error — return as script error
-    if (execError.status === 2) {
-      const stderr = execError.stderr instanceof Buffer
-        ? execError.stderr.toString('utf-8')
-        : String(execError.stderr ?? '');
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: stderr || 'Script usage error',
-        },
-      };
-    }
-
-    // Exit code 1 = findings found — parse the report
-    if (execError.status === 1) {
-      stdout = execError.stdout instanceof Buffer
-        ? execError.stdout.toString('utf-8')
-        : String(execError.stdout ?? '');
-      passed = false;
-    } else {
-      // Exit code ≥3 = unexpected error — treat as script error
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
   }
 
-  // Parse pass/fail counts from stdout
-  const { passCount, failCount } = parseStaticAnalysisOutput(stdout);
+  const passed = analysisResult.status === 'pass';
+  const { passCount, failCount, output } = analysisResult;
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
@@ -155,7 +113,7 @@ export async function handleStaticAnalysis(
     passed,
     passCount,
     failCount,
-    report: stdout,
+    report: output,
   };
 
   return { success: true, data: result };
