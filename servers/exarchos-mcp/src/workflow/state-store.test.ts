@@ -267,9 +267,11 @@ describe('reconcileFromEvents query efficiency', () => {
     expect(result.reconciled).toBe(true);
     expect(result.eventsApplied).toBe(1);
 
-    // Assert: eventStore.query should be called at most once for the delta path
-    expect(querySpy).toHaveBeenCalledTimes(1);
+    // Assert: eventStore.query called twice: once for delta events, once for _events hydration
+    expect(querySpy).toHaveBeenCalledTimes(2);
     expect(querySpy).toHaveBeenCalledWith('query-test', { sinceSequence: 2 });
+    // Second call is hydration (full query, no filters)
+    expect(querySpy).toHaveBeenCalledWith('query-test');
 
     querySpy.mockRestore();
   });
@@ -312,8 +314,8 @@ describe('reconcileFromEvents query efficiency', () => {
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw.phase).toBe('delegate');
 
-    // Should only query once (delta), not twice (delta + full)
-    expect(querySpy).toHaveBeenCalledTimes(1);
+    // Delta query + hydration query = 2 calls
+    expect(querySpy).toHaveBeenCalledTimes(2);
 
     querySpy.mockRestore();
   });
