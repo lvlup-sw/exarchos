@@ -17,6 +17,7 @@ import {
   applyDotPath,
   listStateFiles,
   reconcileFromEvents,
+  hydrateEventsFromStore,
   StateStoreError,
   VersionConflictError,
 } from './state-store.js';
@@ -26,7 +27,7 @@ import {
   resetCounter,
   isStale,
 } from './checkpoint.js';
-import { mapInternalToExternalType, mapExternalToInternalType } from './events.js';
+import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
@@ -462,23 +463,17 @@ export async function handleSet(
     }
 
     // ─── Hydrate _events from event store for guard evaluation ──────────
-    // Guards like teamDisbandedEmitted read state._events, but events were
-    // migrated to the external JSONL store (v1.0 → v1.1). Hydrate them
-    // back into the mutable state copy so executeTransition can evaluate guards.
-    // External events use 'workflow.' prefix and 'data' field; internal events
-    // use short types and 'metadata' field — mapExternalToInternalType handles
-    // the type mapping, and data is spread into metadata for backward compat.
+    // Guards read state._events for transition prerequisites (e.g.,
+    // teamDisbandedEmitted). Hydrate from the JSONL event store so all
+    // event types — including team.spawned, team.disbanded, task.completed
+    // — are visible to guards with full data spread.
     if (input.phase && moduleEventStore) {
       try {
-        const storeEvents = await moduleEventStore.query(input.featureId);
-        mutableState._events = storeEvents.map((e) => ({
-          type: mapExternalToInternalType(e.type),
-          timestamp: e.timestamp,
-          ...(e.data as Record<string, unknown> ?? {}),
-          metadata: e.data as Record<string, unknown> ?? {},
-        }));
+        mutableState._events = await hydrateEventsFromStore(
+          input.featureId, moduleEventStore,
+        );
       } catch {
-        // If event store query fails, proceed with empty _events (best-effort)
+        // Best-effort: proceed with existing _events on query failure
         mutableState._events = mutableState._events ?? [];
       }
     }
@@ -489,35 +484,6 @@ export async function handleSet(
 
     if (input.phase) {
       const hsm = getHSMDefinition(state.workflowType);
-
-      // Inject events from JSONL store for guard evaluation (#787)
-      // Map external event format (JSONL) to internal format used by state-machine guards
-      if (moduleEventStore) {
-        try {
-          const storedEvents = await moduleEventStore.query(input.featureId);
-          mutableState._events = storedEvents.map((e) => {
-            const data = typeof e.data === 'object' && e.data !== null
-              ? (e.data as Record<string, unknown>)
-              : undefined;
-            return {
-              type: mapExternalToInternalType(e.type),
-              timestamp: e.timestamp,
-              ...(typeof data?.from === 'string' ? { from: data.from } : {}),
-              ...(typeof data?.to === 'string' ? { to: data.to } : {}),
-              ...(typeof data?.trigger === 'string' ? { trigger: data.trigger } : {}),
-              metadata: data,
-            };
-          });
-        } catch (err) {
-          return {
-            success: false,
-            error: {
-              code: 'EVENT_QUERY_FAILED',
-              message: `Event query failed: ${err instanceof Error ? err.message : String(err)}`,
-            },
-          };
-        }
-      }
 
       // ─── Custom guard pre-check (async) ──────────────────────────────
       // Custom guards run shell commands (async) so they execute here at

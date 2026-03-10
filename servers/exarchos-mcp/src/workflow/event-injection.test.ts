@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -8,6 +8,7 @@ import {
   configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from './tools.js';
+import { readStateFile } from './state-store.js';
 import { EventStore } from '../event-store/store.js';
 import { configureQueryEventStore } from './query.js';
 import { configureNextActionEventStore } from './next-action.js';
@@ -275,5 +276,165 @@ describe('handleSet_CustomGuardExecution', () => {
     clearRegisteredGuards();
     try { unextendWorkflowTypeEnum(EXT_TYPE); } catch { /* ignore */ }
     try { unregisterWorkflowType(EXT_TYPE); } catch { /* ignore */ }
+  });
+});
+
+// ─── T-02: Unified handleSet hydration ──────────────────────────────────────
+
+describe('handleSet_UnifiedHydration', () => {
+  it('HandleSet_PhaseTransition_HydratesEventsWithFullDataSpread', async () => {
+    // Arrange: Create workflow and advance to delegate phase
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'spread-test', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'spread-test', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'spread-test', phase: 'plan' }, tmpDir);
+    await handleSet(
+      { featureId: 'spread-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'spread-test', phase: 'plan-review' }, tmpDir);
+    await handleSet(
+      { featureId: 'spread-test', updates: { 'planReview.approved': true } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'spread-test', phase: 'delegate' }, tmpDir);
+
+    // Set tasks as complete
+    await handleSet(
+      { featureId: 'spread-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      tmpDir,
+    );
+
+    // Append team events with rich data
+    await eventStore.append('spread-test', {
+      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      correlationId: 'spread-test',
+      source: 'orchestrator',
+      data: { featureId: 'spread-test', agentCount: 3 },
+    });
+    await eventStore.append('spread-test', {
+      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      correlationId: 'spread-test',
+      source: 'orchestrator',
+      data: {
+        featureId: 'spread-test',
+        totalDurationMs: 5000,
+        tasksCompleted: 1,
+        tasksFailed: 0,
+      },
+    });
+
+    // Act: Transition delegate -> review
+    const result = await handleSet(
+      { featureId: 'spread-test', phase: 'review' },
+      tmpDir,
+    );
+
+    // Assert: Transition succeeds — hydration preserved team.disbanded data
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.phase).toBe('review');
+
+    // Read the state file and verify _events has the full data spread
+    const stateFile = path.join(tmpDir, 'spread-test.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    const events = raw._events as Array<Record<string, unknown>>;
+
+    // Find the team.disbanded event
+    const disbanded = events?.find((e) => e.type === 'team.disbanded');
+    if (disbanded) {
+      // All data fields must be at top level (not just from/to/trigger)
+      expect(disbanded.totalDurationMs).toBe(5000);
+      expect(disbanded.tasksCompleted).toBe(1);
+      expect(disbanded.tasksFailed).toBe(0);
+    }
+  });
+
+  it('HandleSet_PhaseTransition_DoesNotDoubleQuery', async () => {
+    // Arrange: Create workflow and advance to delegate phase
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'query-count', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'query-count', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'query-count', phase: 'plan' }, tmpDir);
+    await handleSet(
+      { featureId: 'query-count', updates: { 'artifacts.plan': 'docs/plan.md' } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'query-count', phase: 'plan-review' }, tmpDir);
+    await handleSet(
+      { featureId: 'query-count', updates: { 'planReview.approved': true } },
+      tmpDir,
+    );
+    await handleSet({ featureId: 'query-count', phase: 'delegate' }, tmpDir);
+    await handleSet(
+      { featureId: 'query-count', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      tmpDir,
+    );
+
+    // Append team events
+    await eventStore.append('query-count', {
+      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      data: { featureId: 'query-count' },
+    });
+    await eventStore.append('query-count', {
+      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      data: { featureId: 'query-count', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
+    });
+
+    // Spy on eventStore.query
+    const querySpy = vi.spyOn(eventStore, 'query');
+
+    // Act: Transition delegate -> review
+    await handleSet(
+      { featureId: 'query-count', phase: 'review' },
+      tmpDir,
+    );
+
+    // Assert: eventStore.query called exactly ONCE for hydration (not twice)
+    const queryCalls = querySpy.mock.calls.filter(
+      (call) => call[0] === 'query-count' && !call[1],
+    );
+    expect(queryCalls.length).toBe(1);
+
+    querySpy.mockRestore();
+  });
+
+  it('HandleSet_EventStoreQueryFails_FallsBackToEmptyEvents', async () => {
+    // Arrange: Create workflow at ideate phase (simple transition, no guards requiring team events)
+    const eventStore = new EventStore(tmpDir);
+    configureWorkflowEventStore(eventStore);
+
+    await handleInit({ featureId: 'fail-test', workflowType: 'feature' }, tmpDir);
+    await handleSet(
+      { featureId: 'fail-test', updates: { 'artifacts.design': 'docs/design.md' } },
+      tmpDir,
+    );
+
+    // Spy on query and make it throw
+    const querySpy = vi.spyOn(eventStore, 'query').mockRejectedValue(
+      new Error('Connection lost'),
+    );
+
+    // Act: Transition ideate -> plan (no team guards on this transition)
+    const result = await handleSet(
+      { featureId: 'fail-test', phase: 'plan' },
+      tmpDir,
+    );
+
+    // Assert: Transition succeeds with best-effort fallback
+    // (should NOT return EVENT_QUERY_FAILED error)
+    expect(result.success).toBe(true);
+
+    querySpy.mockRestore();
   });
 });
