@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Mock pure TS provenance-chain module ───────────────────────────────────
 
-vi.mock('../../../../src/orchestrate/provenance-chain.js', () => ({
+vi.mock('./pure/provenance-chain.js', () => ({
   verifyProvenanceChain: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn(async () => {}),
 }));
 
-import { verifyProvenanceChain } from '../../../../src/orchestrate/provenance-chain.js';
+import { verifyProvenanceChain } from './pure/provenance-chain.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handleProvenanceChain } from './provenance-chain.js';
 

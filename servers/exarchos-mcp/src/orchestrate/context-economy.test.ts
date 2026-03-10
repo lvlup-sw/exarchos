@@ -11,7 +11,7 @@ vi.mock('node:child_process', () => ({
 
 // ─── Mock pure TS context-economy module ────────────────────────────────────
 
-vi.mock('../../../../src/orchestrate/context-economy.js', () => ({
+vi.mock('./pure/context-economy.js', () => ({
   checkContextEconomy: vi.fn(),
 }));
 
@@ -43,7 +43,7 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
-import { checkContextEconomy } from '../../../../src/orchestrate/context-economy.js';
+import { checkContextEconomy } from './pure/context-economy.js';
 import { handleContextEconomy } from './context-economy.js';
 
 const STATE_DIR = '/tmp/test-context-economy';

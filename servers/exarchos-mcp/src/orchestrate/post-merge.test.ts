@@ -6,7 +6,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const mockCheckPostMerge = vi.fn();
 
-vi.mock('../../../../src/orchestrate/post-merge.js', () => ({
+vi.mock('./pure/post-merge.js', () => ({
   checkPostMerge: (...args: unknown[]) => mockCheckPostMerge(...args),
 }));
 

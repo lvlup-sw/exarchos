@@ -5,7 +5,7 @@ import type { ToolResult } from '../format.js';
 
 // ─── Mock pure TS tdd-compliance module ─────────────────────────────────────
 
-vi.mock('../../../../src/orchestrate/tdd-compliance.js', () => ({
+vi.mock('./pure/tdd-compliance.js', () => ({
   checkTddCompliance: vi.fn(),
 }));
 
@@ -21,7 +21,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { checkTddCompliance } from '../../../../src/orchestrate/tdd-compliance.js';
+import { checkTddCompliance } from './pure/tdd-compliance.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 
 const STATE_DIR = '/tmp/test-tdd-compliance';

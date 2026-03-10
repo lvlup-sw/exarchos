@@ -8,7 +8,7 @@
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { verifyProvenanceChain } from '../../../../src/orchestrate/provenance-chain.js';
+import { verifyProvenanceChain } from './pure/provenance-chain.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 

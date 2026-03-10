@@ -8,7 +8,7 @@
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { checkTddCompliance } from '../../../../src/orchestrate/tdd-compliance.js';
+import { checkTddCompliance } from './pure/tdd-compliance.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ vi.mock('node:child_process', () => ({
 
 // ─── Mock pure TS operational-resilience module ─────────────────────────────
 
-vi.mock('../../../../src/orchestrate/operational-resilience.js', () => ({
+vi.mock('./pure/operational-resilience.js', () => ({
   checkOperationalResilience: vi.fn(),
 }));
 
@@ -28,7 +28,7 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
-import { checkOperationalResilience } from '../../../../src/orchestrate/operational-resilience.js';
+import { checkOperationalResilience } from './pure/operational-resilience.js';
 import { handleOperationalResilience } from './operational-resilience.js';
 
 const STATE_DIR = '/tmp/test-operational-resilience';

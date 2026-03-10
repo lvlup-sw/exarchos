@@ -9,7 +9,7 @@ import type { ToolResult } from '../format.js';
 
 // ─── Mock pure TS design-completeness module ────────────────────────────────
 
-vi.mock('../../../../src/orchestrate/design-completeness.js', () => ({
+vi.mock('./pure/design-completeness.js', () => ({
   handleDesignCompleteness: vi.fn(),
 }));
 
@@ -28,7 +28,7 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { handleDesignCompleteness as runDesignCompleteness } from '../../../../src/orchestrate/design-completeness.js';
+import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 import { handleDesignCompleteness } from './design-completeness.js';
 
 const mockRunDesignCompleteness = vi.mocked(runDesignCompleteness);

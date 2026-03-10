@@ -7,7 +7,7 @@ import type { ToolResult } from '../format.js';
 
 const mockRunStaticAnalysis = vi.fn();
 
-vi.mock('../../../../src/orchestrate/static-analysis.js', () => ({
+vi.mock('./pure/static-analysis.js', () => ({
   runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
 }));
 

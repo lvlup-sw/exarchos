@@ -11,7 +11,7 @@ vi.mock('node:child_process', () => ({
 
 // ─── Mock pure TS workflow-determinism module ───────────────────────────────
 
-vi.mock('../../../../src/orchestrate/workflow-determinism.js', () => ({
+vi.mock('./pure/workflow-determinism.js', () => ({
   checkWorkflowDeterminism: vi.fn(),
 }));
 
@@ -28,7 +28,7 @@ vi.mock('../views/tools.js', () => ({
 }));
 
 import { execFileSync } from 'node:child_process';
-import { checkWorkflowDeterminism } from '../../../../src/orchestrate/workflow-determinism.js';
+import { checkWorkflowDeterminism } from './pure/workflow-determinism.js';
 import { handleWorkflowDeterminism } from './workflow-determinism.js';
 
 const STATE_DIR = '/tmp/test-workflow-determinism';

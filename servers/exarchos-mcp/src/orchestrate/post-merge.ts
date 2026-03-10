@@ -10,8 +10,8 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { checkPostMerge } from '../../../../src/orchestrate/post-merge.js';
-import type { CommandResult } from '../../../../src/orchestrate/post-merge.js';
+import { checkPostMerge } from './pure/post-merge.js';
+import type { CommandResult } from './pure/post-merge.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

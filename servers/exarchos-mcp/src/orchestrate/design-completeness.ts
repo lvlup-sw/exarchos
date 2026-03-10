@@ -10,7 +10,7 @@
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { handleDesignCompleteness as runDesignCompleteness } from '../../../../src/orchestrate/design-completeness.js';
+import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 

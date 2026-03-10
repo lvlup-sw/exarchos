@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { checkOperationalResilience } from '../../../../src/orchestrate/operational-resilience.js';
+import { checkOperationalResilience } from './pure/operational-resilience.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

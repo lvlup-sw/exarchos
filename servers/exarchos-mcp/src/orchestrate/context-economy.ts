@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { checkContextEconomy } from '../../../../src/orchestrate/context-economy.js';
+import { checkContextEconomy } from './pure/context-economy.js';
 import { queryRuntimeMetrics } from '../telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../telemetry/telemetry-queries.js';
 

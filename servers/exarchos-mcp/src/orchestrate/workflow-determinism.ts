@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
-import { checkWorkflowDeterminism } from '../../../../src/orchestrate/workflow-determinism.js';
+import { checkWorkflowDeterminism } from './pure/workflow-determinism.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
