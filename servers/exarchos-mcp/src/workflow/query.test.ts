@@ -3,7 +3,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleSummary, handleReconcile, handleTransitions, configureQueryEventStore } from './query.js';
-import { configureStateStoreBackend } from './state-store.js';
+import { configureStateStoreBackend, StateStoreError } from './state-store.js';
+import { handleGet } from './tools.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -325,5 +326,197 @@ describe('handleTransitions', () => {
     for (const t of filteredTransitions) {
       expect(t.from).toBe('review');
     }
+  });
+});
+
+// ─── T-14: Query filter edge cases ──────────────────────────────────────────
+
+describe('HandleQuery edge cases', () => {
+  let backend: InMemoryBackend;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    backend = new InMemoryBackend();
+    configureStateStoreBackend(backend);
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-query-edge-'));
+  });
+
+  afterEach(async () => {
+    configureStateStoreBackend(undefined);
+    configureQueryEventStore(null);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('HandleQuery_StateStoreNonNotFoundError_Rethrows', async () => {
+    // Use a custom backend that throws a non-STATE_NOT_FOUND StateStoreError
+    const throwingBackend = {
+      getState: () => {
+        throw new StateStoreError('STATE_CORRUPT', 'parse error in state file');
+      },
+      setState: () => {},
+      listStates: () => [],
+      initialize: () => {},
+    } as unknown as InMemoryBackend;
+    configureStateStoreBackend(throwingBackend);
+
+    await expect(
+      handleSummary({ featureId: 'test-feature' }, '/fake/state-dir'),
+    ).rejects.toThrow(StateStoreError);
+
+    // Also verify handleReconcile rethrows non-NOT_FOUND errors
+    await expect(
+      handleReconcile({ featureId: 'test-feature' }, '/fake/state-dir'),
+    ).rejects.toThrow(StateStoreError);
+  });
+
+  it('HandleQuery_WorktreePathFsAccessFails_ReportsPathMissing', async () => {
+    // Create a path that will fail fs.access with a permission error (e.g., EACCES)
+    // Using a non-existent deeply nested path triggers ENOENT which is caught as MISSING too
+    const inaccessiblePath = path.join(tmpDir, 'no-perms', 'deeply', 'nested', 'nonexistent');
+
+    const state = makeBaseState({
+      worktrees: {
+        'wt-1': { branch: 'feat/task-1', taskId: 't1', status: 'active', path: inaccessiblePath },
+      },
+    });
+    backend.setState('test-feature', state as never, 0);
+
+    const result = await handleReconcile(
+      { featureId: 'test-feature' },
+      '/fake/state-dir',
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const worktrees = data.worktrees as Array<Record<string, unknown>>;
+    expect(worktrees).toHaveLength(1);
+    // fs.access rejects for inaccessible paths -> status is MISSING
+    expect(worktrees[0].pathStatus).toBe('MISSING');
+  });
+
+  it('HandleQuery_RawStateJsonParseFailure_SkipsDriftGracefully', async () => {
+    // Switch to file-based mode so handleReconcile reads raw JSON from disk
+    configureStateStoreBackend(undefined);
+
+    const stateDir = path.join(tmpDir, 'workflow-state');
+    await fs.mkdir(stateDir, { recursive: true });
+
+    // Write a valid state file for readStateFile to succeed
+    const stateData = makeBaseState({
+      tasks: [
+        { id: 't1', title: 'Task 1', status: 'pending', nativeTaskId: 'native-t1', blockedBy: [] },
+      ],
+      worktrees: {},
+    });
+    const stateFile = path.join(stateDir, 'test-feature.state.json');
+    await fs.writeFile(stateFile, JSON.stringify(stateData, null, 2));
+
+    // Now corrupt the state file AFTER readStateFile would cache it
+    // But handleReconcile reads raw JSON separately via fs.readFile.
+    // We need to make the raw read fail. Since readStateFile and raw read both
+    // read the same file, we need to write the file, let readStateFile parse it
+    // through Zod (which succeeds), then have the raw re-read also succeed but
+    // produce invalid JSON. We can't easily do that with one file.
+    //
+    // Instead, test the graceful skip by making the raw state file contain
+    // malformed JSON for the second read. We'll use a backend for the first read
+    // and file for the raw re-read.
+    const corruptBackend = new InMemoryBackend();
+    const validState = makeBaseState({
+      tasks: [
+        { id: 't1', title: 'Task 1', status: 'pending', blockedBy: [] },
+      ],
+      worktrees: {},
+    });
+    corruptBackend.setState('test-feature', validState as never, 0);
+    configureStateStoreBackend(corruptBackend);
+
+    // Write malformed JSON to the state file that handleReconcile will read raw
+    await fs.writeFile(stateFile, '{{{invalid json!!!');
+
+    const result = await handleReconcile(
+      { featureId: 'test-feature' },
+      stateDir,
+    );
+
+    // Query should succeed (worktree section works)
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    // taskDrift should be absent because the raw JSON parse failed and was caught
+    expect(data.taskDrift).toBeUndefined();
+  });
+
+  it('HandleQuery_NativeTaskIdPresent_ReconcilesTaskDrift', async () => {
+    // Switch to file-based mode so handleReconcile reads raw state with nativeTaskId
+    configureStateStoreBackend(undefined);
+
+    const stateDir = path.join(tmpDir, 'workflow-state');
+    await fs.mkdir(stateDir, { recursive: true });
+
+    // Create native task directory with a matching task
+    const nativeTaskDir = path.join(tmpDir, 'native-tasks', 'test-feature');
+    await fs.mkdir(nativeTaskDir, { recursive: true });
+    await fs.writeFile(
+      path.join(nativeTaskDir, 'nt-1.json'),
+      JSON.stringify({ id: 'nt-1', subject: 'Task 1', status: 'completed' }),
+    );
+
+    // State file with nativeTaskId on a task
+    const stateData = makeBaseState({
+      tasks: [
+        { id: 't1', title: 'Task 1', status: 'in_progress', nativeTaskId: 'nt-1', blockedBy: [] },
+      ],
+      worktrees: {},
+    });
+    const stateFile = path.join(stateDir, 'test-feature.state.json');
+    await fs.writeFile(stateFile, JSON.stringify(stateData, null, 2));
+
+    const nativeBaseDir = path.join(tmpDir, 'native-tasks');
+    const result = await handleReconcile(
+      { featureId: 'test-feature' },
+      stateDir,
+      nativeBaseDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const taskDrift = data.taskDrift as Record<string, unknown>;
+    expect(taskDrift).toBeDefined();
+    expect(taskDrift.skipped).toBe(false);
+    const drift = taskDrift.drift as Array<Record<string, unknown>>;
+    expect(drift.length).toBeGreaterThan(0);
+    // in_progress vs completed should produce drift
+    const entry = drift.find(d => d.taskId === 't1');
+    expect(entry).toBeDefined();
+    expect(entry!.exarchosStatus).toBe('in_progress');
+    expect(entry!.nativeStatus).toBe('completed');
+  });
+
+  it('HandleQuery_NestedDotPathProjection_ReturnsCorrectFields', async () => {
+    // Test field projection through handleGet (the query entry point for field projection)
+    // handleGet calls projectState which resolves dot-path fields
+    configureStateStoreBackend(undefined);
+
+    const stateDir = path.join(tmpDir, 'workflow-state');
+    await fs.mkdir(stateDir, { recursive: true });
+
+    const stateData = makeBaseState({
+      artifacts: { design: '/path/to/design.md', plan: '/path/to/plan.md', pr: null },
+    });
+    const stateFile = path.join(stateDir, 'test-feature.state.json');
+    await fs.writeFile(stateFile, JSON.stringify(stateData, null, 2));
+
+    // Request nested dot-path fields including an internal field
+    const result = await handleGet(
+      { featureId: 'test-feature', fields: ['artifacts.design', '_checkpoint.phase'] },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    // artifacts.design should be resolved
+    expect(data['artifacts.design']).toBe('/path/to/design.md');
+    // _checkpoint.phase should be filtered out (internal fields starting with _ are skipped)
+    expect(data['_checkpoint.phase']).toBeUndefined();
   });
 });
