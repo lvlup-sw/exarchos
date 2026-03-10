@@ -1,15 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import { SqliteBackend } from './sqlite-backend.js';
+
+// Mock node:fs/promises to allow intercepting readdir/unlink in cleanupLegacyFiles
+// All functions pass through to real implementations by default
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...real,
+    readdir: vi.fn((...args: Parameters<typeof real.readdir>) => real.readdir(...args)),
+    unlink: vi.fn((...args: Parameters<typeof real.unlink>) => real.unlink(...args)),
+    rename: vi.fn((...args: Parameters<typeof real.rename>) => real.rename(...args)),
+  };
+});
+
+import * as fsp from 'node:fs/promises';
 import {
   migrateLegacyStateFiles,
   migrateLegacyOutbox,
   cleanupLegacyFiles,
 } from './migration.js';
+
+const mockedReaddir = vi.mocked(fsp.readdir);
+const mockedUnlink = vi.mocked(fsp.unlink);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -333,5 +350,82 @@ describe('cleanupLegacyFiles', () => {
   it('cleanupLegacyFiles_MissingFiles_NoError', async () => {
     // Act — empty directory, no files to clean up — should not throw
     await cleanupLegacyFiles(tempDir);
+  });
+});
+
+// ─── T-15: cleanupLegacyFiles failure recovery ──────────────────────────────
+
+describe('cleanupLegacyFiles failure recovery', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('CleanupLegacyFiles_DirectoryNotFound_ReturnsEarly', async () => {
+    // Call with a nonexistent directory — should return cleanly (ENOENT is caught)
+    const nonexistentDir = path.join(os.tmpdir(), 'nonexistent-cleanup-dir-' + Date.now());
+    await expect(cleanupLegacyFiles(nonexistentDir)).resolves.toBeUndefined();
+  });
+
+  it('CleanupLegacyFiles_ReadPermissionDenied_ThrowsError', async () => {
+    // Mock readdir to throw EACCES (non-ENOENT error should be rethrown)
+    const eaccessError = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+    mockedReaddir.mockRejectedValueOnce(eaccessError);
+
+    await expect(cleanupLegacyFiles('/some/dir')).rejects.toThrow('Permission denied');
+  });
+
+  it('CleanupLegacyFiles_FileUnlinkPermissionDenied_ThrowsError', async () => {
+    // Mock readdir to return files that match legacy patterns
+    mockedReaddir.mockResolvedValueOnce(['stream.seq', 'stream.snapshot.json'] as unknown as Awaited<ReturnType<typeof fsp.readdir>>);
+
+    // Mock unlink to throw EACCES on the first file
+    const eaccessError = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+    mockedUnlink.mockRejectedValueOnce(eaccessError);
+
+    await expect(cleanupLegacyFiles('/some/dir')).rejects.toThrow('Permission denied');
+  });
+
+  it('CleanupLegacyFiles_FileAlreadyDeleted_ContinuesSilently', async () => {
+    // Mock readdir to return multiple legacy files
+    mockedReaddir.mockResolvedValueOnce([
+      'a.seq',
+      'b.snapshot.json',
+      'c.state.json.migrated',
+    ] as unknown as Awaited<ReturnType<typeof fsp.readdir>>);
+
+    // First file throws ENOENT (already deleted), others succeed
+    const enoentError = Object.assign(new Error('File not found'), { code: 'ENOENT' });
+    mockedUnlink
+      .mockRejectedValueOnce(enoentError)  // a.seq — ENOENT, continue
+      .mockResolvedValueOnce(undefined)      // b.snapshot.json — success
+      .mockResolvedValueOnce(undefined);     // c.state.json.migrated — success
+
+    // Should not throw — ENOENT is caught and processing continues
+    await expect(cleanupLegacyFiles('/some/dir')).resolves.toBeUndefined();
+
+    // All three files should have been attempted for unlink
+    expect(mockedUnlink).toHaveBeenCalledTimes(3);
+  });
+
+  it('CleanupLegacyFiles_PartialSuccess_SomeFilesRemain', async () => {
+    // Mock readdir to return two legacy files
+    mockedReaddir.mockResolvedValueOnce([
+      'first.seq',
+      'second.snapshot.json',
+    ] as unknown as Awaited<ReturnType<typeof fsp.readdir>>);
+
+    // First file deletes successfully, second throws EACCES
+    const eaccessError = Object.assign(new Error('Permission denied'), { code: 'EACCES' });
+    mockedUnlink
+      .mockResolvedValueOnce(undefined)       // first.seq — success
+      .mockRejectedValueOnce(eaccessError);   // second.snapshot.json — EACCES
+
+    // Should throw because EACCES is rethrown
+    await expect(cleanupLegacyFiles('/some/dir')).rejects.toThrow('Permission denied');
+
+    // First file was attempted (and succeeded)
+    expect(mockedUnlink).toHaveBeenCalledWith(path.join('/some/dir', 'first.seq'));
+    // Second file was attempted (and failed)
+    expect(mockedUnlink).toHaveBeenCalledWith(path.join('/some/dir', 'second.snapshot.json'));
   });
 });
