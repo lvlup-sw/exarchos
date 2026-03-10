@@ -28,7 +28,7 @@ describe('DelegationReadinessView', () => {
 
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('plan not approved');
-      expect(state.blockers).toContain('no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation');
+      expect(state.blockers).toContain('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
       expect(state.blockers).toContain('quality signals not queried');
       expect(state.plan).toEqual({ approved: false, taskCount: 0 });
       expect(state.quality).toEqual({
@@ -146,7 +146,7 @@ describe('DelegationReadinessView', () => {
 
       expect(next.plan.taskCount).toBe(1);
       expect(next.worktrees.expected).toBe(1);
-      expect(next.blockers).not.toContain('no tasks found in workflow state — emit task.assigned events via exarchos_event before calling prepare_delegation');
+      expect(next.blockers).not.toContain('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
     });
 
     it('Apply_MultipleTasksAssigned_IncrementsCorrectly', () => {
@@ -308,6 +308,20 @@ describe('DelegationReadinessView', () => {
 
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('plan not approved');
+    });
+  });
+
+  // ─── DR-3: Blocker message references events ──────────────────────────────
+
+  describe('blocker message wording', () => {
+    it('DelegationReadiness_NoTaskEvents_BlockerMessageReferencesEvents', () => {
+      const state = delegationReadinessProjection.init();
+
+      // With no events, the blocker should reference "no task.assigned events found"
+      const taskBlocker = state.blockers.find((b) => b.includes('task'));
+      expect(taskBlocker).toBeDefined();
+      expect(taskBlocker).toContain('no task.assigned events found');
+      expect(taskBlocker).not.toContain('no tasks found in workflow state');
     });
   });
 
