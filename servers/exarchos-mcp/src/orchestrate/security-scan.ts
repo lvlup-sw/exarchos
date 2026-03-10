@@ -1,10 +1,10 @@
 // ─── Security Scan Composite Action ─────────────────────────────────────────
 //
-// Orchestrates security scanning by running the scripts/security-scan.sh
-// script and emitting gate.executed events for quality-layer gate checks.
+// Pure TypeScript security scanning — scans diff content for common security
+// anti-patterns (hardcoded secrets, eval(), SQL injection, XSS vectors).
+// No bash script dependency.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -13,24 +13,158 @@ import { emitGateEvent } from './gate-utils.js';
 
 interface SecurityScanArgs {
   readonly featureId: string;
-  readonly repoRoot?: string;
-  readonly baseBranch?: string;
+  readonly diffContent?: string;
+}
+
+export interface SecurityFinding {
+  readonly file: string;
+  readonly line: number;
+  readonly pattern: string;
+  readonly severity: 'HIGH' | 'MEDIUM';
+  readonly context: string;
 }
 
 interface SecurityScanResult {
   readonly passed: boolean;
   readonly findingCount: number;
+  readonly findings: readonly SecurityFinding[];
   readonly report: string;
 }
 
-// ─── Output Parsing ────────────────────────────────────────────────────────
+// ─── Security Patterns ──────────────────────────────────────────────────────
 
-function parseSecurityOutput(output: string): number {
-  const findingsMatch = output.match(/Result:\s*FINDINGS\s*\((\d+)\s*security patterns detected\)/);
-  if (findingsMatch) {
-    return parseInt(findingsMatch[1], 10);
+interface SecurityPattern {
+  readonly name: string;
+  readonly severity: 'HIGH' | 'MEDIUM';
+  readonly test: (line: string) => boolean;
+}
+
+const SECURITY_PATTERNS: readonly SecurityPattern[] = [
+  {
+    name: 'Hardcoded secret/credential',
+    severity: 'HIGH',
+    test: (line: string) =>
+      /(?:API_KEY|SECRET|PASSWORD|TOKEN|PRIVATE_KEY)\s*=\s*["']/i.test(line),
+  },
+  {
+    name: 'eval() usage',
+    severity: 'HIGH',
+    test: (line: string) => /\beval\s*\(/.test(line),
+  },
+  {
+    name: 'SQL string concatenation',
+    severity: 'HIGH',
+    test: (line: string) =>
+      /"SELECT\b.*"\s*\+|`SELECT\b.*\$\{/i.test(line),
+  },
+  {
+    name: 'innerHTML assignment',
+    severity: 'MEDIUM',
+    test: (line: string) => /\.innerHTML\s*=/.test(line),
+  },
+  {
+    name: 'dangerouslySetInnerHTML usage',
+    severity: 'MEDIUM',
+    test: (line: string) => /dangerouslySetInnerHTML/.test(line),
+  },
+  {
+    name: 'child_process.exec with variable input',
+    severity: 'HIGH',
+    test: (line: string) =>
+      /child_process.*exec\s*\(/.test(line) || /exec\s*\(\s*[^"'`]/.test(line),
+  },
+];
+
+// ─── Diff Scanning ──────────────────────────────────────────────────────────
+
+/**
+ * Scan unified diff content for security anti-patterns.
+ * Only scans added lines (lines starting with +, excluding +++ headers).
+ * Returns an array of structured findings.
+ */
+export function scanDiffContent(diffContent: string): SecurityFinding[] {
+  if (!diffContent.trim()) {
+    return [];
   }
-  return 0;
+
+  const findings: SecurityFinding[] = [];
+  let currentFile = '';
+  let diffLineNum = 0;
+
+  for (const line of diffContent.split('\n')) {
+    // Track current file from diff headers
+    const fileMatch = line.match(/^diff --git a\/(.+) b\//);
+    if (fileMatch) {
+      currentFile = fileMatch[1];
+      diffLineNum = 0;
+      continue;
+    }
+
+    // Track line numbers from hunk headers
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      diffLineNum = parseInt(hunkMatch[1], 10);
+      continue;
+    }
+
+    // Skip non-addition lines
+    if (!line.startsWith('+')) {
+      // Context lines (not starting with -) increment the line counter
+      if (!line.startsWith('-')) {
+        diffLineNum++;
+      }
+      continue;
+    }
+
+    // Skip +++ header lines
+    if (line.startsWith('+++')) {
+      continue;
+    }
+
+    // Strip leading + to get the actual added content
+    const addedLine = line.slice(1);
+
+    // Check each security pattern
+    for (const pattern of SECURITY_PATTERNS) {
+      if (pattern.test(addedLine)) {
+        // Truncate context to 120 chars
+        let context = addedLine.trim();
+        if (context.length > 120) {
+          context = context.slice(0, 117) + '...';
+        }
+
+        findings.push({
+          file: currentFile,
+          line: diffLineNum,
+          pattern: pattern.name,
+          severity: pattern.severity,
+          context,
+        });
+      }
+    }
+
+    diffLineNum++;
+  }
+
+  return findings;
+}
+
+// ─── Report Generation ──────────────────────────────────────────────────────
+
+function generateReport(findings: readonly SecurityFinding[]): string {
+  const lines: string[] = ['## Security Scan Report', ''];
+
+  if (findings.length === 0) {
+    lines.push('No security patterns detected.', '', '---', '', '**Result: CLEAN** (0 findings)');
+  } else {
+    lines.push(`**Findings (${findings.length}):**`, '');
+    for (const f of findings) {
+      lines.push(`- **${f.severity}** \`${f.file}:${f.line}\` -- ${f.pattern}: \`${f.context}\``);
+    }
+    lines.push('', '---', '', `**Result: FINDINGS** (${findings.length} security patterns detected)`);
+  }
+
+  return lines.join('\n');
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -47,73 +181,17 @@ export async function handleSecurityScan(
     };
   }
 
-  // Build the script command
-  const repoRoot = args.repoRoot || process.cwd();
-  const baseBranch = args.baseBranch || 'main';
-
-  let stdout = '';
-  let passed = false;
-
-  try {
-    const output = execFileSync(
-      'scripts/security-scan.sh',
-      ['--repo-root', repoRoot, '--base-branch', baseBranch],
-      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-    stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
-    passed = true;
-  } catch (err: unknown) {
-    const execError = err as {
-      status?: number;
-      stdout?: Buffer | string;
-      stderr?: Buffer | string;
+  if (args.diffContent === undefined || args.diffContent === null) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'diffContent is required' },
     };
-
-    // Timeout or spawn errors have no status — treat as script error
-    if (execError.status == null) {
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-
-    // Exit code 2 = usage error — return as script error
-    if (execError.status === 2) {
-      const stderr = execError.stderr instanceof Buffer
-        ? execError.stderr.toString('utf-8')
-        : String(execError.stderr ?? '');
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: stderr || 'Script usage error',
-        },
-      };
-    }
-
-    // Exit code 1 = findings detected — parse the report
-    if (execError.status === 1) {
-      stdout = execError.stdout instanceof Buffer
-        ? execError.stdout.toString('utf-8')
-        : String(execError.stdout ?? '');
-      passed = false;
-    } else {
-      // Exit code ≥3 = unexpected error — treat as script error
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
   }
 
-  // Parse finding count from stdout
-  const findingCount = parseSecurityOutput(stdout);
+  // Scan the diff content
+  const findings = scanDiffContent(args.diffContent);
+  const passed = findings.length === 0;
+  const report = generateReport(findings);
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
@@ -121,15 +199,16 @@ export async function handleSecurityScan(
     await emitGateEvent(store, args.featureId, 'security-scan', 'quality', passed, {
       dimension: 'D1',
       phase: 'review',
-      findingCount,
+      findingCount: findings.length,
     });
   } catch { /* fire-and-forget */ }
 
   // Return structured result
   const result: SecurityScanResult = {
     passed,
-    findingCount,
-    report: stdout,
+    findingCount: findings.length,
+    findings,
+    report,
   };
 
   return { success: true, data: result };
