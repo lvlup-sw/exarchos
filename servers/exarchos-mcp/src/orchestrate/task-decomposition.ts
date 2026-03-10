@@ -8,7 +8,7 @@
 // with inline TypeScript logic returning structured results directly.
 // ────────────────────────────────────────────────────────────────────────────
 
-import * as fs from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -393,7 +393,7 @@ export async function handleTaskDecomposition(
   // Read plan file
   let planContent: string;
   try {
-    planContent = fs.readFileSync(args.planPath, 'utf-8');
+    planContent = await readFile(args.planPath, 'utf-8');
   } catch (err: unknown) {
     return {
       success: false,

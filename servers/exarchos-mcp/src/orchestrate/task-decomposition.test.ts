@@ -11,16 +11,16 @@ vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
-// We mock fs for handleTaskDecomposition integration test
-vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs')>();
+// We mock fs/promises for handleTaskDecomposition integration test
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
-    readFileSync: vi.fn(),
+    readFile: vi.fn(),
   };
 });
 
-import * as fs from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
 import {
@@ -33,7 +33,7 @@ import {
 
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
 const mockedGetOrCreateEventStore = vi.mocked(getOrCreateEventStore);
-const mockedReadFileSync = vi.mocked(fs.readFileSync);
+const mockedReadFile = vi.mocked(readFile);
 
 // ─── Fixture Data ─────────────────────────────────────────────────────────
 
@@ -351,8 +351,8 @@ describe('handleTaskDecomposition', () => {
   });
 
   it('HandleTaskDecomposition_FullIntegration_ReturnsStructuredResult', async () => {
-    // Arrange: mock fs.readFileSync to return a valid plan
-    mockedReadFileSync.mockReturnValue(WELL_DECOMPOSED_PLAN);
+    // Arrange: mock readFile to return a valid plan
+    mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
 
     // Act
     const result = await handleTaskDecomposition(baseArgs, stateDir);
