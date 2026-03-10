@@ -48,4 +48,31 @@ describe('Skill coverage — runbook references', () => {
     const content = readSkillFile('shepherd/SKILL.md');
     assertRunbookReference(content, 'shepherd-iteration');
   });
+
+  // ─── Decision Runbook References ─────────────────────────────────────
+
+  it('SkillCoverage_DebugSkill_ReferencesTriageDecisionRunbook', () => {
+    const content = readSkillFile('debug/SKILL.md');
+    assertRunbookReference(content, 'triage-decision');
+  });
+
+  it('SkillCoverage_DebugSkill_ReferencesInvestigationDecisionRunbook', () => {
+    const content = readSkillFile('debug/SKILL.md');
+    assertRunbookReference(content, 'investigation-decision');
+  });
+
+  it('SkillCoverage_RefactorSkill_ReferencesScopeDecisionRunbook', () => {
+    const content = readSkillFile('refactor/SKILL.md');
+    assertRunbookReference(content, 'scope-decision');
+  });
+
+  it('SkillCoverage_DelegationSkill_ReferencesDispatchDecisionRunbook', () => {
+    const content = readSkillFile('delegation/SKILL.md');
+    assertRunbookReference(content, 'dispatch-decision');
+  });
+
+  it('SkillCoverage_QualityReviewSkill_ReferencesReviewEscalationRunbook', () => {
+    const content = readSkillFile('quality-review/SKILL.md');
+    assertRunbookReference(content, 'review-escalation');
+  });
 });

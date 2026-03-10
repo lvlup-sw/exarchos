@@ -105,6 +105,13 @@ For each task:
 4. Include PBT section from `references/pbt-patterns.md` when `propertyTests: true`
 5. Include testing patterns from `references/testing-patterns.md`
 
+### Decision Runbooks
+
+For dispatch strategy decisions, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "dispatch-decision" })`
+
+This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
+
 ### Parallel Dispatch
 
 Dispatch all independent tasks in a **single message** with multiple `Task` calls.

@@ -281,6 +281,13 @@ for orchestrate action schemas.
 - [ ] Code is maintainable
 - [ ] State file updated with review results
 
+### Decision Runbooks
+
+For review verdict routing, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`
+
+This runbook provides structured criteria for routing between APPROVED, NEEDS_FIXES, and BLOCKED verdicts based on finding severity and fix cycle count.
+
 ## Convergence & Verdict
 
 Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.

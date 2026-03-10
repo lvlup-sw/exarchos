@@ -130,6 +130,13 @@ Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "refactor" })`
 for phase transitions, guards, and playbook guidance.
 
+### Decision Runbooks
+
+For track-selection criteria at the explore phase, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "scope-decision" })`
+
+This runbook provides structured criteria for choosing between polish and overhaul tracks based on file count, structural impact, and PR scope.
+
 ## Track Switching
 
 If scope expands beyond polish limits during explore or brief phase, use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
