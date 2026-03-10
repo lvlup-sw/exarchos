@@ -258,6 +258,7 @@ register({
   ],
   events: [
     { type: 'gate.executed', when: 'After each review gate runs', fields: ['gateName', 'layer', 'passed'] },
+    { type: 'review.completed', when: 'After each review stage completes', fields: ['stage', 'verdict', 'findingsCount', 'summary'] },
   ],
   transitionCriteria:
     'All reviews passed → synthesize | Any review failed → delegate',

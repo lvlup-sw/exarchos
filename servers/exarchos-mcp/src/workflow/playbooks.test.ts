@@ -336,6 +336,18 @@ describe('compactGuidance describe hint', () => {
   });
 });
 
+// ─── DR-6: review.completed in review phase playbook ─────────────────────────
+
+describe('review.completed in review phase', () => {
+  it('ReviewPlaybook_Events_IncludesReviewCompleted', () => {
+    const playbooks = serializePlaybooks('feature');
+    const reviewPhase = playbooks.phases['review'];
+    expect(reviewPhase).toBeDefined();
+    const hasReviewCompleted = reviewPhase.events.some((e) => e.type === 'review.completed');
+    expect(hasReviewCompleted).toBe(true);
+  });
+});
+
 // ─── DR-4: compactGuidance drift tests ──────────────────────────────────────
 
 describe('compactGuidance drift tests', () => {
