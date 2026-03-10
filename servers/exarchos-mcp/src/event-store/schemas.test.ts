@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { describe, it, expect, afterEach } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -1838,5 +1839,57 @@ describe('serializeEventCatalog', () => {
   it('SerializeEventCatalog_TotalCount_MatchesTypeCount', () => {
     const catalog = serializeEventCatalog();
     expect(catalog.totalCount).toBe(Object.keys(catalog.types).length);
+  });
+});
+
+// ─── Task 005/006: Model-emitted event schema description drift tests ────────
+
+describe('Model-emitted event schema descriptions', () => {
+  // Get all model-emitted event types
+  const modelEmittedTypes = Object.entries(EVENT_EMISSION_REGISTRY)
+    .filter(([, source]) => source === 'model')
+    .map(([type]) => type);
+
+  it('modelEmittedEventSchemas_AllFields_HaveDescriptions', () => {
+    const missing: string[] = [];
+
+    for (const eventType of modelEmittedTypes) {
+      const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
+      if (!schema) continue; // skip types without schemas
+
+      const jsonSchema = zodToJsonSchema(schema as any) as any;
+      const props = jsonSchema.properties;
+      if (!props) continue;
+
+      for (const [field, fieldSchema] of Object.entries(props)) {
+        if (!(fieldSchema as any).description) {
+          missing.push(`${eventType}.${field}`);
+        }
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+
+  it('modelEmittedEventSchemas_Descriptions_AreReasonableLength', () => {
+    const issues: string[] = [];
+
+    for (const eventType of modelEmittedTypes) {
+      const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
+      if (!schema) continue;
+
+      const jsonSchema = zodToJsonSchema(schema as any) as any;
+      const props = jsonSchema.properties;
+      if (!props) continue;
+
+      for (const [field, fieldSchema] of Object.entries(props)) {
+        const desc = (fieldSchema as any).description;
+        if (desc && (desc.length < 5 || desc.length > 80)) {
+          issues.push(`${eventType}.${field}: ${desc.length} chars`);
+        }
+      }
+    }
+
+    expect(issues).toEqual([]);
   });
 });
