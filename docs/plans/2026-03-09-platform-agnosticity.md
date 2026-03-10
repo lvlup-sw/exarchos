@@ -17,7 +17,7 @@ Link: `docs/designs/2026-03-09-platform-agnosticity.md`
 
 | Design Section | DR | Task(s) | Key Requirements |
 |---|---|---|---|
-| Lever 1: Enriched compactGuidance | DR-1 | 002 | Feature workflow 9 phases, 4-section format, <=750 chars |
+| Lever 1: Enriched compactGuidance | DR-1 | 002 | Feature workflow 7 non-terminal phases (6 enriched + blocked minimal), 4-section format, <=750 chars |
 | Lever 1: Enriched compactGuidance | DR-2 | 003 | Debug workflow 10 phases, track-selection criteria |
 | Lever 1: Enriched compactGuidance | DR-3 | 004 | Refactor workflow 11 phases, polish vs overhaul criteria |
 | Lever 1: Enriched compactGuidance | DR-4 | 001 | Drift test validates all playbooks, iterates registry |
