@@ -11,7 +11,7 @@ import type { RunbookDefinition } from './types.js';
 export function computeRunbookAutoEmits(runbook: RunbookDefinition): readonly string[] {
   const events = new Set<string>();
   for (const step of runbook.steps) {
-    if (step.tool.startsWith('native:')) continue;
+    if (step.tool.startsWith('native:') || step.tool === 'none') continue;
     const action = findActionInRegistry(step.tool, step.action);
     if (action?.autoEmits) {
       for (const emission of action.autoEmits) {

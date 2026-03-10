@@ -97,6 +97,6 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(6);
+    expect(ALL_RUNBOOKS).toHaveLength(12);
   });
 });

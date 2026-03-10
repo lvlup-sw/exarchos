@@ -181,4 +181,51 @@ describe('handleRunbook', () => {
       expect(step.platformHint).toBeUndefined();
     }
   });
+
+  // ─── Decision Runbook Serving ──────────────────────────────────────────
+
+  it('handleRunbook_DecisionRunbook_ReturnsDecideFields', async () => {
+    const result = await handleRunbook({ id: 'triage-decision' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ decide?: { question: string; branches: Record<string, unknown> } }>;
+    };
+    const decideSteps = data.steps.filter((s) => s.decide);
+    expect(decideSteps.length).toBeGreaterThanOrEqual(2);
+    expect(decideSteps[0].decide!.question).toBeTruthy();
+    expect(decideSteps[0].decide!.branches).toBeTruthy();
+  });
+
+  it('handleRunbook_DecisionRunbook_NoSchemaForNoneSteps', async () => {
+    const result = await handleRunbook({ id: 'triage-decision' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ tool: string; schema: unknown }>;
+    };
+    for (const step of data.steps) {
+      if (step.tool === 'none') {
+        expect(step.schema).toBeNull();
+      }
+    }
+  });
+
+  it('handleRunbook_LinearRunbook_UnchangedResponse', async () => {
+    const result = await handleRunbook({ id: 'task-completion' });
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      steps: Array<{ decide?: unknown }>;
+    };
+    // Linear runbooks should have NO decide fields
+    for (const step of data.steps) {
+      expect(step.decide).toBeUndefined();
+    }
+  });
+
+  it('handleRunbook_ListMode_IncludesDecisionRunbooks', async () => {
+    const result = await handleRunbook({});
+    expect(result.success).toBe(true);
+    const ids = (result.data as Array<{ id: string }>).map((r) => r.id);
+    expect(ids).toContain('triage-decision');
+    expect(ids).toContain('review-escalation');
+  });
 });
