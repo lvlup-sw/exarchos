@@ -412,7 +412,7 @@ export const WorkflowCasFailedData = z.object({
 
 export const ReviewRoutedData = z.object({
   pr: z.number().int().describe('Pull request number'),
-  riskScore: z.number().describe('Computed risk score (0-1) for review routing'),
+  riskScore: z.number().min(0).max(1).describe('Computed risk score (0-1) for review routing'),
   factors: z.array(z.string()).describe('Risk factors that contributed to the score'),
   destination: z.enum(['coderabbit', 'self-hosted', 'both']).describe('Where the review was routed'),
   velocityTier: z.enum(['normal', 'elevated', 'high']).describe('Current review velocity tier'),
@@ -432,7 +432,7 @@ export const ReviewFindingData = z.object({
 export const ReviewEscalatedData = z.object({
   pr: z.number().int().describe('Pull request being escalated'),
   reason: z.string().describe('Why the review was escalated'),
-  originalScore: z.number().describe('Risk score before escalation'),
+  originalScore: z.number().min(0).max(1).describe('Risk score before escalation'),
   triggeringFinding: z.string().describe('The finding that triggered escalation'),
 });
 
@@ -473,9 +473,9 @@ export const BenchmarkCompletedData = z.object({
 // ─── Team Event Data ────────────────────────────────────────────────────────
 
 export const TeamSpawnedData = z.object({
-  teamSize: z.number().int().describe('Number of agents spawned in this team'),
+  teamSize: z.number().int().nonnegative().describe('Number of agents spawned in this team'),
   teammateNames: z.array(z.string()).describe('Names assigned to each teammate agent'),
-  taskCount: z.number().int().describe('Number of tasks to distribute across the team'),
+  taskCount: z.number().int().nonnegative().describe('Number of tasks to distribute across the team'),
   dispatchMode: z.string().describe('Dispatch mechanism: subagent or agent-team'),
 });
 
@@ -489,7 +489,7 @@ export const TeamTaskAssignedData = z.object({
 export const TeamTaskCompletedData = z.object({
   taskId: z.string().describe('Task that was completed'),
   teammateName: z.string().describe('Teammate who completed the task'),
-  durationMs: z.number().describe('Wall-clock time in milliseconds'),
+  durationMs: z.number().nonnegative().describe('Wall-clock time in milliseconds'),
   filesChanged: z.array(z.string()).describe('Paths of files modified by this task'),
   testsPassed: z.boolean().describe('Whether all tests passed after implementation'),
   qualityGateResults: z.record(z.string(), z.unknown()).describe('Per-gate pass/fail results from quality checks'),
@@ -503,9 +503,9 @@ export const TeamTaskFailedData = z.object({
 });
 
 export const TeamDisbandedData = z.object({
-  totalDurationMs: z.number().describe('Total wall-clock time for the team'),
-  tasksCompleted: z.number().int().describe('Number of tasks successfully completed'),
-  tasksFailed: z.number().int().describe('Number of tasks that failed'),
+  totalDurationMs: z.number().nonnegative().describe('Total wall-clock time for the team'),
+  tasksCompleted: z.number().int().nonnegative().describe('Number of tasks successfully completed'),
+  tasksFailed: z.number().int().nonnegative().describe('Number of tasks that failed'),
 });
 
 export const TeamTaskPlannedData = z.object({
@@ -681,7 +681,7 @@ export const TestResultData = z.object({
   passed: z.boolean().describe('Whether the overall test suite passed'),
   passCount: z.number().int().nonnegative().describe('Number of passing tests'),
   failCount: z.number().int().nonnegative().describe('Number of failing tests'),
-  coveragePercent: z.number().optional().describe('Code coverage percentage (0-100)'),
+  coveragePercent: z.number().min(0).max(100).optional().describe('Code coverage percentage (0-100)'),
   output: z.string().optional().describe('Raw test runner output'),
 });
 

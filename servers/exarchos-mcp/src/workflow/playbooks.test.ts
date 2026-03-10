@@ -287,13 +287,13 @@ describe('compactGuidance drift tests', () => {
   const terminalPhases = ['completed', 'cancelled'];
   const blockedPhases = ['blocked'];
 
-  function getAllPlaybooks(): Array<{ workflowType: string; phase: string; guidance: string }> {
-    const result: Array<{ workflowType: string; phase: string; guidance: string }> = [];
+  function getAllPlaybooks(): Array<{ workflowType: string; phase: string; guidance: string; skillRef: string }> {
+    const result: Array<{ workflowType: string; phase: string; guidance: string; skillRef: string }> = [];
     const types = listPlaybookWorkflowTypes();
     for (const wt of types) {
       const serialized = serializePlaybooks(wt);
       for (const [phase, pb] of Object.entries(serialized.phases)) {
-        result.push({ workflowType: wt, phase, guidance: pb.compactGuidance });
+        result.push({ workflowType: wt, phase, guidance: pb.compactGuidance, skillRef: pb.skillRef });
       }
     }
     return result;
@@ -329,6 +329,8 @@ describe('compactGuidance drift tests', () => {
     );
     expect(active.length).toBeGreaterThan(0);
     for (const p of active) {
+      // Skill-ref playbooks delegate guidance to the referenced skill — skip min-length check
+      if (p.skillRef) continue;
       expect(
         p.guidance.length,
         `${p.workflowType}:${p.phase} compactGuidance is ${p.guidance.length} chars, below 200 minimum`,
@@ -345,6 +347,8 @@ describe('compactGuidance drift tests', () => {
       /exarchos_workflow|exarchos_event|exarchos_orchestrate|exarchos_view|transition|emit|record|dispatch/i;
     expect(active.length).toBeGreaterThan(0);
     for (const p of active) {
+      // Skill-ref playbooks delegate guidance to the referenced skill — skip tool/action check
+      if (p.skillRef) continue;
       expect(
         toolOrActionPattern.test(p.guidance),
         `${p.workflowType}:${p.phase} compactGuidance does not mention any tool or action keyword`,

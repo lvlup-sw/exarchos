@@ -286,7 +286,7 @@ for orchestrate action schemas.
 For review verdict routing, query the decision runbook:
 `exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`
 
-This runbook provides structured criteria for routing between APPROVED, NEEDS_FIXES, and BLOCKED verdicts based on finding severity and fix cycle count.
+This runbook provides structured criteria for routing between APPROVED and NEEDS_FIXES verdicts based on finding severity and fix cycle count. APPROVED transitions to synthesize; NEEDS_FIXES transitions back to delegate for a fix cycle. (BLOCKED routing is only relevant in plan-review, not here.)
 
 ## Convergence & Verdict
 

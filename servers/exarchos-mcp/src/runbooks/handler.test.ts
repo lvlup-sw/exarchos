@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { handleRunbook } from './handler.js';
 import { ALL_RUNBOOKS } from './definitions.js';
 import type { ResolvedRunbookStep } from './types.js';

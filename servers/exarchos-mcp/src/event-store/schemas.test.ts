@@ -1850,6 +1850,22 @@ describe('Model-emitted event schema descriptions', () => {
     .filter(([, source]) => source === 'model')
     .map(([type]) => type);
 
+  /** Narrowing helper for JSON Schema property objects. */
+  interface JsonSchemaProperty {
+    properties?: Record<string, { description?: string }>;
+  }
+
+  function isJsonSchemaWithProperties(
+    value: unknown,
+  ): value is Required<JsonSchemaProperty> {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'properties' in value &&
+      typeof (value as JsonSchemaProperty).properties === 'object'
+    );
+  }
+
   it('modelEmittedEventSchemas_AllFields_HaveDescriptions', () => {
     const missing: string[] = [];
 
@@ -1857,12 +1873,11 @@ describe('Model-emitted event schema descriptions', () => {
       const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
       if (!schema) continue; // skip types without schemas
 
-      const jsonSchema = zodToJsonSchema(schema as any) as any;
-      const props = jsonSchema.properties;
-      if (!props) continue;
+      const jsonSchema: unknown = zodToJsonSchema(schema as z.ZodSchema);
+      if (!isJsonSchemaWithProperties(jsonSchema)) continue;
 
-      for (const [field, fieldSchema] of Object.entries(props)) {
-        if (!(fieldSchema as any).description) {
+      for (const [field, fieldSchema] of Object.entries(jsonSchema.properties)) {
+        if (!fieldSchema.description) {
           missing.push(`${eventType}.${field}`);
         }
       }
@@ -1878,12 +1893,11 @@ describe('Model-emitted event schema descriptions', () => {
       const schema = (EVENT_DATA_SCHEMAS as Record<string, unknown>)[eventType];
       if (!schema) continue;
 
-      const jsonSchema = zodToJsonSchema(schema as any) as any;
-      const props = jsonSchema.properties;
-      if (!props) continue;
+      const jsonSchema: unknown = zodToJsonSchema(schema as z.ZodSchema);
+      if (!isJsonSchemaWithProperties(jsonSchema)) continue;
 
-      for (const [field, fieldSchema] of Object.entries(props)) {
-        const desc = (fieldSchema as any).description;
+      for (const [field, fieldSchema] of Object.entries(jsonSchema.properties)) {
+        const desc = fieldSchema.description;
         if (desc && (desc.length < 5 || desc.length > 80)) {
           issues.push(`${eventType}.${field}: ${desc.length} chars`);
         }
