@@ -44,11 +44,11 @@ Expand `compactGuidance` from recipe to compact methodology. Each guidance strin
 ### Requirements
 
 **DR-1: Enrich all feature workflow compactGuidance strings**
-Expand 9 feature workflow playbook phases (ideate, plan, plan-review, delegate, review, synthesize, completed, cancelled, blocked) with the four-section format.
+Expand 7 non-terminal feature workflow playbook phases (ideate, plan, plan-review, delegate, review, synthesize, blocked) with the four-section format.
 **Acceptance criteria:**
 - Each non-terminal phase includes all 4 sections (what/decisions/anti-pattern/escalation)
 - No guidance string exceeds 750 chars
-- Terminal phases (completed, cancelled) remain unchanged
+- Terminal phases (completed, cancelled) remain unchanged — no expansion needed
 - Existing playbook tests pass without modification to assertions about structure
 
 **DR-2: Enrich all debug workflow compactGuidance strings**

@@ -344,7 +344,7 @@ describe('compactGuidance drift tests', () => {
       (p) => !terminalPhases.includes(p.phase) && !blockedPhases.includes(p.phase),
     );
     const toolOrActionPattern =
-      /exarchos_workflow|exarchos_event|exarchos_orchestrate|exarchos_view|transition|emit|record|dispatch/i;
+      /exarchos_workflow|exarchos_event|exarchos_orchestrate|exarchos_view|exarchos_sync|transition|emit|record|dispatch/i;
     expect(active.length).toBeGreaterThan(0);
     for (const p of active) {
       // Skill-ref playbooks delegate guidance to the referenced skill — skip tool/action check

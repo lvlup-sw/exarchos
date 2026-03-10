@@ -292,7 +292,7 @@ This runbook provides structured criteria for routing between APPROVED and NEEDS
 
 Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.
 
-Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED/NEEDS_FIXES/BLOCKED.
+Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED or NEEDS_FIXES.
 
 ## Auto-Transition
 
@@ -317,12 +317,6 @@ exarchos_workflow({ action: "set", featureId: "<id>", updates: {
 }})
 ```
 Then invoke `/exarchos:delegate --fixes`.
-
-**BLOCKED:**
-```
-exarchos_workflow({ action: "set", featureId: "<id>", phase: "blocked" })
-```
-Then invoke `/exarchos:ideate --redesign`.
 
 > **Gate events:** Do NOT manually emit `gate.executed` events via `exarchos_event`. Gate events are automatically emitted by the `check_review_verdict` orchestrate handler. Manual emission causes duplicates.
 

@@ -78,7 +78,7 @@ Link: `docs/designs/2026-03-09-platform-agnosticity.md`
 **Implements:** DR-2
 **Phase:** GREEN → REFACTOR
 
-1. [GREEN] Update 8 non-terminal, non-blocked debug playbook `compactGuidance` strings in `playbooks.ts`:
+1. [GREEN] Update 10 non-terminal, non-blocked debug playbook `compactGuidance` strings in `playbooks.ts`:
    - `triage` — add decision criteria (severity assessment: P0 vs P1), anti-pattern (skipping reproduction), escalation (not reproducible after 15 min)
    - `investigate` — add track-selection criteria (reproducible + <=3 files → hotfix; intermittent or cross-module → thorough), anti-pattern (premature hotfix on complex bugs), escalation (15 min without root cause)
    - `rca` — add decision criteria (depth: immediate cause vs systemic), anti-pattern (stopping at symptoms), escalation (root cause spans multiple subsystems)
@@ -104,7 +104,7 @@ Link: `docs/designs/2026-03-09-platform-agnosticity.md`
 **Implements:** DR-3
 **Phase:** GREEN → REFACTOR
 
-1. [GREEN] Update 9 non-terminal, non-blocked refactor playbook `compactGuidance` strings in `playbooks.ts`:
+1. [GREEN] Update 11 non-terminal, non-blocked refactor playbook `compactGuidance` strings in `playbooks.ts`:
    - `explore` — add decision criteria (scope assessment: files, complexity, risk), anti-pattern (exploring without boundary), escalation (scope exceeds single PR)
    - `brief` — add track-selection criteria (polish: <=5 files, cosmetic/DRY; overhaul: >5 files, structural), anti-pattern (choosing polish for structural changes), escalation (scope unclear after exploration)
    - `polish-implement` — add decision criteria (stay within brief scope), anti-pattern (scope creep), escalation (changes cascade beyond brief)

@@ -192,8 +192,10 @@ describe('handleRunbook', () => {
     };
     const decideSteps = data.steps.filter((s) => s.decide);
     expect(decideSteps.length).toBeGreaterThanOrEqual(2);
-    expect(decideSteps[0].decide!.question).toBeTruthy();
-    expect(decideSteps[0].decide!.branches).toBeTruthy();
+    for (const step of decideSteps) {
+      expect(step.decide!.question).toBeTruthy();
+      expect(step.decide!.branches).toBeTruthy();
+    }
   });
 
   it('handleRunbook_DecisionRunbook_NoSchemaForNoneSteps', async () => {
@@ -202,10 +204,10 @@ describe('handleRunbook', () => {
     const data = result.data as {
       steps: Array<{ tool: string; schema: unknown }>;
     };
-    for (const step of data.steps) {
-      if (step.tool === 'none') {
-        expect(step.schema).toBeNull();
-      }
+    const noneSteps = data.steps.filter((step) => step.tool === 'none');
+    expect(noneSteps.length).toBeGreaterThan(0);
+    for (const step of noneSteps) {
+      expect(step.schema).toBeNull();
     }
   });
 
