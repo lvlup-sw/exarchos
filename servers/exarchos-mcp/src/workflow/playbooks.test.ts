@@ -60,12 +60,9 @@ describe('Feature workflow playbooks', () => {
     expect(playbook.events.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('getPlaybook_FeatureReview_HasStaticAnalysisScript', () => {
+  it('getPlaybook_FeatureReview_HasEmptyValidationScripts', () => {
     const playbook = getPlaybook('feature', 'review')!;
-    const hasStaticAnalysis = playbook.validationScripts.some((s) =>
-      s.includes('static-analysis'),
-    );
-    expect(hasStaticAnalysis).toBe(true);
+    expect(playbook.validationScripts).toEqual([]);
   });
 
   it('getPlaybook_FeatureSynthesize_HasPreSynthesisScript', () => {

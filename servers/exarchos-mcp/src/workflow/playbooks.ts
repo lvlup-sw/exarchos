@@ -264,10 +264,7 @@ register({
     'All reviews passed → synthesize | Any review failed → delegate',
   guardPrerequisites:
     'reviews.spec-review.passed AND reviews.quality-review.passed',
-  validationScripts: [
-    'scripts/static-analysis-gate.sh',
-    'scripts/security-scan.sh',
-  ],
+  validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
     'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles.',
