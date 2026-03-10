@@ -130,7 +130,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are brainstorming a feature design. Use exarchos_workflow set to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state.',
+    'You are brainstorming a feature design. Use exarchos_workflow set to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state. Key decision: problem-first exploration vs solution-first — exhaust constraints before converging on an approach. Anti-pattern: jumping to implementation details without understanding the problem space and constraints. Escalate: design scope remains unclear after 2 brainstorming iterations.',
 });
 
 register({
@@ -151,7 +151,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are creating an implementation plan from the design doc. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete.',
+    'You are creating an implementation plan from the design doc. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete. Key decision: task granularity (target 2-5 min each) and parallel vs sequential grouping. Anti-pattern: monolith tasks that cannot be parallelized across agents. Escalate: design has ambiguous requirements that block decomposition into concrete tasks.',
 });
 
 register({
@@ -172,7 +172,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found.',
+    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan.',
 });
 
 register({
@@ -229,7 +229,7 @@ register({
   validationScripts: ['scripts/post-delegation-check.sh'],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review phase when all tasks complete.',
+    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope.',
 });
 
 register({
@@ -267,7 +267,7 @@ register({
   ],
   humanCheckpoint: false,
   compactGuidance:
-    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed.',
+    'You are running two-stage code review (spec + quality). Use exarchos_event to emit gate.executed for each review gate. Use exarchos_workflow set to record review results. Transition to synthesize when all reviews pass, or back to delegate if fixes needed. Key decision: pass vs fix-cycle vs block — assess severity of each finding. Anti-pattern: trusting passing tests as proof of completeness — check what the tests actually verify and look for missing coverage. Escalate: same finding appears in 2+ review cycles.',
 });
 
 register({
@@ -309,7 +309,7 @@ register({
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating PRs via GitHub CLI. Run pre-synthesis-check.sh first. Use exarchos_event to emit gate.executed results. Wait for user confirmation to merge. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
 });
 
 register(
@@ -371,7 +371,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are triaging a bug report. Use exarchos_workflow set to record triage findings, severity, and reproduction steps. Transition to investigate when triage is complete.',
+    'You are triaging a bug report. Use exarchos_workflow set to record triage findings, severity, and reproduction steps. Transition to investigate when triage is complete. Key decision: severity assessment — P0 immediate (production impact) vs P1 planned (next sprint). Anti-pattern: skipping reproduction steps and jumping straight to investigation. Escalate: bug is not reproducible after 15 minutes of attempting reproduction.',
 });
 
 register({
@@ -394,7 +394,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are investigating the bug root cause. Use exarchos_workflow set to record investigation findings. Select thorough track (rca) for complex bugs or hotfix track for simple fixes. Transition based on track selection.',
+    'You are investigating the bug root cause. Use exarchos_workflow set to record investigation findings. Select thorough track (rca) for complex bugs or hotfix track for simple fixes. Transition based on track selection. Key decision: hotfix track (reproducible, <=3 files changed) vs thorough track (intermittent or cross-module). Anti-pattern: premature hotfix on complex bugs that need deeper root cause analysis. Escalate: 15 minutes without root cause identification.',
 });
 
 register({
@@ -415,7 +415,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are performing root cause analysis. Use exarchos_workflow set to record the rca document path and findings. Transition to design when the rca document is complete.',
+    'You are performing root cause analysis. Use exarchos_workflow set to record the rca document path and findings. Transition to design when the rca document is complete. Key decision: immediate cause vs systemic root cause — trace the full causal chain. Anti-pattern: stopping at symptoms without tracing to the underlying root cause in the code. Escalate: root cause spans multiple subsystems requiring coordinated fixes.',
 });
 
 register({
@@ -436,7 +436,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are designing the fix based on the RCA. Use exarchos_workflow set to record the fix design. Transition to debug-implement when the design is complete.',
+    'You are designing the fix based on the RCA. Use exarchos_workflow set to record the fix design. Transition to debug-implement when the design is complete. Key decision: minimal targeted fix vs defensive fix with additional guards and validation. Anti-pattern: scope creep beyond the bug fix — resist adding unrelated improvements. Escalate: fix requires architectural change that cannot be contained to a targeted patch.',
 });
 
 register({
@@ -457,7 +457,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing the fix based on the design. Use exarchos_workflow set to record implementation progress. Follow TDD — write failing test first, then implement fix. Transition to debug-validate when implementation is complete.',
+    'You are implementing the fix based on the design. Use exarchos_workflow set to record implementation progress. Follow TDD — write failing test first, then implement fix. Transition to debug-validate when implementation is complete. Key decision: test-first verification — the failing test must reproduce the exact bug before writing the fix. Anti-pattern: fixing without a failing test that reproduces the bug. Escalate: implementation touches >5 files, consider splitting.',
 });
 
 register({
@@ -478,7 +478,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are validating the fix. Use exarchos_workflow set to record validation results. Run tests, verify the bug is fixed, and check for regressions. Transition to debug-review when validation passes.',
+    'You are validating the fix. Use exarchos_workflow set to record validation results. Run tests, verify the bug is fixed, and check for regressions. Transition to debug-review when validation passes. Key decision: regression testing scope — run full suite, not just the new test. Anti-pattern: only testing the fix without checking adjacent behavior for regressions. Escalate: new test failures appear during validation that are unrelated to the fix.',
 });
 
 register({
@@ -499,7 +499,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are reviewing the fix for code quality and correctness. Use exarchos_workflow set to record review results. Transition to synthesize when the review passes.',
+    'You are reviewing the fix for code quality and correctness. Use exarchos_workflow set to record review results. Transition to synthesize when the review passes. Key decision: review depth proportional to fix scope — larger fixes need deeper review. Anti-pattern: skipping review for "simple" fixes that may have non-obvious side effects. Escalate: fix changes public API surface, requiring broader impact assessment.',
 });
 
 register({
@@ -520,7 +520,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing a hotfix. Use exarchos_workflow set to record implementation progress. This is the fast-track — apply minimal targeted fix. Transition to hotfix-validate when implementation is complete.',
+    'You are implementing a hotfix. Use exarchos_workflow set to record implementation progress. This is the fast-track — apply minimal targeted fix within a 15-minute time budget. Transition to hotfix-validate when implementation is complete. Key decision: stay minimal and targeted within the time budget. Anti-pattern: hotfix growing into a full fix — if scope expands, switch to thorough track via rca. Escalate: time limit exceeded without a working fix.',
 });
 
 register({
@@ -542,7 +542,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are validating the hotfix. Use exarchos_workflow set to record validation results. Run tests and verify the fix. HUMAN CHECKPOINT: present results and await user decision. If PR is requested, transition to synthesize; otherwise transition to completed.',
+    'You are validating the hotfix. Use exarchos_workflow set to record validation results. Run tests and verify the fix. HUMAN CHECKPOINT: present results and await user decision. If PR is requested, transition to synthesize; otherwise transition to completed. Key decision: PR-based merge vs direct to main based on risk assessment. Anti-pattern: merging without running the full test suite. Escalate: validation reveals the fix is incomplete and needs thorough track.',
 });
 
 register({
@@ -578,7 +578,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating a PR for the debug fix via GitHub CLI. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating a PR for the debug fix via GitHub CLI. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR for targeted fixes, stacked PRs for multi-part fixes. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
 });
 
 register(
@@ -640,7 +640,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are exploring the codebase to assess refactoring scope. Use exarchos_workflow set to record exploration findings and scope assessment. Transition to brief when scope assessment is complete.',
+    'You are exploring the codebase to assess refactoring scope. Use exarchos_workflow set to record exploration findings and scope assessment. Transition to brief when scope assessment is complete. Key decision: scope assessment — count affected files, assess complexity and risk level. Anti-pattern: exploring without setting a clear boundary on what is in and out of scope. Escalate: scope exceeds what can be delivered in a single PR.',
 });
 
 register({
@@ -662,7 +662,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are writing the refactoring brief. Use exarchos_workflow set to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection.',
+    'You are writing the refactoring brief. Use exarchos_workflow set to record the brief and select polish (small) or overhaul (large) track. Transition based on track selection. Key decision: polish track (<=5 files, cosmetic/DRY) vs overhaul track (>5 files, structural changes). Anti-pattern: choosing polish for structural changes that actually need the overhaul track. Escalate: scope is unclear after exploration, revisit explore phase.',
 });
 
 register({
@@ -683,7 +683,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow set to record progress. Follow TDD if changing behavior. Stay within brief scope. Transition to polish-validate when implementation is complete.',
+    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow set to record progress. Follow TDD if changing behavior. Stay within brief scope. Transition to polish-validate when implementation is complete. Key decision: stay strictly within the brief scope for each change. Anti-pattern: scope creep beyond the brief — resist adding improvements not in the brief. Escalate: changes cascade beyond the declared scope, consider switching to overhaul track.',
 });
 
 register({
@@ -704,7 +704,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are validating the polish refactoring meets goals. Use exarchos_workflow set to record validation results. Run tests and verify refactoring goals are met. Transition to polish-update-docs when goals are verified.',
+    'You are validating the polish refactoring meets goals. Use exarchos_workflow set to record validation results. Run tests and verify refactoring goals are met. Transition to polish-update-docs when goals are verified. Key decision: verify all brief goals are met, not just a subset. Anti-pattern: accepting partial completion when some goals remain unmet. Escalate: goals are not achievable without switching to the overhaul track.',
 });
 
 register({
@@ -725,7 +725,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are updating documentation for the polish refactoring. Use exarchos_workflow set to record docs update completion. HUMAN CHECKPOINT: present updated docs summary and await user confirmation before transitioning to completed.',
+    'You are updating documentation for the polish refactoring. Use exarchos_workflow set to record docs update completion. HUMAN CHECKPOINT: present updated docs summary and await user confirmation before transitioning to completed. Key decision: which docs need updates based on the changes made. Anti-pattern: skipping documentation updates for "obvious" changes that still affect developer understanding.',
 });
 
 register({
@@ -746,7 +746,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are creating an implementation plan for the overhaul refactoring. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to overhaul-plan-review when plan artifact exists.',
+    'You are creating an implementation plan for the overhaul refactoring. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to overhaul-plan-review when plan artifact exists. Key decision: task granularity for the large refactor — target 2-5 min per task. Anti-pattern: monolith tasks that cannot be distributed across agents. Escalate: plan exceeds 20 tasks, split into sequential phases.',
 });
 
 register({
@@ -767,7 +767,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted.',
+    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted. Key decision: approve vs revise with specific actionable feedback. Anti-pattern: rubber-stamping without checking task coverage of all brief goals. Escalate: 3+ revision cycles without convergence.',
 });
 
 register({
@@ -807,7 +807,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching overhaul implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Transition to overhaul-review when all tasks complete.',
+    'You are dispatching overhaul implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Transition to overhaul-review when all tasks complete. Key decision: parallel dispatch strategy — each agent gets its own worktree and self-contained prompt. Anti-pattern: sharing worktrees between agents or referencing shared state without explicit context. Escalate: 3 task failures on the same task.',
 });
 
 register({
@@ -841,7 +841,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are reviewing the overhaul refactoring. Use exarchos_event to emit gate.executed for review gates. Use exarchos_workflow set to record review results. Transition to overhaul-update-docs when all reviews pass, or back to overhaul-delegate if fixes needed.',
+    'You are reviewing the overhaul refactoring. Use exarchos_event to emit gate.executed for review gates. Use exarchos_workflow set to record review results. Transition to overhaul-update-docs when all reviews pass, or back to overhaul-delegate if fixes needed. Key decision: review depth proportional to change scope. Anti-pattern: trusting subagent self-assessment — independently verify test output and coverage. Escalate: regression findings appear in modules unrelated to the refactoring.',
 });
 
 register({
@@ -862,7 +862,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are updating documentation for the overhaul refactoring. Use exarchos_workflow set to record docs update completion. Transition to synthesize when docs are updated.',
+    'You are updating documentation for the overhaul refactoring. Use exarchos_workflow set to record docs update completion. Transition to synthesize when docs are updated. Key decision: documentation scope — update all docs affected by the structural changes. Anti-pattern: skipping documentation updates for refactoring that changes module boundaries or APIs.',
 });
 
 register({
@@ -901,7 +901,7 @@ register({
   ],
   humanCheckpoint: true,
   compactGuidance:
-    'You are creating PRs via GitHub CLI for the overhaul refactoring. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding.',
+    'You are creating PRs via GitHub CLI for the overhaul refactoring. Use exarchos_workflow set to record PR URLs. Wait for user confirmation before merging. This is a human checkpoint — pause and confirm before proceeding. Key decision: single PR vs stacked PRs based on change scope. Anti-pattern: merging without CI green on all checks. Escalate: CI fails 3+ times on the same issue.',
 });
 
 register(

@@ -280,3 +280,75 @@ describe('listPlaybookWorkflowTypes', () => {
     expect(types.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+// ─── DR-4: compactGuidance drift tests ──────────────────────────────────────
+
+describe('compactGuidance drift tests', () => {
+  const terminalPhases = ['completed', 'cancelled'];
+  const blockedPhases = ['blocked'];
+
+  function getAllPlaybooks(): Array<{ workflowType: string; phase: string; guidance: string }> {
+    const result: Array<{ workflowType: string; phase: string; guidance: string }> = [];
+    const types = listPlaybookWorkflowTypes();
+    for (const wt of types) {
+      const serialized = serializePlaybooks(wt);
+      for (const [phase, pb] of Object.entries(serialized.phases)) {
+        result.push({ workflowType: wt, phase, guidance: pb.compactGuidance });
+      }
+    }
+    return result;
+  }
+
+  it('compactGuidance_AllNonTerminalPhases_Under750Chars', () => {
+    const playbooks = getAllPlaybooks();
+    const nonTerminal = playbooks.filter((p) => !terminalPhases.includes(p.phase));
+    expect(nonTerminal.length).toBeGreaterThan(0);
+    for (const p of nonTerminal) {
+      expect(
+        p.guidance.length,
+        `${p.workflowType}:${p.phase} compactGuidance is ${p.guidance.length} chars, exceeds 750`,
+      ).toBeLessThanOrEqual(750);
+    }
+  });
+
+  it('compactGuidance_AllRegisteredPlaybooks_HaveGuidance', () => {
+    const playbooks = getAllPlaybooks();
+    expect(playbooks.length).toBeGreaterThan(0);
+    for (const p of playbooks) {
+      expect(
+        p.guidance.length,
+        `${p.workflowType}:${p.phase} has empty compactGuidance`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('compactGuidance_NonTerminalNonBlockedPhases_ExceedsMinLength', () => {
+    const playbooks = getAllPlaybooks();
+    const active = playbooks.filter(
+      (p) => !terminalPhases.includes(p.phase) && !blockedPhases.includes(p.phase),
+    );
+    expect(active.length).toBeGreaterThan(0);
+    for (const p of active) {
+      expect(
+        p.guidance.length,
+        `${p.workflowType}:${p.phase} compactGuidance is ${p.guidance.length} chars, below 200 minimum`,
+      ).toBeGreaterThanOrEqual(200);
+    }
+  });
+
+  it('compactGuidance_AllNonTerminalNonBlockedPhases_MentionsToolOrAction', () => {
+    const playbooks = getAllPlaybooks();
+    const active = playbooks.filter(
+      (p) => !terminalPhases.includes(p.phase) && !blockedPhases.includes(p.phase),
+    );
+    const toolOrActionPattern =
+      /exarchos_workflow|exarchos_event|exarchos_orchestrate|exarchos_view|transition|emit|record|dispatch/i;
+    expect(active.length).toBeGreaterThan(0);
+    for (const p of active) {
+      expect(
+        toolOrActionPattern.test(p.guidance),
+        `${p.workflowType}:${p.phase} compactGuidance does not mention any tool or action keyword`,
+      ).toBe(true);
+    }
+  });
+});
