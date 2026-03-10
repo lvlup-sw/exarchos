@@ -9,6 +9,7 @@ export interface ToolInstruction {
 export interface EventInstruction {
   readonly type: string;
   readonly when: string;
+  readonly fields?: readonly string[];
 }
 
 export interface PhasePlaybook {
@@ -210,16 +211,17 @@ register({
     },
   ],
   events: [
-    { type: 'task.assigned', when: 'On dispatch of each task' },
-    { type: 'team.spawned', when: 'After team creation' },
+    { type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] },
+    { type: 'team.spawned', when: 'After team creation', fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'] },
     {
       type: 'team.teammate.dispatched',
       when: 'After each agent spawn',
     },
-    { type: 'team.disbanded', when: 'After all tasks collected' },
+    { type: 'team.disbanded', when: 'After all tasks collected', fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'] },
     {
       type: 'gate.executed',
       when: 'After post-delegation-check.sh runs',
+      fields: ['gateName', 'layer', 'passed'],
     },
     { type: 'task.progressed', when: 'After each TDD phase transition (red/green/refactor)' },
   ],
@@ -255,7 +257,7 @@ register({
     },
   ],
   events: [
-    { type: 'gate.executed', when: 'After each review gate runs' },
+    { type: 'gate.executed', when: 'After each review gate runs', fields: ['gateName', 'layer', 'passed'] },
   ],
   transitionCriteria:
     'All reviews passed → synthesize | Any review failed → delegate',
@@ -296,6 +298,7 @@ register({
     {
       type: 'gate.executed',
       when: 'After pre-synthesis-check.sh and validate-pr-stack.sh',
+      fields: ['gateName', 'layer', 'passed'],
     },
     { type: 'shepherd.started', when: 'On first assess-stack invocation' },
     { type: 'shepherd.approval_requested', when: 'When all checks pass and approval is needed' },
@@ -571,6 +574,7 @@ register({
     {
       type: 'gate.executed',
       when: 'After synthesis validation scripts',
+      fields: ['gateName', 'layer', 'passed'],
     },
   ],
   transitionCriteria: 'PR URL exists → completed',
@@ -798,9 +802,9 @@ register({
     },
   ],
   events: [
-    { type: 'task.assigned', when: 'On dispatch of each task' },
-    { type: 'team.spawned', when: 'After team creation' },
-    { type: 'team.disbanded', when: 'After all tasks collected' },
+    { type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] },
+    { type: 'team.spawned', when: 'After team creation', fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'] },
+    { type: 'team.disbanded', when: 'After all tasks collected', fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'] },
   ],
   transitionCriteria: 'All tasks complete → overhaul-review',
   guardPrerequisites: 'allTasksComplete',
@@ -833,7 +837,7 @@ register({
     },
   ],
   events: [
-    { type: 'gate.executed', when: 'After each review gate runs' },
+    { type: 'gate.executed', when: 'After each review gate runs', fields: ['gateName', 'layer', 'passed'] },
   ],
   transitionCriteria:
     'All reviews passed → overhaul-update-docs | Any review failed → overhaul-delegate',
@@ -891,6 +895,7 @@ register({
     {
       type: 'gate.executed',
       when: 'After synthesis validation scripts',
+      fields: ['gateName', 'layer', 'passed'],
     },
   ],
   transitionCriteria: 'PR URL exists → completed',
