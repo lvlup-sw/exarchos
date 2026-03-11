@@ -40,6 +40,7 @@ export interface TaskInput {
   readonly title: string;
   readonly blockedBy?: readonly string[];
   readonly files?: readonly string[];
+  readonly testLayer?: 'acceptance' | 'integration' | 'unit' | 'property';
 }
 
 /**
@@ -75,15 +76,27 @@ const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 's
  * Advisory — agents can override these recommendations.
  *
  * Priority order:
+ *   0. testLayer: "acceptance" → high/implementer (highest priority)
  *   1. Title contains scaffolding keywords → low/scaffolder
  *   2. blockedBy length >= 2 → high/implementer
  *   3. files length >= 3 → high/implementer
  *   4. Default → medium/implementer
  */
 export function classifyTask(task: TaskInput): TaskClassification {
+  // Check testLayer first (highest priority)
+  if (task.testLayer === 'acceptance') {
+    return {
+      taskId: task.id,
+      complexity: 'high',
+      recommendedAgent: 'implementer',
+      effort: 'high',
+      reason: 'Acceptance test task — requires understanding feature intent holistically',
+    };
+  }
+
   const titleLower = task.title.toLowerCase();
 
-  // Check scaffolding keywords first
+  // Check scaffolding keywords
   const matchedKeyword = SCAFFOLDING_KEYWORDS.find(kw => titleLower.includes(kw));
   if (matchedKeyword) {
     return {

@@ -658,5 +658,75 @@ describe('handlePrepareDelegation', () => {
       expect(data.ready).toBe(true);
       expect(data.taskClassifications).toBeUndefined();
     });
+
+    // ─── T-003: testLayer effort mapping ──────────────────────────────────────
+
+    it('classifyTask_AcceptanceTestLayer_ReturnsHighEffort', () => {
+      // Arrange
+      const task = { id: 'T-001', title: 'Write acceptance test', testLayer: 'acceptance' as const };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.effort).toBe('high');
+      expect(classification.complexity).toBe('high');
+      expect(classification.recommendedAgent).toBe('implementer');
+      expect(classification.reason.toLowerCase()).toContain('acceptance');
+    });
+
+    it('classifyTask_IntegrationTestLayerHighDeps_ReturnsHighEffort', () => {
+      // Arrange
+      const task = {
+        id: 'T-002',
+        title: 'Integration test',
+        testLayer: 'integration' as const,
+        blockedBy: ['T-001', 'T-003'],
+      };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.effort).toBe('high');
+    });
+
+    it('classifyTask_IntegrationTestLayerLowDeps_ReturnsMediumEffort', () => {
+      // Arrange
+      const task = {
+        id: 'T-002',
+        title: 'Integration test',
+        testLayer: 'integration' as const,
+      };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.effort).toBe('medium');
+    });
+
+    it('classifyTask_UnitTestLayer_FallsBackToExistingHeuristics', () => {
+      // Arrange
+      const task = { id: 'T-003', title: 'Unit test for parser', testLayer: 'unit' as const };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert — falls through to default heuristic (no scaffolding keywords, no deps, no files)
+      expect(classification.effort).toBe('medium');
+    });
+
+    it('classifyTask_NoTestLayer_UnchangedBehavior', () => {
+      // Arrange — no testLayer, title has scaffolding keyword
+      const task = { id: 'T-004', title: 'stub boilerplate' };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert — existing scaffolding behavior preserved
+      expect(classification.effort).toBe('low');
+      expect(classification.recommendedAgent).toBe('scaffolder');
+    });
   });
 });
