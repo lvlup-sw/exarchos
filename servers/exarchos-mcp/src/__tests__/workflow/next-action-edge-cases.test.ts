@@ -242,7 +242,7 @@ describe('handleNextAction edge cases', () => {
       // Assert: should return structured error, not throw
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('STATE_CORRUPT');
-      expect(result.error?.message).toContain('unknown-phase');
+      expect(result.error?.message).toContain('Schema validation failed');
     });
   });
 });
