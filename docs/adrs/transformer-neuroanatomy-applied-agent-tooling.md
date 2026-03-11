@@ -425,8 +425,8 @@ Controls overall response effort as a coarse dial:
 | Value | Behavior | Use Case |
 |---|---|---|
 | `low` | Minimal reasoning, concise output | Classification, routing, simple extraction |
-| `medium` | Balanced reasoning and output (default) | Standard analysis, summarization |
-| `high` | Thorough reasoning, comprehensive output | Multi-step analysis, code review |
+| `medium` | Balanced reasoning and output | Standard analysis, summarization |
+| `high` | Thorough reasoning, comprehensive output (default) | Multi-step analysis, code review |
 | `max` | Maximum reasoning depth, exhaustive output | Architecture decisions, novel problem-solving |
 
 ```json

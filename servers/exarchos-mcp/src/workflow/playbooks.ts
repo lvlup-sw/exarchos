@@ -173,7 +173,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Self-consistency check: run coverage analysis using 3 varied framings (e.g., by-requirement, by-component, by-risk) to verify plan completeness before approval.',
+    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Self-consistency check: run coverage analysis with 3 varied framings: (1) which DR-N are NOT covered, (2) does each DR-N have a fully-addressing task, (3) are there orphan tasks or partial coverage. If all 3 agree: present verdict. If they disagree on a specific DR-N: surface the disagreement to the human reviewer.',
 });
 
 register({
