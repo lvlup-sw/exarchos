@@ -234,8 +234,23 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
 
   passCount++;
 
-  // Read design content
-  const content = readFileSync(designPath, 'utf-8');
+  // Read design content (guard against race between existsSync and readFileSync)
+  let content: string;
+  try {
+    content = readFileSync(designPath, 'utf-8');
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    failCount++;
+    findings.push(`Failed to read design file: ${message}`);
+    return {
+      passed: false,
+      advisory: true,
+      findings,
+      checkCount: passCount + failCount,
+      passCount,
+      failCount,
+    };
+  }
 
   // Check 2: Required sections
   const sectionsResult = checkRequiredSections(content);

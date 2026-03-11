@@ -30,11 +30,20 @@ export async function handleDesignCompleteness(
   const stateFile = args.stateFile ?? `${stateDir}/${streamId}.json`;
 
   // 2. Call pure TypeScript implementation
-  const parsed = runDesignCompleteness({
-    stateFile,
-    designFile: args.designPath,
-    docsDir: 'docs/designs',
-  });
+  let parsed;
+  try {
+    parsed = runDesignCompleteness({
+      stateFile,
+      designFile: args.designPath,
+      docsDir: 'docs/designs',
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: { code: 'DESIGN_CHECK_ERROR', message: `Design completeness check failed: ${message}` },
+    };
+  }
 
   // 3. Emit gate.executed event
   try {

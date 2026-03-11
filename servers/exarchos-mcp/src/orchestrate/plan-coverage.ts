@@ -142,6 +142,46 @@ export function parsePlanTasks(markdown: string): PlanTask[] {
   return tasks;
 }
 
+/**
+ * Extract task body content from a plan markdown document.
+ * Each body is the text between consecutive `### Task` headers.
+ * Used for fallback coverage matching — restricts search to task
+ * blocks only, avoiding false positives from intro/summary prose.
+ */
+function extractTaskBodies(markdown: string): string[] {
+  const bodies: string[] = [];
+  const lines = markdown.split('\n');
+  const taskPattern = /^###\s+Task\s+[A-Za-z0-9-]+:\s+/;
+  let currentBody: string[] = [];
+  let inTask = false;
+
+  for (const line of lines) {
+    if (taskPattern.test(line)) {
+      if (inTask && currentBody.length > 0) {
+        bodies.push(currentBody.join('\n'));
+      }
+      currentBody = [];
+      inTask = true;
+      continue;
+    }
+    // Stop at next ## section (not ### or ####)
+    if (inTask && /^##\s/.test(line) && !/^###/.test(line)) {
+      bodies.push(currentBody.join('\n'));
+      currentBody = [];
+      inTask = false;
+      continue;
+    }
+    if (inTask) {
+      currentBody.push(line);
+    }
+  }
+  if (inTask && currentBody.length > 0) {
+    bodies.push(currentBody.join('\n'));
+  }
+
+  return bodies;
+}
+
 // ─── Keyword Extraction ─────────────────────────────────────────────────
 
 /**
@@ -276,17 +316,23 @@ export function computeCoverage(
       }
     }
 
-    // If no task title matches, check task bodies (excluding traceability tables)
+    // If no task title matches, check individual task bodies only
+    // (not arbitrary plan prose, to avoid intro/summary false positives)
     if (matchedTasks.length === 0) {
-      // Strip markdown table rows to avoid false positives from traceability tables
-      const planBody = planContent
-        .split('\n')
-        .filter((line) => !line.trimStart().startsWith('|'))
-        .join('\n');
-      if (planBody.toLowerCase().includes(section.toLowerCase())) {
-        matchedTasks.push('(referenced in plan body)');
-      } else if (keywordMatch(sectionKeywords, planBody)) {
-        matchedTasks.push('(keyword match in plan body)');
+      const taskBodies = extractTaskBodies(planContent);
+      for (const body of taskBodies) {
+        // Strip table rows within task body
+        const cleanBody = body
+          .split('\n')
+          .filter((line) => !line.trimStart().startsWith('|'))
+          .join('\n');
+        if (cleanBody.toLowerCase().includes(section.toLowerCase())) {
+          matchedTasks.push('(referenced in task body)');
+          break;
+        } else if (keywordMatch(sectionKeywords, cleanBody)) {
+          matchedTasks.push('(keyword match in task body)');
+          break;
+        }
       }
     }
 

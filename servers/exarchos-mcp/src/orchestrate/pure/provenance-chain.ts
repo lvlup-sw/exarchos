@@ -63,7 +63,7 @@ interface TaskEntry {
  * Extract unique DR-N identifiers from a document, sorted numerically.
  */
 function extractDesignRequirements(content: string): string[] {
-  const matches = content.match(/DR-\d+/g);
+  const matches = content.match(/\bDR-\d+\b/g);
   if (!matches) return [];
 
   const unique = [...new Set(matches)];
@@ -149,9 +149,21 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
     return errorResult(`Plan file not found: ${input.planFile}`);
   }
 
-  // Read files
-  const designContent = fs.readFileSync(input.designFile, 'utf-8');
-  const planContent = fs.readFileSync(input.planFile, 'utf-8');
+  // Read files (guard against race between existsSync and readFileSync)
+  let designContent: string;
+  let planContent: string;
+  try {
+    designContent = fs.readFileSync(input.designFile, 'utf-8');
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResult(`Failed to read design file: ${message}`);
+  }
+  try {
+    planContent = fs.readFileSync(input.planFile, 'utf-8');
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResult(`Failed to read plan file: ${message}`);
+  }
 
   // Extract design requirements
   const designReqs = extractDesignRequirements(designContent);

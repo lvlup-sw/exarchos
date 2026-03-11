@@ -574,8 +574,7 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Run security pattern scan on diff. Emits gate.executed event with dimension D1.',
     schema: z.object({
       featureId: z.string().min(1),
-      repoRoot: z.string().optional(),
-      baseBranch: z.string().optional(),
+      diffContent: z.string().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
