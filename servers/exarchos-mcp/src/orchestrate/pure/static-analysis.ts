@@ -91,7 +91,7 @@ function hasNpmScript(packageJson: Record<string, unknown>, scriptName: string):
 
 /**
  * Read and parse package.json from a directory.
- * Returns null if file doesn't exist or is invalid JSON.
+ * Returns `{ packageJson }` on success or `{ error }` on failure.
  */
 function readPackageJson(
   repoRoot: string,
@@ -131,7 +131,11 @@ function runNpmCheck(
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
-    return { name, status: 'FAIL', detail: `npm run ${scriptName} failed` };
+    const detail =
+      result.stderr.trim() ||
+      result.stdout.trim() ||
+      `npm run ${scriptName} failed`;
+    return { name, status: 'FAIL', detail };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { name, status: 'FAIL', detail: message };

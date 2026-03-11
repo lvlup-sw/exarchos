@@ -6,7 +6,7 @@
 // flywheel integration.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -33,7 +33,7 @@ interface PostMergeResult {
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
 
 /**
- * Wraps execFileSync to match the command runner signature expected by
+ * Wraps spawnSync to match the command runner signature expected by
  * the pure TypeScript checkPostMerge function.
  */
 function execCommandRunner(
@@ -41,22 +41,18 @@ function execCommandRunner(
   args: readonly string[],
   cwd?: string,
 ): CommandResult {
-  try {
-    const output = execFileSync(cmd, args as string[], {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 120_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-    return { exitCode: 0, stdout: output, stderr: '' };
-  } catch (err: unknown) {
-    const execErr = err as { status?: number; stdout?: string; stderr?: string };
-    return {
-      exitCode: execErr.status ?? 1,
-      stdout: execErr.stdout ?? '',
-      stderr: execErr.stderr ?? '',
-    };
-  }
+  const result = spawnSync(cmd, [...args], {
+    cwd,
+    encoding: 'utf-8',
+    timeout: 120_000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  return {
+    exitCode: result.status ?? 1,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? result.error?.message ?? '',
+  };
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────

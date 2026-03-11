@@ -56,7 +56,7 @@ describe('handleNextAction edge cases', () => {
         const hsm = originalGetHSM(wfType);
         // Replace transitions with a version that has a throwing guard
         const modifiedTransitions = hsm.transitions.map((t) => {
-          if (t.from === 'ideate' && t.guard) {
+          if (t.from === 'ideate' && t.to === 'plan' && t.guard) {
             return {
               ...t,
               guard: {
@@ -97,7 +97,7 @@ describe('handleNextAction edge cases', () => {
       vi.spyOn(stateMachineModule, 'getHSMDefinition').mockImplementation((wfType: string) => {
         const hsm = originalGetHSM(wfType);
         const modifiedTransitions = hsm.transitions.map((t) => {
-          if (t.from === 'ideate' && t.guard) {
+          if (t.from === 'ideate' && t.to === 'plan' && t.guard) {
             return {
               ...t,
               guard: {
@@ -221,14 +221,14 @@ describe('handleNextAction edge cases', () => {
   // ─── T-13.5: Unknown phase handles gracefully ─────────────────────────────
 
   describe('NextAction_UnknownPhase_HandlesGracefully', () => {
-    it('should throw STATE_CORRUPT when state file contains an invalid phase', async () => {
+    it('should return STATE_CORRUPT in-band when state file contains an invalid phase', async () => {
       // Arrange: create a workflow and mutate its phase to something unknown.
       // The WorkflowStateSchema is a union of FeatureWorkflowStateSchema,
       // DebugWorkflowStateSchema, RefactorWorkflowStateSchema, and
       // CustomWorkflowStateSchema. A feature workflow with phase 'nonexistent-phase'
       // will fail Zod validation in readStateFile, throwing StateStoreError
-      // with code STATE_CORRUPT. handleNextAction only catches STATE_NOT_FOUND,
-      // so STATE_CORRUPT propagates as an unhandled throw.
+      // with code STATE_CORRUPT. handleNextAction catches this and returns
+      // a structured error result.
       await handleInit({ featureId: 'unknown-phase', workflowType: 'feature' }, tmpDir);
 
       const rawState = await readRawState('unknown-phase');
@@ -236,15 +236,13 @@ describe('handleNextAction edge cases', () => {
       rawState._history = { feature: 'nonexistent-phase' };
       await writeRawState('unknown-phase', rawState);
 
-      // Act & Assert: should throw StateStoreError with STATE_CORRUPT
-      const { StateStoreError } = await import('../../workflow/state-store.js');
-      try {
-        await handleNextAction({ featureId: 'unknown-phase' }, tmpDir);
-        expect.fail('Expected StateStoreError to be thrown');
-      } catch (err) {
-        expect(err).toBeInstanceOf(StateStoreError);
-        expect((err as InstanceType<typeof StateStoreError>).code).toBe('STATE_CORRUPT');
-      }
+      // Act
+      const result = await handleNextAction({ featureId: 'unknown-phase' }, tmpDir);
+
+      // Assert: should return structured error, not throw
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('STATE_CORRUPT');
+      expect(result.error?.message).toContain('unknown-phase');
     });
   });
 });

@@ -15,9 +15,9 @@
 // ============================================================
 
 export interface CommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 export interface PostMergeOptions {

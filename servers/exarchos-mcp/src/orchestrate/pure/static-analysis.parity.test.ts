@@ -77,7 +77,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '**Repository:** `/fake/repo`',
         '',
-        '- **FAIL**: Lint — npm run lint failed',
+        '- **FAIL**: Lint — Lint errors found',
         '- **PASS**: Typecheck',
         "- **SKIP**: Quality check — no 'quality-check' script in package.json",
         '',
