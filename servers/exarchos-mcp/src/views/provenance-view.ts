@@ -150,6 +150,10 @@ function handleTaskCompleted(
       ...state,
       _completedTaskIds: completedTaskIds,
       orphanTasks: updatedOrphans,
+      acceptanceTestCoverage: computeAcceptanceTestCoverage(
+        state.requirements,
+        new Set(completedTaskIds),
+      ),
     };
   }
 

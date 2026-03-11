@@ -301,6 +301,33 @@ describe('ProvenanceView', () => {
     expect(dr3?.acceptanceTests).toContain('T-00');
   });
 
+  it('ProvenanceView_OrphanTaskCompletesAcceptanceRef_RecalculatesCoverage', () => {
+    let state = provenanceProjection.init();
+
+    // Task T-01 implements DR-1 and references T-00 as acceptance test
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-01',
+      implements: ['DR-1'],
+      acceptanceTestRef: 'T-00',
+      tests: [{ name: 'TestA', file: 'a.test.ts' }],
+      files: ['src/a.ts'],
+    }, 1));
+
+    // T-00 is not yet completed, so acceptanceTestCoverage should be 0
+    expect(state.acceptanceTestCoverage).toBe(0);
+
+    // T-00 completes as an orphan (no implements)
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-00',
+      tests: [{ name: 'AcceptanceTest', file: 'acceptance.test.ts' }],
+      files: ['acceptance.test.ts'],
+    }, 2));
+
+    // Now T-00 is in completedTaskIds and DR-1 references it — coverage should update
+    expect(state.orphanTasks).toContain('T-00');
+    expect(state.acceptanceTestCoverage).toBe(1.0);
+  });
+
   it('ProvenanceView_UnresolvedAcceptanceTestRef_DoesNotCountAsCoverage', () => {
     let state = provenanceProjection.init();
 
