@@ -95,7 +95,7 @@ Activate this skill when:
 
 Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
 
-1. **Before changes:** Write tests that document what the code **currently does** (not what it should do). Run the function with representative inputs and assert on actual outputs.
+1. **Before changes:** Write tests that document what the code **currently does** (not what it should do). Exercise the code through the most appropriate observable seam (API, CLI, integration boundary, or function) with representative inputs and assert on actual outputs/effects.
 2. **During changes:** Any characterization test failure means behavior changed. Evaluate: intentional or accidental?
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 

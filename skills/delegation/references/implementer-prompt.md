@@ -235,6 +235,7 @@ Report provenance as a JSON object in your task completion call:
 ```json
 {
   "implements": ["DR-1", "DR-3"],
+  "acceptanceTestRef": "task-000",
   "tests": [
     { "name": "validateEmail_InvalidFormat_ReturnsError", "file": "src/validators/email.test.ts" },
     { "name": "validateEmail_ValidFormat_ReturnsSuccess", "file": "src/validators/email.test.ts" }
@@ -255,6 +256,7 @@ exarchos_orchestrate({
   result: {
     summary: "Implemented email validation with TDD",
     implements: ["DR-1"],
+    acceptanceTestRef: "task-000",
     tests: [{ name: "validateEmail_InvalidFormat_ReturnsError", file: "src/validators/email.test.ts" }],
     files: ["src/validators/email.ts", "src/validators/email.test.ts"]
   }
@@ -269,7 +271,7 @@ When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Provenance: implements (requirement IDs), tests (name + file), files (paths)
+4. Provenance: implements (requirement IDs), acceptanceTestRef (if present), tests (name + file), files (paths)
 5. Any issues encountered
 ```
 

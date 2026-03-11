@@ -465,14 +465,33 @@ export function deepMerge(
 }
 
 /**
- * Merge two arrays. The incoming array always replaces the existing one.
+ * Merge two arrays. For object arrays where every element has an `id` field,
+ * performs id-based upsert (merge incoming into existing, preserving entries
+ * not present in incoming). For all other arrays, replaces entirely.
  *
- * Previously used upsert-by-id semantics for arrays of objects with `id`
- * fields, but this caused stale entries to persist when callers intended a
- * full replacement (see GitHub #1003).
+ * This preserves completed tasks when guards emit partial updates containing
+ * only incomplete tasks, while still supporting full replacement for arrays
+ * without id-based identity (see GitHub #1003).
  */
-function mergeArrays(_existing: unknown[], incoming: unknown[]): unknown[] {
-  return incoming;
+function mergeArrays(existing: unknown[], incoming: unknown[]): unknown[] {
+  // Check if both arrays are object arrays with `id` fields
+  const isIdArray = (arr: unknown[]): arr is Array<Record<string, unknown>> =>
+    arr.length > 0 && arr.every(
+      (item) => typeof item === 'object' && item !== null && 'id' in item,
+    );
+
+  if (!isIdArray(incoming)) return incoming;
+  if (!isIdArray(existing)) return incoming;
+
+  // Id-based upsert: start with existing, merge/overwrite matching ids, append new
+  const result = new Map<unknown, Record<string, unknown>>();
+  for (const item of existing) {
+    result.set(item.id, item);
+  }
+  for (const item of incoming) {
+    result.set(item.id, { ...result.get(item.id), ...item });
+  }
+  return [...result.values()];
 }
 
 /**

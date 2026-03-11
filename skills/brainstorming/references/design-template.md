@@ -86,7 +86,7 @@ Write sections of 200-300 words maximum. Use diagrams (ASCII or Mermaid) for com
 - **Numbered IDs:** Use `DR-N` (Design Requirement) format. `REQ-N` and `R-N` are also accepted.
 - **Acceptance criteria:** Every requirement MUST have a `**Acceptance criteria:**` block with concrete, testable criteria.
 - **Structured criteria preferred:** For behavioral requirements, use Given/When/Then format. These become executable acceptance tests during planning:
-  ```
+  ```markdown
   **Acceptance criteria:**
   - Given [precondition]
     When [action]

@@ -94,6 +94,16 @@ export function classifyTask(task: TaskInput): TaskClassification {
     };
   }
 
+  if (task.testLayer === 'integration') {
+    return {
+      taskId: task.id,
+      complexity: 'medium',
+      recommendedAgent: 'implementer',
+      effort: 'medium',
+      reason: 'Integration layer task — preserve implementer lane',
+    };
+  }
+
   const titleLower = task.title.toLowerCase();
 
   // Check scaffolding keywords

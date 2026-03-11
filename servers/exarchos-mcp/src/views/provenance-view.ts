@@ -26,6 +26,8 @@ export interface ProvenanceViewState {
   readonly coverage: number;
   readonly acceptanceTestCoverage: number;
   readonly orphanTasks: readonly string[];
+  /** Internal: set of completed task IDs for resolving acceptanceTestRef links. */
+  readonly _completedTaskIds: readonly string[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -36,9 +38,14 @@ function computeCoverage(requirements: readonly RequirementStatus[]): number {
   return covered / requirements.length;
 }
 
-function computeAcceptanceTestCoverage(requirements: readonly RequirementStatus[]): number {
+function computeAcceptanceTestCoverage(
+  requirements: readonly RequirementStatus[],
+  completedTaskIds: ReadonlySet<string>,
+): number {
   if (requirements.length === 0) return 0;
-  const withAcceptanceTests = requirements.filter((r) => r.acceptanceTests.length > 0).length;
+  const withAcceptanceTests = requirements.filter((r) =>
+    r.acceptanceTests.some((ref) => completedTaskIds.has(ref)),
+  ).length;
   return withAcceptanceTests / requirements.length;
 }
 
@@ -123,6 +130,11 @@ function handleTaskCompleted(
 
   if (!data?.taskId) return state;
 
+  // Track this task as completed
+  const completedTaskIds = state._completedTaskIds.includes(data.taskId)
+    ? state._completedTaskIds
+    : [...state._completedTaskIds, data.taskId];
+
   const implementsArr = data.implements ?? [];
   const testsArr = data.tests ?? [];
   const filesArr = data.files ?? [];
@@ -136,6 +148,7 @@ function handleTaskCompleted(
     }
     return {
       ...state,
+      _completedTaskIds: completedTaskIds,
       orphanTasks: updatedOrphans,
     };
   }
@@ -153,11 +166,14 @@ function handleTaskCompleted(
     );
   }
 
+  const completedSet = new Set(completedTaskIds);
+
   return {
     ...state,
+    _completedTaskIds: completedTaskIds,
     requirements: updatedRequirements,
     coverage: computeCoverage(updatedRequirements),
-    acceptanceTestCoverage: computeAcceptanceTestCoverage(updatedRequirements),
+    acceptanceTestCoverage: computeAcceptanceTestCoverage(updatedRequirements, completedSet),
   };
 }
 
@@ -171,6 +187,7 @@ export const provenanceProjection: ViewProjection<ProvenanceViewState> = {
       coverage: 0,
       acceptanceTestCoverage: 0,
       orphanTasks: [],
+      _completedTaskIds: [],
     };
   },
 

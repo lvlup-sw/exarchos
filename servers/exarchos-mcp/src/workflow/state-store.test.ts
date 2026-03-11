@@ -40,8 +40,8 @@ describe('deepMerge', () => {
     expect(result).toEqual({ items: [4, 5] });
   });
 
-  it('DeepMerge_ArraysOfObjectsWithId_ReplacesEntireArray', () => {
-    // Regression: #1003 — old upsert semantics left stale tasks
+  it('DeepMerge_ArraysOfObjectsWithId_UpsertsById', () => {
+    // Id-based arrays use upsert semantics: incoming merges into existing
     const target = {
       tasks: [
         { id: 't1', status: 'complete' },
@@ -58,8 +58,11 @@ describe('deepMerge', () => {
 
     const result = deepMerge(target, source);
 
-    // Incoming array replaces entirely — old tasks t1/t2/t3 are gone
+    // Id-based upsert: existing entries preserved, new entries appended
     expect(result.tasks).toEqual([
+      { id: 't1', status: 'complete' },
+      { id: 't2', status: 'pending' },
+      { id: 't3', status: 'pending' },
       { id: 'new-1', status: 'pending' },
       { id: 'new-2', status: 'pending' },
     ]);

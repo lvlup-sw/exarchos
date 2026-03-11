@@ -36,11 +36,11 @@ The `/ideate` phase produces acceptance criteria like:
 >   Then the password is updated
 >   And the old password no longer authenticates
 
-The `check_design_completeness` handler validates that every DR-N has at least one Given/When/Then criterion.
+The `check_design_completeness` handler validates that every DR-N has acceptance criteria, emitting advisory findings for any that lack them.
 
 **Acceptance criteria:**
 - Design template includes Given/When/Then format guidance with examples
-- `check_design_completeness` rejects designs where any DR-N lacks structured acceptance criteria
+- `check_design_completeness` emits advisory findings when DR-N entries lack structured acceptance criteria (does not reject — advisory only)
 - Existing DR-N acceptance criteria (bullet-point format) remain valid as a fallback — Given/When/Then is preferred but not the only valid format
 - Design documents produced by `/ideate` use Given/When/Then for behavioral requirements and bullet points for non-behavioral requirements (performance, constraints)
 

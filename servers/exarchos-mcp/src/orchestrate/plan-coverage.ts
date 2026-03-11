@@ -302,7 +302,17 @@ export function detectGwtSections(markdown: string): string[] {
   let currentSectionName: string | null = null;
   let hasGwt = false;
 
-  const gwtPattern = /\*\*(Given|When|Then)\*\*/i;
+  // Match bolded (**Given**), plain list (- Given), or label (Given:) forms
+  const gwtPattern = /(?:\*\*(Given|When|Then)\*\*|^[-*]\s+(Given|When|Then)\b|^\s+[-*]\s+(Given|When|Then)\b|(Given|When|Then)\s*:)/i;
+
+  function extractGwtKeyword(line: string): string | null {
+    const m = gwtPattern.exec(line);
+    if (!m) return null;
+    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4]).toLowerCase();
+    return kw;
+  }
+
+  let seenKeywords = new Set<string>();
 
   for (const line of lines) {
     // Detect start of design section
@@ -317,13 +327,13 @@ export function detectGwtSections(markdown: string): string[] {
 
     // Detect next ## section (end of design section)
     if (/^##\s/.test(line) && !/^###/.test(line)) {
-      // Flush current section
-      if (currentSectionName && hasGwt) {
+      // Flush current section — require all three keywords
+      if (currentSectionName && seenKeywords.size === 3) {
         gwtSections.push(currentSectionName);
       }
       inDesignSection = false;
       currentSectionName = null;
-      hasGwt = false;
+      seenKeywords = new Set();
       continue;
     }
 
@@ -331,22 +341,25 @@ export function detectGwtSections(markdown: string): string[] {
     const h3Match = line.match(/^###\s+(.+)/);
     if (h3Match) {
       // Flush previous section
-      if (currentSectionName && hasGwt) {
+      if (currentSectionName && seenKeywords.size === 3) {
         gwtSections.push(currentSectionName);
       }
       currentSectionName = h3Match[1].trim();
-      hasGwt = false;
+      seenKeywords = new Set();
       continue;
     }
 
     // Check for GWT keywords in body
-    if (currentSectionName && gwtPattern.test(line)) {
-      hasGwt = true;
+    if (currentSectionName) {
+      const kw = extractGwtKeyword(line);
+      if (kw) {
+        seenKeywords.add(kw);
+      }
     }
   }
 
   // Flush last section
-  if (currentSectionName && hasGwt) {
+  if (currentSectionName && seenKeywords.size === 3) {
     gwtSections.push(currentSectionName);
   }
 

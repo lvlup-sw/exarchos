@@ -154,14 +154,14 @@ export function checkMultipleOptions(content: string): OptionsResult {
 
 // ─── checkAcceptanceCriteria ─────────────────────────────────────────────────
 
-/** Pattern matching a single design requirement line (e.g. `- DR-1: ...`). */
-const DR_LINE_PATTERN = /^[-*]\s+(DR-\d+):/i;
+/** Pattern matching a design requirement line — list item (`- DR-1:`) or heading (`### DR-1:`). */
+const DR_LINE_PATTERN = /(?:^[-*]\s+(DR-\d+):|^#{1,}\s+(DR-\d+):)/i;
 
-/** Given/When/Then acceptance criteria keywords (case-insensitive, indented sub-bullet). */
-const GIVEN_WHEN_THEN_PATTERN = /^\s+[-*]\s+(?:given|when|then)\s*:/im;
+/** Given/When/Then acceptance criteria keywords (indented sub-bullet or plain list item, optional colon). */
+const GIVEN_WHEN_THEN_PATTERN = /^(?:\s+[-*]\s+|[-*]\s+)(?:given|when|then)\b\s*:?/im;
 
-/** Bullet-point acceptance criteria header (case-insensitive, indented sub-bullet). */
-const ACCEPTANCE_CRITERIA_HEADER_PATTERN = /^\s+[-*]\s+acceptance\s+criteria\s*:/im;
+/** Bullet-point acceptance criteria header (indented or plain list item, optional colon). */
+const ACCEPTANCE_CRITERIA_HEADER_PATTERN = /^(?:\s+[-*]\s+|[-*]\s+)acceptance\s+criteria\s*:?/im;
 
 /** Markdown section heading at document level (not indented). */
 const SECTION_HEADING_PATTERN = /^#{1,}\s+/;
@@ -184,7 +184,7 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
   for (let i = 0; i < lines.length; i++) {
     const match = DR_LINE_PATTERN.exec(lines[i]);
     if (match) {
-      drEntries.push({ id: match[1], lineIndex: i });
+      drEntries.push({ id: match[1] ?? match[2], lineIndex: i });
     }
   }
 
@@ -236,7 +236,13 @@ function findBlockEnd(
 
 /** Test whether a text block contains any recognized acceptance criteria format. */
 function hasAcceptanceCriteria(block: string): boolean {
-  return GIVEN_WHEN_THEN_PATTERN.test(block) || ACCEPTANCE_CRITERIA_HEADER_PATTERN.test(block);
+  // GWT format requires all three keywords present
+  const hasGiven = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)given\b/im.test(block);
+  const hasWhen = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)when\b/im.test(block);
+  const hasThen = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)then\b/im.test(block);
+  if (hasGiven && hasWhen && hasThen) return true;
+  // Fallback: bullet-point acceptance criteria header
+  return ACCEPTANCE_CRITERIA_HEADER_PATTERN.test(block);
 }
 
 // ─── checkStateDesignPath ───────────────────────────────────────────────────

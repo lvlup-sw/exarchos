@@ -152,7 +152,7 @@ Run automated gates via orchestrate actions. See `references/gate-execution.md` 
 2. `check_security_scan` — security pattern detection (D1). Include findings in report.
 3. Optional D3-D5 gates: `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism` — advisory, feed convergence view.
 
-### Step 2.5: Test Desiderata Evaluation
+### Step 2: Test Desiderata Evaluation
 
 Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four properties are critical for agentic code:
 
@@ -163,9 +163,9 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 | **Deterministic** | Tests produce the same result every run | Uncontrolled `Date.now()`, `Math.random()`, `setTimeout` race conditions, network-dependent tests |
 | **Specific** | Test failures pinpoint the cause | `toBeTruthy()` / `toBeDefined()` without additional specific assertions, catch-all tests with vague descriptions |
 
-**Test layer mismatch detection:** Flag unit tests with >3 mocked dependencies as potential layer mismatches. Advisory finding: suggest re-classifying as integration test with real collaborators.
+**Test layer mismatch detection:** Flag unit tests with >3 mocked dependencies as potential layer mismatches — unit tests with many mocks often indicate the test is asserting integration concerns rather than unit logic. Advisory finding: suggest re-classifying as integration test with real collaborators.
 
-Include Test Desiderata findings in the quality review report under a "Test Quality" section.
+Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the `issues` array with `category: "test-quality"`.
 
 ### Step 3: Generate Report
 
@@ -229,7 +229,7 @@ The subagent MUST return results as structured JSON. The orchestrator parses thi
   "issues": [
     {
       "severity": "HIGH | MEDIUM | LOW",
-      "category": "security | solid | dry | perf | naming | other",
+      "category": "security | solid | dry | perf | naming | test-quality | other",
       "file": "path/to/file",
       "line": 123,
       "description": "Issue description",

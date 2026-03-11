@@ -9,7 +9,7 @@ testingStrategy: {
   exampleTests: true;           // Always required (literal true)
   propertyTests: boolean;       // Property-based tests required?
   benchmarks: boolean;          // Performance benchmarks required?
-  testLayer: 'acceptance' | 'integration' | 'unit' | 'property';  // Required
+  testLayer: 'acceptance' | 'integration' | 'unit';  // Required (property is a separate axis via propertyTests)
   characterizationRequired?: boolean;  // Pre-capture behavior before modifying existing code?
   properties?: string[];        // Guidance: which properties to verify
   performanceSLAs?: PerformanceSLA[]; // Guidance: performance targets
@@ -90,7 +90,9 @@ The planner MUST assign `testLayer` to each task. Follow the Testing Trophy dist
 | `acceptance` | First task per feature or DR-N cluster with Given/When/Then criteria. Tests feature from user perspective with real collaborators. | No — explicitly assigned |
 | `integration` | Task tests multiple components working together. Uses real collaborators, mocks only at infrastructure boundaries. | **Yes — default layer** |
 | `unit` | Task involves isolated complex logic (parsers, algorithms, math). Pure functions with complex edge cases. | No — only for naturally isolated code |
-| `property` | Auto-assigned when `propertyTests: true` (transformations, state machines, serialization). | No — follows propertyTests flag |
+
+
+> **Note:** `propertyTests: true` can coexist with any `testLayer` value — it's an independent overlay, not a mutually exclusive layer.
 
 **Sociable test preference:** Default to using real collaborators (sociable tests). Mock only at infrastructure boundaries — external HTTP services, databases, filesystem. If a test requires >3 mocked dependencies, the task may be at the wrong test layer.
 

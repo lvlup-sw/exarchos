@@ -675,8 +675,8 @@ describe('handlePrepareDelegation', () => {
       expect(classification.reason.toLowerCase()).toContain('acceptance');
     });
 
-    it('classifyTask_IntegrationTestLayerHighDeps_ReturnsHighEffort', () => {
-      // Arrange
+    it('classifyTask_IntegrationTestLayer_ReturnsMediumImplementer', () => {
+      // Arrange — integration tasks short-circuit to medium/implementer regardless of deps
       const task = {
         id: 'T-002',
         title: 'Integration test',
@@ -688,7 +688,8 @@ describe('handlePrepareDelegation', () => {
       const classification = classifyTask(task);
 
       // Assert
-      expect(classification.effort).toBe('high');
+      expect(classification.effort).toBe('medium');
+      expect(classification.recommendedAgent).toBe('implementer');
     });
 
     it('classifyTask_IntegrationTestLayerLowDeps_ReturnsMediumEffort', () => {

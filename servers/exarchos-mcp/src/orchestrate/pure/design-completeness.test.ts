@@ -367,3 +367,61 @@ describe('checkAcceptanceCriteria', () => {
     expect(result.missingCriteria).toHaveLength(3);
   });
 });
+
+// ─── handleDesignCompleteness — advisory acceptance criteria ────────────────
+
+describe('handleDesignCompleteness_AcceptanceCriteria', () => {
+  it('handleDesignCompleteness_MissingAcceptanceCriteria_EmitsAdvisoryFinding', () => {
+    // Arrange — complete design with all sections but DR entries lack acceptance criteria
+    const content = `# Design: Test Feature
+
+## Problem Statement
+
+Testing advisory findings for missing acceptance criteria.
+
+## Requirements
+
+- DR-1: The system must validate inputs
+- DR-2: The system must log all events
+
+## Chosen Approach
+
+We chose Option 1.
+
+### Option 1: Simple Approach
+
+Basic implementation.
+
+### Option 2: Alternative Approach
+
+Alternative implementation.
+
+## Technical Design
+
+Standard implementation.
+
+## Integration Points
+
+Standard integration.
+
+## Testing Strategy
+
+Unit tests.
+
+## Open Questions
+
+None.
+`;
+    const designPath = join(tmpDir, 'advisory-design.md');
+    writeFileSync(designPath, content);
+
+    // Act
+    const result = handleDesignCompleteness({ designFile: designPath });
+
+    // Assert — overall check passes (advisory only), but findings mention missing criteria
+    expect(result.passed).toBe(true);
+    expect(result.findings.some((f) => f.includes('DR-1'))).toBe(true);
+    expect(result.findings.some((f) => f.includes('DR-2'))).toBe(true);
+    expect(result.findings.some((f) => f.includes('Advisory'))).toBe(true);
+  });
+});
