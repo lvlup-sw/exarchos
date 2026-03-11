@@ -180,10 +180,19 @@ Reserve decomposition for your hardest, least reliable agent operations.
 
 ### The Research Basis
 
-In latent-space iteration models (Huginn), representations converge as the recurrent block iterates
-— the reasoning "settles" on a stable answer. The rate of convergence is a natural confidence
-signal: fast convergence means the reasoning circuits agree; slow or non-convergent iterations mean
-the problem is ambiguous or underspecified.
+Self-consistency as a decoding strategy was introduced by Wang et al. (2022), who demonstrated that
+sampling multiple chain-of-thought reasoning paths and selecting the most consistent answer
+significantly improves accuracy on arithmetic, commonsense, and symbolic reasoning benchmarks. The
+technique is independently validated and does not depend on any particular theory of model
+internals.
+
+The convergence observation from Huginn *reinforces* why self-consistency works — independent calls
+trigger the same reasoning circuits, which converge when the problem is well-defined. In
+latent-space iteration models, representations converge as
+the recurrent block iterates, and the rate of convergence is a natural confidence signal: fast
+convergence means the reasoning circuits agree; slow or non-convergent iterations mean the problem
+is ambiguous or underspecified. This provides a mechanistic intuition for *why* self-consistency
+succeeds, but the practical value of the technique stands on its own empirical foundation.
 
 ### The Application-Layer Analog
 
@@ -295,15 +304,19 @@ requested it**, not forwarded verbatim to every downstream step.
 
 ### The Research Basis
 
-The three-zone anatomy means different tasks engage different parts of the model. Encoding and
-decoding are handled by shallow, early/late layers. Reasoning is handled by deep middle-layer
-circuits. A model's "tier" (Haiku vs. Sonnet vs. Opus) roughly corresponds to the depth and
-sophistication of its reasoning circuits.
+Models at different tiers (Haiku vs. Sonnet vs. Opus) differ in architecture size, training data,
+optimization targets, and capability profiles. These differences produce empirically observable
+capability gaps: smaller models handle pattern matching and format translation effectively, while
+larger models outperform on tasks requiring multi-step logical reasoning, nuanced judgment, and
+complex trade-off evaluation. The three-zone anatomy provides a useful mental model — encoding and
+decoding tasks exercise capabilities that even smaller models handle well, while deep reasoning
+tasks benefit from the additional capacity of larger models — but the practical tiering holds as
+empirical capability matching regardless of the specific internal mechanism.
 
 ### The Application-Layer Analog
 
 Match model tier to cognitive demand. Most agent infrastructure tasks are encoding or decoding —
-they don't need deep reasoning circuits.
+they don't require the capabilities that distinguish premium-tier models.
 
 ### Implementation Guidance
 
@@ -325,9 +338,10 @@ cut API costs by 50%+ with no quality loss on the reasoning-heavy steps.
 
 ### Anti-Pattern
 
-Using the most capable model for every call "just to be safe." The research tells us *why* this is
-wasteful: encoding and decoding tasks don't exercise the reasoning circuits that distinguish
-premium models. You're paying for circuits that aren't firing.
+Using the most capable model for every call "just to be safe." Empirically, encoding and decoding
+tasks show no quality improvement when run on premium-tier models — you're paying for capabilities
+that the task doesn't exercise. Reserve premium models for tasks where their additional reasoning
+capacity produces measurably better results.
 
 ---
 
@@ -335,14 +349,25 @@ premium models. You're paying for circuits that aren't firing.
 
 ### The Research Basis
 
-The model processes input sequentially through its layers: encoding → reasoning → decoding. The
-order and structure of your prompt influences how cleanly these functions activate.
+In autoregressive transformers, all tokens pass through all layers — there is no separate
+"activation" of different layer zones based on prompt position. However, prompt order matters
+because of the **causal attention mask**: each token can only attend to tokens that precede it.
+This means later tokens have access to the representations of all earlier tokens, but not the
+reverse.
+
+The practical consequence is that **information placement determines what context is available when
+the model processes each part of the prompt**. When context appears before the question, the model
+has already built representations of that context by the time it processes the question — so the
+question tokens can attend to fully-formed context representations. When the output format
+specification appears last, it is closest to the generation point, making its constraints maximally
+salient during decoding.
 
 ### The Application-Layer Analog
 
 Structure prompts so that the information the model needs to **encode** comes first, the
 **reasoning request** comes in the middle, and the **output specification** comes last. This
-aligns your prompt with the model's internal processing pipeline.
+ensures that context is available in attention when the model processes the question, and that
+format constraints are nearest to the generation boundary where they have the strongest influence.
 
 ### Implementation Guidance
 
@@ -350,17 +375,20 @@ aligns your prompt with the model's internal processing pipeline.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  1. CONTEXT & DATA  (activates encoding)        │
+│  1. CONTEXT & DATA  (available to all later      │
+│     tokens via attention)                        │
 │     - System prompt with role and constraints    │
 │     - Relevant file contents / tool outputs      │
 │     - Structured data the model needs to process │
 ├─────────────────────────────────────────────────┤
-│  2. REASONING REQUEST  (activates reasoning)     │
+│  2. REASONING REQUEST  (attends to context       │
+│     above; attended to by format spec below)     │
 │     - The actual question or task                │
 │     - Criteria for evaluation                    │
 │     - Constraints on the decision                │
 ├─────────────────────────────────────────────────┤
-│  3. OUTPUT SPECIFICATION  (activates decoding)   │
+│  3. OUTPUT SPECIFICATION  (closest to generation │
+│     point; maximally salient during decoding)    │
 │     - Required format (JSON schema, markdown)    │
 │     - Response length constraints                │
 │     - Examples of desired output                 │
@@ -371,15 +399,128 @@ aligns your prompt with the model's internal processing pipeline.
 
 | Anti-Pattern | Problem | Fix |
 |---|---|---|
-| Output format specified first, data dumped last | Decoding specification gets "buried" by subsequent encoding load | Move format spec to the end |
-| Question asked before context is provided | Model must hold the question in working memory while encoding context | Provide context first, ask the question after |
-| Data, questions, and format specs interleaved | Forces context-switching between cognitive functions | Group by function: all data → all questions → all format specs |
+| Output format specified first, data dumped last | Format spec is far from the generation point; data tokens cannot attend to the question when being encoded | Move format spec to the end |
+| Question asked before context is provided | Question tokens cannot attend to context that hasn't appeared yet; context tokens don't benefit from knowing the question | Provide context first, ask the question after |
+| Data, questions, and format specs interleaved | Scatters related information across positions, forcing attention to bridge long distances between related tokens | Group by function: all data, then all questions, then all format specs |
+
+---
+
+## Pattern 8: Effort Control Across Platforms
+
+### The Research Basis
+
+Patterns 1 and 6 establish that different tasks warrant different amounts of computational effort.
+The API-layer mechanism for controlling this varies across platforms — some offer explicit effort
+parameters, others rely on model selection and prompt design. Understanding what each platform
+exposes lets you implement effort control precisely rather than relying on heuristics alone.
+
+### Anthropic API: Explicit Effort Control
+
+The Anthropic Messages API provides two complementary mechanisms:
+
+**1. The `effort` parameter** (`output_config.effort`)
+
+Controls overall response effort as a coarse dial:
+
+| Value | Behavior | Use Case |
+|---|---|---|
+| `low` | Minimal reasoning, concise output | Classification, routing, simple extraction |
+| `medium` | Balanced reasoning and output | Standard analysis, summarization |
+| `high` | Thorough reasoning, comprehensive output (default) | Multi-step analysis, code review |
+| `max` | Maximum reasoning depth, exhaustive output | Architecture decisions, novel problem-solving |
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [...],
+  "output_config": {
+    "effort": "high"
+  }
+}
+```
+
+**2. Extended thinking**
+
+Extended thinking controls the model's internal reasoning process. The configuration differs by
+model family:
+
+**Opus 4.6 — Adaptive thinking** (`thinking: {type: "adaptive"}`)
+
+Adaptive mode lets the model dynamically allocate thinking budget based on problem difficulty.
+`budget_tokens` is deprecated for Opus 4.6; use adaptive mode instead:
+
+```json
+{
+  "model": "claude-opus-4-6",
+  "messages": [...],
+  "thinking": {
+    "type": "adaptive"
+  }
+}
+```
+
+**Sonnet / Haiku — Fixed-budget thinking** (`thinking: {type: "enabled"}`)
+
+Sonnet and Haiku use explicit thinking budgets. Set `budget_tokens` to control reasoning depth:
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [...],
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 8192
+  }
+}
+```
+
+Adaptive thinking is particularly useful for Opus agents handling a mix of easy and hard tasks.
+For Sonnet agents with predictable task complexity, fixed budgets provide more cost control.
+
+**Combining effort and thinking:** The `effort` parameter and thinking configuration are
+complementary. `effort` controls overall response behavior, while `thinking` controls the
+internal reasoning process. For maximum reasoning depth: `effort: "max"` + adaptive thinking
+(Opus only). For cost-controlled agents: `effort: "high"` + fixed thinking budget (Sonnet).
+
+### Effort-to-Model Mapping
+
+When explicit effort parameters are unavailable or insufficient, model selection itself is the
+primary effort lever:
+
+| Effort Level | Anthropic API | Claude Code | Prompt-Based Fallback |
+|---|---|---|---|
+| **Minimal** | Haiku + `effort: "low"` | Haiku (model selection) | "Be concise. Answer directly." |
+| **Standard** | Sonnet + `effort: "medium"` | Sonnet (default) | Standard prompt |
+| **Thorough** | Sonnet + `effort: "high"` + fixed thinking budget | Sonnet + "think carefully" | "Analyze thoroughly. Consider edge cases." |
+| **Maximum** | Opus + `effort: "max"` + adaptive thinking | Opus (model selection) | "Think step by step. Consider all alternatives." |
+
+### Claude Code Integration
+
+Claude Code does not expose the `effort` or `thinking` API parameters directly. Effort control
+in Claude Code relies on two available mechanisms:
+
+1. **Model selection** — choosing between Haiku, Sonnet, and Opus for different tasks maps
+   directly to Pattern 6 (model tiering). This is the primary effort lever.
+2. **Prompt-based effort steering** — instructions like "be concise" or "analyze thoroughly"
+   influence the model's response depth. Less precise than API parameters, but effective for
+   coarse effort tiers.
+
+For orchestration systems that invoke the Anthropic API directly (like MCP servers or custom
+tooling), the full `effort` and `thinking` parameters are available and should be preferred over
+prompt-based steering.
+
+### Anti-Pattern
+
+Using maximum effort for every call because "it can't hurt." Higher effort settings consume more
+tokens and increase latency. On simple tasks, excessive effort produces verbose output without
+improving accuracy — the model elaborates on problems that don't require elaboration. Match effort
+to task complexity, just as Pattern 6 matches model tier to cognitive demand.
 
 ---
 
 ## Applied Example: AI-Assisted Feature Development Workflow
 
-The seven patterns above are general-purpose. This section applies them concretely to a specific
+The eight patterns above are general-purpose. This section applies them concretely to a specific
 multi-phase workflow: **AI-assisted feature development** with brainstorming, design, planning,
 parallel implementation, and two-stage review.
 
@@ -658,8 +799,10 @@ Designing with this knowledge means:
    for reasoning (Pattern 6)
 7. **Structure prompts to match the pipeline** — context first, question second, format last
    (Pattern 7)
+8. **Control effort explicitly** — use API effort parameters where available, model selection
+   and prompt steering where not (Pattern 8)
 
-The applied workflow section above demonstrates how these seven patterns compose into a complete
+The applied workflow section above demonstrates how these eight patterns compose into a complete
 multi-phase development process — with specific refinements at each phase boundary. The patterns
 are general-purpose; the workflow shows how they stack.
 
@@ -696,9 +839,15 @@ what's happening inside.
                         └──────────┬──────────┘              (Pattern 4)
                                    │ No
                         ┌──────────▼──────────┐
+                        │ Set effort level     │
+                        │ via API parameter    │──→  Match effort to task
+                        │ or model selection   │     complexity (Pattern 8)
+                        └──────────┬──────────┘
+                                   │
+                        ┌──────────▼──────────┐
                         │ Single pass,         │
                         │ standard model,      │
-                        │ moderate thinking    │
+                        │ moderate effort      │
                         └─────────────────────┘
 ```
 

@@ -80,4 +80,21 @@ describe('Skill coverage — runbook references', () => {
     const content = readSkillFile('shepherd/SKILL.md');
     assertRunbookReference(content, 'shepherd-escalation');
   });
+
+  // ─── Schema Discovery Runbook References (DR-9, DR-11) ──────────────
+
+  it('SkillCoverage_DelegationSkill_ReferencesTaskClassificationRunbook', () => {
+    const content = readSkillFile('delegation/SKILL.md');
+    assertRunbookReference(content, 'task-classification');
+  });
+
+  it('SkillCoverage_SpecReviewSkill_ReferencesReviewStrategyRunbook', () => {
+    const content = readSkillFile('spec-review/SKILL.md');
+    assertRunbookReference(content, 'review-strategy');
+  });
+
+  it('SkillCoverage_QualityReviewSkill_ReferencesReviewStrategyRunbook', () => {
+    const content = readSkillFile('quality-review/SKILL.md');
+    assertRunbookReference(content, 'review-strategy');
+  });
 });

@@ -69,6 +69,12 @@ git diff main...integration-branch > /tmp/integration-diff.patch
 
 This reduces context consumption by 80-90% while providing the complete picture.
 
+### Pre-Review Schema Discovery
+
+Before evaluating, query the review strategy runbook to determine the appropriate evaluation approach:
+
+- **Evaluation strategy:** `exarchos_orchestrate({ action: "runbook", id: "review-strategy" })` to determine single-pass vs two-pass evaluation strategy based on diff size and task count.
+
 ### Review Scope: Combined Changes
 
 After delegation completes, quality review examines:

@@ -272,6 +272,15 @@ These three sources tell a unified story about transformer internal organization
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+**Important caveat:** This three-zone diagram is a useful simplification, not a precise anatomical
+map. In practice, cross-zone computation occurs — attention heads in "encoding" layers may
+contribute to reasoning subtasks, and "reasoning" layers still perform some representational
+housekeeping. Individual attention heads specialize within larger circuits that can span nominal
+zone boundaries. The exact layer ranges vary by architecture (model family, parameter count,
+training regime) and even by input and task. The diagram captures a robust empirical trend — the
+encode/reason/decode gradient is real and consistent across model families — but should not be read
+as implying hard boundaries between discrete processing regions.
+
 ### 5.2 Emergent System Properties
 
 These properties arise from training alone — they are not designed into the architecture:

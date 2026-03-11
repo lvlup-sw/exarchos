@@ -18,7 +18,7 @@ export interface AgentValidationRule {
 }
 
 /** Canonical agent spec IDs. */
-export type AgentSpecId = 'implementer' | 'fixer' | 'reviewer';
+export type AgentSpecId = 'implementer' | 'fixer' | 'reviewer' | 'scaffolder';
 
 /** Complete specification for a subagent. */
 export interface AgentSpec {
@@ -28,6 +28,7 @@ export interface AgentSpec {
   readonly tools: readonly string[];
   readonly disallowedTools?: readonly string[];
   readonly model: 'opus' | 'sonnet' | 'haiku' | 'inherit';
+  readonly effort?: 'low' | 'medium' | 'high' | 'max';
   readonly color?: string;
   readonly isolation?: 'worktree';
   readonly skills: readonly AgentSkill[];

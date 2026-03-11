@@ -34,12 +34,96 @@ import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 
 export type { DelegationReadinessState } from '../views/delegation-readiness-view.js';
 
+/** Input shape for a task passed to prepare_delegation. */
+export interface TaskInput {
+  readonly id: string;
+  readonly title: string;
+  readonly blockedBy?: readonly string[];
+  readonly files?: readonly string[];
+}
+
+/**
+ * Advisory classification for a single task.
+ * Note: effort omits 'max' intentionally — the heuristic classifier covers
+ * scaffolder/implementer tiers only. 'max' effort (Opus-level deep reasoning)
+ * is reserved for manual override, not automated classification.
+ */
+export interface TaskClassification {
+  readonly taskId: string;
+  readonly complexity: 'low' | 'medium' | 'high';
+  readonly recommendedAgent: 'scaffolder' | 'implementer';
+  readonly effort: 'low' | 'medium' | 'high';
+  readonly reason: string;
+}
+
 export interface PrepareDelegationResult {
   readonly ready: boolean;
   readonly readiness: DelegationReadinessState;
   readonly blockers?: string[];
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
   readonly isolation?: 'native';
+  readonly taskClassifications?: readonly TaskClassification[];
+}
+
+// ─── Task Classification ────────────────────────────────────────────────────
+
+/** Keywords in task titles that indicate low-complexity scaffolding work. */
+const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 'scaffold'];
+
+/**
+ * Deterministic heuristic classification for a single task.
+ * Advisory — agents can override these recommendations.
+ *
+ * Priority order:
+ *   1. Title contains scaffolding keywords → low/scaffolder
+ *   2. blockedBy length >= 2 → high/implementer
+ *   3. files length >= 3 → high/implementer
+ *   4. Default → medium/implementer
+ */
+export function classifyTask(task: TaskInput): TaskClassification {
+  const titleLower = task.title.toLowerCase();
+
+  // Check scaffolding keywords first
+  const matchedKeyword = SCAFFOLDING_KEYWORDS.find(kw => titleLower.includes(kw));
+  if (matchedKeyword) {
+    return {
+      taskId: task.id,
+      complexity: 'low',
+      recommendedAgent: 'scaffolder',
+      effort: 'low',
+      reason: `Title contains scaffolding keyword "${matchedKeyword}"`,
+    };
+  }
+
+  // Check high-complexity signals
+  if (task.blockedBy && task.blockedBy.length >= 2) {
+    return {
+      taskId: task.id,
+      complexity: 'high',
+      recommendedAgent: 'implementer',
+      effort: 'high',
+      reason: `Task has ${task.blockedBy.length} dependencies (>= 2 threshold)`,
+    };
+  }
+
+  if (task.files && task.files.length >= 3) {
+    return {
+      taskId: task.id,
+      complexity: 'high',
+      recommendedAgent: 'implementer',
+      effort: 'high',
+      reason: `Task touches ${task.files.length} files (>= 3 threshold)`,
+    };
+  }
+
+  // Default: medium complexity
+  return {
+    taskId: task.id,
+    complexity: 'medium',
+    recommendedAgent: 'implementer',
+    effort: 'medium',
+    reason: 'Standard task — no scaffolding keywords or high-complexity signals',
+  };
 }
 
 // ─── Worktree Blocker Patterns ──────────────────────────────────────────────
@@ -78,7 +162,7 @@ function assembleQualityHints(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handlePrepareDelegation(
-  args: { featureId: string; tasks?: Array<{ id: string; title: string }>; nativeIsolation?: boolean },
+  args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
 ): Promise<ToolResult> {
   // Validate input
@@ -177,11 +261,17 @@ export async function handlePrepareDelegation(
       });
     } catch { /* fire-and-forget */ }
 
+    // Compute task classifications when tasks are provided (advisory)
+    const taskClassifications = args.tasks
+      ? args.tasks.map(classifyTask)
+      : undefined;
+
     const result: PrepareDelegationResult = {
       ready: true,
       readiness: effectiveReadiness,
       qualityHints,
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
+      ...(taskClassifications ? { taskClassifications } : {}),
     };
     return { success: true, data: result };
   } catch (err) {
