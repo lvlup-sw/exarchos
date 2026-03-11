@@ -71,7 +71,8 @@ const SECURITY_PATTERNS: readonly SecurityPattern[] = [
     name: 'child_process.exec with variable input',
     severity: 'HIGH',
     test: (line: string) =>
-      /child_process.*exec\s*\(/.test(line) || /exec\s*\(\s*[^"'`]/.test(line),
+      /child_process.*exec\s*\(/.test(line) ||
+      /\bexecSync\s*\(/.test(line),
   },
 ];
 
