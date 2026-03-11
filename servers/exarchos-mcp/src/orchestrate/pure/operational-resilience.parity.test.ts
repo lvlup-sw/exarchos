@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { checkOperationalResilience } from './operational-resilience.js';
 
+// ─── Fixtures ───────────────────────────────────────────────────────────────
+// Bash: 5 checks — empty catch, swallowed errors, console.log, npm audit, unbounded retries
+// TS port: same patterns, diff-only mode (no npm audit)
+
 const CLEAN_DIFF = `diff --git a/src/utils.ts b/src/utils.ts
 index abc1234..def5678 100644
 --- a/src/utils.ts
@@ -69,60 +73,65 @@ index abc1234..def5678 100644
 +}
  export function init() {}`;
 
-describe('behavioral parity with operational-resilience.sh', () => {
-  it('clean diff passes with zero findings', () => {
-    const result = checkOperationalResilience(CLEAN_DIFF);
+// ─── Tests ──────────────────────────────────────────────────────────────────
 
-    expect(result.pass).toBe(true);
-    expect(result.findingCount).toBe(0);
-    expect(result.findings).toEqual([]);
+describe('behavioral parity with check-operational-resilience.sh', () => {
+  it('clean diff — passes with zero findings', () => {
+    expect(checkOperationalResilience(CLEAN_DIFF)).toEqual({
+      pass: true,
+      findingCount: 0,
+      findings: [],
+    });
   });
 
-  it('empty catch block produces HIGH finding', () => {
-    const result = checkOperationalResilience(EMPTY_CATCH_DIFF);
-
-    expect(result).toEqual(expect.objectContaining({
+  it('empty catch block — HIGH finding', () => {
+    expect(checkOperationalResilience(EMPTY_CATCH_DIFF)).toEqual({
       pass: false,
       findingCount: 1,
       findings: [
-        expect.objectContaining({
+        {
           severity: 'HIGH',
-          message: expect.stringMatching(/handler\.ts/),
-        }),
+          message: '`src/handler.ts` — Empty catch block detected',
+        },
       ],
-    }));
-    expect(result.findings[0]!.message).toMatch(/[Ee]mpty catch/i);
+    });
   });
 
-  it('console.log in source file produces MEDIUM finding', () => {
-    const result = checkOperationalResilience(CONSOLE_LOG_SOURCE_DIFF);
-
-    expect(result).toEqual(expect.objectContaining({
+  it('console.log in source file — MEDIUM finding', () => {
+    expect(checkOperationalResilience(CONSOLE_LOG_SOURCE_DIFF)).toEqual({
       pass: false,
       findingCount: 1,
       findings: [
-        expect.objectContaining({
+        {
           severity: 'MEDIUM',
-          message: expect.stringMatching(/service\.ts/),
-        }),
+          message: '`src/service.ts` — console.log in source file',
+        },
       ],
-    }));
-    expect(result.findings[0]!.message).toMatch(/console\.log/i);
+    });
   });
 
-  it('console.log in test file is excluded and passes', () => {
-    const result = checkOperationalResilience(CONSOLE_LOG_TEST_DIFF);
-
-    expect(result.pass).toBe(true);
-    expect(result.findingCount).toBe(0);
-    expect(result.findings).toEqual([]);
+  it('console.log in test file — excluded, passes cleanly', () => {
+    expect(checkOperationalResilience(CONSOLE_LOG_TEST_DIFF)).toEqual({
+      pass: true,
+      findingCount: 0,
+      findings: [],
+    });
   });
 
-  it('multiple issues produce multiple findings', () => {
-    const result = checkOperationalResilience(MULTIPLE_FINDINGS_DIFF);
-
-    expect(result.pass).toBe(false);
-    expect(result.findingCount).toBe(2);
-    expect(result.findings).toHaveLength(2);
+  it('multiple findings — empty catch (HIGH) + console.log (MEDIUM)', () => {
+    expect(checkOperationalResilience(MULTIPLE_FINDINGS_DIFF)).toEqual({
+      pass: false,
+      findingCount: 2,
+      findings: [
+        {
+          severity: 'HIGH',
+          message: '`src/handler.ts` — Empty catch block detected',
+        },
+        {
+          severity: 'MEDIUM',
+          message: '`src/service.ts` — console.log in source file',
+        },
+      ],
+    });
   });
 });

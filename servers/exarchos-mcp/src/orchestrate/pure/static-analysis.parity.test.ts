@@ -7,9 +7,9 @@ import type { RunCommandFn, CommandResult } from './static-analysis.js';
  * scripts/static-analysis-gate.sh bash script.
  *
  * Bash script behavior:
- *   - exit 0 → all checks pass (lint PASS, typecheck PASS)
- *   - exit 1 → one or more checks fail (lint FAIL, typecheck PASS)
- *   - quality-check and phase-names are SKIP when scripts are absent
+ *   - Runs lint, typecheck, quality-check via npm scripts
+ *   - exit 0 → all checks pass, exit 1 → one or more fail
+ *   - Missing scripts → SKIP (not counted in pass/fail totals)
  */
 
 // Mock node:fs so readPackageJson can resolve package.json without disk access
@@ -27,9 +27,7 @@ vi.mock('node:fs', () => ({
 
 function makePassRunner(): RunCommandFn {
   return (_cmd: string, _args: readonly string[], _options?: { cwd?: string }): CommandResult => ({
-    exitCode: 0,
-    stdout: 'OK\n',
-    stderr: '',
+    exitCode: 0, stdout: 'OK\n', stderr: '',
   });
 }
 
@@ -44,69 +42,152 @@ function makeLintFailRunner(): RunCommandFn {
 }
 
 describe('behavioral parity with static-analysis-gate.sh', () => {
-  it('all checks pass — status pass with correct pass/fail counts', () => {
-    const result = runStaticAnalysis({
+  it('all checks pass — PASS (2/2), quality-check SKIP (no script)', () => {
+    expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       runCommand: makePassRunner(),
+    })).toEqual({
+      status: 'pass',
+      output: [
+        '## Static Analysis Report',
+        '',
+        '**Repository:** `/fake/repo`',
+        '',
+        '- **PASS**: Lint',
+        '- **PASS**: Typecheck',
+        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
+        '',
+        '---',
+        '',
+        '**Result: PASS** (2/2 checks passed)',
+      ].join('\n'),
+      passCount: 2,
+      failCount: 0,
     });
-
-    expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(2);
-    expect(result.failCount).toBe(0);
-    expect(result.output).toContain('**Result: PASS** (2/2 checks passed)');
   });
 
-  it('lint fail — status fail with 1 failure and 1 pass', () => {
-    const result = runStaticAnalysis({
+  it('lint fail — FAIL (1/2), typecheck passes', () => {
+    expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       runCommand: makeLintFailRunner(),
+    })).toEqual({
+      status: 'fail',
+      output: [
+        '## Static Analysis Report',
+        '',
+        '**Repository:** `/fake/repo`',
+        '',
+        '- **FAIL**: Lint — npm run lint failed',
+        '- **PASS**: Typecheck',
+        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
+        '',
+        '---',
+        '',
+        '**Result: FAIL** (1/2 checks failed)',
+      ].join('\n'),
+      passCount: 1,
+      failCount: 1,
     });
-
-    expect(result.status).toBe('fail');
-    expect(result.passCount).toBe(1);
-    expect(result.failCount).toBe(1);
-    expect(result.output).toContain('**Result: FAIL** (1/2 checks failed)');
-    expect(result.output).toContain('**FAIL**: Lint');
-    expect(result.output).toContain('**PASS**: Typecheck');
   });
 
-  it('skip lint — skipped lint does not count toward pass or fail totals', () => {
-    const result = runStaticAnalysis({
+  it('skip lint — lint SKIP, typecheck passes, PASS (1/1)', () => {
+    expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       skipLint: true,
       runCommand: makePassRunner(),
+    })).toEqual({
+      status: 'pass',
+      output: [
+        '## Static Analysis Report',
+        '',
+        '**Repository:** `/fake/repo`',
+        '',
+        '- **SKIP**: Lint — --skip-lint',
+        '- **PASS**: Typecheck',
+        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
+        '',
+        '---',
+        '',
+        '**Result: PASS** (1/1 checks passed)',
+      ].join('\n'),
+      passCount: 1,
+      failCount: 0,
     });
-
-    expect(result.status).toBe('pass');
-    // Only typecheck runs (quality-check has no script in our mock package.json...
-    // actually our mock includes lint and typecheck but not quality-check, so
-    // quality-check is also SKIP). Lint is explicitly skipped.
-    // Only typecheck passes → passCount=1, failCount=0
-    expect(result.passCount).toBe(1);
-    expect(result.failCount).toBe(0);
-    expect(result.output).toContain('**SKIP**: Lint');
   });
 
-  it('skip typecheck — skipped typecheck does not count toward pass or fail totals', () => {
-    const result = runStaticAnalysis({
+  it('skip typecheck — typecheck SKIP, lint passes, PASS (1/1)', () => {
+    expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       skipTypecheck: true,
       runCommand: makePassRunner(),
+    })).toEqual({
+      status: 'pass',
+      output: [
+        '## Static Analysis Report',
+        '',
+        '**Repository:** `/fake/repo`',
+        '',
+        '- **PASS**: Lint',
+        '- **SKIP**: Typecheck — --skip-typecheck',
+        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
+        '',
+        '---',
+        '',
+        '**Result: PASS** (1/1 checks passed)',
+      ].join('\n'),
+      passCount: 1,
+      failCount: 0,
     });
-
-    expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(1);
-    expect(result.failCount).toBe(0);
-    expect(result.output).toContain('**SKIP**: Typecheck');
   });
 
-  it('output contains structured markdown report with repository path', () => {
-    const result = runStaticAnalysis({
-      repoRoot: '/my/project',
+  it('empty repoRoot — error status with "Missing repoRoot" message', () => {
+    expect(runStaticAnalysis({
+      repoRoot: '',
       runCommand: makePassRunner(),
+    })).toEqual({
+      status: 'error',
+      output: '',
+      error: 'Missing repoRoot',
+      passCount: 0,
+      failCount: 0,
     });
+  });
+});
 
-    expect(result.output).toContain('## Static Analysis Report');
-    expect(result.output).toContain('**Repository:** `/my/project`');
+describe('quality-check path', () => {
+  it('quality-check script present and passing — counted in totals', async () => {
+    // Override the fs mock for this test to include quality-check
+    const { readFileSync } = await import('node:fs');
+    (readFileSync as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      JSON.stringify({
+        scripts: {
+          lint: 'eslint .',
+          typecheck: 'tsc --noEmit',
+          'quality-check': 'npm run test:quality',
+        },
+      })
+    );
+
+    expect(runStaticAnalysis({
+      repoRoot: '/fake/repo',
+      runCommand: makePassRunner(),
+    })).toEqual({
+      status: 'pass',
+      output: [
+        '## Static Analysis Report',
+        '',
+        '**Repository:** `/fake/repo`',
+        '',
+        '- **PASS**: Lint',
+        '- **PASS**: Typecheck',
+        '- **PASS**: Quality check',
+        '',
+        '---',
+        '',
+        '**Result: PASS** (3/3 checks passed)',
+      ].join('\n'),
+      passCount: 3,
+      failCount: 0,
+    });
   });
 });

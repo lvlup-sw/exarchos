@@ -7,15 +7,16 @@ import type { CommandResult } from './post-merge.js';
  * scripts/check-post-merge.sh bash script.
  *
  * Bash script behavior:
- *   - exit 0 → CI green + test suite pass → PASS (2/2 checks passed)
- *   - exit 1 → CI fail or test fail → FAIL (1/2 checks failed)
+ *   - 2 checks: CI green (gh pr checks) + test suite (npm run test:run)
+ *   - exit 0 → PASS (2/2), exit 1 → FAIL (N/2)
+ *   - CI passing states: SUCCESS, NEUTRAL (bash); SUCCESS, SKIPPED, NEUTRAL (TS)
  */
 
 const PR_URL = 'https://github.com/org/repo/pull/42';
 const MERGE_SHA = 'abc1234def5678';
 
-function makeAllPassRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
-  return (cmd: string, _args: readonly string[]): CommandResult => {
+function makeAllPassRunner(): (cmd: string, args: readonly string[]) => CommandResult {
+  return (cmd: string): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -33,8 +34,8 @@ function makeAllPassRunner(): (cmd: string, _args: readonly string[]) => Command
   };
 }
 
-function makeCiFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
-  return (cmd: string, _args: readonly string[]): CommandResult => {
+function makeCiFailRunner(): (cmd: string, args: readonly string[]) => CommandResult {
+  return (cmd: string): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -52,8 +53,8 @@ function makeCiFailRunner(): (cmd: string, _args: readonly string[]) => CommandR
   };
 }
 
-function makeTestFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
-  return (cmd: string, _args: readonly string[]): CommandResult => {
+function makeTestFailRunner(): (cmd: string, args: readonly string[]) => CommandResult {
+  return (cmd: string): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -71,8 +72,8 @@ function makeTestFailRunner(): (cmd: string, _args: readonly string[]) => Comman
   };
 }
 
-function makeBothFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
-  return (cmd: string, _args: readonly string[]): CommandResult => {
+function makeBothFailRunner(): (cmd: string, args: readonly string[]) => CommandResult {
+  return (cmd: string): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -85,81 +86,195 @@ function makeBothFailRunner(): (cmd: string, _args: readonly string[]) => Comman
     }
     if (cmd === 'npm') {
       return { exitCode: 1, stdout: '', stderr: 'Test failures\n' };
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+}
+
+function makeSkippedCiRunner(): (cmd: string, args: readonly string[]) => CommandResult {
+  return (cmd: string): CommandResult => {
+    if (cmd === 'gh') {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          { name: 'build', state: 'SUCCESS' },
+          { name: 'optional', state: 'SKIPPED' },
+        ]),
+        stderr: '',
+      };
+    }
+    if (cmd === 'npm') {
+      return { exitCode: 0, stdout: 'Tests passed\n', stderr: '' };
     }
     return { exitCode: 0, stdout: '', stderr: '' };
   };
 }
 
 describe('behavioral parity with check-post-merge.sh', () => {
-  it('all pass — CI green + test suite pass yields PASS (2/2 checks passed)', () => {
-    const result = checkPostMerge({
+  it('all pass — CI green + tests pass yields PASS (2/2)', () => {
+    expect(checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       runCommand: makeAllPassRunner(),
+    })).toEqual({
+      status: 'pass',
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      passCount: 2,
+      failCount: 0,
+      results: [
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+      ],
+      findings: [],
+      report: [
+        '## Post-Merge Regression Report',
+        '',
+        `**PR:** \`${PR_URL}\``,
+        `**Merge SHA:** \`${MERGE_SHA}\``,
+        '',
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+        '',
+        '---',
+        '',
+        '**Result: PASS** (2/2 checks passed)',
+      ].join('\n'),
     });
-
-    expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(2);
-    expect(result.failCount).toBe(0);
-    expect(result.findings).toEqual([]);
-    expect(result.report).toContain('**Result: PASS** (2/2 checks passed)');
   });
 
-  it('CI fail — failed CI check yields FAIL (1/2 checks failed)', () => {
-    const result = checkPostMerge({
+  it('CI fail — lint FAILURE yields FAIL (1/2)', () => {
+    expect(checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       runCommand: makeCiFailRunner(),
+    })).toEqual({
+      status: 'fail',
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      passCount: 1,
+      failCount: 1,
+      results: [
+        '- **FAIL**: CI green -- Failed checks: lint (FAILURE)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+      ],
+      findings: [
+        'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: lint (FAILURE)"',
+      ],
+      report: [
+        '## Post-Merge Regression Report',
+        '',
+        `**PR:** \`${PR_URL}\``,
+        `**Merge SHA:** \`${MERGE_SHA}\``,
+        '',
+        '- **FAIL**: CI green -- Failed checks: lint (FAILURE)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+        '',
+        '---',
+        '',
+        '**Result: FAIL** (1/2 checks failed)',
+      ].join('\n'),
     });
-
-    expect(result.status).toBe('fail');
-    expect(result.passCount).toBe(1);
-    expect(result.failCount).toBe(1);
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]).toContain('ci-green');
-    expect(result.findings[0]).toContain('lint (FAILURE)');
-    expect(result.report).toContain('**Result: FAIL** (1/2 checks failed)');
   });
 
-  it('test fail — test suite failure yields FAIL (1/2 checks failed)', () => {
-    const result = checkPostMerge({
+  it('test fail — test suite failure yields FAIL (1/2)', () => {
+    expect(checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       runCommand: makeTestFailRunner(),
+    })).toEqual({
+      status: 'fail',
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      passCount: 1,
+      failCount: 1,
+      results: [
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **FAIL**: Test suite -- npm run test:run failed',
+      ],
+      findings: [
+        `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${MERGE_SHA})"`,
+      ],
+      report: [
+        '## Post-Merge Regression Report',
+        '',
+        `**PR:** \`${PR_URL}\``,
+        `**Merge SHA:** \`${MERGE_SHA}\``,
+        '',
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **FAIL**: Test suite -- npm run test:run failed',
+        '',
+        '---',
+        '',
+        '**Result: FAIL** (1/2 checks failed)',
+      ].join('\n'),
     });
-
-    expect(result.status).toBe('fail');
-    expect(result.passCount).toBe(1);
-    expect(result.failCount).toBe(1);
-    expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]).toContain('test-suite');
-    expect(result.report).toContain('**Result: FAIL** (1/2 checks failed)');
   });
 
-  it('both fail — CI + test failures yield FAIL (0/2 checks passed)', () => {
-    const result = checkPostMerge({
+  it('both fail — CI + test failures yield FAIL (0/2)', () => {
+    expect(checkPostMerge({
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
       runCommand: makeBothFailRunner(),
-    });
-
-    expect(result.status).toBe('fail');
-    expect(result.passCount).toBe(0);
-    expect(result.failCount).toBe(2);
-    expect(result.findings).toHaveLength(2);
-  });
-
-  it('report contains structured markdown with PR URL and merge SHA', () => {
-    const result = checkPostMerge({
+    })).toEqual({
+      status: 'fail',
       prUrl: PR_URL,
       mergeSha: MERGE_SHA,
-      runCommand: makeAllPassRunner(),
+      passCount: 0,
+      failCount: 2,
+      results: [
+        '- **FAIL**: CI green -- Failed checks: lint (FAILURE)',
+        '- **FAIL**: Test suite -- npm run test:run failed',
+      ],
+      findings: [
+        'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed checks: lint (FAILURE)"',
+        `FINDING [D4] [HIGH] criterion="test-suite" evidence="npm run test:run failed (merge-sha: ${MERGE_SHA})"`,
+      ],
+      report: [
+        '## Post-Merge Regression Report',
+        '',
+        `**PR:** \`${PR_URL}\``,
+        `**Merge SHA:** \`${MERGE_SHA}\``,
+        '',
+        '- **FAIL**: CI green -- Failed checks: lint (FAILURE)',
+        '- **FAIL**: Test suite -- npm run test:run failed',
+        '',
+        '---',
+        '',
+        '**Result: FAIL** (2/2 checks failed)',
+      ].join('\n'),
     });
+  });
 
-    expect(result.report).toContain('## Post-Merge Regression Report');
-    expect(result.report).toContain(`\`${PR_URL}\``);
-    expect(result.report).toContain(`\`${MERGE_SHA}\``);
-    expect(result.prUrl).toBe(PR_URL);
-    expect(result.mergeSha).toBe(MERGE_SHA);
+  it('SKIPPED CI state — treated as passing (GitHub treats SKIPPED as successful)', () => {
+    expect(checkPostMerge({
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      runCommand: makeSkippedCiRunner(),
+    })).toEqual({
+      status: 'pass',
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      passCount: 2,
+      failCount: 0,
+      results: [
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+      ],
+      findings: [],
+      report: [
+        '## Post-Merge Regression Report',
+        '',
+        `**PR:** \`${PR_URL}\``,
+        `**Merge SHA:** \`${MERGE_SHA}\``,
+        '',
+        '- **PASS**: CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)',
+        '- **PASS**: Test suite (npm run test:run passed)',
+        '',
+        '---',
+        '',
+        '**Result: PASS** (2/2 checks passed)',
+      ].join('\n'),
+    });
   });
 });

@@ -93,13 +93,16 @@ function hasNpmScript(packageJson: Record<string, unknown>, scriptName: string):
  * Read and parse package.json from a directory.
  * Returns null if file doesn't exist or is invalid JSON.
  */
-function readPackageJson(repoRoot: string): Record<string, unknown> | null {
+function readPackageJson(
+  repoRoot: string,
+): { packageJson: Record<string, unknown> } | { error: string } {
   const pkgPath = path.join(repoRoot, 'package.json');
   try {
     const raw = fs.readFileSync(pkgPath, 'utf-8');
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
+    return { packageJson: JSON.parse(raw) as Record<string, unknown> };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `Failed to read ${pkgPath}: ${message}` };
   }
 }
 
@@ -153,16 +156,17 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   }
 
   // Validate repo root
-  const packageJson = readPackageJson(repoRoot);
-  if (!packageJson) {
+  const pkgResult = readPackageJson(repoRoot);
+  if ('error' in pkgResult) {
     return {
       status: 'error',
       output: '',
-      error: `No package.json found at ${repoRoot}`,
+      error: pkgResult.error,
       passCount: 0,
       failCount: 0,
     };
   }
+  const { packageJson } = pkgResult;
 
   // Run checks
   const checks: CheckResult[] = [];

@@ -6,10 +6,10 @@ import { parseDesignSections, parsePlanTasks, computeCoverage } from './plan-cov
  * scripts/verify-plan-coverage.sh bash script.
  *
  * Bash script behavior (verify-plan-coverage.sh):
- *   - Full coverage (exit 0): 3 sections all covered
- *       → "**Result: PASS** (3/3 sections covered)"
- *   - Coverage gap (exit 1): 3 sections, Cache Layer not covered
- *       → "**Result: FAIL** (1/3 sections have gaps)", 1 gap
+ *   - Extracts sections under ## Technical Design
+ *   - Extracts tasks from ### Task NNN: Title headers
+ *   - Computes coverage matrix: section ↔ task title matching
+ *   - exit 0 → all sections covered (PASS), exit 1 → gaps (FAIL)
  */
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -85,35 +85,29 @@ Design section: Widget Component`;
 describe('behavioral parity with verify-plan-coverage.sh', () => {
   describe('parseDesignSections', () => {
     it('full coverage design — extracts 3 sections under Technical Design', () => {
-      const sections = parseDesignSections(DESIGN_FULL_COVERAGE);
-
-      expect(sections).toEqual(['Widget Component', 'API Client', 'State Manager']);
+      expect(parseDesignSections(DESIGN_FULL_COVERAGE)).toEqual(
+        ['Widget Component', 'API Client', 'State Manager'],
+      );
     });
 
     it('gap design — extracts 3 sections including Cache Layer', () => {
-      const sections = parseDesignSections(DESIGN_WITH_GAP);
-
-      expect(sections).toEqual(['Widget Component', 'API Client', 'Cache Layer']);
+      expect(parseDesignSections(DESIGN_WITH_GAP)).toEqual(
+        ['Widget Component', 'API Client', 'Cache Layer'],
+      );
     });
 
     it('design without Technical Design section — returns empty array', () => {
-      const content = `# Design
+      expect(parseDesignSections(`# Design
 ## Problem Statement
 Some problem.
 ## Chosen Approach
-Some approach.`;
-
-      const sections = parseDesignSections(content);
-
-      expect(sections).toEqual([]);
+Some approach.`)).toEqual([]);
     });
   });
 
   describe('parsePlanTasks', () => {
     it('full plan — extracts 3 tasks with correct ids and titles', () => {
-      const tasks = parsePlanTasks(PLAN_FULL);
-
-      expect(tasks).toEqual([
+      expect(parsePlanTasks(PLAN_FULL)).toEqual([
         { id: '001', title: 'Create Widget Component' },
         { id: '002', title: 'Create API Client' },
         { id: '003', title: 'Create State Manager' },
@@ -121,75 +115,159 @@ Some approach.`;
     });
 
     it('gap plan — extracts 2 tasks', () => {
-      const tasks = parsePlanTasks(PLAN_WITH_GAP);
-
-      expect(tasks).toEqual([
+      expect(parsePlanTasks(PLAN_WITH_GAP)).toEqual([
         { id: '001', title: 'Create Widget Component' },
         { id: '002', title: 'Create API Client' },
       ]);
     });
 
     it('no tasks — returns empty array', () => {
-      const content = `# Plan
+      expect(parsePlanTasks(`# Plan
 ## Overview
-Some overview without task headers.`;
-
-      const tasks = parsePlanTasks(content);
-
-      expect(tasks).toEqual([]);
+Some overview without task headers.`)).toEqual([]);
     });
   });
 
   describe('computeCoverage', () => {
-    it('full coverage — passes with 3/3 covered, 0 gaps (bash: exit 0)', () => {
-      const designSections = parseDesignSections(DESIGN_FULL_COVERAGE);
+    it('full coverage — PASS (3/3 sections covered)', () => {
+      const sections = parseDesignSections(DESIGN_FULL_COVERAGE);
       const tasks = parsePlanTasks(PLAN_FULL);
-      const result = computeCoverage(designSections, tasks, PLAN_FULL, []);
 
-      expect(result.passed).toBe(true);
-      expect(result.coverage.covered).toBe(3);
-      expect(result.coverage.gaps).toBe(0);
-      expect(result.coverage.total).toBe(3);
-      expect(result.gapSections).toEqual([]);
-      expect(result.report).toContain('**Result: PASS**');
-      expect(result.report).toContain('3/3 sections covered');
+      expect(computeCoverage(sections, tasks, PLAN_FULL, [])).toEqual({
+        passed: true,
+        coverage: { covered: 3, gaps: 0, deferred: 0, total: 3 },
+        report: [
+          '## Plan Coverage Report',
+          '',
+          '### Coverage Matrix',
+          '',
+          '| Design Section | Task(s) | Status |',
+          '|----------------|---------|--------|',
+          '| Widget Component | Create Widget Component | Covered |',
+          '| API Client | Create API Client | Covered |',
+          '| State Manager | Create State Manager | Covered |',
+          '',
+          '### Summary',
+          '',
+          '- Design sections: 3',
+          '- Covered: 3',
+          '- Deferred: 0',
+          '- Gaps: 0',
+          '',
+          '---',
+          '',
+          '**Result: PASS** (3/3 sections covered)',
+        ].join('\n'),
+        gapSections: [],
+      });
     });
 
-    it('coverage gap — fails with Cache Layer uncovered (bash: exit 1)', () => {
-      const designSections = parseDesignSections(DESIGN_WITH_GAP);
+    it('coverage gap — FAIL (1/3 have gaps), Cache Layer uncovered', () => {
+      const sections = parseDesignSections(DESIGN_WITH_GAP);
       const tasks = parsePlanTasks(PLAN_WITH_GAP);
-      const result = computeCoverage(designSections, tasks, PLAN_WITH_GAP, []);
 
-      expect(result.passed).toBe(false);
-      expect(result.coverage.gaps).toBe(1);
-      expect(result.coverage.covered).toBe(2);
-      expect(result.coverage.total).toBe(3);
-      expect(result.gapSections).toContain('Cache Layer');
-      expect(result.report).toContain('**Result: FAIL**');
-      expect(result.report).toContain('1/3 sections have gaps');
+      expect(computeCoverage(sections, tasks, PLAN_WITH_GAP, [])).toEqual({
+        passed: false,
+        coverage: { covered: 2, gaps: 1, deferred: 0, total: 3 },
+        report: [
+          '## Plan Coverage Report',
+          '',
+          '### Coverage Matrix',
+          '',
+          '| Design Section | Task(s) | Status |',
+          '|----------------|---------|--------|',
+          '| Widget Component | Create Widget Component | Covered |',
+          '| API Client | Create API Client | Covered |',
+          '| Cache Layer | \u2014 | **GAP** |',
+          '',
+          '### Summary',
+          '',
+          '- Design sections: 3',
+          '- Covered: 2',
+          '- Deferred: 0',
+          '- Gaps: 1',
+          '',
+          '### Unmapped Sections',
+          '',
+          '- **Cache Layer** \u2014 No task maps to this design section',
+          '',
+          '---',
+          '',
+          '**Result: FAIL** (1/3 sections have gaps)',
+        ].join('\n'),
+        gapSections: ['Cache Layer'],
+      });
     });
 
-    it('deferred section — counts as deferred, not a gap', () => {
-      const designSections = parseDesignSections(DESIGN_WITH_GAP);
+    it('deferred section — counts as deferred, not a gap, PASS', () => {
+      const sections = parseDesignSections(DESIGN_WITH_GAP);
       const tasks = parsePlanTasks(PLAN_WITH_GAP);
-      const result = computeCoverage(designSections, tasks, PLAN_WITH_GAP, ['Cache Layer']);
 
-      expect(result.passed).toBe(true);
-      expect(result.coverage.deferred).toBe(1);
-      expect(result.coverage.gaps).toBe(0);
-      expect(result.coverage.covered).toBe(2);
-      expect(result.gapSections).toEqual([]);
+      expect(computeCoverage(sections, tasks, PLAN_WITH_GAP, ['Cache Layer'])).toEqual({
+        passed: true,
+        coverage: { covered: 2, gaps: 0, deferred: 1, total: 3 },
+        report: [
+          '## Plan Coverage Report',
+          '',
+          '### Coverage Matrix',
+          '',
+          '| Design Section | Task(s) | Status |',
+          '|----------------|---------|--------|',
+          '| Widget Component | Create Widget Component | Covered |',
+          '| API Client | Create API Client | Covered |',
+          '| Cache Layer | (Deferred in traceability) | Deferred |',
+          '',
+          '### Summary',
+          '',
+          '- Design sections: 3',
+          '- Covered: 2',
+          '- Deferred: 1',
+          '- Gaps: 0',
+          '',
+          '---',
+          '',
+          '**Result: PASS** (2/3 sections covered, 1 deferred)',
+        ].join('\n'),
+        gapSections: [],
+      });
     });
 
-    it('multiple gaps — 2 uncovered sections yield FAIL with 2 gaps', () => {
-      const designSections = parseDesignSections(DESIGN_MULTI_GAP);
+    it('multiple gaps — FAIL (2/3 have gaps)', () => {
+      const sections = parseDesignSections(DESIGN_MULTI_GAP);
       const tasks = parsePlanTasks(PLAN_MINIMAL);
-      const result = computeCoverage(designSections, tasks, PLAN_MINIMAL, []);
 
-      expect(result.passed).toBe(false);
-      expect(result.coverage.gaps).toBe(2);
-      expect(result.gapSections).toContain('Cache Layer');
-      expect(result.gapSections).toContain('Message Queue');
+      expect(computeCoverage(sections, tasks, PLAN_MINIMAL, [])).toEqual({
+        passed: false,
+        coverage: { covered: 1, gaps: 2, deferred: 0, total: 3 },
+        report: [
+          '## Plan Coverage Report',
+          '',
+          '### Coverage Matrix',
+          '',
+          '| Design Section | Task(s) | Status |',
+          '|----------------|---------|--------|',
+          '| Widget Component | Create Widget Component | Covered |',
+          '| Cache Layer | \u2014 | **GAP** |',
+          '| Message Queue | \u2014 | **GAP** |',
+          '',
+          '### Summary',
+          '',
+          '- Design sections: 3',
+          '- Covered: 1',
+          '- Deferred: 0',
+          '- Gaps: 2',
+          '',
+          '### Unmapped Sections',
+          '',
+          '- **Cache Layer** \u2014 No task maps to this design section',
+          '- **Message Queue** \u2014 No task maps to this design section',
+          '',
+          '---',
+          '',
+          '**Result: FAIL** (2/3 sections have gaps)',
+        ].join('\n'),
+        gapSections: ['Cache Layer', 'Message Queue'],
+      });
     });
   });
 });

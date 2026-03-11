@@ -360,6 +360,8 @@ describe('parseDeferredSections', () => {
 
   it('ParseDeferredSections_NoDeferredRows_ReturnsEmpty', () => {
     const planContent = [
+      '## Spec Traceability',
+      '',
       '| Design Section | Task ID(s) | Status |',
       '|----------------|-----------|--------|',
       '| Component A | T001 | Covered |',
@@ -372,6 +374,8 @@ describe('parseDeferredSections', () => {
 
   it('ParseDeferredSections_NumberPrefix_StripsPrefix', () => {
     const planContent = [
+      '## Spec Traceability',
+      '',
       '| Design Section | Task ID(s) | Status |',
       '|----------------|-----------|--------|',
       '| 1.4 Monitoring | Deferred | Phase 2 work. |',
@@ -383,6 +387,8 @@ describe('parseDeferredSections', () => {
 
   it('ParseDeferredSections_CaseInsensitive_MatchesDeferred', () => {
     const planContent = [
+      '## Spec Traceability',
+      '',
       '| Design Section | Task ID(s) | Status |',
       '|----------------|-----------|--------|',
       '| Cache Layer | deferred | Will add later. |',
@@ -390,6 +396,19 @@ describe('parseDeferredSections', () => {
 
     const result = parseDeferredSections(planContent);
     expect(result).toEqual(['Cache Layer']);
+  });
+
+  it('ParseDeferredSections_OutsideTraceabilityTable_IgnoresRows', () => {
+    const planContent = [
+      '## Tasks',
+      '',
+      '| Status | Notes |',
+      '|--------|-------|',
+      '| Deferred | Some task body table |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual([]);
   });
 });
 

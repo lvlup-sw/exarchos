@@ -232,8 +232,22 @@ export function keywordMatch(sectionKeywords: string[], targetText: string): boo
 export function parseDeferredSections(planContent: string): string[] {
   const deferred: string[] = [];
   const lines = planContent.split('\n');
+  let inTraceabilityTable = false;
 
   for (const line of lines) {
+    // Detect traceability table section start
+    if (/^##\s+(spec\s+traceability|traceability)\s*$/i.test(line)) {
+      inTraceabilityTable = true;
+      continue;
+    }
+    // Stop at next ## section (but not ### subsections)
+    if (inTraceabilityTable && /^##\s/.test(line) && !/^###/.test(line)) {
+      inTraceabilityTable = false;
+    }
+
+    // Only parse rows within the traceability table
+    if (!inTraceabilityTable) continue;
+
     // Must contain "Deferred" (case-insensitive) and pipe delimiters
     if (!/deferred/i.test(line) || !line.includes('|')) {
       continue;
