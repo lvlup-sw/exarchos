@@ -274,6 +274,7 @@ export const TaskProgressedData = z.object({
 
 export const TaskCompletedData = z.object({
   taskId: z.string(),
+  acceptanceTestRef: z.string().optional(),
   artifacts: z.array(z.string()).optional(),
   duration: z.number().optional(),
   evidence: z.object({

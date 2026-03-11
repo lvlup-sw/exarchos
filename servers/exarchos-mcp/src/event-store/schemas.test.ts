@@ -27,6 +27,7 @@ import {
   ShepherdApprovalRequestedData,
   ShepherdCompletedData,
   TaskProgressedData,
+  TaskCompletedData,
   TaskFailedData,
   SessionTaggedData,
   StackRestackedData,
@@ -1945,5 +1946,30 @@ describe('review.completed event type', () => {
     expect(
       (EVENT_EMISSION_REGISTRY as Record<string, string>)['review.completed'],
     ).toBe('model');
+  });
+});
+
+// ─── TaskCompletedData acceptanceTestRef (DR-4) ────────────────────────────
+
+describe('TaskCompletedData acceptanceTestRef', () => {
+  it('TaskCompletedData_WithAcceptanceTestRef_ParsesSuccessfully', () => {
+    const result = TaskCompletedData.safeParse({
+      taskId: 'T-001',
+      acceptanceTestRef: 'T-000',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.acceptanceTestRef).toBe('T-000');
+    }
+  });
+
+  it('TaskCompletedData_WithoutAcceptanceTestRef_StillParses', () => {
+    const result = TaskCompletedData.safeParse({
+      taskId: 'T-001',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.acceptanceTestRef).toBeUndefined();
+    }
   });
 });
