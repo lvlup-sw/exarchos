@@ -9,6 +9,8 @@ const DECISION_RUNBOOK_IDS = [
   'dispatch-decision',
   'review-escalation',
   'shepherd-escalation',
+  'task-classification',
+  'review-strategy',
 ];
 
 describe('Decision runbooks', () => {

@@ -6,6 +6,8 @@ import {
   SYNTHESIS_FLOW,
   SHEPHERD_ITERATION,
   TASK_FIX,
+  TASK_CLASSIFICATION,
+  REVIEW_STRATEGY,
   ALL_RUNBOOKS,
 } from './definitions.js';
 
@@ -97,6 +99,34 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(12);
+    expect(ALL_RUNBOOKS).toHaveLength(14);
+  });
+
+  it('TaskClassification_HasCorrectPhase_Delegate', () => {
+    expect(TASK_CLASSIFICATION.phase).toBe('delegate');
+  });
+
+  it('TaskClassification_HasThreeSteps_ScaffoldingThenComplexityThenContext', () => {
+    expect(TASK_CLASSIFICATION.steps).toHaveLength(3);
+    // Step 1: scaffolding check
+    expect(TASK_CLASSIFICATION.steps[0].decide?.question).toMatch(/scaffolding/i);
+    // Step 2: complexity assessment
+    expect(TASK_CLASSIFICATION.steps[1].decide?.question).toMatch(/edge case|algorithm|multi-dependenc|complex/i);
+    // Step 3: context size check
+    expect(TASK_CLASSIFICATION.steps[2].decide?.question).toMatch(/context|token|size/i);
+  });
+
+  it('ReviewStrategy_HasCorrectPhase_Review', () => {
+    expect(REVIEW_STRATEGY.phase).toBe('review');
+  });
+
+  it('ReviewStrategy_HasThreeSteps_SizeThenFailuresThenStage', () => {
+    expect(REVIEW_STRATEGY.steps).toHaveLength(3);
+    // Step 1: change size / file count
+    expect(REVIEW_STRATEGY.steps[0].decide?.question).toMatch(/file|module|diff|size/i);
+    // Step 2: prior failures
+    expect(REVIEW_STRATEGY.steps[1].decide?.question).toMatch(/fail|fix cycle|prior/i);
+    // Step 3: stage type
+    expect(REVIEW_STRATEGY.steps[2].decide?.question).toMatch(/spec.review|quality.review|stage/i);
   });
 });

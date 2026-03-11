@@ -73,6 +73,12 @@ git diff main...integration > /tmp/combined-diff.patch
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
 
+### Pre-Review Schema Discovery
+
+Before evaluating, query the review strategy runbook to determine the appropriate evaluation approach:
+
+- **Evaluation strategy:** `exarchos_orchestrate({ action: "runbook", id: "review-strategy" })` to determine single-pass vs two-pass evaluation strategy based on diff size and task count.
+
 ## Review Scope
 
 ### Review Scope: Combined Changes

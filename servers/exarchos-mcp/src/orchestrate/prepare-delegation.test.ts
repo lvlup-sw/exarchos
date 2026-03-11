@@ -34,7 +34,8 @@ import {
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
-import { handlePrepareDelegation } from './prepare-delegation.js';
+import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
+import type { TaskClassification } from './prepare-delegation.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -526,5 +527,135 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.worktrees.expected).toBe(3);
     expect(data.readiness.worktrees.ready).toBe(3);
     expect(data.readiness.worktrees.failed).toHaveLength(0);
+  });
+
+  // ─── Task Classification ─────────────────────────────────────────────────
+
+  describe('Task classification', () => {
+    it('PrepareDelegation_WithTasks_ReturnsTaskClassifications', async () => {
+      // Arrange: ready state with tasks
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Implement widget' },
+          { id: 'task-2', title: 'Add tests' },
+        ],
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        ready: boolean;
+        taskClassifications: TaskClassification[];
+      };
+      expect(data.ready).toBe(true);
+      expect(data.taskClassifications).toBeDefined();
+      expect(data.taskClassifications).toHaveLength(2);
+      expect(data.taskClassifications[0].taskId).toBe('task-1');
+      expect(data.taskClassifications[1].taskId).toBe('task-2');
+    });
+
+    it('TaskClassification_ScaffoldingTitle_ReturnsLowScaffolder', () => {
+      // Arrange
+      const task = { id: 'task-1', title: 'Stub out the API interface' };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.taskId).toBe('task-1');
+      expect(classification.complexity).toBe('low');
+      expect(classification.recommendedAgent).toBe('scaffolder');
+      expect(classification.effort).toBe('low');
+      expect(classification.reason).toBeDefined();
+    });
+
+    it('TaskClassification_BoilerplateTitle_ReturnsLowScaffolder', () => {
+      // Arrange: test multiple scaffolding keywords
+      const tasks = [
+        { id: 't-1', title: 'Generate boilerplate for the service' },
+        { id: 't-2', title: 'Create type definitions for the API' },
+        { id: 't-3', title: 'Define the interface for the data layer' },
+      ];
+
+      // Act & Assert
+      for (const task of tasks) {
+        const classification = classifyTask(task);
+        expect(classification.complexity).toBe('low');
+        expect(classification.recommendedAgent).toBe('scaffolder');
+        expect(classification.effort).toBe('low');
+      }
+    });
+
+    it('TaskClassification_MultiDependencyTask_ReturnsHighImplementer', () => {
+      // Arrange: task with >= 2 blockedBy entries
+      const task = {
+        id: 'task-1',
+        title: 'Integrate payment system',
+        blockedBy: ['task-a', 'task-b'],
+      };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.complexity).toBe('high');
+      expect(classification.recommendedAgent).toBe('implementer');
+      expect(classification.effort).toBe('high');
+      expect(classification.reason).toBeDefined();
+    });
+
+    it('TaskClassification_ManyFiles_ReturnsHighImplementer', () => {
+      // Arrange: task with >= 3 files
+      const task = {
+        id: 'task-1',
+        title: 'Refactor data access layer',
+        files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.complexity).toBe('high');
+      expect(classification.recommendedAgent).toBe('implementer');
+      expect(classification.effort).toBe('high');
+    });
+
+    it('TaskClassification_StandardTask_ReturnsMediumImplementer', () => {
+      // Arrange: task with no special markers
+      const task = { id: 'task-1', title: 'Add validation logic' };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert
+      expect(classification.complexity).toBe('medium');
+      expect(classification.recommendedAgent).toBe('implementer');
+      expect(classification.effort).toBe('medium');
+    });
+
+    it('PrepareDelegation_NoTasks_OmitsClassifications', async () => {
+      // Arrange: ready state, no tasks arg
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = { featureId: 'test-feature' };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data.ready).toBe(true);
+      expect(data.taskClassifications).toBeUndefined();
+    });
   });
 });

@@ -363,15 +363,15 @@ describe('compactGuidance drift tests', () => {
     return result;
   }
 
-  it('compactGuidance_AllNonTerminalPhases_Under750Chars', () => {
+  it('compactGuidance_AllNonTerminalPhases_Under1000Chars', () => {
     const playbooks = getAllPlaybooks();
     const nonTerminal = playbooks.filter((p) => !terminalPhases.includes(p.phase));
     expect(nonTerminal.length).toBeGreaterThan(0);
     for (const p of nonTerminal) {
       expect(
         p.guidance.length,
-        `${p.workflowType}:${p.phase} compactGuidance is ${p.guidance.length} chars, exceeds 750`,
-      ).toBeLessThanOrEqual(750);
+        `${p.workflowType}:${p.phase} compactGuidance is ${p.guidance.length} chars, exceeds 1000`,
+      ).toBeLessThanOrEqual(1000);
     }
   });
 

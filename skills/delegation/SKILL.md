@@ -43,6 +43,13 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 **CRITICAL:** Always specify `model: "opus"` for coding tasks (when not using native agent definitions).
 
+### Pre-Dispatch Schema Discovery
+
+Before dispatching, query decision runbooks to classify the work and select the right strategy:
+
+1. **Task complexity:** `exarchos_orchestrate({ action: "runbook", id: "task-classification" })` to get the cognitive complexity classification tree. Low-complexity tasks can use the scaffolder agent spec for faster execution.
+2. **Dispatch strategy:** `exarchos_orchestrate({ action: "runbook", id: "dispatch-decision" })` for dispatch strategy (parallel vs sequential, team sizing, isolation mode).
+
 ---
 
 ## Step 1: Prepare

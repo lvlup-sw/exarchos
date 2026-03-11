@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec, AgentSkill, AgentValidationRule, AgentSpecId } from './types.js';
-import { IMPLEMENTER, FIXER, REVIEWER, ALL_AGENT_SPECS } from './definitions.js';
+import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from './definitions.js';
 
 // ─── Task 1: AgentSpec Types ────────────────────────────────────────────────
 
@@ -60,6 +60,75 @@ describe('AgentSpec Types', () => {
     expect(minimalSpec.isolation).toBeUndefined();
     expect(minimalSpec.memoryScope).toBeUndefined();
     expect(minimalSpec.maxTurns).toBeUndefined();
+  });
+
+  it('AgentSpecTypes_EffortField_AcceptsValidValues', () => {
+    // Arrange: effort field is optional and accepts specific string literals
+    const lowEffort: AgentSpec = {
+      id: 'scaffolder' as AgentSpecId,
+      description: 'Scaffolder',
+      systemPrompt: 'scaffold',
+      tools: ['Read'],
+      model: 'sonnet',
+      effort: 'low',
+      skills: [],
+      validationRules: [],
+      resumable: false,
+    };
+
+    const mediumEffort: AgentSpec = {
+      id: 'implementer' as AgentSpecId,
+      description: 'Implementer',
+      systemPrompt: 'implement',
+      tools: ['Read'],
+      model: 'opus',
+      effort: 'medium',
+      skills: [],
+      validationRules: [],
+      resumable: true,
+    };
+
+    const highEffort: AgentSpec = {
+      id: 'fixer' as AgentSpecId,
+      description: 'Fixer',
+      systemPrompt: 'fix',
+      tools: ['Read'],
+      model: 'opus',
+      effort: 'high',
+      skills: [],
+      validationRules: [],
+      resumable: false,
+    };
+
+    const maxEffort: AgentSpec = {
+      id: 'reviewer' as AgentSpecId,
+      description: 'Reviewer',
+      systemPrompt: 'review',
+      tools: ['Read'],
+      model: 'opus',
+      effort: 'max',
+      skills: [],
+      validationRules: [],
+      resumable: false,
+    };
+
+    const noEffort: AgentSpec = {
+      id: 'implementer' as AgentSpecId,
+      description: 'Implementer',
+      systemPrompt: 'implement',
+      tools: ['Read'],
+      model: 'inherit',
+      skills: [],
+      validationRules: [],
+      resumable: true,
+    };
+
+    // Assert: all effort values are accepted
+    expect(lowEffort.effort).toBe('low');
+    expect(mediumEffort.effort).toBe('medium');
+    expect(highEffort.effort).toBe('high');
+    expect(maxEffort.effort).toBe('max');
+    expect(noEffort.effort).toBeUndefined();
   });
 });
 
@@ -121,10 +190,44 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 
+  it('ScaffolderSpec_HasCorrectConfig_SonnetModelLowEffort', () => {
+    // Assert: scaffolder identity and model config
+    expect(SCAFFOLDER.id).toBe('scaffolder');
+    expect(SCAFFOLDER.model).toBe('sonnet');
+    expect(SCAFFOLDER.effort).toBe('low');
+    expect(SCAFFOLDER.isolation).toBe('worktree');
+    expect(SCAFFOLDER.resumable).toBe(false);
+
+    // Assert: tools include standard development tools
+    expect(SCAFFOLDER.tools).toContain('Read');
+    expect(SCAFFOLDER.tools).toContain('Write');
+    expect(SCAFFOLDER.tools).toContain('Edit');
+    expect(SCAFFOLDER.tools).toContain('Bash');
+    expect(SCAFFOLDER.tools).toContain('Grep');
+    expect(SCAFFOLDER.tools).toContain('Glob');
+
+    // Assert: Agent tool is disallowed
+    expect(SCAFFOLDER.disallowedTools).toContain('Agent');
+
+    // Assert: conciseness-focused system prompt with required template vars
+    expect(SCAFFOLDER.systemPrompt).toContain('{{taskDescription}}');
+    expect(SCAFFOLDER.systemPrompt).toContain('{{filePaths}}');
+    expect(SCAFFOLDER.systemPrompt.toLowerCase()).toMatch(/concis/);
+
+    // Assert: description is present
+    expect(SCAFFOLDER.description).toBeTruthy();
+  });
+
   it('AllSpecs_HaveUniqueIds_NoDuplicates', () => {
     const ids = ALL_AGENT_SPECS.map(s => s.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
+    // Must include all 4 agent specs
+    expect(ids).toHaveLength(4);
+    expect(ids).toContain('implementer');
+    expect(ids).toContain('fixer');
+    expect(ids).toContain('reviewer');
+    expect(ids).toContain('scaffolder');
   });
 
   it('AllSpecs_ToolsAreValid_KnownToolNames', () => {

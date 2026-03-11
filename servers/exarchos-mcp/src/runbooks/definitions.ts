@@ -389,6 +389,97 @@ export const SHEPHERD_ESCALATION: RunbookDefinition = {
   autoEmits: [],
 };
 
+export const TASK_CLASSIFICATION: RunbookDefinition = {
+  id: 'task-classification',
+  phase: 'delegate',
+  description: 'Classify task complexity and select the appropriate agent spec and effort level.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Is this task pure scaffolding (boilerplate files, config wiring, no logic)?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Scaffolding', guidance: 'Use scaffolder agent spec (sonnet, effort low). Scaffolding tasks have predictable structure and need no deep reasoning.' },
+          'no': { label: 'Not scaffolding', guidance: 'Proceed to complexity assessment to determine the right agent spec and effort level.', nextStep: 'complexity-check' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      note: 'complexity-check',
+      decide: {
+        question: 'Does the task involve edge cases, algorithms, or multi-dependency coordination?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'High complexity', guidance: 'Use high-complexity agent spec (opus, effort high). These tasks need careful reasoning and adversarial testing.' },
+          'no': { label: 'Standard complexity', guidance: 'Use standard implementer agent spec (sonnet, effort medium). Typical feature work with clear requirements.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Is the context package size greater than 500 tokens?',
+        source: 'state-field',
+        field: 'contextPackage.tokenEstimate',
+        branches: {
+          'yes': { label: 'Large context', guidance: 'Compress the context package before dispatch. Summarize reference material, trim examples, and keep only load-bearing content to stay within agent context budget.', escalate: true },
+          'no': { label: 'Acceptable context', guidance: 'Context size is within budget. Dispatch with the full context package — no compression needed.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId', 'taskId'],
+  autoEmits: [],
+};
+
+export const REVIEW_STRATEGY: RunbookDefinition = {
+  id: 'review-strategy',
+  phase: 'review',
+  description: 'Select review strategy based on change characteristics: single-pass vs two-pass, and stage-specific guidance.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Does the diff touch more than 5 files or span multiple modules?',
+        source: 'state-field',
+        field: 'review.diffStats',
+        branches: {
+          'yes': { label: 'Large change', guidance: 'Use two-pass review: first pass with high recall to surface all potential issues, second pass with high precision to filter false positives and confirm real findings.' },
+          'no': { label: 'Small change', guidance: 'Single-pass review is sufficient for focused changes. Apply standard review checklist within the module.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Is this a prior review failure (fix cycle iteration)?',
+        source: 'event-count',
+        field: 'workflow.fix-cycle',
+        branches: {
+          'yes': { label: 'Fix cycle', guidance: 'Force two-pass review regardless of change size. Prior failure means the single-pass missed something — use high-recall first pass to catch regression, then high-precision second pass to verify the fix.', escalate: true },
+          'no': { label: 'First review', guidance: 'Use the strategy selected in the previous step. No prior failures to account for.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Is this a spec-review stage or a quality-review stage?',
+        source: 'state-field',
+        field: 'review.stage',
+        branches: {
+          'spec-review': { label: 'Spec review', guidance: 'Focus on design alignment: does the implementation match the specification? Check interfaces, data flow, and architectural constraints. Ignore style and optimization.' },
+          'quality-review': { label: 'Quality review', guidance: 'Focus on implementation quality: correctness, test coverage, error handling, performance, and maintainability. Assume design alignment is already verified.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -402,4 +493,6 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   DISPATCH_DECISION,
   REVIEW_ESCALATION,
   SHEPHERD_ESCALATION,
+  TASK_CLASSIFICATION,
+  REVIEW_STRATEGY,
 ];
