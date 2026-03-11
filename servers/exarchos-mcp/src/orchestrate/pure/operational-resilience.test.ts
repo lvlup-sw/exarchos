@@ -377,12 +377,35 @@ describe('checkOperationalResilience', () => {
       expect(unboundedFindings).toHaveLength(0);
     });
 
-    it('does not flag while(true) with MAX_ constant', () => {
+    it('flags while(true) when MAX_ constant exists but is not used in loop body', () => {
+      // MAX_ATTEMPTS is defined but the loop body doesn't reference it —
+      // this is genuinely unbounded and should be flagged.
       const lines = [
         'const MAX_ATTEMPTS = 5;',
         'function retry() {',
         '  while (true) {',
         '    doWork();',
+        '  }',
+        '}',
+      ];
+      const diff = makeDiff('src/retrier.ts', lines);
+      const result = checkOperationalResilience(diff);
+
+      const unboundedFindings = result.findings.filter((f) =>
+        f.message.includes('Unbounded retry'),
+      );
+      expect(unboundedFindings).toHaveLength(1);
+    });
+
+    it('does not flag while(true) when MAX_ constant is used in loop body', () => {
+      const lines = [
+        'const MAX_ATTEMPTS = 5;',
+        'let attempts = 0;',
+        'function retry() {',
+        '  while (true) {',
+        '    if (attempts >= MAX_ATTEMPTS) break;',
+        '    doWork();',
+        '    attempts++;',
         '  }',
         '}',
       ];

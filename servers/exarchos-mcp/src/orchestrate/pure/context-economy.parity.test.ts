@@ -59,8 +59,8 @@ describe('behavioral parity with check-context-economy.sh', () => {
   it('clean diff — passes all 4 checks with zero findings', () => {
     expect(checkContextEconomy(makeCleanDiff())).toEqual({
       pass: true,
-      checksRun: 4,
-      checksPassed: 4,
+      checksRun: 3,
+      checksPassed: 3,
       findings: [],
     });
   });
@@ -68,8 +68,8 @@ describe('behavioral parity with check-context-economy.sh', () => {
   it('long file diff (450 lines) — MEDIUM finding for source file exceeding 400 lines', () => {
     expect(checkContextEconomy(makeLongFileDiff())).toEqual({
       pass: false,
-      checksRun: 4,
-      checksPassed: 3,
+      checksRun: 3,
+      checksPassed: 2,
       findings: [
         {
           severity: 'MEDIUM',
@@ -82,8 +82,8 @@ describe('behavioral parity with check-context-economy.sh', () => {
   it('wide diff (35 files) — MEDIUM finding for exceeding 30-file breadth threshold', () => {
     expect(checkContextEconomy(makeWideDiff())).toEqual({
       pass: false,
-      checksRun: 4,
-      checksPassed: 3,
+      checksRun: 3,
+      checksPassed: 2,
       findings: [
         {
           severity: 'MEDIUM',
@@ -96,8 +96,8 @@ describe('behavioral parity with check-context-economy.sh', () => {
   it('generated file (1501 lines with @generated) — two findings: source length + generated marker', () => {
     expect(checkContextEconomy(makeGeneratedFileDiff())).toEqual({
       pass: false,
-      checksRun: 4,
-      checksPassed: 2,
+      checksRun: 3,
+      checksPassed: 1,
       findings: [
         {
           severity: 'MEDIUM',
@@ -113,7 +113,8 @@ describe('behavioral parity with check-context-economy.sh', () => {
 
   it('empty diff — passes with zero checks (bash: 4/4 hardcoded, TS: 0/0 no files)', () => {
     // Known behavioral difference: bash always counted 4 checks even for empty input.
-    // The TS implementation returns 0 checks when there are no files to analyze.
+    // The TS implementation returns 0 checks when there are no files to analyze
+    // (3 checks when there are files — function-length is skipped in diff-only mode).
     // Both agree on the logical conclusion: pass with zero findings.
     expect(checkContextEconomy('')).toEqual({
       pass: true,

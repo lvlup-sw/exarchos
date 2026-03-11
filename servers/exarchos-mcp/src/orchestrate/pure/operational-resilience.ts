@@ -153,6 +153,8 @@ function checkEmptyCatchBlocks(files: readonly ParsedFile[]): OperationalResilie
 /**
  * Check 2: Swallowed errors — catch blocks without rethrow/log/return.
  *
+ * Scans per-catch-block by splitting added lines around `catch` keywords
+ * and checking each block individually for error handling patterns.
  * Files already flagged for empty catch blocks are excluded to avoid
  * double-reporting.
  */
@@ -164,12 +166,18 @@ function checkSwallowedErrors(
 
   for (const file of files) {
     if (!isSourceFile(file.name)) continue;
-
-    // Skip if already flagged as empty catch
     if (emptyCatchFiles.has(file.name)) continue;
 
-    if (HAS_CATCH_RE.test(file.addedText)) {
-      if (!ERROR_HANDLING_RE.test(file.addedText)) {
+    // Split added lines into segments around catch keywords and check each
+    const lines = file.addedLines;
+    for (let i = 0; i < lines.length; i++) {
+      if (!HAS_CATCH_RE.test(lines[i])) continue;
+      // Skip empty catches (handled by check 1)
+      if (EMPTY_CATCH_RE.test(lines.slice(i, i + 3).join(' '))) continue;
+
+      // Check the next ~10 lines for error handling within this catch block
+      const catchContext = lines.slice(i, i + 10).join('\n');
+      if (!ERROR_HANDLING_RE.test(catchContext)) {
         findings.push({
           severity: 'MEDIUM',
           message: `\`${file.name}\` — Possible swallowed error in catch block`,
@@ -205,6 +213,10 @@ function checkConsoleLog(files: readonly ParsedFile[]): OperationalResilienceFin
 /**
  * Check 4: Unbounded retry loops (while(true)/for(;;) without break/max).
  *
+ * Checks for loop-bounding patterns within ~20 lines of the loop match
+ * rather than file-wide, so an unrelated `break` elsewhere in the file
+ * doesn't mask a genuinely unbounded loop.
+ *
  * Skips test files.
  */
 function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilienceFinding[] {
@@ -214,8 +226,14 @@ function checkUnboundedRetries(files: readonly ParsedFile[]): OperationalResilie
     if (!isSourceFile(file.name)) continue;
     if (isTestFile(file.name)) continue;
 
-    if (UNBOUNDED_LOOP_RE.test(file.addedText)) {
-      if (!LOOP_BOUND_RE.test(file.addedText)) {
+    // Scan line-by-line so we can check nearby context for bounds
+    const lines = file.addedLines;
+    for (let i = 0; i < lines.length; i++) {
+      if (!UNBOUNDED_LOOP_RE.test(lines[i])) continue;
+
+      // Check ~20 lines after the loop header for bounding patterns
+      const loopContext = lines.slice(i, i + 20).join('\n');
+      if (!LOOP_BOUND_RE.test(loopContext)) {
         findings.push({
           severity: 'MEDIUM',
           message: `\`${file.name}\` — Unbounded retry loop (while(true)/for(;;) without break/max)`,

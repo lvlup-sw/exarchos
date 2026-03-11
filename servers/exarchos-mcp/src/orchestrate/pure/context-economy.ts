@@ -60,13 +60,13 @@ function parseDiff(diff: string): ParsedFile[] {
       continue;
     }
 
-    // Skip +++ header lines
-    if (line.startsWith('+++')) {
+    // Skip +++ header lines (e.g. "+++ b/file.ts")
+    if (line.startsWith('+++ ')) {
       continue;
     }
 
-    // Count added lines (start with + but not ++)
-    if (line.startsWith('+') && !line.startsWith('++')) {
+    // Count added lines (all lines starting with +, header already filtered)
+    if (line.startsWith('+')) {
       currentAdded.push(line.slice(1));
     }
   }
@@ -201,11 +201,11 @@ export function checkContextEconomy(diff: string): ContextEconomyResult {
   }
 
   const files = parseDiff(diff);
-  const totalChecks = 4;
 
+  // Function-length check requires filesystem access (brace-counting) and is
+  // skipped in diff-only mode — not counted in checksRun/checksPassed.
   const checks = [
     checkSourceFileLength(files),
-    checkFunctionLength(),
     checkDiffBreadth(files),
     checkLargeGeneratedFiles(files),
   ];
@@ -215,7 +215,7 @@ export function checkContextEconomy(diff: string): ContextEconomyResult {
 
   return {
     pass: allFindings.length === 0,
-    checksRun: totalChecks,
+    checksRun: checks.length,
     checksPassed: passed,
     findings: allFindings,
   };
