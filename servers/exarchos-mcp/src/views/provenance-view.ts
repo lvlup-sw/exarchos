@@ -17,12 +17,14 @@ export interface RequirementStatus {
   readonly tasks: readonly string[];
   readonly tests: readonly { name: string; file: string }[];
   readonly files: readonly string[];
+  readonly acceptanceTests: readonly string[];
 }
 
 export interface ProvenanceViewState {
   readonly featureId: string;
   readonly requirements: readonly RequirementStatus[];
   readonly coverage: number;
+  readonly acceptanceTestCoverage: number;
   readonly orphanTasks: readonly string[];
 }
 
@@ -34,12 +36,19 @@ function computeCoverage(requirements: readonly RequirementStatus[]): number {
   return covered / requirements.length;
 }
 
+function computeAcceptanceTestCoverage(requirements: readonly RequirementStatus[]): number {
+  if (requirements.length === 0) return 0;
+  const withAcceptanceTests = requirements.filter((r) => r.acceptanceTests.length > 0).length;
+  return withAcceptanceTests / requirements.length;
+}
+
 function upsertRequirement(
   requirements: readonly RequirementStatus[],
   reqId: string,
   taskId: string,
   tests: readonly { name: string; file: string }[],
   files: readonly string[],
+  acceptanceTestRef?: string,
 ): RequirementStatus[] {
   const existing = requirements.find((r) => r.id === reqId);
 
@@ -54,6 +63,11 @@ function upsertRequirement(
       newTests.push(t);
     }
 
+    // Deduplicate acceptance test refs
+    const updatedAcceptanceTests = acceptanceTestRef && !existing.acceptanceTests.includes(acceptanceTestRef)
+      ? [...existing.acceptanceTests, acceptanceTestRef]
+      : [...existing.acceptanceTests];
+
     return requirements.map((r) =>
       r.id === reqId
         ? {
@@ -61,6 +75,7 @@ function upsertRequirement(
             tasks: [...new Set([...r.tasks, taskId])],
             files: [...new Set([...r.files, ...files])],
             tests: [...r.tests, ...newTests],
+            acceptanceTests: updatedAcceptanceTests,
           }
         : r,
     );
@@ -74,6 +89,7 @@ function upsertRequirement(
       tasks: [taskId],
       tests: [...tests],
       files: [...files],
+      acceptanceTests: acceptanceTestRef ? [acceptanceTestRef] : [],
     },
   ];
 }
@@ -102,6 +118,7 @@ function handleTaskCompleted(
     implements?: string[];
     tests?: { name: string; file: string }[];
     files?: string[];
+    acceptanceTestRef?: string;
   } | undefined;
 
   if (!data?.taskId) return state;
@@ -109,6 +126,7 @@ function handleTaskCompleted(
   const implementsArr = data.implements ?? [];
   const testsArr = data.tests ?? [];
   const filesArr = data.files ?? [];
+  const acceptanceTestRef = data.acceptanceTestRef;
 
   // No implements or empty implements → orphan task
   if (implementsArr.length === 0) {
@@ -131,6 +149,7 @@ function handleTaskCompleted(
       data.taskId,
       testsArr,
       filesArr,
+      acceptanceTestRef,
     );
   }
 
@@ -138,6 +157,7 @@ function handleTaskCompleted(
     ...state,
     requirements: updatedRequirements,
     coverage: computeCoverage(updatedRequirements),
+    acceptanceTestCoverage: computeAcceptanceTestCoverage(updatedRequirements),
   };
 }
 
@@ -149,6 +169,7 @@ export const provenanceProjection: ViewProjection<ProvenanceViewState> = {
       featureId: '',
       requirements: [],
       coverage: 0,
+      acceptanceTestCoverage: 0,
       orphanTasks: [],
     };
   },
