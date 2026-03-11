@@ -150,7 +150,7 @@ describe('handleNextAction edge cases', () => {
       // Emit a compound-entry event first (required by getFixCycleCountFromStore)
       await eventStore.append('cb-open', {
         type: 'workflow.compound-entry',
-        data: { compoundStateId },
+        data: { compoundStateId, featureId: 'cb-open' },
       });
 
       // Emit 3 fix-cycle events to trip the circuit breaker
@@ -159,7 +159,8 @@ describe('handleNextAction edge cases', () => {
           type: 'workflow.fix-cycle',
           data: {
             compoundStateId,
-            fixCycleNumber: i + 1,
+            count: i + 1,
+            featureId: 'cb-open',
           },
         });
       }

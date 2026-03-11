@@ -142,6 +142,16 @@ function runNpmCheck(
 export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisResult {
   const { repoRoot, skipLint = false, skipTypecheck = false, runCommand } = input;
 
+  if (!repoRoot || repoRoot.trim().length === 0) {
+    return {
+      status: 'error',
+      output: '',
+      error: 'Missing repoRoot',
+      passCount: 0,
+      failCount: 0,
+    };
+  }
+
   // Validate repo root
   const packageJson = readPackageJson(repoRoot);
   if (!packageJson) {

@@ -253,7 +253,7 @@ export function parseDeferredSections(planContent: string): string[] {
     const firstCol = line
       .replace(/^\s*\|\s*/, '')     // strip leading pipe + spaces
       .replace(/\s*\|.*/, '')        // strip everything after first pipe
-      .replace(/^[\d.]*\s*/, '')     // strip number prefix like "1.4 "
+      .replace(/^\d+(?:\.\d+)*\s+/, '') // strip number prefix like "1.4 "
       .trim();
 
     if (firstCol) {

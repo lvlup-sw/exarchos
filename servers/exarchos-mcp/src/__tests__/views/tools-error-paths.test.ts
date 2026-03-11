@@ -11,7 +11,7 @@ import {
 } from '../../views/tools.js';
 import { handleView } from '../../views/composite.js';
 
-let tempDir: string;
+let tempDir: string | undefined;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'view-error-paths-'));
@@ -21,7 +21,10 @@ beforeEach(async () => {
 afterEach(async () => {
   resetMaterializerCache();
   vi.restoreAllMocks();
-  await rm(tempDir, { recursive: true, force: true });
+  if (tempDir) {
+    await rm(tempDir, { recursive: true, force: true });
+    tempDir = undefined;
+  }
 });
 
 describe('views/tools.ts composite error paths', () => {

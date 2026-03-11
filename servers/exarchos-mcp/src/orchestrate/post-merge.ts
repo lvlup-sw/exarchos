@@ -19,6 +19,7 @@ interface PostMergeArgs {
   readonly featureId: string;
   readonly prUrl: string;
   readonly mergeSha: string;
+  readonly repoRoot?: string;
 }
 
 interface PostMergeResult {
@@ -38,9 +39,11 @@ interface PostMergeResult {
 function execCommandRunner(
   cmd: string,
   args: readonly string[],
+  cwd?: string,
 ): CommandResult {
   try {
     const output = execFileSync(cmd, args as string[], {
+      cwd,
       encoding: 'utf-8',
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -85,10 +88,11 @@ export async function handlePostMerge(
   }
 
   // Run the pure TypeScript post-merge check
+  const cwd = args.repoRoot;
   const checkResult = checkPostMerge({
     prUrl: args.prUrl,
     mergeSha: args.mergeSha,
-    runCommand: execCommandRunner,
+    runCommand: (cmd, cmdArgs) => execCommandRunner(cmd, cmdArgs, cwd),
   });
 
   const passed = checkResult.status === 'pass';

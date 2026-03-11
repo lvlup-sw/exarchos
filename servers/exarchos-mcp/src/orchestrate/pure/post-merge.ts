@@ -131,8 +131,9 @@ export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
       return;
     }
 
+    const PASSING_STATES = ['SUCCESS', 'SKIPPED', 'NEUTRAL'];
     const failedChecks = checks
-      .filter((c) => c.state !== 'SUCCESS' && c.state !== 'NEUTRAL')
+      .filter((c) => !PASSING_STATES.includes(c.state))
       .map((c) => `${c.name} (${c.state})`)
       .join(', ');
 
@@ -144,7 +145,7 @@ export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
       return;
     }
 
-    checkPass('CI green (all checks SUCCESS or NEUTRAL)');
+    checkPass('CI green (all checks SUCCESS, SKIPPED, or NEUTRAL)');
   }
 
   // --------------------------------------------------------
