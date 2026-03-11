@@ -39,3 +39,20 @@ For test code patterns and examples, see `@skills/delegation/references/testing-
 For property-based testing templates, see `@skills/delegation/references/pbt-patterns.md`.
 
 Property tests are written alongside example tests in the RED phase. They complement, not replace, example tests.
+
+## Sociable vs Solitary Tests
+
+Default to **sociable tests** — tests that use real collaborator objects rather than mocks. This aligns with the Testing Trophy model where integration tests give the best confidence-per-effort ratio.
+
+**When to use real collaborators (default):**
+- Logic dependencies (pure computation, no side effects)
+- Value objects (immutable data carriers)
+- In-process collaborators that are fast and deterministic
+
+**When to mock (solitary tests):**
+- External services (HTTP APIs, third-party integrations)
+- Non-deterministic resources (system clock, random number generators)
+- Slow dependencies (databases, network calls, filesystem)
+- When simulating specific error conditions
+
+**Guideline:** If a test requires >3 mocked dependencies, consider whether the test is at the wrong layer. A unit test with heavy mocking may be better written as an integration test with real collaborators.

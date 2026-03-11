@@ -129,6 +129,17 @@ Fix bugs with proper rigor. Full RCA documentation.
 
 For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
 
+### Characterization Testing (Thorough Track Only)
+
+Before fixing a bug in the thorough track, capture the buggy behavior as a characterization test:
+
+1. **Before fix:** Write a test that documents the current (buggy) behavior — it should PASS with the bug present
+2. **Write the fix test:** Write a test that describes the correct behavior — it should FAIL (this is the standard TDD RED phase)
+3. **Apply the fix:** Implement the fix. The fix test should now PASS, and the characterization test should now FAIL
+4. **Verify:** The characterization test failing confirms the bug is actually fixed. If it still passes, the fix didn't address the root cause.
+
+This is not required for the hotfix track — hotfixes prioritize speed over documentation.
+
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
