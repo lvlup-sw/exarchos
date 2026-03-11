@@ -42,7 +42,12 @@ export interface TaskInput {
   readonly files?: readonly string[];
 }
 
-/** Advisory classification for a single task. */
+/**
+ * Advisory classification for a single task.
+ * Note: effort omits 'max' intentionally — the heuristic classifier covers
+ * scaffolder/implementer tiers only. 'max' effort (Opus-level deep reasoning)
+ * is reserved for manual override, not automated classification.
+ */
 export interface TaskClassification {
   readonly taskId: string;
   readonly complexity: 'low' | 'medium' | 'high';
@@ -62,8 +67,8 @@ export interface PrepareDelegationResult {
 
 // ─── Task Classification ────────────────────────────────────────────────────
 
-/** Keywords in task titles that indicate scaffolding work. */
-const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type definitions', 'interface'];
+/** Keywords in task titles that indicate low-complexity scaffolding work. */
+const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 'scaffold'];
 
 /**
  * Deterministic heuristic classification for a single task.

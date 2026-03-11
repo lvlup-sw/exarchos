@@ -580,8 +580,9 @@ describe('handlePrepareDelegation', () => {
       // Arrange: test multiple scaffolding keywords
       const tasks = [
         { id: 't-1', title: 'Generate boilerplate for the service' },
-        { id: 't-2', title: 'Create type definitions for the API' },
+        { id: 't-2', title: 'Create type def for the API' },
         { id: 't-3', title: 'Define the interface for the data layer' },
+        { id: 't-4', title: 'Scaffold the test harness' },
       ];
 
       // Act & Assert

@@ -8,6 +8,9 @@ import {
   TASK_FIX,
   TASK_CLASSIFICATION,
   REVIEW_STRATEGY,
+  DESIGN_REFINEMENT,
+  PLAN_COVERAGE_CHECK,
+  PHASE_COMPRESSION,
   ALL_RUNBOOKS,
 } from './definitions.js';
 
@@ -99,7 +102,7 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(14);
+    expect(ALL_RUNBOOKS).toHaveLength(17);
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {
@@ -128,5 +131,37 @@ describe('Runbook definitions', () => {
     expect(REVIEW_STRATEGY.steps[1].decide?.question).toMatch(/fail|fix cycle|prior/i);
     // Step 3: stage type
     expect(REVIEW_STRATEGY.steps[2].decide?.question).toMatch(/spec.review|quality.review|stage/i);
+  });
+
+  it('DesignRefinement_HasCorrectPhase_Ideate', () => {
+    expect(DESIGN_REFINEMENT.phase).toBe('ideate');
+  });
+
+  it('DesignRefinement_HasTwoSteps_ComplexityThenCompression', () => {
+    expect(DESIGN_REFINEMENT.steps).toHaveLength(2);
+    expect(DESIGN_REFINEMENT.steps[0].decide?.question).toMatch(/requirement|trade-off|complex/i);
+    expect(DESIGN_REFINEMENT.steps[1].decide?.question).toMatch(/compress|summary/i);
+  });
+
+  it('PlanCoverageCheck_HasCorrectPhase_PlanReview', () => {
+    expect(PLAN_COVERAGE_CHECK.phase).toBe('plan-review');
+  });
+
+  it('PlanCoverageCheck_HasFourSteps_ThreeFramingsPlusConvergence', () => {
+    expect(PLAN_COVERAGE_CHECK.steps).toHaveLength(4);
+    expect(PLAN_COVERAGE_CHECK.steps[0].decide?.question).toMatch(/DR-N.*NO corresponding|gap/i);
+    expect(PLAN_COVERAGE_CHECK.steps[1].decide?.question).toMatch(/FULLY address/i);
+    expect(PLAN_COVERAGE_CHECK.steps[2].decide?.question).toMatch(/orphan|trace back/i);
+    expect(PLAN_COVERAGE_CHECK.steps[3].decide?.question).toMatch(/agree|convergence/i);
+  });
+
+  it('PhaseCompression_HasCorrectPhase_Delegate', () => {
+    expect(PHASE_COMPRESSION.phase).toBe('delegate');
+  });
+
+  it('PhaseCompression_HasTwoSteps_ArtifactTypeThenVerification', () => {
+    expect(PHASE_COMPRESSION.steps).toHaveLength(2);
+    expect(PHASE_COMPRESSION.steps[0].decide?.question).toMatch(/source artifact|compress/i);
+    expect(PHASE_COMPRESSION.steps[1].decide?.question).toMatch(/load-bearing|preserve/i);
   });
 });

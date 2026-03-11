@@ -480,6 +480,125 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
   autoEmits: [],
 };
 
+export const DESIGN_REFINEMENT: RunbookDefinition = {
+  id: 'design-refinement',
+  phase: 'ideate',
+  description: 'Multi-pass design process: separate reasoning from formatting to improve design quality through circuit iteration.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Does the design task involve 3+ requirements, architectural trade-offs, or cross-cutting concerns?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Complex design', guidance: 'Use two-pass design. Pass 1 (reasoning): determine architectural decisions, trade-offs, constraints, and requirement interactions — output decisions only, not formatted prose. Pass 2 (formatting): take pass 1 decisions and format into the design document template with sections, diagrams, and DR-N requirements.' },
+          'no': { label: 'Simple design', guidance: 'Single-pass design is sufficient. Combine reasoning and formatting in one step for straightforward features.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Before starting pass 2, has the brainstorming discussion been compressed into a summary?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Compressed', guidance: 'Proceed with pass 2. Use the compressed summary (~300 tokens: problem statement, key decisions, chosen approach, constraints) as input to the formatting pass — not the full brainstorming transcript.' },
+          'no': { label: 'Not compressed', guidance: 'Compress first. Distill the brainstorming into ~300 tokens covering: problem statement, key decisions made, chosen approach with rationale, and hard constraints. Discard exploratory tangents and rejected alternatives.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const PLAN_COVERAGE_CHECK: RunbookDefinition = {
+  id: 'plan-coverage-check',
+  phase: 'plan-review',
+  description: 'Self-consistency check using 3 independent framings to verify plan covers all design requirements.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Framing A (gap detection): Are there any DR-N requirements in the design that have NO corresponding task in the plan?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Gaps found', guidance: 'Record each uncovered DR-N. These are confirmed gaps — the plan must be revised to add tasks covering them before approval.' },
+          'no': { label: 'No gaps', guidance: 'All DR-N requirements have at least one corresponding task. Proceed to framing B for depth check.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Framing B (depth check): Does each DR-N have a task that FULLY addresses it — not just mentions it, but implements all its acceptance criteria?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Full coverage', guidance: 'Each requirement is fully addressed by at least one task. Proceed to framing C for orphan check.' },
+          'no': { label: 'Partial coverage', guidance: 'Record which DR-N requirements are only partially covered. These need task scope expansion or additional tasks. Note the specific gap (e.g., "DR-7 task covers reasoning separation but not the compression step").' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Framing C (orphan check): Are there tasks in the plan that do NOT trace back to any DR-N requirement?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Orphan tasks found', guidance: 'Orphan tasks indicate scope creep or missing requirements. Either remove the orphan tasks or identify which requirement they should trace to and update the design.' },
+          'no': { label: 'No orphans', guidance: 'All tasks trace to requirements. Proceed to convergence assessment.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Do all 3 framings agree on coverage completeness?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Convergence', guidance: 'All framings agree — present the plan for human approval with confidence. The self-consistency check passed.' },
+          'no': { label: 'Disagreement', guidance: 'Surface the specific DR-N requirements where framings disagree to the human reviewer. Disagreement indicates ambiguous requirements — these must be clarified before the plan can be approved. Do not resolve ambiguity autonomously.', escalate: true },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
+export const PHASE_COMPRESSION: RunbookDefinition = {
+  id: 'phase-compression',
+  phase: 'delegate',
+  description: 'Compress phase artifacts at transition boundaries to carry forward only load-bearing context.',
+  steps: [
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'What is the source artifact being compressed?',
+        source: 'human',
+        branches: {
+          'brainstorm-to-design': { label: 'Brainstorm → Design', guidance: 'Compress to ~300 tokens. Keep: problem statement, key decisions with rationale, chosen approach, hard constraints. Discard: exploratory tangents, rejected alternatives, conversational back-and-forth.' },
+          'design-to-plan': { label: 'Design → Plan', guidance: 'Compress to ~500-token context packages per task. Each package quotes the specific DR-N requirements and design sections relevant to that task. Do not reference external documents — subagent prompts must be self-contained.' },
+          'plan-to-review': { label: 'Plan → Review', guidance: 'Compress to ~300-token summary per task. Include: what was implemented, which DR-N it addresses, key design decisions. Review receives integration diff (not full files) plus these summaries.' },
+        },
+      },
+    },
+    {
+      tool: 'none', action: 'decide', onFail: 'stop',
+      decide: {
+        question: 'Does the compressed output preserve all load-bearing information? Spot-check: can you reconstruct the key decisions from the summary alone?',
+        source: 'human',
+        branches: {
+          'yes': { label: 'Verified', guidance: 'Compression is complete. Pass the compressed artifact to the next phase.' },
+          'no': { label: 'Information lost', guidance: 'Identify what was lost and add it back. Common losses: constraint rationale (why a decision was made), interaction effects (how requirements depend on each other), and scope boundaries (what is explicitly excluded). Re-compress with these included.' },
+        },
+      },
+    },
+  ],
+  templateVars: ['featureId'],
+  autoEmits: [],
+};
+
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -495,4 +614,7 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   SHEPHERD_ESCALATION,
   TASK_CLASSIFICATION,
   REVIEW_STRATEGY,
+  DESIGN_REFINEMENT,
+  PLAN_COVERAGE_CHECK,
+  PHASE_COMPRESSION,
 ];

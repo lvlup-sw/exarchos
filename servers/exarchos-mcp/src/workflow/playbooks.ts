@@ -131,7 +131,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are brainstorming a feature design. Use exarchos_workflow set to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state. Key decision: problem-first exploration vs solution-first — exhaust constraints before converging on an approach. Anti-pattern: jumping to implementation details without understanding the problem space and constraints. Escalate: design scope remains unclear after 2 brainstorming iterations. Two-step design: separate reasoning from formatting — first explore the problem space and generate reasoning, then format the design artifact. On phase exit, compress the design into a ~300-token summary for carry-forward as the context package for the next phase.',
+    'You are brainstorming a feature design. Use exarchos_workflow set to record design decisions. Create design doc at docs/designs/. Transition to plan when design artifact is set in state. Key decision: problem-first exploration vs solution-first — exhaust constraints before converging on an approach. Anti-pattern: jumping to implementation details without understanding the problem space and constraints. Escalate: design scope remains unclear after 2 brainstorming iterations. Follow the design-refinement runbook for two-pass design (reasoning then formatting). Follow the phase-compression runbook to compress the design into a carry-forward context package on phase exit.',
 });
 
 register({
@@ -152,7 +152,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are creating an implementation plan from the design doc. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete. Key decision: task granularity (target 2-5 min each) and parallel vs sequential grouping. Anti-pattern: monolith tasks that cannot be parallelized across agents. Escalate: design has ambiguous requirements that block decomposition into concrete tasks. Three-stage decomposition: (1) identify logical units, (2) define concrete tasks with inputs/outputs, (3) create a parallelization plan. Each task gets a self-contained context package (~500 tokens).',
+    'You are creating an implementation plan from the design doc. Use exarchos_workflow set to record the plan artifact path. Break work into parallelizable TDD tasks. Transition to plan-review when plan is complete. Key decision: task granularity (target 2-5 min each) and parallel vs sequential grouping. Anti-pattern: monolith tasks that cannot be parallelized across agents. Escalate: design has ambiguous requirements that block decomposition into concrete tasks. Three-stage decomposition: (1) identify logical units, (2) define concrete tasks with inputs/outputs, (3) create a parallelization plan. Follow the phase-compression runbook to create self-contained context packages per task.',
 });
 
 register({
@@ -173,7 +173,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Self-consistency check: run coverage analysis with 3 varied framings: (1) which DR-N are NOT covered, (2) does each DR-N have a fully-addressing task, (3) are there orphan tasks or partial coverage. If all 3 agree: present verdict. If they disagree on a specific DR-N: surface the disagreement to the human reviewer.',
+    'You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Follow the plan-coverage-check runbook for self-consistency verification using 3 independent framings before presenting for approval.',
 });
 
 register({
@@ -231,7 +231,7 @@ register({
   validationScripts: ['scripts/post-delegation-check.sh'],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope. Task-classification: classify task complexity to set reasoning_effort. Build a context package per subagent with only the relevant design section.',
+    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope. Query runbook(task-classification) for complexity classification before dispatch. Follow the phase-compression runbook to build self-contained context packages per subagent.',
 });
 
 register({
