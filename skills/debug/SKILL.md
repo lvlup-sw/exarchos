@@ -214,6 +214,14 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
+**Completion guard shapes** — set these via `exarchos_workflow set` before transitioning to `completed`:
+
+| Exit path | Guard | Required state |
+|-----------|-------|----------------|
+| Direct push (no PR) | `fix-verified-directly` | `resolution: { directPush: true, commitSha: "<sha>" }` |
+| Validation passed | `validation-passed` | `validation: { passed: true }` |
+| Via PR | Through `synthesize` → `completed` | `prUrl` must exist |
+
 ### Thorough Complete
 
 - [ ] Full RCA documented in docs/rca/ (use `references/rca-template.md`)
@@ -221,6 +229,8 @@ Extended to support:
 - [ ] TDD implementation with tests
 - [ ] Spec review passed
 - [ ] PR merged
+
+**Completion guard shapes** — the thorough track exits through `synthesize` → `completed` (guard: `pr-url-exists`, requires `prUrl` in state).
 
 ## Anti-Patterns
 
