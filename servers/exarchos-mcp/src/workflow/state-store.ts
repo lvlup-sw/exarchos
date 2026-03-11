@@ -1,6 +1,7 @@
 import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
+import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -740,6 +741,33 @@ function applyEventToState(
   }
 }
 
+// ─── Hydrate Events from Store ──────────────────────────────────────────────
+
+/**
+ * Query all events for a feature from the event store and map them to
+ * the internal format used by guards and the `_events` materialized view.
+ *
+ * Maps external types (e.g. `workflow.transition`) to internal types
+ * (e.g. `transition`) via `mapExternalToInternalType`, spreads all
+ * `e.data` fields at the top level, and preserves `metadata: e.data`
+ * for backward compatibility.
+ *
+ * Callers decide catch semantics: `handleSet` falls back to an empty
+ * array on failure, while `reconcileFromEvents` logs a warning.
+ */
+export async function hydrateEventsFromStore(
+  featureId: string,
+  eventStore: EventStore,
+): Promise<readonly Record<string, unknown>[]> {
+  const storeEvents = await eventStore.query(featureId);
+  return storeEvents.map((e) => ({
+    type: mapExternalToInternalType(e.type),
+    timestamp: e.timestamp,
+    ...(e.data as Record<string, unknown> ?? {}),
+    metadata: e.data as Record<string, unknown> ?? {},
+  }));
+}
+
 // ─── Reconcile State from Events ────────────────────────────────────────────
 
 /**
@@ -850,6 +878,18 @@ export async function reconcileFromEvents(
       stateRecord.phase = eventPhase;
       if (!eventsApplied) eventsApplied = 1; // Mark as reconciled even if only phase was fixed
     }
+  }
+
+  // Hydrate _events from full event stream for guard evaluation.
+  // This ensures guards (e.g. teamDisbandedEmitted) can evaluate from
+  // the materialized _events view after reconciliation.
+  try {
+    stateRecord._events = await hydrateEventsFromStore(featureId, eventStore);
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'Failed to hydrate _events during reconcile — guards may fail',
+    );
   }
 
   // Write updated state with CAS guard, retrying on version conflict.

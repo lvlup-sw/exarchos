@@ -76,6 +76,15 @@ export async function handleNextAction(
         },
       };
     }
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_CORRUPT) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_CORRUPT,
+          message: `Corrupt state for feature: ${input.featureId}: ${err.message}`,
+        },
+      };
+    }
     throw err;
   }
 

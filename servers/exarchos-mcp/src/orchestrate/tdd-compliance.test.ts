@@ -3,11 +3,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 
-// ─── Mock Dependencies ──────────────────────────────────────────────────────
+// ─── Mock pure TS tdd-compliance module ─────────────────────────────────────
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+vi.mock('./pure/tdd-compliance.js', () => ({
+  checkTddCompliance: vi.fn(),
 }));
+
+// ─── Mock event store ────────────────────────────────────────────────────────
 
 const mockStore = {
   append: vi.fn().mockResolvedValue(undefined),
@@ -19,58 +21,10 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execFileSync } from 'node:child_process';
+import { checkTddCompliance } from './pure/tdd-compliance.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 
 const STATE_DIR = '/tmp/test-tdd-compliance';
-
-// ─── Test Fixtures ──────────────────────────────────────────────────────────
-
-function makePassReport(passCount: number, totalCommits: number): string {
-  return [
-    '## TDD Compliance Report',
-    '',
-    '**Branch:** feature/widget',
-    '**Base:** main',
-    `**Commits analyzed:** ${totalCommits}`,
-    '',
-    '### Per-commit Analysis',
-    '',
-    '- **PASS**: `abc1234` \u2014 feat: add tests (test-only)',
-    '- **PASS**: `def5678` \u2014 feat: implement widget (test+impl)',
-    '',
-    '---',
-    '',
-    `**Result: PASS** (${passCount}/${totalCommits} commits compliant)`,
-  ].join('\n');
-}
-
-function makeFailReport(
-  passCount: number,
-  failCount: number,
-  totalCommits: number,
-): string {
-  return [
-    '## TDD Compliance Report',
-    '',
-    '**Branch:** feature/widget',
-    '**Base:** main',
-    `**Commits analyzed:** ${totalCommits}`,
-    '',
-    '### Per-commit Analysis',
-    '',
-    '- **PASS**: `abc1234` \u2014 feat: add tests (test-only)',
-    '- **FAIL**: `def5678` \u2014 feat: implement without test (implementation without test)',
-    '',
-    '### Violations',
-    '',
-    '- def5678: feat: implement without test',
-    '',
-    '---',
-    '',
-    `**Result: FAIL** (${failCount}/${totalCommits} commits have violations)`,
-  ].join('\n');
-}
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -84,9 +38,22 @@ describe('handleTddCompliance', () => {
   // ─── Test 1: Compliant branch returns passed ────────────────────────────
 
   it('handleTddCompliance_CompliantBranch_ReturnsPassed', async () => {
-    // Arrange
-    const report = makePassReport(3, 3);
-    vi.mocked(execFileSync).mockReturnValue(report);
+    // Arrange — mock the pure TS checker
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 3,
+      passCount: 3,
+      failCount: 0,
+      violations: [],
+      results: [
+        '- **PASS**: `abc1234` — feat: add tests (test-only)',
+        '- **PASS**: `def5678` — feat: implement widget (test+impl)',
+        '- **PASS**: `ghi9012` — feat: add more tests (test-only)',
+      ],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (3/3 commits compliant)',
+    });
 
     const args = {
       featureId: 'feat-widget',
@@ -118,13 +85,24 @@ describe('handleTddCompliance', () => {
   // ─── Test 2: Violations returns fail with findings ──────────────────────
 
   it('handleTddCompliance_Violations_ReturnsFailWithFindings', async () => {
-    // Arrange
-    const report = makeFailReport(1, 2, 3);
-    const error = new Error('Command failed');
-    (error as NodeJS.ErrnoException & { status: number }).status = 1;
-    (error as NodeJS.ErrnoException & { stdout: string }).stdout = report;
-    vi.mocked(execFileSync).mockImplementation(() => {
-      throw error;
+    // Arrange — mock the pure TS checker with violations
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'fail',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 3,
+      passCount: 1,
+      failCount: 2,
+      violations: [
+        'def5678: feat: implement without test',
+        'xyz3456: feat: another impl without test',
+      ],
+      results: [
+        '- **PASS**: `abc1234` — feat: add tests (test-only)',
+        '- **FAIL**: `def5678` — feat: implement without test (implementation without test)',
+        '- **FAIL**: `xyz3456` — feat: another impl without test (implementation without test)',
+      ],
+      report: '## TDD Compliance Report\n\n**Result: FAIL** (2/3 commits have violations)',
     });
 
     const args = {
@@ -155,8 +133,17 @@ describe('handleTddCompliance', () => {
 
   it('handleTddCompliance_EmitsGateExecutedEvent_WithTaskId', async () => {
     // Arrange
-    const report = makePassReport(2, 2);
-    vi.mocked(execFileSync).mockReturnValue(report);
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 2,
+      passCount: 2,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (2/2 commits compliant)',
+    });
 
     const args = {
       featureId: 'feat-widget',
@@ -191,8 +178,17 @@ describe('handleTddCompliance', () => {
 
   it('handleTddCompliance_EmitsGateEvent_IncludesPhaseDelegateInDetails', async () => {
     // Arrange
-    const report = makePassReport(2, 2);
-    vi.mocked(execFileSync).mockReturnValue(report);
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 2,
+      passCount: 2,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (2/2 commits compliant)',
+    });
 
     const args = {
       featureId: 'feat-widget',
@@ -257,10 +253,19 @@ describe('handleTddCompliance', () => {
 
   // ─── Test 5: Uses baseBranch argument when provided ─────────────────────
 
-  it('handleTddCompliance_CustomBaseBranch_PassedToScript', async () => {
+  it('handleTddCompliance_CustomBaseBranch_PassedToChecker', async () => {
     // Arrange
-    const report = makePassReport(1, 1);
-    vi.mocked(execFileSync).mockReturnValue(report);
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'develop',
+      commitsAnalyzed: 1,
+      passCount: 1,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (1/1 commits compliant)',
+    });
 
     const args = {
       featureId: 'feat-widget',
@@ -272,18 +277,30 @@ describe('handleTddCompliance', () => {
     // Act
     await handleTddCompliance(args, STATE_DIR);
 
-    // Assert
-    const scriptArgs = vi.mocked(execFileSync).mock.calls[0][1] as string[];
-    expect(scriptArgs).toContain('--base-branch');
-    expect(scriptArgs[scriptArgs.indexOf('--base-branch') + 1]).toBe('develop');
+    // Assert — verify the checker was called with correct baseBranch
+    expect(checkTddCompliance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: 'feature/widget',
+        baseBranch: 'develop',
+      }),
+    );
   });
 
   // ─── Test 6: Defaults baseBranch to main ────────────────────────────────
 
   it('handleTddCompliance_NoBaseBranch_DefaultsToMain', async () => {
     // Arrange
-    const report = makePassReport(1, 1);
-    vi.mocked(execFileSync).mockReturnValue(report);
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 1,
+      passCount: 1,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (1/1 commits compliant)',
+    });
 
     const args = {
       featureId: 'feat-widget',
@@ -294,9 +311,11 @@ describe('handleTddCompliance', () => {
     // Act
     await handleTddCompliance(args, STATE_DIR);
 
-    // Assert
-    const scriptArgs = vi.mocked(execFileSync).mock.calls[0][1] as string[];
-    expect(scriptArgs).toContain('--base-branch');
-    expect(scriptArgs[scriptArgs.indexOf('--base-branch') + 1]).toBe('main');
+    // Assert — verify the checker was called with default baseBranch 'main'
+    expect(checkTddCompliance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseBranch: 'main',
+      }),
+    );
   });
 });

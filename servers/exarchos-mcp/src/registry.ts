@@ -574,8 +574,7 @@ const orchestrateActions: readonly ToolAction[] = [
     description: 'Run security pattern scan on diff. Emits gate.executed event with dimension D1.',
     schema: z.object({
       featureId: z.string().min(1),
-      repoRoot: z.string().optional(),
-      baseBranch: z.string().optional(),
+      diffContent: z.string().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
@@ -678,7 +677,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_design_completeness',
-    description: 'Verify design document completeness at ideate→plan boundary. Wraps verify-ideate-artifacts.sh. Advisory gate — failures inform but do not block.',
+    description: 'Verify design document completeness at ideate→plan boundary. Advisory gate — failures inform but do not block.',
     schema: z.object({
       featureId: z.string().min(1),
       stateFile: z.string().optional(),
@@ -693,7 +692,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_plan_coverage',
-    description: 'Verify plan tasks cover all design sections. Wraps verify-plan-coverage.sh. Emits gate.executed event with dimension D1.',
+    description: 'Verify plan tasks cover all design sections. Emits gate.executed event with dimension D1.',
     schema: z.object({
       featureId: z.string().min(1),
       designPath: z.string().min(1),
@@ -708,7 +707,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_tdd_compliance',
-    description: 'Per-task TDD compliance gate. Wraps check-tdd-compliance.sh. Emits gate.executed event with dimension D1.',
+    description: 'Per-task TDD compliance gate. Emits gate.executed event with dimension D1.',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -724,7 +723,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_post_merge',
-    description: 'Post-merge regression check. Wraps check-post-merge.sh. Emits gate.executed event with dimension D4.',
+    description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({
       featureId: z.string().min(1),
       prUrl: z.string().min(1),
@@ -739,7 +738,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_task_decomposition',
-    description: 'Task decomposition quality check at plan boundary. Wraps check-task-decomposition.sh. Emits gate.executed event with dimension D5.',
+    description: 'Task decomposition quality check at plan boundary. Emits gate.executed event with dimension D5.',
     schema: z.object({
       featureId: z.string().min(1),
       planPath: z.string().min(1),

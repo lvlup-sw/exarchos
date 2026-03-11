@@ -1,13 +1,11 @@
 // ─── Plan Coverage Action Tests ──────────────────────────────────────────────
+//
+// Tests for pure TypeScript plan-coverage validation functions.
+// Replaces bash script invocation with native TypeScript logic.
+// ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-
-// ─── Mock child_process ──────────────────────────────────────────────────────
-
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-}));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -21,79 +19,500 @@ vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 
-import { execFileSync } from 'node:child_process';
-import { handlePlanCoverage } from './plan-coverage.js';
+// ─── Mock fs for handlePlanCoverage ──────────────────────────────────────────
+
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(),
+}));
+
+import { readFile } from 'node:fs/promises';
+import {
+  parseDesignSections,
+  parsePlanTasks,
+  extractKeywords,
+  keywordMatch,
+  parseDeferredSections,
+  computeCoverage,
+  handlePlanCoverage,
+} from './plan-coverage.js';
 
 const STATE_DIR = '/tmp/test-plan-coverage';
 
-// ─── Test Helpers ────────────────────────────────────────────────────────────
+// ─── parseDesignSections Tests ──────────────────────────────────────────────
 
-function makePassingReport(): string {
-  return [
-    '## Plan Coverage Report',
-    '',
-    '**Design file:** `design.md`',
-    '**Plan file:** `plan.md`',
-    '',
-    '### Coverage Matrix',
-    '',
-    '| Design Section | Task(s) | Status |',
-    '|----------------|---------|--------|',
-    '| Event Store | Task 1: Implement event store | Covered |',
-    '| Gate Utils | Task 2: Implement gate utils | Covered |',
-    '| Composite Router | Task 3: Implement composite | Covered |',
-    '| View Projections | Task 4: Implement views | Covered |',
-    '| Error Handling | Task 5: Implement error handling | Covered |',
-    '',
-    '### Summary',
-    '',
-    '- Design sections: 5',
-    '- Covered: 5',
-    '- Deferred: 0',
-    '- Gaps: 0',
-    '',
-    '---',
-    '',
-    '**Result: PASS** (5/5 sections covered)',
-  ].join('\n');
-}
+describe('parseDesignSections', () => {
+  it('ParseDesignSections_TechnicalDesignHeader_ExtractsSubsections', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## Problem Statement',
+      '',
+      'Some problem.',
+      '',
+      '## Technical Design',
+      '',
+      '### Component 1',
+      '',
+      'Description of component 1.',
+      '',
+      '### Component 2',
+      '',
+      'Description of component 2.',
+      '',
+      '## Testing Strategy',
+      '',
+      'Unit tests.',
+    ].join('\n');
 
-function makeFailingReport(): string {
-  return [
-    '## Plan Coverage Report',
-    '',
-    '**Design file:** `design.md`',
-    '**Plan file:** `plan.md`',
-    '',
-    '### Coverage Matrix',
-    '',
-    '| Design Section | Task(s) | Status |',
-    '|----------------|---------|--------|',
-    '| Event Store | Task 1: Implement event store | Covered |',
-    '| Gate Utils | Task 2: Implement gate utils | Covered |',
-    '| Composite Router | — | **GAP** |',
-    '| View Projections | Task 4: Implement views | Covered |',
-    '| Error Handling | — | **GAP** |',
-    '',
-    '### Summary',
-    '',
-    '- Design sections: 7',
-    '- Covered: 3',
-    '- Deferred: 2',
-    '- Gaps: 2',
-    '',
-    '### Unmapped Sections',
-    '',
-    '- **Composite Router** — No task maps to this design section',
-    '- **Error Handling** — No task maps to this design section',
-    '',
-    '---',
-    '',
-    '**Result: FAIL** (2/7 sections have gaps)',
-  ].join('\n');
-}
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['Component 1', 'Component 2']);
+  });
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+  it('ParseDesignSections_RequirementsHeader_ExtractsSubsections', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## Design Requirements',
+      '',
+      '### DR-1',
+      '',
+      'First requirement.',
+      '',
+      '### DR-2',
+      '',
+      'Second requirement.',
+      '',
+      '## Out of Scope',
+      '',
+      'Nothing.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['DR-1', 'DR-2']);
+  });
+
+  it('ParseDesignSections_CaseInsensitive_AcceptsLowercaseHeaders', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## technical design',
+      '',
+      '### Widget Component',
+      '',
+      'Renders widgets.',
+      '',
+      '## testing strategy',
+      '',
+      'Tests.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['Widget Component']);
+  });
+
+  it('ParseDesignSections_HierarchicalPreference_PrefersH4OverH3', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## Technical Design',
+      '',
+      '### Component 1',
+      '',
+      'High-level description.',
+      '',
+      '#### SubA',
+      '',
+      'Sub-component A.',
+      '',
+      '#### SubB',
+      '',
+      'Sub-component B.',
+      '',
+      '## Testing Strategy',
+      '',
+      'Tests.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['SubA', 'SubB']);
+  });
+
+  it('ParseDesignSections_MixedHierarchy_UsesH4WhenAvailableH3Otherwise', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## Technical Design',
+      '',
+      '### Stream 1: Auth Module',
+      '',
+      '#### Token Validation',
+      '',
+      'Validate JWT tokens.',
+      '',
+      '#### Session Management',
+      '',
+      'Handle sessions.',
+      '',
+      '### API Client',
+      '',
+      'Handles data fetching.',
+      '',
+      '## Testing Strategy',
+      '',
+      'Tests.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['Token Validation', 'Session Management', 'API Client']);
+  });
+
+  it('ParseDesignSections_NoDesignSection_ReturnsEmptyArray', () => {
+    const markdown = [
+      '# Feature Design',
+      '',
+      '## Problem Statement',
+      '',
+      'Some problem.',
+      '',
+      '## Testing Strategy',
+      '',
+      'Tests.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual([]);
+  });
+
+  it('ParseDesignSections_RequirementsAlternateHeader_Works', () => {
+    const markdown = [
+      '# Feature',
+      '',
+      '## Requirements',
+      '',
+      '### DR-1: Widget',
+      '',
+      'Build widget.',
+      '',
+      '### DR-2: Cache',
+      '',
+      'Build cache.',
+    ].join('\n');
+
+    const result = parseDesignSections(markdown);
+    expect(result).toEqual(['DR-1: Widget', 'DR-2: Cache']);
+  });
+});
+
+// ─── parsePlanTasks Tests ────────────────────────────────────────────────────
+
+describe('parsePlanTasks', () => {
+  it('ParsePlanTasks_StandardFormat_ExtractsTitles', () => {
+    const markdown = [
+      '# Implementation Plan',
+      '',
+      '## Tasks',
+      '',
+      '### Task T-01: Extract hydrate function',
+      '',
+      'Build the hydration layer.',
+      '',
+      '### Task T-02: Add validation',
+      '',
+      'Build validation.',
+    ].join('\n');
+
+    const result = parsePlanTasks(markdown);
+    expect(result).toEqual([
+      { id: 'T-01', title: 'Extract hydrate function' },
+      { id: 'T-02', title: 'Add validation' },
+    ]);
+  });
+
+  it('ParsePlanTasks_NumericFormat_ExtractsTitles', () => {
+    const markdown = [
+      '# Implementation Plan',
+      '',
+      '### Task 001: Create Widget Component',
+      '',
+      'Build the widget.',
+      '',
+      '### Task 002: Create API Client',
+      '',
+      'Build the API.',
+    ].join('\n');
+
+    const result = parsePlanTasks(markdown);
+    expect(result).toEqual([
+      { id: '001', title: 'Create Widget Component' },
+      { id: '002', title: 'Create API Client' },
+    ]);
+  });
+
+  it('ParsePlanTasks_NoTasks_ReturnsEmptyArray', () => {
+    const markdown = [
+      '# Implementation Plan',
+      '',
+      '## Overview',
+      '',
+      'This is the overview.',
+    ].join('\n');
+
+    const result = parsePlanTasks(markdown);
+    expect(result).toEqual([]);
+  });
+
+  it('ParsePlanTasks_MixedFormats_ExtractsAll', () => {
+    const markdown = [
+      '### Task 1: Simple number',
+      '',
+      '### Task T-05: Dash format',
+      '',
+      '### Task 123: Three digit',
+    ].join('\n');
+
+    const result = parsePlanTasks(markdown);
+    expect(result).toEqual([
+      { id: '1', title: 'Simple number' },
+      { id: 'T-05', title: 'Dash format' },
+      { id: '123', title: 'Three digit' },
+    ]);
+  });
+});
+
+// ─── extractKeywords Tests ──────────────────────────────────────────────────
+
+describe('extractKeywords', () => {
+  it('ExtractKeywords_StopWordsFiltered_ReturnsSignificantWords', () => {
+    const result = extractKeywords('The unified events hydration function');
+    expect(result).toEqual(['unified', 'events', 'hydration', 'function']);
+  });
+
+  it('ExtractKeywords_ShortWordsFiltered_SkipsUnderThreeChars', () => {
+    const result = extractKeywords('UI is a go');
+    // 'ui' is 2 chars, 'is' is stop word + 2 chars, 'a' is stop word + 1 char, 'go' is 2 chars
+    expect(result).toEqual([]);
+  });
+
+  it('ExtractKeywords_CaseInsensitive_ReturnsLowercase', () => {
+    const result = extractKeywords('Token Validation');
+    expect(result).toEqual(['token', 'validation']);
+  });
+
+  it('ExtractKeywords_NonAlphaStripped_SplitsOnPunctuation', () => {
+    const result = extractKeywords('DR-1: Sensitive Document Removal');
+    // Should split on non-alpha, filter short words and stop words
+    expect(result).toContain('sensitive');
+    expect(result).toContain('document');
+    expect(result).toContain('removal');
+  });
+});
+
+// ─── keywordMatch Tests ─────────────────────────────────────────────────────
+
+describe('keywordMatch', () => {
+  it('KeywordMatch_TwoKeywordsFound_ReturnsTrue', () => {
+    const sectionKeywords = ['token', 'validation'];
+    const targetText = 'Implement token validation for JWT';
+    expect(keywordMatch(sectionKeywords, targetText)).toBe(true);
+  });
+
+  it('KeywordMatch_OneKeywordOnly_ReturnsFalse', () => {
+    const sectionKeywords = ['token', 'validation'];
+    const targetText = 'Build the token generation module';
+    expect(keywordMatch(sectionKeywords, targetText)).toBe(false);
+  });
+
+  it('KeywordMatch_SingleKeyword_MatchesOnOne', () => {
+    const sectionKeywords = ['monitoring'];
+    const targetText = 'Add monitoring to the system';
+    expect(keywordMatch(sectionKeywords, targetText)).toBe(true);
+  });
+
+  it('KeywordMatch_CaseInsensitive_MatchesAcrossCase', () => {
+    const sectionKeywords = ['widget', 'component'];
+    const targetText = 'Create Widget Component';
+    expect(keywordMatch(sectionKeywords, targetText)).toBe(true);
+  });
+
+  it('KeywordMatch_NoKeywordsMatch_ReturnsFalse', () => {
+    const sectionKeywords = ['cache', 'layer'];
+    const targetText = 'Build the authentication module';
+    expect(keywordMatch(sectionKeywords, targetText)).toBe(false);
+  });
+});
+
+// ─── parseDeferredSections Tests ────────────────────────────────────────────
+
+describe('parseDeferredSections', () => {
+  it('ParseDeferredSections_TraceabilityTable_ExtractsDeferredNames', () => {
+    const planContent = [
+      '## Spec Traceability',
+      '',
+      '| Design Section | Task ID(s) | Status |',
+      '|----------------|-----------|--------|',
+      '| Component A | T001 | Covered |',
+      '| Component B | Deferred | Operational process. |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual(['Component B']);
+  });
+
+  it('ParseDeferredSections_NoDeferredRows_ReturnsEmpty', () => {
+    const planContent = [
+      '## Spec Traceability',
+      '',
+      '| Design Section | Task ID(s) | Status |',
+      '|----------------|-----------|--------|',
+      '| Component A | T001 | Covered |',
+      '| Component B | T002 | Covered |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual([]);
+  });
+
+  it('ParseDeferredSections_NumberPrefix_StripsPrefix', () => {
+    const planContent = [
+      '## Spec Traceability',
+      '',
+      '| Design Section | Task ID(s) | Status |',
+      '|----------------|-----------|--------|',
+      '| 1.4 Monitoring | Deferred | Phase 2 work. |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual(['Monitoring']);
+  });
+
+  it('ParseDeferredSections_CaseInsensitive_MatchesDeferred', () => {
+    const planContent = [
+      '## Spec Traceability',
+      '',
+      '| Design Section | Task ID(s) | Status |',
+      '|----------------|-----------|--------|',
+      '| Cache Layer | deferred | Will add later. |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual(['Cache Layer']);
+  });
+
+  it('ParseDeferredSections_OutsideTraceabilityTable_IgnoresRows', () => {
+    const planContent = [
+      '## Tasks',
+      '',
+      '| Status | Notes |',
+      '|--------|-------|',
+      '| Deferred | Some task body table |',
+    ].join('\n');
+
+    const result = parseDeferredSections(planContent);
+    expect(result).toEqual([]);
+  });
+});
+
+// ─── computeCoverage Tests ──────────────────────────────────────────────────
+
+describe('computeCoverage', () => {
+  it('ComputeCoverage_AllSectionsCovered_ReturnsPass', () => {
+    const designSections = ['Widget Component', 'API Client', 'State Manager'];
+    const tasks = [
+      { id: '001', title: 'Create Widget Component' },
+      { id: '002', title: 'Create API Client' },
+      { id: '003', title: 'Create State Manager' },
+    ];
+    const planContent = [
+      '### Task 001: Create Widget Component',
+      'Design section: Widget Component',
+      '### Task 002: Create API Client',
+      'Design section: API Client',
+      '### Task 003: Create State Manager',
+      'Design section: State Manager',
+    ].join('\n');
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+    expect(result.passed).toBe(true);
+    expect(result.coverage.gaps).toBe(0);
+    expect(result.coverage.covered).toBe(3);
+    expect(result.coverage.total).toBe(3);
+  });
+
+  it('ComputeCoverage_DeferredSection_CountedAsDeferred', () => {
+    const designSections = ['Auth Module', 'Monitoring'];
+    const tasks = [
+      { id: '001', title: 'Implement auth module' },
+    ];
+    const planContent = '### Task 001: Implement auth module\nBuild authentication.';
+    const deferredSections = ['Monitoring'];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+    expect(result.passed).toBe(true);
+    expect(result.coverage.deferred).toBe(1);
+    expect(result.coverage.covered).toBe(1);
+    expect(result.coverage.gaps).toBe(0);
+    expect(result.coverage.total).toBe(2);
+  });
+
+  it('ComputeCoverage_MissingSections_ReportsGaps', () => {
+    const designSections = ['Widget Component', 'API Client', 'Cache Layer'];
+    const tasks = [
+      { id: '001', title: 'Create Widget Component' },
+      { id: '002', title: 'Create API Client' },
+    ];
+    const planContent = [
+      '### Task 001: Create Widget Component',
+      '### Task 002: Create API Client',
+    ].join('\n');
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+    expect(result.passed).toBe(false);
+    expect(result.coverage.gaps).toBe(1);
+    expect(result.coverage.covered).toBe(2);
+    expect(result.coverage.total).toBe(3);
+    expect(result.gapSections).toContain('Cache Layer');
+  });
+
+  it('ComputeCoverage_DeferredAndGap_ReportsOnlyGapsAsFailing', () => {
+    const designSections = ['Auth Module', 'Cache Layer', 'Rate Limiting'];
+    const tasks = [
+      { id: '001', title: 'Implement auth module' },
+    ];
+    const planContent = '### Task 001: Implement auth module\nBuild authentication.';
+    const deferredSections = ['Cache Layer'];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+    expect(result.passed).toBe(false);
+    expect(result.coverage.gaps).toBe(1);
+    expect(result.coverage.deferred).toBe(1);
+    expect(result.coverage.covered).toBe(1);
+    expect(result.gapSections).toContain('Rate Limiting');
+    expect(result.gapSections).not.toContain('Cache Layer');
+  });
+
+  it('ComputeCoverage_KeywordMatchInPlanBody_CountsAsCovered', () => {
+    const designSections = ['Token Validation'];
+    const tasks = [
+      { id: '001', title: 'Implement auth module' },
+    ];
+    // The plan body mentions token and validation keywords
+    const planContent = [
+      '### Task 001: Implement auth module',
+      '',
+      'This task includes token validation logic.',
+    ].join('\n');
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+    expect(result.passed).toBe(true);
+    expect(result.coverage.covered).toBe(1);
+    expect(result.coverage.gaps).toBe(0);
+  });
+});
+
+// ─── handlePlanCoverage Tests ───────────────────────────────────────────────
 
 describe('handlePlanCoverage', () => {
   beforeEach(() => {
@@ -106,94 +525,71 @@ describe('handlePlanCoverage', () => {
 
   describe('input validation', () => {
     it('handlePlanCoverage_MissingFeatureId_ReturnsError', async () => {
-      // Arrange
       const args = { featureId: '', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' };
-
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
     });
 
     it('handlePlanCoverage_MissingDesignPath_ReturnsError', async () => {
-      // Arrange
       const args = { featureId: 'feat-1', designPath: '', planPath: '/tmp/plan.md' };
-
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('designPath');
     });
 
     it('handlePlanCoverage_MissingPlanPath_ReturnsError', async () => {
-      // Arrange
       const args = { featureId: 'feat-1', designPath: '/tmp/design.md', planPath: '' };
-
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('planPath');
     });
   });
 
-  // ─── All Covered ──────────────────────────────────────────────────────────
+  // ─── Full integration via handlePlanCoverage ──────────────────────────────
 
-  describe('all sections covered', () => {
-    it('handlePlanCoverage_AllCovered_ReturnsPassed', async () => {
-      // Arrange
-      const stdout = makePassingReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+  describe('HandlePlanCoverage_RealDesignDoc_NoCrash', () => {
+    it('handlePlanCoverage_WithValidContent_ReturnsStructuredResult', async () => {
+      const designContent = [
+        '# Feature Design',
+        '',
+        '## Technical Design',
+        '',
+        '### Widget Component',
+        '',
+        'Renders the main UI.',
+        '',
+        '### API Client',
+        '',
+        'Handles data fetching.',
+        '',
+        '## Testing Strategy',
+        '',
+        'Unit tests.',
+      ].join('\n');
 
-      const args = {
-        featureId: 'feat-1',
-        designPath: '/tmp/design.md',
-        planPath: '/tmp/plan.md',
-      };
+      const planContent = [
+        '# Implementation Plan',
+        '',
+        '## Tasks',
+        '',
+        '### Task 001: Create Widget Component',
+        '',
+        'Build the widget rendering layer.',
+        '',
+        '### Task 002: Create API Client',
+        '',
+        'Build the API integration.',
+      ].join('\n');
 
-      // Act
-      const result = await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
-      expect(result.success).toBe(true);
-      const data = result.data as {
-        passed: boolean;
-        coverage: { covered: number; gaps: number; deferred: number; total: number };
-        report: string;
-      };
-      expect(data.passed).toBe(true);
-      expect(data.coverage.covered).toBe(5);
-      expect(data.coverage.gaps).toBe(0);
-      expect(data.coverage.deferred).toBe(0);
-      expect(data.coverage.total).toBe(5);
-      expect(data.report).toContain('Plan Coverage Report');
-    });
-  });
-
-  // ─── Gaps Found ───────────────────────────────────────────────────────────
-
-  describe('gaps found', () => {
-    it('handlePlanCoverage_GapsFound_ReturnsFailWithFindings', async () => {
-      // Arrange
-      const stdout = makeFailingReport();
-      const error = new Error('script failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 1;
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+      vi.mocked(readFile).mockImplementation(async (path: Parameters<typeof readFile>[0]) => {
+        const pathStr = String(path);
+        if (pathStr.includes('design')) return designContent;
+        if (pathStr.includes('plan')) return planContent;
+        throw new Error(`File not found: ${pathStr}`);
       });
 
       const args = {
@@ -202,32 +598,42 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         passed: boolean;
         coverage: { covered: number; gaps: number; deferred: number; total: number };
         report: string;
       };
-      expect(data.passed).toBe(false);
-      expect(data.coverage.covered).toBe(3);
-      expect(data.coverage.gaps).toBe(2);
-      expect(data.coverage.deferred).toBe(2);
-      expect(data.coverage.total).toBe(7);
-      expect(data.report).toContain('Unmapped Sections');
+      expect(data.passed).toBe(true);
+      expect(data.coverage.covered).toBe(2);
+      expect(data.coverage.gaps).toBe(0);
+      expect(data.coverage.total).toBe(2);
+      expect(data.report).toContain('Plan Coverage Report');
     });
   });
 
-  // ─── Gate Event Emission ──────────────────────────────────────────────────
+  // ─── Gate Event Emission ─────────────────────────────────────────────────
 
   describe('gate event emission', () => {
     it('handlePlanCoverage_EmitsGateExecutedEvent', async () => {
-      // Arrange
-      const stdout = makePassingReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      const designContent = [
+        '## Technical Design',
+        '### Widget',
+        'Widget desc.',
+      ].join('\n');
+
+      const planContent = [
+        '### Task 001: Build Widget',
+        'Widget implementation.',
+      ].join('\n');
+
+      vi.mocked(readFile).mockImplementation(async (path: Parameters<typeof readFile>[0]) => {
+        const pathStr = String(path);
+        if (pathStr.includes('design')) return designContent;
+        return planContent;
+      });
 
       const args = {
         featureId: 'feat-1',
@@ -235,10 +641,8 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      // Act
       await handlePlanCoverage(args, STATE_DIR);
 
-      // Assert
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
       expect(appendCall[0]).toBe('feat-1');
@@ -258,151 +662,86 @@ describe('handlePlanCoverage', () => {
       expect(event.data.details).toEqual({
         dimension: 'D1',
         phase: 'plan',
-        covered: 5,
+        covered: 1,
         gaps: 0,
         deferred: 0,
-        totalSections: 5,
-      });
-    });
-
-    it('handlePlanCoverage_GapsFail_EmitsFailedGateEvent', async () => {
-      // Arrange
-      const stdout = makeFailingReport();
-      const error = new Error('script failed') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 1;
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      const args = {
-        featureId: 'feat-1',
-        designPath: '/tmp/design.md',
-        planPath: '/tmp/plan.md',
-      };
-
-      // Act
-      await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.passed).toBe(false);
-      expect(event.data.details).toEqual({
-        dimension: 'D1',
-        phase: 'plan',
-        covered: 3,
-        gaps: 2,
-        deferred: 2,
-        totalSections: 7,
+        totalSections: 1,
       });
     });
   });
 
-  // ─── Phase in Details ──────────────────────────────────────────────────────
+  // ─── File Read Error ────────────────────────────────────────────────────
 
-  describe('phase in event details', () => {
-    it('handlePlanCoverage_EmitsGateEvent_IncludesPhasePlanInDetails', async () => {
-      // Arrange
-      const stdout = makePassingReport();
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+  describe('file read errors', () => {
+    it('handlePlanCoverage_FileNotFound_ReturnsError', async () => {
+      vi.mocked(readFile).mockRejectedValue(new Error('ENOENT: no such file'));
 
       const args = {
         featureId: 'feat-1',
-        designPath: '/tmp/design.md',
+        designPath: '/tmp/nonexistent.md',
         planPath: '/tmp/plan.md',
       };
 
-      // Act
-      await handlePlanCoverage(args, STATE_DIR);
-
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.details.phase).toBe('plan');
-    });
-  });
-
-  // ─── Usage Error ──────────────────────────────────────────────────────────
-
-  describe('usage error from script', () => {
-    it('handlePlanCoverage_UsageError_ReturnsScriptError', async () => {
-      // Arrange — exit code 2 = usage error
-      const error = new Error('script usage error') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 2;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('Error: Design file not found: /tmp/design.md');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      const args = {
-        featureId: 'feat-1',
-        designPath: '/tmp/design.md',
-        planPath: '/tmp/plan.md',
-      };
-
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
-      expect(result.error?.message).toContain('Design file not found');
+      expect(result.error?.code).toBe('FILE_ERROR');
     });
   });
 
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
+  // ─── Empty Design ────────────────────────────────────────────────────────
 
-  describe('unexpected exit code', () => {
-    it('handlePlanCoverage_ExitCode3Plus_ReturnsScriptError', async () => {
-      // Arrange — exit code 127 = command not found
-      const error = new Error('command not found') as Error & {
-        status: number;
-        stdout: Buffer;
-        stderr: Buffer;
-      };
-      error.status = 127;
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('');
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+  describe('empty design', () => {
+    it('handlePlanCoverage_NoDesignSections_ReturnsError', async () => {
+      const designContent = '# Feature Design\n\n## Problem Statement\n\nSome problem.';
+      const planContent = '### Task 001: Something\n\nSome task.';
+
+      vi.mocked(readFile).mockImplementation(async (path: Parameters<typeof readFile>[0]) => {
+        const pathStr = String(path);
+        if (pathStr.includes('design')) return designContent;
+        return planContent;
       });
 
-      const args = { featureId: 'feat-1', designPath: '/tmp/d.md', planPath: '/tmp/p.md' };
+      const args = {
+        featureId: 'feat-1',
+        designPath: '/tmp/design.md',
+        planPath: '/tmp/plan.md',
+      };
 
-      // Act
       const result = await handlePlanCoverage(args, STATE_DIR);
 
-      // Assert
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
+      expect(result.error?.code).toBe('NO_DESIGN_SECTIONS');
+    });
+  });
+
+  // ─── No Tasks ─────────────────────────────────────────────────────────────
+
+  describe('no tasks in plan', () => {
+    it('handlePlanCoverage_NoTasks_ReturnsFailResult', async () => {
+      const designContent = [
+        '## Technical Design',
+        '### Widget Component',
+        'Build widget.',
+      ].join('\n');
+      const planContent = '# Plan\n\n## Overview\n\nJust an overview.';
+
+      vi.mocked(readFile).mockImplementation(async (path: Parameters<typeof readFile>[0]) => {
+        const pathStr = String(path);
+        if (pathStr.includes('design')) return designContent;
+        return planContent;
+      });
+
+      const args = {
+        featureId: 'feat-1',
+        designPath: '/tmp/design.md',
+        planPath: '/tmp/plan.md',
+      };
+
+      const result = await handlePlanCoverage(args, STATE_DIR);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('NO_PLAN_TASKS');
     });
   });
 });

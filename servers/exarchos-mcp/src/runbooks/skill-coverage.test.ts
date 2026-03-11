@@ -75,4 +75,9 @@ describe('Skill coverage — runbook references', () => {
     const content = readSkillFile('quality-review/SKILL.md');
     assertRunbookReference(content, 'review-escalation');
   });
+
+  it('SkillCoverage_ShepherdSkill_ReferencesShepherdEscalationRunbook', () => {
+    const content = readSkillFile('shepherd/SKILL.md');
+    assertRunbookReference(content, 'shepherd-escalation');
+  });
 });

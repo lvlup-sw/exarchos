@@ -1,14 +1,14 @@
-// ─── Context Economy Gate (T-20) ────────────────────────────────────────────
+// ─── Context Economy Gate ────────────────────────────────────────────────────
 //
-// Orchestrates context-economy checking by running the
-// scripts/check-context-economy.sh script and emitting gate.executed events
-// for quality-layer gate checks.
-// ────────────────────────────────────────────────────────────────────────────
+// Orchestrates context-economy checking by calling the pure TypeScript
+// checkContextEconomy function and emitting gate.executed events for
+// quality-layer gate checks.
+// ─────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, getDiff } from './gate-utils.js';
+import { checkContextEconomy } from './pure/context-economy.js';
 import { queryRuntimeMetrics } from '../telemetry/telemetry-queries.js';
 import type { RuntimeMetrics } from '../telemetry/telemetry-queries.js';
 
@@ -27,16 +27,6 @@ interface ContextEconomyResult {
   readonly runtimeMetrics?: RuntimeMetrics;
 }
 
-// ─── Output Parsing ────────────────────────────────────────────────────────
-
-function parseContextEconomyOutput(output: string): number {
-  const findingsMatch = output.match(/Result:\s*FINDINGS\*{0,2}\s*\((\d+)\s*findings detected\)/);
-  if (findingsMatch) {
-    return parseInt(findingsMatch[1], 10);
-  }
-  return 0;
-}
-
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handleContextEconomy(
@@ -51,77 +41,38 @@ export async function handleContextEconomy(
     };
   }
 
-  // Build the script command
   const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
-  let stdout = '';
-  let passed = false;
-
-  try {
-    const output = execFileSync(
-      'scripts/check-context-economy.sh',
-      ['--repo-root', repoRoot, '--base-branch', baseBranch],
-      { timeout: 60_000, stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-    stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
-    passed = true;
-  } catch (err: unknown) {
-    const execError = err as {
-      status?: number;
-      stdout?: Buffer | string;
-      stderr?: Buffer | string;
+  // Get the diff — fail-closed if git is unavailable
+  const diff = getDiff(repoRoot, baseBranch);
+  if (diff === null) {
+    return {
+      success: false,
+      error: { code: 'DIFF_ERROR', message: `Failed to get diff from git in ${repoRoot}` },
     };
-
-    // Timeout or spawn errors have no status — treat as script error
-    if (execError.status == null) {
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-
-    // Exit code 2 = usage error — return as script error
-    if (execError.status === 2) {
-      const stderr = execError.stderr instanceof Buffer
-        ? execError.stderr.toString('utf-8')
-        : String(execError.stderr ?? '');
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: stderr || 'Script usage error',
-        },
-      };
-    }
-
-    // Exit code 1 = findings detected — parse the report
-    if (execError.status === 1) {
-      stdout = execError.stdout instanceof Buffer
-        ? execError.stdout.toString('utf-8')
-        : String(execError.stdout ?? '');
-      passed = false;
-    } else {
-      // Exit code ≥3 = unexpected error — treat as script error
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
   }
+  const tsResult = checkContextEconomy(diff);
 
-  // Parse finding count from stdout
-  const findingCount = parseContextEconomyOutput(stdout);
+  const passed = tsResult.pass;
+  const findingCount = tsResult.findings.length;
+
+  // Build report from structured result
+  const reportLines: string[] = [];
+  if (findingCount > 0) {
+    for (const f of tsResult.findings) {
+      reportLines.push(`- **${f.severity}**: ${f.message}`);
+    }
+    reportLines.push('');
+    reportLines.push(`Result: FINDINGS (${findingCount} findings detected)`);
+  } else {
+    reportLines.push(`Result: PASS (${tsResult.checksPassed}/${tsResult.checksRun} checks passed)`);
+  }
+  const report = reportLines.join('\n');
 
   const store = getOrCreateEventStore(stateDir);
 
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
+  // Emit gate.executed event (fire-and-forget)
   try {
     await emitGateEvent(store, args.featureId, 'context-economy', 'quality', passed, {
       dimension: 'D3',
@@ -137,7 +88,7 @@ export async function handleContextEconomy(
   const result: ContextEconomyResult = {
     passed,
     findingCount,
-    report: stdout,
+    report,
     runtimeMetrics,
   };
 

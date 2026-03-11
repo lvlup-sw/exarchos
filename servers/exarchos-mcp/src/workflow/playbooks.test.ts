@@ -60,12 +60,9 @@ describe('Feature workflow playbooks', () => {
     expect(playbook.events.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('getPlaybook_FeatureReview_HasStaticAnalysisScript', () => {
+  it('getPlaybook_FeatureReview_HasEmptyValidationScripts', () => {
     const playbook = getPlaybook('feature', 'review')!;
-    const hasStaticAnalysis = playbook.validationScripts.some((s) =>
-      s.includes('static-analysis'),
-    );
-    expect(hasStaticAnalysis).toBe(true);
+    expect(playbook.validationScripts).toEqual([]);
   });
 
   it('getPlaybook_FeatureSynthesize_HasPreSynthesisScript', () => {
@@ -278,6 +275,73 @@ describe('listPlaybookWorkflowTypes', () => {
     expect(types).toContain('debug');
     expect(types).toContain('refactor');
     expect(types.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ─── DR-5: EventInstruction fields + compactGuidance describe hint ──────────
+
+describe('EventInstruction fields property', () => {
+  it('EventInstruction_GateExecuted_HasRequiredFields', () => {
+    const playbooks = serializePlaybooks('feature');
+    // Find any phase with a gate.executed event
+    const phasesWithGateExecuted = Object.entries(playbooks.phases).filter(
+      ([, pb]) => pb.events.some((e) => e.type === 'gate.executed'),
+    );
+    expect(phasesWithGateExecuted.length).toBeGreaterThan(0);
+    for (const [, pb] of phasesWithGateExecuted) {
+      const gateEvent = pb.events.find((e) => e.type === 'gate.executed');
+      expect(gateEvent).toBeDefined();
+      expect((gateEvent as { fields?: readonly string[] }).fields).toBeDefined();
+      const fields = (gateEvent as { fields?: readonly string[] }).fields!;
+      expect(fields).toContain('gateName');
+      expect(fields).toContain('layer');
+      expect(fields).toContain('passed');
+    }
+  });
+
+  it('EventInstruction_TaskAssigned_HasRequiredFields', () => {
+    const playbooks = serializePlaybooks('feature');
+    const phasesWithTaskAssigned = Object.entries(playbooks.phases).filter(
+      ([, pb]) => pb.events.some((e) => e.type === 'task.assigned'),
+    );
+    expect(phasesWithTaskAssigned.length).toBeGreaterThan(0);
+    for (const [, pb] of phasesWithTaskAssigned) {
+      const taskEvent = pb.events.find((e) => e.type === 'task.assigned');
+      expect(taskEvent).toBeDefined();
+      const fields = (taskEvent as { fields?: readonly string[] }).fields!;
+      expect(fields).toBeDefined();
+      expect(fields).toContain('taskId');
+    }
+  });
+});
+
+describe('compactGuidance describe hint', () => {
+  it('Playbook_CompactGuidance_ContainsDescribeHint', () => {
+    const playbooks = serializePlaybooks('feature');
+    // Find phases that have events to emit
+    const phasesWithEvents = Object.entries(playbooks.phases).filter(
+      ([, pb]) => pb.events.length > 0,
+    );
+    expect(phasesWithEvents.length).toBeGreaterThan(0);
+    for (const [, pb] of phasesWithEvents) {
+      const guidance = pb.compactGuidance.toLowerCase();
+      expect(
+        guidance.includes('describe') || guidance.includes('exarchos_event'),
+        `Expected compactGuidance to reference describe or exarchos_event for phase with events`,
+      ).toBe(true);
+    }
+  });
+});
+
+// ─── DR-6: review.completed in review phase playbook ─────────────────────────
+
+describe('review.completed in review phase', () => {
+  it('ReviewPlaybook_Events_IncludesReviewCompleted', () => {
+    const playbooks = serializePlaybooks('feature');
+    const reviewPhase = playbooks.phases['review'];
+    expect(reviewPhase).toBeDefined();
+    const hasReviewCompleted = reviewPhase.events.some((e) => e.type === 'review.completed');
+    expect(hasReviewCompleted).toBe(true);
   });
 });
 

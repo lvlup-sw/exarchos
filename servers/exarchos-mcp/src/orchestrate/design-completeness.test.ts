@@ -1,16 +1,16 @@
 // ─── Design Completeness Composite Action Tests ─────────────────────────────
 //
-// Tests for the design-completeness gate handler that wraps
-// scripts/verify-ideate-artifacts.sh and emits gate.executed events.
+// Tests for the design-completeness gate handler that wraps the pure TS
+// handleDesignCompleteness function and emits gate.executed events.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 
-// ─── Mock child_process ─────────────────────────────────────────────────────
+// ─── Mock pure TS design-completeness module ────────────────────────────────
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+vi.mock('./pure/design-completeness.js', () => ({
+  handleDesignCompleteness: vi.fn(),
 }));
 
 // ─── Mock event store ───────────────────────────────────────────────────────
@@ -18,15 +18,20 @@ vi.mock('node:child_process', () => ({
 const mockAppend = vi.fn();
 const mockQuery = vi.fn();
 
-vi.mock('../event-store/store.js', () => ({
-  EventStore: vi.fn().mockImplementation(() => ({
-    append: mockAppend,
-    query: mockQuery,
-  })),
+const mockStore = {
+  append: mockAppend,
+  query: mockQuery,
+};
+
+vi.mock('../views/tools.js', () => ({
+  getOrCreateEventStore: () => mockStore,
+  getOrCreateMaterializer: () => ({}),
 }));
 
-import { execFileSync } from 'node:child_process';
+import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 import { handleDesignCompleteness } from './design-completeness.js';
+
+const mockRunDesignCompleteness = vi.mocked(runDesignCompleteness);
 
 const STATE_DIR = '/tmp/test-design-completeness';
 
@@ -61,28 +66,19 @@ describe('handleDesignCompleteness', () => {
     });
   });
 
-  // ─── Script Passes ──────────────────────────────────────────────────────
+  // ─── All Checks Pass ─────────────────────────────────────────────────────
 
-  describe('script passes', () => {
-    it('handleDesignCompleteness_ScriptPasses_ReturnsPassedWithAdvisory', async () => {
-      // Arrange — mock execSync to return exit 0 with PASS output
-      const stdout = [
-        '## Ideation Artifact Verification Report',
-        '',
-        '**State file:** `/tmp/state.json`',
-        '**Design file:** `/tmp/design.md`',
-        '',
-        '- **PASS**: Design document exists (/tmp/design.md)',
-        '- **PASS**: Required sections present (6/6)',
-        '- **PASS**: Multiple options evaluated (3 options found)',
-        '- **PASS**: State file has design path (/tmp/design.md)',
-        '',
-        '---',
-        '',
-        '**Result: PASS** (4/4 checks passed)',
-      ].join('\n');
-
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+  describe('all checks pass', () => {
+    it('handleDesignCompleteness_AllChecksPass_ReturnsPassedWithAdvisory', async () => {
+      // Arrange — mock pure TS function to return all-pass result
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       const result = await handleDesignCompleteness(
@@ -109,37 +105,21 @@ describe('handleDesignCompleteness', () => {
     });
   });
 
-  // ─── Script Finds Issues ────────────────────────────────────────────────
+  // ─── Findings Detected ─────────────────────────────────────────────────
 
-  describe('script finds issues', () => {
-    it('handleDesignCompleteness_ScriptFindsIssues_ReturnsAdvisoryFindings', async () => {
-      // Arrange — mock execSync to throw (exit code 1) with findings in stdout
-      const stdout = [
-        '## Ideation Artifact Verification Report',
-        '',
-        '**State file:** `/tmp/state.json`',
-        '**Design file:** `/tmp/design.md`',
-        '',
-        '- **PASS**: Design document exists (/tmp/design.md)',
-        '- **FAIL**: Required sections present — Missing: Testing Strategy, Open Questions',
-        '- **FAIL**: Multiple options evaluated — Found 1 option(s), expected at least 2',
-        '- **PASS**: State file has design path (/tmp/design.md)',
-        '',
-        '---',
-        '',
-        '**Result: FAIL** (2/4 checks failed)',
-      ].join('\n');
-
-      const error = new Error('Command failed') as Error & {
-        stdout: Buffer;
-        stderr: Buffer;
-        status: number;
-      };
-      error.stdout = Buffer.from(stdout);
-      error.stderr = Buffer.from('');
-      error.status = 1;
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
+  describe('findings detected', () => {
+    it('handleDesignCompleteness_FindingsDetected_ReturnsAdvisoryFindings', async () => {
+      // Arrange — mock pure TS function to return findings
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: false,
+        advisory: true,
+        findings: [
+          'Required sections missing: Testing Strategy, Open Questions',
+          'Found 1 option(s), expected at least 2',
+        ],
+        checkCount: 4,
+        passCount: 2,
+        failCount: 2,
       });
 
       // Act
@@ -161,8 +141,8 @@ describe('handleDesignCompleteness', () => {
       expect(data.passed).toBe(false);
       expect(data.advisory).toBe(true);
       expect(data.findings.length).toBe(2);
-      expect(data.findings[0]).toContain('Required sections present');
-      expect(data.findings[1]).toContain('Multiple options evaluated');
+      expect(data.findings[0]).toContain('Required sections');
+      expect(data.findings[1]).toContain('option');
       expect(data.passCount).toBe(2);
       expect(data.failCount).toBe(2);
       expect(data.checkCount).toBe(4);
@@ -174,22 +154,14 @@ describe('handleDesignCompleteness', () => {
   describe('event emission', () => {
     it('handleDesignCompleteness_EmitsGateExecutedEvent', async () => {
       // Arrange
-      const stdout = [
-        '## Ideation Artifact Verification Report',
-        '',
-        '**State file:** `/tmp/state.json`',
-        '',
-        '- **PASS**: Design document exists (/tmp/design.md)',
-        '- **PASS**: Required sections present (6/6)',
-        '- **PASS**: Multiple options evaluated (3 options found)',
-        '- **PASS**: State file has design path (/tmp/design.md)',
-        '',
-        '---',
-        '',
-        '**Result: PASS** (4/4 checks passed)',
-      ].join('\n');
-
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       await handleDesignCompleteness(
@@ -236,20 +208,14 @@ describe('handleDesignCompleteness', () => {
   describe('phase in event details', () => {
     it('handleDesignCompleteness_EmitsGateEvent_IncludesPhaseIdeateInDetails', async () => {
       // Arrange
-      const stdout = [
-        '## Ideation Artifact Verification Report',
-        '',
-        '- **PASS**: Design document exists (/tmp/design.md)',
-        '- **PASS**: Required sections present (6/6)',
-        '- **PASS**: Multiple options evaluated (3 options found)',
-        '- **PASS**: State file has design path (/tmp/design.md)',
-        '',
-        '---',
-        '',
-        '**Result: PASS** (4/4 checks passed)',
-      ].join('\n');
-
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       await handleDesignCompleteness(
@@ -272,42 +238,19 @@ describe('handleDesignCompleteness', () => {
     });
   });
 
-  // ─── Usage Error ────────────────────────────────────────────────────────
-
-  describe('usage error', () => {
-    it('handleDesignCompleteness_ScriptUsageError_ReturnsError', async () => {
-      // Arrange — exit code 2 (usage error)
-      const error = new Error('Command failed') as Error & {
-        stdout: Buffer;
-        stderr: Buffer;
-        status: number;
-      };
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('Error: --state-file is required');
-      error.status = 2;
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      // Act
-      const result = await handleDesignCompleteness(
-        { featureId: 'test-feature' },
-        STATE_DIR,
-      );
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('DESIGN_COMPLETENESS_FAILED');
-    });
-  });
-
   // ─── State File Path Construction ───────────────────────────────────────
 
   describe('state file path', () => {
-    it('handleDesignCompleteness_UsesProvidedStatePath_PassesItToScript', async () => {
+    it('handleDesignCompleteness_UsesProvidedStatePath_PassesToChecker', async () => {
       // Arrange
-      const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       await handleDesignCompleteness(
@@ -315,17 +258,24 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script args include the custom state file
-      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
-      const stateFileIdx = argsCall.indexOf('--state-file');
-      expect(stateFileIdx).toBeGreaterThanOrEqual(0);
-      expect(argsCall[stateFileIdx + 1]).toBe('/custom/state.json');
+      // Assert — the pure TS function was called with the custom state file
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stateFile: '/custom/state.json',
+        }),
+      );
     });
 
     it('handleDesignCompleteness_NoStatePath_ConstructsFromStateDir', async () => {
       // Arrange
-      const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       await handleDesignCompleteness(
@@ -333,17 +283,24 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script args use stateDir-derived path
-      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
-      const stateFileIdx = argsCall.indexOf('--state-file');
-      expect(stateFileIdx).toBeGreaterThanOrEqual(0);
-      expect(argsCall[stateFileIdx + 1]).toContain(STATE_DIR);
+      // Assert — the pure TS function was called with stateDir-derived path
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stateFile: expect.stringContaining(STATE_DIR),
+        }),
+      );
     });
 
-    it('handleDesignCompleteness_DesignPathProvided_PassesToScript', async () => {
+    it('handleDesignCompleteness_DesignPathProvided_PassesToChecker', async () => {
       // Arrange
-      const stdout = '**Result: PASS** (4/4 checks passed)\n';
-      vi.mocked(execFileSync).mockReturnValue(Buffer.from(stdout));
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
 
       // Act
       await handleDesignCompleteness(
@@ -351,40 +308,12 @@ describe('handleDesignCompleteness', () => {
         STATE_DIR,
       );
 
-      // Assert — the script args include --design-file
-      const argsCall = vi.mocked(execFileSync).mock.calls[0][1] as string[];
-      const designFileIdx = argsCall.indexOf('--design-file');
-      expect(designFileIdx).toBeGreaterThanOrEqual(0);
-      expect(argsCall[designFileIdx + 1]).toBe('/tmp/my-design.md');
-    });
-  });
-
-  // ─── Unexpected Exit Code ──────────────────────────────────────────────────
-
-  describe('unexpected exit code', () => {
-    it('handleDesignCompleteness_ExitCode3Plus_ReturnsScriptError', async () => {
-      // Arrange — exit code 127 = command not found
-      const error = new Error('command not found') as Error & {
-        stdout: Buffer;
-        stderr: Buffer;
-        status: number;
-      };
-      error.stdout = Buffer.from('');
-      error.stderr = Buffer.from('');
-      error.status = 127;
-      vi.mocked(execFileSync).mockImplementation(() => {
-        throw error;
-      });
-
-      // Act
-      const result = await handleDesignCompleteness(
-        { featureId: 'test-feature' },
-        STATE_DIR,
+      // Assert — the pure TS function was called with the design file path
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          designFile: '/tmp/my-design.md',
+        }),
       );
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('SCRIPT_ERROR');
     });
   });
 });

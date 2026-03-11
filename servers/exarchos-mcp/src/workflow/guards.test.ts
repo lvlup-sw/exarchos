@@ -395,3 +395,89 @@ describe('synthesizeRetryable', () => {
     expect(result).toBe(true);
   });
 });
+
+// ─── T-16: Guards branch gap coverage ────────────────────────────────────────
+
+describe('planReviewComplete', () => {
+  it('PlanReviewApproved_MissingPlanReviewField_ReturnsFailed', () => {
+    // State without planReview field at all
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+    };
+
+    const result = guards.planReviewComplete.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('plan-review-complete');
+    expect(failure.reason).toContain('planReview.approved must be true');
+    expect(failure.expectedShape).toEqual({ planReview: { approved: true } });
+    expect(failure.suggestedFix).toBeDefined();
+    expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
+  });
+});
+
+describe('allTasksComplete', () => {
+  it('AllTasksCompleted_MixedTaskStatuses_ReturnsFailed', () => {
+    // State with tasks array containing completed + in-progress tasks
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 't1', status: 'complete' },
+        { id: 't2', status: 'in_progress' },
+        { id: 't3', status: 'pending' },
+      ],
+    };
+
+    const result = guards.allTasksComplete.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('all-tasks-complete');
+    // Should list the count of incomplete tasks
+    expect(failure.reason).toContain('2 task(s) incomplete');
+    // Should include suggested fix
+    expect(failure.suggestedFix).toBeDefined();
+    expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
+  });
+});
+
+
+describe('allReviewsPassed (synthesis ready)', () => {
+  it('SynthesisReadyGuard_MissingReviewVerdicts_ReturnsFailed', () => {
+    // State at review phase without review verdicts
+    // The allReviewsPassed guard checks that all reviews have passed status
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      // reviews exists but has no entries with recognizable status fields
+      reviews: {},
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    // Should indicate no recognizable review entries
+    expect(failure.reason).toContain('no recognizable review entries');
+    expect(failure.expectedShape).toBeDefined();
+  });
+
+  it('SynthesisReadyGuard_MissingReviewsField_ReturnsFailed', () => {
+    // State without reviews field at all
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('state.reviews is missing');
+  });
+});

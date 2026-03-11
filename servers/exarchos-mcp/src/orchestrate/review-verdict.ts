@@ -1,11 +1,10 @@
 // ─── Review Verdict Composite Action ─────────────────────────────────────────
 //
-// Orchestrates review verdict computation by running the review-verdict.sh
-// script and emitting gate.executed events for per-dimension results and
-// the overall review verdict.
+// Pure TypeScript review verdict computation — classifies review findings
+// into a routing verdict (APPROVED / NEEDS_FIXES / BLOCKED) and generates
+// a markdown report. No bash script dependency.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -26,7 +25,74 @@ interface ReviewVerdictResult {
   readonly high: number;
   readonly medium: number;
   readonly low: number;
+  readonly blockedReason?: string;
   readonly report: string;
+}
+
+// ─── Verdict Logic ──────────────────────────────────────────────────────────
+
+/**
+ * Compute the review verdict from finding counts.
+ * Priority: BLOCKED > NEEDS_FIXES > APPROVED.
+ *
+ * - BLOCKED: blockedReason is provided
+ * - NEEDS_FIXES: high > 0
+ * - APPROVED: no HIGH-severity findings
+ */
+export function computeVerdict(args: {
+  high: number;
+  medium: number;
+  low: number;
+  blockedReason?: string;
+}): 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED' {
+  if (args.blockedReason) {
+    return 'BLOCKED';
+  }
+  if (args.high > 0) {
+    return 'NEEDS_FIXES';
+  }
+  return 'APPROVED';
+}
+
+// ─── Report Generation ──────────────────────────────────────────────────────
+
+/**
+ * Generate a markdown verdict report matching the bash script's output format.
+ */
+export function generateVerdictReport(
+  verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED',
+  args: { high: number; medium: number; low: number; blockedReason?: string },
+): string {
+  const lines: string[] = [];
+  const total = args.high + args.medium + args.low;
+
+  if (verdict === 'BLOCKED') {
+    lines.push(
+      '## Review Verdict: BLOCKED',
+      '',
+      `**Reason:** ${args.blockedReason ?? 'Unknown'}`,
+      '',
+      'Return to design phase. Route to `/ideate --redesign`.',
+    );
+  } else if (verdict === 'NEEDS_FIXES') {
+    lines.push(
+      '## Review Verdict: NEEDS_FIXES',
+      '',
+      `Found ${args.high} HIGH-severity findings. Route to \`/delegate --fixes\`.`,
+      '',
+      `**Finding summary:** ${args.high} high, ${args.medium} medium, ${args.low} low (${total} total)`,
+    );
+  } else {
+    lines.push(
+      '## Review Verdict: APPROVED',
+      '',
+      'No HIGH-severity findings. Proceed to synthesis.',
+      '',
+      `**Finding summary:** ${args.high} high, ${args.medium} medium, ${args.low} low (${total} total)`,
+    );
+  }
+
+  return lines.join('\n');
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
@@ -54,72 +120,17 @@ export async function handleReviewVerdict(
     };
   }
 
-  // Build script command
-  const scriptArgs = [
-    '--high', String(args.high),
-    '--medium', String(args.medium),
-    '--low', String(args.low),
-  ];
-  if (args.blockedReason) {
-    scriptArgs.push('--blocked', args.blockedReason);
-  }
-
-  let stdout = '';
-  let verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED' = 'APPROVED';
-
-  try {
-    const output = execFileSync(
-      'scripts/review-verdict.sh',
-      scriptArgs,
-      { timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-    stdout = Buffer.isBuffer(output) ? output.toString('utf-8') : String(output);
-    verdict = 'APPROVED';
-  } catch (err: unknown) {
-    const execError = err as {
-      status?: number;
-      stdout?: Buffer | string;
-      stderr?: Buffer | string;
-    };
-
-    // Timeout or spawn errors have no status — treat as script error
-    if (execError.status == null) {
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-
-    stdout = execError.stdout instanceof Buffer
-      ? execError.stdout.toString('utf-8')
-      : String(execError.stdout ?? '');
-
-    // Exit code 1 = NEEDS_FIXES
-    if (execError.status === 1) {
-      verdict = 'NEEDS_FIXES';
-    } else if (execError.status === 2) {
-      verdict = 'BLOCKED';
-    } else {
-      // Exit code ≥3 = unexpected error — treat as script error
-      return {
-        success: false,
-        error: {
-          code: 'SCRIPT_ERROR',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      };
-    }
-  }
+  // Compute verdict in pure TypeScript
+  const verdict = computeVerdict(args);
+  const report = generateVerdictReport(verdict, args);
 
   const result: ReviewVerdictResult = {
     verdict,
     high: args.high,
     medium: args.medium,
     low: args.low,
-    report: stdout,
+    ...(args.blockedReason ? { blockedReason: args.blockedReason } : {}),
+    report,
   };
 
   // Emit per-dimension gate events (fire-and-forget)

@@ -3,7 +3,24 @@
 // Shared utility for emitting gate.executed events across gate handlers.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { execFileSync } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
+
+/**
+ * Fetch the unified diff between baseBranch and HEAD.
+ * Returns null on failure so callers can distinguish "no diff" from "error".
+ */
+export function getDiff(repoRoot: string, baseBranch: string): string | null {
+  try {
+    return execFileSync(
+      'git',
+      ['diff', `${baseBranch}...HEAD`],
+      { cwd: repoRoot, encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Emit a gate.executed event to the event store.
