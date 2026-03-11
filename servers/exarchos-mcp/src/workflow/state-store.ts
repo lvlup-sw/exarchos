@@ -465,35 +465,14 @@ export function deepMerge(
 }
 
 /**
- * Merge two arrays. If both contain objects with `id` fields, merge by id
- * (upsert semantics: existing items are deep-merged, new items appended).
- * Otherwise, the incoming array replaces the existing one.
+ * Merge two arrays. The incoming array always replaces the existing one.
+ *
+ * Previously used upsert-by-id semantics for arrays of objects with `id`
+ * fields, but this caused stale entries to persist when callers intended a
+ * full replacement (see GitHub #1003).
  */
-function isArrayOfObjectsWithId(arr: unknown[]): arr is Array<Record<string, unknown>> {
-  return arr.length > 0 && arr.every(item => isPlainObject(item) && 'id' in item);
-}
-
-function mergeArrays(existing: unknown[], incoming: unknown[]): unknown[] {
-  if (!isArrayOfObjectsWithId(incoming)) {
-    return incoming;
-  }
-  if (!isArrayOfObjectsWithId(existing)) {
-    return incoming;
-  }
-
-  const result = existing.map(item => ({ ...item }));
-  for (const incomingItem of incoming) {
-    const existingIndex = result.findIndex(item => item.id === incomingItem.id);
-    if (existingIndex >= 0) {
-      result[existingIndex] = deepMerge(
-        result[existingIndex],
-        incomingItem,
-      );
-    } else {
-      result.push({ ...incomingItem });
-    }
-  }
-  return result;
+function mergeArrays(_existing: unknown[], incoming: unknown[]): unknown[] {
+  return incoming;
 }
 
 /**

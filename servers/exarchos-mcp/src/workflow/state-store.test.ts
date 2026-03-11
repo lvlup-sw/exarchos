@@ -40,6 +40,31 @@ describe('deepMerge', () => {
     expect(result).toEqual({ items: [4, 5] });
   });
 
+  it('DeepMerge_ArraysOfObjectsWithId_ReplacesEntireArray', () => {
+    // Regression: #1003 — old upsert semantics left stale tasks
+    const target = {
+      tasks: [
+        { id: 't1', status: 'complete' },
+        { id: 't2', status: 'pending' },
+        { id: 't3', status: 'pending' },
+      ],
+    };
+    const source = {
+      tasks: [
+        { id: 'new-1', status: 'pending' },
+        { id: 'new-2', status: 'pending' },
+      ],
+    };
+
+    const result = deepMerge(target, source);
+
+    // Incoming array replaces entirely — old tasks t1/t2/t3 are gone
+    expect(result.tasks).toEqual([
+      { id: 'new-1', status: 'pending' },
+      { id: 'new-2', status: 'pending' },
+    ]);
+  });
+
   it('DeepMerge_FlatObjects_MergesTopLevel', () => {
     const target = { a: 1, b: 2 };
     const source = { b: 3, c: 4 };

@@ -75,14 +75,25 @@ export const FAILED_STATUSES = new Set(['fail', 'failed', 'needs_fixes']);
 
 /** Review expectedShape constant used by multiple guards. */
 const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
-  reviews: { '<name>': { status: 'pass' } },
+  reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
 };
 
 /**
- * Collects all `status` field values from a reviews object, handling both flat
+ * Extract the review status string from an entry, checking `status` first,
+ * then `verdict` as a synonym (see GitHub #1004).
+ */
+function extractStatus(entry: Record<string, unknown>): string | undefined {
+  if (typeof entry.status === 'string') return entry.status;
+  if (typeof entry.verdict === 'string') return entry.verdict;
+  return undefined;
+}
+
+/**
+ * Collects all review status values from a reviews object, handling both flat
  * and nested shapes:
  *   - flat:   reviews.overhaul = { status: "approved", ... }
- *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+ *   - flat:   reviews.overhaul = { verdict: "pass", ... }
+ *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
  * Also supports the legacy `passed: boolean` shape for backward compatibility.
  */
 export function collectReviewStatuses(
@@ -92,19 +103,21 @@ export function collectReviewStatuses(
   for (const [key, value] of Object.entries(reviews)) {
     if (typeof value !== 'object' || value === null) continue;
     const entry = value as Record<string, unknown>;
-    if (typeof entry.status === 'string') {
-      // Flat review: { status: "approved", ... }
-      results.push({ path: key, status: entry.status });
+    const status = extractStatus(entry);
+    if (status !== undefined) {
+      // Flat review: { status: "approved", ... } or { verdict: "pass", ... }
+      results.push({ path: key, status });
     } else if (typeof entry.passed === 'boolean') {
       // Legacy: { passed: true/false }
       results.push({ path: key, status: entry.passed ? 'passed' : 'failed' });
     } else {
-      // Nested: { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+      // Nested: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
       for (const [subKey, subValue] of Object.entries(entry)) {
         if (typeof subValue !== 'object' || subValue === null) continue;
         const sub = subValue as Record<string, unknown>;
-        if (typeof sub.status === 'string') {
-          results.push({ path: `${key}.${subKey}`, status: sub.status });
+        const subStatus = extractStatus(sub);
+        if (subStatus !== undefined) {
+          results.push({ path: `${key}.${subKey}`, status: subStatus });
         } else if (typeof sub.passed === 'boolean') {
           results.push({ path: `${key}.${subKey}`, status: sub.passed ? 'passed' : 'failed' });
         }

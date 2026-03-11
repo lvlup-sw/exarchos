@@ -338,7 +338,7 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'set',
-    description: 'Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided — do not duplicate via event append',
+    description: 'Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided and differs from current phase (no-op if already at target phase) — do not duplicate via event append',
     schema: z.object({
       featureId: featureIdSchema,
       updates: coercedRecord().optional(),
@@ -351,7 +351,7 @@ const workflowActions: readonly ToolAction[] = [
       examples: ['exarchos wf set -f my-feature --phase plan'],
     },
     autoEmits: [
-      { event: 'workflow.transition', condition: 'conditional', description: 'When phase is provided' },
+      { event: 'workflow.transition', condition: 'conditional', description: 'When phase is provided and differs from current phase' },
       { event: 'state.patched', condition: 'always' },
     ],
   },

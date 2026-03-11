@@ -106,7 +106,7 @@ describe('AllReviewsPassed Expected Shape', () => {
       const obj = result as GuardFailure;
       expect(obj.passed).toBe(false);
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
 
@@ -118,7 +118,7 @@ describe('AllReviewsPassed Expected Shape', () => {
       expect(result).not.toBe(true);
       const obj = result as GuardFailure;
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
   });
@@ -182,6 +182,65 @@ describe('AllReviewsPassed Nested Review Paths', () => {
   });
 });
 
+// ─── #1004: verdict synonym for status ─────────────────────────────────────
+
+describe('AllReviewsPassed Verdict Synonym', () => {
+  it('AllReviewsPassed_VerdictField_TreatedAsStatus', () => {
+    const state = {
+      reviews: {
+        specReview: { verdict: 'pass' },
+        qualityReview: { verdict: 'approved' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('AllReviewsPassed_MixedStatusAndVerdict_BothRecognized', () => {
+    const state = {
+      reviews: {
+        specReview: { status: 'pass' },
+        qualityReview: { verdict: 'pass' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('AllReviewsPassed_VerdictFail_FailsGuard', () => {
+    const state = {
+      reviews: {
+        specReview: { verdict: 'fail' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const obj = result as GuardFailure;
+    expect(obj.passed).toBe(false);
+  });
+
+  it('AllReviewsPassed_NestedVerdict_Recognized', () => {
+    const state = {
+      reviews: {
+        A1: {
+          specReview: { verdict: 'pass' },
+          qualityReview: { verdict: 'approved' },
+        },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+});
+
 describe('AnyReviewFailed Expected Shape', () => {
   describe('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
     it('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
@@ -193,7 +252,7 @@ describe('AnyReviewFailed Expected Shape', () => {
       const obj = result as GuardFailure;
       expect(obj.passed).toBe(false);
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
   });
