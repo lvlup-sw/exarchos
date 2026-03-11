@@ -4,6 +4,7 @@ import { handleCleanup } from './cleanup.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -13,8 +14,9 @@ const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!
  */
 export async function handleWorkflow(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir } = ctx;
   const { action, ...rest } = args;
 
   switch (action) {

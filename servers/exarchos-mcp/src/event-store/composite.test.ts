@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from './store.js';
 
 vi.mock('./tools.js', () => ({
   handleEventAppend: vi.fn().mockResolvedValue({
@@ -15,8 +17,13 @@ vi.mock('./tools.js', () => ({
 import { handleEvent } from './composite.js';
 import { handleEventAppend, handleEventQuery } from './tools.js';
 
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
 describe('handleEvent', () => {
   const stateDir = '/tmp/test-state';
+  const ctx = makeCtx(stateDir);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,7 +41,7 @@ describe('handleEvent', () => {
       };
 
       // Act
-      const result = await handleEvent(args, stateDir);
+      const result = await handleEvent(args, ctx);
 
       // Assert
       expect(handleEventAppend).toHaveBeenCalledWith(
@@ -66,7 +73,7 @@ describe('handleEvent', () => {
       };
 
       // Act
-      const result = await handleEvent(args, stateDir);
+      const result = await handleEvent(args, ctx);
 
       // Assert
       expect(handleEventQuery).toHaveBeenCalledWith(
@@ -92,7 +99,7 @@ describe('handleEvent', () => {
       const args = { action: 'delete' };
 
       // Act
-      const result = await handleEvent(args, stateDir);
+      const result = await handleEvent(args, ctx);
 
       // Assert
       expect(result).toEqual({

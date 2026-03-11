@@ -18,10 +18,20 @@ import { configureWorkflowEventStore, configureWorkflowMaterializer } from '../w
 import { EventStore } from '../event-store/store.js';
 import { resetModuleEventStore as resetEventModuleStore } from '../event-store/tools.js';
 import { resetMaterializerCache } from '../views/tools.js';
+import type { DispatchContext } from '../core/dispatch.js';
+
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
 
 // ─── Shared Setup / Teardown ────────────────────────────────────────────────
 
 let tmpDir: string;
+
+/** Create a DispatchContext from the current tmpDir */
+function ctx(): DispatchContext {
+  return makeCtx(tmpDir);
+}
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-integration-'));
@@ -50,7 +60,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Arrange & Act: init
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'test-feat', workflowType: 'feature' },
-        tmpDir,
+        ctx(),
       );
       expect(initResult.success).toBe(true);
       expect((initResult.data as Record<string, unknown>).phase).toBe('ideate');
@@ -58,7 +68,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Act: get after init
       const getResult1 = await handleWorkflow(
         { action: 'get', featureId: 'test-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(getResult1.success).toBe(true);
       const state1 = getResult1.data as Record<string, unknown>;
@@ -69,11 +79,11 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Act: set guard field and transition to plan
       await handleWorkflow(
         { action: 'set', featureId: 'test-feat', updates: { 'artifacts.design': 'docs/design.md' } },
-        tmpDir,
+        ctx(),
       );
       const setResult = await handleWorkflow(
         { action: 'set', featureId: 'test-feat', phase: 'plan' },
-        tmpDir,
+        ctx(),
       );
       expect(setResult.success).toBe(true);
       expect((setResult.data as Record<string, unknown>).phase).toBe('plan');
@@ -81,7 +91,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Act: get after transition
       const getResult2 = await handleWorkflow(
         { action: 'get', featureId: 'test-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(getResult2.success).toBe(true);
       expect((getResult2.data as Record<string, unknown>).phase).toBe('plan');
@@ -102,7 +112,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
             data: { featureId: 'test-feat', workflowType: 'feature' },
           },
         },
-        tmpDir,
+        ctx(),
       );
       expect(appendResult.success).toBe(true);
       const ack = appendResult.data as { streamId: string; sequence: number; type: string };
@@ -113,7 +123,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Act: query
       const queryResult = await handleEvent(
         { action: 'query', stream: 'test-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(queryResult.success).toBe(true);
 
@@ -142,7 +152,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
             { type: 'task.assigned', data: { taskId: '3', title: 'Third' } },
           ],
         },
-        tmpDir,
+        ctx(),
       );
       expect(batchResult.success).toBe(true);
 
@@ -155,7 +165,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // Act: query
       const queryResult = await handleEvent(
         { action: 'query', stream: 'test-batch' },
-        tmpDir,
+        ctx(),
       );
       expect(queryResult.success).toBe(true);
 
@@ -178,31 +188,31 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
 
   describe('UnknownAction_AllTools_ReturnsError', () => {
     it('should return UNKNOWN_ACTION for handleWorkflow', async () => {
-      const result = await handleWorkflow({ action: 'nonexistent' }, tmpDir);
+      const result = await handleWorkflow({ action: 'nonexistent' }, ctx());
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
 
     it('should return UNKNOWN_ACTION for handleEvent', async () => {
-      const result = await handleEvent({ action: 'nonexistent' }, tmpDir);
+      const result = await handleEvent({ action: 'nonexistent' }, ctx());
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
 
     it('should return UNKNOWN_ACTION for handleView', async () => {
-      const result = await handleView({ action: 'nonexistent' }, tmpDir);
+      const result = await handleView({ action: 'nonexistent' }, ctx());
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
 
     it('should return UNKNOWN_ACTION for handleOrchestrate', async () => {
-      const result = await handleOrchestrate({ action: 'nonexistent' }, tmpDir);
+      const result = await handleOrchestrate({ action: 'nonexistent' }, ctx());
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
 
     it('should return UNKNOWN_ACTION for handleSync', async () => {
-      const result = await handleSync({ action: 'nonexistent' }, tmpDir);
+      const result = await handleSync({ action: 'nonexistent' }, ctx());
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
@@ -217,13 +227,13 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // via Zod. Missing featureId causes a STATE_CORRUPT error to throw
       // (not caught and returned as ToolResult — this is the existing behavior).
       await expect(
-        handleWorkflow({ action: 'init', workflowType: 'feature' }, tmpDir),
+        handleWorkflow({ action: 'init', workflowType: 'feature' }, ctx()),
       ).rejects.toThrow(/STATE_CORRUPT/);
     });
 
     it('should throw when workflowType is missing from init', async () => {
       await expect(
-        handleWorkflow({ action: 'init', featureId: 'missing-type' }, tmpDir),
+        handleWorkflow({ action: 'init', featureId: 'missing-type' }, ctx()),
       ).rejects.toThrow(/Unknown workflow type/);
     });
 
@@ -232,7 +242,7 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       // The initStateFile creates the filename from featureId, but
       // Zod validation catches the format issue
       await expect(
-        handleWorkflow({ action: 'init', featureId: 'UPPERCASE', workflowType: 'feature' }, tmpDir),
+        handleWorkflow({ action: 'init', featureId: 'UPPERCASE', workflowType: 'feature' }, ctx()),
       ).rejects.toThrow();
     });
   });
@@ -251,21 +261,21 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
 
       await handleWorkflow(
         { action: 'init', featureId: 'pipeline-test', workflowType: 'feature' },
-        tmpDir,
+        ctx(),
       );
       await handleWorkflow(
         { action: 'set', featureId: 'pipeline-test', updates: { 'artifacts.design': 'design.md' } },
-        tmpDir,
+        ctx(),
       );
       await handleWorkflow(
         { action: 'set', featureId: 'pipeline-test', phase: 'plan' },
-        tmpDir,
+        ctx(),
       );
 
       // Act: get pipeline view
       const viewResult = await handleView(
         { action: 'pipeline' },
-        tmpDir,
+        ctx(),
       );
 
       // Assert: pipeline returns data with workflows
@@ -291,7 +301,7 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
             data: { taskId: 'T1', title: 'Test Task', status: 'pending' },
           },
         },
-        tmpDir,
+        ctx(),
       );
 
       // Act: claim the task
@@ -302,14 +312,14 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
           agentId: 'agent-1',
           streamId: 'claim-test',
         },
-        tmpDir,
+        ctx(),
       );
       expect(claimResult.success).toBe(true);
 
       // Assert: query events and look for task.claimed
       const queryResult = await handleEvent(
         { action: 'query', stream: 'claim-test' },
-        tmpDir,
+        ctx(),
       );
       expect(queryResult.success).toBe(true);
 
@@ -328,7 +338,7 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
       // Act: request telemetry view on an empty state dir
       const viewResult = await handleView(
         { action: 'telemetry' },
-        tmpDir,
+        ctx(),
       );
 
       // Assert: should succeed with an empty-but-valid structure
@@ -351,7 +361,7 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
       // Act: sync with no outbox files
       const syncResult = await handleSync(
         { action: 'now' },
-        tmpDir,
+        ctx(),
       );
 
       // Assert: should succeed with 0 streams
@@ -375,18 +385,18 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 1: Init workflow
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'lifecycle-feat', workflowType: 'feature' },
-        tmpDir,
+        ctx(),
       );
       expect(initResult.success).toBe(true);
 
       // Step 2: Set guard field and transition to plan (emits workflow.transition)
       await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', updates: { 'artifacts.design': 'docs/design.md' } },
-        tmpDir,
+        ctx(),
       );
       const toPlan = await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', phase: 'plan' },
-        tmpDir,
+        ctx(),
       );
       expect(toPlan.success).toBe(true);
       expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
@@ -394,7 +404,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 3: Query events directly via event store — should contain transition event
       const eventQuery = await handleEvent(
         { action: 'query', stream: 'lifecycle-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(eventQuery.success).toBe(true);
 
@@ -412,7 +422,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 4: Get workflow status — phase should match
       const getResult = await handleWorkflow(
         { action: 'get', featureId: 'lifecycle-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(getResult.success).toBe(true);
       expect((getResult.data as Record<string, unknown>).phase).toBe('plan');
@@ -420,11 +430,11 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 5: Set plan artifact, transition to plan-review
       await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', updates: { 'artifacts.plan': 'docs/plan.md' } },
-        tmpDir,
+        ctx(),
       );
       const toPlanReview = await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', phase: 'plan-review' },
-        tmpDir,
+        ctx(),
       );
       expect(toPlanReview.success).toBe(true);
       expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
@@ -432,11 +442,11 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 6: Set planReview.approved and transition to delegate
       await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', updates: { planReview: { approved: true } } },
-        tmpDir,
+        ctx(),
       );
       const toDelegate = await handleWorkflow(
         { action: 'set', featureId: 'lifecycle-feat', phase: 'delegate' },
-        tmpDir,
+        ctx(),
       );
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
@@ -444,7 +454,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 7: Verify full round-trip consistency
       const finalGet = await handleWorkflow(
         { action: 'get', featureId: 'lifecycle-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(finalGet.success).toBe(true);
       expect((finalGet.data as Record<string, unknown>).phase).toBe('delegate');
@@ -452,7 +462,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 8: Verify all transition events are present
       const finalEventQuery = await handleEvent(
         { action: 'query', stream: 'lifecycle-feat' },
-        tmpDir,
+        ctx(),
       );
       const allEvents = finalEventQuery.data as Array<Record<string, unknown>>;
       const allTransitions = allEvents.filter((e) => e.type === 'workflow.transition');
@@ -471,7 +481,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 1: Init workflow via composite (produces workflow.started event)
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'consistency-feat', workflowType: 'feature' },
-        tmpDir,
+        ctx(),
       );
       expect(initResult.success).toBe(true);
 
@@ -485,7 +495,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
             data: { taskId: 'T1', title: 'First Task', status: 'pending' },
           },
         },
-        tmpDir,
+        ctx(),
       );
 
       await handleEvent(
@@ -497,13 +507,13 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
             data: { taskId: 'T2', title: 'Second Task', status: 'pending' },
           },
         },
-        tmpDir,
+        ctx(),
       );
 
       // Step 3: Query events — should have workflow.started + 2 task.assigned
       const queryResult = await handleEvent(
         { action: 'query', stream: 'consistency-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(queryResult.success).toBe(true);
       const events = queryResult.data as Array<Record<string, unknown>>;
@@ -515,7 +525,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 4: View tasks — should materialize the 2 tasks from events
       const taskView = await handleView(
         { action: 'tasks', workflowId: 'consistency-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(taskView.success).toBe(true);
       const tasks = taskView.data as Array<Record<string, unknown>>;
@@ -524,7 +534,7 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       // Step 5: View workflow status — should reflect workflow.started
       const statusView = await handleView(
         { action: 'workflow_status', workflowId: 'consistency-feat' },
-        tmpDir,
+        ctx(),
       );
       expect(statusView.success).toBe(true);
       const statusData = statusView.data as Record<string, unknown>;

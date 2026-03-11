@@ -10,6 +10,12 @@ import {
   resetMaterializerCache,
 } from '../../views/tools.js';
 import { handleView } from '../../views/composite.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+import { EventStore } from '../../event-store/store.js';
+
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
 
 let tempDir: string | undefined;
 
@@ -115,7 +121,7 @@ describe('views/tools.ts composite error paths', () => {
     it('should return UNKNOWN_ACTION for an unrecognized action string', async () => {
       const result = await handleView(
         { action: 'nonexistent_view_action' },
-        tempDir,
+        makeCtx(tempDir!),
       );
 
       expect(result.success).toBe(false);

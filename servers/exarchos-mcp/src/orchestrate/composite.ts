@@ -5,6 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -87,8 +88,9 @@ export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLER
  */
 export async function handleOrchestrate(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir } = ctx;
   const { action, ...rest } = args;
 
   // Handle describe specially — it needs the action list, not stateDir

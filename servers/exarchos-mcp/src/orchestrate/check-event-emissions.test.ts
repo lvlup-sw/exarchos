@@ -265,9 +265,10 @@ describe('handleOrchestrate integration', () => {
     const { handleOrchestrate } = await import('./composite.js');
 
     // Call with check_event_emissions action to verify it's routed
+    const { EventStore } = await import('../event-store/store.js');
     const result = await handleOrchestrate(
       { action: 'check_event_emissions', featureId: 'test' },
-      STATE_DIR,
+      { stateDir: STATE_DIR, eventStore: new EventStore(STATE_DIR), enableTelemetry: false },
     );
 
     // Should NOT return UNKNOWN_ACTION — meaning the handler is registered

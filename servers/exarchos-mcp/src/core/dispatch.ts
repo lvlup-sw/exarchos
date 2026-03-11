@@ -15,7 +15,7 @@ import { handleSync } from '../sync/composite.js';
 
 export type CompositeHandler = (
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ) => Promise<ToolResult>;
 
 export interface DispatchContext {
@@ -104,7 +104,7 @@ function createCustomToolHandler(
  *
  * 1. Looks up the tool in COMPOSITE_HANDLERS
  * 2. If not found, returns an UNKNOWN_TOOL error
- * 3. Creates a CoreHandler that binds stateDir
+ * 3. Creates a CoreHandler that binds ctx
  * 4. Optionally wraps with telemetry
  * 5. Returns the ToolResult
  */
@@ -130,7 +130,7 @@ export async function dispatch(
   }
 
   const coreHandler = builtInHandler
-    ? async (a: Record<string, unknown>) => builtInHandler(a, ctx.stateDir)
+    ? async (a: Record<string, unknown>) => builtInHandler(a, ctx)
     : createCustomToolHandler(tool);
 
   try {

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from '../event-store/store.js';
 
 // Mock the view tools module
 vi.mock('./tools.js', () => ({
@@ -55,6 +57,12 @@ import { handleViewTelemetry } from '../telemetry/tools.js';
 
 const STATE_DIR = '/tmp/test-state';
 
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
+const CTX = makeCtx(STATE_DIR);
+
 describe('handleView', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -68,7 +76,7 @@ describe('handleView', () => {
       const args = { action: 'pipeline', limit: 10, offset: 0 };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -94,7 +102,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -119,7 +127,7 @@ describe('handleView', () => {
       const args = { action: 'workflow_status', workflowId: 'wf-2' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -136,7 +144,7 @@ describe('handleView', () => {
       const args = { action: 'team_status', workflowId: 'wf-3' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -157,7 +165,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -186,7 +194,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -214,7 +222,7 @@ describe('handleView', () => {
       const args = { action: 'telemetry', compact: true, tool: 'workflow_get' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -236,7 +244,7 @@ describe('handleView', () => {
       const args = { action: 'team_performance', workflowId: 'wf-4' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -259,7 +267,7 @@ describe('handleView', () => {
       const args = { action: 'delegation_timeline', workflowId: 'test' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -282,7 +290,7 @@ describe('handleView', () => {
       const args = { action: 'code_quality', workflowId: 'wf-5' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -308,7 +316,7 @@ describe('handleView', () => {
       const args = { action: 'quality_hints', workflowId: 'wf-6' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -332,7 +340,7 @@ describe('handleView', () => {
       const args = { action: 'quality_hints', workflowId: 'wf-7', skill: 'target-skill' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -352,7 +360,7 @@ describe('handleView', () => {
       const args = { action: 'quality_hints' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -372,7 +380,7 @@ describe('handleView', () => {
       const args = { action: 'eval_results', workflowId: 'eval-wf', skill: 'delegation', limit: 5 };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -395,7 +403,7 @@ describe('handleView', () => {
       const args = { action: 'quality_correlation', workflowId: 'corr-wf' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -416,7 +424,7 @@ describe('handleView', () => {
       const args = { action: 'quality_correlation' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -441,7 +449,7 @@ describe('handleView', () => {
       const args = { action: 'session_provenance', sessionId: 'sess-1' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -463,7 +471,7 @@ describe('handleView', () => {
       const args = { action: 'session_provenance', workflowId: 'wf-1' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -483,7 +491,7 @@ describe('handleView', () => {
       const args = { action: 'session_provenance' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -511,7 +519,7 @@ describe('handleView', () => {
       const args = { action: 'delegation_readiness', workflowId: 'wf-dr' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -541,7 +549,7 @@ describe('handleView', () => {
       const args = { action: 'synthesis_readiness', workflowId: 'wf-sr' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -569,7 +577,7 @@ describe('handleView', () => {
       const args = { action: 'shepherd_status', workflowId: 'wf-ss' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -597,7 +605,7 @@ describe('handleView', () => {
       const args = { action: 'provenance', workflowId: 'test-id' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -624,7 +632,7 @@ describe('handleView', () => {
       const args = { action: 'ideate_readiness', workflowId: 'test-id' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -642,7 +650,7 @@ describe('handleView', () => {
       const args = { action: 'nonexistent' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -665,7 +673,7 @@ describe('handleView', () => {
       const args = { action: 'nonexistent' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -691,7 +699,7 @@ describe('handleView', () => {
       const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -715,7 +723,7 @@ describe('handleView', () => {
       const args = { action: 'quality_attribution', dimension: 'invalid' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -742,7 +750,7 @@ describe('handleView', () => {
       const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -763,7 +771,7 @@ describe('handleView', () => {
       const args = {};
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);

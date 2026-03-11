@@ -4,6 +4,7 @@
 // individual MCP tools with a single `exarchos_view` entry point.
 
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import {
@@ -36,8 +37,9 @@ const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions
  */
 export async function handleView(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir } = ctx;
   const { action, ...rest } = args;
 
   switch (action) {

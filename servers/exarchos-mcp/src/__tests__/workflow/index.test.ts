@@ -208,7 +208,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleWorkflow).toHaveBeenCalledWith(
         { action: 'init', featureId: 'test-feat', workflowType: 'feature' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -220,7 +220,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleEvent).toHaveBeenCalledWith(
         { action: 'append', stream: 'my-stream', event: { type: 'test' } },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -232,7 +232,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleOrchestrate).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'task_claim', taskId: 'T1' }),
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -244,7 +244,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleView).toHaveBeenCalledWith(
         { action: 'pipeline' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 

@@ -7,6 +7,11 @@ import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js
 import { handleWorkflow } from '../../workflow/composite.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventStore as EventStoreType } from '../../event-store/store.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
 
 let tmpDir: string;
 
@@ -279,7 +284,7 @@ describe('handleCleanup', () => {
         action: 'cleanup',
         featureId: 'composite-test',
         mergeVerified: false,
-      }, tmpDir);
+      }, makeCtx(tmpDir));
 
       // Should fail with GUARD_FAILED (not UNKNOWN_ACTION)
       expect(result.success).toBe(false);

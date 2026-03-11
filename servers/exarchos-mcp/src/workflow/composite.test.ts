@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from '../event-store/store.js';
 
 vi.mock('./tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'init-result' } }),
@@ -15,8 +17,13 @@ import { handleWorkflow } from './composite.js';
 import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
 
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
 describe('handleWorkflow', () => {
   const stateDir = '/tmp/test-state';
+  const ctx = makeCtx(stateDir);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -26,7 +33,7 @@ describe('handleWorkflow', () => {
     it('should delegate to handleInit with correct args', async () => {
       const args = { action: 'init', featureId: 'test', workflowType: 'feature' };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(handleInit).toHaveBeenCalledWith(
         { featureId: 'test', workflowType: 'feature' },
@@ -40,7 +47,7 @@ describe('handleWorkflow', () => {
     it('should delegate to handleGet with correct args', async () => {
       const args = { action: 'get', featureId: 'test', query: 'phase' };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(handleGet).toHaveBeenCalledWith(
         { featureId: 'test', query: 'phase' },
@@ -54,7 +61,7 @@ describe('handleWorkflow', () => {
     it('should delegate to handleSet with correct args', async () => {
       const args = { action: 'set', featureId: 'test', phase: 'delegate', updates: { track: 'polish' } };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(handleSet).toHaveBeenCalledWith(
         { featureId: 'test', phase: 'delegate', updates: { track: 'polish' } },
@@ -68,7 +75,7 @@ describe('handleWorkflow', () => {
     it('should delegate to handleCancel with correct args', async () => {
       const args = { action: 'cancel', featureId: 'test', reason: 'no longer needed' };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(handleCancel).toHaveBeenCalledWith(
         { featureId: 'test', reason: 'no longer needed' },
@@ -82,7 +89,7 @@ describe('handleWorkflow', () => {
     it('should delegate to handleReconcileState with correct args', async () => {
       const args = { action: 'reconcile', featureId: 'test' };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(handleReconcileState).toHaveBeenCalledWith(
         { featureId: 'test' },
@@ -96,7 +103,7 @@ describe('handleWorkflow', () => {
     it('should return error for unknown action', async () => {
       const args = { action: 'invalid' };
 
-      const result = await handleWorkflow(args, stateDir);
+      const result = await handleWorkflow(args, ctx);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
