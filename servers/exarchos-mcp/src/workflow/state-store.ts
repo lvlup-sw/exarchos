@@ -438,8 +438,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 
 /**
  * Deep-merge source into target, returning a new merged object.
- * Primitive arrays are replaced. Arrays of objects with `id` fields
- * are merged by id (upsert semantics).
+ * Arrays are always replaced entirely (no id-based upsert).
  */
 export function deepMerge(
   target: Record<string, unknown>,
@@ -453,45 +452,12 @@ export function deepMerge(
         source[key] as Record<string, unknown>,
       );
     } else if (Array.isArray(result[key]) && Array.isArray(source[key])) {
-      result[key] = mergeArrays(
-        result[key] as unknown[],
-        source[key] as unknown[],
-      );
+      result[key] = source[key];
     } else {
       result[key] = source[key];
     }
   }
   return result;
-}
-
-/**
- * Merge two arrays. For object arrays where every element has an `id` field,
- * performs id-based upsert (merge incoming into existing, preserving entries
- * not present in incoming). For all other arrays, replaces entirely.
- *
- * This preserves completed tasks when guards emit partial updates containing
- * only incomplete tasks, while still supporting full replacement for arrays
- * without id-based identity (see GitHub #1003).
- */
-function mergeArrays(existing: unknown[], incoming: unknown[]): unknown[] {
-  // Check if both arrays are object arrays with `id` fields
-  const isIdArray = (arr: unknown[]): arr is Array<Record<string, unknown>> =>
-    arr.length > 0 && arr.every(
-      (item) => typeof item === 'object' && item !== null && 'id' in item,
-    );
-
-  if (!isIdArray(incoming)) return incoming;
-  if (!isIdArray(existing)) return incoming;
-
-  // Id-based upsert: start with existing, merge/overwrite matching ids, append new
-  const result = new Map<unknown, Record<string, unknown>>();
-  for (const item of existing) {
-    result.set(item.id, item);
-  }
-  for (const item of incoming) {
-    result.set(item.id, { ...result.get(item.id), ...item });
-  }
-  return [...result.values()];
 }
 
 /**
@@ -606,10 +572,7 @@ export function applyDotPath(
         value as Record<string, unknown>,
       );
     } else if (Array.isArray(record[lastSegment]) && Array.isArray(value)) {
-      record[lastSegment] = mergeArrays(
-        record[lastSegment] as unknown[],
-        value as unknown[],
-      );
+      record[lastSegment] = value;
     } else {
       record[lastSegment] = value;
     }
