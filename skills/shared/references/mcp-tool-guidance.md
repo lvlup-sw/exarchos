@@ -15,7 +15,7 @@ Use specialized MCP tools over generic approaches:
 
 ## Describe Before You Guess
 
-Four Exarchos tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) have a `describe` action that returns live schemas. `exarchos_sync` only exposes the `now` action. **Use `describe` before guessing parameter shapes:**
+The four Exarchos composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) each have a `describe` action that returns live schemas. **Use `describe` before guessing parameter shapes:**
 
 | Need to know… | Call |
 |----------------|------|
