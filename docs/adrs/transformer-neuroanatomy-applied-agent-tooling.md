@@ -439,15 +439,19 @@ Controls overall response effort as a coarse dial:
 }
 ```
 
-**2. Adaptive thinking** (`thinking: {type: "adaptive"}`)
+**2. Extended thinking**
 
-When extended thinking is available, adaptive mode lets the model dynamically allocate thinking
-budget based on problem difficulty — rather than forcing a fixed budget or disabling thinking
-entirely:
+Extended thinking controls the model's internal reasoning process. The configuration differs by
+model family:
+
+**Opus 4.6 — Adaptive thinking** (`thinking: {type: "adaptive"}`)
+
+Adaptive mode lets the model dynamically allocate thinking budget based on problem difficulty.
+`budget_tokens` is deprecated for Opus 4.6; use adaptive mode instead:
 
 ```json
 {
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-opus-4-6",
   "messages": [...],
   "thinking": {
     "type": "adaptive"
@@ -455,15 +459,28 @@ entirely:
 }
 ```
 
-This is particularly useful when a single agent handles a mix of easy and hard tasks in sequence.
-Rather than paying for maximum thinking on every call, adaptive mode lets the model self-regulate:
-simple tasks get minimal thinking, hard tasks get deep thinking, without the orchestrator needing
-to predict difficulty in advance.
+**Sonnet / Haiku — Fixed-budget thinking** (`thinking: {type: "enabled"}`)
+
+Sonnet and Haiku use explicit thinking budgets. Set `budget_tokens` to control reasoning depth:
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [...],
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 8192
+  }
+}
+```
+
+Adaptive thinking is particularly useful for Opus agents handling a mix of easy and hard tasks.
+For Sonnet agents with predictable task complexity, fixed budgets provide more cost control.
 
 **Combining effort and thinking:** The `effort` parameter and thinking configuration are
 complementary. `effort` controls overall response behavior, while `thinking` controls the
-internal reasoning process. For maximum reasoning depth: `effort: "max"` + explicit thinking
-budget. For self-regulating agents: `effort: "high"` + `thinking: {type: "adaptive"}`.
+internal reasoning process. For maximum reasoning depth: `effort: "max"` + adaptive thinking
+(Opus only). For cost-controlled agents: `effort: "high"` + fixed thinking budget (Sonnet).
 
 ### Effort-to-Model Mapping
 
@@ -474,8 +491,8 @@ primary effort lever:
 |---|---|---|---|
 | **Minimal** | Haiku + `effort: "low"` | Haiku (model selection) | "Be concise. Answer directly." |
 | **Standard** | Sonnet + `effort: "medium"` | Sonnet (default) | Standard prompt |
-| **Thorough** | Sonnet + `effort: "high"` + adaptive thinking | Sonnet + "think carefully" | "Analyze thoroughly. Consider edge cases." |
-| **Maximum** | Opus + `effort: "max"` + high thinking budget | Opus (model selection) | "Think step by step. Consider all alternatives." |
+| **Thorough** | Sonnet + `effort: "high"` + fixed thinking budget | Sonnet + "think carefully" | "Analyze thoroughly. Consider edge cases." |
+| **Maximum** | Opus + `effort: "max"` + adaptive thinking | Opus (model selection) | "Think step by step. Consider all alternatives." |
 
 ### Claude Code Integration
 

@@ -397,11 +397,11 @@ export const TASK_CLASSIFICATION: RunbookDefinition = {
     {
       tool: 'none', action: 'decide', onFail: 'stop',
       decide: {
-        question: 'Is this task pure scaffolding (boilerplate files, config wiring, no logic)?',
+        question: 'Is this task low-complexity (scaffolding, boilerplate, config wiring, simple glue code, or single-file changes with minimal logic)?',
         source: 'human',
         branches: {
-          'yes': { label: 'Scaffolding', guidance: 'Use scaffolder agent spec (sonnet, effort low). Scaffolding tasks have predictable structure and need no deep reasoning.' },
-          'no': { label: 'Not scaffolding', guidance: 'Proceed to complexity assessment to determine the right agent spec and effort level.', nextStep: 'complexity-check' },
+          'yes': { label: 'Low complexity', guidance: 'Use scaffolder agent spec (sonnet, effort low). Low-complexity tasks have predictable structure and need no deep reasoning.' },
+          'no': { label: 'Not low-complexity', guidance: 'Proceed to complexity assessment to determine the right agent spec and effort level.', nextStep: 'complexity-check' },
         },
       },
     },
@@ -424,7 +424,7 @@ export const TASK_CLASSIFICATION: RunbookDefinition = {
         source: 'state-field',
         field: 'contextPackage.tokenEstimate',
         branches: {
-          'yes': { label: 'Large context', guidance: 'Compress the context package before dispatch. Summarize reference material, trim examples, and keep only load-bearing content to stay within agent context budget.', escalate: true },
+          'yes': { label: 'Large context', guidance: 'Compress the context package before dispatch. Summarize reference material, trim examples, and keep only load-bearing content to stay within agent context budget.', escalate: false },
           'no': { label: 'Acceptable context', guidance: 'Context size is within budget. Dispatch with the full context package — no compression needed.' },
         },
       },
@@ -458,7 +458,7 @@ export const REVIEW_STRATEGY: RunbookDefinition = {
         source: 'event-count',
         field: 'workflow.fix-cycle',
         branches: {
-          'yes': { label: 'Fix cycle', guidance: 'Force two-pass review regardless of change size. Prior failure means the single-pass missed something — use high-recall first pass to catch regression, then high-precision second pass to verify the fix.', escalate: true },
+          'yes': { label: 'Fix cycle', guidance: 'Force two-pass review regardless of change size. Prior failure means the single-pass missed something — use high-recall first pass to catch regression, then high-precision second pass to verify the fix.', escalate: false },
           'no': { label: 'First review', guidance: 'Use the strategy selected in the previous step. No prior failures to account for.' },
         },
       },

@@ -77,7 +77,7 @@ This provides the complete picture of all changes across all tasks and reduces c
 
 Before evaluating, query the review strategy runbook to determine the appropriate evaluation approach:
 
-- **Evaluation strategy:** `exarchos_orchestrate({ action: "runbook", id: "review-strategy" })` to determine single-pass vs two-pass evaluation strategy based on diff size and task count.
+- **Evaluation strategy:** `exarchos_orchestrate({ action: "runbook", id: "review-strategy" })` to determine the review approach based on diff scope, prior fix cycles, and review stage.
 
 ## Review Scope
 

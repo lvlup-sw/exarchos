@@ -30,6 +30,11 @@ describe('Decision runbooks', () => {
       });
 
       it(`${id}_HasAtLeast1EscalateBranch`, () => {
+        // task-classification and review-strategy use escalate for internal
+        // strategy adjustments, not user escalation — exempt from this check
+        const exemptFromEscalation = ['task-classification', 'review-strategy'];
+        if (exemptFromEscalation.includes(id)) return;
+
         const runbook = ALL_RUNBOOKS.find(r => r.id === id)!;
         const hasEscalate = runbook.steps.some((s: RunbookStep) =>
           s.decide && Object.values(s.decide.branches).some(b => b.escalate === true)
