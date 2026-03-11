@@ -16,6 +16,7 @@ import {
   checkRequiredSections,
   checkMultipleOptions,
   checkStateDesignPath,
+  checkAcceptanceCriteria,
   handleDesignCompleteness,
 } from './design-completeness.js';
 
@@ -31,7 +32,7 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-/** Complete design document with all 7 required sections and 3 options. */
+/** Complete design document with all 7 required sections, 3 options, and acceptance criteria. */
 function completeDesignContent(): string {
   return `# Design: Test Feature
 
@@ -42,7 +43,14 @@ We need to solve a problem that requires careful design.
 ## Requirements
 
 - DR-1: The system must do X
+  - Given: a valid input is provided
+  - When: the system processes the input
+  - Then: the expected output is produced
+
 - DR-2: The system must do Y
+  - Given: the system is in a ready state
+  - When: an event is triggered
+  - Then: the system transitions to the correct state
 
 ## Chosen Approach
 
@@ -286,5 +294,76 @@ describe('handleDesignCompleteness', () => {
     expect(result.checkCount).toBeGreaterThanOrEqual(3);
     expect(result.failCount).toBe(0);
     expect(result.passCount).toBe(result.checkCount);
+  });
+});
+
+// ─── checkAcceptanceCriteria ─────────────────────────────────────────────────
+
+describe('checkAcceptanceCriteria', () => {
+  it('checkDesignCompleteness_GivenWhenThenPresent_PassesValidation', () => {
+    // Arrange — design doc with DR-N entries that have Given/When/Then acceptance criteria
+    const content = `## Requirements
+
+- DR-1: The system must validate inputs
+  - Given: a user submits a form with invalid data
+  - When: the validation engine processes the submission
+  - Then: the system returns a descriptive error message
+
+- DR-2: The system must log all events
+  - Given: any state-changing operation occurs
+  - When: the event is processed
+  - Then: an audit log entry is created with timestamp and actor
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — both DR-N entries have Given/When/Then criteria, so validation passes
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('checkDesignCompleteness_BulletPointFallback_StillPasses', () => {
+    // Arrange — design doc with DR-N entries that have bullet-point acceptance criteria
+    const content = `## Requirements
+
+- DR-1: The system must validate inputs
+  - Acceptance Criteria:
+    - Returns 400 for missing required fields
+    - Returns descriptive error messages
+    - Validates field types match schema
+
+- DR-2: The system must log all events
+  - Acceptance Criteria:
+    - Every mutation produces an audit log entry
+    - Log entries include timestamp, actor, and action
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — bullet-point format is accepted as valid acceptance criteria
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('checkDesignCompleteness_NoAcceptanceCriteria_ReportsAdvisoryFinding', () => {
+    // Arrange — design doc with DR-N entries but no acceptance criteria
+    const content = `## Requirements
+
+- DR-1: The system must validate inputs
+- DR-2: The system must log all events
+- DR-3: The system must handle errors gracefully
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — missing acceptance criteria on all DR-N entries produces advisory findings
+    expect(result.passed).toBe(false);
+    expect(result.missingCriteria).toContain('DR-1');
+    expect(result.missingCriteria).toContain('DR-2');
+    expect(result.missingCriteria).toContain('DR-3');
+    expect(result.missingCriteria).toHaveLength(3);
   });
 });

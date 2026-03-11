@@ -4,10 +4,11 @@
 // completeness at the ideate->plan boundary. No bash/execFileSync dependency.
 //
 // Exported functions:
-//   resolveDesignFile    — locate the design document via explicit path, state file, or docs dir
-//   checkRequiredSections — verify 7 required markdown sections (case-insensitive)
-//   checkMultipleOptions — verify >= 2 option headings
-//   checkStateDesignPath — read artifacts.design from state JSON
+//   resolveDesignFile      — locate the design document via explicit path, state file, or docs dir
+//   checkRequiredSections  — verify 7 required markdown sections (case-insensitive)
+//   checkMultipleOptions   — verify >= 2 option headings
+//   checkAcceptanceCriteria — verify DR-N entries have acceptance criteria (Given/When/Then or bullet-point)
+//   checkStateDesignPath   — read artifacts.design from state JSON
 //   handleDesignCompleteness — orchestrate all checks, return structured result
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,11 @@ export interface StateDesignPathResult {
   readonly passed: boolean;
   readonly designPath?: string;
   readonly error?: string;
+}
+
+export interface AcceptanceCriteriaResult {
+  readonly passed: boolean;
+  readonly missingCriteria: readonly string[];
 }
 
 export interface DesignCompletenessResult {
@@ -146,6 +152,93 @@ export function checkMultipleOptions(content: string): OptionsResult {
   };
 }
 
+// ─── checkAcceptanceCriteria ─────────────────────────────────────────────────
+
+/** Pattern matching a single design requirement line (e.g. `- DR-1: ...`). */
+const DR_LINE_PATTERN = /^[-*]\s+(DR-\d+):/i;
+
+/** Given/When/Then acceptance criteria keywords (case-insensitive, indented sub-bullet). */
+const GIVEN_WHEN_THEN_PATTERN = /^\s+[-*]\s+(?:given|when|then)\s*:/im;
+
+/** Bullet-point acceptance criteria header (case-insensitive, indented sub-bullet). */
+const ACCEPTANCE_CRITERIA_HEADER_PATTERN = /^\s+[-*]\s+acceptance\s+criteria\s*:/im;
+
+/** Markdown section heading at document level (not indented). */
+const SECTION_HEADING_PATTERN = /^#{1,}\s+/;
+
+/**
+ * Check that each DR-N entry in the Requirements section has acceptance criteria.
+ *
+ * Accepts two formats:
+ *   1. Given/When/Then — indented sub-bullets starting with Given:, When:, Then:
+ *   2. Bullet-point — indented sub-bullet "Acceptance Criteria:" followed by list items
+ *
+ * Returns the list of DR-N identifiers that lack any acceptance criteria.
+ * If no DR-N entries are found, the check passes vacuously.
+ */
+export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResult {
+  const lines = content.split('\n');
+
+  // Collect all DR-N entries with their line positions
+  const drEntries: Array<{ id: string; lineIndex: number }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = DR_LINE_PATTERN.exec(lines[i]);
+    if (match) {
+      drEntries.push({ id: match[1], lineIndex: i });
+    }
+  }
+
+  if (drEntries.length === 0) {
+    return { passed: true, missingCriteria: [] };
+  }
+
+  const missingCriteria: string[] = [];
+
+  for (let idx = 0; idx < drEntries.length; idx++) {
+    const startLine = drEntries[idx].lineIndex + 1;
+    const endLine = findBlockEnd(lines, startLine, drEntries, idx);
+    const block = lines.slice(startLine, endLine).join('\n');
+
+    if (!hasAcceptanceCriteria(block)) {
+      missingCriteria.push(drEntries[idx].id);
+    }
+  }
+
+  return {
+    passed: missingCriteria.length === 0,
+    missingCriteria,
+  };
+}
+
+/**
+ * Find the end line of a DR-N block: the next DR-N entry, a section heading, or EOF.
+ */
+function findBlockEnd(
+  lines: readonly string[],
+  startLine: number,
+  drEntries: ReadonlyArray<{ id: string; lineIndex: number }>,
+  currentIdx: number,
+): number {
+  // If there's a subsequent DR-N entry, its line is the boundary
+  if (currentIdx + 1 < drEntries.length) {
+    return drEntries[currentIdx + 1].lineIndex;
+  }
+
+  // Otherwise, scan for the next section heading
+  for (let j = startLine; j < lines.length; j++) {
+    if (SECTION_HEADING_PATTERN.test(lines[j]) && !lines[j].startsWith(' ')) {
+      return j;
+    }
+  }
+
+  return lines.length;
+}
+
+/** Test whether a text block contains any recognized acceptance criteria format. */
+function hasAcceptanceCriteria(block: string): boolean {
+  return GIVEN_WHEN_THEN_PATTERN.test(block) || ACCEPTANCE_CRITERIA_HEADER_PATTERN.test(block);
+}
+
 // ─── checkStateDesignPath ───────────────────────────────────────────────────
 
 /**
@@ -205,6 +298,7 @@ export interface HandleDesignCompletenessArgs {
  *   2. Required sections present (7 sections, case-insensitive)
  *   3. Multiple options evaluated (>= 2)
  *   4. State file has design path recorded
+ *   5. Acceptance criteria present on DR-N entries (advisory — does not fail the check)
  */
 export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): DesignCompletenessResult {
   const findings: string[] = [];
@@ -279,6 +373,14 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
       failCount++;
       findings.push(stateResult.error ?? 'State file missing design path');
     }
+  }
+
+  // Check 5: Acceptance criteria on DR-N entries (advisory — does not affect pass/fail)
+  const criteriaResult = checkAcceptanceCriteria(content);
+  if (!criteriaResult.passed && criteriaResult.missingCriteria.length > 0) {
+    findings.push(
+      `Advisory: DR entries missing acceptance criteria: ${criteriaResult.missingCriteria.join(', ')}`,
+    );
   }
 
   const checkCount = passCount + failCount;
