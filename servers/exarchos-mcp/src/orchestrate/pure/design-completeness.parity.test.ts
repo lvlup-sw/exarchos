@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { checkRequiredSections, checkMultipleOptions } from './design-completeness.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import { checkRequiredSections, checkMultipleOptions, handleDesignCompleteness } from './design-completeness.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 /**
  * Behavioral parity tests for design-completeness.ts against the original
@@ -226,5 +229,47 @@ Some design without any options listed.`;
       expect(result.passed).toBe(false);
       expect(result.count).toBe(0);
     });
+  });
+});
+
+describe('full evaluation parity', () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('complete design with all sections — handleDesignCompleteness returns all-pass result', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-completeness-parity-'));
+    const designPath = path.join(tmpDir, 'design.md');
+    const completeWithRequirements = COMPLETE_DESIGN + '\n\n## Requirements\n\nMust handle 1000 requests/sec.\n';
+    fs.writeFileSync(designPath, completeWithRequirements);
+
+    const result = handleDesignCompleteness({ designFile: designPath });
+
+    expect(result).toEqual({
+      passed: true,
+      advisory: true,
+      findings: [],
+      checkCount: 3,
+      passCount: 3,
+      failCount: 0,
+    });
+  });
+
+  it('incomplete design (missing Technical Design) — handleDesignCompleteness returns failure', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-completeness-parity-'));
+    const designPath = path.join(tmpDir, 'design.md');
+    fs.writeFileSync(designPath, MISSING_TECHNICAL_DESIGN);
+
+    const result = handleDesignCompleteness({ designFile: designPath });
+
+    expect(result.passed).toBe(false);
+    expect(result.failCount).toBeGreaterThanOrEqual(1);
+    expect(result.findings).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Technical Design/)])
+    );
   });
 });

@@ -139,4 +139,64 @@ describe('behavioral parity with verify-provenance-chain.sh', () => {
     expect(result.status).toBe('error');
     expect(result.error).toContain('Plan file not found');
   });
+
+  it('orphan — DR-99 referenced in plan but not in design yields FAIL with 1 orphan', () => {
+    const planWithOrphan = `# Implementation Plan
+## Tasks
+### Task 1: Build Widget Component
+**Implements:** DR-1, DR-99
+Build the core widget rendering component.
+### Task 2: Create API Client
+**Implements:** DR-2
+Set up the API client with fetch wrappers.
+### Task 3: Implement State Manager
+**Implements:** DR-3
+Create the state management layer.
+`;
+
+    fs.writeFileSync(designPath, DESIGN_FIXTURE);
+    fs.writeFileSync(planPath, planWithOrphan);
+
+    const result = verifyProvenanceChain({
+      designFile: designPath,
+      planFile: planPath,
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.requirements).toBe(3);
+    expect(result.covered).toBe(3);
+    expect(result.gaps).toBe(0);
+    expect(result.orphanRefs).toBe(1);
+    expect(result.orphanDetails).toEqual(
+      expect.arrayContaining([expect.stringContaining('DR-99')])
+    );
+  });
+
+  it('combined — gap (DR-3 missing) AND orphan (DR-99) yields FAIL with both findings', () => {
+    const planWithGapAndOrphan = `# Implementation Plan
+## Tasks
+### Task 1: Build Widget Component
+**Implements:** DR-1, DR-99
+Build the core widget rendering component.
+### Task 2: Create API Client
+**Implements:** DR-2
+Set up the API client with fetch wrappers.
+`;
+
+    fs.writeFileSync(designPath, DESIGN_FIXTURE);
+    fs.writeFileSync(planPath, planWithGapAndOrphan);
+
+    const result = verifyProvenanceChain({
+      designFile: designPath,
+      planFile: planPath,
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.gaps).toBe(1);
+    expect(result.gapDetails).toEqual(['DR-3']);
+    expect(result.orphanRefs).toBe(1);
+    expect(result.orphanDetails).toEqual(
+      expect.arrayContaining([expect.stringContaining('DR-99')])
+    );
+  });
 });

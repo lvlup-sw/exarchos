@@ -61,6 +61,25 @@ Design section: Widget Component
 ### Task 002: Create API Client
 Design section: API Client`;
 
+const DESIGN_MULTI_GAP = `# Feature Design
+## Problem Statement
+We need a full system.
+## Technical Design
+### Widget Component
+Renders the main UI.
+### Cache Layer
+Caching for performance.
+### Message Queue
+Async message processing.
+## Testing Strategy
+Unit tests needed.`;
+
+const PLAN_MINIMAL = `# Implementation Plan
+## Tasks
+### Task 001: Create Widget Component
+Build the widget rendering layer.
+Design section: Widget Component`;
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('behavioral parity with verify-plan-coverage.sh', () => {
@@ -160,6 +179,17 @@ Some overview without task headers.`;
       expect(result.coverage.gaps).toBe(0);
       expect(result.coverage.covered).toBe(2);
       expect(result.gapSections).toEqual([]);
+    });
+
+    it('multiple gaps — 2 uncovered sections yield FAIL with 2 gaps', () => {
+      const designSections = parseDesignSections(DESIGN_MULTI_GAP);
+      const tasks = parsePlanTasks(PLAN_MINIMAL);
+      const result = computeCoverage(designSections, tasks, PLAN_MINIMAL, []);
+
+      expect(result.passed).toBe(false);
+      expect(result.coverage.gaps).toBe(2);
+      expect(result.gapSections).toContain('Cache Layer');
+      expect(result.gapSections).toContain('Message Queue');
     });
   });
 });

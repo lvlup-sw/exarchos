@@ -14,8 +14,8 @@ import type { CommandResult } from './post-merge.js';
 const PR_URL = 'https://github.com/org/repo/pull/42';
 const MERGE_SHA = 'abc1234def5678';
 
-function makeAllPassRunner(): (cmd: string, args: readonly string[]) => CommandResult {
-  return (cmd: string, args: readonly string[]): CommandResult => {
+function makeAllPassRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
+  return (cmd: string, _args: readonly string[]): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -33,8 +33,8 @@ function makeAllPassRunner(): (cmd: string, args: readonly string[]) => CommandR
   };
 }
 
-function makeCiFailRunner(): (cmd: string, args: readonly string[]) => CommandResult {
-  return (cmd: string, args: readonly string[]): CommandResult => {
+function makeCiFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
+  return (cmd: string, _args: readonly string[]): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
@@ -52,14 +52,33 @@ function makeCiFailRunner(): (cmd: string, args: readonly string[]) => CommandRe
   };
 }
 
-function makeTestFailRunner(): (cmd: string, args: readonly string[]) => CommandResult {
-  return (cmd: string, args: readonly string[]): CommandResult => {
+function makeTestFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
+  return (cmd: string, _args: readonly string[]): CommandResult => {
     if (cmd === 'gh') {
       return {
         exitCode: 0,
         stdout: JSON.stringify([
           { name: 'build', state: 'SUCCESS' },
           { name: 'test', state: 'SUCCESS' },
+        ]),
+        stderr: '',
+      };
+    }
+    if (cmd === 'npm') {
+      return { exitCode: 1, stdout: '', stderr: 'Test failures\n' };
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  };
+}
+
+function makeBothFailRunner(): (cmd: string, _args: readonly string[]) => CommandResult {
+  return (cmd: string, _args: readonly string[]): CommandResult => {
+    if (cmd === 'gh') {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          { name: 'build', state: 'SUCCESS' },
+          { name: 'lint', state: 'FAILURE' },
         ]),
         stderr: '',
       };
@@ -115,6 +134,19 @@ describe('behavioral parity with check-post-merge.sh', () => {
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]).toContain('test-suite');
     expect(result.report).toContain('**Result: FAIL** (1/2 checks failed)');
+  });
+
+  it('both fail — CI + test failures yield FAIL (0/2 checks passed)', () => {
+    const result = checkPostMerge({
+      prUrl: PR_URL,
+      mergeSha: MERGE_SHA,
+      runCommand: makeBothFailRunner(),
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.passCount).toBe(0);
+    expect(result.failCount).toBe(2);
+    expect(result.findings).toHaveLength(2);
   });
 
   it('report contains structured markdown with PR URL and merge SHA', () => {

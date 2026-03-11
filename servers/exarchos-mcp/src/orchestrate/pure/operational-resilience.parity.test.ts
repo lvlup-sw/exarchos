@@ -47,6 +47,28 @@ index abc1234..def5678 100644
 +});
  export {};`;
 
+const MULTIPLE_FINDINGS_DIFF = `diff --git a/src/handler.ts b/src/handler.ts
+index abc1234..def5678 100644
+--- a/src/handler.ts
++++ b/src/handler.ts
+@@ -1,2 +1,6 @@
++function risky() {
++  try {
++    doSomething();
++  } catch (e) { }
++}
+ export function handle() {}
+diff --git a/src/service.ts b/src/service.ts
+index abc1234..def5678 100644
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -1,2 +1,5 @@
++function debug(value: unknown) {
++  console.log("debugging:", value);
++  return value;
++}
+ export function init() {}`;
+
 describe('behavioral parity with operational-resilience.sh', () => {
   it('clean diff passes with zero findings', () => {
     const result = checkOperationalResilience(CLEAN_DIFF);
@@ -59,24 +81,32 @@ describe('behavioral parity with operational-resilience.sh', () => {
   it('empty catch block produces HIGH finding', () => {
     const result = checkOperationalResilience(EMPTY_CATCH_DIFF);
 
-    expect(result.pass).toBe(false);
-    expect(result.findingCount).toBe(1);
-    expect(result.findings.length).toBe(1);
-    expect(result.findings[0]!.severity).toBe('HIGH');
-    // TS Finding has {severity, message} — file name is embedded in message
-    expect(result.findings[0]!.message).toMatch(/handler\.ts/);
+    expect(result).toEqual(expect.objectContaining({
+      pass: false,
+      findingCount: 1,
+      findings: [
+        expect.objectContaining({
+          severity: 'HIGH',
+          message: expect.stringMatching(/handler\.ts/),
+        }),
+      ],
+    }));
     expect(result.findings[0]!.message).toMatch(/[Ee]mpty catch/i);
   });
 
   it('console.log in source file produces MEDIUM finding', () => {
     const result = checkOperationalResilience(CONSOLE_LOG_SOURCE_DIFF);
 
-    expect(result.pass).toBe(false);
-    expect(result.findingCount).toBe(1);
-    expect(result.findings.length).toBe(1);
-    expect(result.findings[0]!.severity).toBe('MEDIUM');
-    // TS Finding has {severity, message} — file name is embedded in message
-    expect(result.findings[0]!.message).toMatch(/service\.ts/);
+    expect(result).toEqual(expect.objectContaining({
+      pass: false,
+      findingCount: 1,
+      findings: [
+        expect.objectContaining({
+          severity: 'MEDIUM',
+          message: expect.stringMatching(/service\.ts/),
+        }),
+      ],
+    }));
     expect(result.findings[0]!.message).toMatch(/console\.log/i);
   });
 
@@ -86,5 +116,13 @@ describe('behavioral parity with operational-resilience.sh', () => {
     expect(result.pass).toBe(true);
     expect(result.findingCount).toBe(0);
     expect(result.findings).toEqual([]);
+  });
+
+  it('multiple issues produce multiple findings', () => {
+    const result = checkOperationalResilience(MULTIPLE_FINDINGS_DIFF);
+
+    expect(result.pass).toBe(false);
+    expect(result.findingCount).toBe(2);
+    expect(result.findings).toHaveLength(2);
   });
 });

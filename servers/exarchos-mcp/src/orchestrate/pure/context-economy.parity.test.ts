@@ -39,6 +39,19 @@ index abc1234..def5678 100644
   return parts.join('\n');
 }
 
+function makeGeneratedFileDiff(): string {
+  const lines = ['+// @generated'];
+  for (let i = 0; i < 1500; i++) {
+    lines.push(`+export const gen_${i} = ${i};`);
+  }
+  return `diff --git a/src/generated.ts b/src/generated.ts
+index abc1234..def5678 100644
+--- /dev/null
++++ b/src/generated.ts
+@@ -0,0 +1,1501 @@
+${lines.join('\n')}`;
+}
+
 describe('behavioral parity with context-economy.sh', () => {
   it('clean diff passes with all checks passing and no findings', () => {
     const result = checkContextEconomy(makeCleanDiff());
@@ -54,8 +67,10 @@ describe('behavioral parity with context-economy.sh', () => {
 
     expect(result.pass).toBe(false);
     expect(result.findings.length).toBe(1);
-    expect(result.findings[0]!.severity).toBe('MEDIUM');
-    expect(result.findings[0]!.message).toMatch(/src\/huge\.ts/);
+    expect(result.findings[0]).toEqual(expect.objectContaining({
+      severity: 'MEDIUM',
+      message: expect.stringMatching(/src\/huge\.ts/),
+    }));
     expect(result.findings[0]!.message).toMatch(/450/);
   });
 
@@ -64,9 +79,18 @@ describe('behavioral parity with context-economy.sh', () => {
 
     expect(result.pass).toBe(false);
     expect(result.findings.length).toBe(1);
-    expect(result.findings[0]!.severity).toBe('MEDIUM');
-    expect(result.findings[0]!.message).toMatch(/35/);
+    expect(result.findings[0]).toEqual(expect.objectContaining({
+      severity: 'MEDIUM',
+      message: expect.stringMatching(/35/),
+    }));
     expect(result.findings[0]!.message).toMatch(/30/);
+  });
+
+  it('large generated file produces finding with generated marker', () => {
+    const result = checkContextEconomy(makeGeneratedFileDiff());
+
+    expect(result.pass).toBe(false);
+    expect(result.findings.some((f) => /generated/i.test(f.message))).toBe(true);
   });
 
   it('empty diff passes with no findings (bash: 4/4, TS: 0/0 — no files to check)', () => {
@@ -78,6 +102,7 @@ describe('behavioral parity with context-economy.sh', () => {
     expect(result.pass).toBe(true);
     expect(result.findings).toEqual([]);
     // TS implementation: no files parsed → 0 checks run (vs bash's hardcoded 4)
-    expect(result.checksRun).toBe(result.checksPassed);
+    expect(result.checksRun).toBe(0);
+    expect(result.checksPassed).toBe(0);
   });
 });
