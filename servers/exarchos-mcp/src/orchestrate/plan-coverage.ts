@@ -24,6 +24,7 @@ interface PlanCoverageResult {
   readonly coverage: CoverageMetrics;
   readonly report: string;
   readonly gapSections: readonly string[];
+  readonly advisories?: readonly string[];
 }
 
 interface CoverageMatrixRow {
@@ -35,6 +36,12 @@ interface CoverageMatrixRow {
 export interface PlanTask {
   readonly id: string;
   readonly title: string;
+}
+
+export interface AcceptanceTestTask {
+  readonly taskId: string;
+  readonly taskTitle: string;
+  readonly implementsDrs: readonly string[];
 }
 
 // ─── Stop Words ──────────────────────────────────────────────────────────
@@ -278,17 +285,166 @@ export function parseDeferredSections(planContent: string): string[] {
   return deferred;
 }
 
+// ─── Acceptance Test Detection ───────────────────────────────────────────
+
+/**
+ * Detect design sections that contain Given/When/Then acceptance criteria.
+ * Scans ### sections under design headers and checks their body text
+ * for the presence of **Given**, **When**, **Then** keywords.
+ * Returns the section names (### header text) that have GWT criteria.
+ */
+export function detectGwtSections(markdown: string): string[] {
+  const lines = markdown.split('\n');
+  const gwtSections: string[] = [];
+
+  const designHeaderPattern = /^##\s+(technical\s+design|design\s+requirements|requirements)\s*$/i;
+  let inDesignSection = false;
+  let currentSectionName: string | null = null;
+  let hasGwt = false;
+
+  // Match bolded (**Given**), plain list (- Given), or label (Given:) forms
+  const gwtPattern = /(?:\*\*(Given|When|Then)\*\*|^[-*]\s+(Given|When|Then)\b|^\s+[-*]\s+(Given|When|Then)\b|(Given|When|Then)\s*:)/i;
+
+  function extractGwtKeyword(line: string): string | null {
+    const m = gwtPattern.exec(line);
+    if (!m) return null;
+    const kw = (m[1] ?? m[2] ?? m[3] ?? m[4]).toLowerCase();
+    return kw;
+  }
+
+  let seenKeywords = new Set<string>();
+
+  for (const line of lines) {
+    // Detect start of design section
+    if (designHeaderPattern.test(line)) {
+      inDesignSection = true;
+      continue;
+    }
+
+    if (!inDesignSection) {
+      continue;
+    }
+
+    // Detect next ## section (end of design section)
+    if (/^##\s/.test(line) && !/^###/.test(line)) {
+      // Flush current section — require all three keywords
+      if (currentSectionName && seenKeywords.size === 3) {
+        gwtSections.push(currentSectionName);
+      }
+      inDesignSection = false;
+      currentSectionName = null;
+      seenKeywords = new Set();
+      continue;
+    }
+
+    // New ### section
+    const h3Match = line.match(/^###\s+(.+)/);
+    if (h3Match) {
+      // Flush previous section
+      if (currentSectionName && seenKeywords.size === 3) {
+        gwtSections.push(currentSectionName);
+      }
+      currentSectionName = h3Match[1].trim();
+      seenKeywords = new Set();
+      continue;
+    }
+
+    // Check for GWT keywords in body
+    if (currentSectionName) {
+      const kw = extractGwtKeyword(line);
+      if (kw) {
+        seenKeywords.add(kw);
+      }
+    }
+  }
+
+  // Flush last section
+  if (currentSectionName && seenKeywords.size === 3) {
+    gwtSections.push(currentSectionName);
+  }
+
+  return gwtSections;
+}
+
+/**
+ * Parse plan tasks that have `**Test Layer:** acceptance`.
+ * For each such task, also extracts the `**Implements:** DR-N` references.
+ * Returns structured objects mapping task to the DRs it covers.
+ */
+export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTask[] {
+  const result: AcceptanceTestTask[] = [];
+  const lines = planContent.split('\n');
+
+  const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):\s+(.+)/;
+  const testLayerPattern = /\*\*Test Layer:\*\*\s*acceptance/i;
+  const implementsPattern = /\*\*Implements:\*\*\s*(.+)/i;
+
+  let currentTaskId: string | null = null;
+  let currentTaskTitle: string | null = null;
+  let isAcceptance = false;
+  let implementsDrs: string[] = [];
+
+  function flushTask(): void {
+    if (currentTaskId && currentTaskTitle && isAcceptance) {
+      result.push({
+        taskId: currentTaskId,
+        taskTitle: currentTaskTitle,
+        implementsDrs,
+      });
+    }
+  }
+
+  for (const line of lines) {
+    const taskMatch = line.match(taskPattern);
+    if (taskMatch) {
+      // Flush previous task
+      flushTask();
+      currentTaskId = taskMatch[1].trim();
+      currentTaskTitle = taskMatch[2].trim();
+      isAcceptance = false;
+      implementsDrs = [];
+      continue;
+    }
+
+    if (!currentTaskId) continue;
+
+    if (testLayerPattern.test(line)) {
+      isAcceptance = true;
+    }
+
+    const implMatch = line.match(implementsPattern);
+    if (implMatch) {
+      // Parse comma-separated DR references like "DR-1, DR-2"
+      implementsDrs = implMatch[1]
+        .split(/,\s*/)
+        .map(dr => dr.trim())
+        .filter(dr => dr.length > 0);
+    }
+  }
+
+  // Flush last task
+  flushTask();
+
+  return result;
+}
+
 // ─── Coverage Computation ───────────────────────────────────────────────
 
 /**
  * Compute coverage of design sections against plan tasks.
  * Returns pass/fail result with metrics and gap details.
+ *
+ * When `designContent` is provided, also checks that design requirements
+ * with Given/When/Then acceptance criteria have corresponding acceptance
+ * test tasks in the plan. Missing acceptance test tasks produce advisory
+ * findings (non-blocking).
  */
 export function computeCoverage(
   designSections: string[],
   tasks: PlanTask[],
   planContent: string,
   deferredSections: string[],
+  designContent?: string,
 ): PlanCoverageResult {
   let covered = 0;
   let gaps = 0;
@@ -371,6 +527,11 @@ export function computeCoverage(
   const total = covered + gaps + deferredCount;
   const passed = gaps === 0;
 
+  // Check acceptance test coverage for GWT sections (advisory only)
+  const advisories = designContent
+    ? checkAcceptanceTestCoverage(designContent, planContent)
+    : [];
+
   // Build report
   const report = buildReport(matrixRows, covered, gaps, deferredCount, total, gapSections);
 
@@ -379,6 +540,7 @@ export function computeCoverage(
     coverage: { covered, gaps, deferred: deferredCount, total },
     report,
     gapSections,
+    ...(advisories.length > 0 ? { advisories } : {}),
   };
 }
 
@@ -405,6 +567,44 @@ function isDeferredSection(
     }
   }
   return false;
+}
+
+// ─── Acceptance Test Coverage Check ──────────────────────────────────────
+
+/**
+ * Pure helper: checks whether design requirements with Given/When/Then
+ * acceptance criteria have matching acceptance test tasks in the plan.
+ * Returns advisory messages for DRs missing acceptance test tasks.
+ * Does not affect pass/fail — advisories are informational only.
+ */
+export function checkAcceptanceTestCoverage(
+  designContent: string,
+  planContent: string,
+): string[] {
+  const gwtSections = detectGwtSections(designContent);
+  if (gwtSections.length === 0) return [];
+
+  const acceptanceTasks = parseAcceptanceTestTasks(planContent);
+  const advisories: string[] = [];
+
+  for (const gwtSection of gwtSections) {
+    // Extract the DR identifier (e.g., "DR-1" from "DR-1: User Authentication")
+    const drId = gwtSection.match(/^(DR-\d+)/i)?.[1];
+    if (!drId) continue;
+
+    // Check if any acceptance test task implements this DR
+    const hasAcceptanceTest = acceptanceTasks.some(task =>
+      task.implementsDrs.some(dr => dr.toUpperCase() === drId.toUpperCase()),
+    );
+
+    if (!hasAcceptanceTest) {
+      advisories.push(
+        `${drId} has Given/When/Then acceptance criteria but no plan task with **Test Layer:** acceptance implements it`,
+      );
+    }
+  }
+
+  return advisories;
 }
 
 // ─── Report Builder ─────────────────────────────────────────────────────
@@ -537,8 +737,8 @@ export async function handlePlanCoverage(
   // Parse deferred sections
   const deferredSections = parseDeferredSections(planContent);
 
-  // Compute coverage
-  const result = computeCoverage(designSections, tasks, planContent, deferredSections);
+  // Compute coverage (pass designContent for acceptance test advisory checks)
+  const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
 
   // Emit gate.executed event (fire-and-forget)
   try {

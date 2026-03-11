@@ -215,4 +215,134 @@ describe('ProvenanceView', () => {
   it('ProvenanceView_ViewName_IsCorrect', () => {
     expect(PROVENANCE_VIEW).toBe('provenance');
   });
+
+  // ─── T11: task.completed with acceptanceTestRef traces link ────────────────
+
+  it('ProvenanceView_TaskWithAcceptanceTestRef_TracesLink', () => {
+    let state = provenanceProjection.init();
+
+    // First task covers DR-1
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-01',
+      implements: ['DR-1'],
+      tests: [{ name: 'TestFoo', file: 'foo.test.ts' }],
+      files: ['src/foo.ts'],
+    }, 1));
+
+    // Second task references T-01 as its acceptance test for DR-1
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-02',
+      implements: ['DR-1'],
+      acceptanceTestRef: 'T-01',
+      tests: [{ name: 'TestBar', file: 'bar.test.ts' }],
+      files: ['src/bar.ts'],
+    }, 2));
+
+    // The requirement DR-1 should now have acceptanceTests containing "T-01"
+    expect(state.requirements).toHaveLength(1);
+    expect(state.requirements[0].id).toBe('DR-1');
+    expect(state.requirements[0].acceptanceTests).toContain('T-01');
+    expect(state.requirements[0].tasks).toEqual(['T-01', 'T-02']);
+
+    // Tasks without acceptanceTestRef should not add to acceptanceTests
+    expect(state.requirements[0].acceptanceTests).toHaveLength(1);
+  });
+
+  // ─── T12: acceptanceTestCoverage reports ratio ────────────────────────────
+
+  it('ProvenanceView_AcceptanceTestCoverage_ReportsAcceptanceStatus', () => {
+    let state = provenanceProjection.init();
+
+    // First, emit the acceptance test task itself so refs resolve
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-00',
+      implements: ['DR-1', 'DR-3'],
+      tests: [{ name: 'AcceptanceTest', file: 'acceptance.test.ts' }],
+      files: ['acceptance.test.ts'],
+    }, 0));
+
+    // Task covering DR-1 with an acceptance test ref
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-01',
+      implements: ['DR-1'],
+      acceptanceTestRef: 'T-00',
+      tests: [{ name: 'TestA', file: 'a.test.ts' }],
+      files: ['src/a.ts'],
+    }, 1));
+
+    // Task covering DR-2 without acceptance test ref
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-02',
+      implements: ['DR-2'],
+      tests: [{ name: 'TestB', file: 'b.test.ts' }],
+      files: ['src/b.ts'],
+    }, 2));
+
+    // Task covering DR-3 with an acceptance test ref
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-03',
+      implements: ['DR-3'],
+      acceptanceTestRef: 'T-00',
+      tests: [{ name: 'TestC', file: 'c.test.ts' }],
+      files: ['src/c.ts'],
+    }, 3));
+
+    // DR-1 and DR-3 have acceptance tests (T-00 is a completed task), DR-2 does not
+    // acceptanceTestCoverage = 2/3
+    expect(state.requirements).toHaveLength(3);
+    expect(state.acceptanceTestCoverage).toBeCloseTo(2 / 3);
+
+    // Verify that requirements with acceptance tests have them populated
+    const dr1 = state.requirements.find((r) => r.id === 'DR-1');
+    expect(dr1?.acceptanceTests).toContain('T-00');
+    const dr2 = state.requirements.find((r) => r.id === 'DR-2');
+    expect(dr2?.acceptanceTests).toEqual([]);
+    const dr3 = state.requirements.find((r) => r.id === 'DR-3');
+    expect(dr3?.acceptanceTests).toContain('T-00');
+  });
+
+  it('ProvenanceView_OrphanTaskCompletesAcceptanceRef_RecalculatesCoverage', () => {
+    let state = provenanceProjection.init();
+
+    // Task T-01 implements DR-1 and references T-00 as acceptance test
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-01',
+      implements: ['DR-1'],
+      acceptanceTestRef: 'T-00',
+      tests: [{ name: 'TestA', file: 'a.test.ts' }],
+      files: ['src/a.ts'],
+    }, 1));
+
+    // T-00 is not yet completed, so acceptanceTestCoverage should be 0
+    expect(state.acceptanceTestCoverage).toBe(0);
+
+    // T-00 completes as an orphan (no implements)
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-00',
+      tests: [{ name: 'AcceptanceTest', file: 'acceptance.test.ts' }],
+      files: ['acceptance.test.ts'],
+    }, 2));
+
+    // Now T-00 is in completedTaskIds and DR-1 references it — coverage should update
+    expect(state.orphanTasks).toContain('T-00');
+    expect(state.acceptanceTestCoverage).toBe(1.0);
+  });
+
+  it('ProvenanceView_UnresolvedAcceptanceTestRef_DoesNotCountAsCoverage', () => {
+    let state = provenanceProjection.init();
+
+    // Task references T-00 but T-00 was never emitted as completed
+    state = provenanceProjection.apply(state, makeEvent('task.completed', {
+      taskId: 'T-01',
+      implements: ['DR-1'],
+      acceptanceTestRef: 'T-00',
+      tests: [{ name: 'TestA', file: 'a.test.ts' }],
+      files: ['src/a.ts'],
+    }, 1));
+
+    // The ref is stored but coverage should be 0 since T-00 doesn't exist
+    expect(state.requirements).toHaveLength(1);
+    expect(state.requirements[0].acceptanceTests).toContain('T-00');
+    expect(state.acceptanceTestCoverage).toBe(0);
+  });
 });

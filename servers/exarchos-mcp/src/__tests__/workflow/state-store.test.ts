@@ -362,7 +362,7 @@ describe('State Store', () => {
       expect(obj.tags).toEqual(['c']);
     });
 
-    it('should merge arrays of objects by id field (upsert)', () => {
+    it('should upsert arrays of objects by id field', () => {
       const obj: Record<string, unknown> = {
         tasks: [
           { id: '1', status: 'complete', title: 'Task 1' },
@@ -370,7 +370,7 @@ describe('State Store', () => {
           { id: '3', status: 'in-progress', title: 'Task 3' },
         ],
       };
-      // Update only task 3 — tasks 1 and 2 should be preserved
+      // Incoming merges by id — existing entries preserved, matching ids updated
       applyDotPath(obj, 'tasks', [{ id: '3', status: 'complete' }]);
       const tasks = obj.tasks as Array<Record<string, unknown>>;
       expect(tasks).toHaveLength(3);
@@ -379,7 +379,7 @@ describe('State Store', () => {
       expect(tasks[2]).toEqual({ id: '3', status: 'complete', title: 'Task 3' });
     });
 
-    it('should append new items when merging arrays by id', () => {
+    it('should append new ids when incoming has different ids', () => {
       const obj: Record<string, unknown> = {
         tasks: [{ id: '1', status: 'complete' }],
       };

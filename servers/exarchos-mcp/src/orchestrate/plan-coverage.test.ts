@@ -34,6 +34,9 @@ import {
   parseDeferredSections,
   computeCoverage,
   handlePlanCoverage,
+  detectGwtSections,
+  parseAcceptanceTestTasks,
+  checkAcceptanceTestCoverage,
 } from './plan-coverage.js';
 
 const STATE_DIR = '/tmp/test-plan-coverage';
@@ -509,6 +512,178 @@ describe('computeCoverage', () => {
     expect(result.passed).toBe(true);
     expect(result.coverage.covered).toBe(1);
     expect(result.coverage.gaps).toBe(0);
+  });
+});
+
+// ─── Acceptance Test Coverage Tests ──────────────────────────────────────────
+
+describe('detectGwtSections', () => {
+  it('DetectGwtSections_GivenWhenThenPresent_ReturnsSectionName', () => {
+    const designContent = [
+      '## Design Requirements',
+      '',
+      '### DR-1: User Authentication',
+      '',
+      '**Given** a user with valid credentials',
+      '**When** they submit the login form',
+      '**Then** they receive an auth token',
+      '',
+      '### DR-2: Dashboard Layout',
+      '',
+      '- Must display widgets',
+      '- Must be responsive',
+    ].join('\n');
+
+    const result = detectGwtSections(designContent);
+    expect(result).toEqual(['DR-1: User Authentication']);
+  });
+
+  it('DetectGwtSections_NoneHaveGwt_ReturnsEmpty', () => {
+    const designContent = [
+      '## Design Requirements',
+      '',
+      '### DR-1: Simple Feature',
+      '',
+      '- Must do thing A',
+      '- Must do thing B',
+    ].join('\n');
+
+    const result = detectGwtSections(designContent);
+    expect(result).toEqual([]);
+  });
+});
+
+describe('parseAcceptanceTestTasks', () => {
+  it('ParseAcceptanceTestTasks_TestLayerAcceptance_ReturnsTask', () => {
+    const planContent = [
+      '### Task T-01: Build widget',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** unit',
+      '',
+      '### Task T-02: Acceptance test for auth',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** acceptance',
+    ].join('\n');
+
+    const result = parseAcceptanceTestTasks(planContent);
+    expect(result).toEqual([
+      { taskId: 'T-02', taskTitle: 'Acceptance test for auth', implementsDrs: ['DR-1'] },
+    ]);
+  });
+
+  it('ParseAcceptanceTestTasks_NoAcceptanceTasks_ReturnsEmpty', () => {
+    const planContent = [
+      '### Task T-01: Build widget',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** unit',
+    ].join('\n');
+
+    const result = parseAcceptanceTestTasks(planContent);
+    expect(result).toEqual([]);
+  });
+});
+
+describe('acceptance test coverage in computeCoverage', () => {
+  it('checkPlanCoverage_DRWithGivenWhenThen_RequiresAcceptanceTestTask', () => {
+    const designContent = [
+      '## Design Requirements',
+      '',
+      '### DR-1: User Authentication',
+      '',
+      '**Given** a user with valid credentials',
+      '**When** they submit the login form',
+      '**Then** they receive an auth token',
+    ].join('\n');
+
+    const designSections = parseDesignSections(designContent);
+    const planContent = [
+      '### Task T-01: Implement user authentication',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** unit',
+      '',
+      'Build the auth module.',
+    ].join('\n');
+
+    const tasks = parsePlanTasks(planContent);
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
+    // The section is covered (task matches), but advisory should flag missing acceptance test
+    expect(result.advisories).toBeDefined();
+    expect(result.advisories!.length).toBeGreaterThan(0);
+    expect(result.advisories![0]).toContain('DR-1');
+    expect(result.advisories![0]).toContain('acceptance');
+  });
+
+  it('checkPlanCoverage_AcceptanceTestTaskPresent_Passes', () => {
+    const designContent = [
+      '## Design Requirements',
+      '',
+      '### DR-1: User Authentication',
+      '',
+      '**Given** a user with valid credentials',
+      '**When** they submit the login form',
+      '**Then** they receive an auth token',
+    ].join('\n');
+
+    const designSections = parseDesignSections(designContent);
+    const planContent = [
+      '### Task T-01: Implement user authentication',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** unit',
+      '',
+      'Build the auth module.',
+      '',
+      '### Task T-02: Acceptance test for user authentication',
+      '',
+      '**Implements:** DR-1',
+      '**Test Layer:** acceptance',
+      '',
+      'Verify Given/When/Then scenarios.',
+    ].join('\n');
+
+    const tasks = parsePlanTasks(planContent);
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
+    // No advisories — acceptance test task exists for DR-1
+    expect(result.advisories ?? []).toEqual([]);
+    expect(result.passed).toBe(true);
+  });
+
+  it('checkPlanCoverage_DRWithBulletPoints_NoAcceptanceTestRequired', () => {
+    const designContent = [
+      '## Design Requirements',
+      '',
+      '### DR-2: Dashboard Layout',
+      '',
+      '- Must display widgets in a grid',
+      '- Must be responsive on mobile',
+      '- Must support dark mode',
+    ].join('\n');
+
+    const designSections = parseDesignSections(designContent);
+    const planContent = [
+      '### Task T-01: Build dashboard layout',
+      '',
+      '**Implements:** DR-2',
+      '**Test Layer:** unit',
+      '',
+      'Create the dashboard grid layout.',
+    ].join('\n');
+
+    const tasks = parsePlanTasks(planContent);
+    const deferredSections: string[] = [];
+
+    const result = computeCoverage(designSections, tasks, planContent, deferredSections, designContent);
+    // No advisories — DR-2 only has bullet-point criteria, no GWT
+    expect(result.advisories ?? []).toEqual([]);
+    expect(result.passed).toBe(true);
   });
 });
 

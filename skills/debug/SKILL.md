@@ -129,6 +129,17 @@ Fix bugs with proper rigor. Full RCA documentation.
 
 For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
 
+### Characterization Testing (Thorough Track Only)
+
+Before fixing a bug in the thorough track, capture the buggy behavior as a characterization test:
+
+1. **Before fix:** Write a test that documents the current (buggy) behavior — it should PASS with the bug present
+2. **Write the fix test:** Write a test that describes the correct behavior — it should FAIL (this is the standard TDD RED phase)
+3. **Apply the fix:** Implement the fix. The fix test should now PASS, and the characterization test should now FAIL
+4. **Verify:** The characterization test failing confirms the bug is actually fixed. If it still passes, the fix didn't address the root cause.
+
+This is not required for the hotfix track — hotfixes prioritize speed over documentation.
+
 ### Track Switching
 
 - **Hotfix -> Thorough:** When investigation timer expires (15 min). All findings preserved.
@@ -203,6 +214,14 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
+**Completion guard shapes** — set these via `exarchos_workflow set` before transitioning to `completed`:
+
+| Exit path | Guard | Required state |
+|-----------|-------|----------------|
+| Direct push (no PR) | `fix-verified-directly` | `resolution: { directPush: true, commitSha: "<sha>" }` |
+| Validation passed | `validation-passed` | `validation: { passed: true }` |
+| Via PR | Through `synthesize` → `completed` | `prUrl` must exist |
+
 ### Thorough Complete
 
 - [ ] Full RCA documented in docs/rca/ (use `references/rca-template.md`)
@@ -210,6 +229,8 @@ Extended to support:
 - [ ] TDD implementation with tests
 - [ ] Spec review passed
 - [ ] PR merged
+
+**Completion guard shapes** — the thorough track exits through `synthesize` → `completed` (guard: `pr-url-exists`, requires `prUrl` in state).
 
 ## Anti-Patterns
 

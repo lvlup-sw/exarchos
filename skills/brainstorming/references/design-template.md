@@ -85,6 +85,15 @@ Write sections of 200-300 words maximum. Use diagrams (ASCII or Mermaid) for com
 
 - **Numbered IDs:** Use `DR-N` (Design Requirement) format. `REQ-N` and `R-N` are also accepted.
 - **Acceptance criteria:** Every requirement MUST have a `**Acceptance criteria:**` block with concrete, testable criteria.
+- **Structured criteria preferred:** For behavioral requirements, use Given/When/Then format. These become executable acceptance tests during planning:
+  ```markdown
+  **Acceptance criteria:**
+  - Given [precondition]
+    When [action]
+    Then [expected outcome]
+    And [additional outcome]
+  ```
+  Bullet-point criteria are still valid for non-behavioral requirements (performance constraints, configuration, etc.).
 - **Error/edge cases:** At least one requirement must address error handling, failure modes, or boundary conditions. Don't design only the happy path.
 - **Provenance anchors:** These DR-N identifiers become traceability anchors — implementation plans map tasks to them (`Implements: DR-1`), and the feature audit traces code and tests back to them.
 

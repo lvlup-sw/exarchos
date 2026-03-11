@@ -91,6 +91,16 @@ Activate this skill when:
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## Characterization Testing (Both Tracks)
+
+Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
+
+1. **Before changes:** Write tests that document what the code **currently does** (not what it should do). Exercise the code through the most appropriate observable seam (API, CLI, integration boundary, or function) with representative inputs and assert on actual outputs/effects.
+2. **During changes:** Any characterization test failure means behavior changed. Evaluate: intentional or accidental?
+3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
+
+This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
 ## Polish Track
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.

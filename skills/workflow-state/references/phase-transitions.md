@@ -171,9 +171,10 @@ The HSM rejected the transition because no path exists from the current phase to
 
 The transition exists but the guard condition is not met.
 
-1. Check `guardDescription` in the error response for what's required
+1. Check `expectedShape` in the error response — it shows exactly what state the guard needs
 2. Set the prerequisite state via `updates` in the same `set` call as the `phase`
 3. Refer to the "Prerequisite" column in the tables above
+4. **Proactive discovery:** Before transitioning, use `exarchos_workflow describe playbook="<workflowType>"` to see guard requirements for each phase
 
 ### CIRCUIT_OPEN Error
 

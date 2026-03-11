@@ -13,6 +13,19 @@ Use specialized MCP tools over generic approaches:
 
 > Additional tool guidance (Serena, GitHub MCP, Context7) is provided by the exarchos-dev-tools companion. Install: `npx @lvlup-sw/exarchos-dev`
 
+## Describe Before You Guess
+
+The four Exarchos composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) each have a `describe` action that returns live schemas. **Use `describe` before guessing parameter shapes:**
+
+| Need to know… | Call |
+|----------------|------|
+| Event payload fields | `exarchos_event describe eventTypes=["team.spawned", ...]` |
+| Guard prerequisites for a phase transition | `exarchos_workflow describe playbook="<workflowType>"` |
+| Orchestrate action parameters | `exarchos_orchestrate describe actions=["task_complete", ...]` |
+| View action parameters | `exarchos_view describe actions=["synthesis_readiness", ...]` |
+
+This eliminates trial-and-error discovery. One `describe` call costs fewer tokens than a failed call + retry.
+
 ## Quick Reference — `exarchos_workflow`
 
 Before calling, consult `@skills/workflow-state/references/mcp-tool-reference.md` for full action signatures, error handling, and anti-patterns.

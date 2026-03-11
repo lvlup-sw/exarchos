@@ -71,6 +71,29 @@ You MUST follow strict Test-Driven Development:
 3. Run tests after each change
 4. **VERIFY tests stay green**
 
+## Testing Approach (Testing Trophy)
+
+Prefer **integration tests with real collaborators** (sociable tests). Mock only at infrastructure boundaries (HTTP, database, filesystem). This gives the best confidence-per-effort ratio.
+
+- **Acceptance test tasks** (`testLayer: acceptance`): Use real collaborators throughout. No mocks except true external boundaries. This test stays RED until inner tasks complete — it is the "north star."
+- **Integration test tasks** (`testLayer: integration`): Default layer. Use real collaborators, mock only infrastructure boundaries.
+- **Unit test tasks** (`testLayer: unit`): For isolated complex logic only. Mocking is acceptable here.
+
+## Characterization Testing
+
+When a task has `characterizationRequired: true`, capture existing behavior BEFORE modifying code:
+
+1. Write tests that document what the code **currently does** (not what it should do)
+2. Use snapshot-style assertions: capture output, assert it matches
+3. Make your changes — any characterization test failure means behavior changed
+4. Document which characterization test failures are intentional vs accidental
+
+## Acceptance Test Completion Check
+
+When a task has `acceptanceTestRef`, run the parent acceptance test after completing your inner task:
+- Still failing → expected (other inner tasks may not be complete yet)
+- Now passing → the feature may be complete; report this in your completion output
+
 ## Property-Based Testing Patterns
 
 When this task has `testingStrategy.propertyTests: true`, write property tests alongside example tests during the RED phase. Use the patterns from `@skills/delegation/references/pbt-patterns.md`:
@@ -203,6 +226,7 @@ When completing a task, include structured provenance data in your completion re
 1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`)
 2. **tests** — Tests written, each with name and file path
 3. **files** — Files created or modified
+4. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
 
 ### Structured Format
 
@@ -211,6 +235,7 @@ Report provenance as a JSON object in your task completion call:
 ```json
 {
   "implements": ["DR-1", "DR-3"],
+  "acceptanceTestRef": "task-000",
   "tests": [
     { "name": "validateEmail_InvalidFormat_ReturnsError", "file": "src/validators/email.test.ts" },
     { "name": "validateEmail_ValidFormat_ReturnsSuccess", "file": "src/validators/email.test.ts" }
@@ -231,6 +256,7 @@ exarchos_orchestrate({
   result: {
     summary: "Implemented email validation with TDD",
     implements: ["DR-1"],
+    acceptanceTestRef: "task-000",
     tests: [{ name: "validateEmail_InvalidFormat_ReturnsError", file: "src/validators/email.test.ts" }],
     files: ["src/validators/email.ts", "src/validators/email.test.ts"]
   }
@@ -245,7 +271,7 @@ When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Provenance: implements (requirement IDs), tests (name + file), files (paths)
+4. Provenance: implements (requirement IDs), acceptanceTestRef (if present), tests (name + file), files (paths)
 5. Any issues encountered
 ```
 

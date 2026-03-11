@@ -40,6 +40,34 @@ describe('deepMerge', () => {
     expect(result).toEqual({ items: [4, 5] });
   });
 
+  it('DeepMerge_ArraysOfObjectsWithId_UpsertsById', () => {
+    // Id-based arrays use upsert semantics: incoming merges into existing
+    const target = {
+      tasks: [
+        { id: 't1', status: 'complete' },
+        { id: 't2', status: 'pending' },
+        { id: 't3', status: 'pending' },
+      ],
+    };
+    const source = {
+      tasks: [
+        { id: 'new-1', status: 'pending' },
+        { id: 'new-2', status: 'pending' },
+      ],
+    };
+
+    const result = deepMerge(target, source);
+
+    // Id-based upsert: existing entries preserved, new entries appended
+    expect(result.tasks).toEqual([
+      { id: 't1', status: 'complete' },
+      { id: 't2', status: 'pending' },
+      { id: 't3', status: 'pending' },
+      { id: 'new-1', status: 'pending' },
+      { id: 'new-2', status: 'pending' },
+    ]);
+  });
+
   it('DeepMerge_FlatObjects_MergesTopLevel', () => {
     const target = { a: 1, b: 2 };
     const source = { b: 3, c: 4 };
