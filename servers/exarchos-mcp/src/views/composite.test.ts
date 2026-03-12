@@ -83,6 +83,7 @@ describe('handleView', () => {
       expect(handleViewPipeline).toHaveBeenCalledWith(
         { limit: 10, offset: 0 },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -115,6 +116,7 @@ describe('handleView', () => {
           fields: ['taskId', 'status'],
         },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -134,6 +136,7 @@ describe('handleView', () => {
       expect(handleViewWorkflowStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-2' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -252,6 +255,7 @@ describe('handleView', () => {
       expect(handleViewTeamPerformance).toHaveBeenCalledWith(
         { workflowId: 'wf-4' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -275,6 +279,7 @@ describe('handleView', () => {
       expect(handleViewDelegationTimeline).toHaveBeenCalledWith(
         { workflowId: 'test' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -298,6 +303,7 @@ describe('handleView', () => {
       expect(handleViewCodeQuality).toHaveBeenCalledWith(
         { workflowId: 'wf-5' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -324,6 +330,7 @@ describe('handleView', () => {
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-6' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -347,6 +354,7 @@ describe('handleView', () => {
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-7', skill: 'target-skill' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -388,6 +396,7 @@ describe('handleView', () => {
       expect(handleViewEvalResults).toHaveBeenCalledWith(
         { workflowId: 'eval-wf', skill: 'delegation', limit: 5 },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -411,6 +420,7 @@ describe('handleView', () => {
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         { workflowId: 'corr-wf' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -431,6 +441,7 @@ describe('handleView', () => {
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         {},
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -527,6 +538,7 @@ describe('handleView', () => {
       expect(handleViewDelegationReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-dr' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -557,6 +569,7 @@ describe('handleView', () => {
       expect(handleViewSynthesisReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-sr' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -585,6 +598,7 @@ describe('handleView', () => {
       expect(handleViewShepherdStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-ss' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -613,6 +627,7 @@ describe('handleView', () => {
       expect(handleViewProvenance).toHaveBeenCalledWith(
         { workflowId: 'test-id' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -640,6 +655,7 @@ describe('handleView', () => {
       expect(handleViewIdeateReadiness).toHaveBeenCalledWith(
         { workflowId: 'test-id' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -707,6 +723,7 @@ describe('handleView', () => {
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { workflowId: 'test-wf', dimension: 'skill' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -731,6 +748,7 @@ describe('handleView', () => {
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { dimension: 'invalid' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -761,6 +779,7 @@ describe('handleView', () => {
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });

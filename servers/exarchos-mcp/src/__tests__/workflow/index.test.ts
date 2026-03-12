@@ -71,26 +71,9 @@ vi.mock('../../views/composite.js', () => ({
   handleView: mockHandleView,
 }));
 
-// Mock EventStore configuration (workflow modules require explicit injection)
-vi.mock('../../workflow/tools.js', () => ({
-  configureWorkflowEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/next-action.js', () => ({
-  configureNextActionEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/cancel.js', () => ({
-  configureCancelEventStore: vi.fn(),
-}));
-
+// Mock remaining module-level configuration functions
 vi.mock('../../workflow/cleanup.js', () => ({
-  configureCleanupEventStore: vi.fn(),
   configureCleanupSnapshotStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/query.js', () => ({
-  configureQueryEventStore: vi.fn(),
 }));
 
 vi.mock('../../event-store/store.js', () => ({

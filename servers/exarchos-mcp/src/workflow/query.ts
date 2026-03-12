@@ -21,14 +21,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used by query handlers. */
-export function configureQueryEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Compound State Lookup ──────────────────────────────────────────────────
 
@@ -56,8 +49,9 @@ function findCompoundForPhase(
 export async function handleSummary(
   input: SummaryInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  const eventStore = moduleEventStore;
+  // eventStore is now passed as parameter
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -297,6 +291,7 @@ function defaultNativeTaskBaseDir(): string {
 export async function handleReconcile(
   input: ReconcileInput,
   stateDir: string,
+  eventStore: EventStore | null,
   nativeTaskBaseDir?: string,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
@@ -387,6 +382,7 @@ export async function handleReconcile(
 export async function handleTransitions(
   input: TransitionsInput,
   _stateDir: string,
+  _eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const hsm = getHSMDefinition(input.workflowType);
 
@@ -431,19 +427,19 @@ export async function handleTransitions(
 
 const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
-export function registerQueryTools(server: McpServer, stateDir: string): void {
+export function registerQueryTools(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_summary',
     'Get structured summary of workflow progress, events, and circuit breaker status',
     { featureId: featureIdParam },
-    async (args) => formatResult(await handleSummary(args, stateDir)),
+    async (args) => formatResult(await handleSummary(args, stateDir, eventStore)),
   );
 
   server.tool(
     'exarchos_workflow_reconcile',
     'Verify worktree paths and branches match state file',
     { featureId: featureIdParam },
-    async (args) => formatResult(await handleReconcile(args, stateDir)),
+    async (args) => formatResult(await handleReconcile(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -453,6 +449,6 @@ export function registerQueryTools(server: McpServer, stateDir: string): void {
       workflowType: WorkflowTypeSchema,
       fromPhase: z.string().optional(),
     },
-    async (args) => formatResult(await handleTransitions(args, stateDir)),
+    async (args) => formatResult(await handleTransitions(args, stateDir, eventStore)),
   );
 }

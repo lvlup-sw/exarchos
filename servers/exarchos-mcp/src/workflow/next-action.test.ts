@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { handleNextAction, configureNextActionEventStore } from './next-action.js';
+import { handleNextAction } from './next-action.js';
 import { configureStateStoreBackend } from './state-store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { EventStore } from '../event-store/store.js';
@@ -76,12 +76,10 @@ describe('handleNextAction', () => {
   beforeEach(() => {
     backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
-    configureNextActionEventStore(null);
   });
 
   afterEach(() => {
     configureStateStoreBackend(undefined);
-    configureNextActionEventStore(null);
   });
 
   it('handleNextAction_FinalPhase_ReturnsDone', async () => {
@@ -91,6 +89,7 @@ describe('handleNextAction', () => {
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -107,6 +106,7 @@ describe('handleNextAction', () => {
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -126,6 +126,7 @@ describe('handleNextAction', () => {
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -145,6 +146,7 @@ describe('handleNextAction', () => {
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -198,11 +200,11 @@ describe('handleNextAction', () => {
       },
     ];
     const mockStore = createMockEventStore(mockEvents);
-    configureNextActionEventStore(mockStore);
 
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -233,11 +235,11 @@ describe('handleNextAction', () => {
       },
     ];
     const mockStore = createMockEventStore(mockEvents);
-    configureNextActionEventStore(mockStore);
 
     const result = await handleNextAction(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -252,6 +254,7 @@ describe('handleNextAction', () => {
     const result = await handleNextAction(
       { featureId: 'nonexistent' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(false);

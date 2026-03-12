@@ -18,9 +18,11 @@ function makeCtx(stateDir: string): DispatchContext {
 }
 
 let tempDir: string | undefined;
+let store: EventStore;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'view-error-paths-'));
+  store = new EventStore(tempDir);
   resetMaterializerCache();
 });
 
@@ -50,7 +52,7 @@ describe('views/tools.ts composite error paths', () => {
         throw 'string error from query';
       });
 
-      const result = await handleViewShepherdStatus({}, tempDir);
+      const result = await handleViewShepherdStatus({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -69,7 +71,7 @@ describe('views/tools.ts composite error paths', () => {
         throw new Error('connection lost');
       });
 
-      const result = await handleViewConvergence({}, tempDir);
+      const result = await handleViewConvergence({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -88,7 +90,7 @@ describe('views/tools.ts composite error paths', () => {
         throw 42; // non-Error, non-string throwable
       });
 
-      const result = await handleViewIdeateReadiness({}, tempDir);
+      const result = await handleViewIdeateReadiness({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -106,7 +108,7 @@ describe('views/tools.ts composite error paths', () => {
         throw new Error('provenance query failed');
       });
 
-      const result = await handleViewProvenance({}, tempDir);
+      const result = await handleViewProvenance({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();

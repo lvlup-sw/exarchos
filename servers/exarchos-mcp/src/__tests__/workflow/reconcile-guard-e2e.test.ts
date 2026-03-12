@@ -5,13 +5,10 @@ import * as os from 'node:os';
 import {
   handleInit,
   handleSet,
-  configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from '../../workflow/tools.js';
 import { reconcileFromEvents } from '../../workflow/state-store.js';
 import { EventStore } from '../../event-store/store.js';
-import { configureQueryEventStore } from '../../workflow/query.js';
-import { configureNextActionEventStore } from '../../workflow/next-action.js';
 import type { EventType } from '../../event-store/schemas.js';
 
 describe('ReconcileGuardE2E', () => {
@@ -21,14 +18,10 @@ describe('ReconcileGuardE2E', () => {
   beforeEach(async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-reconcile-guard-e2e-'));
     eventStore = new EventStore(stateDir);
-    configureWorkflowEventStore(eventStore);
   });
 
   afterEach(async () => {
-    configureWorkflowEventStore(null);
     configureWorkflowMaterializer(null);
-    configureQueryEventStore(null);
-    configureNextActionEventStore(null);
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
@@ -55,25 +48,29 @@ describe('ReconcileGuardE2E', () => {
    * Set up a feature workflow at delegate phase with tasks complete.
    */
   async function setupAtDelegate(featureId: string): Promise<void> {
-    await handleInit({ featureId, workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId, workflowType: 'feature' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'plan' }, stateDir);
+    await handleSet({ featureId, phase: 'plan' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'docs/plan.md' } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'plan-review' }, stateDir);
+    await handleSet({ featureId, phase: 'plan-review' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { 'planReview.approved': true } },
       stateDir,
+      eventStore,
     );
-    await handleSet({ featureId, phase: 'delegate' }, stateDir);
+    await handleSet({ featureId, phase: 'delegate' }, stateDir, eventStore);
     await handleSet(
       { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       stateDir,
+      eventStore,
     );
   }
 
@@ -116,6 +113,7 @@ describe('ReconcileGuardE2E', () => {
     const result = await handleSet(
       { featureId: 'e2e-success', phase: 'review' },
       stateDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds (guard passes because _events was hydrated)
@@ -135,6 +133,7 @@ describe('ReconcileGuardE2E', () => {
     const result = await handleSet(
       { featureId: 'e2e-no-team', phase: 'review' },
       stateDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds (guard auto-passes when no team was spawned)
@@ -161,6 +160,7 @@ describe('ReconcileGuardE2E', () => {
     const result = await handleSet(
       { featureId: 'e2e-no-disband', phase: 'review' },
       stateDir,
+      eventStore,
     );
 
     // Assert: Transition fails because team was spawned but not disbanded

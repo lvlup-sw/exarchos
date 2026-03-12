@@ -5,13 +5,10 @@ import * as path from 'node:path';
 import {
   handleInit,
   handleSet,
-  configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from './tools.js';
 
 import { EventStore } from '../event-store/store.js';
-import { configureQueryEventStore } from './query.js';
-import { configureNextActionEventStore } from './next-action.js';
 import { registerWorkflowType, unregisterWorkflowType } from './state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from './schemas.js';
 import { registerCustomWorkflows, clearRegisteredGuards } from '../config/register.js';
@@ -23,10 +20,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  configureWorkflowEventStore(null);
   configureWorkflowMaterializer(null);
-  configureQueryEventStore(null);
-  configureNextActionEventStore(null);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -36,35 +30,38 @@ describe('handleSet_EventInjection', () => {
   it('handleSet_DelegateToReview_InjectsEventsFromJSONLStore', async () => {
     // Arrange: Create a feature workflow and advance to delegate phase
     const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
 
-    await handleInit({ featureId: 'inject-test', workflowType: 'feature' }, tmpDir);
+    await handleInit({ featureId: 'inject-test', workflowType: 'feature' }, tmpDir, eventStore);
 
     // Advance ideate -> plan (requires design artifact)
     await handleSet(
       { featureId: 'inject-test', updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'inject-test', phase: 'plan' }, tmpDir);
+    await handleSet({ featureId: 'inject-test', phase: 'plan' }, tmpDir, eventStore);
 
     // Advance plan -> plan-review (requires plan artifact)
     await handleSet(
       { featureId: 'inject-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'inject-test', phase: 'plan-review' }, tmpDir);
+    await handleSet({ featureId: 'inject-test', phase: 'plan-review' }, tmpDir, eventStore);
 
     // Advance plan-review -> delegate (requires planReview.approved)
     await handleSet(
       { featureId: 'inject-test', updates: { 'planReview.approved': true } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'inject-test', phase: 'delegate' }, tmpDir);
+    await handleSet({ featureId: 'inject-test', phase: 'delegate' }, tmpDir, eventStore);
 
     // Set tasks as complete (satisfies allTasksComplete guard)
     await handleSet(
       { featureId: 'inject-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       tmpDir,
+      eventStore,
     );
 
     // Append team.spawned and team.disbanded events to the JSONL store
@@ -88,6 +85,7 @@ describe('handleSet_EventInjection', () => {
     const result = await handleSet(
       { featureId: 'inject-test', phase: 'review' },
       tmpDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds (events were injected for guard evaluation)
@@ -100,31 +98,34 @@ describe('handleSet_EventInjection', () => {
     // Arrange: Same as above but WITHOUT team.spawned/team.disbanded events
     // (subagent mode — tasks dispatched via Task tool, no team)
     const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
 
-    await handleInit({ featureId: 'subagent-test', workflowType: 'feature' }, tmpDir);
+    await handleInit({ featureId: 'subagent-test', workflowType: 'feature' }, tmpDir, eventStore);
 
     // Advance to delegate phase
     await handleSet(
       { featureId: 'subagent-test', updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'subagent-test', phase: 'plan' }, tmpDir);
+    await handleSet({ featureId: 'subagent-test', phase: 'plan' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'subagent-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'subagent-test', phase: 'plan-review' }, tmpDir);
+    await handleSet({ featureId: 'subagent-test', phase: 'plan-review' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'subagent-test', updates: { 'planReview.approved': true } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'subagent-test', phase: 'delegate' }, tmpDir);
+    await handleSet({ featureId: 'subagent-test', phase: 'delegate' }, tmpDir, eventStore);
 
     // Set tasks as complete
     await handleSet(
       { featureId: 'subagent-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       tmpDir,
+      eventStore,
     );
 
     // No team.spawned or team.disbanded events — subagent mode
@@ -134,6 +135,7 @@ describe('handleSet_EventInjection', () => {
     const result = await handleSet(
       { featureId: 'subagent-test', phase: 'review' },
       tmpDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds in subagent mode
@@ -170,11 +172,12 @@ describe('handleSet_CustomGuardExecution', () => {
       },
     });
 
-    await handleInit({ featureId: 'guard-pass', workflowType: CUSTOM_TYPE }, tmpDir);
+    await handleInit({ featureId: 'guard-pass', workflowType: CUSTOM_TYPE }, tmpDir, null);
 
     const result = await handleSet(
       { featureId: 'guard-pass', phase: 'deploy' },
       tmpDir,
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -198,11 +201,12 @@ describe('handleSet_CustomGuardExecution', () => {
       },
     });
 
-    await handleInit({ featureId: 'guard-fail', workflowType: CUSTOM_TYPE }, tmpDir);
+    await handleInit({ featureId: 'guard-fail', workflowType: CUSTOM_TYPE }, tmpDir, null);
 
     const result = await handleSet(
       { featureId: 'guard-fail', phase: 'deploy' },
       tmpDir,
+      null,
     );
 
     expect(result.success).toBe(false);
@@ -226,11 +230,12 @@ describe('handleSet_CustomGuardExecution', () => {
       },
     });
 
-    await handleInit({ featureId: 'no-guard', workflowType: CUSTOM_TYPE }, tmpDir);
+    await handleInit({ featureId: 'no-guard', workflowType: CUSTOM_TYPE }, tmpDir, null);
 
     const result = await handleSet(
       { featureId: 'no-guard', phase: 'deploy' },
       tmpDir,
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -254,17 +259,19 @@ describe('handleSet_CustomGuardExecution', () => {
       },
     });
 
-    await handleInit({ featureId: 'ext-guard', workflowType: EXT_TYPE }, tmpDir);
+    await handleInit({ featureId: 'ext-guard', workflowType: EXT_TYPE }, tmpDir, null);
 
     // Set design artifact so the built-in guard passes
     await handleSet(
       { featureId: 'ext-guard', updates: { artifacts: { design: 'docs/d.md' } } },
       tmpDir,
+      null,
     );
 
     const result = await handleSet(
       { featureId: 'ext-guard', phase: 'plan' },
       tmpDir,
+      null,
     );
 
     // Should succeed — built-in design-artifact-exists guard runs inline
@@ -285,29 +292,32 @@ describe('handleSet_UnifiedHydration', () => {
   it('HandleSet_PhaseTransition_HydratesEventsWithFullDataSpread', async () => {
     // Arrange: Create workflow and advance to delegate phase
     const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
 
-    await handleInit({ featureId: 'spread-test', workflowType: 'feature' }, tmpDir);
+    await handleInit({ featureId: 'spread-test', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'spread-test', updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'spread-test', phase: 'plan' }, tmpDir);
+    await handleSet({ featureId: 'spread-test', phase: 'plan' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'spread-test', updates: { 'artifacts.plan': 'docs/plan.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'spread-test', phase: 'plan-review' }, tmpDir);
+    await handleSet({ featureId: 'spread-test', phase: 'plan-review' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'spread-test', updates: { 'planReview.approved': true } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'spread-test', phase: 'delegate' }, tmpDir);
+    await handleSet({ featureId: 'spread-test', phase: 'delegate' }, tmpDir, eventStore);
 
     // Set tasks as complete
     await handleSet(
       { featureId: 'spread-test', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       tmpDir,
+      eventStore,
     );
 
     // Append team events with rich data
@@ -333,6 +343,7 @@ describe('handleSet_UnifiedHydration', () => {
     const result = await handleSet(
       { featureId: 'spread-test', phase: 'review' },
       tmpDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds — hydration preserved team.disbanded data
@@ -357,27 +368,30 @@ describe('handleSet_UnifiedHydration', () => {
   it('HandleSet_PhaseTransition_DoesNotDoubleQuery', async () => {
     // Arrange: Create workflow and advance to delegate phase
     const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
 
-    await handleInit({ featureId: 'query-count', workflowType: 'feature' }, tmpDir);
+    await handleInit({ featureId: 'query-count', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'query-count', updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'query-count', phase: 'plan' }, tmpDir);
+    await handleSet({ featureId: 'query-count', phase: 'plan' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'query-count', updates: { 'artifacts.plan': 'docs/plan.md' } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'query-count', phase: 'plan-review' }, tmpDir);
+    await handleSet({ featureId: 'query-count', phase: 'plan-review' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'query-count', updates: { 'planReview.approved': true } },
       tmpDir,
+      eventStore,
     );
-    await handleSet({ featureId: 'query-count', phase: 'delegate' }, tmpDir);
+    await handleSet({ featureId: 'query-count', phase: 'delegate' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'query-count', updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       tmpDir,
+      eventStore,
     );
 
     // Append team events
@@ -397,6 +411,7 @@ describe('handleSet_UnifiedHydration', () => {
     await handleSet(
       { featureId: 'query-count', phase: 'review' },
       tmpDir,
+      eventStore,
     );
 
     // Assert: eventStore.query called exactly ONCE for hydration (not twice)
@@ -411,12 +426,12 @@ describe('handleSet_UnifiedHydration', () => {
   it('HandleSet_EventStoreQueryFails_FallsBackToEmptyEvents', async () => {
     // Arrange: Create workflow at ideate phase (simple transition, no guards requiring team events)
     const eventStore = new EventStore(tmpDir);
-    configureWorkflowEventStore(eventStore);
 
-    await handleInit({ featureId: 'fail-test', workflowType: 'feature' }, tmpDir);
+    await handleInit({ featureId: 'fail-test', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'fail-test', updates: { 'artifacts.design': 'docs/design.md' } },
       tmpDir,
+      eventStore,
     );
 
     // Spy on query and make it throw
@@ -428,6 +443,7 @@ describe('handleSet_UnifiedHydration', () => {
     const result = await handleSet(
       { featureId: 'fail-test', phase: 'plan' },
       tmpDir,
+      eventStore,
     );
 
     // Assert: Transition succeeds with best-effort fallback

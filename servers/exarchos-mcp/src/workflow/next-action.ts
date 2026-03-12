@@ -16,14 +16,7 @@ import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used by next-action handlers. */
-export function configureNextActionEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Human Checkpoint Phases ────────────────────────────────────────────────
 
@@ -59,8 +52,9 @@ export function findCompoundForPhase(
 export async function handleNextAction(
   input: NextActionInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  const eventStore = moduleEventStore;
+  // eventStore is now passed as parameter
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -119,8 +113,7 @@ export async function handleNextAction(
   }
 
   // Check circuit breaker for fix-cycle transitions.
-  // Circuit breaker requires EventStore; always configured via configureNextActionEventStore
-  // in index.ts. Guard retained for test isolation where module-level store may not be set.
+  // Circuit breaker requires EventStore; now threaded via DispatchContext parameter.
   const compound = findCompoundForPhase(workflowType, currentPhase);
   if (compound && eventStore) {
     const cbState = await checkCircuitBreakerFromStore(
@@ -231,11 +224,11 @@ export async function handleNextAction(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerNextActionTool(server: McpServer, stateDir: string): void {
+export function registerNextActionTool(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_next_action',
     'Determine the next auto-continue action based on current phase and guards',
     { featureId: z.string().min(1).regex(/^[a-z0-9-]+$/) },
-    async (args) => formatResult(await handleNextAction(args, stateDir)),
+    async (args) => formatResult(await handleNextAction(args, stateDir, eventStore)),
   );
 }

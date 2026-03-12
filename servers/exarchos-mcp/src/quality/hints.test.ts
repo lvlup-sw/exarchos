@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateQualityHints, configureQualityEventStore } from './hints.js';
+import { generateQualityHints } from './hints.js';
 import type { QualityHint, CalibrationContext } from './hints.js';
 import type { CodeQualityViewState } from '../views/code-quality-view.js';
 import type { EventStore } from '../event-store/store.js';
@@ -629,11 +629,6 @@ describe('generateQualityHints', () => {
       mockEventStore = {
         append: vi.fn().mockResolvedValue({}),
       };
-      configureQualityEventStore(mockEventStore as unknown as EventStore);
-    });
-
-    afterEach(() => {
-      configureQualityEventStore(null);
     });
 
     it('GenerateQualityHints_WithHints_EmitsEvent', () => {
@@ -653,7 +648,7 @@ describe('generateQualityHints', () => {
         },
       });
 
-      const hints = generateQualityHints(state, 'my-skill');
+      const hints = generateQualityHints(state, 'my-skill', undefined, undefined, mockEventStore as unknown as EventStore);
 
       expect(hints.length).toBeGreaterThan(0);
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
@@ -681,7 +676,7 @@ describe('generateQualityHints', () => {
         },
       });
 
-      const hints = generateQualityHints(state, 'my-skill');
+      const hints = generateQualityHints(state, 'my-skill', undefined, undefined, mockEventStore as unknown as EventStore);
 
       expect(hints).toHaveLength(0);
       expect(mockEventStore.append).not.toHaveBeenCalled();
@@ -701,7 +696,7 @@ describe('generateQualityHints', () => {
         },
       });
 
-      generateQualityHints(state);
+      generateQualityHints(state, undefined, undefined, undefined, mockEventStore as unknown as EventStore);
 
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
       const [, event] = mockEventStore.append.mock.calls[0];
@@ -709,8 +704,6 @@ describe('generateQualityHints', () => {
     });
 
     it('GenerateQualityHints_EventStoreNull_DoesNotThrow', () => {
-      configureQualityEventStore(null);
-
       const state = makeState({
         skills: {
           'my-skill': {
@@ -725,7 +718,7 @@ describe('generateQualityHints', () => {
       });
 
       // Should not throw even without event store
-      const hints = generateQualityHints(state, 'my-skill');
+      const hints = generateQualityHints(state, 'my-skill', undefined, undefined, null);
       expect(hints.length).toBeGreaterThan(0);
     });
 
@@ -746,7 +739,7 @@ describe('generateQualityHints', () => {
       });
 
       // Should not throw even when event store fails (fire-and-forget)
-      const hints = generateQualityHints(state, 'my-skill');
+      const hints = generateQualityHints(state, 'my-skill', undefined, undefined, mockEventStore as unknown as EventStore);
       expect(hints.length).toBeGreaterThan(0);
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
     });
@@ -773,7 +766,7 @@ describe('generateQualityHints', () => {
         ],
       });
 
-      generateQualityHints(state);
+      generateQualityHints(state, undefined, undefined, undefined, mockEventStore as unknown as EventStore);
 
       const [, event] = mockEventStore.append.mock.calls[0];
       const categories = event.data.categories as string[];

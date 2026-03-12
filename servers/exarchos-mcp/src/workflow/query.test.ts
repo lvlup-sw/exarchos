@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleSummary, handleReconcile, handleTransitions, configureQueryEventStore } from './query.js';
+import { handleSummary, handleReconcile, handleTransitions } from './query.js';
 import { configureStateStoreBackend, StateStoreError } from './state-store.js';
 import { handleGet } from './tools.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
@@ -84,7 +84,6 @@ describe('handleSummary', () => {
 
   afterEach(() => {
     configureStateStoreBackend(undefined);
-    configureQueryEventStore(null);
   });
 
   it('handleSummary_ValidWorkflow_ReturnsProgressAndEvents', async () => {
@@ -106,11 +105,11 @@ describe('handleSummary', () => {
       },
     ];
     const mockStore = createMockEventStore(mockEvents);
-    configureQueryEventStore(mockStore);
 
     const result = await handleSummary(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -127,6 +126,7 @@ describe('handleSummary', () => {
     const result = await handleSummary(
       { featureId: 'nonexistent' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(false);
@@ -160,11 +160,11 @@ describe('handleSummary', () => {
       },
     ];
     const mockStore = createMockEventStore(mockEvents);
-    configureQueryEventStore(mockStore);
 
     const result = await handleSummary(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -208,6 +208,7 @@ describe('handleReconcile', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -228,6 +229,7 @@ describe('handleReconcile', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -269,6 +271,7 @@ describe('handleReconcile', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       stateDir,
+      null,
       nativeBaseDir,
     );
 
@@ -292,6 +295,7 @@ describe('handleTransitions', () => {
     const result = await handleTransitions(
       { workflowType: 'feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -311,10 +315,12 @@ describe('handleTransitions', () => {
     const resultAll = await handleTransitions(
       { workflowType: 'feature' },
       '/fake/state-dir',
+      null,
     );
     const resultFiltered = await handleTransitions(
       { workflowType: 'feature', fromPhase: 'review' },
       '/fake/state-dir',
+      null,
     );
 
     const allTransitions = (resultAll.data as Record<string, unknown>).transitions as unknown[];
@@ -343,7 +349,6 @@ describe('HandleQuery edge cases', () => {
 
   afterEach(async () => {
     configureStateStoreBackend(undefined);
-    configureQueryEventStore(null);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -360,12 +365,12 @@ describe('HandleQuery edge cases', () => {
     configureStateStoreBackend(throwingBackend);
 
     await expect(
-      handleSummary({ featureId: 'test-feature' }, '/fake/state-dir'),
+      handleSummary({ featureId: 'test-feature' }, '/fake/state-dir', null),
     ).rejects.toThrow(StateStoreError);
 
     // Also verify handleReconcile rethrows non-NOT_FOUND errors
     await expect(
-      handleReconcile({ featureId: 'test-feature' }, '/fake/state-dir'),
+      handleReconcile({ featureId: 'test-feature' }, '/fake/state-dir', null),
     ).rejects.toThrow(StateStoreError);
   });
 
@@ -384,6 +389,7 @@ describe('HandleQuery edge cases', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       '/fake/state-dir',
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -437,6 +443,7 @@ describe('HandleQuery edge cases', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       stateDir,
+      null,
     );
 
     // Query should succeed (worktree section works)
@@ -475,6 +482,7 @@ describe('HandleQuery edge cases', () => {
     const result = await handleReconcile(
       { featureId: 'test-feature' },
       stateDir,
+      null,
       nativeBaseDir,
     );
 
@@ -510,6 +518,7 @@ describe('HandleQuery edge cases', () => {
     const result = await handleGet(
       { featureId: 'test-feature', fields: ['artifacts.design', '_checkpoint.phase'] },
       stateDir,
+      null,
     );
 
     expect(result.success).toBe(true);

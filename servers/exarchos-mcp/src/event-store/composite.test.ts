@@ -52,6 +52,7 @@ describe('handleEvent', () => {
           idempotencyKey: 'key-1',
         },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({
         success: true,
@@ -85,6 +86,7 @@ describe('handleEvent', () => {
           fields: ['type', 'data'],
         },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({
         success: true,

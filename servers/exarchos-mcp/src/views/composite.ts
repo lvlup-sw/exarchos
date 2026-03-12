@@ -39,7 +39,7 @@ export async function handleView(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  const { stateDir } = ctx;
+  const { stateDir, eventStore } = ctx;
   const { action, ...rest } = args;
 
   switch (action) {
@@ -47,6 +47,7 @@ export async function handleView(
       return handleViewPipeline(
         rest as { limit?: number; offset?: number; includeCompleted?: boolean },
         stateDir,
+        eventStore,
       );
 
     case 'tasks':
@@ -59,12 +60,14 @@ export async function handleView(
           fields?: string[];
         },
         stateDir,
+        eventStore,
       );
 
     case 'workflow_status':
       return handleViewWorkflowStatus(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'stack_status':
@@ -100,18 +103,21 @@ export async function handleView(
       return handleViewTeamPerformance(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'delegation_timeline':
       return handleViewDelegationTimeline(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'delegation_readiness':
       return handleViewDelegationReadiness(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'code_quality':
@@ -123,12 +129,14 @@ export async function handleView(
           limit?: number;
         },
         stateDir,
+        eventStore,
       );
 
     case 'quality_hints':
       return handleViewQualityHints(
         rest as { workflowId?: string; skill?: string },
         stateDir,
+        eventStore,
       );
 
     case 'eval_results':
@@ -139,12 +147,14 @@ export async function handleView(
           limit?: number;
         },
         stateDir,
+        eventStore,
       );
 
     case 'quality_correlation':
       return handleViewQualityCorrelation(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'quality_attribution':
@@ -156,6 +166,7 @@ export async function handleView(
           timeRange?: { start: string; end: string };
         },
         stateDir,
+        eventStore,
       );
 
     case 'session_provenance':
@@ -168,30 +179,35 @@ export async function handleView(
       return handleViewSynthesisReadiness(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'shepherd_status':
       return handleViewShepherdStatus(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'provenance':
       return handleViewProvenance(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'ideate_readiness':
       return handleViewIdeateReadiness(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'convergence':
       return handleViewConvergence(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'describe':

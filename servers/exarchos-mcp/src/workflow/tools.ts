@@ -39,14 +39,7 @@ import type { ViewMaterializer } from '../views/materializer.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../views/workflow-state-projection.js';
 import * as path from 'node:path';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used by workflow tool handlers. */
-export function configureWorkflowEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Module-Level ViewMaterializer Configuration ─────────────────────────────
 
@@ -107,6 +100,7 @@ export function isEventSourced(state: Record<string, unknown>): boolean {
 export async function handleInit(
   input: InitInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   try {
     // Guard: check if state file already exists BEFORE appending any event.
@@ -131,9 +125,9 @@ export async function handleInit(
 
     // Event-first: append workflow.started event BEFORE creating state file
     let eventSequence = 0;
-    if (moduleEventStore) {
+    if (eventStore) {
       try {
-        const event = await moduleEventStore.append(input.featureId, {
+        const event = await eventStore.append(input.featureId, {
           type: 'workflow.started' as import('../event-store/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
@@ -215,6 +209,7 @@ export async function handleList(
 export async function handleGet(
   input: GetInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -256,11 +251,11 @@ export async function handleGet(
 
   // Version discriminator: ES v2 workflows materialize from events
   const useEventSource = isEventSourced(state as unknown as Record<string, unknown>)
-    && moduleEventStore !== null
+    && eventStore !== null
     && moduleViewMaterializer !== null;
 
   if (useEventSource) {
-    return handleGetFromEvents(input, state);
+    return handleGetFromEvents(input, state, eventStore!);
   }
 
   // Legacy path: read directly from state file
@@ -273,8 +268,9 @@ export async function handleGet(
 async function handleGetFromEvents(
   input: GetInput,
   fileState: WorkflowState,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
-  const events = await moduleEventStore!.query(input.featureId);
+  const events = await eventStore.query(input.featureId);
   const materialized = moduleViewMaterializer!.materialize<WorkflowStateView>(
     input.featureId,
     WORKFLOW_STATE_VIEW,
@@ -369,11 +365,12 @@ interface TransitionEventRecord {
 async function emitTransitionEvents(
   featureId: string,
   events: readonly TransitionEventRecord[],
+  eventStore: EventStore | null,
 ): Promise<string | undefined> {
-  if (!moduleEventStore || events.length === 0) return undefined;
+  if (!eventStore || events.length === 0) return undefined;
   try {
     for (const evt of events) {
-      await moduleEventStore.append(featureId, {
+      await eventStore.append(featureId, {
         type: mapInternalToExternalType(evt.type) as import('../event-store/schemas.js').EventType,
         correlationId: featureId,
         source: 'workflow',
@@ -416,6 +413,7 @@ const MAX_CAS_RETRIES = 3;
 export async function handleSet(
   input: SetInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -467,10 +465,10 @@ export async function handleSet(
     // teamDisbandedEmitted). Hydrate from the JSONL event store so all
     // event types — including team.spawned, team.disbanded, task.completed
     // — are visible to guards with full data spread.
-    if (input.phase && moduleEventStore) {
+    if (input.phase && eventStore) {
       try {
         mutableState._events = await hydrateEventsFromStore(
-          input.featureId, moduleEventStore,
+          input.featureId, eventStore,
         );
       } catch {
         // Best-effort: proceed with existing _events on query failure
@@ -498,7 +496,7 @@ export async function handleSet(
         if (registeredGuard) {
           const guardResult = await executeGuard(registeredGuard);
           if (!guardResult.passed) {
-            if (moduleEventStore) {
+            if (eventStore) {
               await emitTransitionEvents(input.featureId, [{
                 type: 'guard-failed',
                 from: fromPhase,
@@ -508,7 +506,7 @@ export async function handleSet(
                   guard: pendingTransition.guard.id,
                   error: guardResult.error,
                 },
-              }]);
+              }], eventStore);
             }
             return {
               success: false,
@@ -538,7 +536,7 @@ export async function handleSet(
       if (!result.success) {
         // Emit diagnostic events (guard-failed, circuit-open) before returning error.
         // These are emitted BEFORE state write since no state change occurs on failure.
-        await emitTransitionEvents(input.featureId, result.events);
+        await emitTransitionEvents(input.featureId, result.events, eventStore);
 
         const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
         return {
@@ -587,11 +585,11 @@ export async function handleSet(
     // Idempotency keys prevent duplicate events on CAS retry.
     let highestEventSequence: number | undefined;
 
-    if (moduleEventStore && pendingTransitionEvents.length > 0) {
+    if (eventStore && pendingTransitionEvents.length > 0) {
       try {
         for (const transitionEvent of pendingTransitionEvents) {
           const idempotencyKey = `${input.featureId}:${transitionEvent.type}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
-          const event = await moduleEventStore.append(input.featureId, {
+          const event = await eventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
             correlationId: input.featureId,
             source: 'workflow',
@@ -624,13 +622,13 @@ export async function handleSet(
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
       isEventSourced(state as unknown as Record<string, unknown>)
-      && moduleEventStore
+      && eventStore
       && updateKeys.length > 0
     ) {
       try {
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
-        const event = await moduleEventStore.append(input.featureId, {
+        const event = await eventStore.append(input.featureId, {
           type: 'state.patched' as import('../event-store/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
@@ -695,9 +693,9 @@ export async function handleSet(
       }
 
       // CAS exhaustion: emit diagnostic event before throwing
-      if (err instanceof VersionConflictError && moduleEventStore) {
+      if (err instanceof VersionConflictError && eventStore) {
         try {
-          await moduleEventStore.append(input.featureId, {
+          await eventStore.append(input.featureId, {
             type: 'workflow.cas-failed' as import('../event-store/schemas.js').EventType,
             data: {
               featureId: input.featureId,
@@ -719,10 +717,10 @@ export async function handleSet(
     // state file is always a derived artifact of the event log.
     if (
       isEventSourced(state as unknown as Record<string, unknown>)
-      && moduleEventStore
+      && eventStore
       && moduleViewMaterializer
     ) {
-      const allEvents = await moduleEventStore.query(input.featureId);
+      const allEvents = await eventStore.query(input.featureId);
       const materialized = moduleViewMaterializer.materialize<WorkflowStateView>(
         input.featureId,
         WORKFLOW_STATE_VIEW,
@@ -782,6 +780,7 @@ export async function handleSet(
 export async function handleCheckpoint(
   input: CheckpointInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -812,9 +811,9 @@ export async function handleCheckpoint(
   );
 
   // Emit checkpoint event to external store (event-first, guaranteed)
-  if (moduleEventStore) {
+  if (eventStore) {
     try {
-      await moduleEventStore.append(input.featureId, {
+      await eventStore.append(input.featureId, {
         type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
@@ -866,6 +865,7 @@ export async function handleCheckpoint(
 export async function handleReconcileState(
   input: { featureId: string },
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   // Validate featureId
   if (!input.featureId) {
@@ -879,7 +879,7 @@ export async function handleReconcileState(
   }
 
   // Guard: event store must be configured
-  if (!moduleEventStore) {
+  if (!eventStore) {
     return {
       success: false,
       error: {
@@ -890,7 +890,7 @@ export async function handleReconcileState(
   }
 
   try {
-    const result = await reconcileFromEvents(stateDir, input.featureId, moduleEventStore);
+    const result = await reconcileFromEvents(stateDir, input.featureId, eventStore);
     return {
       success: true,
       data: {
@@ -946,12 +946,12 @@ const workflowTypeParam = WorkflowTypeSchema;
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerWorkflowTools(server: McpServer, stateDir: string): void {
+export function registerWorkflowTools(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_init',
     'Initialize a new workflow state file for a feature/debug/refactor workflow',
     { featureId: featureIdParam, workflowType: workflowTypeParam },
-    async (args) => formatResult(await handleInit(args, stateDir)),
+    async (args) => formatResult(await handleInit(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -965,7 +965,7 @@ export function registerWorkflowTools(server: McpServer, stateDir: string): void
     'exarchos_workflow_get',
     'Query a field via dot-path (e.g. query:"phase"), project specific fields (fields:["phase","featureId"]), or get full state if neither',
     { featureId: featureIdParam, query: z.string().optional(), fields: coercedStringArray().optional() },
-    async (args) => formatResult(await handleGet(args, stateDir)),
+    async (args) => formatResult(await handleGet(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -976,13 +976,13 @@ export function registerWorkflowTools(server: McpServer, stateDir: string): void
       updates: z.record(z.string(), z.unknown()).optional(),
       phase: z.string().optional(),
     },
-    async (args) => formatResult(await handleSet(args, stateDir)),
+    async (args) => formatResult(await handleSet(args, stateDir, eventStore)),
   );
 
   server.tool(
     'exarchos_workflow_checkpoint',
     'Create an explicit checkpoint, resetting the operation counter',
     { featureId: featureIdParam, summary: z.string().optional() },
-    async (args) => formatResult(await handleCheckpoint(args, stateDir)),
+    async (args) => formatResult(await handleCheckpoint(args, stateDir, eventStore)),
   );
 }

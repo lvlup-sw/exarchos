@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCleanup, configureCleanupEventStore } from '../../workflow/cleanup.js';
-import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js';
+import { handleCleanup } from '../../workflow/cleanup.js';
+import { handleInit } from '../../workflow/tools.js';
 import { handleWorkflow } from '../../workflow/composite.js';
 import { EventStore } from '../../event-store/store.js';
 import type { EventStore as EventStoreType } from '../../event-store/store.js';
@@ -37,40 +37,40 @@ async function writeRawState(featureId: string, state: Record<string, unknown>):
 describe('handleCleanup', () => {
   describe('rejection paths', () => {
     it('should return STATE_NOT_FOUND for non-existent feature', async () => {
-      const result = await handleCleanup({ featureId: 'nonexistent', mergeVerified: true }, tmpDir);
+      const result = await handleCleanup({ featureId: 'nonexistent', mergeVerified: true }, tmpDir, null);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('STATE_NOT_FOUND');
     });
 
     it('should return ALREADY_COMPLETED for completed workflow', async () => {
-      await handleInit({ featureId: 'already-done', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'already-done', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('already-done');
       raw.phase = 'completed';
       await writeRawState('already-done', raw);
 
-      const result = await handleCleanup({ featureId: 'already-done', mergeVerified: true }, tmpDir);
+      const result = await handleCleanup({ featureId: 'already-done', mergeVerified: true }, tmpDir, null);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('ALREADY_COMPLETED');
     });
 
     it('should return INVALID_TRANSITION for cancelled workflow', async () => {
-      await handleInit({ featureId: 'cancelled-wf', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cancelled-wf', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cancelled-wf');
       raw.phase = 'cancelled';
       await writeRawState('cancelled-wf', raw);
 
-      const result = await handleCleanup({ featureId: 'cancelled-wf', mergeVerified: true }, tmpDir);
+      const result = await handleCleanup({ featureId: 'cancelled-wf', mergeVerified: true }, tmpDir, null);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_TRANSITION');
     });
 
     it('should return GUARD_FAILED when mergeVerified is false', async () => {
-      await handleInit({ featureId: 'not-merged', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'not-merged', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('not-merged');
       raw.phase = 'review';
       await writeRawState('not-merged', raw);
 
-      const result = await handleCleanup({ featureId: 'not-merged', mergeVerified: false }, tmpDir);
+      const result = await handleCleanup({ featureId: 'not-merged', mergeVerified: false }, tmpDir, null);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('GUARD_FAILED');
     });
@@ -78,7 +78,7 @@ describe('handleCleanup', () => {
 
   describe('happy path', () => {
     it('should transition to completed from review phase', async () => {
-      await handleInit({ featureId: 'cleanup-review', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-review', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-review');
       raw.phase = 'review';
       await writeRawState('cleanup-review', raw);
@@ -88,14 +88,14 @@ describe('handleCleanup', () => {
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/1',
         mergedBranches: ['feature/task-1'],
-      }, tmpDir);
+      }, tmpDir, null);
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.phase).toBe('completed');
     });
 
     it('should backfill synthesis metadata from input', async () => {
-      await handleInit({ featureId: 'cleanup-synth', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-synth', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-synth');
       raw.phase = 'review';
       await writeRawState('cleanup-synth', raw);
@@ -105,7 +105,7 @@ describe('handleCleanup', () => {
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/1',
         mergedBranches: ['feature/task-1', 'feature/task-2'],
-      }, tmpDir);
+      }, tmpDir, null);
 
       const state = await readRawState('cleanup-synth');
       const synthesis = state.synthesis as Record<string, unknown>;
@@ -114,7 +114,7 @@ describe('handleCleanup', () => {
     });
 
     it('should force-resolve blocking review statuses', async () => {
-      await handleInit({ featureId: 'cleanup-reviews', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-reviews', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-reviews');
       raw.phase = 'review';
       raw.reviews = {
@@ -126,7 +126,7 @@ describe('handleCleanup', () => {
       await handleCleanup({
         featureId: 'cleanup-reviews',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       const state = await readRawState('cleanup-reviews');
       const reviews = state.reviews as Record<string, Record<string, unknown>>;
@@ -136,7 +136,7 @@ describe('handleCleanup', () => {
     });
 
     it('should return dryRun preview without modifying state', async () => {
-      await handleInit({ featureId: 'cleanup-dry', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-dry', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-dry');
       raw.phase = 'review';
       await writeRawState('cleanup-dry', raw);
@@ -145,7 +145,7 @@ describe('handleCleanup', () => {
         featureId: 'cleanup-dry',
         mergeVerified: true,
         dryRun: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.dryRun).toBe(true);
@@ -156,7 +156,7 @@ describe('handleCleanup', () => {
     });
 
     it('should work from delegate phase (feature workflow)', async () => {
-      await handleInit({ featureId: 'cleanup-delegate', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-delegate', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-delegate');
       raw.phase = 'delegate';
       await writeRawState('cleanup-delegate', raw);
@@ -164,7 +164,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-delegate',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.phase).toBe('completed');
@@ -172,7 +172,7 @@ describe('handleCleanup', () => {
     });
 
     it('should work for debug workflow', async () => {
-      await handleInit({ featureId: 'cleanup-debug', workflowType: 'debug' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-debug', workflowType: 'debug' }, tmpDir, null);
       const raw = await readRawState('cleanup-debug');
       raw.phase = 'investigate';
       await writeRawState('cleanup-debug', raw);
@@ -180,14 +180,14 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-debug',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.phase).toBe('completed');
     });
 
     it('should work for refactor workflow', async () => {
-      await handleInit({ featureId: 'cleanup-refactor', workflowType: 'refactor' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-refactor', workflowType: 'refactor' }, tmpDir, null);
       const raw = await readRawState('cleanup-refactor');
       raw.phase = 'overhaul-review';
       await writeRawState('cleanup-refactor', raw);
@@ -195,7 +195,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-refactor',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       expect(result.success).toBe(true);
       expect((result.data as Record<string, unknown>)?.phase).toBe('completed');
@@ -215,9 +215,8 @@ describe('handleCleanup', () => {
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
 
-      configureCleanupEventStore(mockEventStore);
 
-      await handleInit({ featureId: 'cleanup-event-test', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-event-test', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-event-test');
       raw.phase = 'review';
       await writeRawState('cleanup-event-test', raw);
@@ -225,7 +224,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-event-test',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, mockEventStore);
 
       expect(result.success).toBe(true);
       // v2 event-first: append is called with idempotency key (3rd arg)
@@ -242,7 +241,6 @@ describe('handleCleanup', () => {
         }),
       );
 
-      configureCleanupEventStore(null);
     });
 
     it('should abort cleanup when event store append fails (v2 event-first)', async () => {
@@ -251,9 +249,8 @@ describe('handleCleanup', () => {
         query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStoreType;
 
-      configureCleanupEventStore(mockEventStore);
 
-      await handleInit({ featureId: 'cleanup-store-fail', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cleanup-store-fail', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-store-fail');
       raw.phase = 'review';
       await writeRawState('cleanup-store-fail', raw);
@@ -261,7 +258,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'cleanup-store-fail',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, mockEventStore);
 
       // v2 event-first: event failure aborts cleanup
       expect(result.success).toBe(false);
@@ -272,13 +269,12 @@ describe('handleCleanup', () => {
       const state = await readRawState('cleanup-store-fail');
       expect(state.phase).toBe('review');
 
-      configureCleanupEventStore(null);
     });
   });
 
   describe('composite routing', () => {
     it('should route cleanup action to handleCleanup', async () => {
-      await handleInit({ featureId: 'composite-test', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'composite-test', workflowType: 'feature' }, tmpDir, null);
 
       const result = await handleWorkflow({
         action: 'cleanup',
@@ -297,18 +293,14 @@ describe('handleCleanup', () => {
 
     beforeEach(() => {
       eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCleanupEventStore(eventStore);
     });
 
     afterEach(() => {
-      configureWorkflowEventStore(null);
-      configureCleanupEventStore(null);
     });
 
     it('HandleCleanup_EsVersion2_EmitsEventsBeforeStateWrite', async () => {
       // Arrange — init creates v2 workflow with event store configured
-      await handleInit({ featureId: 'v2-event-order', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-event-order', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-event-order');
       raw.phase = 'synthesize';
       await writeRawState('v2-event-order', raw);
@@ -319,7 +311,7 @@ describe('handleCleanup', () => {
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/42',
         mergedBranches: ['feature/task-1'],
-      }, tmpDir);
+      }, tmpDir, eventStore);
 
       // Assert — cleanup succeeded
       expect(result.success).toBe(true);
@@ -352,7 +344,7 @@ describe('handleCleanup', () => {
 
     it('HandleCleanup_EsVersion2_IdempotencyKeysPresent', async () => {
       // Arrange
-      await handleInit({ featureId: 'v2-idemp', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-idemp', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-idemp');
       raw.phase = 'synthesize';
       await writeRawState('v2-idemp', raw);
@@ -362,7 +354,7 @@ describe('handleCleanup', () => {
         featureId: 'v2-idemp',
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/1',
-      }, tmpDir);
+      }, tmpDir, eventStore);
 
       // Query all events
       const allEvents = await eventStore.query('v2-idemp');
@@ -385,7 +377,7 @@ describe('handleCleanup', () => {
       const secondResult = await handleCleanup({
         featureId: 'v2-idemp',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, eventStore);
       // Second call should fail with ALREADY_COMPLETED
       expect(secondResult.success).toBe(false);
       expect(secondResult.error?.code).toBe('ALREADY_COMPLETED');
@@ -396,7 +388,7 @@ describe('handleCleanup', () => {
 
     it('HandleCleanup_EsVersion2_EventFailure_AbortsStateWrite', async () => {
       // Arrange — init with real event store for v2 workflow creation
-      await handleInit({ featureId: 'v2-evt-fail', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-evt-fail', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-evt-fail');
       raw.phase = 'synthesize';
       await writeRawState('v2-evt-fail', raw);
@@ -411,7 +403,7 @@ describe('handleCleanup', () => {
         featureId: 'v2-evt-fail',
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/1',
-      }, tmpDir);
+      }, tmpDir, eventStore);
 
       // Assert — should return error
       expect(result.success).toBe(false);
@@ -427,7 +419,7 @@ describe('handleCleanup', () => {
 
     it('HandleCleanup_EsVersion2_EmitsStatePatchedForBackfill', async () => {
       // Arrange — v2 workflow with reviews to force-resolve
-      await handleInit({ featureId: 'v2-patch', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-patch', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-patch');
       raw.phase = 'review';
       raw.reviews = {
@@ -441,7 +433,7 @@ describe('handleCleanup', () => {
         mergeVerified: true,
         prUrl: 'https://github.com/test/pr/99',
         mergedBranches: ['feature/branch-a', 'feature/branch-b'],
-      }, tmpDir);
+      }, tmpDir, eventStore);
 
       expect(result.success).toBe(true);
 
@@ -476,9 +468,7 @@ describe('handleCleanup', () => {
     it('HandleCleanup_V1Legacy_StillWorksWithBestEffortEvents', async () => {
       // Arrange — create a v1 workflow (no _esVersion field)
       // Disconnect event store from init so workflow is created without _esVersion: 2
-      configureWorkflowEventStore(null);
-      await handleInit({ featureId: 'v1-legacy', workflowType: 'feature' }, tmpDir);
-      configureWorkflowEventStore(eventStore);
+      await handleInit({ featureId: 'v1-legacy', workflowType: 'feature' }, tmpDir, null);
 
       const raw = await readRawState('v1-legacy');
       // Ensure no _esVersion (v1)
@@ -495,7 +485,7 @@ describe('handleCleanup', () => {
       const result = await handleCleanup({
         featureId: 'v1-legacy',
         mergeVerified: true,
-      }, tmpDir);
+      }, tmpDir, null);
 
       // Assert — v1 legacy path: state-first, events best-effort
       expect(result.success).toBe(true);

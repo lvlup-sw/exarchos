@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCancel, configureCancelEventStore } from '../../workflow/cancel.js';
-import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js';
+import { handleCancel } from '../../workflow/cancel.js';
+import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import type { CompensationResult } from '../../workflow/compensation.js';
 
@@ -14,8 +14,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  configureCancelEventStore(null);
-  configureWorkflowEventStore(null);
   vi.restoreAllMocks();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
@@ -46,10 +44,7 @@ describe('handleCancel saga paths', () => {
     it('should succeed even when event append throws for v1 (non-event-sourced) workflow', async () => {
       // Arrange: create a v1 workflow (no _esVersion field = legacy)
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
-
-      await handleInit({ featureId: 'v1-swallow', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v1-swallow', workflowType: 'feature' }, tmpDir, eventStore);
 
       // Set up as v1 (no _esVersion) in delegate phase
       const rawState = await readRawState('v1-swallow');
@@ -83,7 +78,7 @@ describe('handleCancel saga paths', () => {
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Disk full'));
 
       // Act
-      const result = await handleCancel({ featureId: 'v1-swallow' }, tmpDir);
+      const result = await handleCancel({ featureId: 'v1-swallow' }, tmpDir, eventStore);
 
       // Assert: v1 swallows errors, cancel should succeed
       expect(result.success).toBe(true);
@@ -99,10 +94,7 @@ describe('handleCancel saga paths', () => {
     it('should return error with EVENT_APPEND_FAILED when event append throws for v2 workflow', async () => {
       // Arrange: create a v2 event-sourced workflow
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
-
-      await handleInit({ featureId: 'v2-fail', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-fail', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('v2-fail');
       rawState.phase = 'delegate';
@@ -132,7 +124,7 @@ describe('handleCancel saga paths', () => {
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Write error'));
 
       // Act
-      const result = await handleCancel({ featureId: 'v2-fail' }, tmpDir);
+      const result = await handleCancel({ featureId: 'v2-fail' }, tmpDir, eventStore);
 
       // Assert: v2 propagates errors
       expect(result.success).toBe(false);
@@ -149,7 +141,7 @@ describe('handleCancel saga paths', () => {
   describe('Cancel_CompensationPartialFailure_ReturnsCompensationPartial', () => {
     it('should return COMPENSATION_PARTIAL when some compensation actions fail', async () => {
       // Arrange: create a workflow
-      await handleInit({ featureId: 'comp-partial', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'comp-partial', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('comp-partial');
       rawState.phase = 'delegate';
@@ -178,7 +170,7 @@ describe('handleCancel saga paths', () => {
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(mockResult);
 
       // Act
-      const result = await handleCancel({ featureId: 'comp-partial' }, tmpDir);
+      const result = await handleCancel({ featureId: 'comp-partial' }, tmpDir, null);
 
       // Assert: should return COMPENSATION_PARTIAL error
       expect(result.success).toBe(false);
@@ -198,10 +190,7 @@ describe('handleCancel saga paths', () => {
   describe('Cancel_TransitionEventAppend_V1Swallows_V2Throws', () => {
     it('v1 workflow swallows transition event append failures', async () => {
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
-
-      await handleInit({ featureId: 'v1-trans', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v1-trans', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('v1-trans');
       rawState.phase = 'delegate';
@@ -222,7 +211,7 @@ describe('handleCancel saga paths', () => {
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('IO error'));
 
       // Act
-      const result = await handleCancel({ featureId: 'v1-trans' }, tmpDir);
+      const result = await handleCancel({ featureId: 'v1-trans' }, tmpDir, eventStore);
 
       // Assert: v1 swallows, cancel succeeds
       expect(result.success).toBe(true);
@@ -232,10 +221,7 @@ describe('handleCancel saga paths', () => {
 
     it('v2 workflow propagates transition event append failures', async () => {
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
-
-      await handleInit({ featureId: 'v2-trans', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'v2-trans', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('v2-trans');
       rawState.phase = 'delegate';
@@ -256,7 +242,7 @@ describe('handleCancel saga paths', () => {
       vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Transition IO error'));
 
       // Act
-      const result = await handleCancel({ featureId: 'v2-trans' }, tmpDir);
+      const result = await handleCancel({ featureId: 'v2-trans' }, tmpDir, eventStore);
 
       // Assert: v2 propagates, cancel fails
       expect(result.success).toBe(false);
@@ -274,10 +260,7 @@ describe('handleCancel saga paths', () => {
   describe('Cancel_DryRun_ReturnsCompensationPlanWithoutExecuting', () => {
     it('should return compensation plan without mutating state or emitting events', async () => {
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
-
-      await handleInit({ featureId: 'dry-run', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'dry-run', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('dry-run');
       rawState.phase = 'delegate';
@@ -301,7 +284,7 @@ describe('handleCancel saga paths', () => {
       const appendSpy = vi.spyOn(eventStore, 'append');
 
       // Act
-      const result = await handleCancel({ featureId: 'dry-run', dryRun: true }, tmpDir);
+      const result = await handleCancel({ featureId: 'dry-run', dryRun: true }, tmpDir, eventStore);
 
       // Assert: success with dryRun data
       expect(result.success).toBe(true);

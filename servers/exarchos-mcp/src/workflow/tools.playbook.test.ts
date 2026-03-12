@@ -6,7 +6,6 @@ import {
   handleGet,
   handleInit,
   handleSet,
-  configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from './tools.js';
 
@@ -18,29 +17,31 @@ describe('handleGet playbook field', () => {
   });
 
   afterEach(async () => {
-    configureWorkflowEventStore(null);
     configureWorkflowMaterializer(null);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('handleGet_PlaybookField_ReturnsPhasePlaybook', async () => {
     // Arrange: create feature workflow (starts in 'ideate' phase)
-    const initResult = await handleInit({ featureId: 'test-feature', workflowType: 'feature' }, tmpDir);
+    const initResult = await handleInit({ featureId: 'test-feature', workflowType: 'feature' }, tmpDir, null);
     expect(initResult.success).toBe(true);
     // Transition to delegate (ideate -> plan -> plan-review -> delegate)
     const toPlan = await handleSet(
       { featureId: 'test-feature', updates: { 'artifacts.design': 'docs/design.md' }, phase: 'plan' },
       tmpDir,
+      null,
     );
     expect(toPlan.success).toBe(true);
     const toPlanReview = await handleSet(
       { featureId: 'test-feature', updates: { 'artifacts.plan': 'docs/plan.md' }, phase: 'plan-review' },
       tmpDir,
+      null,
     );
     expect(toPlanReview.success).toBe(true);
     const toDelegate = await handleSet(
       { featureId: 'test-feature', updates: { 'planReview.approved': true }, phase: 'delegate' },
       tmpDir,
+      null,
     );
     expect(toDelegate.success).toBe(true);
 
@@ -48,6 +49,7 @@ describe('handleGet playbook field', () => {
     const result = await handleGet(
       { featureId: 'test-feature', fields: ['playbook'] },
       tmpDir,
+      null,
     );
 
     // Assert
@@ -61,13 +63,14 @@ describe('handleGet playbook field', () => {
 
   it('handleGet_PlaybookField_ReturnsPlaybookForInitialPhase', async () => {
     // Arrange: create feature workflow (starts in 'ideate' phase)
-    const initResult = await handleInit({ featureId: 'test-ideate', workflowType: 'feature' }, tmpDir);
+    const initResult = await handleInit({ featureId: 'test-ideate', workflowType: 'feature' }, tmpDir, null);
     expect(initResult.success).toBe(true);
 
     // Act
     const result = await handleGet(
       { featureId: 'test-ideate', fields: ['playbook'] },
       tmpDir,
+      null,
     );
 
     // Assert
@@ -81,13 +84,14 @@ describe('handleGet playbook field', () => {
 
   it('handleGet_PlaybookWithOtherFields_ReturnsBoth', async () => {
     // Arrange
-    const initResult = await handleInit({ featureId: 'test-both', workflowType: 'feature' }, tmpDir);
+    const initResult = await handleInit({ featureId: 'test-both', workflowType: 'feature' }, tmpDir, null);
     expect(initResult.success).toBe(true);
 
     // Act
     const result = await handleGet(
       { featureId: 'test-both', fields: ['playbook', 'phase'] },
       tmpDir,
+      null,
     );
 
     // Assert
@@ -102,13 +106,14 @@ describe('handleGet playbook field', () => {
 
   it('handleGet_PlaybookField_WorksForDebugWorkflow', async () => {
     // Arrange: create debug workflow (starts in 'triage' phase)
-    const initResult = await handleInit({ featureId: 'test-debug', workflowType: 'debug' }, tmpDir);
+    const initResult = await handleInit({ featureId: 'test-debug', workflowType: 'debug' }, tmpDir, null);
     expect(initResult.success).toBe(true);
 
     // Act
     const result = await handleGet(
       { featureId: 'test-debug', fields: ['playbook'] },
       tmpDir,
+      null,
     );
 
     // Assert

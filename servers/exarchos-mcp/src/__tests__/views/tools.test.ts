@@ -66,7 +66,7 @@ describe('handleViewWorkflowStatus', () => {
   it('should return workflow status view data', async () => {
     await populateWorkflow('wf-001');
 
-    const result = await handleViewWorkflowStatus({ workflowId: 'wf-001' }, tempDir);
+    const result = await handleViewWorkflowStatus({ workflowId: 'wf-001' }, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -78,7 +78,7 @@ describe('handleViewWorkflowStatus', () => {
   });
 
   it('should return empty view for nonexistent workflow', async () => {
-    const result = await handleViewWorkflowStatus({ workflowId: 'nonexistent' }, tempDir);
+    const result = await handleViewWorkflowStatus({ workflowId: 'nonexistent' }, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -92,7 +92,7 @@ describe('handleViewWorkflowStatus', () => {
       data: { featureId: 'default-feature', workflowType: 'feature' },
     });
 
-    const result = await handleViewWorkflowStatus({}, tempDir);
+    const result = await handleViewWorkflowStatus({}, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -103,6 +103,7 @@ describe('handleViewWorkflowStatus', () => {
     const result = await handleViewWorkflowStatus(
       { workflowId: 'INVALID/ID' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -116,7 +117,7 @@ describe('handleViewTasks', () => {
   it('should return task details for a workflow', async () => {
     await populateWorkflow('wf-001');
 
-    const result = await handleViewTasks({ workflowId: 'wf-001' }, tempDir);
+    const result = await handleViewTasks({ workflowId: 'wf-001' }, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
@@ -134,6 +135,7 @@ describe('handleViewTasks', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-001', filter: { status: 'completed' } },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -148,6 +150,7 @@ describe('handleViewTasks', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-001', filter: {} },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -161,6 +164,7 @@ describe('handleViewTasks', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-001', filter: { status: 'nonexistent-status' } },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -174,7 +178,7 @@ describe('handleViewTasks', () => {
       data: { taskId: 'dt1', title: 'Default task', branch: 'feat/default' },
     });
 
-    const result = await handleViewTasks({}, tempDir);
+    const result = await handleViewTasks({}, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
@@ -186,6 +190,7 @@ describe('handleViewTasks', () => {
     const result = await handleViewTasks(
       { workflowId: 'INVALID/ID' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -217,6 +222,7 @@ describe('handleViewTasks limit', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-limit', limit: 2 },
       tempDir,
+      store,
     );
 
     // Assert
@@ -244,6 +250,7 @@ describe('handleViewTasks limit', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-filter-verify', filter: { status: 'completed' } },
       tempDir,
+      store,
     );
 
     // Assert
@@ -288,6 +295,7 @@ describe('handleViewTasks limit', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-both', filter: { status: 'completed' }, limit: 2 },
       tempDir,
+      store,
     );
 
     // Assert: filter applied first (3 completed), then limit caps at 2
@@ -323,6 +331,7 @@ describe('handleViewTasks offset and fields', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-offset', offset: 1 },
       tempDir,
+      store,
     );
 
     // Assert: should skip first, return 2
@@ -342,6 +351,7 @@ describe('handleViewTasks offset and fields', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-fields', fields: ['taskId', 'status'] },
       tempDir,
+      store,
     );
 
     // Assert: each result should only have taskId and status keys
@@ -374,6 +384,7 @@ describe('handleViewTasks offset and fields', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-ff', filter: { status: 'completed' }, fields: ['taskId', 'status'] },
       tempDir,
+      store,
     );
 
     // Assert: only 1 completed task, only requested fields
@@ -405,6 +416,7 @@ describe('handleViewTasks offset and fields', () => {
     const result = await handleViewTasks(
       { workflowId: 'wf-ol', offset: 1, limit: 1 },
       tempDir,
+      store,
     );
 
     // Assert: exactly 1 task
@@ -428,7 +440,7 @@ describe('handleViewPipeline', () => {
       data: { taskId: 't3', title: 'Build billing' },
     });
 
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -444,7 +456,7 @@ describe('handleViewPipeline', () => {
   });
 
   it('should return empty workflows array when no event streams exist', async () => {
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -468,7 +480,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: query with limit=2
-    const result = await handleViewPipeline({ limit: 2 }, tempDir);
+    const result = await handleViewPipeline({ limit: 2 }, tempDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -493,7 +505,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: query with offset=1
-    const result = await handleViewPipeline({ offset: 1 }, tempDir);
+    const result = await handleViewPipeline({ offset: 1 }, tempDir, store);
 
     // Assert: should skip first, return 2
     expect(result.success).toBe(true);
@@ -518,7 +530,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: query with limit=1, offset=1
-    const result = await handleViewPipeline({ limit: 1, offset: 1 }, tempDir);
+    const result = await handleViewPipeline({ limit: 1, offset: 1 }, tempDir, store);
 
     // Assert: should return exactly 1 (the second workflow)
     expect(result.success).toBe(true);
@@ -543,7 +555,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: query with no params (existing behavior)
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     // Assert: all 3 returned
     expect(result.success).toBe(true);
@@ -562,7 +574,7 @@ describe('handleViewPipeline', () => {
     }
 
     // Act: request only 2
-    const result = await handleViewPipeline({ limit: 2 }, tempDir);
+    const result = await handleViewPipeline({ limit: 2 }, tempDir, store);
 
     // Assert: exactly 2 workflows returned, total is 5
     expect(result.success).toBe(true);
@@ -581,7 +593,7 @@ describe('handleViewPipeline', () => {
     }
 
     // Act: request offset=2, limit=2 (should return streams 3 and 4)
-    const result = await handleViewPipeline({ offset: 2, limit: 2 }, tempDir);
+    const result = await handleViewPipeline({ offset: 2, limit: 2 }, tempDir, store);
 
     // Assert: exactly 2 workflows returned from the middle, total is 5
     expect(result.success).toBe(true);
@@ -600,7 +612,7 @@ describe('handleViewPipeline', () => {
     }
 
     // Act: no pagination params — should return all with total
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     // Assert: total field is present and equals stream count
     expect(result.success).toBe(true);
@@ -617,7 +629,7 @@ describe('handleViewPipeline', () => {
       JSON.stringify({ type: 'workflow.started', sequence: 1, streamId: 'INVALID_STREAM', timestamp: new Date().toISOString(), data: {} }) + '\n',
     );
 
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
@@ -649,7 +661,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: default (no includeCompleted)
-    const result = await handleViewPipeline({}, tempDir);
+    const result = await handleViewPipeline({}, tempDir, store);
 
     // Assert: only the active workflow is returned
     expect(result.success).toBe(true);
@@ -675,7 +687,7 @@ describe('handleViewPipeline', () => {
     });
 
     // Act: includeCompleted=true
-    const result = await handleViewPipeline({ includeCompleted: true }, tempDir);
+    const result = await handleViewPipeline({ includeCompleted: true }, tempDir, store);
 
     // Assert: both workflows returned
     expect(result.success).toBe(true);
@@ -692,7 +704,7 @@ describe('ViewMaterializer Singleton Cache', () => {
     await populateWorkflow('wf-singleton');
 
     // First query
-    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir, store);
     expect(result1.success).toBe(true);
     const data1 = result1.data as Record<string, unknown>;
     expect(data1.tasksCompleted).toBe(1);
@@ -708,7 +720,7 @@ describe('ViewMaterializer Singleton Cache', () => {
     });
 
     // Second query — uses cached materializer, but high-water mark should process new events
-    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir);
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir, store);
     expect(result2.success).toBe(true);
     const data2 = result2.data as Record<string, unknown>;
     // Should see updated data: 2 tasks completed now
@@ -719,14 +731,14 @@ describe('ViewMaterializer Singleton Cache', () => {
     await populateWorkflow('wf-reset');
 
     // First query to populate cache
-    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir, store);
     expect(result1.success).toBe(true);
 
     // Reset the cache
     resetMaterializerCache();
 
     // Query again — should still work with fresh instances
-    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir);
+    const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir, store);
     expect(result2.success).toBe(true);
     const data2 = result2.data as Record<string, unknown>;
     expect(data2.featureId).toBe('auth-feature');
@@ -792,7 +804,7 @@ describe('registerViewTools', () => {
     });
 
     // The handler should see data from the injected store
-    const result = await handleViewWorkflowStatus({ workflowId: 'wf-view-test' }, tempDir);
+    const result = await handleViewWorkflowStatus({ workflowId: 'wf-view-test' }, tempDir, store);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.featureId).toBe('view-consolidation');

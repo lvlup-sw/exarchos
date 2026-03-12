@@ -14,9 +14,8 @@ import { handleEvent } from '../event-store/composite.js';
 import { handleView } from '../views/composite.js';
 import { handleOrchestrate } from '../orchestrate/composite.js';
 import { handleSync } from '../sync/composite.js';
-import { configureWorkflowEventStore, configureWorkflowMaterializer } from '../workflow/tools.js';
+import { configureWorkflowMaterializer } from '../workflow/tools.js';
 import { EventStore } from '../event-store/store.js';
-import { resetModuleEventStore as resetEventModuleStore } from '../event-store/tools.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
@@ -36,16 +35,12 @@ function ctx(): DispatchContext {
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-integration-'));
   // Reset all module-level caches to prevent cross-test contamination
-  configureWorkflowEventStore(null);
   configureWorkflowMaterializer(null);
-  resetEventModuleStore();
   resetMaterializerCache();
 });
 
 afterEach(async () => {
-  configureWorkflowEventStore(null);
   configureWorkflowMaterializer(null);
-  resetEventModuleStore();
   resetMaterializerCache();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
@@ -221,14 +216,16 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
   // ── Test 5: InvalidSchema_WorkflowInit_MissingFields_ThrowsStateStoreError ─
 
   describe('InvalidSchema_WorkflowInit_MissingFields_ThrowsStateStoreError', () => {
-    it('should throw StateStoreError when featureId is missing from init', async () => {
+    it('should return error when featureId is missing from init', async () => {
       // The composite handler passes `rest` (without action) to handleInit.
-      // handleInit calls initStateFile which validates the constructed state
-      // via Zod. Missing featureId causes a STATE_CORRUPT error to throw
-      // (not caught and returned as ToolResult — this is the existing behavior).
-      await expect(
-        handleWorkflow({ action: 'init', workflowType: 'feature' }, ctx()),
-      ).rejects.toThrow(/STATE_CORRUPT/);
+      // Missing featureId causes the event append to fail with a validation
+      // error, which is returned as a ToolResult with success: false.
+      const result = await handleWorkflow(
+        { action: 'init', workflowType: 'feature' },
+        ctx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it('should throw when workflowType is missing from init', async () => {
@@ -238,12 +235,15 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
     });
 
     it('should return error for init with invalid featureId format', async () => {
-      // featureId must be kebab-case; uppercase letters should fail
-      // The initStateFile creates the filename from featureId, but
-      // Zod validation catches the format issue
-      await expect(
-        handleWorkflow({ action: 'init', featureId: 'UPPERCASE', workflowType: 'feature' }, ctx()),
-      ).rejects.toThrow();
+      // featureId must be kebab-case; uppercase letters should fail.
+      // The event append validation catches the format issue and returns
+      // a ToolResult with success: false.
+      const result = await handleWorkflow(
+        { action: 'init', featureId: 'UPPERCASE', workflowType: 'feature' },
+        ctx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 });
@@ -256,9 +256,6 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
   describe('View_Pipeline_MaterializesFromEvents', () => {
     it('should return pipeline view reflecting workflow events', async () => {
       // Arrange: init a workflow (which creates a state file) and emit events
-      const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-
       await handleWorkflow(
         { action: 'init', featureId: 'pipeline-test', workflowType: 'feature' },
         ctx(),
@@ -379,9 +376,6 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
 
   describe('CrossTool_WorkflowLifecycle_InitTransitionView', () => {
     it('should maintain consistency across init, transition, event query, and view', async () => {
-      const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-
       // Step 1: Init workflow
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'lifecycle-feat', workflowType: 'feature' },
@@ -475,9 +469,6 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
 
   describe('CrossTool_EventAppend_ViewMaterialization_Consistency', () => {
     it('should keep events and views consistent across append and materialization', async () => {
-      const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-
       // Step 1: Init workflow via composite (produces workflow.started event)
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'consistency-feat', workflowType: 'feature' },

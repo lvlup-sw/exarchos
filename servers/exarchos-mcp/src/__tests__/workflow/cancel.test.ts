@@ -3,8 +3,8 @@ import { fc } from '@fast-check/vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCancel, configureCancelEventStore } from '../../workflow/cancel.js';
-import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js';
+import { handleCancel } from '../../workflow/cancel.js';
+import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import type { CompensationResult } from '../../workflow/compensation.js';
 
@@ -15,8 +15,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  configureCancelEventStore(null);
-  configureWorkflowEventStore(null);
   vi.restoreAllMocks();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
@@ -45,7 +43,7 @@ describe('handleCancel', () => {
   describe('compensation checkpoint persistence', () => {
     it('should persist compensation checkpoint on partial failure', async () => {
       // Arrange: create a workflow in delegate phase
-      await handleInit({ featureId: 'ckpt-partial', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'ckpt-partial', workflowType: 'feature' }, tmpDir, null);
 
       // Advance to delegate phase by writing raw state
       const rawState = await readRawState('ckpt-partial');
@@ -74,7 +72,7 @@ describe('handleCancel', () => {
       vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(mockResult);
 
       // Act
-      const result = await handleCancel({ featureId: 'ckpt-partial' }, tmpDir);
+      const result = await handleCancel({ featureId: 'ckpt-partial' }, tmpDir, null);
 
       // Assert: cancel should report partial failure
       expect(result.success).toBe(false);
@@ -90,7 +88,7 @@ describe('handleCancel', () => {
 
     it('should pass existing checkpoint to compensation on retry', async () => {
       // Arrange: create a workflow with an existing _compensationCheckpoint
-      await handleInit({ featureId: 'ckpt-retry', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'ckpt-retry', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-retry');
       rawState.phase = 'delegate';
@@ -119,7 +117,7 @@ describe('handleCancel', () => {
       );
 
       // Act
-      await handleCancel({ featureId: 'ckpt-retry' }, tmpDir);
+      await handleCancel({ featureId: 'ckpt-retry' }, tmpDir, null);
 
       // Assert: existing checkpoint was passed to executeCompensation
       expect(capturedOptions).toBeDefined();
@@ -131,7 +129,7 @@ describe('handleCancel', () => {
 
     it('should clear checkpoint after successful cancellation', async () => {
       // Arrange: create a workflow with an existing _compensationCheckpoint
-      await handleInit({ featureId: 'ckpt-clear', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'ckpt-clear', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-clear');
       rawState.phase = 'delegate';
@@ -153,7 +151,7 @@ describe('handleCancel', () => {
       });
 
       // Act
-      const result = await handleCancel({ featureId: 'ckpt-clear' }, tmpDir);
+      const result = await handleCancel({ featureId: 'ckpt-clear' }, tmpDir, null);
 
       // Assert: cancel should succeed
       expect(result.success).toBe(true);
@@ -167,7 +165,7 @@ describe('handleCancel', () => {
 
     it('should set _compensationCheckpoint to null in state on successful compensation', async () => {
       // Arrange: create a workflow with _compensationCheckpoint from a prior partial failure
-      await handleInit({ featureId: 'ckpt-null', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'ckpt-null', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('ckpt-null');
       rawState.phase = 'delegate';
@@ -189,7 +187,7 @@ describe('handleCancel', () => {
       });
 
       // Act
-      const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir);
+      const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir, null);
 
       // Assert: cancel should succeed
       expect(result.success).toBe(true);
@@ -206,10 +204,8 @@ describe('handleCancel', () => {
     it('handleCancel_EventAppendFails_ReturnsErrorNotMutatesState', async () => {
       // Arrange: create a v2 (event-sourced) workflow in delegate phase
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
 
-      await handleInit({ featureId: 'cancel-efail', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cancel-efail', workflowType: 'feature' }, tmpDir, eventStore);
 
       // Set up as v2 event-sourced workflow in delegate phase
       const rawState = await readRawState('cancel-efail');
@@ -233,7 +229,7 @@ describe('handleCancel', () => {
       );
 
       // Act
-      const result = await handleCancel({ featureId: 'cancel-efail' }, tmpDir);
+      const result = await handleCancel({ featureId: 'cancel-efail' }, tmpDir, eventStore);
 
       // Assert: should return error, NOT succeed
       expect(result.success).toBe(false);
@@ -252,10 +248,8 @@ describe('handleCancel', () => {
     it('handleCancel_CompensationEvents_HaveIdempotencyKeys', async () => {
       // Arrange: create a v2 workflow with compensation events
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
 
-      await handleInit({ featureId: 'cancel-comp-keys', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cancel-comp-keys', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('cancel-comp-keys');
       rawState.phase = 'delegate';
@@ -287,7 +281,7 @@ describe('handleCancel', () => {
       });
 
       // Act
-      await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir);
+      await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir, eventStore);
 
       // Assert: compensation events have idempotency keys matching the pattern
       // The first two append calls after init should be compensation events
@@ -303,10 +297,8 @@ describe('handleCancel', () => {
     it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
       // Arrange: create a v2 workflow
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
 
-      await handleInit({ featureId: 'cancel-trans-keys', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cancel-trans-keys', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('cancel-trans-keys');
       rawState.phase = 'delegate';
@@ -332,7 +324,7 @@ describe('handleCancel', () => {
       });
 
       // Act
-      await handleCancel({ featureId: 'cancel-trans-keys' }, tmpDir);
+      await handleCancel({ featureId: 'cancel-trans-keys' }, tmpDir, eventStore);
 
       // Assert: transition events have idempotency keys
       const transKeys = appendCalls
@@ -346,10 +338,8 @@ describe('handleCancel', () => {
     it('handleCancel_CancelEvent_HasIdempotencyKey', async () => {
       // Arrange: create a v2 workflow
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureCancelEventStore(eventStore);
 
-      await handleInit({ featureId: 'cancel-event-key', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cancel-event-key', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('cancel-event-key');
       rawState.phase = 'delegate';
@@ -375,7 +365,7 @@ describe('handleCancel', () => {
       });
 
       // Act
-      await handleCancel({ featureId: 'cancel-event-key' }, tmpDir);
+      await handleCancel({ featureId: 'cancel-event-key' }, tmpDir, eventStore);
 
       // Assert: the cancel completion event has an idempotency key
       const cancelKey = appendCalls
@@ -398,10 +388,8 @@ describe('handleCancel', () => {
             const propDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-cancel-pbt-'));
             try {
               const eventStore = new EventStore(propDir);
-              configureWorkflowEventStore(eventStore);
-              configureCancelEventStore(eventStore);
 
-              await handleInit({ featureId: 'cancel-pbt', workflowType: 'feature' }, propDir);
+              await handleInit({ featureId: 'cancel-pbt', workflowType: 'feature' }, propDir, eventStore);
 
               // Read/write raw state using propDir directly
               const stateFile = path.join(propDir, 'cancel-pbt.state.json');
@@ -433,7 +421,7 @@ describe('handleCancel', () => {
               });
 
               // First cancel attempt should fail
-              const result1 = await handleCancel({ featureId: 'cancel-pbt' }, propDir);
+              const result1 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
               expect(result1.success).toBe(false);
 
               // Reset mock to let retry succeed
@@ -442,7 +430,7 @@ describe('handleCancel', () => {
               });
 
               // Retry cancel — state should not have been mutated by first attempt
-              const result2 = await handleCancel({ featureId: 'cancel-pbt' }, propDir);
+              const result2 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
               expect(result2.success).toBe(true);
 
               // Verify no duplicate events in stream
@@ -453,8 +441,6 @@ describe('handleCancel', () => {
               const uniqueKeys = [...new Set(eventKeys)];
               expect(eventKeys).toEqual(uniqueKeys);
             } finally {
-              configureCancelEventStore(null);
-              configureWorkflowEventStore(null);
               vi.restoreAllMocks();
               await fs.rm(propDir, { recursive: true, force: true });
             }

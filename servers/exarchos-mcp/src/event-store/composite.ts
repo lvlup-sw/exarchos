@@ -14,7 +14,7 @@ export async function handleEvent(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  const { stateDir } = ctx;
+  const { stateDir, eventStore } = ctx;
   const action = args.action as string | undefined;
 
   switch (action as EventAction) {
@@ -23,6 +23,7 @@ export async function handleEvent(
       return handleEventAppend(
         rest as Parameters<typeof handleEventAppend>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'query': {
@@ -30,6 +31,7 @@ export async function handleEvent(
       return handleEventQuery(
         rest as Parameters<typeof handleEventQuery>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'batch_append': {
@@ -37,6 +39,7 @@ export async function handleEvent(
       return handleBatchAppend(
         rest as Parameters<typeof handleBatchAppend>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'describe': {

@@ -38,6 +38,7 @@ describe('handleWorkflow', () => {
       expect(handleInit).toHaveBeenCalledWith(
         { featureId: 'test', workflowType: 'feature' },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({ success: true, data: { phase: 'init-result' } });
     });
@@ -52,6 +53,7 @@ describe('handleWorkflow', () => {
       expect(handleGet).toHaveBeenCalledWith(
         { featureId: 'test', query: 'phase' },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({ success: true, data: { phase: 'get-result' } });
     });
@@ -66,6 +68,7 @@ describe('handleWorkflow', () => {
       expect(handleSet).toHaveBeenCalledWith(
         { featureId: 'test', phase: 'delegate', updates: { track: 'polish' } },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({ success: true, data: { phase: 'set-result' } });
     });
@@ -80,6 +83,7 @@ describe('handleWorkflow', () => {
       expect(handleCancel).toHaveBeenCalledWith(
         { featureId: 'test', reason: 'no longer needed' },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({ success: true, data: { phase: 'cancel-result' } });
     });
@@ -94,6 +98,7 @@ describe('handleWorkflow', () => {
       expect(handleReconcileState).toHaveBeenCalledWith(
         { featureId: 'test' },
         stateDir,
+        ctx.eventStore,
       );
       expect(result).toEqual({ success: true, data: { reconciled: true, eventsApplied: 3 } });
     });
