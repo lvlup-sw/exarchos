@@ -23,9 +23,10 @@ Or auto-invoked after review failures.
 
    ```typescript
    exarchos_orchestrate({
-     action: "run_script",
-     script: "extract-fix-tasks.sh",
-     args: ["--state-file", "<path>", "--review-report", "<path>", "--repo-root", "<path>"]
+     action: "extract_fix_tasks",
+     stateFile: "<path>",
+     reviewReport: "<path>",
+     repoRoot: "<path>"
    })
    ```
 

@@ -24,9 +24,9 @@ Then read the specific task section:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "extract-task.sh",
-  args: ["<plan-path>", "<task-id>"]
+  action: "extract_task",
+  planPath: "<plan-path>",
+  taskId: "<task-id>"
 })
 ```
 
@@ -36,9 +36,9 @@ If reviewing, read the diff instead of full files:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "review-diff.sh",
-  args: ["<worktree-path>", "main"]
+  action: "review_diff",
+  branch: "<worktree-path>",
+  baseBranch: "main"
 })
 ```
 
@@ -62,5 +62,5 @@ Read({ file_path: "<design-path>" })
 
 1. **Read on demand** - Only read files when you need the information
 2. **Use diffs** - Prefer diffs over full file contents for reviews
-3. **Extract sections** - Use extract-task.sh for single task context
+3. **Extract sections** - Use `extract_task` action for single task context
 4. **Trust state file** - The state file is the source of truth for workflow state

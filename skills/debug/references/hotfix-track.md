@@ -34,9 +34,9 @@ Run deterministic track selection:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "select-debug-track.sh",
-  args: ["--urgency", "<critical|high|medium|low>", "--root-cause-known", "<yes|no>"]
+  action: "select_debug_track",
+  urgency: "<critical|high|medium|low>",
+  rootCauseKnown: "<yes|no>"
 })
 ```
 
@@ -68,9 +68,8 @@ Run the investigation timer to enforce the 15-minute time-box:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "investigation-timer.sh",
-  args: ["--state-file", "<state-file>"]
+  action: "investigation_timer",
+  stateFile: "<state-file>"
 })
 ```
 

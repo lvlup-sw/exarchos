@@ -21,7 +21,7 @@ Agent reads design and extracts key sections:
 
 ## Step 1.5: Spec Tracing
 
-Agent runs `exarchos_orchestrate({ action: "run_script", script: "generate-traceability.sh" })` to pre-populate the traceability matrix, then fills in key requirements per section.
+Agent runs `exarchos_orchestrate({ action: "generate_traceability" })` to pre-populate the traceability matrix, then fills in key requirements per section.
 
 ## Step 2: Decompose into Tasks
 
@@ -67,7 +67,7 @@ exarchos_orchestrate({ action: "check_plan_coverage", ... })
 → passed: true — All design sections covered
 ```
 
-Agent runs `exarchos_orchestrate({ action: "run_script", script: "spec-coverage-check.sh" })` -- passed: true (no pre-existing tests expected at planning time).
+Agent runs `exarchos_orchestrate({ action: "spec_coverage_check" })` -- passed: true (no pre-existing tests expected at planning time).
 
 ## Output
 

@@ -31,7 +31,7 @@ Activate this skill when:
 
 This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
-The orchestrator provides the state file path, diff output from `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh" })`, task ID, and spec review results (must be PASS).
+The orchestrator provides the state file path, diff output from `exarchos_orchestrate({ action: "review_diff" })`, task ID, and spec review results (must be PASS).
 
 The subagent reads the state file for artifact paths, uses the diff output instead of full files, runs static analysis, performs a code walkthrough, generates a report, and returns the verdict.
 
@@ -132,9 +132,8 @@ If this review follows a delegation phase, verify triage routing:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-review-triage.sh",
-  args: ["--state-file", "<state-file>"]
+  action: "verify_review_triage",
+  stateFile: "<state-file>"
 })
 ```
 

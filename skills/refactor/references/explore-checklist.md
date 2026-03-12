@@ -48,15 +48,13 @@ Run the scope assessment script for a deterministic track recommendation:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "assess-refactor-scope.sh",
-  args: ["--files", "<file1,file2,...>"]
+  action: "assess_refactor_scope",
+  files: "<file1,file2,...>"
 })
 // or
 exarchos_orchestrate({
-  action: "run_script",
-  script: "assess-refactor-scope.sh",
-  args: ["--state-file", "<path>"]
+  action: "assess_refactor_scope",
+  stateFile: "<path>"
 })
 ```
 
