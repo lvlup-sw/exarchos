@@ -68,7 +68,7 @@ describe('Feature workflow playbooks', () => {
   it('getPlaybook_FeatureSynthesize_HasPreSynthesisScript', () => {
     const playbook = getPlaybook('feature', 'synthesize')!;
     const hasPreSynthesis = playbook.validationScripts.some((s) =>
-      s.includes('pre-synthesis'),
+      s.includes('pre_synthesis'),
     );
     expect(hasPreSynthesis).toBe(true);
   });
