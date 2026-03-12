@@ -56,12 +56,14 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Event-first: emit before SendMessage shutdown' },
     { tool: 'native:SendMessage', action: 'shutdown', onFail: 'continue',
       note: 'Shutdown N teammates, then TeamDelete' },
+    { tool: 'exarchos_orchestrate', action: 'post_delegation_check', onFail: 'stop',
+      note: 'Verify all tasks complete, tests pass, branches exist' },
     { tool: 'exarchos_workflow', action: 'set', onFail: 'stop',
       params: { phase: 'review' },
       note: 'Auto-emits workflow.transition' },
   ],
-  templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId'],
-  autoEmits: ['state.patched', 'workflow.transition'],
+  templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId', 'stateFile', 'repoRoot'],
+  autoEmits: ['gate.executed', 'state.patched', 'workflow.transition'],
 };
 
 export const SYNTHESIS_FLOW: RunbookDefinition = {
@@ -70,14 +72,14 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   description: 'Verify readiness, create PR, submit for merge.',
   steps: [
     { tool: 'exarchos_orchestrate', action: 'prepare_synthesis', onFail: 'stop' },
-    { tool: 'exarchos_orchestrate', action: 'run_script', onFail: 'stop',
-      params: { script: 'validate-pr-body.sh' } },
+    { tool: 'exarchos_orchestrate', action: 'validate_pr_stack', onFail: 'stop' },
+    { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop' },
     { tool: 'native:bash', action: 'gh_pr_create', onFail: 'stop',
       note: 'Create PR via gh CLI' },
     { tool: 'exarchos_workflow', action: 'set', onFail: 'stop',
       note: 'Record PR URL in artifacts.prUrl' },
   ],
-  templateVars: ['featureId'],
+  templateVars: ['featureId', 'baseBranch'],
   autoEmits: ['gate.executed', 'state.patched', 'workflow.transition'],
 };
 

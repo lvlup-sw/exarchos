@@ -30,12 +30,9 @@ The composite action validates all readiness conditions:
 Run the stack reconstruction script to detect and fix any broken branch state:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "run_script",
-  script: "reconstruct-stack.sh",
-  args: [
-    "--repo-root", "<repo-root>",
-    "--state-file", "~/.claude/workflow-state/<featureId>.state.json"
-  ]
+  action: "reconstruct_stack",
+  repoRoot: "<repo-root>",
+  stateFile: "~/.claude/workflow-state/<featureId>.state.json"
 })
 ```
 
@@ -65,9 +62,10 @@ Get PR numbers from the branch stack, then run the CodeRabbit review check:
 ```typescript
 // Check CodeRabbit review state via orchestrate
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "run_script",
-  script: "check-coderabbit.sh",
-  args: ["--owner", "<owner>", "--repo", "<repo>", "<pr-number-1>", "<pr-number-2>"]
+  action: "check_coderabbit",
+  owner: "<owner>",
+  repo: "<repo>",
+  prNumbers: ["<pr-number-1>", "<pr-number-2>"]
 })
 ```
 
@@ -107,15 +105,15 @@ EOF
 )"
 ```
 
-**Validation:** Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "run_script", script: "validate-pr-body.sh", args: ["--pr", "<number>"] })` to verify the body passes.
+**Validation:** Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "validate_pr_body", pr: "<number>" })` to verify the body passes.
 CI enforces this via the `PR Body Check` workflow — PRs missing required sections will fail.
 
 **Custom templates:** If the project has a `.exarchos/pr-template.md`, pass it via `--template`:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "run_script",
-  script: "validate-pr-body.sh",
-  args: ["--pr", "<number>", "--template", ".exarchos/pr-template.md"]
+  action: "validate_pr_body",
+  pr: "<number>",
+  template: ".exarchos/pr-template.md"
 })
 ```
 

@@ -228,7 +228,7 @@ register({
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
     "tasks[].status = 'complete' for every task",
-  validationScripts: ['scripts/post-delegation-check.sh'],
+  validationScripts: ['post_delegation_check'],
   humanCheckpoint: false,
   compactGuidance:
     'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" in subagent prompts instead of pasting full context. Verify test output independently — do not trust subagent self-assessment. Escalate: same task fails 3 times or task requires changes outside its declared module scope. Query runbook(task-classification) for complexity classification before dispatch. Follow the phase-compression runbook to build self-contained context packages per subagent.',
@@ -305,8 +305,8 @@ register({
   transitionCriteria: 'PR created and enqueued → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
-    'scripts/pre-synthesis-check.sh',
-    'scripts/validate-pr-stack.sh',
+    'pre_synthesis_check',
+    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:
@@ -899,8 +899,8 @@ register({
   transitionCriteria: 'PR URL exists → completed',
   guardPrerequisites: 'artifacts.pr exists',
   validationScripts: [
-    'scripts/pre-synthesis-check.sh',
-    'scripts/validate-pr-stack.sh',
+    'pre_synthesis_check',
+    'validate_pr_stack',
   ],
   humanCheckpoint: true,
   compactGuidance:

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import os from 'node:os';
-import { expandTilde, resolveScript } from './paths.js';
+import { expandTilde } from './paths.js';
 
 describe('expandTilde', () => {
   afterEach(() => {
@@ -34,29 +34,3 @@ describe('expandTilde', () => {
   });
 });
 
-describe('resolveScript', () => {
-  const originalEnv = process.env.EXARCHOS_PLUGIN_ROOT;
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    // Restore original env state to avoid test pollution
-    if (originalEnv === undefined) {
-      delete process.env.EXARCHOS_PLUGIN_ROOT;
-    } else {
-      process.env.EXARCHOS_PLUGIN_ROOT = originalEnv;
-    }
-  });
-
-  it('resolveScript_WithPluginRoot_ResolvesFromPluginScripts', () => {
-    process.env.EXARCHOS_PLUGIN_ROOT = '/plugins/cache/exarchos';
-    expect(resolveScript('verify-doc-links.sh')).toBe(
-      '/plugins/cache/exarchos/scripts/verify-doc-links.sh',
-    );
-  });
-
-  it('resolveScript_WithoutPluginRoot_FallsBackToClaudeHome', () => {
-    delete process.env.EXARCHOS_PLUGIN_ROOT;
-    vi.spyOn(os, 'homedir').mockReturnValue('/home/testuser');
-    expect(resolveScript('foo.sh')).toBe('/home/testuser/.claude/scripts/foo.sh');
-  });
-});

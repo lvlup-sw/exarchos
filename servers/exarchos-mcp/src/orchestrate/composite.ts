@@ -36,8 +36,28 @@ import { handleCheckConvergence } from './check-convergence.js';
 import { handleProvenanceChain } from './provenance-chain.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
 import { handleCheckEventEmissions } from './check-event-emissions.js';
-import { handleRunScript } from './run-script.js';
 import { handleAgentSpec } from '../agents/handler.js';
+import { handleExtractTask } from './extract-task.js';
+import { handleReviewDiff } from './review-diff.js';
+import { handleVerifyWorktree } from './verify-worktree.js';
+import { handleSelectDebugTrack } from './select-debug-track.js';
+import { handleInvestigationTimer } from './investigation-timer.js';
+import { handleCheckCoverageThresholds } from './check-coverage-thresholds.js';
+import { handleAssessRefactorScope } from './assess-refactor-scope.js';
+import { handleCheckPrComments } from './check-pr-comments.js';
+import { handleValidatePrBody } from './validate-pr-body.js';
+import { handleValidatePrStack } from './validate-pr-stack.js';
+import { handleDebugReviewGate } from './debug-review-gate.js';
+import { handleExtractFixTasks } from './extract-fix-tasks.js';
+import { handleGenerateTraceability } from './generate-traceability.js';
+import { handleSpecCoverageCheck } from './spec-coverage-check.js';
+import { handleVerifyWorktreeBaseline } from './verify-worktree-baseline.js';
+import { handleSetupWorktree } from './setup-worktree.js';
+import { handleVerifyDelegationSaga } from './verify-delegation-saga.js';
+import { handlePostDelegationCheck } from './post-delegation-check.js';
+import { handleReconcileState } from './reconcile-state.js';
+import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
+import { handleNewProject } from './new-project.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -46,6 +66,11 @@ type ActionHandler = (args: Record<string, unknown>, stateDir: string) => Promis
 /** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
 function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
   return (args, stateDir) => handler(args as unknown as T, stateDir);
+}
+
+/** Wraps a typed handler that takes only args (no stateDir) and may be sync or async. */
+function adaptArgs<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
+  return async (args) => handler(args as unknown as T);
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
@@ -70,8 +95,28 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_provenance_chain: adapt(handleProvenanceChain),
   check_task_decomposition: adapt(handleTaskDecomposition),
   check_event_emissions: adapt(handleCheckEventEmissions),
-  run_script: adapt(handleRunScript),
   agent_spec: adapt(handleAgentSpec),
+  extract_task: adapt(handleExtractTask),
+  review_diff: adapt(handleReviewDiff),
+  verify_worktree: adapt(handleVerifyWorktree),
+  select_debug_track: adapt(handleSelectDebugTrack),
+  investigation_timer: adapt(handleInvestigationTimer),
+  check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
+  assess_refactor_scope: adaptArgs(handleAssessRefactorScope),
+  check_pr_comments: adaptArgs(handleCheckPrComments),
+  validate_pr_body: adaptArgs(handleValidatePrBody),
+  validate_pr_stack: adaptArgs(handleValidatePrStack),
+  debug_review_gate: adaptArgs(handleDebugReviewGate),
+  extract_fix_tasks: adaptArgs(handleExtractFixTasks),
+  generate_traceability: adaptArgs(handleGenerateTraceability),
+  spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
+  verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
+  setup_worktree: adaptArgs(handleSetupWorktree),
+  verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
+  post_delegation_check: adaptArgs(handlePostDelegationCheck),
+  reconcile_state: adaptArgs(handleReconcileState),
+  pre_synthesis_check: adaptArgs(handlePreSynthesisCheck),
+  new_project: adaptArgs(handleNewProject),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

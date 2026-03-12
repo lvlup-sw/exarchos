@@ -155,9 +155,8 @@ Verify all documentation links are valid:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-doc-links.sh",
-  args: ["--docs-dir", "docs/"]
+  action: "verify_doc_links",
+  docsDir: "docs/"
 })
 ```
 

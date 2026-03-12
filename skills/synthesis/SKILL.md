@@ -90,9 +90,8 @@ EOF
 Validate **before** creating the PR:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
-  action: "run_script",
-  script: "validate-pr-body.sh",
-  args: ["--body-file", "/tmp/pr-body.md"]
+  action: "validate_pr_body",
+  bodyFile: "/tmp/pr-body.md"
 })
 ```
 
