@@ -14,7 +14,7 @@ import { SnapshotStore } from './views/snapshot-store.js';
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
 
-// EventStore configuration — workflow modules require explicit injection
+// EventStore configuration — all modules require explicit injection
 import { configureWorkflowEventStore } from './workflow/tools.js';
 import { configureNextActionEventStore } from './workflow/next-action.js';
 import { configureCancelEventStore } from './workflow/cancel.js';
@@ -22,6 +22,7 @@ import { configureCleanupEventStore, configureCleanupSnapshotStore } from './wor
 import { configureQueryEventStore } from './workflow/query.js';
 import { configureQualityEventStore } from './quality/hints.js';
 import { configureStateStoreBackend } from './workflow/state-store.js';
+import { configureEventToolsEventStore } from './event-store/tools.js';
 
 // New dispatch layer
 import { initializeContext } from './core/context.js';
@@ -155,11 +156,13 @@ export function createServer(
 ): McpServer {
   const backend = options?.backend;
 
-  // Configure module-level stores (same as initializeContext, but synchronous)
+  // Configure module-level stores (same as initializeContext, but synchronous).
+  // The event tools module MUST share the same instance — see GitHub #1009.
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
 
+  configureEventToolsEventStore(eventStore);
   configureWorkflowEventStore(eventStore);
   configureNextActionEventStore(eventStore);
   configureCancelEventStore(eventStore);

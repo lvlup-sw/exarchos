@@ -6,11 +6,28 @@ import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
 
-// ─── Module-Level EventStore (injected via registerEventTools) ───────────────
+// ─── Module-Level EventStore ─────────────────────────────────────────────────
+// Injected via configureEventToolsEventStore() during server initialization,
+// or via registerEventTools() for legacy individual-tool registration.
+// getStore() creates a fallback instance if neither was called, but the
+// fallback lacks the StorageBackend — see GitHub #1009.
 
 let moduleEventStore: EventStore | null = null;
 
-/** Returns a cached EventStore instance for the given state directory, creating one if needed. */
+/**
+ * Configure the EventStore instance used by event tool handlers.
+ *
+ * Must be called during server initialization with the same EventStore
+ * instance used by the workflow tools. Without this, getStore() creates
+ * a separate instance that lacks the StorageBackend, causing events
+ * appended via exarchos_event to be invisible to workflow hydration
+ * queries that read from the backend. (GitHub #1009)
+ */
+export function configureEventToolsEventStore(store: EventStore | null): void {
+  moduleEventStore = store;
+}
+
+/** Returns the configured EventStore, or creates a fallback instance for the given state directory. */
 function getStore(stateDir: string): EventStore {
   if (!moduleEventStore) {
     moduleEventStore = new EventStore(stateDir);
