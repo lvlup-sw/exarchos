@@ -98,13 +98,42 @@ export function stubResult() {
 
 // ─── Field Projection ──────────────────────────────────────────────────────
 
-/** Picks only the specified fields from an object, returning a partial copy. */
+/** Picks only the specified fields from an object, returning a partial copy.
+ *  Supports dot-path notation (e.g. "data.taskId") for nested field projection. */
 export function pickFields<T extends Record<string, unknown>>(obj: T, fields: string[]): Partial<T> {
-  const result: Partial<T> = {};
+  const result: Record<string, unknown> = {};
   for (const field of fields) {
-    if (field in obj) {
-      (result as Record<string, unknown>)[field] = obj[field];
+    if (!field.includes('.')) {
+      // Top-level field — existing behavior
+      if (field in obj) {
+        result[field] = obj[field];
+      }
+    } else {
+      // Dot-path: traverse source, reconstruct nested path in result
+      const segments = field.split('.');
+      let source: unknown = obj;
+      let valid = true;
+      for (const seg of segments) {
+        if (source !== null && typeof source === 'object' && seg in (source as Record<string, unknown>)) {
+          source = (source as Record<string, unknown>)[seg];
+        } else {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        // Reconstruct the nested path in the result, merging with any existing nested object
+        let target = result;
+        for (let i = 0; i < segments.length - 1; i++) {
+          const seg = segments[i];
+          if (!(seg in target) || typeof target[seg] !== 'object' || target[seg] === null) {
+            target[seg] = {};
+          }
+          target = target[seg] as Record<string, unknown>;
+        }
+        target[segments[segments.length - 1]] = source;
+      }
     }
   }
-  return result;
+  return result as Partial<T>;
 }

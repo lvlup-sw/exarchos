@@ -324,6 +324,50 @@ describe('handleBatchAppend', () => {
   });
 });
 
+// ─── Dot-path field projection in event queries ─────────────────────────────
+
+describe('handleEventQuery dot-path field projection', () => {
+  it('handleEventQuery_WithoutFieldsParam_ReturnsCompleteEvents', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('dot-path-test', {
+      type: 'task.completed',
+      data: { taskId: 't1', title: 'My Task', assignee: 'agent-1' },
+    });
+
+    const result = await handleEventQuery({ stream: 'dot-path-test' }, tempDir, store);
+
+    expect(result.success).toBe(true);
+    const events = result.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    const eventData = events[0].data as Record<string, unknown>;
+    expect(eventData).toBeDefined();
+    expect(eventData.taskId).toBe('t1');
+    expect(eventData.title).toBe('My Task');
+    expect(eventData.assignee).toBe('agent-1');
+  });
+
+  it('handleEventQuery_WithDotPathFields_ReturnsNestedProjection', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('dot-path-test', {
+      type: 'task.completed',
+      data: { taskId: 't1', title: 'My Task', assignee: 'agent-1' },
+    });
+
+    const result = await handleEventQuery(
+      { stream: 'dot-path-test', fields: ['type', 'data.taskId'] },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = result.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('task.completed');
+    const eventData = events[0].data as Record<string, unknown>;
+    expect(eventData).toEqual({ taskId: 't1' });
+  });
+});
+
 // ─── Multi-tenant field passthrough ──────────────────────────────────────────
 
 describe('tenant field passthrough', () => {
