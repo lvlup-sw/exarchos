@@ -61,6 +61,16 @@ export function handleDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
 
   const changedFiles = getChangedFiles(args.repoRoot, args.baseBranch);
 
+  if (changedFiles === null) {
+    return {
+      success: false,
+      error: {
+        code: 'DIFF_FAILED',
+        message: `git diff failed for base branch '${args.baseBranch}' in ${args.repoRoot}`,
+      },
+    };
+  }
+
   if (changedFiles.length === 0) {
     results.push(
       `- **FAIL**: New test files added — No changed files found between ${args.baseBranch} and HEAD`,
@@ -116,7 +126,7 @@ export function handleDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getChangedFiles(repoRoot: string, baseBranch: string): string[] {
+function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null {
   try {
     const output = execFileSync(
       'git',
@@ -140,7 +150,7 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] {
         .split('\n')
         .filter((line) => line.length > 0);
     } catch {
-      return [];
+      return null;
     }
   }
 }
