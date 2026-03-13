@@ -42,13 +42,13 @@ Scripts resolve from two locations, checked in order:
 
 ## Invocation
 
-Skills invoke scripts through the MCP server, not via direct bash paths:
+Skills invoke orchestrate actions through the MCP server as native TypeScript handlers:
 
 ```typescript
-exarchos_orchestrate({ action: "run_script", script: "check-tdd-compliance", args: ["--branch", "feature/my-task"] })
+exarchos_orchestrate({ action: "check_tdd_compliance", branch: "feature/my-task" })
 ```
 
-The `run_script` action resolves the script path, executes it, and returns structured output with the exit code and stdout/stderr.
+> **Note:** The `run_script` action was removed in #998. All 21 workflow scripts are now native TypeScript orchestrate actions. Remaining `.sh` scripts in `scripts/` are companion/utility scripts not used by core workflows.
 
 ## Script catalog
 
