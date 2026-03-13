@@ -345,6 +345,26 @@ describe('review.completed in review phase', () => {
   });
 });
 
+// ─── DR-3: Gate prerequisites in delegation compactGuidance ─────────────────
+
+describe('Delegation playbook gate prerequisites', () => {
+  it('DelegationPlaybook_CompactGuidance_MentionsGatePrerequisites', () => {
+    const playbook = getPlaybook('feature', 'delegate')!;
+    expect(playbook).toBeDefined();
+    expect(playbook.compactGuidance).toContain('check_tdd_compliance');
+    expect(playbook.compactGuidance).toContain('check_static_analysis');
+    expect(playbook.compactGuidance).toContain('task_complete');
+  });
+
+  it('OverhaulDelegatePlaybook_CompactGuidance_MentionsGatePrerequisites', () => {
+    const playbook = getPlaybook('refactor', 'overhaul-delegate')!;
+    expect(playbook).toBeDefined();
+    expect(playbook.compactGuidance).toContain('check_tdd_compliance');
+    expect(playbook.compactGuidance).toContain('check_static_analysis');
+    expect(playbook.compactGuidance).toContain('task_complete');
+  });
+});
+
 // ─── DR-4: compactGuidance drift tests ──────────────────────────────────────
 
 describe('compactGuidance drift tests', () => {
