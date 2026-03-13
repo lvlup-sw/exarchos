@@ -209,22 +209,16 @@ export async function handleTaskComplete(
         (details != null && (!details.taskId || details.taskId === args.taskId));
     });
 
-  if (!manualBypass && !hasPassingGate('tdd-compliance')) {
+  const unmetGates: string[] = [];
+  if (!manualBypass && !hasPassingGate('tdd-compliance')) unmetGates.push('tdd-compliance');
+  if (!manualBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
+  if (unmetGates.length > 0) {
     return {
       success: false,
       error: {
         code: 'GATE_NOT_PASSED',
-        message: 'TDD compliance gate must pass before task completion. Run check_tdd_compliance first.',
-      },
-    };
-  }
-
-  if (!manualBypass && !hasPassingGate('static-analysis')) {
-    return {
-      success: false,
-      error: {
-        code: 'GATE_NOT_PASSED',
-        message: 'Static analysis gate must pass before task completion. Run check_static_analysis first.',
+        message: `Required gates not passed: ${unmetGates.join(', ')}. Run these checks first.`,
+        unmetGates,
       },
     };
   }
