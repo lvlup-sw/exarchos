@@ -269,7 +269,8 @@ export async function handleTaskComplete(
         const task = tasks.find((t) => t.id === args.taskId);
         if (!task) break;
         task.status = 'complete';
-        const version = (state as Record<string, unknown>)._version as number | undefined;
+        const rawVersion = (state as Record<string, unknown>)._version;
+        const version = typeof rawVersion === 'number' ? rawVersion : 1;
         (state as Record<string, unknown>).updatedAt = new Date().toISOString();
         await writeStateFile(stateFile, state, {
           expectedVersion: version,
