@@ -1000,6 +1000,58 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'check_coderabbit',
+    description: 'Query CodeRabbit review state on GitHub PRs — APPROVED/NONE → pass, else fail',
+    schema: z.object({
+      owner: z.string(),
+      repo: z.string(),
+      prNumbers: z.array(z.number()),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'check_polish_scope',
+    description: 'Check if polish refactor scope has expanded beyond limits (>5 files, >2 modules)',
+    schema: z.object({
+      repoRoot: z.string(),
+      baseBranch: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'needs_schema_sync',
+    description: 'Detect API file modifications (Endpoints.cs, Models/, Requests/, etc.) requiring schema sync',
+    schema: z.object({
+      repoRoot: z.string(),
+      baseBranch: z.string().optional(),
+      diffFile: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'verify_doc_links',
+    description: 'Check that internal markdown links resolve to existing files',
+    schema: z.object({
+      docFile: z.string().optional(),
+      docsDir: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'verify_review_triage',
+    description: 'Verify review triage routing — check review.routed events against state file PRs',
+    schema: z.object({
+      stateFile: z.string(),
+      eventStream: z.string(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
     name: 'runbook',
     description: 'List available runbooks or get a resolved runbook with schemas',
     schema: z.object({

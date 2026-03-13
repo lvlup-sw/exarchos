@@ -58,6 +58,11 @@ import { handlePostDelegationCheck } from './post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
 import { handleNewProject } from './new-project.js';
+import { handleCheckCoderabbit } from './check-coderabbit.js';
+import { handleCheckPolishScope } from './check-polish-scope.js';
+import { handleNeedsSchemaSync } from './needs-schema-sync.js';
+import { handleVerifyDocLinks } from './verify-doc-links.js';
+import { handleVerifyReviewTriage } from './verify-review-triage.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -117,6 +122,11 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   reconcile_state: adaptArgs(handleReconcileState),
   pre_synthesis_check: adaptArgs(handlePreSynthesisCheck),
   new_project: adaptArgs(handleNewProject),
+  check_coderabbit: adaptArgs(handleCheckCoderabbit),
+  check_polish_scope: adaptArgs(handleCheckPolishScope),
+  needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
+  verify_doc_links: adaptArgs(handleVerifyDocLinks),
+  verify_review_triage: adaptArgs(handleVerifyReviewTriage),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
