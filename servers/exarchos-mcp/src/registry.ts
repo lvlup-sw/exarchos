@@ -1217,6 +1217,16 @@ const viewActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
   },
+  {
+    name: 'quality_hints',
+    description: 'Generate quality improvement hints from code quality view',
+    schema: z.object({
+      workflowId: z.string().optional().describe('Workflow ID to generate hints for'),
+      skill: z.string().optional().describe('Filter hints by skill name'),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
   makeDescribeAction(),
 ];
 
@@ -1261,7 +1271,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
   },
   {
     name: 'exarchos_sync',
