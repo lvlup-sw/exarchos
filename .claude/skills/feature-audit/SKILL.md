@@ -94,7 +94,7 @@ exarchos_orchestrate({ action: "check_workflow_determinism", featureId, repoRoot
 Evaluate each dimension against its criteria. See `references/convergence-dimensions.md` for the full rubrics, invariants, and eval methods per dimension:
 
 - **D1: Spec Fidelity & TDD** — Requirement traceability matrix, spec deviation, edge case coverage
-- **D2: Pattern Compliance** — Event sourcing, CQRS, HSM, Saga, adversarial gate invariants
+- **D2: Pattern Compliance** — Event sourcing, CQRS, HSM, Saga, adversarial gate invariants, platform agnosticity (MCP self-containment)
 - **D3: Context Economy** — Tool response sizes, event payloads, SKILL.md word counts, progressive disclosure. For skills created/modified by the feature, also evaluate against `references/skill-quality-standards.md` (Anthropic best practices)
 - **D4: Operational Resilience** — I/O efficiency, cache bounds, concurrency, error messages
 - **D5: Workflow Determinism** — Discriminative selection, structured outputs, validation scripts, gate coverage. For skills created/modified by the feature, also evaluate trigger quality and workflow patterns against `references/skill-quality-standards.md`
