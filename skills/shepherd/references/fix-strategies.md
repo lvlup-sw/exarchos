@@ -237,8 +237,7 @@ git push --force-with-lease
 If the stack is in a broken state:
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "reconstruct-stack.sh"
+  action: "reconstruct_stack"
 })
 ```
 

@@ -33,7 +33,7 @@ This skill runs as a SUBAGENT spawned by the orchestrator during the review phas
 
 The orchestrator provides:
 - State file path (for artifact resolution)
-- Diff output from `exarchos_orchestrate({ action: "run_script", script: "review-diff.sh" })`
+- Diff output from `exarchos_orchestrate({ action: "review_diff" })`
 - Feature ID for workflow state queries
 
 The subagent:
