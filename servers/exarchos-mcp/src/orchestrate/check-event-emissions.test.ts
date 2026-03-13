@@ -263,15 +263,22 @@ describe('handleCheckEventEmissions', () => {
 describe('handleOrchestrate integration', () => {
   it('HandleOrchestrate_CheckEventEmissions_HandlerExists', async () => {
     const { handleOrchestrate } = await import('./composite.js');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
 
-    // Call with check_event_emissions action to verify it's routed
-    const { EventStore } = await import('../event-store/store.js');
-    const result = await handleOrchestrate(
-      { action: 'check_event_emissions', featureId: 'test' },
-      { stateDir: STATE_DIR, eventStore: new EventStore(STATE_DIR), enableTelemetry: false },
-    );
+    const isolatedDir = mkdtempSync(join(tmpdir(), 'check-event-emissions-route-'));
+    try {
+      const { EventStore } = await import('../event-store/store.js');
+      const result = await handleOrchestrate(
+        { action: 'check_event_emissions', featureId: 'test' },
+        { stateDir: isolatedDir, eventStore: new EventStore(isolatedDir), enableTelemetry: false },
+      );
 
-    // Should NOT return UNKNOWN_ACTION — meaning the handler is registered
-    expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
+      // Should NOT return UNKNOWN_ACTION — meaning the handler is registered
+      expect(result.error?.code).not.toBe('UNKNOWN_ACTION');
+    } finally {
+      rmSync(isolatedDir, { recursive: true, force: true });
+    }
   });
 });

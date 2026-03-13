@@ -17,7 +17,7 @@ function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
 }
 
-let tempDir: string | undefined;
+let tempDir = '';
 let store: EventStore;
 
 beforeEach(async () => {
@@ -27,6 +27,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  tempDir = '';
   resetMaterializerCache();
   vi.restoreAllMocks();
   if (tempDir) {
