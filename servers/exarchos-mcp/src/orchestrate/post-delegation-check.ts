@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -160,9 +160,16 @@ function checkWorktreeTests(
   }
 
   const results: CheckResult[] = [];
+  const resolvedRepoRoot = resolve(repoRoot);
 
   for (const wt of worktrees) {
-    const wtPath = join(repoRoot, wt);
+    const wtPath = resolve(repoRoot, wt);
+
+    // Guard: reject worktree paths that escape the repository root
+    if (!wtPath.startsWith(resolvedRepoRoot + '/') && wtPath !== resolvedRepoRoot) {
+      results.push(checkFail(`Worktree tests: ${wt}`, 'Path escapes repository root'));
+      continue;
+    }
 
     if (!existsSync(wtPath)) {
       results.push(checkFail(`Worktree tests: ${wt}`, 'Directory not found'));

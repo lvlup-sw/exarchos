@@ -67,7 +67,7 @@ exarchos_orchestrate({ action: "check_plan_coverage", ... })
 → passed: true — All design sections covered
 ```
 
-Agent runs `exarchos_orchestrate({ action: "spec_coverage_check" })` -- passed: true (no pre-existing tests expected at planning time).
+Agent runs `exarchos_orchestrate({ action: "spec_coverage_check", planFile: "docs/plans/2026-02-20-stream-compaction.md", repoRoot: "." })` -- passed: true (no pre-existing tests expected at planning time).
 
 ## Output
 

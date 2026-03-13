@@ -48,7 +48,7 @@ The subagent:
 The **orchestrator** is responsible for generating the diff before dispatching the spec-review subagent. The subagent does NOT generate its own diff.
 
 **Orchestrator responsibilities:**
-1. Generate diff: `exarchos_orchestrate({ action: "review_diff", branch: "<integration-branch>", baseBranch: "main" })`
+1. Generate diff: `exarchos_orchestrate({ action: "review_diff", worktreePath: "<worktree-path>", baseBranch: "main" })`
 2. Pass diff content in the subagent dispatch prompt
 3. Include state file path for artifact resolution
 
@@ -68,7 +68,7 @@ integration branch (e.g., `feature/integration-branch`) against main:
 git diff main...integration > /tmp/combined-diff.patch
 
 # Alternative: use review-diff script against integration branch via orchestrate
-# exarchos_orchestrate({ action: "review_diff", branch: "integration", baseBranch: "main" })
+# exarchos_orchestrate({ action: "review_diff", worktreePath: "<worktree-path>", baseBranch: "main" })
 ```
 
 This provides the complete picture of all changes across all tasks and reduces context consumption by 80-90%.
@@ -283,7 +283,7 @@ This is NOT a human checkpoint - workflow continues autonomously.
 | Test file not found | Task didn't create expected test | Check plan for test file paths, verify worktree contents |
 | Coverage below threshold | Implementation incomplete or tests superficial | Add missing test cases, verify assertions are meaningful |
 | TDD compliance check fails | Implementation committed before tests | Check git log order — test commits must precede or accompany implementation |
-| Diff too large for context | Many tasks with large changes | Use `exarchos_orchestrate({ action: "review_diff", perTask: true })` to review incrementally |
+| Diff too large for context | Many tasks with large changes | Generate per-worktree diffs with `exarchos_orchestrate({ action: "review_diff", worktreePath: "<task-worktree>" })` to review incrementally |
 
 ## Performance Notes
 

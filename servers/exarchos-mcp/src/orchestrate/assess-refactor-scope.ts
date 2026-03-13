@@ -26,7 +26,9 @@ interface AssessRefactorScopeResult {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function extractModule(filePath: string): string {
-  const firstSegment = filePath.split('/')[0];
+  // Normalize backslashes and strip leading drive letters / absolute prefixes
+  const normalized = filePath.replace(/\\/g, '/').replace(/^[A-Za-z]:\//, '').replace(/^\/+/, '');
+  const firstSegment = normalized.split('/')[0];
   return firstSegment ?? filePath;
 }
 
@@ -38,12 +40,26 @@ function getUniqueModules(files: readonly string[]): readonly string[] {
   return [...modules].sort();
 }
 
-function readFilesFromState(stateFile: string): readonly string[] | null {
+function readFilesFromState(stateFile: string): readonly string[] | null | ToolResult {
   if (!fs.existsSync(stateFile)) {
     return null;
   }
-  const raw = fs.readFileSync(stateFile, 'utf-8');
-  const parsed: unknown = JSON.parse(raw);
+
+  let raw: string;
+  let parsed: unknown;
+  try {
+    raw = fs.readFileSync(stateFile, 'utf-8');
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'STATE_READ_ERROR',
+        message: `Failed to read or parse state file ${stateFile}: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+
   if (
     typeof parsed === 'object' &&
     parsed !== null &&
@@ -58,7 +74,11 @@ function readFilesFromState(stateFile: string): readonly string[] | null {
       explore.scopeAssessment !== null
     ) {
       const scope = explore.scopeAssessment as Record<string, unknown>;
-      if ('filesAffected' in scope && Array.isArray(scope.filesAffected)) {
+      if (
+        'filesAffected' in scope &&
+        Array.isArray(scope.filesAffected) &&
+        scope.filesAffected.every((item: unknown) => typeof item === 'string')
+      ) {
         return scope.filesAffected as string[];
       }
     }
@@ -78,6 +98,10 @@ export async function handleAssessRefactorScope(
     fileList = args.files;
   } else if (args.stateFile) {
     const fromState = readFilesFromState(args.stateFile);
+    if (fromState !== null && 'success' in fromState) {
+      // ToolResult error from readFilesFromState
+      return fromState as ToolResult;
+    }
     if (fromState === null) {
       return {
         success: false,

@@ -5,8 +5,11 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -53,7 +56,7 @@ function applyLanguageCustomizations(content: string, language: string): string 
 
 // ─── Gitignore Update ───────────────────────────────────────────────────────
 
-function updateGitignore(projectPath: string): boolean {
+function updateGitignore(projectPath: string): boolean | { error: string } {
   const gitignorePath = join(projectPath, '.gitignore');
   const entry = '.claude/settings.local.json';
 
@@ -71,7 +74,11 @@ function updateGitignore(projectPath: string): boolean {
     return false;
   }
 
-  appendFileSync(gitignorePath, `${entry}\n`);
+  try {
+    appendFileSync(gitignorePath, `${entry}\n`);
+  } catch (err) {
+    return { error: `Failed to update .gitignore: ${err instanceof Error ? err.message : String(err)}` };
+  }
   return true;
 }
 
@@ -86,7 +93,17 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
 
   // 1. Create project directory if needed
   if (!existsSync(projectPath)) {
-    mkdirSync(projectPath, { recursive: true });
+    try {
+      mkdirSync(projectPath, { recursive: true });
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'MKDIR_FAILED',
+          message: `Failed to create project directory ${projectPath}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
     report.push(`Created project directory: ${projectPath}`);
   }
 
@@ -107,14 +124,35 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
   if (existsSync(claudeMdPath)) {
     report.push('[skip] CLAUDE.md already exists');
   } else {
-    let content = readFileSync(templatePath, 'utf-8');
+    let content: string;
+    try {
+      content = readFileSync(templatePath, 'utf-8');
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'TEMPLATE_READ_FAILED',
+          message: `Failed to read template ${templatePath}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
 
     // 4. Apply language customizations
     if (language) {
       content = applyLanguageCustomizations(content, language);
     }
 
-    writeFileSync(claudeMdPath, content, 'utf-8');
+    try {
+      writeFileSync(claudeMdPath, content, 'utf-8');
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'WRITE_FAILED',
+          message: `Failed to write CLAUDE.md at ${claudeMdPath}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
     filesCreated.push('CLAUDE.md');
     report.push('[created] CLAUDE.md');
   }
@@ -122,13 +160,33 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
   // 5. Create .claude/settings.json unless minimal
   if (!minimal) {
     const claudeDir = join(projectPath, '.claude');
-    mkdirSync(claudeDir, { recursive: true });
+    try {
+      mkdirSync(claudeDir, { recursive: true });
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'MKDIR_FAILED',
+          message: `Failed to create .claude directory: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
 
     const settingsPath = join(claudeDir, 'settings.json');
     if (existsSync(settingsPath)) {
       report.push('[skip] .claude/settings.json already exists');
     } else {
-      writeFileSync(settingsPath, SETTINGS_JSON + '\n', 'utf-8');
+      try {
+        writeFileSync(settingsPath, SETTINGS_JSON + '\n', 'utf-8');
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: 'WRITE_FAILED',
+            message: `Failed to write settings.json: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
       filesCreated.push('.claude/settings.json');
       report.push('[created] .claude/settings.json');
     }
@@ -136,7 +194,17 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
     // 6. Update .gitignore if git repo
     const gitDir = join(projectPath, '.git');
     if (existsSync(gitDir)) {
-      if (updateGitignore(projectPath)) {
+      const gitignoreResult = updateGitignore(projectPath);
+      if (typeof gitignoreResult === 'object' && 'error' in gitignoreResult) {
+        return {
+          success: false,
+          error: {
+            code: 'GITIGNORE_UPDATE_FAILED',
+            message: gitignoreResult.error,
+          },
+        };
+      }
+      if (gitignoreResult === true) {
         report.push('[updated] .gitignore (added settings.local.json)');
       }
     }

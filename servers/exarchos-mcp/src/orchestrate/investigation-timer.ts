@@ -27,7 +27,7 @@ interface InvestigationTimerResult {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function resolveStartedAt(args: InvestigationTimerArgs): string | null {
+function resolveStartedAt(args: InvestigationTimerArgs): string | null | ToolResult {
   if (args.startedAt) {
     return args.startedAt;
   }
@@ -36,8 +36,20 @@ function resolveStartedAt(args: InvestigationTimerArgs): string | null {
     if (!fs.existsSync(args.stateFile)) {
       return null;
     }
-    const content = fs.readFileSync(args.stateFile, 'utf-8');
-    const state: unknown = JSON.parse(content);
+    let content: string;
+    let state: unknown;
+    try {
+      content = fs.readFileSync(args.stateFile, 'utf-8');
+      state = JSON.parse(content);
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'STATE_READ_ERROR',
+          message: `Failed to read or parse state file ${args.stateFile}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
     if (
       typeof state === 'object' &&
       state !== null &&
@@ -68,7 +80,14 @@ export async function handleInvestigationTimer(
   _stateDir: string,
 ): Promise<ToolResult> {
   // Resolve the startedAt timestamp
-  const startedAt = resolveStartedAt(args);
+  const startedAtResult = resolveStartedAt(args);
+
+  // Propagate ToolResult errors from state file parsing
+  if (typeof startedAtResult === 'object' && startedAtResult !== null && 'success' in startedAtResult) {
+    return startedAtResult as ToolResult;
+  }
+
+  const startedAt = startedAtResult;
 
   if (!startedAt) {
     return {

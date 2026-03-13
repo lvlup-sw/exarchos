@@ -80,10 +80,23 @@ export async function handleReviewDiff(
   // Get current branch
   const currentBranch = git(['branch', '--show-current'], worktreePath);
 
-  // Get diff components
-  const stat = gitDiffWithFallback(baseBranch, ['--stat'], worktreePath);
-  const nameOnly = gitDiffWithFallback(baseBranch, ['--name-only'], worktreePath);
-  const diff = gitDiffWithFallback(baseBranch, ['--unified=3'], worktreePath);
+  // Get diff components — wrap in try-catch so unknown base branch returns structured error
+  let stat: string;
+  let nameOnly: string;
+  let diff: string;
+  try {
+    stat = gitDiffWithFallback(baseBranch, ['--stat'], worktreePath);
+    nameOnly = gitDiffWithFallback(baseBranch, ['--name-only'], worktreePath);
+    diff = gitDiffWithFallback(baseBranch, ['--unified=3'], worktreePath);
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'DIFF_FAILED',
+        message: `Failed to compute diff against '${baseBranch}': ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
 
   // Parse file list
   const files = nameOnly

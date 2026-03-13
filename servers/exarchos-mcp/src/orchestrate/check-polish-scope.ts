@@ -91,6 +91,14 @@ function isStructuralFile(filePath: string): boolean {
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
+  // Validate required repoRoot
+  if (!args.repoRoot) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'repoRoot is required' },
+    };
+  }
+
   const { repoRoot } = args;
   const baseBranch = args.baseBranch ?? 'main';
 

@@ -84,14 +84,23 @@ export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
     }
 
     // Fetch reviews via gh api
+    // Use --jq '.[]' to emit newline-delimited JSON objects, avoiding the
+    // concatenated-array problem with --paginate on array endpoints (e.g.
+    // `[...][...]` instead of a single valid JSON array).
     let reviews: GhReview[];
     try {
       const raw = execFileSync(
         'gh',
-        ['api', '--paginate', `repos/${args.owner}/${args.repo}/pulls/${pr}/reviews`],
+        ['api', '--paginate', '--jq', '.[]', `repos/${args.owner}/${args.repo}/pulls/${pr}/reviews`],
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
       );
-      reviews = JSON.parse(raw) as GhReview[];
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        reviews = [];
+      } else {
+        // Each line is a JSON object; wrap into an array and parse
+        reviews = JSON.parse(`[${trimmed.split('\n').join(',')}]`) as GhReview[];
+      }
     } catch {
       results.push({ pr, state: 'API_ERROR', verdict: 'fail' });
       continue;

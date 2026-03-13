@@ -101,11 +101,22 @@ export async function handleSelectDebugTrack(
       };
     }
 
-    const raw = fs.readFileSync(args.stateFile, 'utf-8');
-    const state = JSON.parse(raw) as {
+    let state: {
       urgency?: { level?: string };
       investigation?: { rootCauseKnown?: boolean | string };
     };
+    try {
+      const raw = fs.readFileSync(args.stateFile, 'utf-8');
+      state = JSON.parse(raw) as typeof state;
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'STATE_READ_ERROR',
+          message: `Failed to read or parse state file ${args.stateFile}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
 
     urgency = state.urgency?.level;
     rootCauseKnownRaw = state.investigation?.rootCauseKnown;

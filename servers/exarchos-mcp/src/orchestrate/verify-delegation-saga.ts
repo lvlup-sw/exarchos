@@ -36,6 +36,26 @@ interface SagaEvent {
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export function handleVerifyDelegationSaga(args: VerifyDelegationSagaArgs): ToolResult {
+  // Guard: reject empty/blank or path-traversal featureId
+  if (!args.featureId || args.featureId.trim().length === 0) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'featureId must be a non-empty string',
+      },
+    };
+  }
+  if (args.featureId.includes('/') || args.featureId.includes('..') || args.featureId.startsWith('/')) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: `featureId contains invalid path characters: ${args.featureId}`,
+      },
+    };
+  }
+
   const stateDir = args.stateDir ?? join(homedir(), '.claude', 'workflow-state');
   const eventFile = join(stateDir, `${args.featureId}.events.jsonl`);
 
@@ -51,7 +71,18 @@ export function handleVerifyDelegationSaga(args: VerifyDelegationSagaArgs): Tool
   }
 
   // Read and validate non-empty
-  const content = readFileSync(eventFile, 'utf-8');
+  let content: string;
+  try {
+    content = readFileSync(eventFile, 'utf-8');
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'READ_ERROR',
+        message: `Failed to read event file: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
   if (content.trim().length === 0) {
     return {
       success: false,
@@ -63,8 +94,19 @@ export function handleVerifyDelegationSaga(args: VerifyDelegationSagaArgs): Tool
   }
 
   // Parse JSONL lines
-  const lines = content.split('\n').filter((line) => line.trim().length > 0);
-  const events: SagaEvent[] = lines.map((line) => JSON.parse(line) as SagaEvent);
+  let events: SagaEvent[];
+  try {
+    const lines = content.split('\n').filter((line) => line.trim().length > 0);
+    events = lines.map((line) => JSON.parse(line) as SagaEvent);
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'PARSE_ERROR',
+        message: `Failed to parse event file: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
 
   // Filter to team.* events only
   const teamEvents = events.filter((e) => e.type.startsWith('team.'));
@@ -159,6 +201,12 @@ export function handleVerifyDelegationSaga(args: VerifyDelegationSagaArgs): Tool
         break;
 
       case 'team.disbanded':
+        // Rule 4: nothing after team.disbanded — including a second team.disbanded
+        if (hasDisbanded) {
+          violations.push(
+            `VIOLATION: team.disbanded (seq ${seq}) appeared after team.disbanded (seq ${disbandedSequence})`,
+          );
+        }
         hasDisbanded = true;
         disbandedSequence = seq;
         break;

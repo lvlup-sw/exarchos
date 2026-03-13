@@ -37,7 +37,7 @@ If reviewing, read the diff instead of full files:
 ```typescript
 exarchos_orchestrate({
   action: "review_diff",
-  branch: "<worktree-path>",
+  worktreePath: "<worktree-path>",
   baseBranch: "main"
 })
 ```

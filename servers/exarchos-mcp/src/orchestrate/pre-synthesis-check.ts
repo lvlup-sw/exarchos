@@ -72,11 +72,28 @@ function checkStateFile(
     const raw = readFileSync(stateFile, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      checkFail(ctx, 'State file exists', `Invalid JSON: ${stateFile}`);
+      checkFail(ctx, 'State file exists', `Invalid JSON: expected top-level object in ${stateFile}`);
       return null;
     }
+
+    const obj = parsed as Record<string, unknown>;
+
+    // Validate expected field shapes before downstream checks consume them
+    if ('tasks' in obj && !Array.isArray(obj['tasks'])) {
+      checkFail(ctx, 'State file exists', `Invalid state shape: "tasks" must be an array in ${stateFile}`);
+      return null;
+    }
+
+    if ('reviews' in obj) {
+      const reviews = obj['reviews'];
+      if (typeof reviews !== 'object' || reviews === null || Array.isArray(reviews)) {
+        checkFail(ctx, 'State file exists', `Invalid state shape: "reviews" must be an object in ${stateFile}`);
+        return null;
+      }
+    }
+
     checkPass(ctx, 'State file exists');
-    return parsed as Record<string, unknown>;
+    return obj;
   } catch {
     checkFail(ctx, 'State file exists', `Invalid JSON: ${stateFile}`);
     return null;

@@ -22,6 +22,10 @@ const makeReview = (login: string, state: string, submitted_at: string) => ({
   submitted_at,
 });
 
+/** Simulate `gh api --paginate --jq '.[]'` output: newline-delimited JSON objects (string, matching encoding: 'utf-8') */
+const toNdjson = (reviews: ReturnType<typeof makeReview>[]) =>
+  reviews.map((r) => JSON.stringify(r)).join('\n');
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('handleCheckCoderabbit', () => {
@@ -35,7 +39,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1, 2] });
 
@@ -53,7 +57,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'CHANGES_REQUESTED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
 
@@ -70,7 +74,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'PENDING', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
 
@@ -87,7 +91,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('some-human', 'APPROVED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
 
@@ -106,7 +110,7 @@ describe('handleCheckCoderabbit', () => {
       makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T12:00:00Z'),
       makeReview('coderabbitai[bot]', 'PENDING', '2026-01-15T06:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
 
@@ -149,7 +153,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [-1, 5] });
 
@@ -168,7 +172,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [42] });
 
@@ -187,7 +191,7 @@ describe('handleCheckCoderabbit', () => {
     const reviews = [
       makeReview('coderabbit-ai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
     ];
-    mockExecFileSync.mockReturnValue(Buffer.from(JSON.stringify(reviews)));
+    mockExecFileSync.mockReturnValue(toNdjson(reviews));
 
     const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
 
