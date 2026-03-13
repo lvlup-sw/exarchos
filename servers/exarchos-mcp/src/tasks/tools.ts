@@ -264,10 +264,22 @@ export async function handleTaskComplete(
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const state = await readStateFile(stateFile);
-        if (!Array.isArray(state.tasks)) break;
+        if (!Array.isArray(state.tasks)) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: state.tasks is not an array',
+          );
+          break;
+        }
         const tasks = state.tasks as Array<{ id: string; status: string }>;
         const task = tasks.find((t) => t.id === args.taskId);
-        if (!task) break;
+        if (!task) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: task not found in state.tasks',
+          );
+          break;
+        }
         task.status = 'complete';
         const rawVersion = (state as Record<string, unknown>)._version;
         const version = typeof rawVersion === 'number' ? rawVersion : 1;
