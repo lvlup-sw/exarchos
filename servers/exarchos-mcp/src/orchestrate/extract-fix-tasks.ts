@@ -75,7 +75,12 @@ function extractFindings(obj: unknown): Finding[] {
   const findings: Finding[] = [];
   for (const item of obj) {
     if (isRecord(item) && typeof item['file'] === 'string' && typeof item['description'] === 'string') {
-      findings.push(item as Finding);
+      findings.push({
+        file: item['file'],
+        description: item['description'],
+        ...(typeof item['line'] === 'number' ? { line: item['line'] } : {}),
+        ...(typeof item['severity'] === 'string' ? { severity: item['severity'] } : {}),
+      });
     }
   }
   return findings;
