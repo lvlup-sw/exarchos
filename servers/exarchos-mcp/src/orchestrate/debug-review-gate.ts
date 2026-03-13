@@ -97,6 +97,9 @@ export function handleDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
       results.push('- **FAIL**: Tests pass — npm run test:run failed');
       checks.fail++;
     }
+  } else {
+    results.push('- **SKIP**: Tests pass (no changed files)');
+    checks.skip++;
   }
 
   // ─── Build report ──────────────────────────────────────────────────────
