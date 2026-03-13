@@ -287,6 +287,46 @@ describe('handleDescribe playbook', () => {
   });
 });
 
+describe('handleDescribe stateSchema', () => {
+  it('HandleDescribe_SetAction_WithOptIn_IncludesStateSchema', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.set).toHaveProperty('stateSchema');
+    const stateSchema = data.set.stateSchema as Record<string, unknown>;
+    expect(stateSchema).toHaveProperty('worktrees');
+    expect(stateSchema).toHaveProperty('tasks');
+    expect(stateSchema).toHaveProperty('reviews');
+  });
+
+  it('HandleDescribe_SetAction_WithOptIn_StateSchemaIncludesEnumValues', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    const stateSchema = data.set.stateSchema as Record<string, Record<string, unknown>>;
+    const worktreeSchema = stateSchema.worktrees as Record<string, unknown>;
+    const itemSchema = worktreeSchema.itemSchema as Record<string, Record<string, unknown>>;
+    // WorktreeStatusSchema enum values should appear in the status field
+    const statusProp = itemSchema.properties?.status as Record<string, unknown>;
+    expect(statusProp).toBeDefined();
+    expect(statusProp.enum).toEqual(['active', 'merged', 'removed']);
+  });
+
+  it('HandleDescribe_SetAction_WithoutOptIn_OmitsStateSchema', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.set).not.toHaveProperty('stateSchema');
+  });
+
+  it('HandleDescribe_NonSetAction_NoStateSchema', async () => {
+    const result = await handleDescribe({ actions: ['get'] }, workflowActions, { includeStateSchema: true });
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.get).not.toHaveProperty('stateSchema');
+  });
+});
+
 describe('handleDescribe topology', () => {
   it('HandleDescribe_TopologyParam_ReturnsHSMForWorkflowType', async () => {
     const result = await handleDescribe({ topology: 'feature' }, workflowActions);

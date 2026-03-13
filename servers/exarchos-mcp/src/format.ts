@@ -29,6 +29,7 @@ export interface ToolResult {
     validTargets?: readonly (string | ValidTransitionTarget)[];
     expectedShape?: Record<string, unknown>;
     suggestedFix?: { tool: string; params: Record<string, unknown> };
+    unmetGates?: readonly string[];
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -98,13 +99,47 @@ export function stubResult() {
 
 // ─── Field Projection ──────────────────────────────────────────────────────
 
-/** Picks only the specified fields from an object, returning a partial copy. */
+/** Picks only the specified fields from an object, returning a partial copy.
+ *  Supports dot-path notation (e.g. "data.taskId") for nested field projection. */
+const PROTO_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
 export function pickFields<T extends Record<string, unknown>>(obj: T, fields: string[]): Partial<T> {
-  const result: Partial<T> = {};
+  const result: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const field of fields) {
-    if (field in obj) {
-      (result as Record<string, unknown>)[field] = obj[field];
+    const segments = field.split('.');
+    // Block prototype-polluting field paths
+    if (segments.some((seg) => PROTO_KEYS.has(seg))) continue;
+
+    if (segments.length === 1) {
+      // Top-level field — existing behavior
+      if (Object.hasOwn(obj, field)) {
+        result[field] = obj[field];
+      }
+    } else {
+      // Dot-path: traverse source, reconstruct nested path in result
+      let source: unknown = obj;
+      let valid = true;
+      for (const seg of segments) {
+        if (source !== null && typeof source === 'object' && Object.hasOwn(source as Record<string, unknown>, seg)) {
+          source = (source as Record<string, unknown>)[seg];
+        } else {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        // Reconstruct the nested path in the result, merging with any existing nested object
+        let target = result;
+        for (let i = 0; i < segments.length - 1; i++) {
+          const seg = segments[i];
+          if (!Object.hasOwn(target, seg) || typeof target[seg] !== 'object' || target[seg] === null) {
+            target[seg] = Object.create(null);
+          }
+          target = target[seg] as Record<string, unknown>;
+        }
+        target[segments[segments.length - 1]] = source;
+      }
     }
   }
-  return result;
+  return result as Partial<T>;
 }

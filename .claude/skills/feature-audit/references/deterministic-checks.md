@@ -34,6 +34,23 @@ grep -rn 'readEvents\|scanEvents\|events\.filter' --include='*.ts' src/handlers/
 grep -rn 'guard.*async\|guard.*await\|guard.*fs\.\|guard.*fetch' --include='*.ts' src/
 ```
 
+## D2b: Platform Agnosticity
+
+```bash
+# Registration completeness: all composite handler cases have registry schemas
+# Compare handler case labels vs registered action names
+grep -oP "case ['\"](\w+)['\"]" servers/exarchos-mcp/src/*/composite.ts | \
+  sed "s/.*case ['\"]//;s/['\"].*//" | sort > /tmp/handler-actions.txt
+# Check each is in registry (manual cross-reference)
+
+# Schema discoverability: describe(actions: ["set"]) returns stateSchema
+# Run via test or manual MCP call
+
+# Playbook self-sufficiency: compactGuidance mentions prerequisite gates
+grep -c 'check_tdd_compliance\|check_static_analysis' \
+  servers/exarchos-mcp/src/workflow/playbooks.ts
+```
+
 ## D3: Token Economy
 
 ```bash

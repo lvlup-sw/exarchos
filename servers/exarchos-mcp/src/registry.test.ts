@@ -1020,6 +1020,38 @@ describe('Describe action in registry', () => {
   });
 });
 
+// ─── Quality Hints View Action Tests ─────────────────────────────────────────
+
+describe('quality_hints view action', () => {
+  it('ViewActions_IncludesQualityHintsAction', () => {
+    const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(viewTool).toBeDefined();
+    const qualityHints = viewTool!.actions.find((a) => a.name === 'quality_hints');
+    expect(qualityHints).toBeDefined();
+    expect(qualityHints!.name).toBe('quality_hints');
+  });
+
+  it('QualityHints_SchemaAcceptsWorkflowIdAndSkill', () => {
+    const action = findActionInRegistry('exarchos_view', 'quality_hints');
+    expect(action).toBeDefined();
+
+    // workflowId only
+    const result1 = action!.schema.safeParse({ workflowId: 'test-feature' });
+    expect(result1.success).toBe(true);
+
+    // workflowId + skill
+    const result2 = action!.schema.safeParse({
+      workflowId: 'test-feature',
+      skill: 'refactor',
+    });
+    expect(result2.success).toBe(true);
+
+    // empty object (both optional)
+    const result3 = action!.schema.safeParse({});
+    expect(result3.success).toBe(true);
+  });
+});
+
 // ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
 
 describe('AutoEmits Drift Tests', () => {

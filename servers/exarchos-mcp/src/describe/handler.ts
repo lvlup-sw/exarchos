@@ -10,6 +10,12 @@ import {
 } from '../event-store/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
+import {
+  WorktreeSchema,
+  TaskSchema,
+  ArtifactsSchema,
+  SynthesisSchema,
+} from '../workflow/schemas.js';
 
 /**
  * Handles the `describe` action for composite tools.
@@ -21,6 +27,7 @@ import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playb
 export async function handleDescribe(
   args: { actions?: string[]; topology?: string; playbook?: string },
   toolActions: readonly ToolAction[],
+  options?: { includeStateSchema?: boolean },
 ): Promise<ToolResult> {
   // Guard clauses: reject malformed values before computing flags
   if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
@@ -90,7 +97,7 @@ export async function handleDescribe(
         };
       }
 
-      results[actionName] = {
+      const actionResult: Record<string, unknown> = {
         description: action.description,
         schema: zodToJsonSchema(action.schema),
         gate: (action as ToolAction & { gate?: unknown }).gate ?? null,
@@ -98,6 +105,12 @@ export async function handleDescribe(
         roles: [...action.roles],
         ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
       };
+
+      if (actionName === 'set' && options?.includeStateSchema) {
+        actionResult.stateSchema = buildSetStateSchema();
+      }
+
+      results[actionName] = actionResult;
     }
   }
 
@@ -116,6 +129,48 @@ export async function handleDescribe(
   }
 
   return { success: true, data: results };
+}
+
+/**
+ * Builds a state schema object documenting the known nested schemas
+ * for the `set` action's `updates` parameter. The `updates` field
+ * remains flexible (record of unknown), but this provides discoverable
+ * guidance on the expected shapes of commonly used fields.
+ */
+function buildSetStateSchema(): Record<string, { description: string; itemSchema: unknown }> {
+  return {
+    worktrees: {
+      description: 'Record of worktree paths to worktree objects. Each worktree tracks a branch, associated task(s), and status.',
+      itemSchema: zodToJsonSchema(WorktreeSchema),
+    },
+    tasks: {
+      description: 'Array of task objects. Each task has an id, title, status, and optional branch/timing/agent metadata.',
+      itemSchema: zodToJsonSchema(TaskSchema),
+    },
+    reviews: {
+      description: 'Record of review identifiers to review data. Each entry may use flat status (status/verdict at top level) or nested sub-reviews.',
+      itemSchema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Flat review status' },
+          verdict: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Alternative to status' },
+          passed: { type: 'boolean', description: 'Boolean shorthand for pass/fail' },
+          reviewer: { type: 'string', description: 'Agent or user who performed the review' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+        additionalProperties: true,
+        description: 'Flat: { status: "pass" } or nested sub-reviews: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }',
+      },
+    },
+    artifacts: {
+      description: 'Artifact references (design doc, plan, PR URLs).',
+      itemSchema: zodToJsonSchema(ArtifactsSchema),
+    },
+    synthesis: {
+      description: 'Synthesis state: integration branch, merge order, merged branches, PR URL(s), and PR feedback.',
+      itemSchema: zodToJsonSchema(SynthesisSchema),
+    },
+  };
 }
 
 /**

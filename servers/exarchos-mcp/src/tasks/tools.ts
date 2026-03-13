@@ -2,12 +2,16 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
+import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
+import type { WorkflowState } from '../workflow/types.js';
+import { logger } from '../logger.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -206,22 +210,16 @@ export async function handleTaskComplete(
         (details != null && (!details.taskId || details.taskId === args.taskId));
     });
 
-  if (!manualBypass && !hasPassingGate('tdd-compliance')) {
+  const unmetGates: string[] = [];
+  if (!manualBypass && !hasPassingGate('tdd-compliance')) unmetGates.push('tdd-compliance');
+  if (!manualBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
+  if (unmetGates.length > 0) {
     return {
       success: false,
       error: {
         code: 'GATE_NOT_PASSED',
-        message: 'TDD compliance gate must pass before task completion. Run check_tdd_compliance first.',
-      },
-    };
-  }
-
-  if (!manualBypass && !hasPassingGate('static-analysis')) {
-    return {
-      success: false,
-      error: {
-        code: 'GATE_NOT_PASSED',
-        message: 'Static analysis gate must pass before task completion. Run check_static_analysis first.',
+        message: `Required gates not passed: ${unmetGates.join(', ')}. Run these checks first.`,
+        unmetGates,
       },
     };
   }
@@ -258,6 +256,50 @@ export async function handleTaskComplete(
       type: 'task.completed',
       data,
     }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
+
+    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
+    // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
+    const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const state = await readStateFile(stateFile);
+        if (!Array.isArray(state.tasks)) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: state.tasks is not an array',
+          );
+          break;
+        }
+        const tasks = state.tasks as Array<{ id: string; status: string }>;
+        const task = tasks.find((t) => t.id === args.taskId);
+        if (!task) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: task not found in state.tasks',
+          );
+          break;
+        }
+        task.status = 'complete';
+        const rawVersion = (state as Record<string, unknown>)._version;
+        const version = typeof rawVersion === 'number' ? rawVersion : 1;
+        (state as Record<string, unknown>).updatedAt = new Date().toISOString();
+        await writeStateFile(stateFile, state, {
+          expectedVersion: version,
+          skipValidation: true,
+        });
+        break;
+      } catch (syncErr) {
+        if (syncErr instanceof VersionConflictError && attempt < maxAttempts) {
+          continue; // Re-read and retry
+        }
+        logger.warn(
+          { streamId: args.streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
+          'task_complete state sync failed',
+        );
+        break;
+      }
+    }
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {

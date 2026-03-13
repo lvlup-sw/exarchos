@@ -404,6 +404,98 @@ describe('handlePrepareDelegation', () => {
     expect(data.blockers).toContain('Plan artifact is missing');
   });
 
+  // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
+
+  it('handlePrepareDelegation_NativeIsolation_ExcludesWorktreeBlockers', async () => {
+    // Arrange: ONLY worktree-related blockers present
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['worktrees pending', 'no worktrees expected'],
+      plan: { approved: true, taskCount: 2 },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: ready=true AND readiness.blockers is empty (consistent)
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness.ready).toBe(true);
+    expect(data.readiness.blockers).toEqual([]);
+  });
+
+  it('handlePrepareDelegation_NativeIsolation_PreservesNonWorktreeBlockers', async () => {
+    // Arrange: BOTH worktree AND non-worktree blockers
+    const state = notReadyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['plan not approved', 'worktrees pending', 'quality signals not queried'],
+      plan: { approved: false, taskCount: 0 },
+      quality: { queried: false, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: readiness.blockers contains ONLY non-worktree items
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      blockers: string[];
+    };
+    expect(data.ready).toBe(false);
+    expect(data.readiness.ready).toBe(false);
+    expect(data.readiness.blockers).not.toContainEqual(
+      expect.stringContaining('worktrees'),
+    );
+    expect(data.readiness.blockers).toContain('plan not approved');
+    expect(data.readiness.blockers).toContain('quality signals not queried');
+  });
+
+  it('handlePrepareDelegation_WithoutNativeIsolation_IncludesAllBlockers', async () => {
+    // Arrange: both worktree AND non-worktree blockers, no nativeIsolation
+    const state = notReadyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['plan not approved', 'worktrees pending'],
+      plan: { approved: false, taskCount: 0 },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 0, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: ALL blockers present including worktree ones
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      blockers: string[];
+    };
+    expect(data.ready).toBe(false);
+    expect(data.readiness.blockers).toContain('plan not approved');
+    expect(data.readiness.blockers).toContain('worktrees pending');
+    // Plan artifact missing is added as supplementary check
+    expect(data.readiness.blockers).toContain('Plan artifact is missing');
+  });
+
   // ─── T-15: nativeIsolation parameter ──────────────────────────────────────
 
   it('PrepareDelegation_NativeIsolationTrue_SkipsWorktreeBlockers', async () => {

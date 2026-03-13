@@ -79,6 +79,20 @@ Skill -> exarchos_orchestrate({ action: "<gate>", featureId, ... })
 
 Skills NEVER: parse script stderr, manually construct event payloads, or call `exarchos_event` directly for gate results.
 
+### Platform Agnosticity (platform-agnosticity-spike)
+
+The MCP tool layer must be self-contained. Any MCP client (Cursor, Copilot CLI, etc.) must be able to operate workflows correctly using only the tool's own introspection surface — `describe`, playbooks, and error messages. The content layer (skills, commands, rules) provides first-class Claude Code support but must never be **required** for correct mechanical operation.
+
+| Invariant | Eval Method | Severity |
+|-----------|-------------|----------|
+| Schema discoverability | Every state field accepted by `set` has its shape discoverable via `describe`. Generic `{type: "object"}` for nested schemas (worktrees, tasks, reviews) = MEDIUM. | MEDIUM |
+| Playbook self-sufficiency | Each phase's `compactGuidance` includes prerequisite actions, tool ordering, and gate requirements. Agent needing content-layer docs for mechanical steps = HIGH. | HIGH |
+| Error actionability | Every error response includes what failed, why, and what to do next. Agent needing trial-and-error to discover requirements (e.g., sequential gate failures) = MEDIUM. | MEDIUM |
+| Registration completeness | Every action handled by a composite handler has a corresponding schema in the registry. Handler reachable but schema missing = HIGH. | HIGH |
+| Introspection consistency | `slimDescription` action lists, `describe` output, and composite handler cases must be consistent. Missing or phantom actions = MEDIUM. | MEDIUM |
+
+**Boundary rule:** The content layer may _enhance_ the experience (decision frameworks, escalation heuristics, anti-patterns) but the mechanical layer (schemas, phases, guards, events, error messages) must be sufficient for correct operation without it.
+
 ---
 
 ## Dimension 3: Context Economy & Token Efficiency

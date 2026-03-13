@@ -33,7 +33,7 @@ export async function handleWorkflow(
     case 'reconcile':
       return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore);
     case 'describe':
-      return handleDescribe(rest as { actions?: string[]; topology?: string }, workflowActions);
+      return handleDescribe(rest as { actions?: string[]; topology?: string; playbook?: string }, workflowActions, { includeStateSchema: true });
     default:
       return {
         success: false,
