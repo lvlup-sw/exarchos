@@ -59,9 +59,8 @@ After updating documentation, run automated link verification:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-doc-links.sh",
-  args: ["--docs-dir", "docs/"]
+  action: "verify_doc_links",
+  docsDir: "docs/"
 })
 ```
 

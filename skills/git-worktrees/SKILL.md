@@ -71,9 +71,8 @@ Run baseline tests to ensure the worktree is ready:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-worktree-baseline.sh",
-  args: ["--worktree-path", ".worktrees/task-name"]
+  action: "verify_worktree_baseline",
+  worktreePath: ".worktrees/task-name"
 })
 ```
 
@@ -126,8 +125,7 @@ Run the worktree verification script before any file modifications:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-worktree.sh"
+  action: "verify_worktree"
 })
 ```
 
@@ -135,9 +133,8 @@ To check a specific path instead of the current directory:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "verify-worktree.sh",
-  args: ["--cwd", "/path/to/.worktrees/task-name"]
+  action: "verify_worktree",
+  cwd: "/path/to/.worktrees/task-name"
 })
 ```
 
@@ -153,7 +150,7 @@ Include in all implementer prompts:
 
 Before making ANY file changes, run:
 
-    exarchos_orchestrate({ action: "run_script", script: "verify-worktree.sh" })
+    exarchos_orchestrate({ action: "verify_worktree" })
 
 If `passed: false`: STOP and report error.
 DO NOT proceed with any modifications outside a worktree.

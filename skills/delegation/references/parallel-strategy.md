@@ -107,7 +107,7 @@ Each teammate receives the full implementer prompt including TDD requirements, f
 | Monitoring | `TaskOutput` polling | tmux panes + `TeammateIdle` hook |
 | State updates | Orchestrator updates state | Hook auto-updates via state bridge |
 | Model per task | Yes (`model: "opus"` per Task) | No (session model for all) |
-| Quality gates | Manual via `post-delegation-check.sh` | Automatic via `TeammateIdle` hook |
+| Quality gates | Manual via `post_delegation_check` action | Automatic via `TeammateIdle` hook |
 | Recovery | Task results preserved | Worktrees survive, teammates lost |
 
 ### Shared Task List Coordination

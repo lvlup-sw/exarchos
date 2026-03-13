@@ -110,9 +110,9 @@ Run the debug review gate to verify test coverage for the bug fix:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "debug-review-gate.sh",
-  args: ["--repo-root", "<path>", "--base-branch", "<branch>"]
+  action: "debug_review_gate",
+  repoRoot: "<path>",
+  baseBranch: "<branch>"
 })
 ```
 
@@ -169,7 +169,7 @@ See: docs/rca/YYYY-MM-DD-<issue-slug>.md
 
 ### Hotfix -> Thorough
 
-When `exarchos_orchestrate({ action: "run_script", script: "investigation-timer.sh" })` returns `passed: false` (budget exceeded), switch to thorough track:
+When `exarchos_orchestrate({ action: "investigation_timer" })` returns `passed: false` (budget exceeded), switch to thorough track:
 
 **Switch to thorough track:**
 
