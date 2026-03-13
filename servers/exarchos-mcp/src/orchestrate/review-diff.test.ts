@@ -7,8 +7,9 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('node:fs', () => ({
-  default: { existsSync: vi.fn() },
+  default: { existsSync: vi.fn(), statSync: vi.fn() },
   existsSync: vi.fn(),
+  statSync: vi.fn(),
 }));
 
 import { handleReviewDiff } from './review-diff.js';
@@ -21,7 +22,7 @@ describe('handleReviewDiff', () => {
   });
 
   it('handleReviewDiff_ValidWorktree_ReturnsFormattedDiff', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
 
     // git rev-parse --git-dir (verify git repo)
     vi.mocked(execFileSync)
@@ -57,7 +58,7 @@ describe('handleReviewDiff', () => {
   });
 
   it('handleReviewDiff_MissingWorktree_ReturnsError', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(fs.statSync).mockImplementation(() => { throw new Error('ENOENT'); });
 
     const result = await handleReviewDiff(
       { worktreePath: '/nonexistent/path' },
@@ -71,8 +72,23 @@ describe('handleReviewDiff', () => {
     });
   });
 
+  it('handleReviewDiff_FileNotDirectory_ReturnsError', async () => {
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => false } as unknown as fs.Stats);
+
+    const result = await handleReviewDiff(
+      { worktreePath: '/some/file.txt' },
+      stateDir,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatchObject({
+      code: 'INVALID_INPUT',
+      message: expect.stringContaining('Not a directory'),
+    });
+  });
+
   it('handleReviewDiff_NotGitRepo_ReturnsError', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
     vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('fatal: not a git repository');
     });
@@ -90,7 +106,7 @@ describe('handleReviewDiff', () => {
   });
 
   it('handleReviewDiff_ThreeDotFails_FallsBackToTwoDot', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
 
     let callCount = 0;
     vi.mocked(execFileSync).mockImplementation((_cmd, args) => {
@@ -129,7 +145,7 @@ describe('handleReviewDiff', () => {
   });
 
   it('handleReviewDiff_EmptyDiff_ReturnsNoDiff', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
     vi.mocked(execFileSync)
       .mockReturnValueOnce('.git\n')      // rev-parse
       .mockReturnValueOnce('main\n')      // branch
@@ -149,7 +165,7 @@ describe('handleReviewDiff', () => {
   });
 
   it('handleReviewDiff_DefaultsToMainAndCwd', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.statSync).mockReturnValue({ isDirectory: () => true } as unknown as fs.Stats);
     vi.mocked(execFileSync)
       .mockReturnValueOnce('.git\n')
       .mockReturnValueOnce('feature\n')

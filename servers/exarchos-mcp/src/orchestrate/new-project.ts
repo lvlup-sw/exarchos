@@ -75,7 +75,8 @@ function updateGitignore(projectPath: string): boolean | { error: string } {
   }
 
   try {
-    appendFileSync(gitignorePath, `${entry}\n`);
+    const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+    appendFileSync(gitignorePath, `${prefix}${entry}\n`);
   } catch (err) {
     return { error: `Failed to update .gitignore: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -85,6 +86,16 @@ function updateGitignore(projectPath: string): boolean | { error: string } {
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export function handleNewProject(args: NewProjectArgs): ToolResult {
+  if (args.projectPath !== undefined && (typeof args.projectPath !== 'string' || args.projectPath.trim() === '')) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'projectPath must be a non-empty string',
+      },
+    };
+  }
+
   const projectPath = resolve(args.projectPath ?? '.');
   const language = args.language;
   const minimal = args.minimal ?? false;

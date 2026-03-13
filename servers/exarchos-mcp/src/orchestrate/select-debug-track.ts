@@ -7,6 +7,7 @@
 
 import type { ToolResult } from '../format.js';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 // ─── Argument & Result Types ────────────────────────────────────────────────
 
@@ -90,7 +91,20 @@ export async function handleSelectDebugTrack(
   let rootCauseKnownRaw = args.rootCauseKnown;
 
   // Resolve from state file if provided and direct args are missing
-  if (args.stateFile && urgency === undefined) {
+  if (args.stateFile && (urgency === undefined || rootCauseKnownRaw === undefined)) {
+    // Validate stateFile is within the allowed state directory
+    const resolvedStateFile = path.resolve(args.stateFile);
+    const resolvedStateDir = path.resolve(_stateDir);
+    if (!resolvedStateFile.startsWith(resolvedStateDir + path.sep) && resolvedStateFile !== resolvedStateDir) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `State file must be within the state directory: ${resolvedStateDir}`,
+        },
+      };
+    }
+
     if (!fs.existsSync(args.stateFile)) {
       return {
         success: false,
@@ -118,8 +132,12 @@ export async function handleSelectDebugTrack(
       };
     }
 
-    urgency = state.urgency?.level;
-    rootCauseKnownRaw = state.investigation?.rootCauseKnown;
+    if (urgency === undefined) {
+      urgency = state.urgency?.level;
+    }
+    if (rootCauseKnownRaw === undefined) {
+      rootCauseKnownRaw = state.investigation?.rootCauseKnown;
+    }
 
     if (!urgency) {
       return {

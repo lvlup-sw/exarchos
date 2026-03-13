@@ -145,7 +145,14 @@ function checkPhaseReadiness(
           return;
 
         case 'overhaul-plan':
-          missing.push('Transition: overhaul-plan → overhaul-delegate (guard: planArtifactExists)');
+          missing.push('Transition: overhaul-plan → overhaul-plan-review (guard: planArtifactExists)');
+          missing.push('Transition: overhaul-plan-review → overhaul-delegate (guard: planReviewComplete)');
+          missing.push('Transition: overhaul-delegate → overhaul-review (guard: allTasksComplete)');
+          missing.push('Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed)');
+          missing.push('Transition: overhaul-update-docs → synthesize (guard: docsUpdated)');
+          break;
+        case 'overhaul-plan-review':
+          missing.push('Transition: overhaul-plan-review → overhaul-delegate (guard: planReviewComplete)');
           missing.push('Transition: overhaul-delegate → overhaul-review (guard: allTasksComplete)');
           missing.push('Transition: overhaul-review → overhaul-update-docs (guard: allReviewsPassed)');
           missing.push('Transition: overhaul-update-docs → synthesize (guard: docsUpdated)');

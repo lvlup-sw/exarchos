@@ -68,9 +68,9 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[0].verdict).toBe('fail');
   });
 
-  // ─── PENDING → Fail ────────────────────────────────────────────────────
+  // ─── PENDING with submitted_at → Fail ─────────────────────────────────
 
-  it('handleCheckCoderabbit_Pending_ReturnsFailed', () => {
+  it('handleCheckCoderabbit_PendingWithSubmittedAt_ReturnsFailed', () => {
     const reviews = [
       makeReview('coderabbitai[bot]', 'PENDING', '2026-01-15T10:00:00Z'),
     ];
@@ -83,6 +83,26 @@ describe('handleCheckCoderabbit', () => {
     expect(data.passed).toBe(false);
     expect(data.results[0].state).toBe('PENDING');
     expect(data.results[0].verdict).toBe('fail');
+  });
+
+  // ─── PENDING without submitted_at (draft) → filtered out → NONE/pass ─
+
+  it('handleCheckCoderabbit_PendingDraftNoSubmittedAt_ReturnsPassedNone', () => {
+    // GitHub API omits submitted_at for PENDING draft reviews
+    const reviews = [
+      { user: { login: 'coderabbitai[bot]' }, state: 'PENDING' },
+    ];
+    mockExecFileSync.mockReturnValue(
+      reviews.map((r) => JSON.stringify(r)).join('\n'),
+    );
+
+    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; results: PrReviewResult[] };
+    expect(data.passed).toBe(true);
+    expect(data.results[0].state).toBe('NONE');
+    expect(data.results[0].verdict).toBe('pass');
   });
 
   // ─── No CodeRabbit Review → Pass (NONE) ────────────────────────────────

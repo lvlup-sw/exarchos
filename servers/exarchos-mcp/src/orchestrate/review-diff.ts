@@ -18,14 +18,14 @@ interface ReviewDiffArgs {
 
 // ─── Git Helpers ────────────────────────────────────────────────────────────
 
-/** Run a git command, returning trimmed stdout. */
+/** Run a git command, returning stdout with leading/trailing newlines stripped. */
 function git(args: readonly string[], cwd: string): string {
   return execFileSync('git', [...args], {
     cwd,
     encoding: 'utf-8',
     timeout: 30_000,
     stdio: ['pipe', 'pipe', 'pipe'],
-  }).trim();
+  }).replace(/^\n+|\n+$/g, '');
 }
 
 /**
@@ -53,8 +53,18 @@ export async function handleReviewDiff(
   const worktreePath = args.worktreePath ?? process.cwd();
   const baseBranch = args.baseBranch ?? 'main';
 
-  // Validate directory exists
-  if (!fs.existsSync(worktreePath)) {
+  // Validate path exists and is a directory
+  try {
+    if (!fs.statSync(worktreePath).isDirectory()) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `Not a directory: ${worktreePath}`,
+        },
+      };
+    }
+  } catch {
     return {
       success: false,
       error: {

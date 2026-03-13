@@ -21,7 +21,7 @@ export interface CheckCoderabbitArgs {
 interface GhReview {
   readonly user: { readonly login: string };
   readonly state: string;
-  readonly submitted_at: string;
+  readonly submitted_at?: string;
 }
 
 export interface PrReviewResult {
@@ -106,9 +106,9 @@ export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
       continue;
     }
 
-    // Filter to CodeRabbit reviews
+    // Filter to CodeRabbit reviews, excluding PENDING drafts (no submitted_at)
     const coderabbitReviews = reviews.filter(
-      (r) => CODERABBIT_LOGINS.has(r.user.login),
+      (r) => CODERABBIT_LOGINS.has(r.user.login) && r.submitted_at,
     );
 
     if (coderabbitReviews.length === 0) {
@@ -117,8 +117,9 @@ export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
     }
 
     // Sort by submitted_at descending, take latest
+    // All reviews here have submitted_at (PENDING filtered above)
     coderabbitReviews.sort(
-      (a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime(),
+      (a, b) => new Date(b.submitted_at!).getTime() - new Date(a.submitted_at!).getTime(),
     );
     const latest = coderabbitReviews[0];
 

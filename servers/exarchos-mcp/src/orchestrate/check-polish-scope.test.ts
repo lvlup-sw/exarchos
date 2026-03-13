@@ -153,6 +153,21 @@ describe('Check Polish Scope', () => {
     expect(data.triggers).toHaveLength(0);
   });
 
+  it('both git diff attempts fail → DIFF_FAILED error', async () => {
+    mockedExecFileSync.mockImplementation(() => {
+      throw new Error('git diff failed');
+    });
+
+    const { handleCheckPolishScope } = await import('./check-polish-scope.js');
+    const result = handleCheckPolishScope({ repoRoot: '/repo' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('DIFF_FAILED');
+    expect(result.error?.message).toContain('main');
+    expect(result.error?.message).toContain('/repo');
+    expect(result.data).toBeUndefined();
+  });
+
   it('default baseBranch is "main"', async () => {
     mockedExecFileSync.mockReturnValue(gitDiffOutput(['src/foo.ts']));
 

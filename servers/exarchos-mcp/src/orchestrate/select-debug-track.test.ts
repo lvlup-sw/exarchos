@@ -149,7 +149,7 @@ describe('handleSelectDebugTrack', () => {
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(stateData));
 
       const result = await handleSelectDebugTrack(
-        { stateFile: '/tmp/state.json' },
+        { stateFile: '/tmp/test-select-debug-track/state.json' },
         STATE_DIR,
       );
       expect(result.success).toBe(true);
@@ -163,12 +163,41 @@ describe('handleSelectDebugTrack', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
 
       const result = await handleSelectDebugTrack(
-        { stateFile: '/tmp/nonexistent.json' },
+        { stateFile: '/tmp/test-select-debug-track/nonexistent.json' },
         STATE_DIR,
       );
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('not found');
+    });
+
+    it('handleSelectDebugTrack_StateFileOutsideStateDir_ReturnsError', async () => {
+      const result = await handleSelectDebugTrack(
+        { stateFile: '/etc/passwd' },
+        STATE_DIR,
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('within the state directory');
+    });
+
+    it('handleSelectDebugTrack_StateFileFallbackForMissingRootCause', async () => {
+      const stateData = {
+        urgency: { level: 'high' },
+        investigation: { rootCauseKnown: false },
+      };
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(stateData));
+
+      const result = await handleSelectDebugTrack(
+        { urgency: 'high', stateFile: '/tmp/test-select-debug-track/state.json' },
+        STATE_DIR,
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as { track: string; urgency: string; rootCauseKnown: boolean };
+      expect(data.track).toBe('thorough');
+      expect(data.urgency).toBe('high');
+      expect(data.rootCauseKnown).toBe(false);
     });
   });
 

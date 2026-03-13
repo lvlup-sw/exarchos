@@ -40,7 +40,7 @@ export interface CheckPolishScopeResult {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string[] {
+function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string[] | null {
   let output = '';
   try {
     output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
@@ -54,7 +54,7 @@ function getModifiedFiles(repoRoot: string, baseBranch: string): readonly string
         encoding: 'utf-8',
       });
     } catch {
-      return [];
+      return null;
     }
   }
   return output
@@ -103,6 +103,17 @@ export function handleCheckPolishScope(args: CheckPolishScopeArgs): ToolResult {
   const baseBranch = args.baseBranch ?? 'main';
 
   const modifiedFiles = getModifiedFiles(repoRoot, baseBranch);
+
+  if (modifiedFiles === null) {
+    return {
+      success: false,
+      error: {
+        code: 'DIFF_FAILED',
+        message: `Failed to compute git diff against base branch '${baseBranch}' in ${repoRoot}`,
+      },
+    };
+  }
+
   const fileCount = modifiedFiles.length;
   const modules = getUniqueModules(modifiedFiles);
   const moduleCount = modules.length;
