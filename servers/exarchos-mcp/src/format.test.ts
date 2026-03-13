@@ -27,7 +27,12 @@ describe('pickFields', () => {
   });
 
   it('pickFields_ProtoPollution_BlocksProtoKeys', () => {
-    const obj = { __proto__: { polluted: true }, data: { __proto__: { x: 1 } }, normal: 'ok' };
+    // Use null-prototype objects with actual own __proto__ keys
+    const obj = Object.create(null) as Record<string, unknown>;
+    obj['__proto__'] = { polluted: true };
+    obj['data'] = Object.create(null);
+    (obj['data'] as Record<string, unknown>)['__proto__'] = { x: 1 };
+    obj['normal'] = 'ok';
     const result = pickFields(obj, ['__proto__.polluted', 'data.__proto__.x', 'constructor.prototype', 'normal']);
     // Proto paths are silently skipped; normal field is returned
     expect(result).toEqual({ normal: 'ok' });
