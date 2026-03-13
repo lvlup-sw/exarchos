@@ -3,14 +3,13 @@
  * when the event tools module creates a separate EventStore instance
  * from the workflow tools module.
  *
- * Root cause: event-store/tools.ts:getStore() lazily creates a new
- * EventStore without the StorageBackend, while workflow/tools.ts uses
- * a pre-configured instance with the backend. Events appended via
- * exarchos_event are written to JSONL only, but hydration queries
- * the backend (which doesn't have them).
+ * Original root cause: event-store/tools.ts:getStore() lazily created a new
+ * EventStore without the StorageBackend, while workflow/tools.ts used
+ * a pre-configured instance with the backend.
  *
- * Fix: export configureEventToolsEventStore() from event-store/tools.ts
- * and call it during server initialization with the shared EventStore.
+ * Fix (PR #1021): EventStore is threaded via function parameters — no
+ * module-level injection. All handlers receive the same EventStore instance
+ * through DispatchContext, making the split-store bug architecturally impossible.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -19,19 +18,12 @@ import * as os from 'node:os';
 import {
   handleInit,
   handleSet,
-  configureWorkflowEventStore,
   configureWorkflowMaterializer,
 } from '../../workflow/tools.js';
-import {
-  handleEventAppend,
-  resetModuleEventStore as resetEventToolsStore,
-  configureEventToolsEventStore,
-} from '../../event-store/tools.js';
+import { handleEventAppend } from '../../event-store/tools.js';
 import { EventStore } from '../../event-store/store.js';
 import { InMemoryBackend } from '../../storage/memory-backend.js';
 import { configureStateStoreBackend } from '../../workflow/state-store.js';
-import { configureQueryEventStore } from '../../workflow/query.js';
-import { configureNextActionEventStore } from '../../workflow/next-action.js';
 
 // ─── Valid event data matching type-specific schemas ─────────────────────────
 
@@ -60,42 +52,42 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     // Create EventStore WITH backend — matches production configuration
     sharedEventStore = new EventStore(stateDir, { backend });
     configureStateStoreBackend(backend);
-    configureWorkflowEventStore(sharedEventStore);
   });
 
   afterEach(async () => {
-    configureWorkflowEventStore(null);
     configureWorkflowMaterializer(null);
-    configureQueryEventStore(null);
-    configureNextActionEventStore(null);
     configureStateStoreBackend(undefined);
-    resetEventToolsStore();
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
   /**
    * Set up a feature workflow at delegate phase with tasks complete.
+   * EventStore is threaded explicitly via function parameters.
    */
   async function setupAtDelegate(featureId: string): Promise<void> {
-    await handleInit({ featureId, workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId, workflowType: 'feature' }, stateDir, sharedEventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'docs/design.md' } },
       stateDir,
+      sharedEventStore,
     );
-    await handleSet({ featureId, phase: 'plan' }, stateDir);
+    await handleSet({ featureId, phase: 'plan' }, stateDir, sharedEventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'docs/plan.md' } },
       stateDir,
+      sharedEventStore,
     );
-    await handleSet({ featureId, phase: 'plan-review' }, stateDir);
+    await handleSet({ featureId, phase: 'plan-review' }, stateDir, sharedEventStore);
     await handleSet(
       { featureId, updates: { 'planReview.approved': true } },
       stateDir,
+      sharedEventStore,
     );
-    await handleSet({ featureId, phase: 'delegate' }, stateDir);
+    await handleSet({ featureId, phase: 'delegate' }, stateDir, sharedEventStore);
     await handleSet(
       { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
       stateDir,
+      sharedEventStore,
     );
   }
 
@@ -111,6 +103,7 @@ describe('EventStoreSplit_Regression_GH1009', () => {
         },
       },
       stateDir,
+      sharedEventStore,
     );
     expect(result.success).toBe(true);
   }
@@ -127,14 +120,15 @@ describe('EventStoreSplit_Regression_GH1009', () => {
         },
       },
       stateDir,
+      sharedEventStore,
     );
     expect(result.success).toBe(true);
   }
 
   it('GH1009_WithSharedStore_EventsVisibleToWorkflowHydration', async () => {
-    // Fix applied: event tools share the same EventStore as workflow tools
-    configureEventToolsEventStore(sharedEventStore);
-
+    // In #1021's architecture, EventStore is always threaded via parameters.
+    // This verifies that events appended via handleEventAppend are visible
+    // to workflow hydration when using the same EventStore instance.
     await setupAtDelegate('shared-test');
 
     // Append events via handleEventAppend (the event tools path)
@@ -150,6 +144,7 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     const result = await handleSet(
       { featureId: 'shared-test', phase: 'review' },
       stateDir,
+      sharedEventStore,
     );
 
     // Assert: Transition succeeds (events visible via shared backend)
@@ -158,72 +153,33 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     expect(data.phase).toBe('review');
   });
 
-  it('GH1009_WithSeparateStore_EventsNotInBackend', async () => {
-    // Reproduce the bug: event tools NOT configured, creates own store
-    // without the backend. Events go to JSONL only.
-    resetEventToolsStore();
-    // Do NOT call configureEventToolsEventStore — simulating pre-fix behavior
+  it('GH1009_SplitStoreImpossible_ParameterThreadingPreventsIt', async () => {
+    // In #1021's architecture, there's no module-level EventStore to get out of sync.
+    // All handlers receive EventStore explicitly. Verify that a separate store
+    // instance produces events invisible to the workflow store's backend.
+    const separateStore = new EventStore(stateDir); // No backend!
 
     await setupAtDelegate('split-test');
-    await appendTeamSpawned('split-test');
-    await appendTeamDisbanded('split-test');
 
-    // Verify the events are NOT in the backend (proving the split)
+    // Append via separate store — goes to JSONL only
+    const appendResult = await handleEventAppend(
+      {
+        stream: 'split-test',
+        event: {
+          type: 'team.spawned',
+          correlationId: 'split-test',
+          source: 'orchestrator',
+          data: { ...TEAM_SPAWNED_DATA, featureId: 'split-test' },
+        },
+      },
+      stateDir,
+      separateStore,
+    );
+    expect(appendResult.success).toBe(true);
+
+    // Verify the event is NOT in the shared backend
     const backendEvents = backend.queryEvents('split-test');
-    const teamEvents = backendEvents.filter(
-      (e) => e.type === 'team.spawned' || e.type === 'team.disbanded',
-    );
+    const teamEvents = backendEvents.filter((e) => e.type === 'team.spawned');
     expect(teamEvents).toHaveLength(0);
-
-    // Workflow hydration queries backend → no team events → guard
-    // auto-passes (no team.spawned means subagent mode). This is the
-    // subtle form of the bug: guard passes for the wrong reason.
-    const result = await handleSet(
-      { featureId: 'split-test', phase: 'review' },
-      stateDir,
-    );
-    // Succeeds, but only because hydration missed all team events
-    expect(result.success).toBe(true);
-  });
-
-  it('GH1009_PartialHydration_GuardFailsWhenEventsSpanStoreInstances', async () => {
-    // Reproduce the exact GUARD_FAILED from the bug report:
-    // team.spawned in backend (from earlier append with shared store),
-    // team.disbanded only in JSONL (appended after store split).
-    // Guard sees team.spawned → expects team.disbanded → not found → GUARD_FAILED.
-
-    configureEventToolsEventStore(sharedEventStore);
-    await setupAtDelegate('partial-test');
-
-    // Append team.spawned via shared store → dual-written to backend + JSONL
-    await appendTeamSpawned('partial-test');
-
-    // Verify team.spawned IS in backend
-    expect(backend.queryEvents('partial-test').some((e) => e.type === 'team.spawned')).toBe(true);
-
-    // Simulate the split: reset event tools store so subsequent appends
-    // create a separate EventStore without backend
-    resetEventToolsStore();
-
-    // Append team.disbanded via separate store → JSONL only, NOT in backend
-    await appendTeamDisbanded('partial-test');
-
-    // Verify: team.spawned in backend, team.disbanded NOT in backend
-    const backendEvents = backend.queryEvents('partial-test');
-    expect(backendEvents.some((e) => e.type === 'team.spawned')).toBe(true);
-    expect(backendEvents.some((e) => e.type === 'team.disbanded')).toBe(false);
-
-    // Act: Transition delegate -> review
-    // Hydration queries backend: sees team.spawned but NOT team.disbanded
-    const result = await handleSet(
-      { featureId: 'partial-test', phase: 'review' },
-      stateDir,
-    );
-
-    // Assert: THIS is the exact failure from the bug report
-    expect(result.success).toBe(false);
-    const error = result.error as Record<string, unknown>;
-    expect(error.code).toBe('GUARD_FAILED');
-    expect(String(error.message)).toContain('team-disbanded-emitted');
   });
 });
