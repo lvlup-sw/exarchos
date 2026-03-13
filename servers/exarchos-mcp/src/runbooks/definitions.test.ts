@@ -56,19 +56,19 @@ describe('Runbook definitions', () => {
     expect(QUALITY_EVALUATION.phase).toBe('review');
   });
 
-  it('AgentTeamsSaga_HasElevenSteps', () => {
-    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(11);
+  it('AgentTeamsSaga_HasTwelveSteps', () => {
+    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(12);
     expect(AGENT_TEAMS_SAGA.phase).toBe('delegate');
     // First step should be event-first: team.spawned
     expect(AGENT_TEAMS_SAGA.steps[0].tool).toBe('exarchos_event');
     expect(AGENT_TEAMS_SAGA.steps[0].params?.type).toBe('team.spawned');
     // Last step should be workflow transition
-    expect(AGENT_TEAMS_SAGA.steps[10].tool).toBe('exarchos_workflow');
-    expect(AGENT_TEAMS_SAGA.steps[10].action).toBe('set');
+    expect(AGENT_TEAMS_SAGA.steps[11].tool).toBe('exarchos_workflow');
+    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('set');
   });
 
-  it('SynthesisFlow_HasFourSteps', () => {
-    expect(SYNTHESIS_FLOW.steps).toHaveLength(4);
+  it('SynthesisFlow_HasFiveSteps', () => {
+    expect(SYNTHESIS_FLOW.steps).toHaveLength(5);
     expect(SYNTHESIS_FLOW.steps[0].action).toBe('prepare_synthesis');
     expect(SYNTHESIS_FLOW.phase).toBe('synthesize');
   });

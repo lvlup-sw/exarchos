@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 25 actions for task management, review triage, gate checks, script execution, runbooks, agent spec, and composite actions', () => {
+    it('should have 50 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(25);
+      expect(composite!.actions).toHaveLength(50);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -346,7 +346,32 @@ describe('TOOL_REGISTRY', () => {
           'check_convergence',
           'check_provenance_chain',
           'check_event_emissions',
-          'run_script',
+          'extract_task',
+          'review_diff',
+          'verify_worktree',
+          'select_debug_track',
+          'investigation_timer',
+          'check_coverage_thresholds',
+          'assess_refactor_scope',
+          'check_pr_comments',
+          'validate_pr_body',
+          'validate_pr_stack',
+          'debug_review_gate',
+          'extract_fix_tasks',
+          'generate_traceability',
+          'spec_coverage_check',
+          'verify_worktree_baseline',
+          'setup_worktree',
+          'verify_delegation_saga',
+          'post_delegation_check',
+          'reconcile_state',
+          'pre_synthesis_check',
+          'new_project',
+          'check_coderabbit',
+          'check_polish_scope',
+          'needs_schema_sync',
+          'verify_doc_links',
+          'verify_review_triage',
         ]),
       );
     });

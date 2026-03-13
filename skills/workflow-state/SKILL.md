@@ -90,9 +90,9 @@ To verify state matches git reality, the SessionStart hook automatically reconci
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "reconcile-state.sh",
-  args: ["--state-file", "<state-file>", "--repo-root", "<repo-root>"]
+  action: "reconcile_state",
+  stateFile: "<state-file>",
+  repoRoot: "<repo-root>"
 })
 ```
 

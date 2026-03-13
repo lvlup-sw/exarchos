@@ -19,13 +19,10 @@ Before dispatching ANY implementer, run the worktree setup script:
 
 ```typescript
 exarchos_orchestrate({
-  action: "run_script",
-  script: "setup-worktree.sh",
-  args: [
-    "--repo-root", "<project-root>",
-    "--task-id", "<task-id>",
-    "--task-name", "<task-name>"
-  ]
+  action: "setup_worktree",
+  repoRoot: "<project-root>",
+  taskId: "<task-id>",
+  taskName: "<task-name>"
 })
 ```
 

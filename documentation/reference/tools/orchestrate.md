@@ -225,20 +225,7 @@ Phases: all. Role: `any`.
 
 ## Scripts
 
-### run_script
-
-Run a plugin validation script by name. Scripts resolve from `EXARCHOS_PLUGIN_ROOT/scripts/` with fallback to `~/.claude/scripts/`.
-
-```json
-{ "action": "run_script", "script": "validate-tdd-compliance", "args": ["--strict"] }
-```
-
-| Parameter | Required | Type | Description |
-|-----------|----------|------|-------------|
-| `script` | yes | string | Script name (without path) |
-| `args` | no | string[] | Arguments passed to the script |
-
-Phases: all. Role: `any`.
+> **Removed:** The `run_script` action was removed in the TypeScript port (#998). All 21 workflow scripts are now native TypeScript orchestrate actions (e.g., `check_coverage_thresholds`, `validate_pr_body`, `pre_synthesis_check`). See the full action list in `registry.ts`.
 
 ---
 
