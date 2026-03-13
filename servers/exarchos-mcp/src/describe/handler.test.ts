@@ -288,8 +288,8 @@ describe('handleDescribe playbook', () => {
 });
 
 describe('handleDescribe stateSchema', () => {
-  it('HandleDescribe_SetAction_IncludesStateSchema', async () => {
-    const result = await handleDescribe({ actions: ['set'] }, workflowActions);
+  it('HandleDescribe_SetAction_WithOptIn_IncludesStateSchema', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     expect(data.set).toHaveProperty('stateSchema');
@@ -299,8 +299,8 @@ describe('handleDescribe stateSchema', () => {
     expect(stateSchema).toHaveProperty('reviews');
   });
 
-  it('HandleDescribe_SetAction_StateSchemaIncludesEnumValues', async () => {
-    const result = await handleDescribe({ actions: ['set'] }, workflowActions);
+  it('HandleDescribe_SetAction_WithOptIn_StateSchemaIncludesEnumValues', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     const stateSchema = data.set.stateSchema as Record<string, Record<string, unknown>>;
@@ -312,8 +312,15 @@ describe('handleDescribe stateSchema', () => {
     expect(statusProp.enum).toEqual(['active', 'merged', 'removed']);
   });
 
+  it('HandleDescribe_SetAction_WithoutOptIn_OmitsStateSchema', async () => {
+    const result = await handleDescribe({ actions: ['set'] }, workflowActions);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.set).not.toHaveProperty('stateSchema');
+  });
+
   it('HandleDescribe_NonSetAction_NoStateSchema', async () => {
-    const result = await handleDescribe({ actions: ['get'] }, workflowActions);
+    const result = await handleDescribe({ actions: ['get'] }, workflowActions, { includeStateSchema: true });
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
     expect(data.get).not.toHaveProperty('stateSchema');

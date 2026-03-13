@@ -9,8 +9,9 @@ import { formatResult, toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
-import { readStateFile, writeStateFile } from '../workflow/state-store.js';
+import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
 import type { WorkflowState } from '../workflow/types.js';
+import { logger } from '../logger.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -256,20 +257,35 @@ export async function handleTaskComplete(
       data,
     }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
 
-    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass
-    try {
-      const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
-      const state = await readStateFile(stateFile);
-      if (!Array.isArray(state.tasks)) throw new Error('no tasks array');
-      const tasks = state.tasks as Array<{ id: string; status: string }>;
-      const task = tasks.find((t) => t.id === args.taskId);
-      if (task) {
+    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
+    // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
+    const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const state = await readStateFile(stateFile);
+        if (!Array.isArray(state.tasks)) break;
+        const tasks = state.tasks as Array<{ id: string; status: string }>;
+        const task = tasks.find((t) => t.id === args.taskId);
+        if (!task) break;
         task.status = 'complete';
+        const version = (state as Record<string, unknown>)._version as number | undefined;
         (state as Record<string, unknown>).updatedAt = new Date().toISOString();
-        await writeStateFile(stateFile, state);
+        await writeStateFile(stateFile, state, {
+          expectedVersion: version,
+          skipValidation: true,
+        });
+        break;
+      } catch (syncErr) {
+        if (syncErr instanceof VersionConflictError && attempt < maxAttempts) {
+          continue; // Re-read and retry
+        }
+        logger.warn(
+          { streamId: args.streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
+          'task_complete state sync failed',
+        );
+        break;
       }
-    } catch {
-      // State sync is best-effort; event emission already succeeded
     }
 
     return { success: true, data: toEventAck(event) };

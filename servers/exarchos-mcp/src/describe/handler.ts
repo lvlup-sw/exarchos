@@ -27,6 +27,7 @@ import {
 export async function handleDescribe(
   args: { actions?: string[]; topology?: string; playbook?: string },
   toolActions: readonly ToolAction[],
+  options?: { includeStateSchema?: boolean },
 ): Promise<ToolResult> {
   // Guard clauses: reject malformed values before computing flags
   if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
@@ -105,7 +106,7 @@ export async function handleDescribe(
         ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
       };
 
-      if (actionName === 'set') {
+      if (actionName === 'set' && options?.includeStateSchema) {
         actionResult.stateSchema = buildSetStateSchema();
       }
 
@@ -147,8 +148,19 @@ function buildSetStateSchema(): Record<string, { description: string; itemSchema
       itemSchema: zodToJsonSchema(TaskSchema),
     },
     reviews: {
-      description: 'Record of review identifiers to review data. Schema is flexible (record of string to unknown).',
-      itemSchema: { type: 'object', additionalProperties: true },
+      description: 'Record of review identifiers to review data. Each entry may use flat status (status/verdict at top level) or nested sub-reviews.',
+      itemSchema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Flat review status' },
+          verdict: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Alternative to status' },
+          passed: { type: 'boolean', description: 'Boolean shorthand for pass/fail' },
+          reviewer: { type: 'string', description: 'Agent or user who performed the review' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+        additionalProperties: true,
+        description: 'Flat: { status: "pass" } or nested sub-reviews: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }',
+      },
     },
     artifacts: {
       description: 'Artifact references (design doc, plan, PR URLs).',

@@ -39,8 +39,8 @@ grep -rn 'guard.*async\|guard.*await\|guard.*fs\.\|guard.*fetch' --include='*.ts
 ```bash
 # Registration completeness: all composite handler cases have registry schemas
 # Compare handler case labels vs registered action names
-grep -oP "case '(\w+)'" servers/exarchos-mcp/src/*/composite.ts | \
-  sed "s/.*case '//;s/'//" | sort > /tmp/handler-actions.txt
+grep -oP "case ['\"](\w+)['\"]" servers/exarchos-mcp/src/*/composite.ts | \
+  sed "s/.*case ['\"]//;s/['\"].*//" | sort > /tmp/handler-actions.txt
 # Check each is in registry (manual cross-reference)
 
 # Schema discoverability: describe(actions: ["set"]) returns stateSchema
