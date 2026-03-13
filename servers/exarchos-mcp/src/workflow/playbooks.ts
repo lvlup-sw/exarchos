@@ -231,7 +231,7 @@ register({
   validationScripts: ['post_delegation_check'],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Before calling task_complete, run: check_tdd_compliance (per-task) and check_static_analysis (once). These are mandatory prerequisite gates — task_complete will reject if they haven\'t passed. Run post-delegation-check.sh when all tasks finish. Transition to review when all tasks complete. Before first-time emission of any event type, call exarchos_event describe(eventTypes: [...]) to discover required fields. Key decision: parallel vs sequential dispatch; each subagent prompt must be self-contained. Anti-pattern: referencing "the plan" instead of pasting full context. Verify test output independently. Escalate: same task fails 3 times or task requires changes outside its declared module scope. Build self-contained context packages per subagent via runbook(task-classification).',
+    'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow set only for metadata/phase transitions. Before task_complete, run check_tdd_compliance (per-task) and check_static_analysis (once) — mandatory gates. Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification).',
 });
 
 register({
@@ -809,7 +809,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are dispatching overhaul implementation tasks. Use exarchos_event to emit task.assigned for each dispatch. Use exarchos_workflow set to mark tasks complete. Before calling task_complete, run: check_tdd_compliance (per-task) and check_static_analysis (once). These are mandatory prerequisite gates — task_complete will reject if they haven\'t passed. Transition to overhaul-review when all tasks complete. Key decision: parallel dispatch strategy — each agent gets its own worktree and self-contained prompt. Anti-pattern: sharing worktrees between agents or referencing shared state without explicit context. Escalate: 3 task failures on the same task.',
+    'Dispatch overhaul tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow set only for metadata/phase transitions. Before task_complete, run check_tdd_compliance (per-task) and check_static_analysis (once) — mandatory gates. Transition to overhaul-review when complete. Parallel dispatch: each agent gets own worktree and self-contained prompt. Anti-pattern: sharing worktrees or referencing shared state without explicit context. Escalate: 3 failures on same task.',
 });
 
 register({
