@@ -30,20 +30,14 @@ function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used by cancel handlers. */
-export function configureCancelEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── handleCancel ──────────────────────────────────────────────────────────
 
 export async function handleCancel(
   input: CancelInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -123,18 +117,18 @@ export async function handleCancel(
 
   // Determine event-sourcing version for v1/v2 path discrimination
   // Note: v2 workflows may run without an EventStore during CLI/hook contexts (migration period).
-  // When moduleEventStore is null, we gracefully fall back to v1 legacy path.
-  const useEventFirst = isEventSourced(mutableState) && moduleEventStore !== null;
+  // When eventStore is null, we gracefully fall back to v1 legacy path.
+  const useEventFirst = isEventSourced(mutableState) && eventStore !== null;
 
   // Bridge compensation events to external event store
-  if (moduleEventStore && compensationResult.events.length > 0) {
+  if (eventStore && compensationResult.events.length > 0) {
     if (useEventFirst) {
       // ES v2: event-first — propagate errors, abort cancel if append fails
       try {
         for (let i = 0; i < compensationResult.events.length; i++) {
           const event = compensationResult.events[i];
           const externalType = mapInternalToExternalType(event.type);
-          await moduleEventStore.append(input.featureId, {
+          await eventStore.append(input.featureId, {
             type: externalType as import('../event-store/schemas.js').EventType,
             data: { ...event.metadata, featureId: input.featureId },
           }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${event.metadata?.taskId ?? event.metadata?.action ?? i}` });
@@ -154,7 +148,7 @@ export async function handleCancel(
         for (let i = 0; i < compensationResult.events.length; i++) {
           const event = compensationResult.events[i];
           const externalType = mapInternalToExternalType(event.type);
-          await moduleEventStore.append(input.featureId, {
+          await eventStore.append(input.featureId, {
             type: externalType as import('../event-store/schemas.js').EventType,
             data: { ...event.metadata, featureId: input.featureId },
           });
@@ -188,12 +182,12 @@ export async function handleCancel(
   cancelMetadata.compensationSuccess = compensationResult.success;
 
   // Event-first: emit to external event store BEFORE mutating state
-  if (moduleEventStore) {
+  if (eventStore) {
     if (useEventFirst) {
       // ES v2: event-first — propagate errors, abort cancel if append fails
       try {
         for (const transitionEvent of transitionResult.events) {
-          await moduleEventStore.append(input.featureId, {
+          await eventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
             data: {
               from: transitionEvent.from,
@@ -205,7 +199,7 @@ export async function handleCancel(
           }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled` });
         }
         // Emit cancel event with distinct type and full metadata
-        await moduleEventStore.append(input.featureId, {
+        await eventStore.append(input.featureId, {
           type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
           data: {
             from: currentPhase,
@@ -228,7 +222,7 @@ export async function handleCancel(
       // V1 legacy: best-effort — swallow errors
       try {
         for (const transitionEvent of transitionResult.events) {
-          await moduleEventStore.append(input.featureId, {
+          await eventStore.append(input.featureId, {
             type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
             data: {
               from: transitionEvent.from,
@@ -239,7 +233,7 @@ export async function handleCancel(
             },
           });
         }
-        await moduleEventStore.append(input.featureId, {
+        await eventStore.append(input.featureId, {
           type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
           data: {
             from: currentPhase,
@@ -299,7 +293,7 @@ export async function handleCancel(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerCancelTool(server: McpServer, stateDir: string): void {
+export function registerCancelTool(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_cancel',
     'Cancel a workflow with saga compensation and cleanup',
@@ -308,6 +302,6 @@ export function registerCancelTool(server: McpServer, stateDir: string): void {
       reason: z.string().optional(),
       dryRun: z.boolean().optional(),
     },
-    async (args) => formatResult(await handleCancel(args, stateDir)),
+    async (args) => formatResult(await handleCancel(args, stateDir, eventStore)),
   );
 }

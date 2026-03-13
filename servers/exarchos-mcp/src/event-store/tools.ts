@@ -6,39 +6,7 @@ import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
 
-// ─── Module-Level EventStore ─────────────────────────────────────────────────
-// Injected via configureEventToolsEventStore() during server initialization,
-// or via registerEventTools() for legacy individual-tool registration.
-// getStore() creates a fallback instance if neither was called, but the
-// fallback lacks the StorageBackend — see GitHub #1009.
-
-let moduleEventStore: EventStore | null = null;
-
-/**
- * Configure the EventStore instance used by event tool handlers.
- *
- * Must be called during server initialization with the same EventStore
- * instance used by the workflow tools. Without this, getStore() creates
- * a separate instance that lacks the StorageBackend, causing events
- * appended via exarchos_event to be invisible to workflow hydration
- * queries that read from the backend. (GitHub #1009)
- */
-export function configureEventToolsEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
-
-/** Returns the configured EventStore, or creates a fallback instance for the given state directory. */
-function getStore(stateDir: string): EventStore {
-  if (!moduleEventStore) {
-    moduleEventStore = new EventStore(stateDir);
-  }
-  return moduleEventStore;
-}
-
-/** For testing: reset the module-level EventStore */
-export function resetModuleEventStore(): void {
-  moduleEventStore = null;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
 
@@ -51,6 +19,7 @@ export async function handleEventAppend(
     idempotencyKey?: string;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -67,7 +36,7 @@ export async function handleEventAppend(
     };
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   try {
     // Validate at the system boundary (MCP tool handler = untrusted input)
@@ -136,6 +105,7 @@ export async function handleBatchAppend(
     events: Array<Record<string, unknown>>;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -162,7 +132,7 @@ export async function handleBatchAppend(
     }
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   try {
     const storeEvents = args.events.map((event) => ({
@@ -208,6 +178,7 @@ export async function handleEventQuery(
     fields?: string[];
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -216,7 +187,7 @@ export async function handleEventQuery(
     };
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   const hasFilterFields = args.filter || args.limit !== undefined || args.offset !== undefined;
   const filters = hasFilterFields
@@ -259,7 +230,7 @@ export async function handleEventQuery(
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerEventTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  moduleEventStore = eventStore;
+  // moduleEventStore removed — EventStore now threaded via DispatchContext
   server.tool(
     'exarchos_event_append',
     'Append an event to the event store with optional optimistic concurrency and idempotency key',
@@ -269,7 +240,7 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
       expectedSequence: z.number().int().optional(),
       idempotencyKey: z.string().optional(),
     },
-    async (args) => formatResult(await handleEventAppend(args, stateDir)),
+    async (args) => formatResult(await handleEventAppend(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -282,6 +253,6 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
       offset: z.number().int().nonnegative().optional(),
       fields: coercedStringArray().optional(),
     },
-    async (args) => formatResult(await handleEventQuery(args, stateDir)),
+    async (args) => formatResult(await handleEventQuery(args, stateDir, eventStore)),
   );
 }

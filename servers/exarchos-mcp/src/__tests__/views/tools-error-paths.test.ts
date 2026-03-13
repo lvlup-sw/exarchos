@@ -10,15 +10,24 @@ import {
   resetMaterializerCache,
 } from '../../views/tools.js';
 import { handleView } from '../../views/composite.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+import { EventStore } from '../../event-store/store.js';
 
-let tempDir: string | undefined;
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
+let tempDir = '';
+let store: EventStore;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'view-error-paths-'));
+  store = new EventStore(tempDir);
   resetMaterializerCache();
 });
 
 afterEach(async () => {
+  tempDir = '';
   resetMaterializerCache();
   vi.restoreAllMocks();
   if (tempDir) {
@@ -44,7 +53,7 @@ describe('views/tools.ts composite error paths', () => {
         throw 'string error from query';
       });
 
-      const result = await handleViewShepherdStatus({}, tempDir);
+      const result = await handleViewShepherdStatus({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -63,7 +72,7 @@ describe('views/tools.ts composite error paths', () => {
         throw new Error('connection lost');
       });
 
-      const result = await handleViewConvergence({}, tempDir);
+      const result = await handleViewConvergence({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -82,7 +91,7 @@ describe('views/tools.ts composite error paths', () => {
         throw 42; // non-Error, non-string throwable
       });
 
-      const result = await handleViewIdeateReadiness({}, tempDir);
+      const result = await handleViewIdeateReadiness({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -100,7 +109,7 @@ describe('views/tools.ts composite error paths', () => {
         throw new Error('provenance query failed');
       });
 
-      const result = await handleViewProvenance({}, tempDir);
+      const result = await handleViewProvenance({}, tempDir, store);
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -115,7 +124,7 @@ describe('views/tools.ts composite error paths', () => {
     it('should return UNKNOWN_ACTION for an unrecognized action string', async () => {
       const result = await handleView(
         { action: 'nonexistent_view_action' },
-        tempDir,
+        makeCtx(tempDir!),
       );
 
       expect(result.success).toBe(false);

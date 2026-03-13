@@ -4,14 +4,7 @@ import type { RefinementSignal } from './refinement-signal.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 import { generateHints as generateTelemetryHints } from '../telemetry/hints.js';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used for quality hint event emission. */
-export function configureQualityEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Hint Interface ─────────────────────────────────────────────────────────
 
@@ -134,6 +127,7 @@ export function generateQualityHints(
   targetSkill?: string,
   calibrationContext?: CalibrationContext,
   telemetryState?: TelemetryViewState,
+  eventStore?: EventStore | null,
 ): QualityHint[] {
   const hints: QualityHint[] = [];
   const skills = targetSkill ? [targetSkill] : Object.keys(state.skills);
@@ -177,8 +171,8 @@ export function generateQualityHints(
   const result = enrichedHints.slice(0, MAX_HINTS);
 
   // Fire-and-forget: emit quality.hint.generated event when hints are produced
-  if (result.length > 0 && moduleEventStore) {
-    moduleEventStore
+  if (result.length > 0 && eventStore) {
+    eventStore
       .append('quality-hints', {
         type: 'quality.hint.generated',
         data: {

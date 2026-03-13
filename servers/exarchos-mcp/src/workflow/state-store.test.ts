@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
+  applyDotPath,
   deepMerge,
   isPlainObject,
   readStateFile,
@@ -40,8 +41,8 @@ describe('deepMerge', () => {
     expect(result).toEqual({ items: [4, 5] });
   });
 
-  it('DeepMerge_ArraysOfObjectsWithId_UpsertsById', () => {
-    // Id-based arrays use upsert semantics: incoming merges into existing
+  it('DeepMerge_ArraysOfObjectsWithId_ReplacesEntirely', () => {
+    // Arrays are replaced entirely — no id-based upsert (#1003)
     const target = {
       tasks: [
         { id: 't1', status: 'complete' },
@@ -58,11 +59,8 @@ describe('deepMerge', () => {
 
     const result = deepMerge(target, source);
 
-    // Id-based upsert: existing entries preserved, new entries appended
+    // Full replacement: only incoming entries remain
     expect(result.tasks).toEqual([
-      { id: 't1', status: 'complete' },
-      { id: 't2', status: 'pending' },
-      { id: 't3', status: 'pending' },
       { id: 'new-1', status: 'pending' },
       { id: 'new-2', status: 'pending' },
     ]);
@@ -825,5 +823,55 @@ describe('hydrateEventsFromStore', () => {
     await expect(
       hydrateEventsFromStore('test-feature', mockEventStore),
     ).rejects.toThrow('Connection lost');
+  });
+});
+
+// ─── Issue #1003: applyDotPath array replacement regression ──────────────────
+
+describe('applyDotPath array replacement (#1003)', () => {
+  it('applyDotPath_tasksArrayWithNewIds_replacesEntireArray', () => {
+    // Arrange
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: 'task-1', title: 'Old Task 1', status: 'pending' },
+        { id: 'task-2', title: 'Old Task 2', status: 'pending' },
+        { id: 'task-3', title: 'Old Task 3', status: 'pending' },
+      ],
+    };
+
+    // Act
+    applyDotPath(obj, 'tasks', [
+      { id: 'taskA', title: 'New Task A', status: 'pending' },
+      { id: 'taskB', title: 'New Task B', status: 'pending' },
+    ]);
+
+    // Assert
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.map(t => t.id)).toEqual(['taskA', 'taskB']);
+  });
+
+  it('applyDotPath_tasksArrayReplacement_staleTasksRemoved', () => {
+    // Arrange - simulate plan revision scenario from issue #1003
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: '001', title: 'Old 1', status: 'complete' },
+        { id: '002', title: 'Old 2', status: 'complete' },
+        { id: '003', title: 'Old 3', status: 'pending' },
+      ],
+    };
+
+    // Act - replace with entirely new task set
+    applyDotPath(obj, 'tasks', [
+      { id: 'task-1', title: 'New 1', status: 'pending' },
+      { id: 'task-2', title: 'New 2', status: 'pending' },
+    ]);
+
+    // Assert
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.every(t => typeof t.id === 'string' && (t.id as string).startsWith('task-'))).toBe(true);
+    // Old IDs must not exist
+    expect(tasks.some(t => t.id === '001')).toBe(false);
   });
 });

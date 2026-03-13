@@ -11,6 +11,7 @@ import {
   setCustomToolActionHandler,
 } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
+import type { DispatchContext } from './dispatch.js';
 
 describe('dispatch', () => {
   let tmpDir: string;
@@ -204,6 +205,35 @@ describe('dispatch', () => {
       // Assert
       expect(result.success).toBe(false);
       expect(result.error!.code).toBe('UNKNOWN_ACTION');
+    });
+
+    it('dispatch_compositeHandler_receivesDispatchContext', async () => {
+      // Arrange — register a spy as a composite handler to capture what dispatch passes
+      const { COMPOSITE_HANDLERS, dispatch } = await import('./dispatch.js');
+      let receivedCtx: unknown;
+      const spy = async (_args: Record<string, unknown>, ctx: DispatchContext) => {
+        receivedCtx = ctx;
+        return { success: true as const, data: { spied: true } };
+      };
+      // Temporarily inject spy as a composite handler
+      const original = (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'];
+      (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = spy;
+
+      try {
+        const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+
+        // Act
+        await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+
+        // Assert — handler should receive the full DispatchContext, not just stateDir string
+        expect(receivedCtx).toBeDefined();
+        expect(typeof receivedCtx).toBe('object');
+        expect(receivedCtx).toHaveProperty('stateDir', tmpDir);
+        expect(receivedCtx).toHaveProperty('eventStore', eventStore);
+        expect(receivedCtx).toHaveProperty('enableTelemetry', false);
+      } finally {
+        (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = original;
+      }
     });
 
     it('Dispatch_LeakedHandler_WithoutRegistration_ReturnsUnknownTool', async () => {

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleNextAction, configureNextActionEventStore } from '../../workflow/next-action.js';
-import { handleInit, configureWorkflowEventStore } from '../../workflow/tools.js';
+import { handleNextAction } from '../../workflow/next-action.js';
+import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../event-store/store.js';
 
 let tmpDir: string;
@@ -13,8 +13,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  configureNextActionEventStore(null);
-  configureWorkflowEventStore(null);
   vi.restoreAllMocks();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
@@ -46,7 +44,7 @@ describe('handleNextAction edge cases', () => {
       // Arrange: create a feature workflow in 'ideate' phase
       // The ideate->plan transition has a guard (design artifact exists).
       // We mock the guard to throw an error.
-      await handleInit({ featureId: 'guard-throw', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'guard-throw', workflowType: 'feature' }, tmpDir, null);
 
       // Mock the HSM definition to inject a throwing guard
       const stateMachineModule = await import('../../workflow/state-machine.js');
@@ -73,7 +71,7 @@ describe('handleNextAction edge cases', () => {
       });
 
       // Act
-      const result = await handleNextAction({ featureId: 'guard-throw' }, tmpDir);
+      const result = await handleNextAction({ featureId: 'guard-throw' }, tmpDir, null);
 
       // Assert
       expect(result.success).toBe(false);
@@ -88,7 +86,7 @@ describe('handleNextAction edge cases', () => {
   describe('NextAction_GuardReturnsObject_HandlesNonBooleanResult', () => {
     it('should correctly evaluate a guard returning { passed: true } object', async () => {
       // Arrange: create a feature workflow in 'ideate' phase
-      await handleInit({ featureId: 'guard-obj', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'guard-obj', workflowType: 'feature' }, tmpDir, null);
 
       // Mock HSM to inject a guard that returns { passed: true } (non-boolean object)
       const stateMachineModule = await import('../../workflow/state-machine.js');
@@ -113,7 +111,7 @@ describe('handleNextAction edge cases', () => {
       });
 
       // Act
-      const result = await handleNextAction({ featureId: 'guard-obj' }, tmpDir);
+      const result = await handleNextAction({ featureId: 'guard-obj' }, tmpDir, null);
 
       // Assert: guard should be considered as passing
       // The action should indicate transition to the next phase
@@ -134,10 +132,8 @@ describe('handleNextAction edge cases', () => {
       // The review phase is a child of the 'implementation' compound state
       // with maxFixCycles: 3.
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
-      configureNextActionEventStore(eventStore);
 
-      await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, tmpDir, eventStore);
 
       const rawState = await readRawState('cb-open');
       rawState.phase = 'review';
@@ -188,7 +184,7 @@ describe('handleNextAction edge cases', () => {
       });
 
       // Act
-      const result = await handleNextAction({ featureId: 'cb-open' }, tmpDir);
+      const result = await handleNextAction({ featureId: 'cb-open' }, tmpDir, eventStore);
 
       // Assert: circuit breaker should block
       expect(result.success).toBe(true);
@@ -203,10 +199,10 @@ describe('handleNextAction edge cases', () => {
   describe('NextAction_EmptyState_ReturnsDefaultRecommendation', () => {
     it('should return valid recommendation for minimal initial state without crash', async () => {
       // Arrange: create a fresh feature workflow (initial state: ideate)
-      await handleInit({ featureId: 'empty-state', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'empty-state', workflowType: 'feature' }, tmpDir, null);
 
       // Act: call next-action on a minimal, fresh state
-      const result = await handleNextAction({ featureId: 'empty-state' }, tmpDir);
+      const result = await handleNextAction({ featureId: 'empty-state' }, tmpDir, null);
 
       // Assert: should not crash, should return a valid recommendation
       expect(result.success).toBe(true);
@@ -229,7 +225,7 @@ describe('handleNextAction edge cases', () => {
       // will fail Zod validation in readStateFile, throwing StateStoreError
       // with code STATE_CORRUPT. handleNextAction catches this and returns
       // a structured error result.
-      await handleInit({ featureId: 'unknown-phase', workflowType: 'feature' }, tmpDir);
+      await handleInit({ featureId: 'unknown-phase', workflowType: 'feature' }, tmpDir, null);
 
       const rawState = await readRawState('unknown-phase');
       rawState.phase = 'nonexistent-phase';
@@ -237,7 +233,7 @@ describe('handleNextAction edge cases', () => {
       await writeRawState('unknown-phase', rawState);
 
       // Act
-      const result = await handleNextAction({ featureId: 'unknown-phase' }, tmpDir);
+      const result = await handleNextAction({ featureId: 'unknown-phase' }, tmpDir, null);
 
       // Assert: should return structured error, not throw
       expect(result.success).toBe(false);

@@ -4,7 +4,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   handleReconcileState,
-  configureWorkflowEventStore,
 } from './tools.js';
 import { initStateFile, reconcileFromEvents } from './state-store.js';
 import { EventStore } from '../event-store/store.js';
@@ -16,7 +15,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  configureWorkflowEventStore(null);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -26,7 +24,6 @@ describe('handleReconcileState', () => {
       // Arrange: Create state at 'ideate' phase, then append events that
       // show a transition to 'plan' without updating the state file
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
 
       await initStateFile(tmpDir, 'stale-test', 'feature');
 
@@ -49,6 +46,7 @@ describe('handleReconcileState', () => {
       const result = await handleReconcileState(
         { featureId: 'stale-test' },
         tmpDir,
+        eventStore,
       );
 
       // Assert
@@ -69,7 +67,6 @@ describe('handleReconcileState', () => {
     it('should return reconciled:false when no events exist', async () => {
       // Arrange: Create state but append no events
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
 
       await initStateFile(tmpDir, 'empty-test', 'feature');
 
@@ -77,6 +74,7 @@ describe('handleReconcileState', () => {
       const result = await handleReconcileState(
         { featureId: 'empty-test' },
         tmpDir,
+        eventStore,
       );
 
       // Assert
@@ -91,12 +89,12 @@ describe('handleReconcileState', () => {
   describe('Reconcile_MissingFeatureId_ReturnsError', () => {
     it('should return error when featureId is not provided', async () => {
       const eventStore = new EventStore(tmpDir);
-      configureWorkflowEventStore(eventStore);
 
       // Act: call without featureId
       const result = await handleReconcileState(
         {} as { featureId: string },
         tmpDir,
+        eventStore,
       );
 
       // Assert
@@ -108,15 +106,13 @@ describe('handleReconcileState', () => {
 
   describe('Reconcile_NoEventStore_ReturnsError', () => {
     it('should return error when no event store is configured', async () => {
-      // Arrange: ensure no event store
-      configureWorkflowEventStore(null);
-
       await initStateFile(tmpDir, 'no-store-test', 'feature');
 
       // Act
       const result = await handleReconcileState(
         { featureId: 'no-store-test' },
         tmpDir,
+        null,
       );
 
       // Assert

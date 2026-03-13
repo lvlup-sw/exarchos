@@ -71,26 +71,9 @@ vi.mock('../../views/composite.js', () => ({
   handleView: mockHandleView,
 }));
 
-// Mock EventStore configuration (workflow modules require explicit injection)
-vi.mock('../../workflow/tools.js', () => ({
-  configureWorkflowEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/next-action.js', () => ({
-  configureNextActionEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/cancel.js', () => ({
-  configureCancelEventStore: vi.fn(),
-}));
-
+// Mock remaining module-level configuration functions
 vi.mock('../../workflow/cleanup.js', () => ({
-  configureCleanupEventStore: vi.fn(),
   configureCleanupSnapshotStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/query.js', () => ({
-  configureQueryEventStore: vi.fn(),
 }));
 
 vi.mock('../../event-store/store.js', () => ({
@@ -208,7 +191,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleWorkflow).toHaveBeenCalledWith(
         { action: 'init', featureId: 'test-feat', workflowType: 'feature' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -220,7 +203,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleEvent).toHaveBeenCalledWith(
         { action: 'append', stream: 'my-stream', event: { type: 'test' } },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -232,7 +215,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleOrchestrate).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'task_claim', taskId: 'T1' }),
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -244,7 +227,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleView).toHaveBeenCalledWith(
         { action: 'pipeline' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 

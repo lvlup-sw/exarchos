@@ -362,7 +362,7 @@ describe('State Store', () => {
       expect(obj.tags).toEqual(['c']);
     });
 
-    it('should upsert arrays of objects by id field', () => {
+    it('should replace arrays of objects by id field entirely (#1003)', () => {
       const obj: Record<string, unknown> = {
         tasks: [
           { id: '1', status: 'complete', title: 'Task 1' },
@@ -370,24 +370,21 @@ describe('State Store', () => {
           { id: '3', status: 'in-progress', title: 'Task 3' },
         ],
       };
-      // Incoming merges by id — existing entries preserved, matching ids updated
+      // Arrays are replaced entirely — old entries do not persist
       applyDotPath(obj, 'tasks', [{ id: '3', status: 'complete' }]);
       const tasks = obj.tasks as Array<Record<string, unknown>>;
-      expect(tasks).toHaveLength(3);
-      expect(tasks[0]).toEqual({ id: '1', status: 'complete', title: 'Task 1' });
-      expect(tasks[1]).toEqual({ id: '2', status: 'complete', title: 'Task 2' });
-      expect(tasks[2]).toEqual({ id: '3', status: 'complete', title: 'Task 3' });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toEqual({ id: '3', status: 'complete' });
     });
 
-    it('should append new ids when incoming has different ids', () => {
+    it('should replace arrays when incoming has different ids (#1003)', () => {
       const obj: Record<string, unknown> = {
         tasks: [{ id: '1', status: 'complete' }],
       };
       applyDotPath(obj, 'tasks', [{ id: '2', status: 'pending' }]);
       const tasks = obj.tasks as Array<Record<string, unknown>>;
-      expect(tasks).toHaveLength(2);
-      expect(tasks[0]).toEqual({ id: '1', status: 'complete' });
-      expect(tasks[1]).toEqual({ id: '2', status: 'pending' });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toEqual({ id: '2', status: 'pending' });
     });
 
     it('should replace arrays when incoming has no id fields', () => {

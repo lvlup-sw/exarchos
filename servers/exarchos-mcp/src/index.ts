@@ -14,15 +14,9 @@ import { SnapshotStore } from './views/snapshot-store.js';
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
 
-// EventStore configuration — all modules require explicit injection
-import { configureWorkflowEventStore } from './workflow/tools.js';
-import { configureNextActionEventStore } from './workflow/next-action.js';
-import { configureCancelEventStore } from './workflow/cancel.js';
-import { configureCleanupEventStore, configureCleanupSnapshotStore } from './workflow/cleanup.js';
-import { configureQueryEventStore } from './workflow/query.js';
-import { configureQualityEventStore } from './quality/hints.js';
+// EventStore is now threaded via DispatchContext — no module-level injection needed
+import { configureCleanupSnapshotStore } from './workflow/cleanup.js';
 import { configureStateStoreBackend } from './workflow/state-store.js';
-import { configureEventToolsEventStore } from './event-store/tools.js';
 
 // New dispatch layer
 import { initializeContext } from './core/context.js';
@@ -156,20 +150,13 @@ export function createServer(
 ): McpServer {
   const backend = options?.backend;
 
-  // Configure module-level stores (same as initializeContext, but synchronous).
-  // The event tools module MUST share the same instance — see GitHub #1009.
+  // Configure module-level stores (EventStore is threaded via DispatchContext)
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
 
-  configureEventToolsEventStore(eventStore);
-  configureWorkflowEventStore(eventStore);
-  configureNextActionEventStore(eventStore);
-  configureCancelEventStore(eventStore);
-  configureCleanupEventStore(eventStore);
+  // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
-  configureQueryEventStore(eventStore);
-  configureQualityEventStore(eventStore);
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 

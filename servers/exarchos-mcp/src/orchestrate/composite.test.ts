@@ -2,6 +2,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from '../event-store/store.js';
 
 // ─── Mock task handler functions ────────────────────────────────────────────
 
@@ -70,6 +72,12 @@ import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
 
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
+const CTX = makeCtx(STATE_DIR);
+
 function successResult(data: unknown): ToolResult {
   return { success: true, data };
 }
@@ -94,7 +102,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -116,7 +124,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -139,7 +147,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -164,7 +172,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -184,7 +192,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -206,7 +214,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -227,7 +235,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -248,7 +256,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -270,7 +278,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -292,7 +300,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -308,7 +316,7 @@ describe('handleOrchestrate', () => {
   describe('removed team actions', () => {
     it('should reject removed team actions', async () => {
       for (const action of ['team_spawn', 'team_message', 'team_broadcast', 'team_shutdown', 'team_status']) {
-        const result = await handleOrchestrate({ action }, '/tmp/test');
+        const result = await handleOrchestrate({ action }, makeCtx('/tmp/test'));
         expect(result.success).toBe(false);
         expect(result.error?.code).toBe('UNKNOWN_ACTION');
       }
@@ -323,7 +331,7 @@ describe('handleOrchestrate', () => {
       const args = { action: 'describe', actions: ['task_claim'] };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert — verify describe returns schema metadata for the requested action
       expect(result.success).toBe(true);
@@ -353,7 +361,7 @@ describe('handleOrchestrate', () => {
       };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -374,7 +382,7 @@ describe('handleOrchestrate', () => {
       const args = { action: 'runbook', phase: 'delegate' };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -388,7 +396,7 @@ describe('handleOrchestrate', () => {
       const args = { action: 'runbook', id: 'task-completion' };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -404,7 +412,7 @@ describe('handleOrchestrate', () => {
       const args = { action: 'unknown_action' };
 
       // Act
-      const result = await handleOrchestrate(args, STATE_DIR);
+      const result = await handleOrchestrate(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);

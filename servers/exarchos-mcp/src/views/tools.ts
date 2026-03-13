@@ -125,12 +125,28 @@ function createMaterializer(stateDir: string): ViewMaterializer {
 // event replay. Cache entries are only invalidated when stateDir changes,
 // ensuring both instances remain valid for the active working directory.
 
-// ─── Module-Level EventStore (injected via registerViewTools) ────────────────
+// ─── Cached EventStore ──────────────────────────────────────────────────────
 
-let moduleEventStore: EventStore | null = null;
+let cachedEventStore: EventStore | null = null;
+let cachedEventStoreDir: string | null = null;
+
+/**
+ * Factory/cache: returns a cached EventStore for the given stateDir.
+ * Used by consumers (orchestrate handlers, CLI commands, view projections)
+ * that don't receive EventStore via DispatchContext.
+ */
+export function getOrCreateEventStore(stateDir: string): EventStore {
+  if (cachedEventStore && cachedEventStoreDir === stateDir) {
+    return cachedEventStore;
+  }
+  cachedEventStore = new EventStore(stateDir);
+  cachedEventStoreDir = stateDir;
+  return cachedEventStore;
+}
+
+// ─── Cached Materializer ─────────────────────────────────────────────────────
 
 let cachedMaterializer: ViewMaterializer | null = null;
-let cachedEventStore: EventStore | null = null;
 let cachedStateDir: string | null = null;
 
 /** @internal Exported for testing only */
@@ -138,38 +154,17 @@ export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   if (cachedMaterializer && cachedStateDir === stateDir) {
     return cachedMaterializer;
   }
-  // Only invalidate EventStore when stateDir actually changes
-  if (cachedStateDir !== null && cachedStateDir !== stateDir) {
-    cachedEventStore = null;
-  }
   cachedMaterializer = createMaterializer(stateDir);
   cachedStateDir = stateDir;
   return cachedMaterializer;
 }
 
-/** @internal Exported for testing only */
-export function getOrCreateEventStore(stateDir: string): EventStore {
-  if (moduleEventStore) {
-    return moduleEventStore;
-  }
-  if (cachedEventStore && cachedStateDir === stateDir) {
-    return cachedEventStore;
-  }
-  // Only invalidate materializer when stateDir actually changes
-  if (cachedStateDir !== null && cachedStateDir !== stateDir) {
-    cachedMaterializer = null;
-  }
-  cachedEventStore = new EventStore(stateDir);
-  cachedStateDir = stateDir;
-  return cachedEventStore;
-}
-
 /** For testing: reset the singleton cache */
 export function resetMaterializerCache(): void {
   cachedMaterializer = null;
-  cachedEventStore = null;
   cachedStateDir = null;
-  moduleEventStore = null;
+  cachedEventStore = null;
+  cachedEventStoreDir = null;
 }
 
 // ─── Helper: query delta events using materializer high-water mark ──────────
@@ -222,9 +217,10 @@ async function discoverStreams(stateDir: string, store?: EventStore): Promise<st
 export async function handleViewWorkflowStatus(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -258,9 +254,10 @@ export async function handleViewTasks(
     fields?: string[];
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -320,10 +317,11 @@ export async function handleViewTasks(
 export async function handleViewPipeline(
   args: { limit?: number; offset?: number; includeCompleted?: boolean },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   const TERMINAL_PHASES = ['completed', 'cancelled'];
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
     // Materialize all streams to get phase info for filtering
@@ -368,9 +366,10 @@ export async function handleViewPipeline(
 export async function handleViewTeamPerformance(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -398,9 +397,10 @@ export async function handleViewTeamPerformance(
 export async function handleViewDelegationTimeline(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -433,9 +433,10 @@ export async function handleViewCodeQuality(
     limit?: number;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -518,9 +519,10 @@ export async function handleViewEvalResults(
     limit?: number;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -567,9 +569,10 @@ export async function handleViewEvalResults(
 export async function handleViewQualityHints(
   args: { workflowId?: string; skill?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -603,9 +606,10 @@ export async function handleViewQualityHints(
 export async function handleViewQualityCorrelation(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -646,6 +650,7 @@ export async function handleViewQualityAttribution(
     timeRange?: { start: string; end: string };
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   const dimension = args.dimension;
   if (!dimension || !isValidDimension(dimension)) {
@@ -659,7 +664,7 @@ export async function handleViewQualityAttribution(
   }
 
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -770,9 +775,10 @@ export async function handleViewSessionProvenance(
 export async function handleViewDelegationReadiness(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -800,9 +806,10 @@ export async function handleViewDelegationReadiness(
 export async function handleViewSynthesisReadiness(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -830,9 +837,10 @@ export async function handleViewSynthesisReadiness(
 export async function handleViewShepherdStatus(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -860,9 +868,10 @@ export async function handleViewShepherdStatus(
 export async function handleViewProvenance(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -890,9 +899,10 @@ export async function handleViewProvenance(
 export async function handleViewConvergence(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -920,9 +930,10 @@ export async function handleViewConvergence(
 export async function handleViewIdeateReadiness(
   args: { workflowId?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
@@ -948,7 +959,7 @@ export async function handleViewIdeateReadiness(
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  moduleEventStore = eventStore;
+  // eventStore is now threaded via parameters to each handler
   server.tool(
     'exarchos_view_pipeline',
     'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',
@@ -957,7 +968,7 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
       offset: z.number().int().nonnegative().optional(),
       includeCompleted: z.boolean().optional(),
     },
-    async (args) => formatResult(await handleViewPipeline(args, stateDir)),
+    async (args) => formatResult(await handleViewPipeline(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -970,14 +981,14 @@ export function registerViewTools(server: McpServer, stateDir: string, eventStor
       offset: z.number().int().nonnegative().optional(),
       fields: coercedStringArray().optional(),
     },
-    async (args) => formatResult(await handleViewTasks(args, stateDir)),
+    async (args) => formatResult(await handleViewTasks(args, stateDir, eventStore)),
   );
 
   server.tool(
     'exarchos_view_workflow_status',
     'Get CQRS workflow status view with phase, task counts, and feature metadata',
     { workflowId: z.string().optional() },
-    async (args) => formatResult(await handleViewWorkflowStatus(args, stateDir)),
+    async (args) => formatResult(await handleViewWorkflowStatus(args, stateDir, eventStore)),
   );
 
 }

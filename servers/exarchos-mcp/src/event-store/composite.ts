@@ -1,4 +1,5 @@
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import { handleEventDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -11,8 +12,9 @@ const eventActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!.actio
 /** Composite handler that routes `action` to the appropriate event-store handler. */
 export async function handleEvent(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir, eventStore } = ctx;
   const action = args.action as string | undefined;
 
   switch (action as EventAction) {
@@ -21,6 +23,7 @@ export async function handleEvent(
       return handleEventAppend(
         rest as Parameters<typeof handleEventAppend>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'query': {
@@ -28,6 +31,7 @@ export async function handleEvent(
       return handleEventQuery(
         rest as Parameters<typeof handleEventQuery>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'batch_append': {
@@ -35,6 +39,7 @@ export async function handleEvent(
       return handleBatchAppend(
         rest as Parameters<typeof handleBatchAppend>[0],
         stateDir,
+        eventStore,
       );
     }
     case 'describe': {
