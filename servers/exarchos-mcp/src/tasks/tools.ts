@@ -2,12 +2,15 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
+import { readStateFile, writeStateFile } from '../workflow/state-store.js';
+import type { WorkflowState } from '../workflow/types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -258,6 +261,21 @@ export async function handleTaskComplete(
       type: 'task.completed',
       data,
     }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
+
+    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass
+    try {
+      const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
+      const state = await readStateFile(stateFile);
+      const tasks = state.tasks as Array<{ id: string; status: string }>;
+      const task = tasks.find((t) => t.id === args.taskId);
+      if (task) {
+        task.status = 'complete';
+        (state as Record<string, unknown>).updatedAt = new Date().toISOString();
+        await writeStateFile(stateFile, state);
+      }
+    } catch {
+      // State sync is best-effort; event emission already succeeded
+    }
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {

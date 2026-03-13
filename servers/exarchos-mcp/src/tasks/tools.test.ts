@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { TaskCompletedData } from '../event-store/schemas.js';
 import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventStore } from './tools.js';
 import { resetMaterializerCache } from '../views/tools.js';
+import { initStateFile, readStateFile } from '../workflow/state-store.js';
+import { guards } from '../workflow/guards.js';
 
 let tempDir: string;
 
@@ -863,5 +865,140 @@ describe('handleTaskComplete gate enforcement', () => {
     // Assert: GATE_NOT_PASSED because details.taskId doesn't match
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+});
+
+// ─── Batch Gate Failures (DR-2) ──────────────────────────────────────────────
+
+describe('handleTaskComplete batch gate failures', () => {
+  it('handleTaskComplete_WhenMultipleGatesFail_ReturnsAllUnmetGates', async () => {
+    // Arrange: no gate events at all — both gates should fail
+    const store = new EventStore(tempDir);
+    await store.append('wf-batch-1', {
+      type: 'task.assigned',
+      data: { taskId: 'T-B1', title: 'Batch gate test', assignee: 'agent-1' },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-B1', streamId: 'wf-batch-1' },
+      tempDir,
+    );
+
+    // Assert: both unmet gates reported in a single response
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.unmetGates).toContain('tdd-compliance');
+    expect(result.error?.unmetGates).toContain('static-analysis');
+    expect(result.error?.unmetGates).toHaveLength(2);
+    expect(result.error?.message).toContain('tdd-compliance');
+    expect(result.error?.message).toContain('static-analysis');
+  });
+
+  it('handleTaskComplete_WhenSingleGateFails_ReturnsArrayOfOne', async () => {
+    // Arrange: TDD compliance passes, static analysis does NOT
+    const store = new EventStore(tempDir);
+    await store.append('wf-batch-2', {
+      type: 'task.assigned',
+      data: { taskId: 'T-B2', title: 'Single gate fail', assignee: 'agent-1' },
+    });
+    await store.append('wf-batch-2', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 'T-B2' } },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'T-B2', streamId: 'wf-batch-2' },
+      tempDir,
+    );
+
+    // Assert: only static-analysis reported
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.unmetGates).toEqual(['static-analysis']);
+  });
+});
+
+// ─── Task Complete State Sync (DR-1) ─────────────────────────────────────────
+
+describe('handleTaskComplete workflow state sync', () => {
+  it('handleTaskComplete_WhenGatesPass_UpdatesTaskStatusInWorkflowState', async () => {
+    // Arrange: Create workflow state file with a task in "in_progress" status
+    const featureId = 'wf-sync-1';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [{ id: 'task-1', title: 'Test task', status: 'in_progress' }],
+    });
+
+    // Seed passing gate events in the event store
+    const store = new EventStore(tempDir);
+    await store.append(featureId, {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 'task-1' } },
+    });
+    await store.append(featureId, {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 'task-1' } },
+    });
+
+    // Act
+    const result = await handleTaskComplete(
+      { taskId: 'task-1', streamId: featureId },
+      tempDir,
+    );
+
+    // Assert: completion succeeded
+    expect(result.success).toBe(true);
+
+    // Assert: workflow state file has task status updated to "complete"
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const state = await readStateFile(stateFile);
+    const tasks = state.tasks as Array<{ id: string; status: string }>;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].status).toBe('complete');
+  });
+
+  it('handleTaskComplete_WhenGatesPass_AllTasksCompleteGuardPasses', async () => {
+    // Arrange: Create workflow state file with 2 tasks
+    const featureId = 'wf-sync-2';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [
+        { id: 'task-1', title: 'First task', status: 'in_progress' },
+        { id: 'task-2', title: 'Second task', status: 'in_progress' },
+      ],
+    });
+
+    // Seed passing gate events for both tasks
+    const store = new EventStore(tempDir);
+    for (const taskId of ['task-1', 'task-2']) {
+      await store.append(featureId, {
+        type: 'gate.executed',
+        data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId } },
+      });
+      await store.append(featureId, {
+        type: 'gate.executed',
+        data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId } },
+      });
+    }
+
+    // Act: complete both tasks
+    const result1 = await handleTaskComplete(
+      { taskId: 'task-1', streamId: featureId },
+      tempDir,
+    );
+    const result2 = await handleTaskComplete(
+      { taskId: 'task-2', streamId: featureId },
+      tempDir,
+    );
+
+    // Assert: both completions succeeded
+    expect(result1.success).toBe(true);
+    expect(result2.success).toBe(true);
+
+    // Assert: allTasksComplete guard passes
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const state = await readStateFile(stateFile);
+    const guardResult = guards.allTasksComplete.evaluate(state as unknown as Record<string, unknown>);
+    expect(guardResult).toBe(true);
   });
 });
