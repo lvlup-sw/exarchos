@@ -260,6 +260,7 @@ export async function handleTaskComplete(
     try {
       const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
       const state = await readStateFile(stateFile);
+      if (!Array.isArray(state.tasks)) throw new Error('no tasks array');
       const tasks = state.tasks as Array<{ id: string; status: string }>;
       const task = tasks.find((t) => t.id === args.taskId);
       if (task) {

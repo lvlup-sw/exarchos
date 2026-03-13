@@ -29,6 +29,7 @@ export interface ToolResult {
     validTargets?: readonly (string | ValidTransitionTarget)[];
     expectedShape?: Record<string, unknown>;
     suggestedFix?: { tool: string; params: Record<string, unknown> };
+    unmetGates?: readonly string[];
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
