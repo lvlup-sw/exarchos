@@ -94,7 +94,7 @@ describe('MCP Config Management (C2)', () => {
       const servers = [createBundledServer(), createExternalServer()];
       const claudeHome = path.join(tmpDir, '.claude');
 
-      const result = mergeMcpServers(config, servers, 'bun', claudeHome);
+      const result = mergeMcpServers(config, servers, 'node', claudeHome);
 
       expect(result.mcpServers).toBeDefined();
       expect(result.mcpServers!['exarchos']).toBeDefined();
@@ -128,10 +128,10 @@ describe('MCP Config Management (C2)', () => {
       const servers = [createBundledServer()];
       const claudeHome = path.join(tmpDir, '.claude');
 
-      const result = mergeMcpServers(config, servers, 'bun', claudeHome);
+      const result = mergeMcpServers(config, servers, 'node', claudeHome);
 
       // Should be updated to the new config
-      expect(result.mcpServers!['exarchos'].command).toBe('bun');
+      expect(result.mcpServers!['exarchos'].command).toBe('node');
       expect(result.mcpServers!['exarchos'].args).toContain('run');
     });
   });
@@ -141,10 +141,10 @@ describe('MCP Config Management (C2)', () => {
       const server = createBundledServer();
       const claudeHome = '/home/user/.claude';
 
-      const entry = generateMcpEntry(server, 'bun', claudeHome);
+      const entry = generateMcpEntry(server, 'node', claudeHome);
 
       expect(entry.type).toBe('stdio');
-      expect(entry.command).toBe('bun');
+      expect(entry.command).toBe('node');
       expect(entry.args).toEqual([
         'run',
         path.join(claudeHome, 'mcp-servers', 'exarchos-mcp.js'),
@@ -164,7 +164,7 @@ describe('MCP Config Management (C2)', () => {
       };
       const claudeHome = '/home/user/.claude';
 
-      const entry = generateMcpEntry(server, 'bun', claudeHome);
+      const entry = generateMcpEntry(server, 'node', claudeHome);
 
       expect(entry.args).toEqual([
         'run',
