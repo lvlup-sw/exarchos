@@ -74,7 +74,9 @@ export function applyPhaseSkips(
         .map(s => s.id),
     );
     if (childIds.size > 0) {
-      transitions = transitions.filter(t => !childIds.has(t.from));
+      transitions = transitions.filter(
+        t => !childIds.has(t.from) && !childIds.has(t.to),
+      );
     }
   }
 
