@@ -591,18 +591,29 @@ describe('State Store', () => {
     });
   });
 
-  describe('resolveStateDir_NoEnv_FallsToClaudeHome', () => {
-    it('should fall back to ~/.claude/workflow-state when env var is not set', () => {
+  describe('resolveStateDir_NoEnv_FallsToDefault', () => {
+    it('should fall back to ~/.exarchos/state when no env vars are set', () => {
       const originalEnv = process.env.WORKFLOW_STATE_DIR;
+      const originalPlugin = process.env.CLAUDE_PLUGIN_ROOT;
+      const originalExPlugin = process.env.EXARCHOS_PLUGIN_ROOT;
+      const originalXdg = process.env.XDG_STATE_HOME;
       delete process.env.WORKFLOW_STATE_DIR;
+      delete process.env.CLAUDE_PLUGIN_ROOT;
+      delete process.env.EXARCHOS_PLUGIN_ROOT;
+      delete process.env.XDG_STATE_HOME;
 
       try {
         const dir = resolveStateDir();
-        expect(dir).toMatch(/\.claude[/\\]workflow-state$/);
+        expect(dir).toMatch(/\.exarchos[/\\]state$/);
       } finally {
-        if (originalEnv !== undefined) {
-          process.env.WORKFLOW_STATE_DIR = originalEnv;
-        }
+        if (originalEnv !== undefined) process.env.WORKFLOW_STATE_DIR = originalEnv;
+        else delete process.env.WORKFLOW_STATE_DIR;
+        if (originalPlugin !== undefined) process.env.CLAUDE_PLUGIN_ROOT = originalPlugin;
+        else delete process.env.CLAUDE_PLUGIN_ROOT;
+        if (originalExPlugin !== undefined) process.env.EXARCHOS_PLUGIN_ROOT = originalExPlugin;
+        else delete process.env.EXARCHOS_PLUGIN_ROOT;
+        if (originalXdg !== undefined) process.env.XDG_STATE_HOME = originalXdg;
+        else delete process.env.XDG_STATE_HOME;
       }
     });
   });

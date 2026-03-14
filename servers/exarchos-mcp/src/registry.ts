@@ -520,7 +520,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
-      nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (Claude Code handles isolation natively via isolation: "worktree")'),
+      nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (the host platform handles isolation natively)'),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

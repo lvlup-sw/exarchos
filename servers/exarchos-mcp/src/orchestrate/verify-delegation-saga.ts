@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { resolveStateDir } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ export function handleVerifyDelegationSaga(args: VerifyDelegationSagaArgs): Tool
     };
   }
 
-  const stateDir = args.stateDir ?? join(homedir(), '.claude', 'workflow-state');
+  const stateDir = args.stateDir ?? resolveStateDir();
   const eventFile = join(stateDir, `${args.featureId}.events.jsonl`);
 
   // Guard: file existence
