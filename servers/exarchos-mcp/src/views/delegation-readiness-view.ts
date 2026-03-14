@@ -39,10 +39,6 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
     blockers.push('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
   }
 
-  if (!state.quality.queried) {
-    blockers.push('quality signals not queried');
-  }
-
   const pendingWorktrees = state.worktrees.expected - state.worktrees.ready;
   if (state.worktrees.expected > 0 && pendingWorktrees > 0) {
     blockers.push(`${pendingWorktrees} worktrees pending`);
@@ -64,8 +60,7 @@ function isReady(state: Omit<DelegationReadinessState, 'ready' | 'blockers'>): b
     state.plan.approved &&
     state.worktrees.ready >= state.worktrees.expected &&
     state.worktrees.expected > 0 &&
-    state.worktrees.failed.length === 0 &&
-    state.quality.queried
+    state.worktrees.failed.length === 0
   );
 }
 
@@ -199,12 +194,40 @@ function handleWorktreeBaseline(
   return state;
 }
 
+function handleStatePatched(
+  state: DelegationReadinessState,
+  event: WorkflowEvent,
+): DelegationReadinessState {
+  const data = event.data as { patch?: Record<string, unknown> } | undefined;
+  if (!data?.patch) return state;
+
+  // Resolve approved value from nested or dot-path form
+  const planReview = data.patch.planReview as { approved?: boolean } | undefined;
+  const dotPathValue = data.patch['planReview.approved'];
+
+  const approved = typeof dotPathValue === 'boolean'
+    ? dotPathValue
+    : typeof planReview?.approved === 'boolean'
+      ? planReview.approved
+      : undefined;
+
+  if (approved !== undefined && approved !== state.plan.approved) {
+    return withReadiness({
+      plan: { ...state.plan, approved },
+      quality: state.quality,
+      worktrees: state.worktrees,
+    });
+  }
+
+  return state;
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const delegationReadinessProjection: ViewProjection<DelegationReadinessState> = {
   init: (): DelegationReadinessState => ({
     ready: false,
-    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation', 'quality signals not queried'],
+    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
     plan: { approved: false, taskCount: 0 },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },
@@ -227,6 +250,10 @@ export const delegationReadinessProjection: ViewProjection<DelegationReadinessSt
 
     // Handle event types not in the schema enum via string comparison
     const eventType = event.type as string;
+
+    if (eventType === 'state.patched') {
+      return handleStatePatched(view, event);
+    }
 
     if (eventType === 'worktree.created') {
       return handleWorktreeCreated(view, event);
