@@ -44,12 +44,14 @@ Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarcho
 | `delegation` | Task dispatch to agent teammates in worktrees | delegate |
 | `git-worktrees` | Worktree management for parallel work | delegate |
 | `implementation-planning` | TDD-based task planning from design docs | plan |
-| `quality-review` | Stage 2 code quality review | review |
+| `quality-review` | Stage 2 code quality review (+ axiom/impeccable if installed) | review |
 | `refactor` | Code improvement (polish/overhaul tracks) | explore, synthesize |
 | `shepherd` | PR shepherding through CI and reviews | synthesize |
 | `spec-review` | Stage 1 spec compliance review | review |
 | `synthesis` | PR creation from feature branch | synthesize |
 | `workflow-state` | Checkpoint and resume workflow state | any phase |
+
+The `quality-review` skill integrates with companion plugins when available. If [axiom](https://github.com/lvlup-sw/axiom) (`axiom:audit`) or [impeccable](https://github.com/lvlup-sw/impeccable) (`impeccable:critique`) are installed, their quality dimensions are invoked during Stage 2 review and findings merge with native results. These are informational and do not add blocking gates. See [Companion Plugins](/guide/companion-plugins) for details.
 
 ## Skill resolution
 
