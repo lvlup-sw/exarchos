@@ -245,6 +245,50 @@ describe('DelegationReadinessView', () => {
       expect(next.blockers).not.toContain('plan not approved');
     });
 
+    it('Apply_StatePatched_PlanReviewApprovedFalse_ClearsPlanApproved', () => {
+      let state = delegationReadinessProjection.init();
+
+      // First approve
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': true },
+      }, 1));
+      expect(state.plan.approved).toBe(true);
+
+      // Then revoke
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': false },
+      }, 2));
+
+      expect(state.plan.approved).toBe(false);
+      expect(state.blockers).toContain('plan not approved');
+    });
+
+    it('Apply_StatePatched_NestedPlanReviewFalse_ClearsPlanApproved', () => {
+      let state = delegationReadinessProjection.init();
+
+      // First approve via nested form
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: true } },
+      }, 1));
+      expect(state.plan.approved).toBe(true);
+
+      // Then revoke via nested form
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: false } },
+      }, 2));
+
+      expect(state.plan.approved).toBe(false);
+      expect(state.blockers).toContain('plan not approved');
+    });
+
     it('Apply_StatePatched_UnrelatedField_DoesNotChangePlan', () => {
       const state = delegationReadinessProjection.init();
       const event = makeEvent('state.patched', {
