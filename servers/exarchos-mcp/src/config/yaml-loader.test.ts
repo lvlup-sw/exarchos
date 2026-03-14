@@ -90,10 +90,11 @@ hooks:
     expect(result.vcs?.provider).toBe('gitlab');
   });
 
-  it('loadProjectConfig_MalformedYaml_ThrowsWithMessage', async () => {
+  it('loadProjectConfig_MalformedYaml_ReturnsEmptyConfig', async () => {
     const { loadProjectConfig } = await import('./yaml-loader.js');
     fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), '{{{{invalid yaml: [[[', 'utf-8');
-    expect(() => loadProjectConfig(tmpDir)).toThrow();
+    const result = loadProjectConfig(tmpDir);
+    expect(result).toEqual({});
   });
 
   it('loadProjectConfig_InvalidSchema_ReturnsPartialWithWarnings', async () => {

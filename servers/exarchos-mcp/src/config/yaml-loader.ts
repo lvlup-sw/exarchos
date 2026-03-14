@@ -29,7 +29,14 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
     const configPath = resolve(projectRoot, filename);
     if (existsSync(configPath)) {
       const raw = readFileSync(configPath, 'utf-8');
-      const parsed: unknown = parseYaml(raw);
+
+      let parsed: unknown;
+      try {
+        parsed = parseYaml(raw);
+      } catch (err) {
+        configLogger.warn({ error: err instanceof Error ? err.message : String(err), path: configPath }, 'Failed to parse YAML in .exarchos.yml — using defaults');
+        return {};
+      }
 
       if (parsed === null || parsed === undefined) return {};
 
