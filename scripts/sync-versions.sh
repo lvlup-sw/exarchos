@@ -12,7 +12,6 @@ fi
 
 # Defaults
 PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
-MARKETPLACE_JSON="${REPO_ROOT}/.claude-plugin/marketplace.json"
 MANIFEST_JSON="${REPO_ROOT}/manifest.json"
 PACKAGE_JSON="${REPO_ROOT}/package.json"
 MCP_PACKAGE_JSON="${REPO_ROOT}/servers/exarchos-mcp/package.json"
@@ -29,15 +28,14 @@ require_arg() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --plugin-json) require_arg "$1" "${2:-}"; PLUGIN_JSON="$2"; shift 2 ;;
-    --marketplace-json) require_arg "$1" "${2:-}"; MARKETPLACE_JSON="$2"; shift 2 ;;
     --manifest-json) require_arg "$1" "${2:-}"; MANIFEST_JSON="$2"; shift 2 ;;
     --package-json) require_arg "$1" "${2:-}"; PACKAGE_JSON="$2"; shift 2 ;;
     --check)
       CHECK_MODE=true; shift ;;
     --help)
-      echo "Usage: sync-versions.sh [--plugin-json <path>] [--marketplace-json <path>] [--manifest-json <path>] [--package-json <path>] [--check]"
+      echo "Usage: sync-versions.sh [--plugin-json <path>] [--manifest-json <path>] [--package-json <path>] [--check]"
       echo ""
-      echo "Syncs version from package.json to plugin.json, marketplace.json, and manifest.json."
+      echo "Syncs version from package.json to plugin.json, manifest.json, and exarchos-mcp/package.json."
       echo "  --check    Exit 1 if versions are out of sync (no modifications)"
       exit 0 ;;
     *)
@@ -50,21 +48,11 @@ VERSION=$(node -e "console.log(require(process.argv[1]).version)" "${PACKAGE_JSO
 
 if [[ "$CHECK_MODE" == "true" ]]; then
   PLUGIN_VER=$(jq -r '.version' "$PLUGIN_JSON")
-  MARKET_VER=$(jq -r '.plugins[0].version' "$MARKETPLACE_JSON")
-  SOURCE_VER=$(jq -r '.plugins[0].source.version' "$MARKETPLACE_JSON")
   MANIFEST_VER=$(jq -r '.version' "$MANIFEST_JSON")
 
   ERRORS=0
   if [[ "$PLUGIN_VER" != "$VERSION" ]]; then
     echo "MISMATCH: plugin.json version=$PLUGIN_VER, expected=$VERSION" >&2
-    ((ERRORS++)) || true
-  fi
-  if [[ "$MARKET_VER" != "$VERSION" ]]; then
-    echo "MISMATCH: marketplace.json plugin version=$MARKET_VER, expected=$VERSION" >&2
-    ((ERRORS++)) || true
-  fi
-  if [[ "$SOURCE_VER" != "$VERSION" ]]; then
-    echo "MISMATCH: marketplace.json source version=$SOURCE_VER, expected=$VERSION" >&2
     ((ERRORS++)) || true
   fi
   if [[ "$MANIFEST_VER" != "$VERSION" ]]; then
@@ -90,13 +78,6 @@ fi
 jq --arg v "$VERSION" '.version = $v' "$PLUGIN_JSON" > "${PLUGIN_JSON}.tmp"
 mv "${PLUGIN_JSON}.tmp" "$PLUGIN_JSON"
 
-# Update marketplace.json (plugin version + source version)
-jq --arg v "$VERSION" '
-  .plugins[0].version = $v |
-  .plugins[0].source.version = $v
-' "$MARKETPLACE_JSON" > "${MARKETPLACE_JSON}.tmp"
-mv "${MARKETPLACE_JSON}.tmp" "$MARKETPLACE_JSON"
-
 # Update manifest.json
 jq --arg v "$VERSION" '.version = $v' "$MANIFEST_JSON" > "${MANIFEST_JSON}.tmp"
 mv "${MANIFEST_JSON}.tmp" "$MANIFEST_JSON"
@@ -107,4 +88,4 @@ if [[ -f "$MCP_PACKAGE_JSON" ]]; then
   mv "${MCP_PACKAGE_JSON}.tmp" "$MCP_PACKAGE_JSON"
 fi
 
-echo "Synced version ${VERSION} to plugin.json, marketplace.json, manifest.json, and exarchos-mcp/package.json"
+echo "Synced version ${VERSION} to plugin.json, manifest.json, and exarchos-mcp/package.json"
