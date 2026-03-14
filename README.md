@@ -42,7 +42,7 @@ When context compaction hits (or you close your laptop and come back Monday), ru
 
 ```bash
 # From the Claude Code marketplace
-/plugin marketplace add lvlup-sw/exarchos
+/plugin marketplace add lvlup-sw/.github
 /plugin install exarchos@lvlup-sw
 ```
 

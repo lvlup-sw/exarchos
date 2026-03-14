@@ -5,14 +5,25 @@
 This is the recommended path. Two commands, nothing to configure.
 
 ```bash
-# Add the plugin from the lvlup-sw marketplace
-/plugin marketplace add lvlup-sw/exarchos
+# Add the lvlup-sw marketplace
+/plugin marketplace add lvlup-sw/.github
 
-# Install it
+# Install Exarchos
 /plugin install exarchos@lvlup-sw
 ```
 
-This installs:
+The lvlup-sw marketplace is hosted in the [lvlup-sw/.github](https://github.com/lvlup-sw/.github) org repo. All LevelUp Software plugins are listed there.
+
+### Other plugins from lvlup-sw
+
+```bash
+# Backend code quality skills
+/plugin install axiom@lvlup-sw
+```
+
+### What gets installed
+
+Exarchos installs:
 
 - The Exarchos MCP server (workflow state, event log, team coordination)
 - All workflow commands (`/exarchos:ideate`, `/exarchos:debug`, `/exarchos:refactor`, etc.)
@@ -20,6 +31,23 @@ This installs:
 - Validation scripts (deterministic bash checks, not prose checklists)
 
 No additional configuration required. The plugin handles MCP server registration and command setup automatically.
+
+## Migrating from an earlier install
+
+If you previously added the marketplace with `/plugin marketplace add lvlup-sw/exarchos`, it pointed at a `marketplace.json` that no longer exists in the exarchos repo. To migrate:
+
+```bash
+# Remove the old marketplace reference
+/plugin marketplace remove lvlup-sw
+
+# Add the new one from the org repo
+/plugin marketplace add lvlup-sw/.github
+
+# Update your installed plugins
+/plugin marketplace update
+```
+
+Your installed plugins remain intact. Only the marketplace pointer changes.
 
 ## Dev companion (optional)
 
