@@ -27,7 +27,7 @@ Activate this skill when:
 
 Do NOT activate when:
 - Error handling improvements are needed — use `assay:harden` instead
-- Performance optimization is the goal — use `assay:profile` instead
+- Performance optimization is the goal — performance profiling is out of scope for assay
 - Security hardening is required — use `assay:harden` instead
 
 ## Process

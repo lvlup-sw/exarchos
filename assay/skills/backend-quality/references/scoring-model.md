@@ -4,7 +4,7 @@ How findings are aggregated into a verdict. The plugin produces standalone verdi
 
 ## Plugin Verdict
 
-```
+```text
 if HIGH_count > 0:
     verdict = NEEDS_ATTENTION
 elif MEDIUM_count > 5:

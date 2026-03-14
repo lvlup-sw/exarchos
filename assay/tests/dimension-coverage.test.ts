@@ -34,7 +34,7 @@ describe('Dimension Coverage', () => {
 
     for (const skill of INVOKABLE_SKILLS) {
       const path = resolve(ROOT, 'skills', skill, 'SKILL.md');
-      if (!existsSync(path)) continue;
+      expect(existsSync(path), `Missing expected skill file: skills/${skill}/SKILL.md`).toBe(true);
 
       const content = readFileSync(path, 'utf-8');
       const fm = parseFrontmatter(content);
@@ -67,7 +67,7 @@ describe('Dimension Coverage', () => {
 
     for (const skill of INVOKABLE_SKILLS) {
       const path = resolve(ROOT, 'skills', skill, 'SKILL.md');
-      if (!existsSync(path)) continue;
+      expect(existsSync(path), `Missing expected skill file: skills/${skill}/SKILL.md`).toBe(true);
 
       const content = readFileSync(path, 'utf-8');
       const fm = parseFrontmatter(content);

@@ -10,7 +10,7 @@ Issue: #1013
 
 ## Summary
 - Total tasks: 14
-- Parallel groups: 3
+- Parallel groups: 4 (A–D)
 - Estimated test count: 20 (structural validation)
 - Design coverage: 8/8 DRs covered
 

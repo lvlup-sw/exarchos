@@ -160,6 +160,8 @@ cleanupTempFiles();   // Async, failure silently ignored
 sendAnalytics(event).catch(err => logger.warn('Analytics send failed', { err }));
 ```
 
+**Exception:** Non-critical telemetry and observability side-effects (e.g., `emitGateEvent(...)`, `sendAnalytics(event)`) may be allowed to fail silently when all of: (1) the call is clearly annotated as fire-and-forget, (2) failure cannot affect primary execution correctness, and (3) the scope is limited to observability. Do not flag these as findings.
+
 ---
 
 ## Severity Summary

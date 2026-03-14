@@ -11,7 +11,7 @@ Run checks from cheapest to most expensive. This lets you fail fast on simple vi
 3. **Structural analysis** (slower, requires parsing or counting) — nesting depth, cyclomatic complexity proxies, file size checks
 4. **Cross-reference checks** (slowest, requires building dependency graphs) — unused exports, circular imports, missing test coverage mapping
 
-Within each tier, run checks in dimension order (D1, D2, D3, D4, D5) for predictable output grouping.
+Within each tier, run checks in dimension order (DIM-1 through DIM-7) for predictable output grouping.
 
 ## Timeout Guidance
 

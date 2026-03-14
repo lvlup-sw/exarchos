@@ -33,11 +33,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          args=(
-            --pr "${{ github.event.pull_request.number }}"
-            --author "${{ github.event.pull_request.user.login }}"
-          )
+          PR="${{ github.event.pull_request.number }}"
+          BODY="$(gh pr view "$PR" --json body -q .body)"
+
+          # Determine required sections from template or defaults
           if [[ -f ".exarchos/pr-template.md" ]]; then
-            args+=(--template ".exarchos/pr-template.md")
+            SECTIONS=()
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^##[[:space:]]+(.+)$ ]]; then
+                SECTIONS+=("${BASH_REMATCH[1]}")
+              fi
+            done < .exarchos/pr-template.md
+          else
+            SECTIONS=("Summary" "Changes" "Test Plan")
           fi
-          bash scripts/validate-pr-body.sh "${args[@]}"
+
+          MISSING=()
+          for section in "${SECTIONS[@]}"; do
+            if ! echo "$BODY" | grep -qiP "^##\s+${section}\s*$"; then
+              MISSING+=("$section")
+            fi
+          done
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "PR body validation failed."
+            for s in "${MISSING[@]}"; do
+              echo "  Missing: ## $s"
+            done
+            echo ""
+            echo "Required sections: ${SECTIONS[*]}"
+            exit 1
+          fi
+          echo "PR body validation passed."

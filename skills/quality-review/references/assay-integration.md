@@ -58,10 +58,9 @@ During the quality review stage, after spec-review passes:
    - Assay `evidence` → same format (file:line)
 
 3. **Run exarchos-specific checks** (existing orchestrate actions):
-   - `check_static_analysis` (D2 gate)
    - `check_security_scan` (D1 gate)
+   - `check_static_analysis` (D2 gate)
    - `check_context_economy` (D3 gate)
-   - `check_operational_resilience` (D4 gate)
    - `check_workflow_determinism` (D5 gate)
 
 4. **Merge findings** from both sources

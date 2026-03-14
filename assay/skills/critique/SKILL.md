@@ -39,7 +39,7 @@ Activate this skill when:
 Do NOT activate this skill when:
 - User wants error handling review — use `assay:harden` instead
 - User wants test quality review — use `assay:verify` instead
-- User wants performance review — use `assay:profile` instead
+- User wants performance review — performance profiling is out of scope for assay
 - User wants a general code review — use `assay:scan` for a broad sweep first
 
 ## Process

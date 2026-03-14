@@ -71,13 +71,7 @@ Verify all 7 dimensions were assessed. If any dimension has zero findings and ze
 
 ### Step 6: Compute Verdict
 
-Apply the scoring model from `@skills/backend-quality/references/scoring-model.md`:
-
-```
-if HIGH_count > 0: NEEDS_ATTENTION
-elif MEDIUM_count > 5: NEEDS_ATTENTION
-else: CLEAN
-```
+Apply the verdict exactly as defined in `@skills/backend-quality/references/scoring-model.md` (single source of truth). Do not redefine thresholds here; compute and report the inputs required by the model (HIGH/MEDIUM/LOW counts).
 
 Compute per-dimension metrics:
 - Pass rate (deterministic checks only)

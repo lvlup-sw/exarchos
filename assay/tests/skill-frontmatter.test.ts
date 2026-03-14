@@ -49,7 +49,7 @@ describe('Skill Frontmatter', () => {
     expect(hasTriggerKeywords, `${skill} has no trigger documentation`).toBe(true);
   });
 
-  it.each(INVOKABLE_SKILLS)('AllSkills_DimensionsMetadata_DeclaredWhenInvokable — %s', (skill) => {
+  it.each(INVOKABLE_SKILLS)('InvokableSkills_DimensionsMetadata_Declared — %s', (skill) => {
     const content = readSkill(skill);
     const fm = parseFrontmatter(content);
     expect(fm).not.toBeNull();

@@ -10,7 +10,7 @@ Coupling metrics, dependency direction analysis, and circular dependency detecti
 
 Dependencies flow from outer layers (infrastructure, I/O, frameworks) toward inner layers (domain, core business logic). The core has no knowledge of the outer layers.
 
-```
+```text
 +-------------------------------------------------------+
 |                    Infrastructure                      |
 |   (HTTP, Database, Filesystem, External APIs)          |
@@ -45,7 +45,7 @@ Dependencies flow from outer layers (infrastructure, I/O, frameworks) toward inn
 
 Domain or core modules import directly from infrastructure, creating tight coupling.
 
-```
+```text
 +-------------------------------------------------------+
 |                    Infrastructure                      |
 |   (HTTP, Database, Filesystem, External APIs)          |
@@ -80,7 +80,7 @@ Domain or core modules import directly from infrastructure, creating tight coupl
 
 Modules at the same layer bypass interfaces and depend on each other's internals.
 
-```
+```text
   Module A <---------> Module B
      |                    |
      +-------> Module C <-+
@@ -105,7 +105,7 @@ Modules at the same layer bypass interfaces and depend on each other's internals
 - If a high-Ca module is also frequently changing, it is a fragility risk
 
 **How to measure:**
-```
+```text
 For module M:
   Ca(M) = count of unique modules that import from M
 ```
@@ -120,7 +120,7 @@ For module M:
 - High Ce in a core module signals possible DIP violation
 
 **How to measure:**
-```
+```text
 For module M:
   Ce(M) = count of unique modules that M imports from
 ```
@@ -138,7 +138,7 @@ For module M:
 
 **The Stable Dependencies Principle:** Modules should depend only on modules that are more stable than themselves. An unstable module (I near 1) depending on another unstable module creates fragility chains.
 
-```
+```text
   STABLE (I=0.1) <---- UNSTABLE (I=0.8)     OK: unstable depends on stable
   STABLE (I=0.1) ----> UNSTABLE (I=0.8)     BAD: stable depends on unstable
 ```
@@ -155,7 +155,7 @@ For module M:
 
 The ideal relationship between abstractness (A) and instability (I) follows the "main sequence" diagonal:
 
-```
+```text
   A (Abstractness)
   1 |  Zone of          .
     |  Uselessness    .
@@ -188,20 +188,20 @@ A circular dependency exists when module A depends on module B, and module B (di
 ### Types of Circular Dependencies
 
 **Direct cycles:**
-```
+```text
   A ----imports----> B
   B ----imports----> A
 ```
 
 **Transitive cycles:**
-```
+```text
   A ----imports----> B
   B ----imports----> C
   C ----imports----> A
 ```
 
 **Barrel-file-mediated cycles:**
-```
+```text
   feature/index.ts re-exports from:
     - feature/handler.ts
     - feature/types.ts
@@ -237,7 +237,7 @@ A circular dependency exists when module A depends on module B, and module B (di
 
 A layered architecture organizes code into horizontal layers with strict dependency rules:
 
-```
+```text
   +-------------------+
   |  Presentation     |  (routes, controllers, CLI handlers)
   +-------------------+
@@ -257,8 +257,8 @@ A layered architecture organizes code into horizontal layers with strict depende
   |  Infrastructure   |  (database, file system, external APIs)
   +-------------------+
 
-  Rule: each layer may only depend on layers BELOW it.
-  Domain NEVER imports from Presentation or Application.
+  Rule: each layer may only depend on layers closer to the core (inward).
+  Domain (core) NEVER imports from Infrastructure, Application, or Presentation.
 ```
 
 ### Common Layer Violations
@@ -297,7 +297,7 @@ A layered architecture organizes code into horizontal layers with strict depende
 
 ### Practical Decision Flowchart
 
-```
+```text
   Does the dependency cross a layer boundary?
        |                    |
       YES                  NO
