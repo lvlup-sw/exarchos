@@ -8,31 +8,32 @@
 import { execSync } from 'node:child_process';
 
 /**
- * Detect the available JavaScript runtime.
+ * Detect the available JavaScript runtime for MCP server execution.
  *
- * Prefers bun over node. Tries `bun --version` first; if that fails,
- * falls back to `node --version`.
+ * Prefers node over bun. The MCP server bundle targets Node (--target node),
+ * uses Node shebangs, and depends on Node-native modules (better-sqlite3).
+ * Bun is used only as a build tool, not as the runtime.
  *
  * @returns The detected runtime identifier.
- * @throws If neither bun nor node is available.
+ * @throws If neither node nor bun is available.
  */
-export function detectRuntime(): 'bun' | 'node' {
-  try {
-    execSync('bun --version', { stdio: 'pipe' });
-    return 'bun';
-  } catch {
-    // bun not available, try node
-  }
-
+export function detectRuntime(): 'node' | 'bun' {
   try {
     execSync('node --version', { stdio: 'pipe' });
     return 'node';
   } catch {
-    // node not available either
+    // node not available, try bun as fallback
+  }
+
+  try {
+    execSync('bun --version', { stdio: 'pipe' });
+    return 'bun';
+  } catch {
+    // bun not available either
   }
 
   throw new Error(
-    'No JavaScript runtime found. Install bun (https://bun.sh) or Node.js >= 20 (https://nodejs.org).',
+    'No JavaScript runtime found. Install Node.js >= 20 (https://nodejs.org) or bun (https://bun.sh).',
   );
 }
 
@@ -203,17 +204,17 @@ export function checkAllPrerequisites(prereqs: Prerequisite[]): PrerequisiteRepo
 /** Default prerequisites for the Exarchos installer. */
 export const DEFAULT_PREREQUISITES: readonly Prerequisite[] = [
   {
+    command: 'node',
+    args: ['--version'],
+    required: true,
+    minVersion: '20.0.0',
+    installHint: 'Install via nvm or nodejs.org',
+  },
+  {
     command: 'bun',
     args: ['--version'],
     required: true,
     minVersion: '1.0.0',
-    installHint: 'curl -fsSL https://bun.sh/install | bash',
-  },
-  {
-    command: 'node',
-    args: ['--version'],
-    required: false,
-    minVersion: '20.0.0',
-    installHint: 'Optional fallback. Install via nvm or nodejs.org',
+    installHint: 'Build tool. Install: curl -fsSL https://bun.sh/install | bash',
   },
 ];

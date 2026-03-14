@@ -27,23 +27,23 @@ beforeEach(() => {
 });
 
 describe('detectRuntime', () => {
-  it('returns bun when bun is available', () => {
-    mockExecSync.mockReturnValueOnce(Buffer.from('1.3.4\n'));
-
-    const result = detectRuntime();
-
-    expect(result).toBe('bun');
-    expect(mockExecSync).toHaveBeenCalledWith('bun --version', { stdio: 'pipe' });
-  });
-
-  it('returns node when only node is available', () => {
-    mockExecSync
-      .mockImplementationOnce(() => { throw new Error('not found'); }) // bun fails
-      .mockReturnValueOnce(Buffer.from('20.11.0\n')); // node succeeds
+  it('returns node when node is available', () => {
+    mockExecSync.mockReturnValueOnce(Buffer.from('20.11.0\n'));
 
     const result = detectRuntime();
 
     expect(result).toBe('node');
+    expect(mockExecSync).toHaveBeenCalledWith('node --version', { stdio: 'pipe' });
+  });
+
+  it('returns bun when only bun is available', () => {
+    mockExecSync
+      .mockImplementationOnce(() => { throw new Error('not found'); }) // node fails
+      .mockReturnValueOnce(Buffer.from('1.3.4\n')); // bun succeeds
+
+    const result = detectRuntime();
+
+    expect(result).toBe('bun');
   });
 
   it('throws when neither runtime is available', () => {
@@ -254,16 +254,16 @@ describe('checkAllPrerequisites', () => {
 });
 
 describe('DEFAULT_PREREQUISITES', () => {
-  it('includes bun and node entries', () => {
+  it('includes node and bun entries', () => {
     expect(DEFAULT_PREREQUISITES).toHaveLength(2);
-    expect(DEFAULT_PREREQUISITES.map((p) => p.command)).toEqual(['bun', 'node']);
+    expect(DEFAULT_PREREQUISITES.map((p) => p.command)).toEqual(['node', 'bun']);
   });
 
-  it('marks bun as required, node as optional', () => {
-    const bun = DEFAULT_PREREQUISITES.find((p) => p.command === 'bun');
+  it('marks both node and bun as required', () => {
     const node = DEFAULT_PREREQUISITES.find((p) => p.command === 'node');
+    const bun = DEFAULT_PREREQUISITES.find((p) => p.command === 'bun');
 
+    expect(node?.required).toBe(true);
     expect(bun?.required).toBe(true);
-    expect(node?.required).toBe(false);
   });
 });
