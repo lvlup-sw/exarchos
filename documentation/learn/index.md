@@ -1,37 +1,40 @@
 # Why Exarchos
 
-## The workflow you already have
+## The workflow you already run
 
-You probably have a `plan.md`. Maybe a spec file per feature. You iterate with Claude Code, point it at the plan, tell it to build the thing, commit artifacts alongside the code.
+You keep a plan file per feature. CLAUDE.md gets updated between sessions. Before you `/clear`, you write out a summary so the next context window has something to work with. Maybe you enforce your own phases — design first, plan, implement, review. You use subagents to keep exploration out of the main window.
 
-This works. It works well enough that most developers using Claude Code end up inventing some version of it on their own.
+It works. Developers using Claude Code end up inventing some version of this on their own.
 
-Then context compaction wipes your session halfway through a multi-file refactor. Or the agent drifts from the spec and you don't notice until you're reviewing a PR that implemented the wrong interface. Or you close your laptop on Friday and spend Monday morning re-explaining everything the agent already knew.
+It's also manual. Nothing enforces the phases once the window gets long enough that the agent starts ignoring your instructions. Nothing persists the workflow state across a `/clear` except whatever you remembered to write into a file. And nothing verifies that the agent actually followed the spec — you find out when you review the PR.
 
-## What the manual approach is missing
+## What plan files can't do
 
-Plan files are the right instinct. But markdown can't do several things you actually need:
+The instinct is right. The mechanism is limited. Markdown files can't:
 
-- Persist state across context loss. When context compaction fires or your session ends, your plan file is still on disk but the agent has no memory of what it already finished. You end up re-reading the plan, re-checking which tasks are done, re-establishing the current state. Every time.
-- Verify that the agent followed through. You wrote a spec. The agent says it implemented the spec. Did it? You won't know until you manually review the diff against the design doc. There's no automated check between "agent says it's done" and "you merge the PR."
-- Coordinate parallel work. If you want multiple agents working on different parts of a feature, you need to manage branches, worktrees, task assignment, and merge conflicts yourself. Plan files don't track who's doing what.
+- **Persist state across context loss.** Your plan file is on disk, but after `/clear` or compaction the agent has no memory of what it finished, what failed, or where it stopped. You re-read the plan, re-check task status, re-establish state. Every time.
+- **Enforce phase transitions.** You wrote "implement after plan approval" in the spec. The agent jumped straight to writing code because the context was long and your instruction got buried. Nothing stopped it.
+- **Verify follow-through.** The agent says it implemented the spec. Did it? You won't know until you diff the code against the design doc yourself.
+- **Coordinate parallel work.** Multiple agents working different parts of a feature means managing branches, worktrees, and merge conflicts by hand. Plan files don't track who's doing what.
 
-## What Exarchos adds
+## What Exarchos is
 
-Exarchos is an MCP server that replaces your plan-file workflow with durable, structured workflows. It runs as a Claude Code plugin.
+Exarchos is a local-first SDLC workflow harness. It gives your agent structured, durable state that lives outside the context window.
 
-The core idea: every workflow action produces an immutable event stored in an append-only log. Current state is derived from events, not stored in a mutable file. A state machine enforces phase transitions so the agent can't skip from design to merge. Convergence gates run automated verification at phase boundaries.
+The runtime is an event-sourced MCP server. Every workflow action produces an immutable event in an append-only log. Current state is derived from events, not stored in a mutable file. A state machine enforces phase transitions. Deterministic convergence gates run as TypeScript checks at phase boundaries.
 
-In practice, this means:
+In practice:
 
-- Checkpoint and rehydrate. Before context compaction, Exarchos snapshots the workflow state. When you come back, `/rehydrate` restores it in about 2-3k tokens. No re-explaining.
-- Phase gates with teeth. The agent can't move from planning to implementation without a plan. Can't move from implementation to review without passing convergence gates. The state machine rejects invalid transitions.
-- Typed agent teams. Three agent roles (implementer, fixer, reviewer) run in isolated git worktrees. Each has scoped tools and specific responsibilities. The reviewer can't write files. The implementer must follow TDD.
-- Convergence gates. Five quality dimensions are checked automatically: specification fidelity, architectural compliance, context economy, operational resilience, and workflow determinism. These are verification scripts, not vibes.
-- Full audit trail. Every transition, gate result, and agent action goes into the event log. When something breaks, you can trace exactly what happened.
+- **Checkpoint and rehydrate.** Before you `/clear`, `/checkpoint` snapshots the workflow. `/rehydrate` restores it in ~2-3k tokens. State, task progress, artifact references — all recovered without re-explaining anything.
+- **Phase gates with teeth.** The agent can't move from planning to implementation without a plan artifact. Can't move from implementation to review without passing convergence gates. The state machine rejects invalid transitions and tells the agent what's missing.
+- **Typed agent teams.** Three roles — implementer, fixer, reviewer — each in isolated git worktrees with scoped tools. The reviewer can't write files. The implementer follows TDD. The fixer resumes failed tasks with full context instead of starting over.
+- **Deterministic convergence gates.** TypeScript checks run against your diff and git history: TDD compliance, static analysis, context economy, operational resilience, workflow determinism. Same code, same result. Optional plugin tiers (axiom for backend quality, impeccable for design) layer additional analysis on top.
+- **Audit trail.** Every transition, gate result, and agent action goes into the event log. When something breaks, you trace what happened.
 
 ## Two human checkpoints
 
-You approve the design. You approve the merge. Everything between those two decisions auto-continues: planning, task decomposition, implementation, quality gates, review.
+You approve the design. You approve the merge. Everything between those two decisions auto-continues: planning, task decomposition, implementation, convergence gates, review, PR creation.
 
-You stay in control of the decisions that matter, and the structured workflow handles the execution in between.
+## How it ships
+
+Exarchos is a Claude Code plugin and a standalone MCP server with a CLI adapter. The MCP server works with any client. The content layer (skills, commands, hooks, agent specs) currently targets Claude Code, with other platforms planned.
