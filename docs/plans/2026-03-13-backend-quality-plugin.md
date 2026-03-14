@@ -1,6 +1,6 @@
-# Implementation Plan: Backend Quality Plugin (Assay)
+# Implementation Plan: Backend Quality Plugin (Axiom)
 
-> **Status:** Phase 1 complete — all 14 tasks done, 45/45 tests passing. Plugin extracted to [lvlup-sw/assay](https://github.com/lvlup-sw/assay) in #1025. See `docs/plans/2026-03-14-extract-assay-standalone.md` for the extraction plan.
+> **Status:** Phase 1 complete — all 14 tasks done, 45/45 tests passing. Plugin extracted to [lvlup-sw/axiom](https://github.com/lvlup-sw/axiom) in #1025. See `docs/plans/2026-03-14-extract-axiom-standalone.md` for the extraction plan.
 
 ## Source Design
 Link: `docs/designs/2026-03-13-backend-quality-plugin.md`
@@ -43,7 +43,7 @@ Issue: #1013
 **Implements:** DR-5
 
 **Steps:**
-1. Create `assay/` directory at repo root (extracted to own repo later)
+1. Create `axiom/` directory at repo root (extracted to own repo later)
 2. Create `.claude-plugin/plugin.json` with plugin name, version, description
 3. Create `package.json` with vitest dev dependency for structural validation
 4. Create `vitest.config.ts` and `tsconfig.json`
@@ -88,28 +88,28 @@ Issue: #1013
 
 **TDD Steps:**
 1. [RED] Write structural validation tests
-   - File: `assay/tests/plugin-structure.test.ts`
+   - File: `axiom/tests/plugin-structure.test.ts`
    - Tests:
      - `PluginJson_Exists_HasRequiredFields`
      - `ClaudeMd_Exists_ContainsNoExarchosReferences`
      - `SkillsDirectory_ContainsExpectedSubdirs`
-   - File: `assay/tests/skill-frontmatter.test.ts`
+   - File: `axiom/tests/skill-frontmatter.test.ts`
    - Tests:
      - `AllSkills_Frontmatter_HasNameAndDescription`
      - `AllInvokableSkills_Description_Under1024Chars`
      - `AllInvokableSkills_Frontmatter_HasTriggers`
      - `AllSkills_DimensionsMetadata_DeclaredWhenInvokable`
-   - File: `assay/tests/cross-references.test.ts`
+   - File: `axiom/tests/cross-references.test.ts`
    - Tests:
      - `AllSkills_CrossReferences_ResolveToExistingFiles`
      - `AllSkills_ReferencesDir_AllFilesReferencedBySkill`
-   - File: `assay/tests/dimension-coverage.test.ts`
+   - File: `axiom/tests/dimension-coverage.test.ts`
    - Tests:
      - `DimensionsTaxonomy_AllSeven_DefinedInDimensionsMd`
      - `DimensionCoverage_EachDimension_CoveredByAtLeastOneSkill`
      - `DimensionCoverage_NoSkillDeclaresUndefinedDimension`
    - Expected failure: All tests fail (no content yet)
-   - Run: `cd assay && npx vitest run` - MUST FAIL
+   - Run: `cd axiom && npx vitest run` - MUST FAIL
 
 2. [GREEN] Tests become green as Tasks 003-011 create content
    - This task only writes the tests; content tasks make them pass
@@ -137,7 +137,7 @@ Issue: #1013
    - Industry frameworks (Fowler's Debt Quadrant, SonarQube model, SQALE, ISO 25010)
    - Microsoft Learn: architectural anti-patterns (`microsoft_docs_search`)
    - Existing feature-audit dimensions as reference (generalize, don't copy)
-2. Create `assay/skills/backend-quality/references/dimensions.md`
+2. Create `axiom/skills/backend-quality/references/dimensions.md`
 3. For each dimension (DIM-1 through DIM-7), write:
    - **Definition:** 2-3 sentence description of what this dimension measures
    - **Invariants:** Properties that should always hold in healthy code
@@ -178,14 +178,14 @@ Issue: #1013
 **Implements:** DR-2, DR-7
 
 **Steps:**
-1. Create `assay/skills/backend-quality/references/findings-format.md`
+1. Create `axiom/skills/backend-quality/references/findings-format.md`
    - Finding schema (TypeScript interface + Markdown description)
    - Severity tier definitions (HIGH, MEDIUM, LOW)
    - Deduplication rules (same evidence + dimension = merge)
    - Example findings for each severity tier
    - Output format: how skills present findings to the user
 
-2. Create `assay/skills/backend-quality/references/scoring-model.md`
+2. Create `axiom/skills/backend-quality/references/scoring-model.md`
    - Plugin verdict logic (CLEAN / NEEDS_ATTENTION)
    - Per-dimension pass rate calculation
    - Finding density formula
@@ -208,13 +208,13 @@ Issue: #1013
 **Implements:** DR-4, DR-5
 
 **Steps:**
-1. Create `assay/skills/backend-quality/references/deterministic-checks.md`
+1. Create `axiom/skills/backend-quality/references/deterministic-checks.md`
    - Check catalog organized by dimension (DIM-1 through DIM-7)
    - Each check: ID (e.g., T-1.1), grep/structural pattern, severity, what it catches, false-positive guidance
    - At least 3 checks per dimension (21+ total)
-   - Extensibility section: how `.assay/checks.md` overrides/extends the catalog
+   - Extensibility section: how `.axiom/checks.md` overrides/extends the catalog
 
-2. Create `assay/skills/backend-quality/SKILL.md`
+2. Create `axiom/skills/backend-quality/SKILL.md`
    - Not user-invokable (no triggers)
    - Frontmatter: name, description, metadata (dimensions: all)
    - Body: overview of the dimension taxonomy, pointer to references
@@ -237,19 +237,19 @@ Issue: #1013
 **Implements:** DR-3, DR-4, DR-8
 
 **Steps:**
-1. Create `assay/skills/scan/SKILL.md`
+1. Create `axiom/skills/scan/SKILL.md`
    - Frontmatter: name `scan`, description (<1,024 chars), triggers, negative triggers
    - `metadata.dimensions: [pluggable]` (covers any dimension on demand)
    - `user-invokable: true`
    - Args: `scope` (file/dir/cwd), `dimensions` (comma-separated DIM-N list or "all")
    - Body: instructions for running deterministic checks
      - Load check catalog from `@skills/backend-quality/references/deterministic-checks.md`
-     - Optionally load project checks from `.assay/checks.md`
+     - Optionally load project checks from `.axiom/checks.md`
      - For each check: run grep pattern, collect matches, emit findings in standard format
      - Output: findings list in standard format
    - Error handling: invalid patterns → actionable error, empty scope → "nothing to scan"
 
-2. Create `assay/skills/scan/references/check-catalog.md`
+2. Create `axiom/skills/scan/references/check-catalog.md`
    - Skill-specific catalog that re-exports from backend-quality with scan-specific execution notes
    - Execution order, timeout guidance, batch strategies
 
@@ -270,7 +270,7 @@ Issue: #1013
 **Implements:** DR-3
 
 **Steps:**
-1. Create `assay/skills/critique/SKILL.md`
+1. Create `axiom/skills/critique/SKILL.md`
    - Frontmatter: name `critique`, description, triggers, negative triggers
    - `metadata.dimensions: [architecture, topology]` (DIM-6, DIM-1)
    - `user-invokable: true`
@@ -286,11 +286,11 @@ Issue: #1013
        - Circular dependency identification
      - Output: findings in standard format
 
-2. Create `assay/skills/critique/references/solid-principles.md`
+2. Create `axiom/skills/critique/references/solid-principles.md`
    - Each SOLID principle: definition, violation signals, severity guide, code examples
    - Detection heuristics for agent-driven assessment
 
-3. Create `assay/skills/critique/references/dependency-patterns.md`
+3. Create `axiom/skills/critique/references/dependency-patterns.md`
    - Healthy vs unhealthy dependency patterns
    - Coupling metrics (afferent/efferent, instability, abstractness)
    - Circular dependency detection approach
@@ -313,7 +313,7 @@ Issue: #1013
 **Implements:** DR-3
 
 **Steps:**
-1. Create `assay/skills/harden/SKILL.md`
+1. Create `axiom/skills/harden/SKILL.md`
    - Frontmatter: name `harden`, description, triggers, negative triggers
    - `metadata.dimensions: [observability, resilience]` (DIM-2, DIM-7)
    - `user-invokable: true`
@@ -330,12 +330,12 @@ Issue: #1013
        - Cache bound verification
      - Output: findings in standard format
 
-2. Create `assay/skills/harden/references/error-patterns.md`
+2. Create `axiom/skills/harden/references/error-patterns.md`
    - Silent catch taxonomy (empty, log-only, swallow-and-default)
    - Error context checklist (what failed, why, what to do)
    - Fallback anti-patterns (silent degradation, invisible mode switches)
 
-3. Create `assay/skills/harden/references/resilience-checklist.md`
+3. Create `axiom/skills/harden/references/resilience-checklist.md`
    - Resource management patterns (bounded caches, connection pools, file handles)
    - Timeout/retry patterns (exponential backoff, circuit breaker, bulkhead)
    - Concurrency safety (mutex, CAS, single-instance)
@@ -356,7 +356,7 @@ Issue: #1013
 **Implements:** DR-3
 
 **Steps:**
-1. Create `assay/skills/distill/SKILL.md`
+1. Create `axiom/skills/distill/SKILL.md`
    - Frontmatter: name `distill`, description, triggers, negative triggers
    - `metadata.dimensions: [hygiene, topology]` (DIM-5, DIM-1)
    - `user-invokable: true`
@@ -371,12 +371,12 @@ Issue: #1013
        - Abstraction audit (premature abstractions, over-engineering, single-use helpers)
      - Output: findings in standard format
 
-2. Create `assay/skills/distill/references/dead-code-patterns.md`
+2. Create `axiom/skills/distill/references/dead-code-patterns.md`
    - Dead code categories (unreachable, unused, commented-out, feature-flagged-off)
    - Detection heuristics per category
    - False positive guidance (intentional stubs, forward declarations)
 
-3. Create `assay/skills/distill/references/simplification-guide.md`
+3. Create `axiom/skills/distill/references/simplification-guide.md`
    - Complexity reduction patterns
    - When to inline vs extract
    - Vestigial pattern identification (code archaeology approach)
@@ -397,7 +397,7 @@ Issue: #1013
 **Implements:** DR-3
 
 **Steps:**
-1. Create `assay/skills/verify/SKILL.md`
+1. Create `axiom/skills/verify/SKILL.md`
    - Frontmatter: name `verify`, description, triggers, negative triggers
    - `metadata.dimensions: [test-fidelity, contracts]` (DIM-4, DIM-3)
    - `user-invokable: true`
@@ -413,13 +413,13 @@ Issue: #1013
        - Test coverage gap analysis (happy path only, missing error paths)
      - Output: findings in standard format
 
-2. Create `assay/skills/verify/references/test-antipatterns.md`
+2. Create `axiom/skills/verify/references/test-antipatterns.md`
    - Test-production divergence patterns
    - Mock overuse taxonomy
    - Test isolation vs production reality
    - The "passing tests, broken system" class of bugs
 
-3. Create `assay/skills/verify/references/contract-testing.md`
+3. Create `axiom/skills/verify/references/contract-testing.md`
    - Schema drift detection approach
    - API versioning patterns
    - Type safety verification
@@ -441,25 +441,25 @@ Issue: #1013
 **Implements:** DR-3, DR-2 (dedup), DR-7 (verdict)
 
 **Steps:**
-1. Create `assay/skills/audit/SKILL.md`
+1. Create `axiom/skills/audit/SKILL.md`
    - Frontmatter: name `audit`, description, triggers, negative triggers
    - `metadata.dimensions: [all]`
    - `user-invokable: true`
    - Args: `scope`
    - Body:
      - **Orchestration:** Run all 5 specialized skills in sequence:
-       1. `assay:scan` (all dimensions, deterministic)
-       2. `assay:critique` (Architecture + Topology, qualitative)
-       3. `assay:harden` (Observability + Resilience, qualitative)
-       4. `assay:distill` (Hygiene + Topology, qualitative)
-       5. `assay:verify` (Test Fidelity + Contracts, qualitative)
+       1. `axiom:scan` (all dimensions, deterministic)
+       2. `axiom:critique` (Architecture + Topology, qualitative)
+       3. `axiom:harden` (Observability + Resilience, qualitative)
+       4. `axiom:distill` (Hygiene + Topology, qualitative)
+       5. `axiom:verify` (Test Fidelity + Contracts, qualitative)
      - **Deduplication:** Merge findings with same evidence + dimension
      - **Coverage check:** Verify all 7 dimensions were assessed, warn on gaps
      - **Scoring:** Compute per-dimension pass rates, aggregate verdict
      - **Report:** Output structured report using scoring-model.md template
      - **Error handling:** Partial failures (one skill errors → others continue, error reported)
 
-2. Create `assay/skills/audit/references/composition-guide.md`
+2. Create `axiom/skills/audit/references/composition-guide.md`
    - How audit discovers and invokes other skills
    - Finding deduplication algorithm
    - Coverage matrix generation
@@ -495,7 +495,7 @@ Issue: #1013
 
 **TDD Steps:**
 1. [RED] Run full validation suite
-   - Run: `cd assay && npx vitest run`
+   - Run: `cd axiom && npx vitest run`
    - Expected: All tests from Task 002 should now pass (if not, identify gaps)
 
 2. [GREEN] Fix any remaining structural issues
@@ -508,7 +508,7 @@ Issue: #1013
    - Verify consistent terminology across all skills
    - Check that dimension names match exactly between dimensions.md and skill frontmatter
    - Verify finding format examples are consistent across skills
-   - Run: `cd assay && npx vitest run` - MUST STAY GREEN
+   - Run: `cd axiom && npx vitest run` - MUST STAY GREEN
 
 **Verification:**
 - [ ] All structural validation tests pass
@@ -543,12 +543,12 @@ Issue: #1013
 1. [RED] Characterize existing `/feature-audit` behavior
    - Read existing `skills/feature-audit/SKILL.md` and all references
    - Document current D1-D5 dimension split
-   - Identify which checks are general-purpose (move to assay) vs exarchos-specific (keep)
+   - Identify which checks are general-purpose (move to axiom) vs exarchos-specific (keep)
 
 2. [GREEN] Create thin `/exarchos:review` integration skill
    - File: `skills/review-integration/SKILL.md` (or update existing review skill)
    - Content:
-     - Invoke `assay:audit` for general backend quality (DIM-1 through DIM-7)
+     - Invoke `axiom:audit` for general backend quality (DIM-1 through DIM-7)
      - Run exarchos-specific checks inline:
        - D1: Spec Fidelity & TDD traceability (workflow state dependent)
        - D2-domain: Event Sourcing / CQRS / HSM / Saga invariants
@@ -565,7 +565,7 @@ Issue: #1013
    - Run: `npm run test:run` - MUST STAY GREEN
 
 **Verification:**
-- [ ] Integration layer invokes assay:audit
+- [ ] Integration layer invokes axiom:audit
 - [ ] D1, D2-domain, D3, D5 preserved in exarchos
 - [ ] Verdict computation uses combined findings
 - [ ] Integration layer is <200 lines
@@ -581,7 +581,7 @@ Issue: #1013
 **Implements:** DR-6
 
 **Steps:**
-1. Document migration path from `/feature-audit` to assay-integrated `/exarchos:review`
+1. Document migration path from `/feature-audit` to axiom-integrated `/exarchos:review`
    - Which dimensions moved to the plugin
    - Which dimensions stayed in exarchos
    - API surface changes (if any)
@@ -592,7 +592,7 @@ Issue: #1013
    - Note: feature-audit remains functional during transition
 
 3. Update exarchos `CLAUDE.md` if needed
-   - Note assay plugin dependency for review phase
+   - Note axiom plugin dependency for review phase
    - Document dimension ownership split
 
 **Verification:**
@@ -651,18 +651,18 @@ Task 002 validation tests enforce L1 constraints (description length, required f
 
 | Item | Rationale |
 |---|---|
-| Plugin name finalization | Using "assay" as working name; verify availability before public release |
-| ~~Extraction to standalone repo~~ | ~~Developed under `assay/` in exarchos repo; extract after validation~~ — **Done:** extracted to [lvlup-sw/assay](https://github.com/lvlup-sw/assay) (#1025) |
+| Plugin name finalization | Using "axiom" as working name; verify availability before public release |
+| ~~Extraction to standalone repo~~ | ~~Developed under `axiom/` in exarchos repo; extract after validation~~ — **Done:** extracted to [lvlup-sw/axiom](https://github.com/lvlup-sw/axiom) (#1025) |
 | Language generalization | Start TypeScript/Node.js; dimensions are language-agnostic by design |
 | CI/CD annotation format | Future extension for `scan` results |
-| `.assay/checks.md` extensibility | Documented in design but implementation deferred to post-MVP |
+| `.axiom/checks.md` extensibility | Documented in design but implementation deferred to post-MVP |
 | Feature-audit removal | Deprecated, not removed; coexists during transition period |
 
 ## Completion Checklist
-- [ ] All structural validation tests pass (`cd assay && npx vitest run`)
+- [ ] All structural validation tests pass (`cd axiom && npx vitest run`)
 - [ ] All 7 dimensions defined and covered
 - [ ] All 6 skills have valid frontmatter with triggers and dimension declarations
 - [ ] All cross-references resolve to existing files
-- [ ] Exarchos integration layer is <200 lines and invokes assay:audit
+- [ ] Exarchos integration layer is <200 lines and invokes axiom:audit
 - [ ] Migration documentation complete
 - [ ] Ready for review

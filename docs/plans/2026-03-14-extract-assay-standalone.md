@@ -1,35 +1,35 @@
-# Implementation Plan: Extract Assay Plugin to Standalone Repository
+# Implementation Plan: Extract Axiom Plugin to Standalone Repository
 
 ## Source Design
 Link: `docs/designs/2026-03-13-backend-quality-plugin.md` (Phase 2: Delegation)
 Issue: #1025
 
 ## Scope
-**Target:** Phase 2 extraction — move assay/ to standalone `lvlup-sw/assay` repo, clean up exarchos references
-**Excluded:** Phase 3 (full integration / feature-audit deprecation), assay content changes, exarchos MCP tool changes
+**Target:** Phase 2 extraction — move axiom/ to standalone `lvlup-sw/axiom` repo, clean up exarchos references
+**Excluded:** Phase 3 (full integration / feature-audit deprecation), axiom content changes, exarchos MCP tool changes
 
 ## Summary
 - Total tasks: 6
 - Parallel groups: 2 (A: repo bootstrap, B: exarchos cleanup)
-- Estimated test count: 0 new (45 existing assay tests must pass in new repo, exarchos tests must pass after removal)
-- Design coverage: Phase 2 requirements from assay-integration.md
+- Estimated test count: 0 new (45 existing axiom tests must pass in new repo, exarchos tests must pass after removal)
+- Design coverage: Phase 2 requirements from axiom-integration.md
 
 ## Spec Traceability
 
 ### Scope Declaration
-**Target:** Phase 2 of migration plan in `skills/quality-review/references/assay-integration.md`
+**Target:** Phase 2 of migration plan in `skills/quality-review/references/axiom-integration.md`
 **Excluded:** Phase 3 (full integration)
 
 ### Traceability Matrix
 
 | Requirement | Key Criteria | Task ID(s) | Status |
 |---|---|---|---|
-| Create lvlup-sw/assay repository | Repo exists, contents at root, proper git history | 001 | Covered |
+| Create lvlup-sw/axiom repository | Repo exists, contents at root, proper git history | 001 | Covered |
 | Set up CI | GitHub Actions with vitest, self-hosted runner | 002 | Covered |
 | Verify CI green | All 45 structural validation tests pass | 003 | Covered |
-| Remove assay/ from exarchos | git rm -r assay/, no orphan references | 004 | Covered |
-| Update exarchos references | assay-integration.md, feature-audit, design/plan docs | 005 | Covered |
-| Verify exarchos works without assay | Root and MCP tests pass, no broken references | 006 | Covered |
+| Remove axiom/ from exarchos | git rm -r axiom/, no orphan references | 004 | Covered |
+| Update exarchos references | axiom-integration.md, feature-audit, design/plan docs | 005 | Covered |
+| Verify exarchos works without axiom | Root and MCP tests pass, no broken references | 006 | Covered |
 
 ## Task Breakdown
 
@@ -38,16 +38,16 @@ Issue: #1025
 **Phase:** Operational (repo creation + content migration)
 
 **Steps:**
-1. Create `lvlup-sw/assay` GitHub repository via `gh repo create`
+1. Create `lvlup-sw/axiom` GitHub repository via `gh repo create`
    - Public, MIT license, description from plugin.json
 2. Clone new repo to local workspace
-3. Copy assay/ contents to repo root (excluding node_modules/)
+3. Copy axiom/ contents to repo root (excluding node_modules/)
 4. Add `.gitignore` (node_modules/, coverage/, dist/, .DS_Store)
 5. Initial commit with all content
 6. Push to origin
 
 **Verification:**
-- Repository exists at `github.com/lvlup-sw/assay`
+- Repository exists at `github.com/lvlup-sw/axiom`
 - All 31 tracked files present at repo root
 - `npm install && npm run test:run` passes locally (45 tests)
 
@@ -61,7 +61,7 @@ Issue: #1025
 **Phase:** RED → GREEN
 
 **Steps:**
-1. [RED] Create `.github/workflows/ci.yml` in assay repo:
+1. [RED] Create `.github/workflows/ci.yml` in axiom repo:
    ```yaml
    name: CI
    on:
@@ -104,7 +104,7 @@ Issue: #1025
 
 **Verification:**
 - [ ] CI green on main branch
-- [ ] `gh repo view lvlup-sw/assay` returns valid repo info
+- [ ] `gh repo view lvlup-sw/axiom` returns valid repo info
 - [ ] v0.1.0 tag exists
 
 **Dependencies:** 002
@@ -112,18 +112,18 @@ Issue: #1025
 
 ---
 
-### Task 004: Remove assay/ Directory from Exarchos
+### Task 004: Remove axiom/ Directory from Exarchos
 
 **Phase:** Operational (git rm)
 
 **Steps:**
-1. Create feature branch: `git checkout -b chore/extract-assay-to-standalone`
-2. Remove assay directory: `git rm -r assay/`
-3. Commit: `git commit -m "chore: remove assay/ — extracted to lvlup-sw/assay (#1025)"`
+1. Create feature branch: `git checkout -b chore/extract-axiom-to-standalone`
+2. Remove axiom directory: `git rm -r axiom/`
+3. Commit: `git commit -m "chore: remove axiom/ — extracted to lvlup-sw/axiom (#1025)"`
 
 **Verification:**
-- `assay/` no longer exists in working tree
-- No references to `assay/` paths remain broken (checked in Task 005)
+- `axiom/` no longer exists in working tree
+- No references to `axiom/` paths remain broken (checked in Task 005)
 
 **Dependencies:** 003 (new repo must be live before removing from exarchos)
 **Parallelizable:** No (must happen before Task 005)
@@ -136,33 +136,33 @@ Issue: #1025
 
 **Files to update:**
 
-1. **`skills/quality-review/references/assay-integration.md`**
+1. **`skills/quality-review/references/axiom-integration.md`**
    - Phase 2 section: mark as "Current" (was "Next")
-   - Update location references from `assay/` to `github.com/lvlup-sw/assay`
-   - Note: assay is now an external plugin dependency
+   - Update location references from `axiom/` to `github.com/lvlup-sw/axiom`
+   - Note: axiom is now an external plugin dependency
 
 2. **`.claude/skills/feature-audit/SKILL.md`**
-   - Update deprecation notice: assay is now standalone at `lvlup-sw/assay`
-   - Update reference from `assay/CLAUDE.md` to external repo URL
+   - Update deprecation notice: axiom is now standalone at `lvlup-sw/axiom`
+   - Update reference from `axiom/CLAUDE.md` to external repo URL
 
 3. **`docs/designs/2026-03-13-backend-quality-plugin.md`**
    - Add Phase 2 completion note at top of document
-   - Update any inline references to `assay/` paths
+   - Update any inline references to `axiom/` paths
 
 4. **`docs/plans/2026-03-13-backend-quality-plugin.md`**
    - Add completion note: Phase 1 tasks done, plugin extracted to standalone repo
    - Move "Extraction to standalone repo" from Deferred Items to Completed
 
 **Verification:**
-- No remaining references to `assay/` as a local path (grep -r "assay/" should only return external URLs)
-- All documentation references point to `github.com/lvlup-sw/assay` or `lvlup-sw/assay`
+- No remaining references to `axiom/` as a local path (grep -r "axiom/" should only return external URLs)
+- All documentation references point to `github.com/lvlup-sw/axiom` or `lvlup-sw/axiom`
 
 **Dependencies:** 004
 **Parallelizable:** No (same branch as 004)
 
 ---
 
-### Task 006: Verify Exarchos Tests Pass Without Assay
+### Task 006: Verify Exarchos Tests Pass Without Axiom
 
 **Phase:** Verification
 
@@ -177,7 +177,7 @@ Issue: #1025
 - [ ] Root tests pass
 - [ ] MCP tests pass
 - [ ] Typecheck passes
-- [ ] No grep hits for `assay/` as local path (excluding external URLs and git history)
+- [ ] No grep hits for `axiom/` as local path (excluding external URLs and git history)
 
 **Dependencies:** 005
 **Parallelizable:** No (final verification)
@@ -203,14 +203,14 @@ Phase B depends on Phase A completing (repo must exist before removing from exar
 | Item | Rationale |
 |---|---|
 | Marketplace publication (npm publish) | Requires npm auth + lvlup-sw org setup; tracked separately |
-| Phase 3: Full integration | Future work — deprecate feature-audit entirely, documented in assay-integration.md |
-| Renovate/Dependabot setup for assay repo | Nice-to-have, not blocking extraction |
+| Phase 3: Full integration | Future work — deprecate feature-audit entirely, documented in axiom-integration.md |
+| Renovate/Dependabot setup for axiom repo | Nice-to-have, not blocking extraction |
 
 ## Completion Checklist
-- [ ] `lvlup-sw/assay` repo exists with all content at root
+- [ ] `lvlup-sw/axiom` repo exists with all content at root
 - [ ] CI passing (45/45 tests green)
 - [ ] v0.1.0 tagged
-- [ ] `assay/` removed from exarchos
+- [ ] `axiom/` removed from exarchos
 - [ ] All exarchos doc references updated
-- [ ] Exarchos tests pass without assay/
+- [ ] Exarchos tests pass without axiom/
 - [ ] PR created for exarchos cleanup

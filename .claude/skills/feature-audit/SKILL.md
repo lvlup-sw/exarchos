@@ -11,7 +11,7 @@ metadata:
 
 # Feature Audit Skill
 
-> **DEPRECATION NOTICE:** This monolithic skill is being replaced by the composable [assay plugin](https://github.com/lvlup-sw/assay) for general backend quality (DIM-1 through DIM-7) + a thin exarchos integration layer for domain-specific checks (D1, D2-domain, D3, D5). See `skills/quality-review/references/assay-integration.md` for the migration plan. Assay is now a standalone plugin — install via `claude plugin add lvlup-sw/assay`.
+> **DEPRECATION NOTICE:** This monolithic skill is being replaced by the composable [axiom plugin](https://github.com/lvlup-sw/axiom) for general backend quality (DIM-1 through DIM-7) + a thin exarchos integration layer for domain-specific checks (D1, D2-domain, D3, D5). See `skills/quality-review/references/axiom-integration.md` for the migration plan. Axiom is now a standalone plugin — install via `claude plugin add lvlup-sw/axiom`.
 
 ## Overview
 
