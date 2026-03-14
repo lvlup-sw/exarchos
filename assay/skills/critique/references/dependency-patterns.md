@@ -239,28 +239,26 @@ A circular dependency exists when module A depends on module B, and module B (di
 A layered architecture organizes code into horizontal layers with strict dependency rules:
 
 ```text
-  +-------------------+
-  |  Infrastructure   |  (database, file system, external APIs)
-  +-------------------+
-           |
-           v
-  +-------------------+
-  |  Presentation     |  (routes, controllers, CLI handlers)
-  +-------------------+
-           |
-           v
-  +-------------------+
-  |  Application      |  (use cases, orchestrators, commands)
-  +-------------------+
-           |
-           v
-  +-------------------+
-  |  Domain (core)    |  (entities, value objects, domain services)
-  +-------------------+
+  +-------------------------------------------------------+
+  | Infrastructure |              | Presentation          |
+  | (DB, FS, APIs) |              | (routes, controllers) |
+  +----------|-----+--------------+-----|------------------+
+             |                          |
+             v                          v
+  +-----------------------------------------------+
+  |              Application                      |
+  |   (use cases, orchestrators, commands)        |
+  +----------------------|------------------------+
+                         |
+                         v
+  +-----------------------------------------------+
+  |              Domain (core)                    |
+  |   (entities, value objects, domain services)  |
+  +-----------------------------------------------+
 
   Arrows = dependency direction (pointing INWARD toward the core).
-  Rule: each layer may only depend on the same layer or layers closer to the core.
-  Domain (core) NEVER imports from Infrastructure, Application, or Presentation.
+  Infrastructure and Presentation both depend inward on Application/Domain.
+  Domain (core) NEVER imports from any outer layer.
 ```
 
 ### Common Layer Violations
