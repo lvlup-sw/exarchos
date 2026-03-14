@@ -47,7 +47,7 @@ If `.assay/checks.md` exists in the project root, load additional project-specif
 
 Apply the `dimensions` argument to filter the merged check set:
 - If `dimensions` is `"all"` or omitted, run every check in the catalog
-- If `dimensions` is a comma-separated list (e.g., `"D1,D2"`), only run checks tagged with those dimensions
+- If `dimensions` is a comma-separated list (e.g., `"topology,observability"`), only run checks tagged with those dimensions
 - Invalid dimension names produce an actionable error message listing valid dimensions
 
 ### Step 4: Execute Checks

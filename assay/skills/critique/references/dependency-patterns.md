@@ -130,6 +130,7 @@ For module M:
 **Definition:** `I = Ce / (Ca + Ce)` where 0 means maximally stable and 1 means maximally unstable.
 
 **Interpretation:**
+
 | I value | Meaning | Expectation |
 |---------|---------|-------------|
 | I = 0 | Maximally stable | Many dependents, no dependencies. Hard to change. Should be abstract. |

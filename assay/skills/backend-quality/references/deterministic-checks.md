@@ -59,6 +59,7 @@ Each check has: ID, pattern, what it detects, severity, and false-positive guida
 - **False positives:** Assertions after explicit null checks in the same scope
 
 ### T-3.3: Schema-type divergence (manual check)
+- **Execution:** manual (excluded from deterministic scan)
 - **Pattern:** Compare Zod schemas against TypeScript interfaces for missing/extra fields
 - **Severity:** HIGH
 - **Detects:** Runtime schema doesn't match compile-time types
@@ -79,6 +80,7 @@ Each check has: ID, pattern, what it detects, severity, and false-positive guida
 - **False positives:** Tests for modules with many infrastructure boundaries
 
 ### T-4.3: Test setup divergence (manual check)
+- **Execution:** manual (excluded from deterministic scan)
 - **Pattern:** Compare test factory/setup functions against production initialization code
 - **Severity:** HIGH
 - **Detects:** Test wiring that doesn't match production wiring
