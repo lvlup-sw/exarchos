@@ -1,5 +1,7 @@
 # Design: Backend Quality Plugin — Composable Skill Family
 
+> **Status:** Phase 1 (creation) complete (#1023). Phase 2 (extraction to [lvlup-sw/assay](https://github.com/lvlup-sw/assay)) complete (#1025). Phase 3 (full integration) pending.
+
 ## Problem Statement
 
 Issue #1009 exposed a class of architectural debt that no existing tooling detects: silent divergence of shared state across module boundaries. The EventStore bug was invisible to `/feature-audit` (feature-scoped, pipeline-bound), 4192 passing tests (same-instance setup), and code review (the bug was an *absence*). The fix was trivial; finding it was not.

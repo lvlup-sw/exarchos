@@ -79,17 +79,18 @@ During the quality review stage, after spec-review passes:
 
 ## Migration Path
 
-### Phase 1 (Current): Coexistence
-- Assay plugin exists in the exarchos repo under `assay/`
-- Quality review can optionally invoke assay:audit for supplementary findings
-- Existing exarchos checks continue to run independently
-- No breaking changes to the review workflow
+### Phase 1 (Complete): Coexistence
+- Assay plugin created in exarchos repo under `assay/` with 45 structural validation tests
+- 6 composable skills: scan, critique, harden, distill, verify, audit
+- Shipped in #1023
 
-### Phase 2 (Next): Delegation
-- Assay extracted to its own repo and distributed as a standalone plugin
+### Phase 2 (Current): Delegation
+- Assay extracted to standalone repo: [lvlup-sw/assay](https://github.com/lvlup-sw/assay)
+- Install independently: `claude plugin add lvlup-sw/assay`
 - Quality review delegates general checks to assay:audit
 - Exarchos-specific checks remain in the quality-review skill
 - Existing orchestrate actions (check_static_analysis, etc.) become the thin layer
+- Extracted in #1025
 
 ### Phase 3 (Future): Full Integration
 - Feature-audit skill deprecated and removed

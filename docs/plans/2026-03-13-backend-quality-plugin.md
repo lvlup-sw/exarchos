@@ -1,5 +1,7 @@
 # Implementation Plan: Backend Quality Plugin (Assay)
 
+> **Status:** Phase 1 complete — all 14 tasks done, 45/45 tests passing. Plugin extracted to [lvlup-sw/assay](https://github.com/lvlup-sw/assay) in #1025. See `docs/plans/2026-03-14-extract-assay-standalone.md` for the extraction plan.
+
 ## Source Design
 Link: `docs/designs/2026-03-13-backend-quality-plugin.md`
 Issue: #1013
@@ -650,7 +652,7 @@ Task 002 validation tests enforce L1 constraints (description length, required f
 | Item | Rationale |
 |---|---|
 | Plugin name finalization | Using "assay" as working name; verify availability before public release |
-| Extraction to standalone repo | Developed under `assay/` in exarchos repo; extract after validation |
+| ~~Extraction to standalone repo~~ | ~~Developed under `assay/` in exarchos repo; extract after validation~~ — **Done:** extracted to [lvlup-sw/assay](https://github.com/lvlup-sw/assay) (#1025) |
 | Language generalization | Start TypeScript/Node.js; dimensions are language-agnostic by design |
 | CI/CD annotation format | Future extension for `scan` results |
 | `.assay/checks.md` extensibility | Documented in design but implementation deferred to post-MVP |
