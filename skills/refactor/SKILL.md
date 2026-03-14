@@ -128,7 +128,7 @@ Use `describe` to discover the full state schema at runtime: `exarchos_workflow(
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases. For example, from `brief` you must go to `polish-implement`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, `explore` must transition to `brief` before `overhaul-plan` — attempting `explore` → `overhaul-plan` directly will be rejected by the HSM. From `brief` you must go to `polish-implement` or `overhaul-plan`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
 
