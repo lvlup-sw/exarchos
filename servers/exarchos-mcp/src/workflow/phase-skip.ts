@@ -52,7 +52,13 @@ export function applyPhaseSkips(
       if (t.to === skip) {
         // Replace this incoming transition with one per outgoing
         for (const outgoing of outgoings) {
-          newTransitions.push({ ...t, to: outgoing.to, guard: outgoing.guard ?? t.guard });
+          newTransitions.push({
+            ...t,
+            to: outgoing.to,
+            guard: outgoing.guard ?? t.guard,
+            effects: outgoing.effects ?? t.effects,
+            isFixCycle: outgoing.isFixCycle ?? t.isFixCycle,
+          });
         }
       } else if (t.from !== skip) {
         newTransitions.push(t);

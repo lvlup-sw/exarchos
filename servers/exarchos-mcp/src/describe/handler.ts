@@ -62,6 +62,16 @@ export async function handleDescribe(
       },
     };
   }
+  if (args.config !== undefined && typeof args.config !== 'boolean') {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'config must be a boolean',
+        expectedShape: { config: true },
+      },
+    };
+  }
 
   const hasActions = Array.isArray(args.actions) && args.actions.length > 0;
   const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;

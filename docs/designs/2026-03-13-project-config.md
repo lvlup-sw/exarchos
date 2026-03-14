@@ -273,7 +273,7 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
 
 ### 2. Validation
 
-Zod schemas validate the parsed YAML. Invalid config fails fast with clear error messages.
+Zod schemas validate the parsed YAML. Invalid sections fall back to defaults with warnings; valid sections are preserved (partial failure model).
 
 ```typescript
 // config/yaml-schema.ts
@@ -511,21 +511,34 @@ export function applyPhaseSkips(
 ): HSMDefinition {
   if (skipPhases.length === 0) return hsm;
 
-  // For each skipped phase, reroute incoming transitions to the
-  // skipped phase's outgoing target
-  const modified = { ...hsm, transitions: [...hsm.transitions] };
+  let transitions = hsm.transitions.map(t => ({ ...t }));
 
   for (const skip of skipPhases) {
-    const outgoing = modified.transitions.find(t => t.from === skip);
-    if (!outgoing) continue;
+    // Collect ALL outgoing transitions (handles multi-branch phases)
+    const outgoings = transitions.filter(t => t.from === skip);
+    if (outgoings.length === 0) continue;
 
-    // Reroute all transitions targeting the skipped phase
-    modified.transitions = modified.transitions.map(t =>
-      t.to === skip ? { ...t, to: outgoing.to } : t,
-    ).filter(t => t.from !== skip);
+    // For each incoming, create replacement transitions to all outgoing targets
+    // Guard, effects, and isFixCycle are inherited from outgoing transitions
+    const newTransitions = [];
+    for (const t of transitions) {
+      if (t.to === skip) {
+        for (const outgoing of outgoings) {
+          newTransitions.push({
+            ...t, to: outgoing.to,
+            guard: outgoing.guard ?? t.guard,
+            effects: outgoing.effects ?? t.effects,
+            isFixCycle: outgoing.isFixCycle ?? t.isFixCycle,
+          });
+        }
+      } else if (t.from !== skip) {
+        newTransitions.push(t);
+      }
+    }
+    transitions = newTransitions;
   }
 
-  return modified;
+  return { ...hsm, transitions };
 }
 ```
 
@@ -731,6 +744,6 @@ Extend `exarchos_workflow describe` to return effective config with source annot
 
 3. **Hot reload** — Should the MCP server watch `.exarchos.yml` for changes? For v1, reload on server restart is sufficient. Hot reload can be added later.
 
-4. **Config in monorepos** — Should config walk up directories (like ESLint) or only check project root? For v1, project root only. Directory walking adds complexity for marginal benefit.
+4. **Config in monorepos** — ~~Should config walk up directories (like ESLint) or only check project root? For v1, project root only.~~ **Resolved:** Implementation uses directory walk-up (matching ESLint/Prettier convention) with env var override and git root fallback. See Project Root Discovery section.
 
 5. **VCS provider implementation order** — Issue #1024 asks for GitLab and Azure DevOps. Should we implement all three providers in this feature, or ship the interface + GitHub provider first and add the others as follow-ups?

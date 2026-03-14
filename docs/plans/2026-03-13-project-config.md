@@ -451,12 +451,11 @@ Recommended agent assignment:
      - `EventStore_BatchAppend_TriggersHooksForEach` — batch append triggers hooks for each event
    - Expected failure: EventStore doesn't call hook runner
 
-2. **[GREEN]** Wire hook runner into EventStore or context initialization.
-   - File: `servers/exarchos-mcp/src/core/context.ts` — register hook runner as post-append callback
-   - File: `servers/exarchos-mcp/src/event-store/store.ts` — add optional `onAppend` callback support if not already present
-   - Alternative: wire at the handler level (after `emitGateEvent` calls) if EventStore callback is too invasive
+2. **[GREEN]** Wire hook runner into event composite handler post-append.
+   - File: `servers/exarchos-mcp/src/core/context.ts` — create hook runner and attach to DispatchContext
+   - File: `servers/exarchos-mcp/src/event-store/composite.ts` — call hook runner after successful append/batch_append
 
-3. **[REFACTOR]** Choose between EventStore callback vs handler-level wiring based on implementation complexity.
+3. **[REFACTOR]** None expected.
 
 **Dependencies:** 004, 013
 
