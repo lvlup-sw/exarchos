@@ -253,8 +253,8 @@ When a plugin is unavailable, include a note in the review output:
 ```
 ## Plugin Coverage
 
-- axiom: not installed (install with `claude plugin add lvlup-sw/axiom` for 7 additional quality dimensions)
-- impeccable: not installed (install with `claude plugin add lvlup-sw/impeccable` for design quality checks)
+- axiom: not installed (install with `claude plugin install axiom@lvlup-sw` for 7 additional quality dimensions)
+- impeccable: not installed (install with `claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable` for design quality checks)
 ```
 
 ### Axiom Integration Reference Update
