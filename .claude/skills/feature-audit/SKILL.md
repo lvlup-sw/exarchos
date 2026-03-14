@@ -11,6 +11,8 @@ metadata:
 
 # Feature Audit Skill
 
+> **DEPRECATION NOTICE:** This monolithic skill is being replaced by the composable assay plugin (`assay/CLAUDE.md`) for general backend quality (DIM-1 through DIM-7) + a thin exarchos integration layer for domain-specific checks (D1, D2-domain, D3, D5). See `skills/quality-review/references/assay-integration.md` for the migration plan. During the transition period, both systems coexist.
+
 ## Overview
 
 Evaluate a completed feature against five independent **convergence dimensions** synthesized from event-sourcing best practices, agentic workflow theory, Anthropic skill-building standards, and operational excellence principles.
