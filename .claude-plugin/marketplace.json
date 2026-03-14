@@ -29,6 +29,27 @@
         "agent-teams",
         "durable-workflows"
       ]
+    },
+    {
+      "name": "axiom",
+      "source": {
+        "source": "npm",
+        "package": "@lvlup-sw/axiom",
+        "version": "0.2.0"
+      },
+      "description": "Six skills that audit, critique, harden, and simplify backend code",
+      "version": "0.2.0",
+      "author": {
+        "name": "Levelup Software"
+      },
+      "category": "quality",
+      "tags": [
+        "backend-quality",
+        "code-review",
+        "architecture",
+        "design-patterns",
+        "composable-skills"
+      ]
     }
   ]
 }

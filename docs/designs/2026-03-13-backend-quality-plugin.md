@@ -1,5 +1,7 @@
 # Design: Backend Quality Plugin — Composable Skill Family
 
+> **Status:** Phase 1 (creation) complete (#1023). Phase 2 (extraction to [lvlup-sw/axiom](https://github.com/lvlup-sw/axiom)) complete (#1025). Phase 3 (full integration) pending.
+
 ## Problem Statement
 
 Issue #1009 exposed a class of architectural debt that no existing tooling detects: silent divergence of shared state across module boundaries. The EventStore bug was invisible to `/feature-audit` (feature-scoped, pipeline-bound), 4192 passing tests (same-instance setup), and code review (the bug was an *absence*). The fix was trivial; finding it was not.
@@ -33,9 +35,9 @@ This mirrors impeccable's architecture: a core reference skill defines principle
 
 ## Plugin Identity
 
-**Working name: `assay`** — to analyze or evaluate composition and quality. From metallurgy: testing the purity and composition of metals.
+**Working name: `axiom`** — to analyze or evaluate composition and quality. From metallurgy: testing the purity and composition of metals.
 
-- Namespace: `assay:audit`, `assay:critique`, `assay:harden`, etc.
+- Namespace: `axiom:audit`, `axiom:critique`, `axiom:harden`, etc.
 - Distribution: standalone Claude Code plugin via lvlup-sw marketplace
 - Alternatives considered: `temper`, `rigor`, `plumb`
 
@@ -130,14 +132,14 @@ The `scan` skill runs grep patterns, structural analysis, and other mechanical c
 - Each check has: ID, pattern, what it detects, severity, false-positive guidance
 - `scan` returns findings in standard format
 - Other skills can invoke `scan` results and augment with qualitative assessment
-- Check catalog is extensible (users add project-specific patterns via `.assay/checks.md`)
+- Check catalog is extensible (users add project-specific patterns via `.axiom/checks.md`)
 
 ### DR-5: Plugin Architecture
 
 Standalone Claude Code plugin following marketplace distribution patterns.
 
 ```
-assay/
+axiom/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── skills/
@@ -182,7 +184,7 @@ assay/
 
 **Acceptance criteria:**
 - Plugin installs via lvlup-sw marketplace
-- All skills register with `assay:` namespace
+- All skills register with `axiom:` namespace
 - `CLAUDE.md` provides plugin-level instructions (no exarchos references)
 - Core `backend-quality` skill is referenced by all other skills (`@skills/backend-quality/references/...`)
 - Zero dependencies on exarchos or any workflow tool
@@ -205,7 +207,7 @@ Exarchos consumes the plugin via a thin integration layer. The existing monolith
 **Integration flow:**
 ```
 /exarchos:review
-    ├── Invoke assay:audit (plugin — general dimensions)
+    ├── Invoke axiom:audit (plugin — general dimensions)
     ├── Run exarchos-specific checks (D1, D2-domain, D3, D5)
     ├── Merge findings (plugin + exarchos-specific)
     ├── Compute verdict (APPROVED / NEEDS_FIXES / BLOCKED)
@@ -258,7 +260,7 @@ else: APPROVED
 - `audit` handles partial failures: one skill errors, others continue, error reported in output
 - Finding deduplication handles: same file different lines, same pattern different files
 - Scope parameter validates: file/directory must exist, defaults to cwd
-- Plugin works with zero configuration (sensible defaults, no `.assay/` required)
+- Plugin works with zero configuration (sensible defaults, no `.axiom/` required)
 
 ## Technical Design
 
@@ -274,13 +276,13 @@ The foundational skill, analogous to impeccable's `frontend-design`. Not user-in
 ### Composition Model
 
 ```
-assay:audit --scope src/
+axiom:audit --scope src/
     │
-    ├── assay:scan (all dimensions, deterministic)
-    ├── assay:critique (Architecture + Topology, qualitative)
-    ├── assay:harden (Observability + Resilience, qualitative)
-    ├── assay:distill (Hygiene + Topology, qualitative)
-    └── assay:verify (Test Fidelity + Contracts, qualitative)
+    ├── axiom:scan (all dimensions, deterministic)
+    ├── axiom:critique (Architecture + Topology, qualitative)
+    ├── axiom:harden (Observability + Resilience, qualitative)
+    ├── axiom:distill (Hygiene + Topology, qualitative)
+    └── axiom:verify (Test Fidelity + Contracts, qualitative)
     │
     ▼
 Deduplicate findings (same evidence + dimension = merge)
@@ -300,13 +302,13 @@ Following Anthropic's skill-building guide:
 
 1. **New dimensions:** Add to `references/dimensions.md`, assign to existing or new skills
 2. **New skills:** Create `skills/<name>/SKILL.md`, declare `metadata.dimensions`, `audit` discovers automatically
-3. **Project-specific checks:** `.assay/checks.md` in repo root (scan reads it alongside built-in catalog)
+3. **Project-specific checks:** `.axiom/checks.md` in repo root (scan reads it alongside built-in catalog)
 4. **Consumer integration:** Any workflow tool reads the standard finding format
 
 ## Integration Points
 
 ### With Impeccable
-- Complementary: impeccable = frontend quality, assay = backend quality
+- Complementary: impeccable = frontend quality, axiom = backend quality
 - Shared patterns: verb naming, reference-based progressive disclosure, standalone plugin distribution
 - No dependency between them; a project can use either or both
 
@@ -329,7 +331,7 @@ Following Anthropic's skill-building guide:
 
 ## Open Questions
 
-1. **Plugin name:** "assay" is the working proposal. Verify availability, gather feedback.
+1. **Plugin name:** "axiom" is the working proposal. Verify availability, gather feedback.
 2. **Language scope:** Start TypeScript/Node.js. Dimensions are language-agnostic — when do we generalize?
 3. **Check execution model:** Should `scan` execute checks (grep/AST) or generate a checklist for the agent? Agent-driven is more flexible; script-driven is more reproducible.
 4. **Custom dimension registration:** How do consumers register domain-specific dimensions? Through plugin extensibility or entirely external?
