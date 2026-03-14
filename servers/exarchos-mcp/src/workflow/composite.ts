@@ -24,8 +24,15 @@ export async function handleWorkflow(
       return handleInit(rest as Parameters<typeof handleInit>[0], stateDir, eventStore);
     case 'get':
       return handleGet(rest as Parameters<typeof handleGet>[0], stateDir, eventStore);
-    case 'set':
-      return handleSet(rest as Parameters<typeof handleSet>[0], stateDir, eventStore);
+    case 'set': {
+      const skipPhases = ctx.projectConfig?.workflow.skipPhases;
+      return handleSet(
+        rest as Parameters<typeof handleSet>[0],
+        stateDir,
+        eventStore,
+        skipPhases?.length ? { skipPhases } : undefined,
+      );
+    }
     case 'cancel':
       return handleCancel(rest as Parameters<typeof handleCancel>[0], stateDir, eventStore);
     case 'cleanup':
@@ -33,7 +40,11 @@ export async function handleWorkflow(
     case 'reconcile':
       return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore);
     case 'describe':
-      return handleDescribe(rest as { actions?: string[]; topology?: string; playbook?: string }, workflowActions, { includeStateSchema: true });
+      return handleDescribe(
+        rest as { actions?: string[]; topology?: string; playbook?: string; config?: boolean },
+        workflowActions,
+        { includeStateSchema: true, projectConfig: ctx.projectConfig },
+      );
     default:
       return {
         success: false,

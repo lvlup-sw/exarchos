@@ -5,6 +5,9 @@
 
 import { execFileSync } from 'node:child_process';
 import type { EventStore } from '../event-store/store.js';
+import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { resolveGateSeverity } from './gate-severity.js';
 
 /**
  * Fetch the unified diff between baseBranch and HEAD.
@@ -49,4 +52,53 @@ export async function emitGateEvent(
       ...(details !== undefined ? { details } : {}),
     },
   });
+}
+
+// ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
+
+/**
+ * Wraps a gate handler with config-aware severity resolution.
+ *
+ * - **disabled**: Skips execution entirely, returns success with `skipped: true`
+ * - **warning**: Executes handler; converts failures to success with a warning
+ * - **blocking**: Executes handler; failures remain failures (default behaviour)
+ *
+ * When `config` is `undefined`, defaults to blocking (backwards compatible).
+ */
+export async function withConfigSeverity(
+  gateName: string,
+  dimension: string,
+  config: ResolvedProjectConfig | undefined,
+  handler: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  // When no config, default to blocking (backwards compat)
+  if (!config) {
+    return handler();
+  }
+
+  const severity = resolveGateSeverity(gateName, dimension, config);
+
+  if (severity === 'disabled') {
+    return {
+      success: true,
+      data: { skipped: true, reason: `Gate '${gateName}' disabled by project config` },
+    };
+  }
+
+  const result = await handler();
+
+  // If gate passed, return as-is regardless of severity
+  if (result.success) return result;
+
+  // If severity is 'warning', convert failure to success with warning
+  if (severity === 'warning') {
+    return {
+      success: true,
+      data: result.data ?? result.error,
+      warnings: [`Gate '${gateName}' failed but is configured as warning-only`],
+    };
+  }
+
+  // Blocking: return failure as-is
+  return result;
 }

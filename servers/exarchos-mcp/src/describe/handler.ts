@@ -1,6 +1,7 @@
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ToolAction } from '../registry.js';
 import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import {
   EVENT_DATA_SCHEMAS,
   EVENT_EMISSION_REGISTRY,
@@ -10,6 +11,7 @@ import {
 } from '../event-store/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
+import { buildConfigDescription } from '../workflow/describe-config.js';
 import {
   WorktreeSchema,
   TaskSchema,
@@ -25,9 +27,9 @@ import {
  * `playbook` parameter is provided.
  */
 export async function handleDescribe(
-  args: { actions?: string[]; topology?: string; playbook?: string },
+  args: { actions?: string[]; topology?: string; playbook?: string; config?: boolean },
   toolActions: readonly ToolAction[],
-  options?: { includeStateSchema?: boolean },
+  options?: { includeStateSchema?: boolean; projectConfig?: ResolvedProjectConfig },
 ): Promise<ToolResult> {
   // Guard clauses: reject malformed values before computing flags
   if (args.actions !== undefined && (!Array.isArray(args.actions) || !args.actions.every((a: unknown) => typeof a === 'string'))) {
@@ -60,21 +62,33 @@ export async function handleDescribe(
       },
     };
   }
-
-  const hasActions = Array.isArray(args.actions) && args.actions.length > 0;
-  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
-  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
-
-  if (!hasActions && !hasTopology && !hasPlaybook) {
+  if (args.config !== undefined && typeof args.config !== 'boolean') {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'describe requires at least one of actions, topology, or playbook',
+        message: 'config must be a boolean',
+        expectedShape: { config: true },
+      },
+    };
+  }
+
+  const hasActions = Array.isArray(args.actions) && args.actions.length > 0;
+  const hasTopology = typeof args.topology === 'string' && args.topology.length > 0;
+  const hasPlaybook = typeof args.playbook === 'string' && args.playbook.length > 0;
+  const hasConfig = args.config === true;
+
+  if (!hasActions && !hasTopology && !hasPlaybook && !hasConfig) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'describe requires at least one of actions, topology, playbook, or config',
         expectedShape: {
           actions: ['action_name_1', 'action_name_2'],
           topology: 'feature | debug | refactor | all',
           playbook: 'feature | debug | refactor | all',
+          config: true,
         },
       },
     };
@@ -126,6 +140,14 @@ export async function handleDescribe(
     const playbookResult = handlePlaybookDescribe(args.playbook as string);
     if (!playbookResult.success) return playbookResult;
     results.playbook = playbookResult.data;
+  }
+
+  // Resolve config description if requested
+  if (hasConfig && options?.projectConfig) {
+    results.config = buildConfigDescription(options.projectConfig);
+  } else if (hasConfig) {
+    // Config requested but no project config available — return informative message
+    results.config = { message: 'No .exarchos.yml project config loaded. Using all defaults.' };
   }
 
   return { success: true, data: results };

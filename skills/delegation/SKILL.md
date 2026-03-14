@@ -284,6 +284,8 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
+> **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow set` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+
 ### Task Status Values
 
 | Status | When to use |

@@ -3,7 +3,11 @@ import { SnapshotStore } from '../views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { loadConfig } from '../config/loader.js';
+import { loadProjectConfig } from '../config/yaml-loader.js';
+import { resolveConfig } from '../config/resolve.js';
 import { registerCustomWorkflows, registerCustomViews, registerCustomTools } from '../config/register.js';
+import { createVcsProvider } from '../vcs/factory.js';
+import { createConfigHookRunner } from '../hooks/config-hooks.js';
 
 // EventStore is now threaded via DispatchContext — no module-level injection needed
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
@@ -44,6 +48,11 @@ export async function initializeContext(
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
+  // Load YAML project config (.exarchos.yml) before JS/TS config
+  const projectConfig = options?.projectRoot
+    ? resolveConfig(loadProjectConfig(options.projectRoot))
+    : undefined;
+
   // Load config from project root if provided
   const config = options?.projectRoot
     ? await loadConfig(options.projectRoot)
@@ -62,5 +71,9 @@ export async function initializeContext(
     }
   }
 
-  return { stateDir, eventStore, enableTelemetry, config };
+  // Create VCS provider and hook runner from resolved project config
+  const vcsProvider = projectConfig ? createVcsProvider(projectConfig) : undefined;
+  const hookRunner = projectConfig ? createConfigHookRunner(projectConfig) : undefined;
+
+  return { stateDir, eventStore, enableTelemetry, config, projectConfig, vcsProvider, hookRunner };
 }

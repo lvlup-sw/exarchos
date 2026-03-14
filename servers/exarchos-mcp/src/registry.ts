@@ -254,7 +254,7 @@ function makeDescribeAction(): ToolAction {
   };
 }
 
-/** Workflow-specific describe schema: supports actions, topology, and playbooks. */
+/** Workflow-specific describe schema: supports actions, topology, playbooks, and config. */
 const workflowDescribeSchema = z.object({
   actions: z.array(z.string()).min(1).max(10)
     .describe('Action names to describe. Returns full schema + description for each.')
@@ -265,13 +265,16 @@ const workflowDescribeSchema = z.object({
   playbook: z.string()
     .describe('Workflow type for phase playbooks. "all" lists types.')
     .optional(),
+  config: z.boolean()
+    .describe('When true, returns annotated project config showing values and sources (default vs .exarchos.yml).')
+    .optional(),
 });
 
-/** Creates a workflow-specific describe action with topology and playbook support. */
+/** Creates a workflow-specific describe action with topology, playbook, and config support. */
 function makeWorkflowDescribeAction(): ToolAction {
   return {
     name: 'describe',
-    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology or phase playbooks for a workflow type.',
+    description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology, phase playbooks, or annotated project config.',
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,

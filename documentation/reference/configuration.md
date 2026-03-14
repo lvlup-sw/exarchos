@@ -1,6 +1,112 @@
 # Configuration
 
-Exarchos configuration spans plugin settings, lifecycle hooks, MCP server registration, and optional integrations.
+Exarchos configuration spans project settings, plugin settings, lifecycle hooks, MCP server registration, and optional integrations.
+
+## Project configuration (.exarchos.yml) {#project-config}
+
+Drop a `.exarchos.yml` (or `.exarchos.yaml`) file in your repository root to customize Exarchos behavior per project. All fields are optional. Unspecified fields use built-in defaults. See the [Project Configuration guide](/guide/project-config) for usage examples.
+
+### Schema reference
+
+#### review
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dimensions` | `Record<D1-D5, severity>` | All `blocking` | Dimension-level severity: `blocking`, `warning`, or `disabled` |
+| `dimensions.<D>` | `string \| object` | `blocking` | Shorthand `"warning"` or longform `{ severity: "warning", enabled: true }` |
+| `gates` | `Record<string, GateConfig>` | `{}` | Per-gate overrides (take precedence over dimension) |
+| `gates.<name>.enabled` | `boolean` | `true` | Enable or disable the gate |
+| `gates.<name>.blocking` | `boolean` | Inherits dimension | Override whether gate blocks the workflow |
+| `gates.<name>.params` | `object` | `{}` | Gate-specific parameters (e.g., `coverage-threshold`) |
+| `routing.coderabbit-threshold` | `number` | `0.4` | Risk score threshold for CodeRabbit routing (0.0-1.0) |
+| `routing.risk-weights` | `object` | See below | Six risk factors, must sum to 1.0 |
+
+Default risk weights: `security-path: 0.30`, `api-surface: 0.20`, `diff-complexity: 0.15`, `new-files: 0.10`, `infra-config: 0.15`, `cross-module: 0.10`.
+
+#### vcs
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `string` | `github` | VCS platform: `github`, `gitlab`, or `azure-devops` |
+| `settings` | `object` | `{}` | Provider-specific settings |
+| `settings.auto-merge-strategy` | `string` | `squash` | GitHub: `squash`, `merge`, or `rebase` |
+
+#### workflow
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `skip-phases` | `string[]` | `[]` | Phase names to skip (cannot skip initial or final phases) |
+| `max-fix-cycles` | `integer` | `3` | Max fix cycles before circuit breaker (1-10) |
+| `phases.<name>.human-checkpoint` | `boolean` | varies | Require human approval at this phase |
+
+#### tools
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `default-branch` | `string` | auto-detect | PR base branch |
+| `commit-style` | `string` | `conventional` | `conventional` or `freeform` |
+| `pr-template` | `string` | (none) | Path to PR template (relative to repo root) |
+| `auto-merge` | `boolean` | `true` | Auto-merge after CI passes |
+| `pr-strategy` | `string` | `github-native` | `github-native` (stacked) or `single` |
+
+#### hooks
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `on.<event-type>` | `HookAction[]` | `{}` | Shell commands to run when an event fires |
+| `on.<event-type>[].command` | `string` | (required) | Shell command (receives event JSON on stdin) |
+| `on.<event-type>[].timeout` | `integer` | `30000` | Timeout in ms (1000-300000) |
+
+Hooks are fire-and-forget. Failures are logged but never block the workflow. Set `EXARCHOS_SKIP_HOOKS=true` to disable all hooks.
+
+### Minimal example
+
+```yaml
+review:
+  dimensions:
+    D3: warning
+vcs:
+  provider: github
+tools:
+  auto-merge: false
+```
+
+### Full example
+
+```yaml
+review:
+  dimensions:
+    D1: blocking
+    D3: warning
+    D5: disabled
+  gates:
+    tdd-compliance:
+      blocking: false
+      params:
+        coverage-threshold: 80
+    security-scan:
+      enabled: true
+      blocking: true
+  routing:
+    coderabbit-threshold: 0.6
+vcs:
+  provider: github
+  settings:
+    auto-merge-strategy: squash
+workflow:
+  skip-phases: [plan-review]
+  max-fix-cycles: 2
+tools:
+  default-branch: main
+  commit-style: conventional
+  auto-merge: true
+  pr-strategy: github-native
+hooks:
+  on:
+    workflow.transition:
+      - command: 'echo "$EXARCHOS_PHASE" | slack-notify'
+        timeout: 10000
+```
 
 ## Plugin settings
 
@@ -102,4 +208,6 @@ These integrations run as separate MCP servers and are not required for core Exa
 |----------|---------|-------------|
 | `WORKFLOW_STATE_DIR` | `~/.claude/workflow-state` | Directory for workflow state files |
 | `EXARCHOS_PLUGIN_ROOT` | Set by Claude Code | Plugin installation root |
+| `EXARCHOS_PROJECT_ROOT` | (unset) | Override project root for `.exarchos.yml` discovery |
+| `EXARCHOS_SKIP_HOOKS` | (unset) | Set to `true` to disable all config hooks |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | (unset) | Autocompact threshold percentage |
