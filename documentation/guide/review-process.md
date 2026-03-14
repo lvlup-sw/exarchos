@@ -94,3 +94,15 @@ Findings from both stages are classified into three levels:
 | LOW | Tracked, not blocking | Naming, style, minor refactors |
 
 HIGH findings in blocking dimensions trigger NEEDS_FIXES. LOW findings in informational dimensions are recorded in the audit trail but do not block the workflow.
+
+## Companion plugin integration
+
+When [axiom](/guide/companion-plugins#axiom-backend-quality) or [impeccable](/guide/companion-plugins#impeccable-frontend-design-quality) are installed as Claude Code plugins, they add quality dimensions to the review.
+
+axiom adds 7 backend quality dimensions (DIM-1 through DIM-7): topology, observability, contracts, test fidelity, hygiene, architecture, and resilience. These are informational. They surface findings but do not block the workflow.
+
+impeccable adds design quality checks: UI consistency, accessibility, design system compliance, and responsive design. Also informational, also non-blocking.
+
+Plugin findings merge with native findings before verdict computation. The verdict logic is unchanged -- HIGH findings in blocking dimensions (D1-D5) still trigger NEEDS_FIXES. Plugin dimensions cannot promote a finding to blocking status.
+
+Detection is automatic. If the `axiom:audit` or `impeccable:critique` skill is available, Exarchos invokes it. If not, the review runs with native dimensions only. See the [Companion Plugins](/guide/companion-plugins) guide for installation and per-project configuration.

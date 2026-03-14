@@ -107,3 +107,32 @@ exarchos_orchestrate({ action: "check_convergence", featureId: "my-feature" })
 ```
 
 This returns overall pass/fail and per-dimension summaries from `gate.executed` events. The `exarchos_view` convergence action provides a materialized view of the same data.
+
+## Plugin-contributed dimensions
+
+When [companion plugins](/guide/companion-plugins) are installed, they add quality dimensions to the convergence view.
+
+### axiom (backend quality)
+
+| Dimension | What it checks |
+|-----------|---------------|
+| DIM-1 Topology | Module boundaries, dependency direction, coupling |
+| DIM-2 Observability | Logging, metrics, tracing coverage |
+| DIM-3 Contracts | API schemas, type safety at boundaries |
+| DIM-4 Test Fidelity | Test isolation, assertion quality, coverage gaps |
+| DIM-5 Hygiene | Dead code, TODOs, lint suppressions, formatting |
+| DIM-6 Architecture | Pattern consistency, layer violations |
+| DIM-7 Resilience | Error handling, retry logic, timeout coverage |
+
+### impeccable (design quality)
+
+| Dimension | What it checks |
+|-----------|---------------|
+| UI consistency | Component reuse, spacing systems, visual rhythm |
+| Accessibility | ARIA, keyboard navigation, color contrast |
+| Design system compliance | Token usage, component variants |
+| Responsive design | Breakpoints, layout shifts, touch targets |
+
+Plugin dimensions are strictly informational. They appear in the convergence view and provide findings for the audit trail, but they do not add new blocking gates. The blocking verdict is computed from native dimensions (D1-D5) only.
+
+Whether a plugin dimension runs depends on two things: the plugin must be installed (`claude plugin add lvlup-sw/axiom`), and it must not be disabled in `.exarchos.yml`. Both conditions are true by default when the plugin is present.

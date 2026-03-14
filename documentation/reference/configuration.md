@@ -59,6 +59,15 @@ Default risk weights: `security-path: 0.30`, `api-surface: 0.20`, `diff-complexi
 
 Hooks are fire-and-forget. Failures are logged but never block the workflow. Set `EXARCHOS_SKIP_HOOKS=true` to disable all hooks.
 
+#### plugins
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `plugins.axiom.enabled` | `boolean` | `true` | Enable axiom quality checks during review |
+| `plugins.impeccable.enabled` | `boolean` | `true` | Enable impeccable design checks during review |
+
+Both plugins are enabled by default when installed. Setting `enabled: false` disables a plugin for the project even if it's installed. See the [Companion Plugins](/guide/companion-plugins) guide for details.
+
 ### Minimal example
 
 ```yaml
@@ -106,6 +115,11 @@ hooks:
     workflow.transition:
       - command: 'echo "$EXARCHOS_PHASE" | slack-notify'
         timeout: 10000
+plugins:
+  axiom:
+    enabled: true
+  impeccable:
+    enabled: false
 ```
 
 ## Plugin settings
@@ -188,7 +202,7 @@ SubagentStop matches the `exarchos-implementer` and `exarchos-fixer` agent names
 }
 ```
 
-The MCP server runs as a stdio subprocess. `CLAUDE_PLUGIN_ROOT` is set by Claude Code to the plugin installation directory. Workflow state is stored in `~/.claude/workflow-state/`.
+The MCP server runs as a stdio subprocess. `CLAUDE_PLUGIN_ROOT` is set by Claude Code to the plugin installation directory. `WORKFLOW_STATE_DIR` in plugin.json sets the Claude Code-specific path (`~/.claude/workflow-state`); the universal default for standalone use is `~/.exarchos/state`.
 
 ## Integrations
 
@@ -206,7 +220,9 @@ These integrations run as separate MCP servers and are not required for core Exa
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKFLOW_STATE_DIR` | `~/.claude/workflow-state` | Directory for workflow state files |
+| `WORKFLOW_STATE_DIR` | `~/.claude/workflow-state` | Directory for workflow state files. Resolution cascade: env var → Claude Code plugin detection → `~/.exarchos/state` |
+| `EXARCHOS_TEAMS_DIR` | `~/.exarchos/teams` | Directory for team configuration. Default: `~/.exarchos/teams` (or `~/.claude/teams` when running as Claude Code plugin) |
+| `EXARCHOS_TASKS_DIR` | `~/.exarchos/tasks` | Directory for task state. Default: `~/.exarchos/tasks` (or `~/.claude/tasks` when running as Claude Code plugin) |
 | `EXARCHOS_PLUGIN_ROOT` | Set by Claude Code | Plugin installation root |
 | `EXARCHOS_PROJECT_ROOT` | (unset) | Override project root for `.exarchos.yml` discovery |
 | `EXARCHOS_SKIP_HOOKS` | (unset) | Set to `true` to disable all config hooks |

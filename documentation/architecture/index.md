@@ -38,3 +38,17 @@ Agent-first. Every tool accepts structured JSON input, validates it with Zod sch
 Event-sourced. Every workflow action produces an immutable event appended to a JSONL stream. State is derived from events, never mutated directly. If state and events diverge, `reconcile` rebuilds state from the event log. This matters because agent sessions end abruptly: context compaction, crashes, laptop lids closing. Mutable state can corrupt silently. Events don't.
 
 Token-efficient. LLM context windows are finite, and Exarchos is infrastructure. Every token it consumes is a token unavailable for actual coding. Lazy schema registration keeps MCP startup under 500 tokens. Field projection on state queries cuts response size by roughly 90%. Artifact references store file paths instead of inlining content. Every design choice accounts for context window cost.
+
+## Transport layers
+
+Exarchos ships as a Claude Code plugin, but the MCP server is platform-agnostic. Three adapter layers translate between transport formats and the core dispatch engine:
+
+The **MCP adapter** (`adapters/mcp.ts`) runs a stdio MCP server using `@modelcontextprotocol/sdk`. Any MCP-capable client can connect -- Cursor, Copilot CLI, Windsurf, or anything else that speaks JSON-RPC over stdio. All four composite tools are available through this path.
+
+The **CLI adapter** (`adapters/cli.ts`) builds a Commander program from the tool registry. Same handlers, different input format. Good for scripting and debugging.
+
+The **hook adapter** (`cli-commands/`) handles Claude Code lifecycle events: session start, pre-compact, task completion, and others. This layer is Claude Code-specific. The other two are not.
+
+The practical consequence: you can run Exarchos workflows from any MCP client. You lose the content layer (skills, commands, agents, hooks), but the workflow engine, event store, and convergence gates work the same way regardless of which client connects.
+
+See [Platform Portability](/architecture/platform-portability) for the full path resolution cascade and adapter details.
