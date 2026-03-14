@@ -1,6 +1,7 @@
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ExarchosConfig } from '../config/define.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { withTelemetry } from '../telemetry/middleware.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 
@@ -23,6 +24,7 @@ export interface DispatchContext {
   readonly eventStore: EventStore;
   readonly enableTelemetry: boolean;
   readonly config?: ExarchosConfig;
+  readonly projectConfig?: ResolvedProjectConfig;
   readonly slimRegistration?: boolean;
 }
 
