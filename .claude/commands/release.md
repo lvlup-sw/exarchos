@@ -35,7 +35,7 @@ Store this as `$VERSION`.
 ### 3. Commit and tag
 
 ```bash
-git add package.json package-lock.json .claude-plugin/plugin.json .claude-plugin/marketplace.json manifest.json servers/exarchos-mcp/package.json
+git add package.json package-lock.json .claude-plugin/plugin.json manifest.json servers/exarchos-mcp/package.json
 git commit -m "chore: bump version to $VERSION"
 git tag -a v$VERSION -m "v$VERSION"
 git push origin main && git push origin v$VERSION

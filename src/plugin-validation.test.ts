@@ -35,27 +35,6 @@ describe('Core Plugin Structure', () => {
     });
   });
 
-  describe('marketplace.json', () => {
-    it('marketplaceManifest_structure_containsPluginEntry', () => {
-      const marketplacePath = join(repoRoot, '.claude-plugin', 'marketplace.json');
-      expect(existsSync(marketplacePath)).toBe(true);
-      const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
-      expect(marketplace.name).toBe('lvlup-sw');
-      expect(marketplace.owner.name).toBe('Levelup Software');
-      expect(marketplace.plugins.length).toBeGreaterThanOrEqual(1);
-      const exarchos = marketplace.plugins.find((p: { name: string }) => p.name === 'exarchos');
-      expect(exarchos).toBeDefined();
-      expect(exarchos.version).toBe(pkgVersion);
-      expect(exarchos.category).toBe('productivity');
-      for (const plugin of marketplace.plugins) {
-        expect(plugin).toHaveProperty('name');
-        expect(plugin).toHaveProperty('source');
-        expect(plugin).toHaveProperty('description');
-        expect(plugin).toHaveProperty('category');
-      }
-    });
-  });
-
   describe('hooks/hooks.json', () => {
     it('hooksConfig_allHooks_usePluginRootPaths', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
