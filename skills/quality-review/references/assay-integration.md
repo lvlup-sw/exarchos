@@ -48,7 +48,7 @@ How the exarchos quality review phase delegates general backend quality checks t
 During the quality review stage, after spec-review passes:
 
 1. **Run assay:audit** for the feature scope (diff files):
-   ```
+   ```text
    assay:audit --scope [changed files from diff]
    ```
 

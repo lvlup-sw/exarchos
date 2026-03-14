@@ -41,7 +41,9 @@ jobs:
             SECTIONS=()
             while IFS= read -r line; do
               if [[ "$line" =~ ^##[[:space:]]+(.+)$ ]]; then
-                SECTIONS+=("${BASH_REMATCH[1]}")
+                trimmed="${BASH_REMATCH[1]}"
+                trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+                SECTIONS+=("$trimmed")
               fi
             done < .exarchos/pr-template.md
           else
@@ -50,7 +52,7 @@ jobs:
 
           MISSING=()
           for section in "${SECTIONS[@]}"; do
-            if ! echo "$BODY" | grep -qiP "^##\s+${section}\s*$"; then
+            if ! echo "$BODY" | grep -qiF "## ${section}"; then
               MISSING+=("$section")
             fi
           done
