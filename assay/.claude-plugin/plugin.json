@@ -1,0 +1,16 @@
+{
+  "name": "assay",
+  "version": "0.1.0",
+  "description": "Composable backend quality skills for systematic architectural health assessment. The backend counterpart to impeccable's frontend design quality.",
+  "author": "lvlup-sw",
+  "license": "MIT",
+  "homepage": "https://github.com/lvlup-sw/assay",
+  "skills": [
+    "skills/audit",
+    "skills/critique",
+    "skills/harden",
+    "skills/distill",
+    "skills/verify",
+    "skills/scan"
+  ]
+}
