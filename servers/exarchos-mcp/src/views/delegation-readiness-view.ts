@@ -201,8 +201,12 @@ function handleStatePatched(
   const data = event.data as { patch?: Record<string, unknown> } | undefined;
   if (!data?.patch) return state;
 
+  // Check nested object form: { planReview: { approved: true } }
   const planReview = data.patch.planReview as { approved?: boolean } | undefined;
-  if (planReview?.approved === true) {
+  // Check dot-path form: { "planReview.approved": true }
+  const dotPathApproved = data.patch['planReview.approved'];
+
+  if (planReview?.approved === true || dotPathApproved === true) {
     return withReadiness({
       plan: { ...state.plan, approved: true },
       quality: state.quality,

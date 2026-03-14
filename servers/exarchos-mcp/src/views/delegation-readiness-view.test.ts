@@ -231,6 +231,20 @@ describe('DelegationReadinessView', () => {
       expect(next.blockers).not.toContain('plan not approved');
     });
 
+    it('Apply_StatePatched_DotPathPlanReviewApproved_SetsPlanApproved', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': true },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.approved).toBe(true);
+      expect(next.blockers).not.toContain('plan not approved');
+    });
+
     it('Apply_StatePatched_UnrelatedField_DoesNotChangePlan', () => {
       const state = delegationReadinessProjection.init();
       const event = makeEvent('state.patched', {
