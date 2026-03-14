@@ -293,4 +293,77 @@ describe('initializeContext — projectConfig (YAML)', () => {
       await fs.rm(projectRoot, { recursive: true, force: true });
     }
   });
+
+  // ─── Fix 1: VcsProvider wiring (R4) ──────────────────────────────────────
+
+  it('initializeContext_WithProjectRoot_VcsProviderAvailable', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    // Create empty project root (defaults to GitHub)
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-vcs-'));
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+
+      // VcsProvider should be created and default to GitHub
+      expect(ctx.vcsProvider).toBeDefined();
+      expect(ctx.vcsProvider!.name).toBe('github');
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('initializeContext_WithGitLabConfig_VcsProviderIsGitLab', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-vcs-gl-'));
+    await fs.writeFile(
+      path.join(projectRoot, '.exarchos.yml'),
+      `vcs:\n  provider: gitlab\n`,
+    );
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+
+      expect(ctx.vcsProvider).toBeDefined();
+      expect(ctx.vcsProvider!.name).toBe('gitlab');
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('initializeContext_NoProjectRoot_VcsProviderUndefined', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    const ctx = await initializeContext(tmpDir);
+
+    // Without projectRoot, there's no projectConfig, so no vcsProvider
+    expect(ctx.vcsProvider).toBeUndefined();
+  });
+
+  // ─── Fix 4: HookRunner wiring (R7) ──────────────────────────────────────
+
+  it('initializeContext_WithProjectRoot_HookRunnerAvailable', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-hook-'));
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+
+      // HookRunner should be created
+      expect(ctx.hookRunner).toBeDefined();
+      expect(typeof ctx.hookRunner).toBe('function');
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('initializeContext_NoProjectRoot_HookRunnerUndefined', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    const ctx = await initializeContext(tmpDir);
+
+    expect(ctx.hookRunner).toBeUndefined();
+  });
 });

@@ -69,6 +69,7 @@ describe('handleWorkflow', () => {
         { featureId: 'test', phase: 'delegate', updates: { track: 'polish' } },
         stateDir,
         ctx.eventStore,
+        undefined,
       );
       expect(result).toEqual({ success: true, data: { phase: 'set-result' } });
     });

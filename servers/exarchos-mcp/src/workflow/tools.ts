@@ -29,6 +29,7 @@ import {
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
+import { applyPhaseSkips } from './phase-skip.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { getPlaybook } from './playbooks.js';
@@ -414,6 +415,7 @@ export async function handleSet(
   input: SetInput,
   stateDir: string,
   eventStore: EventStore | null,
+  options?: { skipPhases?: readonly string[] },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -481,7 +483,12 @@ export async function handleSet(
     let pendingTransitionEvents: TransitionEventRecord[] = [];
 
     if (input.phase) {
-      const hsm = getHSMDefinition(state.workflowType);
+      let hsm = getHSMDefinition(state.workflowType);
+
+      // Apply phase skips from project config if configured
+      if (options?.skipPhases && options.skipPhases.length > 0) {
+        hsm = applyPhaseSkips(hsm, options.skipPhases);
+      }
 
       // ─── Custom guard pre-check (async) ──────────────────────────────
       // Custom guards run shell commands (async) so they execute here at
