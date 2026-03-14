@@ -60,6 +60,9 @@ export function createConfigHookRunner(
           timeout: handler.timeout,
         });
 
+        proc.stdin.on('error', () => {
+          // Prevent unhandled error events on stdin
+        });
         proc.stdin.write(JSON.stringify(event));
         proc.stdin.end();
 

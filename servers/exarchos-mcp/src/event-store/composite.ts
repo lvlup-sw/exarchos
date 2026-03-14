@@ -63,11 +63,27 @@ export async function handleEvent(
     }
     case 'batch_append': {
       const { action: _, ...rest } = args;
-      return handleBatchAppend(
+      const result = await handleBatchAppend(
         rest as Parameters<typeof handleBatchAppend>[0],
         stateDir,
         eventStore,
       );
+      if (result.success && ctx?.hookRunner) {
+        const batchArgs = rest as { stream?: string; events?: Array<Record<string, unknown>> };
+        for (const event of batchArgs.events ?? []) {
+          try {
+            await ctx.hookRunner({
+              type: (event.type as string) ?? '',
+              data: (event.data as Record<string, unknown>) ?? {},
+              featureId: (batchArgs.stream as string) ?? '',
+              timestamp: new Date().toISOString(),
+            });
+          } catch {
+            // Hooks are fire-and-forget — never block the event pipeline
+          }
+        }
+      }
+      return result;
     }
     case 'describe': {
       const { action: _, ...rest } = args;

@@ -28,25 +28,30 @@ export function loadProjectConfig(projectRoot: string): ProjectConfig {
   for (const filename of YAML_FILENAMES) {
     const configPath = resolve(projectRoot, filename);
     if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, 'utf-8');
-
-      let parsed: unknown;
       try {
-        parsed = parseYaml(raw);
+        const raw = readFileSync(configPath, 'utf-8');
+
+        let parsed: unknown;
+        try {
+          parsed = parseYaml(raw);
+        } catch (err) {
+          configLogger.warn({ error: err instanceof Error ? err.message : String(err), path: configPath }, 'Failed to parse YAML in .exarchos.yml — using defaults');
+          return {};
+        }
+
+        if (parsed === null || parsed === undefined) return {};
+
+        // Full-config validation
+        const result = ProjectConfigSchema.safeParse(parsed);
+        if (result.success) return result.data;
+
+        // Section-level fallback: extract valid sections
+        configLogger.warn({ issues: result.error.issues }, '.exarchos.yml validation errors');
+        return parseSections(parsed);
       } catch (err) {
-        configLogger.warn({ error: err instanceof Error ? err.message : String(err), path: configPath }, 'Failed to parse YAML in .exarchos.yml — using defaults');
+        configLogger.warn({ error: err instanceof Error ? err.message : String(err), path: configPath }, 'Failed to read .exarchos.yml');
         return {};
       }
-
-      if (parsed === null || parsed === undefined) return {};
-
-      // Full-config validation
-      const result = ProjectConfigSchema.safeParse(parsed);
-      if (result.success) return result.data;
-
-      // Section-level fallback: extract valid sections
-      configLogger.warn({ issues: result.error.issues }, '.exarchos.yml validation errors');
-      return parseSections(parsed);
     }
   }
   return {};

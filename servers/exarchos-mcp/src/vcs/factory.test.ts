@@ -43,7 +43,7 @@ describe('createVcsProvider', () => {
   });
 
   it('createVcsProvider_NoProjectConfig_DefaultsToGitHub', () => {
-    const provider = createVcsProvider(undefined as unknown as ResolvedProjectConfig);
+    const provider = createVcsProvider(undefined);
     expect(provider).toBeInstanceOf(GitHubProvider);
   });
 });

@@ -184,7 +184,7 @@ The config is loaded once at MCP server startup. Changes require restarting the 
 
 To see the resolved config with source annotations showing which values are defaults and which come from your `.exarchos.yml`:
 
-```
+```ts
 exarchos_workflow({ action: "describe", config: true })
 ```
 

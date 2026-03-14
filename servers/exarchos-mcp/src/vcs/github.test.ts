@@ -154,7 +154,11 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_MergePr_DefaultsToSquash', async () => {
-    mockExec.mockResolvedValue(JSON.stringify({ sha: 'abc123' }));
+    // First call: gh pr merge (human-readable output)
+    // Second call: gh pr view --json mergeCommit
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockResolvedValueOnce(JSON.stringify({ mergeCommit: { oid: 'abc123' } }));
 
     await provider.mergePr('42', 'squash');
     expect(mockExec).toHaveBeenCalledWith(
@@ -164,7 +168,9 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_MergePr_UsesRebaseStrategy', async () => {
-    mockExec.mockResolvedValue(JSON.stringify({ sha: 'def456' }));
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockResolvedValueOnce(JSON.stringify({ mergeCommit: { oid: 'def456' } }));
 
     await provider.mergePr('42', 'rebase');
     expect(mockExec).toHaveBeenCalledWith(
@@ -174,7 +180,9 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_MergePr_UsesMergeStrategy', async () => {
-    mockExec.mockResolvedValue(JSON.stringify({ sha: 'ghi789' }));
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockResolvedValueOnce(JSON.stringify({ mergeCommit: { oid: 'ghi789' } }));
 
     await provider.mergePr('42', 'merge');
     expect(mockExec).toHaveBeenCalledWith(
@@ -184,11 +192,37 @@ describe('GitHubProvider', () => {
   });
 
   it('GitHubProvider_MergePr_ReturnsMergedResult', async () => {
-    mockExec.mockResolvedValue(JSON.stringify({ sha: 'abc123' }));
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockResolvedValueOnce(JSON.stringify({ mergeCommit: { oid: 'abc123' } }));
 
     const result = await provider.mergePr('42', 'squash');
     expect(result.merged).toBe(true);
     expect(result.sha).toBe('abc123');
+  });
+
+  it('GitHubProvider_MergePr_ReturnsMergedWithoutSha_WhenViewFails', async () => {
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockRejectedValueOnce(new Error('view failed'));
+
+    const result = await provider.mergePr('42', 'squash');
+    expect(result.merged).toBe(true);
+    expect(result.sha).toBeUndefined();
+  });
+
+  it('GitHubProvider_MergePr_FetchesShaViaGhPrView', async () => {
+    mockExec
+      .mockResolvedValueOnce('Merged pull request #42')
+      .mockResolvedValueOnce(JSON.stringify({ mergeCommit: { oid: 'sha-from-view' } }));
+
+    const result = await provider.mergePr('42', 'squash');
+    expect(result.sha).toBe('sha-from-view');
+
+    // Second call should be gh pr view --json mergeCommit
+    expect(mockExec).toHaveBeenNthCalledWith(2, 'gh', [
+      'pr', 'view', '42', '--json', 'mergeCommit',
+    ]);
   });
 
   it('GitHubProvider_MergePr_HandlesFailure', async () => {

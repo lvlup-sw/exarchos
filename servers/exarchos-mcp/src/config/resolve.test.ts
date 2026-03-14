@@ -181,4 +181,32 @@ describe('resolveConfig', () => {
     expect(DEFAULTS.tools).toBeDefined();
     expect(DEFAULTS.hooks).toBeDefined();
   });
+
+  it('resolveConfig_DoesNotFreezeCallerParams', () => {
+    const params: Record<string, unknown> = { 'coverage-threshold': 80 };
+    const project: ProjectConfig = {
+      review: { gates: { 'tdd-compliance': { blocking: true, params } } },
+    };
+
+    resolveConfig(project);
+
+    // The caller's params object should NOT be frozen by deepFreeze
+    expect(Object.isFrozen(params)).toBe(false);
+    // Should still be mutable
+    params['new-key'] = 'value';
+    expect(params['new-key']).toBe('value');
+  });
+
+  it('resolveConfig_DoesNotFreezeCallerSkipPhases', () => {
+    const skipPhases = ['plan-review', 'lint'];
+    const project: ProjectConfig = { workflow: { 'skip-phases': skipPhases } };
+
+    resolveConfig(project);
+
+    // The caller's skipPhases array should NOT be frozen by deepFreeze
+    expect(Object.isFrozen(skipPhases)).toBe(false);
+    // Should still be mutable
+    skipPhases.push('test');
+    expect(skipPhases).toHaveLength(3);
+  });
 });

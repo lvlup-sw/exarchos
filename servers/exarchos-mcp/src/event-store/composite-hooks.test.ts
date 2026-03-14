@@ -140,4 +140,60 @@ describe('handleEvent — hook runner wiring (R7)', () => {
     expect(result.success).toBe(true);
     expect(hookRunner).toHaveBeenCalledTimes(1);
   });
+
+  it('handleEvent_BatchAppendWithHookRunner_FiresHookForEachEvent', async () => {
+    const hookRunner = vi.fn<ConfigHookRunner>();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+      hookRunner,
+    };
+
+    const result = await handleEvent({
+      action: 'batch_append',
+      stream: 'test-feature',
+      events: [
+        { type: 'task.assigned', data: { taskId: 't1' } },
+        { type: 'task.completed', data: { taskId: 't1' } },
+      ],
+    }, ctx);
+
+    expect(result.success).toBe(true);
+
+    // Hook runner should have been called once for each event in the batch
+    expect(hookRunner).toHaveBeenCalledTimes(2);
+    expect(hookRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'task.assigned',
+        featureId: 'test-feature',
+      }),
+    );
+    expect(hookRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'task.completed',
+        featureId: 'test-feature',
+      }),
+    );
+  });
+
+  it('handleEvent_BatchAppendWithoutHookRunner_SucceedsNormally', async () => {
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+      // No hookRunner
+    };
+
+    const result = await handleEvent({
+      action: 'batch_append',
+      stream: 'test-feature',
+      events: [
+        { type: 'task.assigned', data: { taskId: 't1' } },
+      ],
+    }, ctx);
+
+    expect(result.success).toBe(true);
+  });
 });

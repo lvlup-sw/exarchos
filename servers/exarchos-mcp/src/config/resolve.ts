@@ -121,7 +121,7 @@ function normalizeGate(
   return {
     enabled: value.enabled ?? true,
     blocking: value.blocking ?? false,
-    params: value.params ?? {},
+    params: { ...(value.params ?? {}) },
   };
 }
 
@@ -196,7 +196,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     : {};
 
   // ── Workflow ──
-  const skipPhases = project.workflow?.['skip-phases'] ?? [...DEFAULTS.workflow.skipPhases];
+  const skipPhases = [...(project.workflow?.['skip-phases'] ?? DEFAULTS.workflow.skipPhases)];
   const maxFixCycles = project.workflow?.['max-fix-cycles'] ?? DEFAULTS.workflow.maxFixCycles;
   const phases: Record<string, { readonly humanCheckpoint: boolean }> = {};
   if (project.workflow?.phases) {

@@ -141,9 +141,25 @@ export class GitHubProvider implements VcsProvider {
     const strategyFlag = `--${strategy}`;
 
     try {
-      const output = await exec('gh', ['pr', 'merge', prId, strategyFlag]);
-      const parsed = JSON.parse(output) as { sha: string };
-      return { merged: true, sha: parsed.sha };
+      // gh pr merge outputs human-readable text, not JSON — don't parse it
+      await exec('gh', ['pr', 'merge', prId, strategyFlag]);
+
+      // Merge succeeded — fetch the merge commit SHA via gh pr view
+      try {
+        const viewOutput = await exec('gh', [
+          'pr',
+          'view',
+          prId,
+          '--json',
+          'mergeCommit',
+        ]);
+        const parsed = JSON.parse(viewOutput) as { mergeCommit?: { oid?: string } };
+        const sha = parsed.mergeCommit?.oid;
+        return sha ? { merged: true, sha } : { merged: true };
+      } catch {
+        // SHA retrieval failed — merge still succeeded
+        return { merged: true };
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return { merged: false, error: message };

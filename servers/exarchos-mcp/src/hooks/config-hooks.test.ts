@@ -6,7 +6,7 @@ import type { ResolvedProjectConfig } from '../config/resolve.js';
 // Mock child_process.spawn
 vi.mock('child_process', () => ({
   spawn: vi.fn(() => ({
-    stdin: { write: vi.fn(), end: vi.fn() },
+    stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() },
     stdout: { on: vi.fn() },
     stderr: { on: vi.fn() },
     on: vi.fn(),
@@ -76,7 +76,7 @@ describe('createConfigHookRunner', () => {
       hooks: { on: { 'task.completed': [{ command: 'cat', timeout: 30000 }] } },
     };
 
-    const mockStdin = { write: vi.fn(), end: vi.fn() };
+    const mockStdin = { write: vi.fn(), end: vi.fn(), on: vi.fn() };
     mockSpawn.mockReturnValue({
       stdin: mockStdin,
       stdout: { on: vi.fn() },
@@ -94,6 +94,7 @@ describe('createConfigHookRunner', () => {
     const runner = createConfigHookRunner(config);
     await runner(event);
 
+    expect(mockStdin.on).toHaveBeenCalledWith('error', expect.any(Function));
     expect(mockStdin.write).toHaveBeenCalledWith(JSON.stringify(event));
     expect(mockStdin.end).toHaveBeenCalled();
   });
@@ -133,7 +134,7 @@ describe('createConfigHookRunner', () => {
     };
 
     mockSpawn.mockReturnValue({
-      stdin: { write: vi.fn(), end: vi.fn() },
+      stdin: { write: vi.fn(), end: vi.fn(), on: vi.fn() },
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
       on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {

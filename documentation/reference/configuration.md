@@ -4,7 +4,7 @@ Exarchos configuration spans project settings, plugin settings, lifecycle hooks,
 
 ## Project configuration (.exarchos.yml) {#project-config}
 
-Drop a `.exarchos.yml` file in your repository root to customize Exarchos behavior per project. All fields are optional. Unspecified fields use built-in defaults. See the [Project Configuration guide](/guide/project-config) for usage examples.
+Drop a `.exarchos.yml` (or `.exarchos.yaml`) file in your repository root to customize Exarchos behavior per project. All fields are optional. Unspecified fields use built-in defaults. See the [Project Configuration guide](/guide/project-config) for usage examples.
 
 ### Schema reference
 

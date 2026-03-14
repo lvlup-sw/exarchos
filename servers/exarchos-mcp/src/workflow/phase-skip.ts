@@ -41,26 +41,25 @@ export function applyPhaseSkips(
   for (const skip of skipPhases) {
     if (!hsm.states[skip]) continue;
 
-    // Find the outgoing transition from the skipped phase
-    const outgoing = transitions.find(t => t.from === skip);
-    if (!outgoing) continue;
+    // Find all outgoing transitions from the skipped phase
+    const outgoings = transitions.filter(t => t.from === skip);
+    if (outgoings.length === 0) continue;
 
-    // Reroute incoming transitions: point them to the skipped phase's target.
-    // Guard inheritance: use the skipped phase's outgoing guard if it exists,
-    // otherwise keep the predecessor's existing guard.
-    transitions = transitions.map(t => {
+    // For each incoming transition to the skipped phase, create
+    // new transitions to ALL outgoing targets
+    const newTransitions: typeof transitions = [];
+    for (const t of transitions) {
       if (t.to === skip) {
-        return {
-          ...t,
-          to: outgoing.to,
-          guard: outgoing.guard ?? t.guard,
-        };
+        // Replace this incoming transition with one per outgoing
+        for (const outgoing of outgoings) {
+          newTransitions.push({ ...t, to: outgoing.to, guard: outgoing.guard ?? t.guard });
+        }
+      } else if (t.from !== skip) {
+        newTransitions.push(t);
       }
-      return t;
-    });
-
-    // Remove all transitions originating from the skipped phase
-    transitions = transitions.filter(t => t.from !== skip);
+      // Skip transitions FROM the skipped phase (they're replaced)
+    }
+    transitions = newTransitions;
 
     // Also remove transitions from child states of compound states
     const childIds = new Set(

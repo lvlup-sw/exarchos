@@ -113,4 +113,44 @@ describe('applyPhaseSkips', () => {
     applyPhaseSkips(testHsm, ['B']);
     expect(testHsm.transitions).toHaveLength(originalTransitionCount);
   });
+
+  it('applyPhaseSkips_MultiBranch_AllOutgoingTransitionsPreserved', () => {
+    // HSM where B has two outgoing transitions (e.g., success and failure paths)
+    // A → B, B → C (success), B → E (failure), C → D(final), E → D(final)
+    const multiBranchHsm: HSMDefinition = {
+      id: 'test-multi-branch',
+      states: {
+        A: { id: 'A', type: 'atomic' as const },
+        B: { id: 'B', type: 'atomic' as const },
+        C: { id: 'C', type: 'atomic' as const },
+        E: { id: 'E', type: 'atomic' as const },
+        D: { id: 'D', type: 'final' as const },
+      },
+      transitions: [
+        { from: 'A', to: 'B' },
+        { from: 'B', to: 'C', guard: { id: 'success-guard', description: 'success path', evaluate: () => true as const } },
+        { from: 'B', to: 'E', guard: { id: 'failure-guard', description: 'failure path', evaluate: () => true as const } },
+        { from: 'C', to: 'D' },
+        { from: 'E', to: 'D' },
+      ],
+    };
+
+    const result = applyPhaseSkips(multiBranchHsm, ['B']);
+
+    // A should now have transitions to both C and E
+    const aTransitions = result.transitions.filter(t => t.from === 'A');
+    expect(aTransitions).toHaveLength(2);
+
+    const toC = aTransitions.find(t => t.to === 'C');
+    const toE = aTransitions.find(t => t.to === 'E');
+    expect(toC).toBeDefined();
+    expect(toE).toBeDefined();
+
+    // Guards should be inherited from the skipped phase's outgoing transitions
+    expect(toC?.guard?.id).toBe('success-guard');
+    expect(toE?.guard?.id).toBe('failure-guard');
+
+    // No transitions from B should remain
+    expect(result.transitions.find(t => t.from === 'B')).toBeUndefined();
+  });
 });
