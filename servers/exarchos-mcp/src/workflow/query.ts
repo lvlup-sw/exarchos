@@ -18,8 +18,8 @@ import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+import { resolveTasksDir } from '../utils/paths.js';
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
@@ -282,8 +282,7 @@ export async function reconcileTasks(
 // ─── Default Native Task Base Directory ──────────────────────────────────────
 
 function defaultNativeTaskBaseDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
-  return path.resolve(home, '.claude', 'tasks');
+  return resolveTasksDir();
 }
 
 // ─── handleReconcile ────────────────────────────────────────────────────────

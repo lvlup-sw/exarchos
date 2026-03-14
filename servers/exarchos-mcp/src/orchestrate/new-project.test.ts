@@ -27,6 +27,8 @@ npm run typecheck
 describe('handleNewProject', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Simulate Claude Code plugin context so auto resolves to claude-code
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '/mock/plugin/root');
     // Default: template exists and is readable
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
@@ -38,6 +40,7 @@ describe('handleNewProject', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('FreshProject_CreatesClaudeMdAndSettings', () => {
@@ -254,5 +257,204 @@ describe('handleNewProject', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('TEMPLATE_NOT_FOUND');
+  });
+});
+
+describe('handleNewProject with platform parameter', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // Default: template exists and is readable
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockReturnValue(TEMPLATE_CONTENT);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('handleNewProject_PlatformClaudeCode_CreatesClaudeSettingsJson', () => {
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/cc-project') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/cc-project',
+      platform: 'claude-code',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+    expect(data.filesCreated).toContain('.claude/settings.json');
+
+    // settings.json was written
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.claude/settings.json'),
+      expect.stringContaining('"permissions"'),
+      'utf-8',
+    );
+
+    // .claude directory was created
+    const mkdirCalls = vi.mocked(mkdirSync).mock.calls.filter(
+      (call) => String(call[0]).includes('.claude'),
+    );
+    expect(mkdirCalls.length).toBeGreaterThan(0);
+  });
+
+  it('handleNewProject_PlatformClaudeCode_AddsClaudeToGitignore', () => {
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/cc-git-project') return true;
+      if (path.endsWith('.git')) return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('.gitignore')) return '# existing\n';
+      return TEMPLATE_CONTENT;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/cc-git-project',
+      platform: 'claude-code',
+    });
+
+    expect(result.success).toBe(true);
+    expect(appendFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.gitignore'),
+      expect.stringContaining('settings.local.json'),
+    );
+  });
+
+  it('handleNewProject_PlatformGeneric_CreatesExarchosYml', () => {
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/generic-project') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/generic-project',
+      platform: 'generic',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+    expect(data.filesCreated).toContain('.exarchos.yml');
+
+    // .exarchos.yml was written with expected content
+    const ymlWrite = vi.mocked(writeFileSync).mock.calls.find(
+      (call) => String(call[0]).endsWith('.exarchos.yml'),
+    );
+    expect(ymlWrite).toBeDefined();
+    const content = String(ymlWrite![1]);
+    expect(content).toContain('review:');
+    expect(content).toContain('dimensions:');
+    expect(content).toContain('commit-style: conventional');
+  });
+
+  it('handleNewProject_PlatformGeneric_DoesNotCreateClaudeDir', () => {
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/generic-no-claude') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/generic-no-claude',
+      platform: 'generic',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+
+    // Should NOT create .claude/ directory or settings.json
+    expect(data.filesCreated).not.toContain('.claude/settings.json');
+    const mkdirCalls = vi.mocked(mkdirSync).mock.calls.filter(
+      (call) => String(call[0]).includes('.claude'),
+    );
+    expect(mkdirCalls).toHaveLength(0);
+
+    // Should NOT update .gitignore for settings.local.json
+    expect(appendFileSync).not.toHaveBeenCalled();
+  });
+
+  it('handleNewProject_PlatformAuto_WithPluginRoot_ScaffoldsClaudeCode', () => {
+    vi.stubEnv('CLAUDE_PLUGIN_ROOT', '/some/plugin/root');
+
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/auto-claude') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/auto-claude',
+      platform: 'auto',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+    expect(data.filesCreated).toContain('.claude/settings.json');
+    expect(data.filesCreated).not.toContain('.exarchos.yml');
+  });
+
+  it('handleNewProject_PlatformAuto_WithoutPluginRoot_ScaffoldsGeneric', () => {
+    // Ensure neither env var is set
+    vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '');
+
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/auto-generic') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/auto-generic',
+      platform: 'auto',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+    expect(data.filesCreated).toContain('.exarchos.yml');
+    expect(data.filesCreated).not.toContain('.claude/settings.json');
+  });
+
+  it('handleNewProject_DefaultPlatform_IsAuto', () => {
+    // When no platform is specified, it should behave as 'auto'
+    // With no env vars set, auto should resolve to 'generic'
+    vi.stubEnv('CLAUDE_PLUGIN_ROOT', '');
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '');
+
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('CLAUDE.md.template')) return true;
+      if (path === '/tmp/default-platform') return true;
+      return false;
+    });
+
+    const result = handleNewProject({
+      projectPath: '/tmp/default-platform',
+      // No platform specified — should default to 'auto'
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { filesCreated: string[] };
+    // auto without plugin env vars → generic → .exarchos.yml
+    expect(data.filesCreated).toContain('.exarchos.yml');
+    expect(data.filesCreated).not.toContain('.claude/settings.json');
   });
 });

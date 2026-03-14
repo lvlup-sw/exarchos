@@ -520,7 +520,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       tasks: z.array(z.object({ id: z.string(), title: z.string() })).optional(),
-      nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (Claude Code handles isolation natively via isolation: "worktree")'),
+      nativeIsolation: z.boolean().default(false).describe('When true, skip worktree-related blockers (the host platform handles isolation natively)'),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
@@ -993,11 +993,12 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'new_project',
-    description: 'Initialize a new project with Claude Code configuration files',
+    description: 'Initialize a new project with workflow configuration files',
     schema: z.object({
       projectPath: z.string().optional(),
       language: z.enum(['typescript', 'csharp']).optional(),
       minimal: z.boolean().optional(),
+      platform: z.enum(['claude-code', 'generic', 'auto']).default('auto').optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,

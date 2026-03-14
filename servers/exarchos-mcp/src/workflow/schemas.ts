@@ -150,7 +150,7 @@ export const TaskSchema = z.object({
   blockedBy: z.array(z.string()).default([]),
   worktreePath: z.string().optional(),
   testingStrategy: TestingStrategySchema.optional(),
-  /** Claude Code agent ID for resume capability */
+  /** Agent ID for resume capability */
   agentId: z.string().optional(),
   /** Whether the fixer used resume vs fresh dispatch */
   agentResumed: z.boolean().optional(),
