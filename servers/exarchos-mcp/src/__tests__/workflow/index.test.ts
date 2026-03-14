@@ -304,18 +304,30 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should fallback to ~/.claude/workflow-state when env var is not set', async () => {
+    it('should fallback to ~/.exarchos/state when no env vars are set', async () => {
       const { resolveStateDir } = await import('../../index.js');
       const { homedir } = await import('node:os');
       const originalEnv = process.env.WORKFLOW_STATE_DIR;
+      const originalPlugin = process.env.CLAUDE_PLUGIN_ROOT;
+      const originalExPlugin = process.env.EXARCHOS_PLUGIN_ROOT;
+      const originalXdg = process.env.XDG_STATE_HOME;
       try {
         delete process.env.WORKFLOW_STATE_DIR;
+        delete process.env.CLAUDE_PLUGIN_ROOT;
+        delete process.env.EXARCHOS_PLUGIN_ROOT;
+        delete process.env.XDG_STATE_HOME;
         const result = await resolveStateDir();
         const { join } = await import('node:path');
-        expect(result).toBe(join(homedir(), '.claude', 'workflow-state'));
+        expect(result).toBe(join(homedir(), '.exarchos', 'state'));
       } finally {
         if (originalEnv === undefined) { delete process.env.WORKFLOW_STATE_DIR; }
         else { process.env.WORKFLOW_STATE_DIR = originalEnv; }
+        if (originalPlugin === undefined) { delete process.env.CLAUDE_PLUGIN_ROOT; }
+        else { process.env.CLAUDE_PLUGIN_ROOT = originalPlugin; }
+        if (originalExPlugin === undefined) { delete process.env.EXARCHOS_PLUGIN_ROOT; }
+        else { process.env.EXARCHOS_PLUGIN_ROOT = originalExPlugin; }
+        if (originalXdg === undefined) { delete process.env.XDG_STATE_HOME; }
+        else { process.env.XDG_STATE_HOME = originalXdg; }
       }
     });
   });

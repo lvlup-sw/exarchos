@@ -667,7 +667,7 @@ export const RemediationSucceededDataSchema = z.object({
 
 export const SessionTaggedData = z.object({
   tag: z.string().min(1).max(100).describe('Tag label for the session (e.g., feature name)'),
-  sessionId: z.string().min(1).describe('Claude Code session identifier'),
+  sessionId: z.string().min(1).describe('Session identifier'),
   description: z.string().max(500).optional().describe('Optional description of what the session covers'),
   branch: z.string().optional().describe('Git branch associated with this session'),
 });

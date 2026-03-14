@@ -12,6 +12,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
+import { resolveStateDir } from '../utils/paths.js';
 
 // ─── Check Definitions ─────────────────────────────────────────────────────
 
@@ -183,18 +184,7 @@ export async function findActiveWorkflowState(
   return null;
 }
 
-// ─── State Directory Resolution ────────────────────────────────────────────
-
-function resolveStateDir(): string {
-  const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return envDir;
-
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
-  }
-  return path.join(home, '.claude', 'workflow-state');
-}
+// resolveStateDir imported from ../utils/paths.js
 
 // ─── Team Config ──────────────────────────────────────────────────────────
 
