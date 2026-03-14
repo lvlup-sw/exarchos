@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getFullRegistry } from '../registry.js';
 import type { CommandResult } from '../cli.js';
-import { expandTilde } from '../utils/paths.js';
+import { resolveStateDir, resolveTeamsDir, resolveTasksDir } from '../utils/paths.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -472,26 +472,7 @@ function formatLiveTaskStatus(
 
 // ─── Command Handler ───────────────────────────────────────────────────────
 
-/**
- * Resolve the home directory from environment.
- */
-function resolveHomeDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new Error('Cannot determine home directory: HOME and USERPROFILE are both undefined');
-  }
-  return home;
-}
-
-/**
- * Resolve the workflow state directory from environment or default.
- */
-function resolveStateDir(): string {
-  const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return expandTilde(envDir);
-
-  return path.join(resolveHomeDir(), '.claude', 'workflow-state');
-}
+// resolveStateDir, resolveTeamsDir, resolveTasksDir imported from ../utils/paths.js
 
 /**
  * Read the active workflow state file and extract the tasks array.
@@ -623,11 +604,10 @@ export async function handleSubagentContext(
   const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : '';
 
   // Determine if we're in agent-team mode
-  const homeDir = resolveHomeDir();
   const featureId = typeof activeState?.featureId === 'string'
     ? activeState.featureId
     : '';
-  const teamsDir = path.join(homeDir, '.claude', 'teams');
+  const teamsDir = resolveTeamsDir();
   const teamMode = featureId.length > 0
     ? await isAgentTeamMode(featureId, teamsDir)
     : false;
@@ -644,7 +624,7 @@ export async function handleSubagentContext(
   if (teamMode) {
     // Agent-team mode: skip historical intelligence and static team context,
     // inject live task status instead
-    const tasksDir = path.join(homeDir, '.claude', 'tasks', featureId);
+    const tasksDir = path.join(resolveTasksDir(), featureId);
     const nativeTasks = await readNativeTaskList(tasksDir);
     const liveTaskStatus = formatLiveTaskStatus(nativeTasks);
 

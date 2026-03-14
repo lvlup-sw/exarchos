@@ -2,12 +2,11 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { homedir } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
 import { logger } from './logger.js';
-import { expandTilde } from './utils/paths.js';
+import { resolveStateDir as resolveStateDirFromPaths, resolveTeamsDir } from './utils/paths.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
 
@@ -167,11 +166,7 @@ export function createServer(
 // ─── State Directory Resolution ──────────────────────────────────────────────
 
 export async function resolveStateDir(): Promise<string> {
-  if (process.env.WORKFLOW_STATE_DIR) {
-    return expandTilde(process.env.WORKFLOW_STATE_DIR);
-  }
-
-  return path.join(homedir(), '.claude', 'workflow-state');
+  return resolveStateDirFromPaths();
 }
 
 // ─── Hook CLI Utilities ──────────────────────────────────────────────────
@@ -233,8 +228,7 @@ async function main() {
       },
       'session-start': async () => {
         const { handleSessionStart } = await import('./cli-commands/session-start.js');
-        const os = await import('node:os');
-        return handleSessionStart(stdinData, resolveStateDirSync(), path.join(os.homedir(), '.claude', 'teams'));
+        return handleSessionStart(stdinData, resolveStateDirSync(), resolveTeamsDir());
       },
       'guard': async () => {
         const { handleGuard } = await import('./cli-commands/guard.js');

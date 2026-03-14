@@ -5,8 +5,6 @@
 // All hook scripts call: node dist/cli.js <command>
 // JSON is piped via stdin, JSON result is written to stdout.
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
 import { handleSessionEnd } from './cli-commands/session-end.js';
@@ -21,7 +19,7 @@ import { handleEvalCompare } from './cli-commands/eval-compare.js';
 import { handleQualityCheck } from './cli-commands/quality-check.js';
 import { handleCalibrate } from './cli-commands/eval-calibrate.js';
 import { CalibrateInputSchema } from './evals/calibration-types.js';
-import { resolveStateDir } from './workflow/state-store.js';
+import { resolveStateDir, resolveTeamsDir } from './utils/paths.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +61,7 @@ function isKnownCommand(command: string): command is KnownCommand {
 
 const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'pre-compact': async (stdinData) => handlePreCompact(stdinData, resolveStateDir()),
-  'session-start': async (stdinData) => handleSessionStart(stdinData, resolveStateDir(), path.join(os.homedir(), '.claude', 'teams')),
+  'session-start': async (stdinData) => handleSessionStart(stdinData, resolveStateDir(), resolveTeamsDir()),
   'guard': handleGuard,
   'task-gate': handleTaskGate,
   'teammate-gate': handleTeammateGate,

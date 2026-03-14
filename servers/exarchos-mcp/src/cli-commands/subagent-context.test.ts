@@ -252,25 +252,20 @@ describe('subagent-context', () => {
   });
 
   describe('handleSubagentContext', () => {
-    it('should throw when HOME and USERPROFILE are both undefined', async () => {
-      // Arrange — save and remove home dir env vars
-      const originalHome = process.env.HOME;
-      const originalUserProfile = process.env.USERPROFILE;
+    it('should degrade gracefully when no active workflow exists', async () => {
+      // Arrange — point state dir to a non-existent temp location
       const originalStateDir = process.env.WORKFLOW_STATE_DIR;
-      delete process.env.HOME;
-      delete process.env.USERPROFILE;
-      delete process.env.WORKFLOW_STATE_DIR;
+      process.env.WORKFLOW_STATE_DIR = '/tmp/nonexistent-state-dir-' + Date.now();
 
       try {
-        // Act & Assert
-        await expect(handleSubagentContext({})).rejects.toThrow(
-          'Cannot determine home directory: HOME and USERPROFILE are both undefined',
-        );
+        // Act — should not throw, returns empty result
+        const result = await handleSubagentContext({});
+        expect(result.guidance).toBe('');
+        expect(result.context).toBe('');
+        expect(result.team).toBe('');
       } finally {
-        // Restore env vars
-        if (originalHome !== undefined) process.env.HOME = originalHome;
-        if (originalUserProfile !== undefined) process.env.USERPROFILE = originalUserProfile;
         if (originalStateDir !== undefined) process.env.WORKFLOW_STATE_DIR = originalStateDir;
+        else delete process.env.WORKFLOW_STATE_DIR;
       }
     });
   });
@@ -743,17 +738,19 @@ describe('subagent-context', () => {
     let tempTeamsDir: string;
     let tempTasksDir: string;
     let originalStateDir: string | undefined;
-    let originalHome: string | undefined;
+    let originalTeamsDir: string | undefined;
+    let originalTasksDir: string | undefined;
 
     beforeEach(async () => {
       tempDir = await createTempStateDir();
       tempTeamsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'teams-'));
       tempTasksDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tasks-'));
       originalStateDir = process.env.WORKFLOW_STATE_DIR;
-      originalHome = process.env.HOME;
+      originalTeamsDir = process.env.EXARCHOS_TEAMS_DIR;
+      originalTasksDir = process.env.EXARCHOS_TASKS_DIR;
       process.env.WORKFLOW_STATE_DIR = tempDir;
-      // We override HOME so the team/task resolution uses our temp dirs
-      // But the implementation uses HOME-based paths, so we set up the structure
+      process.env.EXARCHOS_TEAMS_DIR = tempTeamsDir;
+      process.env.EXARCHOS_TASKS_DIR = tempTasksDir;
     });
 
     afterEach(async () => {
@@ -762,10 +759,15 @@ describe('subagent-context', () => {
       } else {
         delete process.env.WORKFLOW_STATE_DIR;
       }
-      if (originalHome !== undefined) {
-        process.env.HOME = originalHome;
+      if (originalTeamsDir !== undefined) {
+        process.env.EXARCHOS_TEAMS_DIR = originalTeamsDir;
       } else {
-        delete process.env.HOME;
+        delete process.env.EXARCHOS_TEAMS_DIR;
+      }
+      if (originalTasksDir !== undefined) {
+        process.env.EXARCHOS_TASKS_DIR = originalTasksDir;
+      } else {
+        delete process.env.EXARCHOS_TASKS_DIR;
       }
       await cleanupDir(tempDir);
       await cleanupDir(tempTeamsDir);
@@ -777,10 +779,8 @@ describe('subagent-context', () => {
       const featureId = 'team-feature';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      // Create team config directory structure under HOME
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
-      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      // Create team config directory structure under EXARCHOS_TEAMS_DIR
+      const teamDir = path.join(tempTeamsDir, featureId);
       await fs.mkdir(teamDir, { recursive: true });
       await fs.writeFile(
         path.join(teamDir, 'config.json'),
@@ -803,8 +803,6 @@ describe('subagent-context', () => {
 
       // Assert — context should be empty because historical intelligence is skipped
       expect(result.context).toBe('');
-
-      await cleanupDir(homeDir);
     });
 
     it('should not inject static team context in agent-team mode', async () => {
@@ -838,10 +836,8 @@ describe('subagent-context', () => {
       };
       await fs.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
 
-      // Create team config
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
-      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      // Create team config under EXARCHOS_TEAMS_DIR
+      const teamDir = path.join(tempTeamsDir, featureId);
       await fs.mkdir(teamDir, { recursive: true });
       await fs.writeFile(
         path.join(teamDir, 'config.json'),
@@ -854,8 +850,6 @@ describe('subagent-context', () => {
 
       // Assert — team field should be empty (static team context suppressed)
       expect(result.team).toBe('');
-
-      await cleanupDir(homeDir);
     });
 
     it('should inject live task status changes in agent-team mode', async () => {
@@ -863,17 +857,17 @@ describe('subagent-context', () => {
       const featureId = 'team-feature-3';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      // Create team config + native tasks under HOME
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
-      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      // Create team config under EXARCHOS_TEAMS_DIR
+      const teamDir = path.join(tempTeamsDir, featureId);
       await fs.mkdir(teamDir, { recursive: true });
       await fs.writeFile(
         path.join(teamDir, 'config.json'),
         JSON.stringify({ teamSize: 3 }),
         'utf-8',
       );
-      const tasksDir = path.join(homeDir, '.claude', 'tasks', featureId);
+
+      // Create native tasks under EXARCHOS_TASKS_DIR
+      const tasksDir = path.join(tempTasksDir, featureId);
       await fs.mkdir(tasksDir, { recursive: true });
       await fs.writeFile(
         path.join(tasksDir, 'task-001.json'),
@@ -894,8 +888,6 @@ describe('subagent-context', () => {
       expect(typeof result.liveTaskStatus).toBe('string');
       expect((result.liveTaskStatus as string).length).toBeGreaterThan(0);
       expect(result.liveTaskStatus as string).toContain('complete');
-
-      await cleanupDir(homeDir);
     });
 
     it('should retain historical intelligence in subagent mode (no team config)', async () => {
@@ -903,9 +895,7 @@ describe('subagent-context', () => {
       const featureId = 'solo-feature';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      // Ensure no team config exists
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
+      // EXARCHOS_TEAMS_DIR points to tempTeamsDir which has no config for this feature
 
       // Add JSONL events that should be found
       const jsonlContent = [
@@ -924,8 +914,6 @@ describe('subagent-context', () => {
       expect(typeof result.context).toBe('string');
       expect((result.context as string).length).toBeGreaterThan(0);
       expect(result.context as string).toContain('fix cycle');
-
-      await cleanupDir(homeDir);
     });
 
     it('should always retain tool guidance regardless of mode', async () => {
@@ -933,9 +921,8 @@ describe('subagent-context', () => {
       const featureId = 'guided-feature';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
-      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      // Create team config under EXARCHOS_TEAMS_DIR
+      const teamDir = path.join(tempTeamsDir, featureId);
       await fs.mkdir(teamDir, { recursive: true });
       await fs.writeFile(
         path.join(teamDir, 'config.json'),
@@ -950,8 +937,6 @@ describe('subagent-context', () => {
       expect(result).toHaveProperty('guidance');
       expect(typeof result.guidance).toBe('string');
       expect((result.guidance as string).length).toBeGreaterThan(0);
-
-      await cleanupDir(homeDir);
     });
 
     it('should skip all injection for teammate sub-subagents during delegate', async () => {
@@ -959,9 +944,8 @@ describe('subagent-context', () => {
       const featureId = 'sub-sub-feature';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'home-'));
-      process.env.HOME = homeDir;
-      const teamDir = path.join(homeDir, '.claude', 'teams', featureId);
+      // Create team config under EXARCHOS_TEAMS_DIR
+      const teamDir = path.join(tempTeamsDir, featureId);
       await fs.mkdir(teamDir, { recursive: true });
       await fs.writeFile(
         path.join(teamDir, 'config.json'),
@@ -988,8 +972,6 @@ describe('subagent-context', () => {
       expect(result.guidance).toBe('');
       expect(result.context).toBe('');
       expect(result.team).toBe('');
-
-      await cleanupDir(homeDir);
     });
   });
 });

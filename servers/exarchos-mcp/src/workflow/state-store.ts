@@ -8,10 +8,8 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
-import { expandTilde } from '../utils/paths.js';
 import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
-import { homedir } from 'node:os';
 import * as path from 'node:path';
 
 // ─── Module-Level StorageBackend ──────────────────────────────────────────────
@@ -884,10 +882,5 @@ export async function reconcileFromEvents(
 
 // ─── Resolve State Directory ───────────────────────────────────────────────
 
-export function resolveStateDir(): string {
-  // Check environment variable first (expand ~ since Node.js fs doesn't)
-  const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return expandTilde(envDir);
-
-  return path.join(homedir(), '.claude', 'workflow-state');
-}
+// Re-export centralized resolver for backward compatibility
+export { resolveStateDir } from '../utils/paths.js';
