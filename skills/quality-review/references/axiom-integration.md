@@ -107,7 +107,7 @@ If the `plugins` key or any sub-key is absent from `.exarchos.yml`, the default 
 
 When a plugin is not installed or is disabled, the quality review proceeds without it. The review report includes a "Plugin Coverage" section that communicates the status of each optional plugin:
 
-- **Not installed:** Suggests the install command (`claude plugin add lvlup-sw/axiom` or `claude plugin add lvlup-sw/impeccable`)
+- **Not installed:** Suggests the install command (`claude plugin install axiom@lvlup-sw` or `claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable`)
 - **Disabled via config:** Notes the config key to re-enable
 - **Active:** Reports the number of dimensions checked and findings produced
 

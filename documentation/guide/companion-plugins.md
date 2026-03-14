@@ -22,10 +22,10 @@ Seven dimensions covering general backend code quality:
 | DIM-6 Architecture | Pattern consistency, layer violations |
 | DIM-7 Resilience | Error handling, retry logic, timeout coverage |
 
-Install:
+Install (axiom is on the lvlup-sw marketplace, which ships with Exarchos):
 
 ```bash
-claude plugin add lvlup-sw/axiom
+claude plugin install axiom@lvlup-sw
 ```
 
 ### impeccable (frontend design quality)
@@ -37,10 +37,11 @@ Covers design and UI concerns:
 - Design system compliance -- token usage, component variants
 - Responsive design -- breakpoints, layout shifts, touch targets
 
-Install:
+Install (impeccable has its own marketplace):
 
 ```bash
-claude plugin add lvlup-sw/impeccable
+claude plugin marketplace add pbakaus/impeccable
+claude plugin install impeccable@impeccable
 ```
 
 ## How detection works

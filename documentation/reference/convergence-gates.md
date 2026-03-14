@@ -135,4 +135,4 @@ When [companion plugins](/guide/companion-plugins) are installed, they add quali
 
 Plugin dimensions are strictly informational. They appear in the convergence view and provide findings for the audit trail, but they do not add new blocking gates. The blocking verdict is computed from native dimensions (D1-D5) only.
 
-Whether a plugin dimension runs depends on two things: the plugin must be installed (`claude plugin add lvlup-sw/axiom`), and it must not be disabled in `.exarchos.yml`. Both conditions are true by default when the plugin is present.
+Whether a plugin dimension runs depends on two things: the plugin must be installed (`claude plugin install axiom@lvlup-sw`), and it must not be disabled in `.exarchos.yml`. Both conditions are true by default when the plugin is present.

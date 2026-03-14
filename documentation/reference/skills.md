@@ -51,7 +51,7 @@ Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarcho
 | `synthesis` | PR creation from feature branch | synthesize |
 | `workflow-state` | Checkpoint and resume workflow state | any phase |
 
-The `quality-review` skill integrates with companion plugins when available. If [axiom](https://github.com/lvlup-sw/axiom) (`axiom:audit`) or [impeccable](https://github.com/lvlup-sw/impeccable) (`impeccable:critique`) are installed, their quality dimensions are invoked during Stage 2 review and findings merge with native results. These are informational and do not add blocking gates. See [Companion Plugins](/guide/companion-plugins) for details.
+The `quality-review` skill integrates with companion plugins when available. If [axiom](https://github.com/lvlup-sw/axiom) (`axiom:audit`) or [impeccable](https://github.com/pbakaus/impeccable) (`impeccable:critique`) are installed, their quality dimensions are invoked during Stage 2 review and findings merge with native results. These are informational and do not add blocking gates. See [Companion Plugins](/guide/companion-plugins) for details.
 
 ## Skill resolution
 
