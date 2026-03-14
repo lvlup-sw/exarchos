@@ -81,7 +81,7 @@ Output findings grouped by dimension, then by severity (HIGH, MEDIUM, LOW) withi
 All findings use the standard format from `@skills/backend-quality/references/findings-format.md` with one addition: every finding includes `deterministic: true` to signal that it was produced by mechanical pattern matching, not qualitative judgment.
 
 ```yaml
-dimension: D2
+dimension: observability
 severity: MEDIUM
 deterministic: true
 file: src/handlers/query.ts

@@ -240,6 +240,11 @@ A layered architecture organizes code into horizontal layers with strict depende
 
 ```text
   +-------------------+
+  |  Infrastructure   |  (database, file system, external APIs)
+  +-------------------+
+           |
+           v
+  +-------------------+
   |  Presentation     |  (routes, controllers, CLI handlers)
   +-------------------+
            |
@@ -250,15 +255,11 @@ A layered architecture organizes code into horizontal layers with strict depende
            |
            v
   +-------------------+
-  |  Domain           |  (entities, value objects, domain services)
-  +-------------------+
-           |
-           v
-  +-------------------+
-  |  Infrastructure   |  (database, file system, external APIs)
+  |  Domain (core)    |  (entities, value objects, domain services)
   +-------------------+
 
-  Rule: each layer may only depend on the same layer or layers closer to the core (inward).
+  Arrows = dependency direction (pointing INWARD toward the core).
+  Rule: each layer may only depend on the same layer or layers closer to the core.
   Domain (core) NEVER imports from Infrastructure, Application, or Presentation.
 ```
 
