@@ -53,7 +53,7 @@ Beyond deterministic checks, apply human-judgment analysis:
 #### Dead Code Identification
 Identify unreachable branches (code after `return`/`throw`), unused exports (exported but never imported elsewhere), commented-out code (version control exists for history), and feature-flagged-off code that shipped long ago.
 
-See `references/dead-code-patterns.md` for detection heuristics and false positive guidance.
+See `@skills/distill/references/dead-code-patterns.md` for detection heuristics and false positive guidance.
 
 #### Vestigial Pattern Detection
 Find evolutionary leftovers from previous designs. Look for divergent implementations that suggest a pattern was partially migrated, adapter layers wrapping things that no longer need adapting, and configuration for features that were removed.
@@ -75,7 +75,7 @@ Format all findings per `@skills/backend-quality/references/findings-format.md`.
 - Location (file, line range)
 - Description and recommended action
 
-See also `references/simplification-guide.md` for guidance on when to simplify vs remove.
+See also `@skills/distill/references/simplification-guide.md` for guidance on when to simplify vs remove.
 
 ## Error Handling
 

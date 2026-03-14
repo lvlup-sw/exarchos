@@ -64,7 +64,7 @@ On top of the scan baseline, perform agent-driven qualitative evaluation across 
 
 #### 3a. SOLID Evaluation
 
-Assess adherence to each SOLID principle. For definitions, violation signals, and severity guidance, see `references/solid-principles.md`.
+Assess adherence to each SOLID principle. For definitions, violation signals, and severity guidance, see `@skills/critique/references/solid-principles.md`.
 
 - **Single Responsibility Principle (SRP):** Does each module/class have one reason to change?
 - **Open/Closed Principle (OCP):** Are modules open for extension but closed for modification?
@@ -80,7 +80,7 @@ Measure and evaluate module coupling:
 - **Efferent coupling (Ce):** How many modules does this module depend on?
 - **Instability (I = Ce / (Ca + Ce)):** Is the module stable (depended-upon) or unstable (depends-on-others)?
 - Flag modules with high instability that are also heavily depended-upon (unstable foundation)
-- For detailed coupling metrics and patterns, see `references/dependency-patterns.md`
+- For detailed coupling metrics and patterns, see `@skills/critique/references/dependency-patterns.md`
 
 #### 3c. Dependency Direction
 
@@ -89,7 +89,7 @@ Evaluate whether dependencies point in the correct direction:
 - Dependencies should flow inward: infrastructure depends on domain, not the reverse
 - Core/domain modules should never import from infrastructure, framework, or I/O layers
 - Check for proper use of dependency inversion — abstractions at boundaries
-- See `references/dependency-patterns.md` for healthy vs unhealthy patterns
+- See `@skills/critique/references/dependency-patterns.md` for healthy vs unhealthy patterns
 
 #### 3d. God Object Detection
 
@@ -107,7 +107,7 @@ Detect import cycles between modules:
 - Direct circular imports (A imports B, B imports A)
 - Transitive cycles (A -> B -> C -> A)
 - Barrel-file-mediated cycles (index.ts re-exports creating hidden loops)
-- See `references/dependency-patterns.md` for detection approach and remediation
+- See `@skills/critique/references/dependency-patterns.md` for detection approach and remediation
 
 ### Step 4: Output Findings
 
@@ -128,5 +128,5 @@ Format all findings per `@skills/backend-quality/references/findings-format.md`:
 
 - `@skills/backend-quality/references/dimensions.md` — Dimension definitions for DIM-1 and DIM-6
 - `@skills/backend-quality/references/findings-format.md` — Standard output format for findings
-- `references/solid-principles.md` — SOLID principle definitions, violation signals, severity guide, and detection heuristics
-- `references/dependency-patterns.md` — Dependency pattern catalog, coupling metrics, circular dependency detection, and layered architecture guidance
+- `@skills/critique/references/solid-principles.md` — SOLID principle definitions, violation signals, severity guide, and detection heuristics
+- `@skills/critique/references/dependency-patterns.md` — Dependency pattern catalog, coupling metrics, circular dependency detection, and layered architecture guidance

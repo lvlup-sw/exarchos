@@ -18,7 +18,7 @@ Deterministic check engine that runs grep patterns and structural analysis again
 
 This skill performs purely mechanical detection — it matches known patterns, counts structural violations, and reports findings with exact file locations. It does not make qualitative judgments about architecture or design. Other skills (like `assay:critique`) handle subjective assessment and invoke `scan` when they need deterministic evidence.
 
-See `references/check-catalog.md` for scan-specific execution guidance including ordering, batching, and exclusions.
+See `@skills/scan/references/check-catalog.md` for scan-specific execution guidance including ordering, batching, and exclusions.
 
 ## Triggers
 
