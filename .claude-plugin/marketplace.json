@@ -37,7 +37,7 @@
         "package": "@lvlup-sw/axiom",
         "version": "0.2.0"
       },
-      "description": "Composable backend quality skills — self-evident truths of backend design",
+      "description": "Six skills that audit, critique, harden, and simplify backend code",
       "version": "0.2.0",
       "author": {
         "name": "Levelup Software"
