@@ -993,11 +993,12 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'new_project',
-    description: 'Initialize a new project with Claude Code configuration files',
+    description: 'Initialize a new project with workflow configuration files',
     schema: z.object({
       projectPath: z.string().optional(),
       language: z.enum(['typescript', 'csharp']).optional(),
       minimal: z.boolean().optional(),
+      platform: z.enum(['claude-code', 'generic', 'auto']).default('auto').optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
