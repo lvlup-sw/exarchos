@@ -101,4 +101,61 @@ describe('ProjectConfigSchema', () => {
     expect(ProjectConfigSchema.safeParse({ tools: { 'pr-strategy': 'github-native' } }).success).toBe(true);
     expect(ProjectConfigSchema.safeParse({ tools: { 'pr-strategy': 'invalid' } }).success).toBe(false);
   });
+
+  describe('plugins section', () => {
+    it('ProjectConfigSchema_Plugins_AcceptsValidConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { axiom: { enabled: true }, impeccable: { enabled: false } },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_Plugins_DefaultsEnabledTrue', () => {
+      const result = ProjectConfigSchema.parse({ plugins: { axiom: {} } });
+      expect(result.plugins?.axiom?.enabled).toBe(true);
+    });
+
+    it('ProjectConfigSchema_Plugins_AllowsDisabling', () => {
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { axiom: { enabled: false } },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.plugins?.axiom?.enabled).toBe(false);
+      }
+    });
+
+    it('ProjectConfigSchema_Plugins_AcceptsPartialConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { axiom: { enabled: true } },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.plugins?.axiom?.enabled).toBe(true);
+        expect(result.data.plugins?.impeccable).toBeUndefined();
+      }
+    });
+
+    it('ProjectConfigSchema_Plugins_OmittedSectionIsValid', () => {
+      const result = ProjectConfigSchema.safeParse({});
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.plugins).toBeUndefined();
+      }
+    });
+
+    it('ProjectConfigSchema_Plugins_RejectsUnknownPluginKeys', () => {
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { unknown: {} },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_Plugins_RejectsUnknownPropertiesInPlugin', () => {
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { axiom: { enabled: true, extra: 'value' } },
+      });
+      expect(result.success).toBe(false);
+    });
+  });
 });
