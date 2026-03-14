@@ -106,7 +106,7 @@ function readyDelegationReadiness(): DelegationReadinessState {
 function notReadyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: false,
-    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation', 'quality signals not queried'],
+    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
     plan: { approved: false, taskCount: 0 },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },
@@ -439,7 +439,7 @@ describe('handlePrepareDelegation', () => {
     const state = notReadyWorkflowState();
     const drState: DelegationReadinessState = {
       ready: false,
-      blockers: ['plan not approved', 'worktrees pending', 'quality signals not queried'],
+      blockers: ['plan not approved', 'worktrees pending'],
       plan: { approved: false, taskCount: 0 },
       quality: { queried: false, gatePassRate: null, regressions: [] },
       worktrees: { expected: 2, ready: 0, failed: [] },
@@ -463,7 +463,6 @@ describe('handlePrepareDelegation', () => {
       expect.stringContaining('worktrees'),
     );
     expect(data.readiness.blockers).toContain('plan not approved');
-    expect(data.readiness.blockers).toContain('quality signals not queried');
   });
 
   it('handlePrepareDelegation_WithoutNativeIsolation_IncludesAllBlockers', async () => {

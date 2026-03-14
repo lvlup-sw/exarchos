@@ -43,22 +43,9 @@ exarchos_orchestrate({
 **On `passed: true`:** Hotfix track selected.
 **On `passed: false`:** Thorough track selected.
 
-**Save triage results and advance:**
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "triage": {
-    "symptom": "<symptom>",
-    "reproduction": "<steps>",
-    "affectedArea": "<area>",
-    "impact": "<impact>"
-  },
-  "urgency": {
-    "level": "<level>",
-    "justification": "<justification>"
-  },
-  "track": "hotfix"
-}, phase: "investigate"
-```
+**Save triage results and advance to investigate:**
+
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then `set` the required fields (triage, urgency, track) and phase.
 
 ### 2. Investigate Phase (15 min max)
 
@@ -76,22 +63,9 @@ exarchos_orchestrate({
 **On `passed: true`:** Within budget -- continue investigation.
 **On `passed: false`:** Budget exceeded -- escalate to thorough track.
 
-**Record findings:**
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "investigation": { "findings": ["<finding>"] }
-}
-```
+**Record findings and advance when root cause found:**
 
-**When root cause found:**
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "investigation": {
-    "rootCause": "<root cause>",
-    "completedAt": "<ISO8601>"
-  }
-}, phase: "hotfix-implement"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `investigate → hotfix-implement` guard requirements and the expected field shapes for investigation findings, then `set` accordingly.
 
 ### 3. Implement Phase
 
@@ -100,11 +74,7 @@ Apply minimal fix directly (no worktree):
 - No new features or refactoring
 - Record fix approach in state
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "artifacts": { "fixDesign": "<brief fix description>" }
-}, phase: "hotfix-validate"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-implement → hotfix-validate` guard requirements, then `set` the required fields (artifacts) and phase.
 
 ### 4. Validate Phase
 
@@ -113,13 +83,7 @@ Run affected tests only:
 npm run test:run -- <affected-test-files>
 ```
 
-If tests pass:
-
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "followUp": { "rcaRequired": true }
-}, phase: "completed"
-```
+If tests pass, call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-validate → completed` guard requirements, then `set` the required fields (followUp) and phase.
 
 Create follow-up task for proper RCA:
 ```bash

@@ -33,40 +33,21 @@ Thorough scope assessment using `@skills/refactor/references/explore-checklist.m
 action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 ```
 
-**Set track and scope assessment:**
+**Set track and scope assessment, then transition to brief:**
+
+Before calling `set`, query the required guard shape:
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "track": "overhaul",
-  "explore": {
-    "startedAt": "<ISO8601>",
-    "scopeAssessment": {
-      "filesAffected": ["<paths>"],
-      "modulesAffected": ["<modules>"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "overhaul"
-    }
-  }
-}, phase: "brief"
+exarchos_workflow({ action: "describe", playbook: "refactor" })
 ```
+Use the returned guard requirements for the `explore → brief` transition to construct your `set` call with the correct fields.
 
 ### 2. Brief Phase
 
 Detailed capture of refactor intent (more thorough than polish).
 
-**Save brief and advance:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "brief": {
-    "problem": "<problem statement>",
-    "goals": ["<goal1>", "<goal2>"],
-    "approach": "<approach>",
-    "affectedAreas": ["<areas>"],
-    "outOfScope": ["<items>"],
-    "successCriteria": ["<criteria>"],
-    "docsToUpdate": ["<doc paths>"]
-  }
-}, phase: "overhaul-plan"
-```
+**Save brief and advance to overhaul-plan:**
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `brief → overhaul-plan` guard requirements, then `set` the required fields and phase.
 
 Then auto-invoke plan:
 ```typescript
@@ -88,12 +69,8 @@ The `/exarchos:plan` skill:
 - Dependency order matters more for refactors
 
 **Save plan and advance to plan-review:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "artifacts": { "plan": "<plan-file-path>" },
-  "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
-}, phase: "overhaul-plan-review"
-```
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-plan → overhaul-plan-review` guard requirements, then `set` the required fields (plan artifact, tasks array) and phase.
 
 **Human checkpoint:** Plan-review verifies plan coverage against the brief before committing to delegation. The orchestrator compares design sections against planned tasks.
 - Gaps found → set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
@@ -120,9 +97,8 @@ The `/exarchos:delegate` skill:
 - Tracks progress in state file
 
 **Advance to review:**
-```
-action: "set", featureId: "refactor-<slug>", phase: "overhaul-review"
-```
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-delegate → overhaul-review` guard requirements, then `set` the phase.
 
 Then auto-invoke review:
 ```typescript
@@ -143,9 +119,8 @@ The `/exarchos:review` skill:
 - Verifies structure matches brief goals
 
 **Advance to doc updates:**
-```
-action: "set", featureId: "refactor-<slug>", phase: "overhaul-update-docs"
-```
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-review → overhaul-update-docs` guard requirements, then `set` the phase.
 
 ### 6. Update Docs Phase
 
@@ -169,13 +144,9 @@ For overhaul, typically includes:
 - Migration guides if public interfaces changed
 - Updated diagrams
 
-**Mark docs updated and advance:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "validation": { "docsUpdated": true },
-  "artifacts": { "updatedDocs": ["<doc paths>"] }
-}, phase: "synthesize"
-```
+**Mark docs updated and advance to synthesize:**
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-update-docs → synthesize` guard requirements, then `set` the required fields (validation, artifacts) and phase.
 
 Then auto-invoke synthesize:
 ```typescript

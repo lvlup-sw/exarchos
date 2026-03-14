@@ -66,8 +66,8 @@ exarchos_orchestrate({
 
 The composite action performs:
 1. **Worktree creation** — creates `.worktrees/task-<id>` with `git worktree add`, runs `npm install`
-2. **State validation** — verifies workflow state is in `delegate` phase, plan exists
-3. **Quality signal check** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts
+2. **State validation** — verifies workflow state is in `delegate` phase, plan exists, plan approved
+3. **Quality signal assembly** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts. Emits `gate.executed('plan-coverage')` on success (no pre-query needed)
 4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
 5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
 
