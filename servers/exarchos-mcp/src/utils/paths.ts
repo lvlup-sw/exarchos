@@ -11,3 +11,12 @@ export function expandTilde(p: string): string {
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
   return p;
 }
+
+/**
+ * Detect whether Exarchos is running as a Claude Code plugin.
+ * Returns true if either CLAUDE_PLUGIN_ROOT or EXARCHOS_PLUGIN_ROOT
+ * environment variable is set to a non-empty value.
+ */
+export function isClaudeCodePlugin(): boolean {
+  return !!(process.env.CLAUDE_PLUGIN_ROOT || process.env.EXARCHOS_PLUGIN_ROOT);
+}

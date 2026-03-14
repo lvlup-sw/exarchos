@@ -1,22 +1,27 @@
 // ─── New Project Scaffolding Handler ────────────────────────────────────────
 //
-// Port of scripts/new-project.sh — scaffolds a new project with Claude Code
-// configuration: CLAUDE.md from template, .claude/settings.json, .gitignore.
+// Scaffolds a new project with workflow configuration files.
+// Supports Claude Code-specific config (.claude/settings.json),
+// generic Exarchos config (.exarchos.yml), or auto-detection.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
+import { isClaudeCodePlugin } from '../utils/paths.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+type Platform = 'claude-code' | 'generic' | 'auto';
+
 interface NewProjectArgs {
   readonly projectPath?: string;
   readonly language?: 'typescript' | 'csharp';
   readonly minimal?: boolean;
+  readonly platform?: Platform;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -26,6 +31,30 @@ const SETTINGS_JSON = JSON.stringify(
   null,
   2,
 );
+
+const EXARCHOS_YML_TEMPLATE = `# Exarchos workflow configuration
+# See https://lvlup-sw.github.io/exarchos/reference/configuration for options
+
+review:
+  dimensions:
+    D1: blocking
+    D2: blocking
+    D3: warning
+    D4: warning
+    D5: warning
+
+tools:
+  commit-style: conventional
+`;
+
+// ─── Platform Resolution ───────────────────────────────────────────────────
+
+function resolvePlatform(platform: Platform): 'claude-code' | 'generic' {
+  if (platform === 'auto') {
+    return isClaudeCodePlugin() ? 'claude-code' : 'generic';
+  }
+  return platform;
+}
 
 // ─── Template Resolution ────────────────────────────────────────────────────
 
@@ -99,6 +128,7 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
   const projectPath = resolve(args.projectPath ?? '.');
   const language = args.language;
   const minimal = args.minimal ?? false;
+  const resolvedPlatform = resolvePlatform(args.platform ?? 'auto');
   const filesCreated: string[] = [];
   const report: string[] = [];
 
@@ -168,55 +198,78 @@ export function handleNewProject(args: NewProjectArgs): ToolResult {
     report.push('[created] CLAUDE.md');
   }
 
-  // 5. Create .claude/settings.json unless minimal
+  // 5. Create platform-specific config unless minimal
   if (!minimal) {
-    const claudeDir = join(projectPath, '.claude');
-    try {
-      mkdirSync(claudeDir, { recursive: true });
-    } catch (err) {
-      return {
-        success: false,
-        error: {
-          code: 'MKDIR_FAILED',
-          message: `Failed to create .claude directory: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      };
-    }
-
-    const settingsPath = join(claudeDir, 'settings.json');
-    if (existsSync(settingsPath)) {
-      report.push('[skip] .claude/settings.json already exists');
-    } else {
+    if (resolvedPlatform === 'claude-code') {
+      // Claude Code: create .claude/settings.json and update .gitignore
+      const claudeDir = join(projectPath, '.claude');
       try {
-        writeFileSync(settingsPath, SETTINGS_JSON + '\n', 'utf-8');
+        mkdirSync(claudeDir, { recursive: true });
       } catch (err) {
         return {
           success: false,
           error: {
-            code: 'WRITE_FAILED',
-            message: `Failed to write settings.json: ${err instanceof Error ? err.message : String(err)}`,
+            code: 'MKDIR_FAILED',
+            message: `Failed to create .claude directory: ${err instanceof Error ? err.message : String(err)}`,
           },
         };
       }
-      filesCreated.push('.claude/settings.json');
-      report.push('[created] .claude/settings.json');
-    }
 
-    // 6. Update .gitignore if git repo
-    const gitDir = join(projectPath, '.git');
-    if (existsSync(gitDir)) {
-      const gitignoreResult = updateGitignore(projectPath);
-      if (typeof gitignoreResult === 'object' && 'error' in gitignoreResult) {
-        return {
-          success: false,
-          error: {
-            code: 'GITIGNORE_UPDATE_FAILED',
-            message: gitignoreResult.error,
-          },
-        };
+      const settingsPath = join(claudeDir, 'settings.json');
+      if (existsSync(settingsPath)) {
+        report.push('[skip] .claude/settings.json already exists');
+      } else {
+        try {
+          writeFileSync(settingsPath, SETTINGS_JSON + '\n', 'utf-8');
+        } catch (err) {
+          return {
+            success: false,
+            error: {
+              code: 'WRITE_FAILED',
+              message: `Failed to write settings.json: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          };
+        }
+        filesCreated.push('.claude/settings.json');
+        report.push('[created] .claude/settings.json');
       }
-      if (gitignoreResult === true) {
-        report.push('[updated] .gitignore (added settings.local.json)');
+
+      // Update .gitignore if git repo
+      const gitDir = join(projectPath, '.git');
+      if (existsSync(gitDir)) {
+        const gitignoreResult = updateGitignore(projectPath);
+        if (typeof gitignoreResult === 'object' && 'error' in gitignoreResult) {
+          return {
+            success: false,
+            error: {
+              code: 'GITIGNORE_UPDATE_FAILED',
+              message: gitignoreResult.error,
+            },
+          };
+        }
+        if (gitignoreResult === true) {
+          report.push('[updated] .gitignore (added settings.local.json)');
+        }
+      }
+    } else {
+      // Generic: create .exarchos.yml
+      const ymlPath = join(projectPath, '.exarchos.yml');
+      if (existsSync(ymlPath)) {
+        report.push('[skip] .exarchos.yml already exists');
+      } else {
+        try {
+          writeFileSync(ymlPath, EXARCHOS_YML_TEMPLATE, 'utf-8');
+        } catch (err) {
+          return {
+            success: false,
+            error: {
+              code: 'WRITE_FAILED',
+              message: `Failed to write .exarchos.yml: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          };
+        }
+        filesCreated.push('.exarchos.yml');
+        report.push('[created] .exarchos.yml');
       }
     }
   }
