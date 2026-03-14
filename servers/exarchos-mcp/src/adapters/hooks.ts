@@ -52,7 +52,7 @@ export async function handleHookCommand(
   const { resolveStateDir } = await import('../workflow/state-store.js');
   const { resolveTeamsDir } = await import('../utils/paths.js');
 
-  let stdinData: string;
+  let stdinData: Record<string, unknown>;
   try {
     const rawInput = await readStdin();
     stdinData = parseStdin(rawInput);

@@ -116,7 +116,7 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
   it('no hardcoded tasks path constructions remain', () => {
     const violations = findHardcodedPaths(srcDir);
     const tasksViolations = violations.filter((v) =>
-      v.content.includes("'tasks'") && v.content.includes('.claude'),
+      (v.content.includes("'tasks'") || v.content.includes('"tasks"')) && v.content.includes('.claude'),
     );
     expect(tasksViolations).toEqual([]);
   });
@@ -139,7 +139,8 @@ describe('schema descriptions are platform-neutral', () => {
     const { TaskSchema } = await import('../workflow/schemas.js');
     const shape = TaskSchema.shape;
     const agentIdDesc = shape.agentId.description;
-    // The description should be platform-neutral if set
+    // agentId uses a JSDoc comment, not a Zod .describe() — description may be undefined.
+    // DR-3 compliance is verified by grep in the source file instead.
     if (agentIdDesc) {
       expect(agentIdDesc).not.toContain('Claude Code');
     }
