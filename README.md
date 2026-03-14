@@ -2,7 +2,7 @@
   <img src="exarchos-logo.svg" alt="Exarchos" width="280" />
 
   **Your agents forget. Exarchos doesn't.**<br>
-  Durable SDLC workflows for Claude Code — checkpoint any task, resume where you left off.
+  A local-first SDLC workflow harness — structured, durable state for coding agents.
 
   [![CI](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml/badge.svg)](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml)
   [![npm version](https://img.shields.io/npm/v/@lvlup-sw/exarchos)](https://www.npmjs.com/package/@lvlup-sw/exarchos)
@@ -14,41 +14,40 @@
 
 ---
 
-## You probably already do this
+## You already manage this by hand
 
-You have a plan.md. Maybe a spec file per feature. You iterate with Claude, tell it to execute, commit the artifacts alongside the code. It works.
-
-Until context compaction wipes the session halfway through. Or the agent drifts from the spec and you don't catch it until review. Or you come back tomorrow and spend 30 minutes re-explaining what the agent already knew.
-
-Developers keep reinventing this on their own: iterate on a plan file, execute it, commit the artifacts. Skill-based workflow tools try to systematize it with markdown files loaded into context. But they're stateless. Nothing persists across context compaction, suggestions get ignored as conversations grow, and there's no verification that the agent followed through.
-
-The plan-file workflow is the right instinct. Markdown files just can't persist state across sessions, enforce phase gates, or prove that the agent actually did what you asked.
+A plan file per feature, CLAUDE.md updated between sessions, summaries written out before `/clear` so the next context window has something to work with. Maybe you enforce your own phases — design, plan, implement, review. It works. It's also manual, and nothing holds the agent to it once the window gets long enough that your instructions start getting ignored.
 
 ## Your plan.md workflow, with teeth
 
-Exarchos replaces markdown files with an event-sourced MCP server. A state machine enforces phase transitions (design, plan, implement, review, ship) with quality gates between each step. Typed agents (implementer, fixer, reviewer) execute in isolated git worktrees, following runbooks that encode step sequences and gate checks. Lifecycle hooks run validation scripts automatically, so the agent can't skip steps even if it wants to.
+Exarchos is a local-first SDLC workflow harness. It gives your agent structured, durable state that lives outside the context window. Phase transitions are enforced by a state machine. Deterministic convergence gates run as TypeScript checks against your diff and git history, not prompts. You approve the design, you approve the merge — everything between runs on its own.
 
-When context compaction hits (or you close your laptop and come back Monday), run `/rehydrate`. Design docs, plans, and PR links persist as references, never inlined into context. Your workflow picks up where it left off.
+`/clear` whenever you want. `/rehydrate` when you're back. State persists.
+
+It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter. Install it and run `/ideate`.
 
 <div align="center">
   <a href="docs/assets/architecture.svg">
     <img src="docs/assets/architecture.svg" alt="Exarchos architecture: workflow pipeline, state machine, agent teams in worktrees, quality gates" width="720" />
   </a>
   <br>
-  <sub>Architecture: workflow phases, agent dispatch, quality gates.</sub>
+  <sub>Architecture: workflow phases, agent dispatch, convergence gates.</sub>
 </div>
 
 ## Install
 
+**Claude Code plugin:**
 ```bash
-# From the Claude Code marketplace
 /plugin marketplace add lvlup-sw/.github
 /plugin install exarchos@lvlup-sw
 ```
 
-That's it. Installs the MCP server, all workflow commands, lifecycle hooks, and validation scripts.
+**Standalone MCP server:**
+```bash
+npx @lvlup-sw/exarchos mcp
+```
 
-**Dev companion** (optional, adds Serena, Context7, and Microsoft Learn MCP servers):
+**Dev companion** (optional — adds Serena, Context7, and Microsoft Learn):
 ```bash
 npx @lvlup-sw/exarchos-dev
 ```
@@ -67,21 +66,19 @@ Requires Node.js >= 20.
 
 ## What you get
 
-Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve twice: the design and the merge. Everything between auto-continues.
+Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve the design and you approve the merge. Everything between auto-continues.
 
-**Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens. No re-explaining your project from scratch the next day.
+**Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens.
 
-**Typed agent teams.** Three agent roles (implementer, fixer, reviewer), each with scoped tools, hooks, and worktree isolation. Fixers resume failed tasks with full context instead of starting over.
+**Typed agent teams.** Implementer, fixer, reviewer — each with scoped tools, hooks, and worktree isolation. Fixers resume failed tasks with full context instead of starting over.
 
-**Runbooks.** The MCP server ships machine-readable orchestration sequences. Agents request the steps for a given phase, get back ordered tool calls with schemas and gate semantics. No prose to misinterpret, and any MCP client can use them.
+**Runbooks.** Machine-readable orchestration sequences served via MCP. Agents request the steps for a given phase, get back ordered tool calls with schemas and gate semantics. Any MCP client can use them.
 
-**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Verification scripts, not vibes.
+**Two-stage review.** Spec compliance first (does it match the design?), then code quality (is it well-written?). Deterministic convergence gates, not prompts.
 
-**Audit trail.** Every transition, gate result, and agent decision goes into an append-only event log. When something breaks, you can trace what happened.
+**Audit trail.** Every transition, gate result, and agent action goes into an append-only event log. When something breaks, trace what happened.
 
-**Token-efficient.** Lazy schema registration keeps MCP startup under 500 tokens. Field projection trims state queries by 90%. Code review sends diffs, not full files.
-
-Your Claude Code session is the orchestrator. Exarchos manages state; you make decisions at each checkpoint.
+**Token-efficient.** Lazy schema registration keeps MCP startup under 500 tokens. Field projection trims state queries by 90%. Review sends diffs, not full files.
 
 ### Agent-first architecture
 
@@ -91,22 +88,20 @@ Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude 
 |------|-------------|
 | `exarchos_workflow` | Workflow lifecycle: init, get, set, cancel, cleanup, reconcile |
 | `exarchos_event` | Append-only event store: append, query, batch |
-| `exarchos_orchestrate` | Team coordination: task dispatch, review triage, script execution, runbooks, agent specs |
+| `exarchos_orchestrate` | Team coordination: task dispatch, review triage, runbooks, agent specs |
 | `exarchos_view` | CQRS projections: pipeline status, task boards, stack health |
 
-All four tools support lazy schema loading via `describe`. At startup, only slim descriptions and action enums are registered. Full schemas load on demand when the agent calls `describe` for the actions it needs.
+All four tools support lazy schema loading via `describe`. At startup, only slim descriptions and action enums are registered. Full schemas load on demand.
 
-Agent specifications live in a registry and are served through `exarchos_orchestrate({ action: "agent_spec" })`. Claude Code gets compiled `.md` agent files as a native optimization; other MCP clients get the same specs via the API.
+Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so `exarchos workflow get --featureId my-feature` from a terminal returns the same result the agent gets.
 
-Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so you can call `exarchos workflow get --featureId my-feature` from a terminal and get the same result the agent gets. Lifecycle hooks (pre-compact, session-start, guard, task-gate) run as fast-path subcommands that skip heavy initialization.
-
-The design is agent-first: structured input over natural language, strict schema validation over loose parsing. One binary, same behavior whether an agent or a human is driving it.
+Structured input over natural language. Strict schema validation over loose parsing. One binary, same behavior whether an agent or a human is driving it.
 
 ### Integrations
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| Exarchos | Core plugin | Workflow state, event log, team coordination, quality gates |
+| Exarchos | Core plugin | Workflow state, event log, team coordination, convergence gates |
 | Serena | [Dev companion](companion/) | Semantic code analysis |
 | Context7 | [Dev companion](companion/) | Up-to-date library documentation |
 | Microsoft Learn | [Dev companion](companion/) | Azure and .NET documentation |

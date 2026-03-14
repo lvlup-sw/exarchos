@@ -1,6 +1,6 @@
 {
   "name": "exarchos",
-  "description": "Structure for agentic development — durable SDLC workflows with convergence gates, agent teams, and full audit trail.",
+  "description": "A local-first SDLC workflow harness — structured, durable state for coding agents, with convergence gates, agent teams, and full audit trail.",
   "version": "2.5.0",
   "author": {
     "name": "LevelUp Software"
