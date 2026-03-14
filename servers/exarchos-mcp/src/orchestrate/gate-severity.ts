@@ -33,5 +33,6 @@ export function resolveGateSeverity(
   const dimKey = dimension as DimensionKey;
   const dimConfig = config.review.dimensions[dimKey];
   if (!dimConfig) return 'blocking'; // unknown dimension defaults to blocking
+  if (!dimConfig.enabled) return 'disabled';
   return dimConfig.severity;
 }
