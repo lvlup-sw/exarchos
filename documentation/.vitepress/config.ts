@@ -59,6 +59,7 @@ export default defineConfig({
             { text: 'Checkpoint & Resume', link: '/guide/checkpoint-resume' },
             { text: 'Agent Teams', link: '/guide/agent-teams' },
             { text: 'Review Process', link: '/guide/review-process' },
+            { text: 'Project Configuration', link: '/guide/project-config' },
           ],
         },
       ],
