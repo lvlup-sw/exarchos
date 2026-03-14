@@ -90,6 +90,17 @@ const HooksConfig = z.object({
   on: z.record(z.string(), z.array(HookAction)).optional(),
 }).strict();
 
+// ─── Plugin Configuration ─────────────────────────────────────────────────
+
+const PluginConfig = z.object({
+  enabled: z.boolean().default(true),
+}).strict();
+
+const PluginsConfig = z.object({
+  axiom: PluginConfig.optional(),
+  impeccable: PluginConfig.optional(),
+}).strict();
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
@@ -98,6 +109,7 @@ export const ProjectConfigSchema = z.object({
   workflow: WorkflowConfig.optional(),
   tools: ToolsConfig.optional(),
   hooks: HooksConfig.optional(),
+  plugins: PluginsConfig.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
