@@ -30,7 +30,7 @@ Activate this skill when:
 
 Do not activate this skill when:
 - User wants qualitative architecture review — use `assay:critique` instead
-- User wants a full convergence audit — use the feature-audit skill instead
+- User wants a full quality audit — use `assay:audit` instead
 - User needs subjective design feedback rather than pattern matching
 
 ## Process

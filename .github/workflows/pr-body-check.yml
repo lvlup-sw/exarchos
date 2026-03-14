@@ -50,9 +50,19 @@ jobs:
             SECTIONS=("Summary" "Changes" "Test Plan")
           fi
 
+          # Safeguard: if template exists but yielded no sections, fall back to defaults
+          if [[ ${#SECTIONS[@]} -eq 0 ]]; then
+            echo "Warning: .exarchos/pr-template.md has no ## headings, using defaults"
+            SECTIONS=("Summary" "Changes" "Test Plan")
+          fi
+
+          # Escape regex metacharacters in section names
+          escape_ere() { printf '%s' "$1" | sed 's/[.[*^$()+?{|\\]/\\&/g'; }
+
           MISSING=()
           for section in "${SECTIONS[@]}"; do
-            if ! echo "$BODY" | grep -qiF "## ${section}"; then
+            escaped="$(escape_ere "$section")"
+            if ! printf '%s\n' "$BODY" | grep -qiE "^##[[:space:]]+${escaped}[[:space:]]*$"; then
               MISSING+=("$section")
             fi
           done
