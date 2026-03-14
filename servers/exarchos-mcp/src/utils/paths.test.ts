@@ -133,6 +133,16 @@ describe('resolveTeamsDir', () => {
     expect(resolveTeamsDir()).toBe('/home/testuser/.claude/teams');
   });
 
+  it('returns Claude path when EXARCHOS_PLUGIN_ROOT is set', () => {
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '/some/path');
+    expect(resolveTeamsDir()).toBe('/home/testuser/.claude/teams');
+  });
+
+  it('returns XDG path when XDG_STATE_HOME is set', () => {
+    vi.stubEnv('XDG_STATE_HOME', '/home/testuser/.local/state');
+    expect(resolveTeamsDir()).toBe('/home/testuser/.local/state/exarchos/teams');
+  });
+
   it('returns default fallback when no env vars set', () => {
     expect(resolveTeamsDir()).toBe('/home/testuser/.exarchos/teams');
   });
@@ -160,6 +170,16 @@ describe('resolveTasksDir', () => {
   it('returns Claude path when CLAUDE_PLUGIN_ROOT is set', () => {
     vi.stubEnv('CLAUDE_PLUGIN_ROOT', '/some/path');
     expect(resolveTasksDir()).toBe('/home/testuser/.claude/tasks');
+  });
+
+  it('returns Claude path when EXARCHOS_PLUGIN_ROOT is set', () => {
+    vi.stubEnv('EXARCHOS_PLUGIN_ROOT', '/some/path');
+    expect(resolveTasksDir()).toBe('/home/testuser/.claude/tasks');
+  });
+
+  it('returns XDG path when XDG_STATE_HOME is set', () => {
+    vi.stubEnv('XDG_STATE_HOME', '/home/testuser/.local/state');
+    expect(resolveTasksDir()).toBe('/home/testuser/.local/state/exarchos/tasks');
   });
 
   it('returns default fallback when no env vars set', () => {

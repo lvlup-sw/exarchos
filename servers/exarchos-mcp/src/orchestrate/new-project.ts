@@ -59,7 +59,7 @@ function resolvePlatform(platform: Platform): 'claude-code' | 'generic' {
 // ─── Template Resolution ────────────────────────────────────────────────────
 
 function resolveTemplatePath(): string {
-  const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+  const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT;
   if (pluginRoot) {
     return join(pluginRoot, 'CLAUDE.md.template');
   }

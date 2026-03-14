@@ -52,8 +52,15 @@ export async function handleHookCommand(
   const { resolveStateDir } = await import('../workflow/state-store.js');
   const { resolveTeamsDir } = await import('../utils/paths.js');
 
-  const rawInput = await readStdin();
-  const stdinData = parseStdin(rawInput);
+  let stdinData: string;
+  try {
+    const rawInput = await readStdin();
+    stdinData = parseStdin(rawInput);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputJson({ error: { code: 'STDIN_PARSE_ERROR', message } });
+    return { handled: true, exitCode: 1 };
+  }
 
   type HandlerResult = { error?: { code: string; message: string }; [key: string]: unknown };
 
@@ -93,7 +100,14 @@ export async function handleHookCommand(
     return { handled: false };
   }
 
-  const result = await handler();
+  let result: HandlerResult;
+  try {
+    result = await handler();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    outputJson({ error: { code: 'HOOK_HANDLER_ERROR', message } });
+    return { handled: true, exitCode: 1 };
+  }
   outputJson(result);
 
   if (result.error) {
