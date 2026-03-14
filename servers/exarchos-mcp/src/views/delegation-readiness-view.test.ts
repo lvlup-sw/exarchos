@@ -29,7 +29,7 @@ describe('DelegationReadinessView', () => {
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('plan not approved');
       expect(state.blockers).toContain('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
-      expect(state.blockers).toContain('quality signals not queried');
+      expect(state.blockers).not.toContain('quality signals not queried');
       expect(state.plan).toEqual({ approved: false, taskCount: 0 });
       expect(state.quality).toEqual({
         queried: false,
@@ -214,7 +214,108 @@ describe('DelegationReadinessView', () => {
     });
   });
 
-  // ─── T7: All conditions met → ready ───────────────────────────────────────
+  // ─── T7: state.patched ──────────────────────────────────────────────────
+
+  describe('apply - state.patched', () => {
+    it('Apply_StatePatched_PlanReviewApproved_SetsPlanApproved', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: true } },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.approved).toBe(true);
+      expect(next.blockers).not.toContain('plan not approved');
+    });
+
+    it('Apply_StatePatched_DotPathPlanReviewApproved_SetsPlanApproved', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': true },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.approved).toBe(true);
+      expect(next.blockers).not.toContain('plan not approved');
+    });
+
+    it('Apply_StatePatched_PlanReviewApprovedFalse_ClearsPlanApproved', () => {
+      let state = delegationReadinessProjection.init();
+
+      // First approve
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': true },
+      }, 1));
+      expect(state.plan.approved).toBe(true);
+
+      // Then revoke
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview.approved'],
+        patch: { 'planReview.approved': false },
+      }, 2));
+
+      expect(state.plan.approved).toBe(false);
+      expect(state.blockers).toContain('plan not approved');
+    });
+
+    it('Apply_StatePatched_NestedPlanReviewFalse_ClearsPlanApproved', () => {
+      let state = delegationReadinessProjection.init();
+
+      // First approve via nested form
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: true } },
+      }, 1));
+      expect(state.plan.approved).toBe(true);
+
+      // Then revoke via nested form
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: false } },
+      }, 2));
+
+      expect(state.plan.approved).toBe(false);
+      expect(state.blockers).toContain('plan not approved');
+    });
+
+    it('Apply_StatePatched_UnrelatedField_DoesNotChangePlan', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['brief'],
+        patch: { brief: { problem: 'some problem' } },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.approved).toBe(false);
+    });
+
+    it('Apply_StatePatched_NoPatch_ReturnsUnchanged', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: [],
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next).toBe(state);
+    });
+  });
+
+  // ─── T8: All conditions met → ready ───────────────────────────────────────
 
   describe('apply - readiness computation', () => {
     it('Apply_AllConditionsMet_SetsReadyTrue', () => {
@@ -241,14 +342,32 @@ describe('DelegationReadinessView', () => {
         taskId: 'task-1',
       }, 3));
 
-      // Quality signal
-      state = delegationReadinessProjection.apply(state, makeEvent('gate.executed', {
-        gateName: 'plan-coverage',
-        layer: 'validation',
-        passed: true,
-        duration: 500,
-        details: {},
-      }, 4));
+      expect(state.ready).toBe(true);
+      expect(state.blockers).toEqual([]);
+    });
+
+    it('Apply_PlanApprovedViaStatePatch_WithTaskAndWorktree_SetsReady', () => {
+      let state = delegationReadinessProjection.init();
+
+      // Approve plan via state.patched (instead of workflow.transition)
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['planReview'],
+        patch: { planReview: { approved: true } },
+      }, 1));
+
+      // Assign a task
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1',
+        title: 'Implement feature A',
+        worktree: '/tmp/wt-1',
+      }, 2));
+
+      // Worktree created
+      state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1',
+        taskId: 'task-1',
+      }, 3));
 
       expect(state.ready).toBe(true);
       expect(state.blockers).toEqual([]);
@@ -282,15 +401,6 @@ describe('DelegationReadinessView', () => {
         worktreePath: '/tmp/wt-1',
         taskId: 'task-1',
       }, 4));
-
-      // Quality signal
-      state = delegationReadinessProjection.apply(state, makeEvent('gate.executed', {
-        gateName: 'plan-coverage',
-        layer: 'validation',
-        passed: true,
-        duration: 500,
-        details: {},
-      }, 5));
 
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('1 worktrees pending');

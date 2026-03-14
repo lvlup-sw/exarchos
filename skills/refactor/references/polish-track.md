@@ -34,21 +34,13 @@ Use `@skills/refactor/references/explore-checklist.md` to assess:
 action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 ```
 
-**Set track and scope assessment:**
+**Set track and scope assessment, then transition to brief:**
+
+Before calling `set`, query the required guard shape:
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "track": "polish",
-  "explore": {
-    "startedAt": "<ISO8601>",
-    "scopeAssessment": {
-      "filesAffected": ["<paths>"],
-      "modulesAffected": ["<modules>"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "polish"
-    }
-  }
-}, phase: "brief"
+exarchos_workflow({ action: "describe", playbook: "refactor" })
 ```
+Use the returned guard requirements for the `explore → brief` transition to construct your `set` call with the correct fields.
 
 ### 2. Brief Phase
 
@@ -62,20 +54,9 @@ Use `@skills/refactor/references/brief-template.md` to structure:
 - Success criteria
 - Docs to update
 
-**Save brief and advance:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "brief": {
-    "problem": "<problem statement>",
-    "goals": ["<goal1>", "<goal2>"],
-    "approach": "<approach>",
-    "affectedAreas": ["<areas>"],
-    "outOfScope": ["<items>"],
-    "successCriteria": ["<criteria>"],
-    "docsToUpdate": ["<doc paths>"]
-  }
-}, phase: "polish-implement"
-```
+**Save brief and advance to polish-implement:**
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `brief → polish-implement` guard requirements, then `set` the required fields (brief) and phase.
 
 ### 3. Implement Phase
 
@@ -94,9 +75,8 @@ git push -u origin refactor/<brief-name>
 ```
 
 **Advance to validation:**
-```
-action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
-```
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `polish-implement → polish-validate` guard requirements, then `set` the phase.
 
 ### 4. Validate Phase
 
@@ -125,12 +105,9 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 **On `passed: true`:** All static analysis checks pass (lint, typecheck).
 **On `passed: false`:** One or more static analysis checks failed — fix before proceeding.
 
-**Save validation results and advance:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "validation": { "testsPass": true, "goalsVerified": ["<verified goals>"] }
-}, phase: "polish-update-docs"
-```
+**Save validation results and advance to polish-update-docs:**
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `polish-validate → polish-update-docs` guard requirements, then `set` the required fields (validation) and phase.
 
 ### 5. Update Docs Phase
 
@@ -145,12 +122,8 @@ Use `@skills/refactor/references/doc-update-checklist.md` to update:
 If `docsToUpdate` is empty, verify no docs need updating.
 
 **Mark docs updated and complete:**
-```
-action: "set", featureId: "refactor-<slug>", updates: {
-  "validation": { "docsUpdated": true },
-  "artifacts": { "updatedDocs": ["<doc paths>"] }
-}, phase: "completed"
-```
+
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `polish-update-docs → completed` guard requirements, then `set` the required fields (validation, artifacts) and phase.
 
 > **Note:** The HSM transitions directly from `polish-update-docs` to `completed`. There is no `synthesize` phase for polish track.
 

@@ -31,11 +31,7 @@ Same as hotfix, but set track to "thorough":
 
 **Set track and advance to investigate:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "track": "thorough"
-}, phase: "investigate"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then `set` the track to `"thorough"` and phase.
 
 ### 2. Investigate Phase
 
@@ -56,11 +52,7 @@ Update state:
 
 **Record RCA artifact and advance to design:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "artifacts.rca": "docs/rca/YYYY-MM-DD-<issue-slug>.md"
-}, phase: "design"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `rca → design` guard requirements, then `set` the required fields (artifacts.rca) and phase.
 
 ### 4. Design Phase
 
@@ -70,11 +62,7 @@ Brief fix approach (NOT a full design document).
 
 **Record fix design and advance to implement:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "artifacts.fixDesign": "<fix approach description>"
-}, phase: "debug-implement"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `design → debug-implement` guard requirements, then `set` the required fields (artifacts.fixDesign) and phase.
 
 ### 5. Implement Phase
 
@@ -91,16 +79,9 @@ cd .worktrees/debug-<issue-slug> && npm install
 
 Update state:
 
-**Record worktree and advance to review:**
+**Record worktree and advance to validate:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "worktrees.\".worktrees/debug-<issue-slug>\"": {
-    "branch": "feature/debug-<issue-slug>",
-    "status": "active"
-  }
-}, phase: "debug-validate"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-implement → debug-validate` guard requirements, then `set` the required fields (worktrees) and phase.
 
 ### 6. Review Phase
 
@@ -127,9 +108,7 @@ Update state:
 
 **Advance to synthesize:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", phase: "synthesize"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-review → synthesize` guard requirements, then `set` the phase.
 
 ### 7. Synthesize Phase
 
@@ -173,12 +152,7 @@ When `exarchos_orchestrate({ action: "investigation_timer" })` returns `passed: 
 
 **Switch to thorough track:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "track": "thorough",
-  "investigation.findings": ["Switched to thorough track: root cause not found in 15 min"]
-}
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then `set` the track to `"thorough"` and record the switch reason in `investigation.findings`.
 
 Continue investigation without time constraint.
 
@@ -188,11 +162,7 @@ If fix requires architectural changes:
 
 **Escalate to blocked:**
 
-```
-action: "set", featureId: "debug-<issue-slug>", updates: {
-  "investigation.findings": ["Escalated: requires architectural changes"]
-}, phase: "blocked"
-```
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the guard requirements, then `set` the investigation findings and phase to `"blocked"`.
 
 Output to user:
 > This issue requires architectural changes that exceed bug fix scope.
