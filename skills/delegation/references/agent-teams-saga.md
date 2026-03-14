@@ -1,5 +1,8 @@
 # Agent Teams Delegation Saga
 
+> **Machine-readable version:** `exarchos_orchestrate({ action: "runbook", id: "agent-teams-saga" })`
+> The runbook below is the authoritative sequence. The prose description provides human-readable context.
+
 Event-first delegation saga for Agent Teams mode. Every coordination action is preceded by an Exarchos event emission. The event stream is the authoritative record; native API calls are side effects.
 
 **Architectural principle:** Events record intent. Native API calls execute effects.
@@ -16,10 +19,11 @@ exarchos_event append:
   stream: {featureId}
   event:
     type: "team.spawned"
-    teamName: {featureId}
-    teamSize: {N}
-    taskCount: {M}
-    dispatchMode: "agent-team"
+    data:
+      teamSize: {N}
+      teammateNames: ["teammate-1", "teammate-2"]
+      taskCount: {M}
+      dispatchMode: "agent-team"
 
 # Execute side effect
 TeamCreate:
@@ -112,7 +116,7 @@ Task:
   prompt: {spawnPrompt}  # See implementer-prompt.md template
 ```
 
-> **Spawn prompt assembly:** `{spawnPrompt}` MUST include all universal sections from `implementer-prompt.md` (TDD Requirements, Files, Success Criteria, **Commit Strategy**, Completion) PLUS the Agent Teams-only sections (Coordination, Workflow Intelligence, Team Context, Historical Context). See the comparison table in `implementer-prompt.md` for the full section list. The Commit Strategy section with Graphite `gt create`/`gt submit` instructions is required — without it, teammates will use plain `git commit` instead of creating stacked PRs.
+> **Spawn prompt assembly:** `{spawnPrompt}` MUST include all universal sections from `implementer-prompt.md` (TDD Requirements, Files, Success Criteria, **Commit Strategy**, Completion) PLUS the Agent Teams-only sections (Coordination, Workflow Intelligence, Team Context, Historical Context). See the comparison table in `implementer-prompt.md` for the full section list. The Commit Strategy section with `git commit`/`git push` instructions is required — without it, teammates may skip pushing their work.
 
 ### Step 4: Monitor (RETRYABLE)
 
@@ -227,7 +231,7 @@ This implements a **layered coordination** model:
 When using Agent Teams mode, the delegation saga emits events at each lifecycle boundary:
 
 **Orchestrator-emitted events (saga steps):**
-- `team.spawned` -- Step 1: team creation (includes teamName, teamSize, taskCount, dispatchMode)
+- `team.spawned` -- Step 1: team creation (`event.data`: teamSize, teammateNames, taskCount, dispatchMode)
 - `team.task.planned` -- Step 2: task planning via `batch_append` (includes taskId, title, modules, blockedBy)
 - `team.teammate.dispatched` -- Step 3: teammate spawn (includes teammateName, worktreePath, assignedTaskIds, model)
 - `team.disbanded` -- Step 5: team disbandment (includes totalDurationMs, tasksCompleted, tasksFailed)
@@ -235,7 +239,7 @@ When using Agent Teams mode, the delegation saga emits events at each lifecycle 
 **Hook-emitted events (automatic via TeammateIdle):**
 - `team.task.completed` -- After quality gates pass (includes taskId, teammateName, durationMs, filesChanged, testsPassed). Hook emits only; does NOT mutate workflow state.
 - `team.task.failed` -- After quality gates fail (includes taskId, teammateName, failureReason, gateResults). Hook emits only.
-- `team.context.injected` -- From SubagentStart hook (includes phase, toolsAvailable)
+
 
 **Superseded events:**
 - `team.task.assigned` -- Superseded by the combination of `team.task.planned` (Step 2) + `team.teammate.dispatched` (Step 3). Existing event streams may still contain `team.task.assigned` events; CQRS views handle both old and new types during the transition period.

@@ -6,7 +6,7 @@ metadata:
   version: 1.0.0
   mcp-server: exarchos
   category: workflow
-  phase-affinity: cleanup
+  phase-affinity: completed
 ---
 
 # Cleanup Skill
@@ -18,7 +18,7 @@ Resolve merged workflows to `completed` state in a single operation. Replaces th
 ## Triggers
 
 Activate this skill when:
-- User runs `/cleanup` command
+- User runs `/exarchos:cleanup` command
 - User says "cleanup", "resolve workflow", "mark as done"
 - PR stack has merged and workflow needs resolution
 - User wants to close out a completed feature
@@ -61,6 +61,21 @@ Collect from merged PRs:
 
 For detailed verification guidance, see `references/merge-verification.md`.
 
+### 2.5. Post-Merge Regression Check (Advisory)
+
+After verifying merge status, run the post-merge regression check:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_post_merge",
+  featureId: "<id>",
+  prUrl: "<url>",
+  mergeSha: "<sha>"
+})
+```
+
+This check is **advisory** — findings are reported but do not block cleanup. If findings are detected, log them for the user's awareness before proceeding.
+
 ### 3. Invoke Cleanup Action
 
 Call the MCP cleanup action with collected data:
@@ -95,7 +110,8 @@ Handle gracefully if worktrees are already removed.
 
 Remove merged local branches:
 ```bash
-gt sync --force
+git fetch --prune
+git branch -d <merged-branch-1> <merged-branch-2> ...
 ```
 
 ### 6. Report Completion

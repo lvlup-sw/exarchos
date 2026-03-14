@@ -7,13 +7,14 @@ Rigorous path for architectural changes, migrations, and multi-file restructurin
 ## Phases
 
 ```
-Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
-   |         |        |         |          |            |             |
-   |         |        |         |          |            |             +-- PR creation
-   |         |        |         |          |            +-- Update architecture docs
-   |         |        |         |          +-- Quality review (emphasized)
-   |         |        |         +-- TDD implementation in worktrees
-   |         |        +-- Extract tasks from brief
+explore -> brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+   |         |           |                  |                       |                  |                    |                     |
+   |         |           |                  |                       |                  |                    |                     +-- PR creation
+   |         |           |                  |                       |                  |                    +-- Update architecture docs
+   |         |           |                  |                       |                  +-- Quality review (emphasized)
+   |         |           |                  |                       +-- TDD implementation in worktrees
+   |         |           |                  +-- Human checkpoint: verify plan coverage
+   |         |           +-- Extract tasks from brief
    |         +-- Detailed goals, approach, affected areas
    +-- Thorough scope assessment, identify affected systems
 ```
@@ -86,15 +87,17 @@ The `/exarchos:plan` skill:
 - Each task leaves code in working state
 - Dependency order matters more for refactors
 
-**Save plan and advance:**
+**Save plan and advance to plan-review:**
 ```
 action: "set", featureId: "refactor-<slug>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
-}, phase: "overhaul-delegate"
+}, phase: "overhaul-plan-review"
 ```
 
-> **Note:** There is no `plan-review` phase in the refactor HSM. Overhaul goes directly `overhaul-plan` -> `overhaul-delegate`.
+**Human checkpoint:** Plan-review verifies plan coverage against the brief before committing to delegation. The orchestrator compares design sections against planned tasks.
+- Gaps found → set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
+- Approved → set `.planReview.approved = true`, auto-invoke delegate
 
 Then auto-invoke delegate:
 ```typescript
@@ -150,12 +153,15 @@ action: "set", featureId: "refactor-<slug>", phase: "overhaul-update-docs"
 
 Verify all documentation links are valid:
 
-```bash
-bash scripts/verify-doc-links.sh --docs-dir docs/
+```typescript
+exarchos_orchestrate({
+  action: "verify_doc_links",
+  docsDir: "docs/"
+})
 ```
 
-**On Exit 0:** All links valid.
-**On Exit 1:** Broken links found — fix before proceeding.
+**On `passed: true`:** All links valid.
+**On `passed: false`:** Broken links found — fix before proceeding.
 
 For overhaul, typically includes:
 - Architecture documentation updates
@@ -184,24 +190,26 @@ Invoke `/exarchos:synthesize` skill:
 Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
 ```
 
-Creates PR via Graphite, updates description via `gh pr edit`. **Human checkpoint:** Confirm merge.
+Creates PR via `gh pr create`, updates description via `gh pr edit`. **Human checkpoint:** Confirm merge.
 
 > Or use GitHub MCP `update_pull_request` if available.
 
 ## Auto-Chain
 
 ```
-explore -> brief -> overhaul-plan -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
-           (auto)   (auto)          (auto)               (auto)             (auto)                  (auto)        [HUMAN]
+explore -> brief -> overhaul-plan -> overhaul-plan-review -> overhaul-delegate -> overhaul-review -> overhaul-update-docs -> synthesize -> completed
+           (auto)   (auto)          [HUMAN]                  (auto)               (auto)             (auto)                  (auto)        [HUMAN]
 ```
 
 **Next actions:**
-- `AUTO:refactor-brief` after explore
+- `AUTO:brief` after explore
 - `AUTO:overhaul-plan` after brief
-- `AUTO:refactor-delegate` after overhaul-plan
-- `AUTO:refactor-review` after overhaul-delegate
-- `AUTO:refactor-update-docs` after overhaul-review
-- `AUTO:refactor-synthesize` after overhaul-update-docs
+- `AUTO:overhaul-plan-review` after overhaul-plan
+- `WAIT:human-checkpoint:overhaul-plan-review` at plan-review
+- `AUTO:overhaul-delegate` after overhaul-plan-review (approved)
+- `AUTO:overhaul-review` after overhaul-delegate
+- `AUTO:overhaul-update-docs` after overhaul-review
+- `AUTO:synthesize` after overhaul-update-docs
 - `WAIT:human-checkpoint:synthesize` after synthesize
 
 ## Completion Criteria

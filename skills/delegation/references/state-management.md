@@ -48,4 +48,37 @@ action: "set", featureId: "<id>", updates: {
 }
 ```
 
-The `/synthesize` skill reads `verification.hasBenchmarks` and applies the `has-benchmarks` label via `gh pr edit <number> --add-label has-benchmarks`.
+The `/exarchos:synthesize` skill reads `verification.hasBenchmarks` and applies the `has-benchmarks` label via `gh pr edit <number> --add-label has-benchmarks`.
+
+## Agent ID Tracking
+
+Workflow task state includes additional fields for resume-aware fixer flow:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentId` | string | Claude Code agent ID for resume. Canonical source: `SubagentStop` hook payload. |
+| `agentResumed` | boolean | Whether this agent was resumed (vs. fresh dispatch). |
+| `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). Canonical source: `SubagentStop` hook payload. |
+
+The `SubagentStop` hook (`hooks/hooks.json`) is the **canonical source** for `agentId` and `lastExitReason`. When the hook fires for `exarchos-implementer` or `exarchos-fixer` agents, the orchestrator persists the hook payload fields into `tasks[id=taskId]`. This enables the resume-first strategy in the fixer flow: when a task fails, the orchestrator can resume the original agent with failure context rather than dispatching a fresh fixer.
+
+**State update on SubagentStop hook:**
+```text
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": {
+    "agentId": "<from SubagentStop hook payload: agent_id>",
+    "agentResumed": false,
+    "lastExitReason": "<from SubagentStop hook payload: exit_reason>"
+  }
+}
+```
+
+**State update on resume:**
+```text
+action: "set", featureId: "<id>", updates: {
+  "tasks[id=<taskId>]": {
+    "agentResumed": true,
+    "status": "in_progress"
+  }
+}
+```

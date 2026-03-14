@@ -103,17 +103,15 @@ For each logical change:
 # After each change
 npm run test:run
 
-# Commit via Graphite
+# Commit changes
 git add <files>
-gt create refactor/<brief-name> -m "refactor: <description>"
+git commit -m "refactor: <description>"
 ```
 
 After all changes are complete:
 ```bash
-gt submit --no-interactive --publish --stack
+git push -u origin refactor/<brief-name>
 ```
-
-**NEVER use `git commit` or `git push`** — always use `gt create` and `gt submit`.
 
 **Log change:**
 
@@ -291,7 +289,7 @@ Implementation phase exits when:
 action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 ```
 
-Next action: `AUTO:refactor-validate`
+Next action: `AUTO:polish-validate`
 
 ### Track Switch Exit -> Plan Phase
 

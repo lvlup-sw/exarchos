@@ -106,7 +106,7 @@ describe('AllReviewsPassed Expected Shape', () => {
       const obj = result as GuardFailure;
       expect(obj.passed).toBe(false);
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
 
@@ -118,7 +118,7 @@ describe('AllReviewsPassed Expected Shape', () => {
       expect(result).not.toBe(true);
       const obj = result as GuardFailure;
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
   });
@@ -182,6 +182,65 @@ describe('AllReviewsPassed Nested Review Paths', () => {
   });
 });
 
+// ─── #1004: verdict synonym for status ─────────────────────────────────────
+
+describe('AllReviewsPassed Verdict Synonym', () => {
+  it('AllReviewsPassed_VerdictField_TreatedAsStatus', () => {
+    const state = {
+      reviews: {
+        specReview: { verdict: 'pass' },
+        qualityReview: { verdict: 'approved' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('AllReviewsPassed_MixedStatusAndVerdict_BothRecognized', () => {
+    const state = {
+      reviews: {
+        specReview: { status: 'pass' },
+        qualityReview: { verdict: 'pass' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('AllReviewsPassed_VerdictFail_FailsGuard', () => {
+    const state = {
+      reviews: {
+        specReview: { verdict: 'fail' },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const obj = result as GuardFailure;
+    expect(obj.passed).toBe(false);
+  });
+
+  it('AllReviewsPassed_NestedVerdict_Recognized', () => {
+    const state = {
+      reviews: {
+        A1: {
+          specReview: { verdict: 'pass' },
+          qualityReview: { verdict: 'approved' },
+        },
+      },
+    } as Record<string, unknown>;
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+});
+
 describe('AnyReviewFailed Expected Shape', () => {
   describe('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
     it('AnyReviewFailed_NoReviews_ReturnsExpectedShape', () => {
@@ -193,7 +252,7 @@ describe('AnyReviewFailed Expected Shape', () => {
       const obj = result as GuardFailure;
       expect(obj.passed).toBe(false);
       expect(obj.expectedShape).toEqual({
-        reviews: { '<name>': { status: 'pass' } },
+        reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
       });
     });
   });
@@ -371,6 +430,79 @@ describe('Phase-Specific Guard Expected Shapes', () => {
   });
 });
 
+// ─── #775: scopeAssessmentComplete guard with explore field variations ───────
+
+describe('ScopeAssessmentComplete Guard (#775)', () => {
+  describe('scopeAssessmentComplete_WithExploreSet_ReturnsTrue', () => {
+    it('should return true when explore.scopeAssessment is set', () => {
+      const state = { explore: { scopeAssessment: 'Assessment complete' } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithoutExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore is missing entirely', () => {
+      const state = {} as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+      expect(obj.expectedShape).toEqual({ explore: { scopeAssessment: '<assessment>' } });
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithEmptyExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore exists but scopeAssessment is missing', () => {
+      const state = { explore: {} } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithNullExplore_ReturnsFailure', () => {
+    it('should return { passed: false } when explore is null', () => {
+      const state = { explore: null } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithNullScopeAssessment_ReturnsFailure', () => {
+    it('should return { passed: false } when explore.scopeAssessment is null', () => {
+      const state = { explore: { scopeAssessment: null } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const obj = result as GuardFailure;
+      expect(obj).toEqual(expect.objectContaining({ passed: false }));
+    });
+  });
+
+  describe('scopeAssessmentComplete_WithRootScopeAssessment_ReturnsTrue', () => {
+    it('should return true when scopeAssessment is at root level (legacy/convenience)', () => {
+      const state = { scopeAssessment: { complete: true, track: 'overhaul' } } as Record<string, unknown>;
+
+      const result = guards.scopeAssessmentComplete.evaluate(state);
+
+      expect(result).toBe(true);
+    });
+  });
+});
+
 // ─── T6: Guard null safety edge cases (ARCH-6) ──────────────────────────────
 
 describe('Guard Null Safety', () => {
@@ -508,6 +640,83 @@ describe('Review Status fixes-applied', () => {
     it('should NOT include fixes-applied in FAILED_STATUSES', () => {
       expect(FAILED_STATUSES.has('fixes-applied')).toBe(false);
     });
+  });
+});
+
+// ─── Track & Field Guards: expectedShape and suggestedFix (#959) ─────────────
+
+describe('Track Selection Guards Structured Failures', () => {
+  const trackGuards = [
+    { key: 'polishTrackSelected', expectedTrack: 'polish' },
+    { key: 'overhaulTrackSelected', expectedTrack: 'overhaul' },
+    { key: 'hotfixTrackSelected', expectedTrack: 'hotfix' },
+    { key: 'thoroughTrackSelected', expectedTrack: 'thorough' },
+  ] as const;
+
+  for (const { key, expectedTrack } of trackGuards) {
+    describe(`${key}_WrongTrack_ReturnsExpectedShapeAndSuggestedFix`, () => {
+      it(`should include expectedShape { track: '${expectedTrack}' } and suggestedFix`, () => {
+        const state = { featureId: 'test-feature', track: 'wrong' };
+        const result = guards[key].evaluate(state);
+        expect(result).not.toBe(true);
+        const failure = result as GuardFailure;
+        expect(failure.passed).toBe(false);
+        expect(failure.reason).toContain(expectedTrack);
+        expect(failure.reason).toContain('wrong');
+        expect(failure.expectedShape).toEqual({ track: expectedTrack });
+        expect(failure.suggestedFix).toEqual({
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId: 'test-feature', updates: { track: expectedTrack } },
+        });
+      });
+    });
+  }
+});
+
+describe('PrUrlExists Structured Failure', () => {
+  it('PrUrlExists_Missing_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.prUrlExists.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ synthesis: { prUrl: '<pr-url>' } });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix?.params.updates).toEqual({ synthesis: { prUrl: '<pr-url>' } });
+  });
+});
+
+describe('HumanUnblocked Structured Failure', () => {
+  it('HumanUnblocked_NotSet_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.humanUnblocked.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ unblocked: true });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix?.params.updates).toEqual({ unblocked: true });
+  });
+});
+
+describe('PlanReviewComplete Structured Failure', () => {
+  it('PlanReviewComplete_NotApproved_ReturnsExpectedShapeAndSuggestedFix', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.planReviewComplete.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ planReview: { approved: true } });
+    expect(failure.suggestedFix?.tool).toBe('exarchos_workflow');
+  });
+});
+
+describe('PlanReviewGapsFound Structured Failure', () => {
+  it('PlanReviewGapsFound_NoGaps_ReturnsExpectedShape', () => {
+    const state = { featureId: 'test-feature' };
+    const result = guards.planReviewGapsFound.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.expectedShape).toEqual({ planReview: { gapsFound: true } });
+    // No suggestedFix — gaps are discovered, not forced
+    expect(failure.suggestedFix).toBeUndefined();
   });
 });
 

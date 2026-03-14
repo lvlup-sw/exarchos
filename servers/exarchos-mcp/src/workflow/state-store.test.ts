@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
+  applyDotPath,
   deepMerge,
   isPlainObject,
   readStateFile,
@@ -13,6 +14,7 @@ import {
   listStateFiles,
   configureStateStoreBackend,
   reconcileFromEvents,
+  hydrateEventsFromStore,
   VersionConflictError,
   StateStoreError,
 } from './state-store.js';
@@ -37,6 +39,31 @@ describe('deepMerge', () => {
     const result = deepMerge(target, source);
 
     expect(result).toEqual({ items: [4, 5] });
+  });
+
+  it('DeepMerge_ArraysOfObjectsWithId_ReplacesEntirely', () => {
+    // Arrays are replaced entirely — no id-based upsert (#1003)
+    const target = {
+      tasks: [
+        { id: 't1', status: 'complete' },
+        { id: 't2', status: 'pending' },
+        { id: 't3', status: 'pending' },
+      ],
+    };
+    const source = {
+      tasks: [
+        { id: 'new-1', status: 'pending' },
+        { id: 'new-2', status: 'pending' },
+      ],
+    };
+
+    const result = deepMerge(target, source);
+
+    // Full replacement: only incoming entries remain
+    expect(result.tasks).toEqual([
+      { id: 'new-1', status: 'pending' },
+      { id: 'new-2', status: 'pending' },
+    ]);
   });
 
   it('DeepMerge_FlatObjects_MergesTopLevel', () => {
@@ -266,9 +293,11 @@ describe('reconcileFromEvents query efficiency', () => {
     expect(result.reconciled).toBe(true);
     expect(result.eventsApplied).toBe(1);
 
-    // Assert: eventStore.query should be called at most once for the delta path
-    expect(querySpy).toHaveBeenCalledTimes(1);
+    // Assert: eventStore.query called twice: once for delta events, once for _events hydration
+    expect(querySpy).toHaveBeenCalledTimes(2);
     expect(querySpy).toHaveBeenCalledWith('query-test', { sinceSequence: 2 });
+    // Second call is hydration (full query, no filters)
+    expect(querySpy).toHaveBeenCalledWith('query-test');
 
     querySpy.mockRestore();
   });
@@ -311,10 +340,46 @@ describe('reconcileFromEvents query efficiency', () => {
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw.phase).toBe('delegate');
 
-    // Should only query once (delta), not twice (delta + full)
-    expect(querySpy).toHaveBeenCalledTimes(1);
+    // Delta query + hydration query = 2 calls
+    expect(querySpy).toHaveBeenCalledTimes(2);
 
     querySpy.mockRestore();
+  });
+
+  it('reconcileFromEvents_VersionConflict_RetriesAndSucceeds', async () => {
+    // Arrange: configure backend and create state
+    const backend = new InMemoryBackend();
+    configureStateStoreBackend(backend);
+
+    await initStateFile(tmpDir, 'vc-test', 'feature');
+    await eventStore.append('vc-test', {
+      type: 'workflow.started',
+      data: { featureId: 'vc-test', workflowType: 'feature' },
+    });
+    await eventStore.append('vc-test', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'vc-test' },
+    });
+
+    // Desync the backend version: manually set backend version much lower
+    // than state._version by re-seeding with a low-version state
+    const currentState = backend.getState('vc-test')!;
+    backend.setState('vc-test', { ...currentState, _version: 50 } as WorkflowState);
+    // Backend version is now 2 (initial seed + one setState), but state._version is 50
+
+    // Act: reconcile should handle the VERSION_CONFLICT internally
+    const result = await reconcileFromEvents(tmpDir, 'vc-test', eventStore);
+
+    // Assert: reconciliation succeeded despite version desync
+    expect(result.reconciled).toBe(true);
+    expect(result.eventsApplied).toBeGreaterThanOrEqual(1);
+
+    // Verify the state was actually written
+    const state = await readStateFile(path.join(tmpDir, 'vc-test.state.json'));
+    expect(state.phase).toBe('plan');
+
+    // Cleanup
+    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
   });
 });
 
@@ -540,5 +605,273 @@ describe('State Store CAS Property Test', () => {
     // The failure should be a VersionConflictError
     const failedResult = failures[0] as PromiseRejectedResult;
     expect(failedResult.reason).toBeInstanceOf(VersionConflictError);
+  });
+});
+
+// ─── Write-Through .state.json Backup ────────────────────────────────────────
+
+describe('writeStateFile_WithBackend_WritesJsonBackup', () => {
+  let tempDir: string;
+  let backend: InMemoryBackend;
+
+  function makeState(overrides?: Record<string, unknown>): WorkflowState {
+    const now = new Date().toISOString();
+    return {
+      version: '1.1',
+      featureId: 'test',
+      workflowType: 'feature',
+      createdAt: now,
+      updatedAt: now,
+      phase: 'ideate',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      _version: 1,
+      _history: {},
+      _checkpoint: { timestamp: now, phase: 'ideate', summary: '', operationsSince: 0, fixCycleCount: 0, lastActivityTimestamp: now, staleAfterMinutes: 120 },
+      ...overrides,
+    } as WorkflowState;
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'state-write-through-'));
+    backend = new InMemoryBackend();
+    configureStateStoreBackend(backend);
+  });
+
+  afterEach(async () => {
+    configureStateStoreBackend(undefined as unknown as InMemoryBackend);
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('writeStateFile_WithBackend_AlsoWritesJsonFile', async () => {
+    const state = makeState({ featureId: 'wt-test', phase: 'ideate' });
+    backend.setState('wt-test', state);
+
+    const stateFile = path.join(tempDir, 'wt-test.state.json');
+    const updated = makeState({ featureId: 'wt-test', phase: 'plan' });
+
+    await writeStateFile(stateFile, updated, { expectedVersion: 1 });
+
+    // Backend should have the state
+    const backendState = backend.getState('wt-test');
+    expect(backendState).toBeDefined();
+    expect(backendState!.phase).toBe('plan');
+
+    // JSON file should ALSO exist as backup
+    const fileContent = await fs.readFile(stateFile, 'utf-8');
+    const fileState = JSON.parse(fileContent);
+    expect(fileState.phase).toBe('plan');
+    expect(fileState.featureId).toBe('wt-test');
+  });
+
+  it('initStateFile_WithBackend_AlsoWritesJsonFile', async () => {
+    const { stateFile, state } = await initStateFile(tempDir, 'init-wt', 'feature');
+
+    // Backend should have the state
+    const backendState = backend.getState('init-wt');
+    expect(backendState).toBeDefined();
+    expect(backendState!.phase).toBe('ideate');
+
+    // JSON file should ALSO exist as backup
+    const fileContent = await fs.readFile(stateFile, 'utf-8');
+    const fileState = JSON.parse(fileContent);
+    expect(fileState.phase).toBe('ideate');
+    expect(fileState.featureId).toBe('init-wt');
+  });
+
+  it('writeStateFile_BackendSucceeds_FileWriteFailure_DoesNotThrow', async () => {
+    const state = makeState({ featureId: 'wt-fail', phase: 'ideate' });
+    backend.setState('wt-fail', state);
+
+    // Create a regular file where mkdir expects a directory — this forces
+    // the write-through path to fail (ENOTDIR) deterministically
+    const blocker = path.join(tempDir, 'blocker');
+    await fs.writeFile(blocker, 'not-a-dir', 'utf-8');
+    const stateFile = path.join(blocker, 'nested', 'wt-fail.state.json');
+    const updated = makeState({ featureId: 'wt-fail', phase: 'plan' });
+
+    // Should NOT throw — backend write succeeds, file write failure is logged
+    await expect(writeStateFile(stateFile, updated, { expectedVersion: 1 })).resolves.toBeUndefined();
+
+    // Backend should still have the updated state
+    const backendState = backend.getState('wt-fail');
+    expect(backendState!.phase).toBe('plan');
+  });
+});
+
+// ─── hydrateEventsFromStore ──────────────────────────────────────────────────
+
+describe('hydrateEventsFromStore', () => {
+  it('HydrateEventsFromStore_EmptyEventStore_ReturnsEmptyArray', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toEqual([]);
+  });
+
+  it('HydrateEventsFromStore_TransitionEvents_MapsTypeAndPreservesFields', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        {
+          type: 'workflow.transition',
+          timestamp: '2026-03-09T10:00:00.000Z',
+          data: { from: 'ideate', to: 'plan', trigger: 'user' },
+        },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('transition'); // mapped via mapExternalToInternalType
+    expect(result[0].timestamp).toBe('2026-03-09T10:00:00.000Z');
+    expect(result[0].from).toBe('ideate');
+    expect(result[0].to).toBe('plan');
+    expect(result[0].trigger).toBe('user');
+    expect(result[0].metadata).toEqual({ from: 'ideate', to: 'plan', trigger: 'user' });
+  });
+
+  it('HydrateEventsFromStore_TeamEvents_PreservesAllDataFields', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        {
+          type: 'team.spawned',
+          timestamp: '2026-03-09T10:00:00.000Z',
+          data: { featureId: 'test-feature', agentCount: 3 },
+        },
+        {
+          type: 'team.disbanded',
+          timestamp: '2026-03-09T11:00:00.000Z',
+          data: {
+            featureId: 'test-feature',
+            totalDurationMs: 5000,
+            tasksCompleted: 3,
+            tasksFailed: 0,
+          },
+        },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(2);
+
+    // team.spawned: type is NOT mapped (no workflow. prefix)
+    expect(result[0].type).toBe('team.spawned');
+    expect(result[0].featureId).toBe('test-feature');
+    expect(result[0].agentCount).toBe(3);
+    expect(result[0].metadata).toEqual({ featureId: 'test-feature', agentCount: 3 });
+
+    // team.disbanded: ALL data fields at top level AND in metadata
+    expect(result[1].type).toBe('team.disbanded');
+    expect(result[1].totalDurationMs).toBe(5000);
+    expect(result[1].tasksCompleted).toBe(3);
+    expect(result[1].tasksFailed).toBe(0);
+    expect(result[1].metadata).toEqual({
+      featureId: 'test-feature',
+      totalDurationMs: 5000,
+      tasksCompleted: 3,
+      tasksFailed: 0,
+    });
+  });
+
+  it('HydrateEventsFromStore_MixedEventTypes_MapsAllCorrectly', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockResolvedValue([
+        { type: 'workflow.started', timestamp: '2026-03-09T10:00:00.000Z', data: { featureId: 'test' } },
+        { type: 'workflow.transition', timestamp: '2026-03-09T10:01:00.000Z', data: { from: 'ideate', to: 'plan' } },
+        { type: 'team.spawned', timestamp: '2026-03-09T10:02:00.000Z', data: { featureId: 'test' } },
+        { type: 'task.completed', timestamp: '2026-03-09T10:03:00.000Z', data: { taskId: 't1' } },
+        { type: 'gate.executed', timestamp: '2026-03-09T10:04:00.000Z', data: { gateName: 'design', passed: true } },
+        { type: 'team.disbanded', timestamp: '2026-03-09T10:05:00.000Z', data: { totalDurationMs: 5000 } },
+      ]),
+    } as unknown as EventStore;
+
+    const result = await hydrateEventsFromStore('test-feature', mockEventStore);
+
+    expect(result).toHaveLength(6);
+    // workflow.started maps via mapExternalToInternalType (no explicit mapping, returns 'workflow.started')
+    expect(result[0].type).toBe('workflow.started');
+    // workflow.transition maps to 'transition'
+    expect(result[1].type).toBe('transition');
+    // team.spawned stays as-is
+    expect(result[2].type).toBe('team.spawned');
+    // task.completed stays as-is
+    expect(result[3].type).toBe('task.completed');
+    // gate.executed stays as-is
+    expect(result[4].type).toBe('gate.executed');
+    // team.disbanded stays as-is
+    expect(result[5].type).toBe('team.disbanded');
+
+    // Each event has its data fields at top level
+    expect(result[3].taskId).toBe('t1');
+    expect(result[4].gateName).toBe('design');
+    expect(result[5].totalDurationMs).toBe(5000);
+  });
+
+  it('HydrateEventsFromStore_EventStoreThrows_PropagatesError', async () => {
+    const mockEventStore = {
+      query: vi.fn().mockRejectedValue(new Error('Connection lost')),
+    } as unknown as EventStore;
+
+    await expect(
+      hydrateEventsFromStore('test-feature', mockEventStore),
+    ).rejects.toThrow('Connection lost');
+  });
+});
+
+// ─── Issue #1003: applyDotPath array replacement regression ──────────────────
+
+describe('applyDotPath array replacement (#1003)', () => {
+  it('applyDotPath_tasksArrayWithNewIds_replacesEntireArray', () => {
+    // Arrange
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: 'task-1', title: 'Old Task 1', status: 'pending' },
+        { id: 'task-2', title: 'Old Task 2', status: 'pending' },
+        { id: 'task-3', title: 'Old Task 3', status: 'pending' },
+      ],
+    };
+
+    // Act
+    applyDotPath(obj, 'tasks', [
+      { id: 'taskA', title: 'New Task A', status: 'pending' },
+      { id: 'taskB', title: 'New Task B', status: 'pending' },
+    ]);
+
+    // Assert
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.map(t => t.id)).toEqual(['taskA', 'taskB']);
+  });
+
+  it('applyDotPath_tasksArrayReplacement_staleTasksRemoved', () => {
+    // Arrange - simulate plan revision scenario from issue #1003
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: '001', title: 'Old 1', status: 'complete' },
+        { id: '002', title: 'Old 2', status: 'complete' },
+        { id: '003', title: 'Old 3', status: 'pending' },
+      ],
+    };
+
+    // Act - replace with entirely new task set
+    applyDotPath(obj, 'tasks', [
+      { id: 'task-1', title: 'New 1', status: 'pending' },
+      { id: 'task-2', title: 'New 2', status: 'pending' },
+    ]);
+
+    // Assert
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.every(t => typeof t.id === 'string' && (t.id as string).startsWith('task-'))).toBe(true);
+    // Old IDs must not exist
+    expect(tasks.some(t => t.id === '001')).toBe(false);
   });
 });

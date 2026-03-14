@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Use when the user says 'plan implementation', 'create tasks from design', 'break down the design', or runs /plan. Enforces the Iron Law: no production code without a failing test first. Do NOT use for brainstorming, debugging, or code review. Requires an existing design document as input. Do NOT use if no design document exists — use /ideate first."
+description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -15,10 +15,12 @@ metadata:
 
 Transform design documents into TDD-based implementation plans with granular, parallelizable tasks. Ensures complete spec coverage through explicit traceability.
 
+For a complete worked example, see `references/worked-example.md`.
+
 ## Triggers
 
 Activate this skill when:
-- User runs `/plan` command
+- User runs `/exarchos:plan` command
 - User wants to break down a design into tasks
 - A design document exists and needs implementation steps
 - User says "plan the implementation" or similar
@@ -38,6 +40,8 @@ After 3 failed revisions:
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
 3. Escalate: Suggest `/exarchos:ideate --redesign` to revisit design
 
+> **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
+
 ## The Iron Law
 
 > **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
@@ -49,16 +53,17 @@ Every implementation task MUST:
 
 **Verify TDD compliance** in git history after implementation:
 
-```bash
-scripts/check-tdd-compliance.sh \
-  --repo-root . \
-  --branch feature/<name> \
-  --base-branch main
+```typescript
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "feature/<name>"
+})
 ```
 
-- **exit 0** — All commits have test files before or alongside implementation
-- **exit 1** — Violations found; commits have implementation without corresponding tests
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — All commits have test files before or alongside implementation
+- **`passed: false`** — Violations found; commits have implementation without corresponding tests
 
 ## Planning Process
 
@@ -79,16 +84,17 @@ Consult `references/spec-tracing-guide.md` for the methodology and template.
 
 **Pre-populate the matrix** using the traceability generator script:
 
-```bash
-scripts/generate-traceability.sh \
-  --design-file docs/designs/<feature>.md \
-  --plan-file docs/plans/<date>-<feature>.md \
-  --output docs/plans/<date>-<feature>-traceability.md
+```typescript
+exarchos_orchestrate({
+  action: "generate_traceability",
+  designFile: "docs/designs/<feature>.md",
+  planFile: "docs/plans/<date>-<feature>.md",
+  output: "docs/plans/<date>-<feature>-traceability.md"
+})
 ```
 
-- **exit 0** — Matrix generated; review and fill in "Key Requirements" column
-- **exit 1** — Parse error; design document may lack expected `##`/`###` headers
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — Matrix generated; review and fill in "Key Requirements" column
+- **`passed: false`** — Parse error; design document may lack expected `##`/`###` headers
 
 ### Step 2: Decompose into Tasks
 
@@ -122,28 +128,63 @@ Run deterministic verification scripts instead of manual checklist review.
 
 **5a. Design-to-plan coverage** — verify every Technical Design subsection maps to a task:
 
-```bash
-scripts/verify-plan-coverage.sh \
-  --design-file docs/designs/<feature>.md \
-  --plan-file docs/plans/<date>-<feature>.md
+```typescript
+exarchos_orchestrate({
+  action: "check_plan_coverage",
+  featureId: "<id>",
+  designPath: "docs/designs/<feature>.md",
+  planPath: "docs/plans/<date>-<feature>.md"
+})
 ```
 
-- **exit 0** — All design sections covered; proceed to 5b
-- **exit 1** — Gaps found; add tasks for uncovered sections or defer with rationale
-- **exit 2** — Usage error or empty design; check arguments
+- **passed: true** — All design sections covered; proceed to 5a-ii
+- **passed: false** — Gaps found; add tasks for uncovered sections or defer with rationale
+- **error** — Usage error or empty design; check arguments
+
+**5a-ii. Provenance chain verification** — verify every DR-N requirement maps to a task via `Implements:` field:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_provenance_chain",
+  featureId: "<id>",
+  designPath: "docs/designs/<feature>.md",
+  planPath: "docs/plans/<date>-<feature>.md"
+})
+```
+
+- **passed: true** — All DR-N requirements traced; proceed to 5b
+- **passed: false** — **Block:** gaps or orphan references found. Add `**Implements:** DR-N` to tasks for each uncovered requirement before proceeding. Every DR-N requirement MUST trace to at least one task.
+- **error** — No DR-N identifiers in design (exit 2); if design doesn't use DR-N identifiers, this check is skipped (exempt)
+
+**5a-iii. D5: Task decomposition quality (advisory)** — verify each task has clear description, file targets, and test expectations; dependency graph is a valid DAG; parallelizable tasks don't modify the same files:
+
+```typescript
+exarchos_orchestrate({
+  action: "check_task_decomposition",
+  featureId: "<id>",
+  planPath: "docs/plans/<date>-<feature>.md"
+})
+```
+
+- **passed: true** — All tasks well-decomposed; proceed to 5b
+- **passed: false** — Findings recorded as D5 gate events for the ConvergenceView. Present findings to the user for awareness but do not block plan approval.
+- **error** — Input error (missing file, no task headers); check arguments
+
+**Advisory:** This gate verifies task structure quality but does not block plan approval. Findings are recorded for convergence tracking.
 
 **5b. Spec coverage check** — verify planned test files exist and pass:
 
-```bash
-scripts/spec-coverage-check.sh \
-  --plan-file docs/plans/<date>-<feature>.md \
-  --repo-root . \
-  --threshold 80
+```typescript
+exarchos_orchestrate({
+  action: "spec_coverage_check",
+  planFile: "docs/plans/<date>-<feature>.md",
+  repoRoot: ".",
+  threshold: 80
+})
 ```
 
-- **exit 0** — All planned tests found and passing; plan verification complete
-- **exit 1** — Missing test files or test failures; create missing tests or fix failures
-- **exit 2** — Usage error; check arguments
+- **`passed: true`** — All planned tests found and passing; plan verification complete
+- **`passed: false`** — Missing test files or test failures; create missing tests or fix failures
 
 For reference, consult `references/spec-tracing-guide.md` for the underlying methodology.
 
@@ -169,33 +210,51 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 ## State Management
 
-On plan save:
+On plan save, transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`.
 ```
-action: "set", featureId: "<id>", phase: "plan-review", updates: {
+action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
 ```
 
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:** The `plan` → `plan-review` transition requires guard `plan-artifact-exists` — set `artifacts.plan` in the same `set` call as `phase`.
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+(or `"debug"`, `"refactor"`) for phase transitions, guards, and playbook guidance.
+Use `exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })`
+for orchestrate action schemas.
+
 ## Completion Criteria
 
 - [ ] Design document read and understood
-- [ ] Spec traceability table created (`scripts/generate-traceability.sh`)
+- [ ] Spec traceability table created (`exarchos_orchestrate({ action: "generate_traceability" })`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
 - [ ] Each task starts with failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
-- [ ] Plan verification passed — `scripts/verify-plan-coverage.sh` exit 0
-- [ ] Spec coverage check passed — `scripts/spec-coverage-check.sh` exit 0
-- [ ] Coverage thresholds met — `scripts/check-coverage-thresholds.sh` exit 0:
+- [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
+- [ ] Provenance chain checked — `exarchos_orchestrate({ action: "check_provenance_chain" })` passed (blocking; gaps must be resolved before proceeding)
+- [ ] Task decomposition checked — `exarchos_orchestrate({ action: "check_task_decomposition" })` run (advisory; findings presented but non-blocking)
+- [ ] Spec coverage check passed — `exarchos_orchestrate({ action: "spec_coverage_check" })` passed: true
+- [ ] Coverage thresholds met — `exarchos_orchestrate({ action: "check_coverage_thresholds" })` passed: true:
 
-```bash
-scripts/check-coverage-thresholds.sh \
-  --coverage-file coverage/coverage-summary.json \
-  --line-threshold 80 \
-  --branch-threshold 70 \
-  --function-threshold 100
+```typescript
+exarchos_orchestrate({
+  action: "check_coverage_thresholds",
+  coverageFile: "coverage/coverage-summary.json",
+  lineThreshold: 80,
+  branchThreshold: 70,
+  functionThreshold: 100
+})
 ```
 
 - [ ] Plan saved to `docs/plans/`
@@ -203,28 +262,25 @@ scripts/check-coverage-thresholds.sh \
 
 ## Transition
 
-After planning completes, **auto-continue to plan-review** (delta analysis):
+After planning completes, **auto-continue to plan-review** (delta analysis). Set `.phase` to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review compares design sections against planned tasks:
+- Gaps found: set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
+- No gaps: present to user for approval (human checkpoint)
+- On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
 
-1. Set `.phase = "plan-review"` and populate tasks in state
-2. Run plan-review: compare design sections against planned tasks
-   - Gaps found: set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
-   - No gaps: present to user for approval (human checkpoint)
-   - On approval: set `.planReview.approved = true`, invoke `/exarchos:delegate`
-
-**REQUIRED:** Run `scripts/verify-plan-coverage.sh --design-file <design> --plan-file <plan>`. If exit code 1: auto-invoke `Skill({ skill: "exarchos:plan", args: "--revise <design>" })`. If exit code 0: proceed to delegation.
+**REQUIRED:** Run `exarchos_orchestrate({ action: "check_plan_coverage" })`. If passed: false → auto-invoke `/exarchos:plan --revise`. If passed: true → continue to the plan-review phase (feature: `plan-review`, refactor: `overhaul-plan-review`) and only invoke `/exarchos:delegate` after plan-review approval.
 
 ## Exarchos Integration
 
-On plan completion, auto-emitted by `exarchos_workflow` `set` when phase transitions — emits `workflow.transition` from plan to plan-review. No manual `exarchos_event` append needed.
+Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow` `set`. No manual `exarchos_event` append needed.
 
 ## Troubleshooting
 
 | Issue | Cause | Resolution |
 |-------|-------|------------|
-| `verify-plan-coverage.sh` exit 1 | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
-| `spec-coverage-check.sh` exit 1 | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
-| `generate-traceability.sh` exit 1 | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
-| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/ideate --redesign` |
+| `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
+| `spec_coverage_check` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
+| `generate_traceability` passed: false | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
+| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `/exarchos:ideate --redesign` |
 
 ## Performance Notes
 

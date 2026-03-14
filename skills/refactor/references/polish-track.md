@@ -11,10 +11,10 @@ Fast path for small, contained refactors. Single session, minimal ceremony. Orch
 ## Phases
 
 ```
-Explore -> Brief -> Implement -> Validate -> Update Docs -> Complete
-   |         |          |           |             |
-   |         |          |           |             +-- Update affected documentation
-   |         |          |           +-- Run tests, verify goals met
+explore -> brief -> polish-implement -> polish-validate -> polish-update-docs -> completed
+   |         |          |                    |                    |
+   |         |          |                    |                    +-- Update affected documentation
+   |         |          |                    +-- Run tests, verify goals met
    |         |          +-- Direct implementation (no worktree)
    |         +-- Capture goals and approach in state
    +-- Quick scope assessment, confirm polish-appropriate
@@ -86,9 +86,11 @@ Constraints:
 - Commit after each logical change
 - Stop if scope expands beyond brief
 
-When done, commit via Graphite:
-```typescript
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "refactor: <description>"], cwd: "<repo-root>" })
+When done, commit and push:
+```bash
+git add <files>
+git commit -m "refactor: <description>"
+git push -u origin refactor/<brief-name>
 ```
 
 **Advance to validation:**
@@ -100,21 +102,28 @@ action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
 
 Verify scope hasn't expanded beyond polish limits:
 
-```bash
-bash scripts/check-polish-scope.sh --repo-root <path>
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_polish_scope",
+  repoRoot: "<path>"
+})
 ```
 
-**On Exit 0:** Scope OK — stay on polish track.
-**On Exit 1:** Scope expanded — switch to overhaul track.
+**On `passed: true`:** Scope OK — stay on polish track.
+**On `passed: false`:** Scope expanded — switch to overhaul track.
 
-Then run the refactor validation:
+Then run the refactor validation via the static analysis gate:
 
-```bash
-bash scripts/validate-refactor.sh --repo-root <path>
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_static_analysis",
+  featureId: "refactor-<slug>",
+  repoRoot: "<path>"
+})
 ```
 
-**On Exit 0:** All checks pass (tests, lint, typecheck).
-**On Exit 1:** One or more checks failed — fix before proceeding.
+**On `passed: true`:** All static analysis checks pass (lint, typecheck).
+**On `passed: false`:** One or more static analysis checks failed — fix before proceeding.
 
 **Save validation results and advance:**
 ```
@@ -153,10 +162,10 @@ explore -> brief -> polish-implement -> polish-validate -> polish-update-docs ->
 ```
 
 **Next actions:**
-- `AUTO:refactor-brief` after explore
+- `AUTO:brief` after explore
 - `AUTO:polish-implement` after brief
-- `AUTO:refactor-validate` after polish-implement
-- `AUTO:refactor-update-docs` after polish-validate
+- `AUTO:polish-validate` after polish-implement
+- `AUTO:polish-update-docs` after polish-validate
 - `AUTO:completed` after polish-update-docs
 
 ## Completion Criteria

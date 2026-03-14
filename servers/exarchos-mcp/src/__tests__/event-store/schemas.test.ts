@@ -24,6 +24,7 @@ import {
   EventTypes,
   type EventType,
 } from '../../event-store/schemas.js';
+import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
@@ -138,13 +139,35 @@ describe('WorkflowStartedData', () => {
     }
   });
 
-  it('should reject invalid workflow type', () => {
+  it('should reject empty workflow type', () => {
     expect(() =>
       WorkflowStartedData.parse({
         featureId: 'test',
-        workflowType: 'invalid',
+        workflowType: '',
       }),
     ).toThrow();
+  });
+
+  it('should reject unregistered workflow type', () => {
+    expect(() =>
+      WorkflowStartedData.parse({
+        featureId: 'test',
+        workflowType: 'unregistered-type',
+      }),
+    ).toThrow();
+  });
+
+  it('should accept registered custom workflow type', () => {
+    extendWorkflowTypeEnum('deploy');
+    try {
+      const data = WorkflowStartedData.parse({
+        featureId: 'test',
+        workflowType: 'deploy',
+      });
+      expect(data.workflowType).toBe('deploy');
+    } finally {
+      unextendWorkflowTypeEnum('deploy');
+    }
   });
 
   it('should allow optional designPath', () => {
@@ -259,6 +282,26 @@ describe('TaskCompletedData', () => {
     expect(data.artifacts).toBeUndefined();
     expect(data.duration).toBeUndefined();
   });
+
+  it('TaskCompletedData_WithProvenance_ParsesSuccessfully', () => {
+    const data = {
+      taskId: 'T-3',
+      implements: ['DR-1', 'DR-2'],
+      tests: [{ name: 'Reset_Valid_Resets', file: 'src/reset.test.ts' }],
+      files: ['src/reset.ts'],
+    };
+    expect(TaskCompletedData.parse(data)).toMatchObject(data);
+  });
+
+  it('TaskCompletedData_WithoutProvenance_StillParsesSuccessfully', () => {
+    const data = { taskId: 'T-1' };
+    expect(TaskCompletedData.parse(data)).toMatchObject({ taskId: 'T-1' });
+  });
+
+  it('TaskCompletedData_PartialProvenance_ParsesSuccessfully', () => {
+    const data = { taskId: 'T-2', implements: ['DR-1'] };
+    expect(TaskCompletedData.parse(data)).toMatchObject(data);
+  });
 });
 
 describe('TaskFailedData', () => {
@@ -340,9 +383,13 @@ describe('StackPositionFilledData', () => {
 describe('StackRestackedData', () => {
   it('should parse valid restack event', () => {
     const data = StackRestackedData.parse({
-      affectedPositions: [2, 3, 4],
+      branches: ['feat/task-001', 'feat/task-002'],
+      conflicts: false,
+      reconstructed: true,
     });
-    expect(data.affectedPositions).toEqual([2, 3, 4]);
+    expect(data.branches).toEqual(['feat/task-001', 'feat/task-002']);
+    expect(data.conflicts).toBe(false);
+    expect(data.reconstructed).toBe(true);
   });
 });
 
@@ -358,8 +405,8 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('should contain all 42 event types', () => {
-    expect(EventTypes).toHaveLength(42);
+  it('EventTypes_AllEventTypes_CountIs59', () => {
+    expect(EventTypes).toHaveLength(59);
   });
 
   it('should include workflow-level types', () => {
@@ -742,7 +789,6 @@ describe('Dead event types removed', () => {
       'phase.transitioned',
       'task.routed',
       'context.assembled',
-      'test.result',
       'gate.self-corrected',
       'remediation.started',
     ];

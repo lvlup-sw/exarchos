@@ -70,8 +70,8 @@ Each phase depends on the prior phase. No parallelization within this chain.
 | 12 | [#348](https://github.com/lvlup-sw/exarchos/issues/348) | CLI and documentation (Phase 1) | Medium | #347 — foundation must be stable before user-facing surface |
 | 13 | [#350](https://github.com/lvlup-sw/exarchos/issues/350) | Extension architecture (Phase 2) | High | #348 — CLI must exist before extension management commands |
 | 14 | [#351](https://github.com/lvlup-sw/exarchos/issues/351) | AI client abstraction (Phase 3) | High | #350 — extension architecture provides the plugin model for adapters |
-| 15 | [#352](https://github.com/lvlup-sw/exarchos/issues/352) | SaaS tier via Basileus (Phase 4) | Very High | #351 — AI client abstraction enables non-Claude remote agents |
-| 16 | [#353](https://github.com/lvlup-sw/exarchos/issues/353) | Flywheel and team features (Phase 5) | Very High | #352 + #346 — SaaS infra + local flywheel both required |
+| 15 | [#352](https://github.com/lvlup-sw/exarchos/issues/352) | Remote backend integration (Phase 4) | Very High | #351 — AI client abstraction enables non-Claude remote agents |
+| 16 | [#353](https://github.com/lvlup-sw/exarchos/issues/353) | Flywheel and team features (Phase 5) | Very High | #352 + #346 — remote infra + local flywheel both required |
 
 ## Tracking Issues (no implementation)
 

@@ -46,6 +46,7 @@ export interface TransitionEvent {
 export interface ValidTransitionTarget {
   readonly phase: string;
   readonly guard?: { readonly id: string; readonly description: string };
+  readonly universal?: boolean;
 }
 
 export interface TransitionResult {
@@ -59,9 +60,49 @@ export interface TransitionResult {
   readonly errorMessage?: string;
   readonly guardDescription?: string;
   readonly validTargets?: readonly ValidTransitionTarget[];
+  readonly guardExpectedShape?: Record<string, unknown>;
+  readonly guardSuggestedFix?: {
+    readonly tool: string;
+    readonly params: Record<string, unknown>;
+  };
+}
+
+// ─── Serialization Types ────────────────────────────────────────────────────
+
+export interface SerializedTopology {
+  workflowType: string;
+  initialPhase: string;
+  states: Record<string, {
+    id: string;
+    type: 'atomic' | 'compound' | 'final';
+    parent?: string;
+    initial?: string;
+    maxFixCycles?: number;
+    onEntry?: readonly string[];
+    onExit?: readonly string[];
+  }>;
+  transitions: Array<{
+    from: string;
+    to: string;
+    guard?: { id: string; description: string };
+    isFixCycle?: boolean;
+    effects?: readonly string[];
+  }>;
+  tracks: Record<string, string[]>;
+}
+
+export interface WorkflowTypeSummary {
+  workflowTypes: Array<{
+    name: string;
+    initialPhase: string;
+    phaseCount: number;
+    trackCount: number;
+  }>;
 }
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
+
+const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor']);
 
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
@@ -69,12 +110,242 @@ const hsmRegistry: Record<string, HSMDefinition> = {
   refactor: createRefactorHSM(),
 };
 
+const initialPhaseRegistry: Record<string, string> = {
+  feature: 'ideate',
+  debug: 'triage',
+  refactor: 'explore',
+};
+
+export function isBuiltInWorkflowType(workflowType: string): boolean {
+  return BUILT_IN_TYPES.has(workflowType);
+}
+
 export function getHSMDefinition(workflowType: string): HSMDefinition {
   const hsm = hsmRegistry[workflowType];
   if (!hsm) {
     throw new Error(`Unknown workflow type: ${workflowType}`);
   }
   return hsm;
+}
+
+export function getInitialPhase(workflowType: string): string {
+  const phase = initialPhaseRegistry[workflowType];
+  if (!phase) {
+    throw new Error(`Unknown workflow type: ${workflowType}`);
+  }
+  return phase;
+}
+
+// ─── Topology Serialization ─────────────────────────────────────────────────
+
+/**
+ * Derive tracks from compound states: for each compound state, collect
+ * its children (states where parent === compoundState.id).
+ */
+function deriveTracks(hsm: HSMDefinition): Record<string, string[]> {
+  const tracks: Record<string, string[]> = {};
+  for (const state of Object.values(hsm.states)) {
+    if (state.type === 'compound') {
+      tracks[state.id] = [];
+    }
+  }
+  for (const state of Object.values(hsm.states)) {
+    if (state.parent && tracks[state.parent] !== undefined) {
+      tracks[state.parent].push(state.id);
+    }
+  }
+  return tracks;
+}
+
+/**
+ * Serialize an HSM definition into a plain JSON-serializable object.
+ * Strips evaluate functions from guards, derives tracks from compound states.
+ */
+export function serializeTopology(workflowType: string): SerializedTopology {
+  const hsm = getHSMDefinition(workflowType);
+  const initialPhase = getInitialPhase(workflowType);
+
+  const states: SerializedTopology['states'] = {};
+  for (const [id, state] of Object.entries(hsm.states)) {
+    const entry: SerializedTopology['states'][string] = {
+      id: state.id,
+      type: state.type,
+    };
+    if (state.parent !== undefined) entry.parent = state.parent;
+    if (state.initial !== undefined) entry.initial = state.initial;
+    if (state.maxFixCycles !== undefined) entry.maxFixCycles = state.maxFixCycles;
+    if (state.onEntry !== undefined) entry.onEntry = state.onEntry;
+    if (state.onExit !== undefined) entry.onExit = state.onExit;
+    states[id] = entry;
+  }
+
+  const transitions: SerializedTopology['transitions'] = hsm.transitions.map((t) => {
+    const entry: SerializedTopology['transitions'][number] = {
+      from: t.from,
+      to: t.to,
+    };
+    if (t.guard) {
+      entry.guard = { id: t.guard.id, description: t.guard.description };
+    }
+    if (t.isFixCycle !== undefined) entry.isFixCycle = t.isFixCycle;
+    if (t.effects !== undefined) entry.effects = t.effects;
+    return entry;
+  });
+
+  const tracks = deriveTracks(hsm);
+
+  return {
+    workflowType,
+    initialPhase,
+    states,
+    transitions,
+    tracks,
+  };
+}
+
+/**
+ * List all registered workflow types with summary information.
+ */
+export function listWorkflowTypes(): WorkflowTypeSummary {
+  const workflowTypes: WorkflowTypeSummary['workflowTypes'] = [];
+
+  for (const name of Object.keys(hsmRegistry)) {
+    const hsm = hsmRegistry[name];
+    const initialPhase = initialPhaseRegistry[name];
+    const phaseCount = Object.keys(hsm.states).length;
+    const tracks = deriveTracks(hsm);
+    const trackCount = Object.keys(tracks).length;
+
+    workflowTypes.push({
+      name,
+      initialPhase,
+      phaseCount,
+      trackCount,
+    });
+  }
+
+  return { workflowTypes };
+}
+
+// ─── Workflow Definition → HSM Conversion ────────────────────────────────────
+
+import type { WorkflowDefinition, GuardDefinition } from '../config/define.js';
+
+// Re-export for consumers that imported from here
+export type { WorkflowDefinition };
+
+/**
+ * Create a Guard object from a config guard definition.
+ * The guard shells out to the command and treats exit code 0 as pass.
+ */
+function createGuardFromDefinition(guardId: string, guardDef: GuardDefinition): Guard {
+  return {
+    id: guardId,
+    custom: true,
+    description: guardDef.description ?? `Custom guard: ${guardId}`,
+    evaluate: (_state: Record<string, unknown>) => {
+      // DESIGN: Custom config guards use a two-layer execution model:
+      // 1. HSM layer (here): pass-through — returns true to allow the transition
+      // 2. Orchestrator layer: calls executeGuard() from config/guards.ts
+      //    before attempting the HSM transition, blocking if the guard fails.
+      //
+      // This split exists because HSM evaluate() is synchronous but custom
+      // guards shell out to external commands (async). The orchestrator
+      // checks getRegisteredGuard() and runs executeGuard() pre-transition.
+      // Built-in guards (workflow/guards.ts) remain inline/synchronous.
+      return true;
+    },
+  };
+}
+
+function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefinition {
+  let baseStates: Record<string, State> = {};
+  let baseTransitions: readonly Transition[] = [];
+
+  // Build guard lookup from definition
+  const guardLookup = new Map<string, Guard>();
+  if (definition.guards) {
+    for (const [guardId, guardDef] of Object.entries(definition.guards)) {
+      guardLookup.set(guardId, createGuardFromDefinition(guardId, guardDef));
+    }
+  }
+
+  if (definition.extends) {
+    const parent = hsmRegistry[definition.extends];
+    if (!parent) {
+      throw new Error(`Cannot extend unknown workflow type: ${definition.extends}`);
+    }
+    // Deep clone the parent
+    baseStates = Object.fromEntries(
+      Object.entries(parent.states).map(([k, v]) => [k, { ...v }]),
+    );
+    baseTransitions = [...parent.transitions];
+  }
+
+  // Add custom phases as atomic states
+  for (const phase of definition.phases) {
+    if (!baseStates[phase]) {
+      baseStates[phase] = { id: phase, type: 'atomic' };
+    }
+  }
+
+  // Ensure cancelled/completed final states exist
+  if (!baseStates['cancelled']) {
+    baseStates['cancelled'] = { id: 'cancelled', type: 'final' };
+  }
+  if (!baseStates['completed']) {
+    baseStates['completed'] = { id: 'completed', type: 'final' };
+  }
+
+  // Convert transitions, resolving string guard IDs to Guard objects
+  const customTransitions: Transition[] = definition.transitions.map((t) => {
+    const base: { from: string; to: string; guard?: Guard } = { from: t.from, to: t.to };
+    if (t.guard) {
+      const resolved = guardLookup.get(t.guard);
+      if (!resolved) {
+        throw new Error(`Transition ${t.from} → ${t.to} references unknown guard '${t.guard}'. Define it in guards.`);
+      }
+      base.guard = resolved;
+    }
+    return base;
+  });
+
+  // Merge: custom transitions override base transitions with same from+to
+  const transitionKey = (t: Transition): string => `${t.from}->${t.to}`;
+  const mergedMap = new Map<string, Transition>();
+  for (const t of baseTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+  for (const t of customTransitions) {
+    mergedMap.set(transitionKey(t), t);
+  }
+
+  return {
+    id: name,
+    states: baseStates,
+    transitions: [...mergedMap.values()],
+  };
+}
+
+export function registerWorkflowType(name: string, definition: WorkflowDefinition): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot override built-in workflow type: ${name}`);
+  }
+  const hsm = convertToHSM(name, definition);
+  hsmRegistry[name] = hsm;
+  initialPhaseRegistry[name] = definition.initialPhase;
+}
+
+/**
+ * Remove a custom workflow type from the registry.
+ * Only non-built-in types can be removed. Used for test cleanup.
+ */
+export function unregisterWorkflowType(name: string): void {
+  if (BUILT_IN_TYPES.has(name)) {
+    throw new Error(`Cannot unregister built-in workflow type: ${name}`);
+  }
+  delete hsmRegistry[name];
+  delete initialPhaseRegistry[name];
 }
 
 // ─── Transition Algorithm (10 Steps) ────────────────────────────────────────
@@ -149,15 +420,29 @@ export function getValidTransitions(
 
   // Add universal cancel if not already present
   if (!seen.has('cancelled') && hsm.states['cancelled']) {
-    targets.push({ phase: 'cancelled' });
+    targets.push({ phase: 'cancelled', universal: true });
   }
 
   // Add universal cleanup (completed) if not already present
   if (!seen.has('completed') && hsm.states['completed']) {
-    targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description } });
+    targets.push({ phase: 'completed', guard: { id: guards.mergeVerified.id, description: guards.mergeVerified.description }, universal: true });
   }
 
   return targets;
+}
+
+/**
+ * Find a transition in the HSM from one phase to another.
+ * Returns undefined if no matching transition exists.
+ */
+export function findTransition(
+  hsm: HSMDefinition,
+  fromPhase: string,
+  toPhase: string,
+): Transition | undefined {
+  return hsm.transitions.find(
+    (t) => t.from === fromPhase && t.to === toPhase,
+  );
 }
 
 /**
@@ -295,9 +580,7 @@ export function executeTransition(
   }
 
   // Find matching transition
-  const transition = hsm.transitions.find(
-    (t) => t.from === currentPhase && t.to === targetPhase
-  );
+  const transition = findTransition(hsm, currentPhase, targetPhase);
 
   if (!transition) {
     const validTargets = getValidTransitions(hsm, currentPhase);
@@ -337,6 +620,14 @@ export function executeTransition(
     const guardPassed = typeof rawResult === 'boolean' ? rawResult : rawResult.passed;
     const guardReason =
       typeof rawResult === 'object' && 'reason' in rawResult ? rawResult.reason : undefined;
+    const guardExpectedShape =
+      typeof rawResult === 'object' && 'expectedShape' in rawResult
+        ? (rawResult as unknown as Record<string, unknown>).expectedShape as Record<string, unknown> | undefined
+        : undefined;
+    const guardSuggestedFix =
+      typeof rawResult === 'object' && 'suggestedFix' in rawResult
+        ? (rawResult as unknown as Record<string, unknown>).suggestedFix as { tool: string; params: Record<string, unknown> } | undefined
+        : undefined;
     if (!guardPassed) {
       return {
         success: false,
@@ -354,6 +645,8 @@ export function executeTransition(
           ? `Guard '${transition.guard.id}' failed: ${guardReason}`
           : `Guard '${transition.guard.id}' failed: ${transition.guard.description}`,
         guardDescription: transition.guard.description,
+        ...(guardExpectedShape ? { guardExpectedShape } : {}),
+        ...(guardSuggestedFix ? { guardSuggestedFix } : {}),
       };
     }
   }

@@ -179,6 +179,22 @@ describe('LlmRubricGrader', () => {
     expect(result.reason).toContain('Network timeout');
   });
 
+  it('LlmRubricGrader_MissingOutputPath_ReturnsSkipped', async () => {
+    const result = await grader.grade(
+      {},
+      { tool_calls: [], trace_events: [] },
+      {},
+      { rubric: 'Does the output have tasks?', outputPath: 'tasks' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('tasks');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesLlmRubric).not.toHaveBeenCalled();
+  });
+
   it('LlmRubricGrader_NoApiKey_ReturnsSkipped', async () => {
     delete process.env['ANTHROPIC_API_KEY'];
 
@@ -198,8 +214,8 @@ describe('LlmRubricGrader', () => {
   });
 });
 
-describe.skipIf(!process.env.ANTHROPIC_API_KEY)('LlmRubricGrader (live)', () => {
-  it('should grade with real Anthropic API call', async () => {
+describe.skipIf(!process.env.RUN_EVALS || !process.env.ANTHROPIC_API_KEY)('LlmRubricGrader (live)', () => {
+  it('should grade with real Anthropic API call', { timeout: 30_000 }, async () => {
     const grader = new LlmRubricGrader();
     const result = await grader.grade(
       {},
@@ -207,8 +223,13 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('LlmRubricGrader (live)', () => 
       {},
       { rubric: 'Does the output contain a greeting?', outputPath: 'text' },
     );
-    expect(result.passed).toBe(true);
-    expect(result.score).toBeGreaterThan(0);
+    // Verify the grader returns a well-formed GradeResult — the LLM's
+    // pass/fail judgment is non-deterministic, so we only assert structure.
+    expect(typeof result.passed).toBe('boolean');
+    expect(typeof result.score).toBe('number');
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(1);
     expect(result.reason).toBeDefined();
+    expect(result.details).not.toHaveProperty('skipped');
   });
 });

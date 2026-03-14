@@ -1,4 +1,4 @@
-import { guards } from './guards.js';
+import { guards, composeGuards } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
 
 // ─── Feature Workflow HSM ───────────────────────────────────────────────────
@@ -34,7 +34,13 @@ export function createFeatureHSM(): HSMDefinition {
       guard: guards.planReviewGapsFound,
       effects: ['log'],
     },
-    { from: 'delegate', to: 'review', guard: guards.allTasksComplete },
+    { from: 'plan-review', to: 'blocked', guard: guards.revisionsExhausted },
+    { from: 'delegate', to: 'review', guard: composeGuards(
+      'all-tasks-complete+team-disbanded',
+      'All tasks must be complete and team must be disbanded',
+      guards.allTasksComplete,
+      guards.teamDisbandedEmitted,
+    ) },
     { from: 'review', to: 'synthesize', guard: guards.allReviewsPassed },
     {
       from: 'review',
@@ -43,6 +49,7 @@ export function createFeatureHSM(): HSMDefinition {
       isFixCycle: true,
       effects: ['increment-fix-cycle'],
     },
+    { from: 'synthesize', to: 'delegate', guard: guards.synthesizeRetryable },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
     { from: 'blocked', to: 'delegate', guard: guards.humanUnblocked },
   ];
@@ -119,6 +126,8 @@ export function createDebugHSM(): HSMDefinition {
       to: 'hotfix-implement',
       guard: guards.hotfixTrackSelected,
     },
+    { from: 'investigate', to: 'cancelled', guard: guards.escalationRequired },
+    { from: 'investigate', to: 'completed', guard: guards.fixVerifiedDirectly },
 
     // Thorough track flow
     { from: 'rca', to: 'design', guard: guards.rcaDocumentComplete },
@@ -137,9 +146,27 @@ export function createDebugHSM(): HSMDefinition {
       to: 'hotfix-validate',
       guard: guards.implementationComplete,
     },
+    { from: 'hotfix-validate', to: 'synthesize', guard: composeGuards(
+      'validation+pr-requested',
+      'Validation must pass and PR must be requested',
+      guards.validationPassed,
+      guards.prRequested,
+    ) },
     { from: 'hotfix-validate', to: 'completed', guard: guards.validationPassed },
 
-    // Synthesize -> completed
+    // Synthesize -> retry (track-aware) or completed
+    { from: 'synthesize', to: 'debug-implement', guard: composeGuards(
+      'synthesize-retryable+thorough-track',
+      'Synthesis retryable on thorough track',
+      guards.synthesizeRetryable,
+      guards.thoroughTrackSelected,
+    ) },
+    { from: 'synthesize', to: 'hotfix-implement', guard: composeGuards(
+      'synthesize-retryable+hotfix-track',
+      'Synthesis retryable on hotfix track',
+      guards.synthesizeRetryable,
+      guards.hotfixTrackSelected,
+    ) },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
   ];
 
@@ -188,6 +215,11 @@ export function createRefactorHSM(): HSMDefinition {
     },
     'overhaul-plan': {
       id: 'overhaul-plan',
+      type: 'atomic',
+      parent: 'overhaul-track',
+    },
+    'overhaul-plan-review': {
+      id: 'overhaul-plan-review',
       type: 'atomic',
       parent: 'overhaul-track',
     },
@@ -240,9 +272,22 @@ export function createRefactorHSM(): HSMDefinition {
     // Overhaul track flow
     {
       from: 'overhaul-plan',
-      to: 'overhaul-delegate',
+      to: 'overhaul-plan-review',
       guard: guards.planArtifactExists,
     },
+    {
+      from: 'overhaul-plan-review',
+      to: 'overhaul-delegate',
+      guard: guards.planReviewComplete,
+    },
+    {
+      from: 'overhaul-plan-review',
+      to: 'overhaul-plan',
+      guard: guards.planReviewGapsFound,
+      effects: ['log'],
+    },
+    { from: 'overhaul-plan-review', to: 'blocked', guard: guards.revisionsExhausted },
+    { from: 'blocked', to: 'overhaul-delegate', guard: guards.humanUnblocked },
     {
       from: 'overhaul-delegate',
       to: 'overhaul-review',
@@ -262,7 +307,8 @@ export function createRefactorHSM(): HSMDefinition {
     },
     { from: 'overhaul-update-docs', to: 'synthesize', guard: guards.docsUpdated },
 
-    // Synthesize -> completed
+    // Synthesize -> retry or completed
+    { from: 'synthesize', to: 'overhaul-delegate', guard: guards.synthesizeRetryable },
     { from: 'synthesize', to: 'completed', guard: guards.prUrlExists },
   ];
 

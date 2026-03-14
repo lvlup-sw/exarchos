@@ -8,6 +8,7 @@ import { getOrCreateEventStore } from '../views/tools.js';
 import type { EvalEventStore } from '../evals/harness.js';
 import type { RunSummary } from '../evals/types.js';
 import type { CommandResult } from '../cli.js';
+import { expandTilde } from '../utils/paths.js';
 
 /**
  * Resolve the evals directory.
@@ -42,19 +43,30 @@ export function resolveEvalsDir(): string {
 /**
  * Handle the eval-run CLI command.
  */
+const VALID_LAYERS = ['regression', 'capability', 'reliability'] as const;
+type EvalLayer = (typeof VALID_LAYERS)[number];
+
+function isValidLayer(value: unknown): value is EvalLayer {
+  return typeof value === 'string' && (VALID_LAYERS as readonly string[]).includes(value);
+}
+
 export async function handleEvalRun(
   stdinData: Record<string, unknown>,
   evalsDir: string,
 ): Promise<CommandResult> {
-  const options: { skill?: string; dataset?: string } = {};
+  const options: { skill?: string; dataset?: string; layer?: EvalLayer } = {};
   const ciMode = stdinData['ci'] === true;
 
   if (typeof stdinData['skill'] === 'string') {
     options.skill = stdinData['skill'];
   }
 
+  if (isValidLayer(stdinData['layer'])) {
+    options.layer = stdinData['layer'];
+  }
+
   // Wire up EventStore for event emission during eval runs
-  const stateDir = process.env.WORKFLOW_STATE_DIR ?? path.join(os.homedir(), '.claude', 'workflow-state');
+  const stateDir = expandTilde(process.env.WORKFLOW_STATE_DIR ?? path.join(os.homedir(), '.claude', 'workflow-state'));
   const store = getOrCreateEventStore(stateDir);
   const eventStore: EvalEventStore = {
     append: async (streamId, event) => { await store.append(streamId, event as Parameters<typeof store.append>[1]); },
@@ -98,6 +110,20 @@ export async function handleEvalRun(
   const totalCases = summaries.reduce((sum, s) => sum + s.total, 0);
   const totalFailures = summaries.reduce((sum, s) => sum + s.failed, 0);
   const allPassed = totalFailures === 0;
+
+  // Capability layer: failures produce warnings but don't block CI
+  const isAdvisoryLayer = options.layer === 'capability';
+  if (isAdvisoryLayer) {
+    return {
+      summaries,
+      passed: true,
+      total: totalCases,
+      failures: totalFailures,
+      ...(totalFailures > 0
+        ? { warning: `${totalFailures}/${totalCases} capability eval cases failed (advisory)` }
+        : {}),
+    };
+  }
 
   return {
     ...(allPassed

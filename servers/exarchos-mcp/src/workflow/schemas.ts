@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 
 // ─── Event Types ────────────────────────────────────────────────────────────
 
@@ -98,6 +99,7 @@ export const RefactorPhaseSchema = z.enum([
   'polish-update-docs',
   // Overhaul track phases
   'overhaul-plan',
+  'overhaul-plan-review',
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',
@@ -131,18 +133,16 @@ export type TestingStrategy = z.infer<typeof TestingStrategySchema>;
 
 // ─── Task Schema ────────────────────────────────────────────────────────────
 
-export const TaskStatusSchema = z.enum([
-  'pending',
-  'in_progress',
-  'complete',
-  'failed',
-]);
+export const TaskStatusSchema = z.preprocess(
+  (val) => (val === 'completed' ? 'complete' : val),
+  z.enum(['pending', 'in_progress', 'complete', 'failed']),
+);
 
 export const TaskSchema = z.object({
   id: z.string(),
   title: z.string(),
   status: TaskStatusSchema,
-  branch: z.string().optional(),
+  branch: z.string().nullable().optional(),
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
   nativeTaskId: z.string().optional(),
@@ -150,6 +150,12 @@ export const TaskSchema = z.object({
   blockedBy: z.array(z.string()).default([]),
   worktreePath: z.string().optional(),
   testingStrategy: TestingStrategySchema.optional(),
+  /** Claude Code agent ID for resume capability */
+  agentId: z.string().optional(),
+  /** Whether the fixer used resume vs fresh dispatch */
+  agentResumed: z.boolean().optional(),
+  /** Completion status from SubagentStop hook */
+  lastExitReason: z.string().optional(),
 });
 
 // ─── Worktree Schema ────────────────────────────────────────────────────────
@@ -190,7 +196,42 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
 // ─── Workflow Type ──────────────────────────────────────────────────────────
 
-export const WorkflowTypeSchema = z.enum(['feature', 'debug', 'refactor']);
+const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
+const customWorkflowTypes = new Set<string>();
+
+export const WorkflowTypeSchema = z.string().refine(
+  (val) => (BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) || customWorkflowTypes.has(val),
+  { message: 'Invalid workflow type' },
+);
+
+/**
+ * Extend the WorkflowTypeSchema to accept a custom workflow type name.
+ * Validates that the name is non-empty, lowercase kebab-case, and not a built-in type.
+ */
+export function extendWorkflowTypeEnum(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(trimmed)) {
+    throw new Error(`Invalid custom workflow type name: '${name}'. Must be non-empty lowercase kebab-case.`);
+  }
+  if ((BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(trimmed)) {
+    throw new Error(`Cannot extend built-in workflow type: '${trimmed}'`);
+  }
+  customWorkflowTypes.add(trimmed);
+}
+
+/**
+ * Remove a custom workflow type from the schema. Used for test cleanup.
+ */
+export function unextendWorkflowTypeEnum(name: string): void {
+  customWorkflowTypes.delete(name);
+}
+
+/**
+ * Get all currently valid workflow type names (built-in + custom).
+ */
+export function getValidWorkflowTypes(): readonly string[] {
+  return [...BUILT_IN_WORKFLOW_TYPES, ...customWorkflowTypes];
+}
 
 // ─── Base Workflow State (shared fields) ────────────────────────────────────
 
@@ -242,12 +283,23 @@ export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   phase: RefactorPhaseSchema,
 });
 
-// ─── Discriminated Union of All Workflow States ─────────────────────────────
+// ─── Custom Workflow State Schema ───────────────────────────────────────────
 
-export const WorkflowStateSchema = z.discriminatedUnion('workflowType', [
+export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
+  workflowType: z.string().refine(
+    (val) => !(BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) && customWorkflowTypes.has(val),
+    { message: 'Must be a registered custom workflow type' },
+  ),
+  phase: z.string(), // Custom workflows define their own phases via config
+});
+
+// ─── Union of All Workflow States ───────────────────────────────────────────
+
+export const WorkflowStateSchema = z.union([
   FeatureWorkflowStateSchema,
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
+  CustomWorkflowStateSchema,
 ]);
 
 // ─── Tool Input Schemas ─────────────────────────────────────────────────────
@@ -262,7 +314,7 @@ export const ListInputSchema = z.object({});
 export const GetInputSchema = z.object({
   featureId: FeatureIdSchema,
   query: z.string().optional(),
-  fields: z.array(z.string()).optional(),
+  fields: coercedStringArray().optional(),
 });
 
 export const SetInputSchema = z.object({

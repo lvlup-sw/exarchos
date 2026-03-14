@@ -4,6 +4,7 @@
 // `exarchos_sync` entry point with a real implementation.
 
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleSyncNow } from './sync-handler.js';
 
 /**
@@ -12,8 +13,9 @@ import { handleSyncNow } from './sync-handler.js';
  */
 export async function handleSync(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir } = ctx;
   const { action } = args;
 
   switch (action) {

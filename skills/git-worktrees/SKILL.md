@@ -1,6 +1,6 @@
 ---
 name: git-worktrees
-description: "Git worktree management for parallel development in agent team workflows. Use when creating worktrees, validating worktree paths, or setting up isolated development environments. Trigger: \"create worktree\", \"worktree setup\", or during /delegate task dispatch. Do NOT use for branch creation without delegation context."
+description: "Git worktree management for parallel agent team development. Triggers: 'create worktree', 'worktree setup', or during /delegate dispatch. Do NOT use for branch creation without delegation context."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -63,49 +63,23 @@ git worktree list
 
 ### 2. Setup Environment
 
-**Auto-detect project type and run setup:**
-
-| Indicator | Setup Command |
-|-----------|---------------|
-| `package.json` | `npm install` or `pnpm install` |
-| `Cargo.toml` | `cargo build` |
-| `requirements.txt` | `pip install -r requirements.txt` |
-| `*.csproj` | `dotnet restore` |
-| `go.mod` | `go mod download` |
-
-**Setup Script:**
-```bash
-cd .worktrees/task-name
-
-# Node.js
-if [ -f "package.json" ]; then
-  npm install
-fi
-
-# .NET
-if ls *.csproj 1> /dev/null 2>&1; then
-  dotnet restore
-fi
-
-# Rust
-if [ -f "Cargo.toml" ]; then
-  cargo build
-fi
-```
+See `references/commands-reference.md` for the full environment setup table and scripts per project type.
 
 ### 3. Baseline Verification
 
 Run baseline tests to ensure the worktree is ready:
 
-```bash
-scripts/verify-worktree-baseline.sh --worktree-path .worktrees/task-name
+```typescript
+exarchos_orchestrate({
+  action: "verify_worktree_baseline",
+  worktreePath: ".worktrees/task-name"
+})
 ```
 
 The script auto-detects project type (Node.js, .NET, Rust) and runs the appropriate test command.
 
-**On exit 0:** Baseline tests pass — worktree is ready for implementation.
-**On exit 1:** Baseline tests failed — investigate before proceeding.
-**On exit 2:** Unknown project type — manual verification required.
+**On `passed: true`:** Baseline tests pass — worktree is ready for implementation.
+**On `passed: false`:** Baseline tests failed or unknown project type — investigate before proceeding.
 
 If baseline fails:
 1. Check if main branch has failing tests
@@ -134,48 +108,7 @@ git worktree prune
 
 ## Parallel Worktree Management
 
-### Creating Multiple Worktrees
-
-For parallel task groups from implementation plan:
-
-```bash
-# Group 1 tasks
-git worktree add .worktrees/001-types feature/001-types
-git worktree add .worktrees/002-tests feature/002-tests
-
-# Group 2 tasks (parallel to Group 1)
-git worktree add .worktrees/003-api feature/003-api
-git worktree add .worktrees/004-handlers feature/004-handlers
-```
-
-### Tracking Active Worktrees
-
-Maintain awareness of active worktrees:
-```bash
-git worktree list
-```
-
-Report format:
-```markdown
-## Active Worktrees
-
-| Task | Branch | Status |
-|------|--------|--------|
-| 001-types | feature/001-types | In Progress |
-| 002-tests | feature/002-tests | Complete |
-| 003-api | feature/003-api | In Progress |
-```
-
-## Worktree Commands Reference
-
-| Action | Command |
-|--------|---------|
-| List worktrees | `git worktree list` |
-| Add worktree | `git worktree add <path> <branch>` |
-| Remove worktree | `git worktree remove <path>` |
-| Prune stale refs | `git worktree prune` |
-| Lock (prevent removal) | `git worktree lock <path>` |
-| Unlock | `git worktree unlock <path>` |
+See `references/commands-reference.md` for parallel worktree creation examples, tracking format, and the full commands reference table.
 
 ## Worktree Validation
 
@@ -190,18 +123,23 @@ Subagents MUST verify they're in a worktree before making changes. Working in th
 
 Run the worktree verification script before any file modifications:
 
-```bash
-scripts/verify-worktree.sh
+```typescript
+exarchos_orchestrate({
+  action: "verify_worktree"
+})
 ```
 
 To check a specific path instead of the current directory:
 
-```bash
-scripts/verify-worktree.sh --cwd /path/to/.worktrees/task-name
+```typescript
+exarchos_orchestrate({
+  action: "verify_worktree",
+  cwd: "/path/to/.worktrees/task-name"
+})
 ```
 
-**On exit 0:** In a valid worktree — proceed with implementation.
-**On exit 1:** NOT in a worktree — STOP immediately, do not modify files.
+**On `passed: true`:** In a valid worktree — proceed with implementation.
+**On `passed: false`:** NOT in a worktree — STOP immediately, do not modify files.
 
 ### Subagent Instructions
 
@@ -212,9 +150,9 @@ Include in all implementer prompts:
 
 Before making ANY file changes, run:
 
-    scripts/verify-worktree.sh
+    exarchos_orchestrate({ action: "verify_worktree" })
 
-If exit code is non-zero: STOP and report error.
+If `passed: false`: STOP and report error.
 DO NOT proceed with any modifications outside a worktree.
 ```
 

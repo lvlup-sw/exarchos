@@ -78,34 +78,40 @@ flowchart TB
         Lead["Claude Code Lead"]
         Exarchos["Exarchos MCP"]
         TM["Teammates (TM 1..N)"]
+        Watcher["Watcher Teammate (Haiku)"]
         WT["Worktrees (isolated)"]
-        Graphite["Graphite MCP"]
+        GitHub["GitHub CLI (gh)"]
 
         Lead --> Exarchos
         Lead --> TM
+        Lead <-- "DM (events)" --- Watcher
+        Watcher -- "notify_wait" --> Exarchos
         TM -- "MCP" --> WT
     end
 
     subgraph Backend["Basileus Backend (Constantinople)"]
         AH["AgentHost"]
+        WMCP["Workflow MCP Server"]
         Marten["Marten Event Store"]
         Containers["ControlPlane + Agentic Coder Containers"]
 
         AH --> Marten
         Marten --> Containers
+        AH --> WMCP
+        Marten -- "ISubscription" --> WMCP
     end
 
-    Exarchos -- "HTTPS (events, commands)" --> AH
+    Exarchos -- "MCP (streamable HTTP)" --> WMCP
 ```
 
 | Zone | Component | Responsibilities |
 |------|-----------|-----------------|
 | Developer Workstation | Claude Code Lead | Orchestrator — runs /ideate, /plan, /delegate, /review, /synthesize |
-| | Exarchos MCP (unified) | Workflow HSM (state machine transitions + guards), Team Coordinator (spawn/message/shutdown teammates), Event Store (local JSONL + outbox), Task Router (local vs. remote dispatch), View Materializer (merged CQRS views). Single server exposes 27 MCP tools. |
+| | Exarchos MCP (unified) | Workflow HSM (state machine transitions + guards), Team Coordinator (spawn/message/shutdown teammates), Event Store (local JSONL + outbox), Task Router (local vs. remote dispatch), View Materializer (merged CQRS views), Streaming Sync Engine (MCP client for Basileus Workflow MCP Server), Notification Queue (priority-based delivery to developer). Single server exposes 32 MCP tools. Acts as both MCP server (for Claude Code) and MCP client (for Basileus). |
 | | Teammates | Parallel implementation and review agents, each with independent context |
 | | Worktrees | Isolated git worktrees per task branch |
-| | Graphite MCP | Stack management, PR submission, merge queue integration |
-| Basileus Backend | AgentHost | Workflow Registry (all active workflows), Agentic Coder Sagas, Cross-Session Coordinator (dependency resolution, resource allocation) |
+| | GitHub CLI (gh) | PR creation, stack management via `--base` targeting, merge queue integration |
+| Basileus Backend | AgentHost | Workflow Registry (all active workflows), Agentic Coder Sagas, Workflow MCP Server (event streaming + developer commands), Cross-Session Coordinator (dependency resolution, resource allocation) |
 | | Marten Event Store | Unified stream per workflow (local + remote events), CQRS Projections (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView) |
 | | ControlPlane + Containers | Container per coding task — cloned repo, dev tooling, MCP tools, autonomous plan-code-test-review loop, emits CodingEvents |
 
@@ -234,7 +240,7 @@ The tiers amplify each other through the unified event stream:
 
 **Strategos enables what local can't.** Exarchos provides a lightweight local saga model (event store + HSM + circuit breakers + saga compensation). Strategos (the Basileus workflow runtime) provides the full distributed version: saga compensation across containers, checkpoint/resume for multi-hour tasks, and cross-session coordination across multiple developers' Exarchos instances. The local model is deliberately designed as a subset of the remote model — same patterns, smaller scale.
 
-Progressive stacking via Graphite replaces the monolithic PR model. Instead of producing a single large PR per feature, each feature decomposes into a stack of small, focused, independently-reviewable PRs that merge in order through a stack-aware merge queue. This enables progressive review (early finishers get reviewed immediately) and eliminates the `/integrate` phase — its responsibilities are absorbed by progressive stacking within `/delegate` and per-PR/per-stack CI gates. See [Graphite Stacked PR Integration](../designs/2026-02-07-graphite-sdlc-integration.md) for the full design.
+Progressive stacking via GitHub replaces the monolithic PR model. Instead of producing a single large PR per feature, each feature decomposes into a stack of small, focused, independently-reviewable PRs that merge in order through GitHub's merge queue. This enables progressive review (early finishers get reviewed immediately) and eliminates the `/integrate` phase — its responsibilities are absorbed by progressive stacking within `/delegate` and per-PR/per-stack CI gates. PRs are created with `gh pr create --base <base-branch>` targeting, where each PR in the stack targets the previous PR's branch.
 
 ### Operational Modes
 
@@ -399,9 +405,21 @@ All teammates and the lead access these tools via the shared MCP server instance
 |------|---------|--------|--------|
 | `exarchos_sync_now` | Discover outbox streams and drain (no-op sender until remote wired) | Lead only | `sync/composite.ts` |
 
-> **Note:** `exarchos_sync_now` discovers local outbox streams and drains them via a no-op sender. Full remote sync (Basileus HTTP client) will be implemented in Phase 4.
+> **Note:** `exarchos_sync_now` discovers local outbox streams and drains them via a no-op sender. Full remote sync is superseded by the MCP Streaming Sync Engine — see [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md).
 
-> **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the Graphite stack at its designated position.
+#### Remote Notification & Command Tools (5)
+
+| Tool | Purpose | Access | Module |
+|------|---------|--------|--------|
+| `exarchos_notify_wait` | Long-poll for notifications. Blocks until a remote event arrives or timeout expires. Avoids busy-polling. | Watcher teammate (Layer 3) | `notify/tools.ts` |
+| `exarchos_notify_ack` | Acknowledge/dismiss notifications by ID | Lead agent (any layer) | `notify/tools.ts` |
+| `exarchos_remote_respond` | Respond to an escalation (guidance, approval, rejection). Proxied to `workflow_command` on Basileus Workflow MCP Server. | Lead or watcher | `remote/tools.ts` |
+| `exarchos_remote_command` | Send command to remote task (cancel, reprioritize, provide context). Proxied to `workflow_command` on Basileus Workflow MCP Server. | Lead or watcher | `remote/tools.ts` |
+| `exarchos_remote_status` | Get detailed status of a remote task. Proxied to `task_status` on Basileus Workflow MCP Server. | Lead or watcher | `remote/tools.ts` |
+
+> **Note:** These tools are part of the [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md) design. `exarchos_notify_wait` is the key enabler of the Layer 3 Watcher Teammate — it blocks (consuming zero tokens) until a notification arrives, providing near-real-time (~1 second) event delivery within Claude Code's native agent team messaging. The `exarchos_remote_*` tools proxy developer commands through the MCP streamable HTTP connection to Basileus.
+
+> **Note:** `exarchos_task_complete` is enhanced to trigger stack placement evaluation — when a teammate marks a task complete, the lead evaluates whether the completed work can be placed into the PR stack at its designated position.
 
 ### Team Coordinator
 
@@ -420,7 +438,7 @@ The Team Coordinator manages the full teammate lifecycle: spawn, message, and sh
   +-- Read plan, extract tasks and stackOrder
   +-- Create worktrees for each task
   +-- Determine team composition
-  +-- Initialize Graphite stack (gt init if needed)
+  +-- Initialize PR stack (create base branches if needed)
   +-- exarchos_team_spawn(implementer_1, { worktree, task, model: "opus" })
   +-- exarchos_team_spawn(implementer_2, { worktree, task, model: "opus" })
   +-- exarchos_team_spawn(implementer_N, ...)
@@ -429,12 +447,12 @@ The Team Coordinator manages the full teammate lifecycle: spawn, message, and sh
   +-- Monitor via exarchos_view_progress + exarchos_stack_status
   |   +-- On TaskCompleted:
   |   |     +-- Evaluate stack position from stackOrder
-  |   |     +-- If all lower positions filled -> exarchos_stack_place -> gt submit -> PR created
+  |   |     +-- If all lower positions filled -> gh pr create --base <prev-branch> -> PR created
   |   |     +-- If lower positions missing -> queue for deferred placement
-  |   |     +-- gt restack (rebase higher positions if needed)
+  |   |     +-- git rebase (rebase higher positions if needed)
   |   |     +-- Emit StackPositionFilled event
   |   +-- On TaskFailed -> decide: retry, reassign, or escalate
-  |   +-- On all positions filled -> gt restack if needed -> exarchos_team_shutdown all -> /review
+  |   +-- On all positions filled -> rebase if needed -> exarchos_team_shutdown all -> /review
   +-- Circuit breaker: max 3 fix cycles before human checkpoint
 ```
 
@@ -534,22 +552,91 @@ function routeTask(task: PlanTask, context: WorkflowContext): "local" | "remote"
   // Always local if Basileus is unavailable
   if (!context.basileusConnected) return "local";
 
-  // Score-based routing
+  // Hard override: tasks requiring special environments always go remote
+  if (task.needsSpecialEnvironment) return "remote";
+
+  // Score-based routing (static heuristics + learned adjustments + budget factors)
   const localScore =
     (task.requiresCodebaseContext ? 3 : 0) +
     (task.complexity === "high" ? 2 : 0) +
     (task.likelyNeedsHumanInput ? 2 : 0) +
-    (task.securitySensitive ? 3 : 0);
+    (task.securitySensitive ? 3 : 0) +
+    learnedAdjustment(task.taskCategory, "local", context.historicalMetrics) +
+    budgetAdjustment(context.budget);
 
   const remoteScore =
     (task.mechanical ? 3 : 0) +
-    (task.needsSpecialEnvironment ? 3 : 0) +
     (task.wellDefined ? 2 : 0) +
-    (task.independentOfOtherTasks ? 1 : 0);
+    (task.independentOfOtherTasks ? 1 : 0) +
+    learnedAdjustment(task.taskCategory, "remote", context.historicalMetrics);
 
   return localScore >= remoteScore ? "local" : "remote";
 }
 ```
+
+### Learned Scoring (Local-First with Remote Enrichment)
+
+The Task Router incorporates historical performance data to refine routing decisions over time. This creates a feedback loop: routing decisions produce outcomes, outcomes improve future routing decisions.
+
+**Data sources:**
+
+- **Local events (primary):** `TaskCompleted` and `TaskFailed` events in the JSONL event store provide per-(taskCategory, backend) success rates, duration, and attempt counts. Available immediately, no remote dependency.
+- **Remote enrichment (when connected):** The `CodeQualityView` projection on Basileus provides aggregated metrics across all developers' Exarchos sessions and Agentic Coder executions, offering a broader statistical base.
+
+**Learning mechanism:**
+
+```typescript
+function learnedAdjustment(
+  taskCategory: string,
+  backend: "local" | "remote",
+  metrics: HistoricalMetrics
+): number {
+  const key = `${taskCategory}:${backend}`;
+  const stats = metrics.get(key);
+
+  if (!stats || stats.totalAttempts < 5) return 0; // insufficient data
+
+  // Success rate differential: favor the backend with higher success rate
+  const successRate = stats.successes / stats.totalAttempts;
+  if (successRate >= 0.9) return 2;   // strong historical fit
+  if (successRate >= 0.7) return 1;   // moderate fit
+  if (successRate < 0.4) return -2;   // historical poor fit
+  return 0;
+}
+```
+
+The minimum threshold (5 attempts) prevents premature conclusions from small samples. In local-only mode, learning operates purely from local event history. When Basileus is connected in `dual` mode, the router merges local and remote metrics, weighting local data higher (the developer's own patterns) but incorporating remote data for task categories with sparse local history.
+
+Over time, the router learns patterns such as: "DB migration tasks fail 60% locally (no Postgres), succeed 95% in Basileus containers → auto-route to remote." These patterns are captured as `TaskRouted` events with the computed scores, enabling retrospective analysis of routing quality.
+
+### Budget-Aware Routing
+
+Budget scarcity from the platform's [Budget Algebra](./platform-architecture.md#10-resource-management) influences routing decisions for tasks where both backends are viable. Budget only tips the balance when other factors are close — it cannot override hard environment-based signals (`needsSpecialEnvironment` always routes remote regardless of budget).
+
+```typescript
+function budgetAdjustment(budget: WorkflowBudget): number {
+  let adjustment = 0;
+
+  // Wall time scarcity: favor local (immediate start vs. ~30s container provisioning)
+  if (budget.wallTimeScarcity >= ScarcityLevel.Scarce) adjustment += 2;
+
+  // Execution slot scarcity: favor local (doesn't consume E2B sandbox slots)
+  if (budget.executionSlotScarcity >= ScarcityLevel.Scarce) adjustment += 1;
+
+  // Step scarcity: slight favor local (richer codebase context reduces wasted iterations)
+  if (budget.stepScarcity >= ScarcityLevel.Scarce) adjustment += 1;
+
+  // Token scarcity: no routing adjustment — comparable consumption regardless of backend
+  return adjustment;
+}
+```
+
+| Scarcity Dimension | Routing Effect | Rationale |
+|---|---|---|
+| **Wall time** (Scarce/Critical) | Favor local (+2) | Local teammates start immediately; remote containers have ~30s provisioning overhead |
+| **Execution slots** (Scarce/Critical) | Favor local (+1) | Reserve E2B sandbox capacity for tasks that need isolated environments |
+| **Steps** (Scarce/Critical) | Slight favor local (+1) | Local teammates have richer codebase context, reducing wasted iterations |
+| **Tokens** | No effect (0) | Comparable consumption regardless of backend |
 
 ### Developer Override Annotations
 
@@ -610,6 +697,23 @@ The agent uses **tiered model selection** for cost control: Opus for high-stakes
 
 Each action emits a `CodingEvent` to the Marten event stream, providing full observability through SSE.
 
+### Agentic Coder as Phronesis Workflow
+
+The Agentic Coder's plan-code-test-review loop is a natural consumer of the [Agentic.Workflow library (Strategos)](./platform-architecture.md#4-agenticworkflow-library). Expressing it as a Phronesis-style workflow definition provides automatic event sourcing, durability, loop detection, budget algebra, confidence routing, and compensation handlers without ad hoc reimplementation.
+
+The Agentic Coder's phases map to Phronesis steps:
+
+| Agentic Coder Phase | Phronesis Step | Benefit |
+|---------------------|---------------|---------|
+| Analyze Codebase | DecomposeRequest | Task capability extraction, TaskLedger creation |
+| Create Plan | ThinkStep | Context Tier assembly, strategy selection via Thompson Sampling |
+| Generate Code | ActStep | E2B sandbox execution via Code Execution Bridge |
+| Run Tests | ObserveStep | Zero-cost result capture, budget tracking |
+| Analyze Failures | ReflectStep | Reflection Tier 1-3 evaluation, embedded loop detection |
+| Budget/Loop Check | BudgetGuard + AdaptStrategy | Declarative budget enforcement, strategy adaptation |
+
+This means `StrategyOutcomeRecorded` events from remote Agentic Coder executions feed the same durable Thompson Sampling priors as local executions (see [Platform Architecture §4.7](./platform-architecture.md#47-agent--strategy-patterns)), accelerating cross-workflow learning. Remote and local executions contribute equally to the cross-system feedback architecture.
+
 ### Integration with the Pipeline
 
 Remote tasks are dispatched by the Task Router (see [section 5](#5-task-router)) via `POST /api/workflows/{id}/tasks/{taskId}/execute`. The Agentic Coder container:
@@ -622,9 +726,11 @@ For the full technical design including C# workflow definitions, MCP tools, DevE
 
 ### Tiered Context Assembly
 
-Context assembly is the Agentic Coder's first phase, determining the quality of the implementation plan. Two tiers produce a unified context object consumed by the planning phase.
+Context assembly is the Agentic Coder's first phase, determining the quality of the implementation plan. Two context tiers produce a unified context object consumed by the planning phase.
 
-**Tier 1: Deterministic Context (Always Runs)**
+> **Nomenclature note:** This document uses "Context Tier 1/2" for the Agentic Coder's context assembly tiers. The Platform Architecture document uses "Reflection Tier 1/2/3" for the Phronesis ReflectStep's evaluation tiers. These are distinct concepts sharing a tiered architecture — "Context Tier" assembles pre-execution context, "Reflection Tier" evaluates execution outcomes.
+
+**Context Tier 1: Deterministic Context (Always Runs)**
 
 Direct reads from the repository and GitHub API, with zero external dependencies beyond the DevContainer and git credentials:
 
@@ -635,30 +741,32 @@ Direct reads from the repository and GitHub API, with zero external dependencies
 - Recent git history on affected paths (last 20 commits)
 - Project conventions (`CLAUDE.md`, `CONTRIBUTING.md`, `.editorconfig`)
 
-**Tier 2: Semantic Context (Runs When Available)**
+**Context Tier 2: Semantic Context (Runs When Available)**
 
-RAG queries against the Knowledge domain via `IVectorSearchAdapter`. Gracefully degrades if the Knowledge system is unavailable:
+Two-stage retrieval against the Knowledge domain via `IMultiCollectionRagProvider`. Gracefully degrades if the Knowledge system is unavailable:
 
-- Architectural guidance from indexed ADRs and design docs (`architecture-docs` collection)
-- Prior coding session results from the `coding-sessions` collection
-- Domain-specific patterns and conventions from the `codebase-patterns` collection
+1. **Retrieve** — Broad vector similarity search (TopK=10, permissive MinRelevance) across multiple collections in parallel:
+   - Architectural guidance from indexed ADRs and design docs (`architecture-docs` collection)
+   - Prior coding session results from the `coding-sessions` collection — enriched over time by the Knowledge Enrichment loop (see [Platform Architecture §13 — Cross-System Feedback Architecture](./platform-architecture.md#cross-system-feedback-architecture))
+   - Domain-specific patterns and conventions from the `codebase-patterns` collection)
+2. **Rerank** — Cohere Rerank API (`rerank-v4.0-pro`) reorders merged multi-collection results by semantic relevance to the task description, then filters by `MinRelevanceScore` to discard low-quality retrievals. This narrows the broad initial retrieval to the most relevant documents before context assembly.
 
-The NLP Sidecar provides embedding generation for Tier 2 queries and text segmentation for large issue bodies.
+The NLP Sidecar provides embedding generation for Context Tier 2 queries and text segmentation for large issue bodies. Rerank parameters (`TopN`, `MinRelevanceScore`) are auto-tuned per execution profile via the Profile Evolution feedback loop (see [Platform Architecture §3.7](./platform-architecture.md#37-profile-composition-and-domain-integration)).
 
 **Context Quality Scoring**
 
-After both tiers complete, a scoring step evaluates context sufficiency:
+After both context tiers complete, a scoring step evaluates context sufficiency:
 
 | Quality Level | Score | Action |
 |---------------|-------|--------|
 | High | >= 0.7 | Proceed to planning with full confidence |
 | Sufficient | >= 0.4 | Proceed to planning; note missing context areas |
 | Low | >= 0.2 | Proceed with reduced scope; flag for human review post-PR |
-| Insufficient | < 0.2 | Emit `NeedsGuidance`; escalate to Exarchos |
+| Insufficient | < 0.2 | Emit `NeedsGuidance`; escalate via unified escalation protocol |
 
-Tier 1 contributes up to 0.7 of the score (issue parsed, files read, structure analyzed, conventions found). Tier 2 adds up to 0.3 (architectural guidance, prior work, domain patterns). This ensures the agent can always proceed with Tier 1 alone for straightforward tasks, while complex tasks benefit from RAG enrichment.
+Context Tier 1 contributes up to 0.7 of the score (issue parsed, files read, structure analyzed, conventions found). Context Tier 2 adds up to 0.3 (architectural guidance, prior work, domain patterns). This ensures the agent can always proceed with Context Tier 1 alone for straightforward tasks, while complex tasks benefit from RAG enrichment.
 
-Context quality scoring integrates with the existing confidence routing pattern in Agentic.Workflow — low context quality triggers the same escalation path as low agent confidence.
+**Unified Escalation Protocol:** Context quality scoring integrates with the platform's unified escalation protocol defined in [Platform Architecture §3.6](./platform-architecture.md#36-step-responsibilities). Low context quality (< 0.2) maps directly to `ReflectionOutcome.Escalate`, triggering the same `AwaitApproval` → `GracefulDegrade` path used by low agent confidence and remediation exhaustion. The `NeedsGuidance` event is the SDLC-specific name for this shared escalation semantic.
 
 ### DevContainer Image Strategy
 
@@ -1023,30 +1131,54 @@ type StackEnqueued = WorkflowEvent & {
 | Context assembly | `ContextAssembled` | Agentic Coder | Implemented |
 | Quality gates | `GateExecuted`, `GateSelfCorrected` | Agentic Coder / CI pipeline | Implemented |
 | Remediation | `RemediationStarted`, `RemediationAttempted`, `RemediationExhausted` | Basileus | Partial (`RemediationStarted` implemented; `RemediationAttempted`, `RemediationExhausted` deferred to Phase 4-5) |
+| Notification bridge | `NotificationDelivered`, `DeveloperCommandIssued`, `WatcherLifecycle` | Exarchos | Designed ([Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md)) |
 | Stack | `StackPositionFilled`, `StackRestacked`, `StackEnqueued` | Lead orchestrator / Agentic Coder | Implemented |
 | Verification | `BenchmarkCompleted`, `QualityRegression` | CI pipeline / CodeQualityView | Not implemented |
+| Deployment | `DeploymentRequested`, `DeploymentProgressed`, `DeploymentVerified`, `DeploymentRolledBack` | AgentHost DeploymentController | Designed ([Panoptikon](../designs/2026-02-24-panoptikon-production-observability.md#7-production-event-taxonomy)) |
+| Production health | `ProductionHealthSampled`, `FeatureFlagDisabled` | AgentHost ProductionHealthMonitor / SentinelDispatcher | Designed ([Panoptikon](../designs/2026-02-24-panoptikon-production-observability.md#7-production-event-taxonomy)) |
+| Incident | `IncidentOpened`, `IncidentDiagnosed`, `IncidentFixSubmitted`, `IncidentResolved` | AgentHost SentinelDispatcher / IncidentWorkflow | Designed ([Panoptikon](../designs/2026-02-24-panoptikon-production-observability.md#7-production-event-taxonomy)) |
 
-> **Implementation note:** 19 of 30 event types are implemented with Zod schemas and JSONL persistence in the local event store. Deferred events include remote-only types that will be added when Basileus integration (Phases 4-5) is implemented, plus verification events (`BenchmarkCompleted`, `QualityRegression`) planned as part of the verification infrastructure. The local event store uses dot-notation for type names (e.g., `workflow.started`) while this ADR uses PascalCase — the mapping is 1:1.
+> **Implementation note:** 50 event types are implemented with Zod schemas and JSONL persistence in the local event store. Deferred events include remote-only types that will be added when Basileus integration (Phases 4-5) is implemented, notification bridge types (`NotificationDelivered`, `DeveloperCommandIssued`, `WatcherLifecycle`) designed as part of the [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md), plus verification events (`BenchmarkCompleted`, `QualityRegression`) planned as part of the verification infrastructure. The local event store uses dot-notation for type names (e.g., `workflow.started`) while this ADR uses PascalCase — the mapping is 1:1.
 
 ### Event Projection: Local to Remote
 
-Events flow bidirectionally between the local JSONL event log and the remote Marten event store.
+Events flow bidirectionally between the local JSONL event log and the remote Marten event store. The transport uses MCP streamable HTTP (superseding the originally-planned polling model — see [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md)).
 
 **Outbound (local to remote):**
 
 ```text
-Local JSONL -> Exarchos sync engine -> HTTP POST -> Basileus API -> Marten append
+Local JSONL -> Exarchos sync engine -> MCP tool call (workflow_command) -> Basileus Workflow MCP Server -> Marten append
 ```
 
 Events are batched and sent on phase transitions or every 30 seconds (configurable). Failed sends are queued in the local outbox and retried with exponential backoff (1s, 2s, 4s, 8s, max 60s).
 
-**Inbound (remote to local):**
+**Inbound (remote to local) — MCP Streaming (primary):**
 
 ```text
-Basileus API (polling) -> Exarchos sync engine -> Append to local JSONL -> Rebuild views
+Basileus Workflow MCP Server -> SSE stream (workflow_subscribe) -> Exarchos Streaming Sync Engine -> Append to local JSONL -> Rebuild views -> Queue notifications
 ```
 
-The bridge polls the Basileus event query endpoint for new events since the last high-water mark. Remote events from Jules, other Claude Code sessions, or Basileus agents are appended to the local log with `source: "remote"`.
+Exarchos opens an MCP streamable HTTP connection to the Basileus Workflow MCP Server during `delegate` phase and calls `workflow_subscribe(workflowId)`, which returns an SSE stream of events as they are appended to the Marten stream. Events arrive in real-time (~1 second latency: Marten async daemon ~250ms + SSE transport). The connection is maintained with application-layer SSE keep-alive (15s interval). On disconnection, Exarchos reconnects with exponential backoff (1s, 2s, 4s, 8s, max 60s) and resumes via `Last-Event-ID` header — the server replays missed events from the last confirmed sequence.
+
+**Inbound (remote to local) — Polling fallback:**
+
+```text
+Basileus API (polling, 30s) -> Exarchos sync engine -> Append to local JSONL -> Rebuild views
+```
+
+If the MCP streaming connection fails for >5 minutes, Exarchos falls back to polling the event query endpoint for new events since the last high-water mark. Streaming resumes automatically when the connection restores. Remote events from other Claude Code sessions or Basileus agents are appended to the local log with `source: "remote"`.
+
+**Inbound event processing pipeline:**
+
+```text
+MCP SSE Event arrives
+  -> Validate schema (Zod)
+  -> Map to local WorkflowEvent (toLocal() function)
+  -> Append to local JSONL with source: "remote"
+  -> Trigger CQRS view rebuild (PipelineView, UnifiedTaskView, etc.)
+  -> Evaluate notification priority
+  -> Queue notification for developer delivery (three-layer model)
+```
 
 **Event schema mapping:**
 
@@ -1125,6 +1257,13 @@ interface PipelineView {
       prsCreated: number;
       prsPassingCI: number;
       mergeQueueStatus: "not-enqueued" | "enqueued" | "validating" | "merged";
+    };
+    /** Production status for deployed workflows (Panoptikon) */
+    production?: {
+      deployedRevision: string;
+      deployedAt: string;
+      status: "healthy" | "degraded" | "incident-open";
+      incidentCount: number;
     };
   }>;
 
@@ -1250,6 +1389,25 @@ interface CodeQualityView {
   regressions: QualityRegression[];
   /** Benchmark trends: per-operation historical measurements with baseline comparison */
   benchmarks: BenchmarkTrend[];
+  /** Production health aggregates (Panoptikon Loop 6) */
+  production: {
+    /** Incidents per strategy in the last 30 days */
+    incidentsByStrategy: Record<string, number>;
+    /** Rollback rate per task category */
+    rollbackRate: Record<string, number>;
+    /** Mean time to resolution per profile */
+    mttrByProfile: Record<string, number>;
+    /** Production error rate trend (7-day rolling) */
+    errorRateTrend: Array<{ date: string; rate: number }>;
+    /** Commits correlated with incidents (for pattern extraction) */
+    incidentCorrelatedCommits: Array<{
+      commitSha: string;
+      strategy: string;
+      profile: string;
+      incidentSeverity: string;
+      rootCauseSummary: string;
+    }>;
+  };
 }
 ```
 
@@ -1258,6 +1416,68 @@ interface CodeQualityView {
 See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full interface definitions (`SkillQualityMetrics`, `ModelQualityMetrics`, `GateMetrics`, `BenchmarkTrend`, `QualityRegression`) and attribution analysis.
 
 > **Implementation status:** Not implemented. Planned as part of the verification infrastructure — requires `BenchmarkCompleted` event type and sufficient workflow history for statistically meaningful trends.
+
+### ProductionHealthView
+
+Materialized production health state, deployment history, and incident tracking. Projected from `DeploymentRequested`, `DeploymentProgressed`, `DeploymentVerified`, `DeploymentRolledBack`, `ProductionHealthSampled`, `IncidentOpened`, and `IncidentResolved` events.
+
+```typescript
+interface ProductionHealthView {
+  /** Current health status per environment */
+  environments: Record<string, {
+    status: "healthy" | "degraded" | "critical" | "deploying";
+    currentRevision: string;
+    currentRevisionAge: string;        // ISO 8601 duration
+    latestMetrics: ProductionHealthSnapshot;
+    activeIncidents: Array<{
+      incidentId: string;
+      severity: string;
+      title: string;
+      openedAt: string;
+      status: "triaging" | "fixing" | "awaiting-approval" | "escalated";
+    }>;
+  }>;
+
+  /** Deployment history (last 20) */
+  recentDeployments: Array<{
+    revision: string;
+    imageTag: string;
+    deployedAt: string;
+    status: "verified" | "rolled-back" | "deploying";
+    causalPrs: number[];
+    verificationDuration?: string;
+  }>;
+
+  /** Aggregate health trends (7-day) */
+  trends: {
+    errorRate: Array<{ timestamp: string; value: number }>;
+    latencyP99: Array<{ timestamp: string; value: number }>;
+    deploymentSuccessRate: number;     // verified / total deployments
+    mttr: number;                      // average across all incidents
+    incidentCount: number;
+  };
+}
+
+interface ProductionHealthSnapshot {
+  errorRate: number;
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  latencyP99Ms: number;
+  requestsPerSecond: number;
+  sentryNewIssues: number;
+  sentryUnresolvedCount: number;
+  memoryUtilizationPercent: number;
+  cpuUtilizationPercent: number;
+  activeRevisions: number;
+  sampledAt: string;
+}
+```
+
+**Answers:** "How is production doing? What are the active incidents? What's the deployment history?"
+
+**Integration:** Production signals feed CodeQualityView (extended with `production` dimension — incidents per strategy, rollback rate per task category, MTTR per profile). PipelineView gains an optional `production` column showing deployed revision status.
+
+> **Implementation status:** Not implemented. Designed as part of the [Panoptikon Production Observability Loop](../designs/2026-02-24-panoptikon-production-observability.md#9-cqrs-view-extensions). Phase 1 delivers basic deployment tracking; Phase 3 delivers full trend analysis and CodeQualityView integration.
 
 ---
 
@@ -1320,7 +1540,7 @@ Merge queue: per-stack deterministic gates -> fast-forward merge to main
 
 ### Path B: Fully Autonomous (Basileus-First)
 
-A CI event (GitHub issue, scheduled task, Renovate PR) triggers Basileus directly. No developer session needed. Basileus runs the full pipeline using Agentic Coder containers with Graphite stack submission.
+A CI event (GitHub issue, scheduled task, Renovate PR) triggers Basileus directly. No developer session needed. Basileus runs the full pipeline using Agentic Coder containers with GitHub PR stack submission.
 
 ```text
 CI Event: "Bug fix: null reference in workflow step"
@@ -1331,7 +1551,7 @@ Basileus: Create workflow, plan single task, stackOrder: [T1]
   v
 Agentic Coder container:
   - Autonomous coding loop (plan -> code -> test -> review)
-  - On success: gt create gt/fix/01-null-ref-fix -> gt submit -> PR #1
+  - On success: git push -> gh pr create --base main -> PR #1
   - All events emitted to Marten stream
   |
   v
@@ -1341,7 +1561,7 @@ Basileus: Apply 'agentic-coder' + 'stack-ready' labels
 Layer 4 advisory reviews (if configured for auto-PRs)
   |
   v
-gt merge (enqueue in merge queue)
+gh pr merge --auto --squash (enqueue in merge queue)
   |
   v
 [HUMAN CHECKPOINT: approve merge (or auto-merge if configured)]
@@ -1349,7 +1569,7 @@ gt merge (enqueue in merge queue)
 
 Both paths share the event taxonomy defined in [section 7](#7-unified-event-stream) and the CQRS views defined in [section 8](#8-cqrs-views). A developer monitoring the PipelineView sees both developer-led and autonomous workflows in the same dashboard.
 
-> **Note:** `/integrate` has been eliminated. Its responsibilities -- branch merge, combined tests, conflict resolution, build verification -- are absorbed by progressive stacking within `/delegate` (agents work in parallel, completed work placed into the Graphite stack, conflicts resolved via `gt restack`) and per-PR/per-stack CI gates (build verification, unit tests, integration tests run automatically on each PR and on the assembled stack in the merge queue).
+> **Note:** `/integrate` has been eliminated. Its responsibilities -- branch merge, combined tests, conflict resolution, build verification -- are absorbed by progressive stacking within `/delegate` (agents work in parallel, completed work placed into the PR stack, conflicts resolved via `git rebase`) and per-PR/per-stack CI gates (build verification, unit tests, integration tests run automatically on each PR and on the assembled stack in the merge queue).
 
 ---
 
@@ -1411,24 +1631,24 @@ This coordination happens through the event stream — no direct communication b
 
 ### Dependency Resolution
 
-**File-level conflicts:** Each task operates in its own worktree (local) or container (remote). No two tasks modify the same files. Progressive stacking via `gt restack` detects and resolves merge conflicts as each task is placed into the stack.
+**File-level conflicts:** Each task operates in its own worktree (local) or container (remote). No two tasks modify the same files. Progressive stacking via `git rebase` detects and resolves merge conflicts as each task is placed into the stack.
 
-**Branch strategy (dual-branch model):** Agent work branches are temporary -- they exist during parallel execution and are consumed when placed into the Graphite stack. The `gt/` prefixed branches are the Graphite-managed stack. Naming convention: `gt/<feature-id>/<NN>-<task-slug>`.
+**Branch strategy (dual-branch model):** Agent work branches are temporary -- they exist during parallel execution and are consumed when placed into the PR stack. The `stack/` prefixed branches are the stack-managed PRs. Naming convention: `stack/<feature-id>/<NN>-<task-slug>`.
 
 ```text
 main
-  ├── gt/user-auth/01-jwt-middleware (stack position 1, PR #1)
-  │     └── gt/user-auth/02-db-migrations (stack position 2, PR #2)
-  │           └── gt/user-auth/03-api-endpoints (stack position 3, PR #3)
-  │                 └── gt/user-auth/04-unit-tests (stack position 4, PR #4)
-  │                       └── gt/user-auth/05-integration-tests (stack position 5, PR #5)
+  ├── stack/user-auth/01-jwt-middleware (stack position 1, PR #1 --base main)
+  │     └── stack/user-auth/02-db-migrations (stack position 2, PR #2 --base 01-jwt-middleware)
+  │           └── stack/user-auth/03-api-endpoints (stack position 3, PR #3 --base 02-db-migrations)
+  │                 └── stack/user-auth/04-unit-tests (stack position 4, PR #4 --base 03-api-endpoints)
+  │                       └── stack/user-auth/05-integration-tests (stack position 5, PR #5 --base 04-unit-tests)
   │
   ├── feat/user-auth/task-1-jwt (agent work branch, temporary)
   ├── feat/user-auth/task-2-migrations (agent work branch, temporary)
   └── ...
 ```
 
-The numeric prefix in the `gt/` branch names ensures sort order matches stack order. Graphite tracks the parent-child relationships internally. Agent work branches (`feat/` prefix) are created when agents start working and are consumed (cherry-picked/rebased) into the stack when placed at their designated position. After placement, the temporary agent branches can be cleaned up.
+The numeric prefix in the `stack/` branch names ensures sort order matches stack order. GitHub tracks the parent-child relationships via PR `--base` targeting. Agent work branches (`feat/` prefix) are created when agents start working and are consumed (cherry-picked/rebased) into the stack when placed at their designated position. After placement, the temporary agent branches can be cleaned up.
 
 ---
 
@@ -1481,7 +1701,7 @@ These gates run in CI as the comprehensive safety net. Each gate is assigned to 
 | **DB Migration Sandbox** | Testcontainers | 3 (Integration) | Per-Stack | Medium (~3-5 min) | Block merge; auto-remediate if agent-authored |
 | **API Contract Drift** | Orval/OpenAPI | 3 (Integration) | Per-Stack | Fast (~1 min) | Block merge; auto-remediate if agent-authored |
 | **Integration Tests** | Alba / Vitest | 3 (Integration) | Per-Stack | Medium (~3-10 min) | Block merge; auto-remediate if agent-authored |
-| **Code Review** | CodeRabbit/Graphite Diamond | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; never auto-remediate |
+| **Code Review** | CodeRabbit | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; never auto-remediate |
 | **Red Team** | Basileus adversarial workflow | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
 | **Scope Drift** | Basileus PM agent | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
 | **Architect** | Basileus Architect/SRE agent | 4 (Review) | Per-Stack Advisory | Agent-based | Advisory; escalate to human |
@@ -1524,6 +1744,39 @@ Performance benchmarks measure latency (P50/P95/P99), throughput (ops/sec), and 
 | Gate | Tool | Layer | Tier | Cost/Duration | Failure Action |
 |------|------|-------|------|---------------|----------------|
 | **Benchmark Regression** | Vitest bench / BenchmarkDotNet | 2 (Governance) | Per-PR (conditional) | Medium (~2-5 min) | Block merge; auto-remediate with optimization hints |
+
+### Layer 5: Production Verification (Panoptikon)
+
+Post-deployment health validation running continuously during the verification window after each deployment. This is the final quality gate — it validates that merged code works correctly in production, not just in CI.
+
+**Gate Stratification:** Layer 5 gates run per-deployment (not per-PR or per-stack). They execute after the GitHub merge queue completes and the GitOps CD pipeline deploys the new ACA revision.
+
+| Gate | Tool | Tier | Cost/Duration | Failure Action |
+|------|------|------|---------------|----------------|
+| **Error Rate Threshold** | Azure Monitor (ACA metrics) | Per-Deployment | Continuous (~30s samples, 5min window) | Auto-rollback: shift 100% traffic to previous revision (< 5s) |
+| **Latency P99 Threshold** | Azure Monitor (ACA metrics) | Per-Deployment | Continuous (~30s samples, 5min window) | Auto-rollback: shift 100% traffic to previous revision (< 5s) |
+| **New Sentry Issues** | Sentry webhook | Per-Deployment | On-incident | Auto-rollback if issues correlated with deployment revision |
+| **Feature Flag Health** | Azure App Config + Metrics | On-demand | Instant | Disable feature flag if correlated with Sentry issue tags |
+
+**Automation Level:** Fully mechanical — no agent involvement, decisions made via configurable thresholds (`DeploymentOptions.ErrorRateThreshold`, `DeploymentOptions.LatencyP99ThresholdMs`, `DeploymentOptions.MaxNewSentryIssues`).
+
+**Deployment Flow:**
+
+```text
+PR merged → GitHub merge queue → GitHub Actions: build + push image
+  → AgentHost DeploymentController:
+      1. Create ACA revision (0% traffic)
+      2. Health check: wait for revision Ready
+      3. Canary: shift 10% traffic → verify (5min) → 50% → verify → 100%
+      4a. All healthy → DeploymentVerified event
+      4b. Degraded → instant rollback → DeploymentRolledBack event → IncidentOpened event
+```
+
+**Rollback is decoupled from triage.** Rollback is instant and mechanical (ACA traffic shift). Agent-driven incident triage (IncidentWorkflow) follows asynchronously — it assembles context from Sentry, Azure Monitor logs, Honeycomb traces, and Marten event history, then generates a fix PR or escalates to the human queue.
+
+**Integration with Loop 6:** All deployment and production health events feed into `ProductionHealthView` (CQRS projection) and `CodeQualityView` (extended with production dimensions). Rollback events and incident resolutions inform Thompson Sampling priors, Task Router scoring, and Knowledge Enrichment.
+
+> **Implementation status:** Not implemented. Designed as part of the [Panoptikon Production Observability Loop](../designs/2026-02-24-panoptikon-production-observability.md). Phase 1 delivers GitOps CD + instant rollback. Phase 2 adds Sentry integration + IncidentWorkflow. Phase 3 adds continuous feedback into learning loops.
 
 ### SARIF Integration
 
@@ -1576,7 +1829,7 @@ CI Failure Detected
     │       NO
     └── Escalate to Exarchos session
         ├── Emit RemediationExhausted event to Marten stream
-        ├── If Exarchos online: notify via polling endpoint
+        ├── If Exarchos online: notify via MCP streaming (SSE) or polling fallback
         └── If Exarchos offline: GitHub PR comment + issue label
 ```
 
@@ -1794,7 +2047,7 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'stack-ready')
     runs-on: ubuntu-latest
     steps:
-      # CodeRabbit / Graphite Diamond runs automatically via GitHub App integration
+      # CodeRabbit runs automatically via GitHub App integration
 
       - name: Trigger Basileus Review Agents
         if: contains(github.event.pull_request.labels.*.name, 'agentic-coder')
@@ -1821,55 +2074,113 @@ jobs:
 
 ### Verification Flywheel
 
-Gate results, benchmark measurements, and property test outcomes flow through the event stream into the CodeQualityView (see [Section 8](#8-cqrs-views)), which materializes quality trends per skill, model, and task type. The flywheel connects this data to the eval framework, creating a self-improving system where generated code quality feeds back into prompt refinement.
+Gate results, benchmark measurements, strategy outcomes, property test outcomes, and production health signals flow through the event stream into the CodeQualityView (see [Section 8](#8-cqrs-views)), which materializes quality trends per skill, model, and task type. The flywheel has five concrete feedback targets — two fully automated, two semi-automated, and one human-driven:
 
 ```text
 Agent generates code
     │
     ▼
-CI gates execute ──── GateExecuted events ────┐
-Benchmarks run ─────── BenchmarkCompleted ─────┤
-Property tests run ── TestResult events ───────┤
-                                               ▼
-                                    CodeQualityView materializes
-                                               │
-                              ┌────────────────┴────────────────┐
-                              │   Eval Framework Integration    │
-                              │                                 │
-                              │  Capability: "Does /delegate    │
-                              │   produce code that passes      │
-                              │   mutation testing?"            │
-                              │                                 │
-                              │  Regression: "Did prompt v2.1   │
-                              │   cause benchmark regressions?" │
-                              │                                 │
-                              │  Reliability: "How often does   │
-                              │   auto-remediation succeed?"    │
-                              └────────────────┬────────────────┘
-                                               ▼
-                              Prompt Refinement Signal
+CI gates execute ──── GateExecuted events ────────┐
+Benchmarks run ─────── BenchmarkCompleted ─────────┤
+Strategy outcomes ─── StrategyOutcomeRecorded ─────┤
+Property tests run ── TestResult events ───────────┤
+Production health ─── ProductionHealthSampled ─────┤
+Incidents ──────────── IncidentResolved ────────────┤
+Deployments ────────── DeploymentRolledBack ────────┤
+                                                    ▼
+                                         CodeQualityView materializes
+                                                    │
+          ┌──────────────┬──────────────┬───────────┼──────────────┐
+          │              │              │           │              │
+          ▼              ▼              ▼           ▼              ▼
+ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────────┐
+ │  Thompson    │ │  Task Router │ │  Execution   │ │Production│ │  Eval        │
+ │  Sampling    │ │  Learned     │ │  Profile     │ │  Risk    │ │  Framework   │
+ │  Priors      │ │  Scores      │ │  Adaptation  │ │ Scoring  │ │  (Human)     │
+ │  (Loop 2)    │ │  (Loop 3)    │ │  (Loop 4)    │ │ (Loop 6) │ │              │
+ └──────────────┘ └──────────────┘ └──────────────┘ └──────────┘ └──────────────┘
+  Fully auto       Semi-auto        Semi-auto       Fully auto    Human-driven
+  Durable priors   Local-first      Bounded auto    Prod penalty  Prompt review
+  in Marten        with remote      + escalation    on strategies + config
 ```
 
-**Attribution dimensions** — When quality degrades, the CodeQualityView enables multi-dimensional analysis: per-skill mutation scores, per-model first-pass rates, per-task-type gate failures, per-complexity-tier trends, and per-prompt-version comparisons. When a regression is detected (consecutive gate failures), the flywheel emits a `QualityRegression` event that surfaces alongside eval regressions. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full attribution analysis and flywheel integration points.
+**Feedback target 1: Durable Thompson Sampling Priors (Loop 2, automated)** — `StrategyOutcomeRecorded` events feed the `StrategyPriorsProjection` in Marten. New workflows seed their Thompson Sampling selector from accumulated priors rather than uniform `Beta(2, 2)`. See [Platform Architecture §4.7](./platform-architecture.md#47-agent--strategy-patterns).
+
+**Feedback target 2: Task Router Learned Scores (Loop 3, semi-automated)** — `TaskCompleted`/`TaskFailed` events with backend tags feed per-(taskCategory, backend) success rates. The Task Router incorporates these as scoring adjustments. Local-first: learns from JSONL events immediately, enriched by remote CodeQualityView when connected. See [Section 5 Learned Scoring](#learned-scoring-local-first-with-remote-enrichment).
+
+**Feedback target 3: Execution Profile Adaptation (Loop 4, semi-automated)** — Per-profile quality metrics from gate results trigger bounded auto-tuning of RAG parameters (topK, minRelevance) and quality gate thresholds. Large swings or structural changes escalate to human via the unified escalation protocol. See [Platform Architecture §3.7](./platform-architecture.md#37-profile-composition-and-domain-integration).
+
+**Feedback target 4: Eval Framework / Human Review (manual)** — CodeQualityView surfaces capability questions ("Does /delegate produce code that passes mutation testing?"), regression signals ("Did prompt v2.1 cause benchmark regressions?"), and reliability metrics ("How often does auto-remediation succeed?"). Humans review trends and adjust prompts, profiles, or system configuration.
+
+**Feedback target 5: Production Risk Scoring (Loop 6, automated)** — `IncidentResolved` events correlate causal commits with `StrategyOutcomeRecorded` events, applying delayed Thompson Sampling penalties (`productionPenaltyWeight: 2.0`, heavier than gate failures because production incidents represent real user impact). `DeploymentRolledBack` events aggregate rollback rates per task category, feeding Task Router scoring adjustments. `IncidentResolved.lessonsLearned` are indexed into an `incident-patterns` RAG collection for Knowledge Enrichment (Loop 5). CodeQualityView gains a `production` dimension: incidents per strategy, rollback rate per task category, MTTR per profile, error rate trends. See [Panoptikon §8](../designs/2026-02-24-panoptikon-production-observability.md#8-loop-6-production-feedback) and [Platform Architecture §13](./platform-architecture.md#13-future-considerations).
+
+**Attribution dimensions** — When quality degrades, the CodeQualityView enables multi-dimensional analysis: per-skill mutation scores, per-model first-pass rates, per-task-type gate failures, per-complexity-tier trends, and per-prompt-version comparisons. When a regression is detected (consecutive gate failures), the flywheel emits a `QualityRegression` event that surfaces alongside eval regressions and may trigger `ProfileAdaptationEscalated` for affected profiles. See the [verification design](../designs/2026-02-15-autonomous-code-verification.md) for full attribution analysis and flywheel integration points.
+
+**Cross-loop amplification** — These five feedback targets do not operate in isolation. Improvement in any one target cascades into the others because they share CodeQualityView as a signal hub (e.g., better strategy selection → higher quality outputs → richer Knowledge RAG collections → better context for all future executions; production incident patterns → agents avoid repeating failure modes → fewer incidents → cleaner Thompson Sampling signal). See [Platform Architecture §13 — Cross-Loop Dynamics](./platform-architecture.md#cross-loop-dynamics) for the full reinforcing cascade analysis (including Loop 6) and damping mechanisms that ensure stable convergence.
 
 ---
 
 ## 12. Basileus Integration
 
-Exarchos connects to the Basileus backend via HTTPS. This section describes the API surface, authentication, and resilience model.
+Exarchos connects to the Basileus backend via MCP streamable HTTP. This section describes the MCP interface, REST API surface, authentication, notification delivery, and resilience model.
 
-### API Endpoints
+### Connectivity Model: Two-Hop MCP Chain
+
+Exarchos acts as both MCP server (for Claude Code, existing role) and MCP client (for Basileus, new role). Events stream from Basileus to Exarchos in real-time via MCP streamable HTTP. Developer commands flow back through the same MCP channel. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md) for full design.
+
+```text
+Claude Code ──MCP──> Exarchos MCP Server ──MCP (streamable HTTP)──> Basileus Workflow MCP Server
+   (client)         (server + client)                                (server)
+```
+
+**Why MCP over WebSocket/SSE/A2A:**
+1. **Architectural consistency** — The entire platform speaks MCP. Adding a Workflow MCP Server is a natural extension.
+2. **Bidirectional by design** — MCP streamable HTTP supports server-pushed notifications (SSE via GET) and client-initiated requests (POST) within a single logical session (shared `Mcp-Session-Id`).
+3. **A2A convergence** — MCP and A2A are converging on interoperability. Building on MCP positions the architecture for A2A agent discovery without transport rewrites.
+4. **Transport-independent last mile** — Regardless of how events reach Exarchos, the mechanism for surfacing them in Claude Code (three-layer notification delivery) is the same.
+
+### Basileus Workflow MCP Server
+
+A new MCP server hosted by AgentHost, exposing workflow event streams and command interfaces to external MCP clients (Exarchos instances). Co-located with AgentHost, separate listening endpoint from the ControlPlane MCP server. Registered in Aspire AppHost.
+
+```text
+AgentHost
+├── ControlPlane MCP Server (existing)  → sandbox execution, tool hosting
+└── Workflow MCP Server (new)           → event streaming, developer commands
+```
+
+**MCP Tools exposed:**
+
+| Tool | Purpose |
+|------|---------|
+| `workflow_subscribe` | Subscribe to a workflow's Marten event stream. Returns an SSE stream of events as they're appended. Uses Marten `ISubscription` with `SubscribeFromPresent()` — async daemon pushes events to subscriptions. |
+| `workflow_command` | Send a command to a running task: `cancel`, `reprioritize`, `provide_context`, `approve`. Routes to appropriate Agentic Coder container. |
+| `task_status` | Get real-time status of a specific task within a workflow. |
+| `pipeline_overview` | Get aggregate PipelineView across all active workflows for this developer. |
+
+**MCP Resources exposed:**
+
+| Resource URI | Content |
+|--------------|---------|
+| `workflow://{id}/events` | Live event stream (read-only snapshot; real-time delivery via `workflow_subscribe` tool) |
+| `workflow://{id}/status` | Current workflow status (phase, task counts, resource usage) |
+
+**Implementation pattern:** Marten `ISubscription` → `Channel<T>` → SSE endpoint. The async daemon (configured as `DaemonMode.HotCold` in Basileus) pushes events to subscriptions with sub-second latency (~250ms fast polling, ~1s slow). The `workflow_subscribe` tool responds with `Content-Type: text/event-stream`, pushing multiple notifications before the final response.
+
+### REST API Endpoints (Retained)
+
+The REST API is retained for operations that do not require real-time streaming, and as a fallback when the MCP connection is unavailable:
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `POST` | `/api/workflows` | Register a new workflow (creates Marten stream) |
 | `GET` | `/api/workflows/{id}` | Get workflow state |
-| `GET` | `/api/workflows/{id}/events?since={seq}` | Get events since high-water mark |
+| `GET` | `/api/workflows/{id}/events?since={seq}` | Get events since high-water mark (polling fallback) |
 | `POST` | `/api/workflows/{id}/events` | Batch-append events |
 | `POST` | `/api/workflows/{id}/tasks/{taskId}/execute` | Dispatch a task to Agentic Coder |
 | `GET` | `/api/pipeline` | Aggregate PipelineView across all active workflows |
 | `POST` | `/api/coordination/dependencies` | Register cross-workflow dependencies |
-| `GET` | `/api/coordination/pending?exarchosId={id}` | Poll for cross-session commands |
+| `GET` | `/api/coordination/pending?exarchosId={id}` | Poll for cross-session commands (polling fallback) |
 | `POST` | `/api/coordination/commands` | Post coordination commands |
 
 ### Authentication
@@ -1878,8 +2189,116 @@ Token-based, following the existing Basileus MCP token pattern (`McpTokenGenerat
 
 1. Developer obtains a long-lived API token from Basileus
 2. Stored as `EXARCHOS_API_TOKEN` environment variable (never in state files)
-3. Included as Bearer token in all HTTPS requests
+3. Included as Bearer token in all MCP and HTTPS requests
 4. Each Exarchos instance identified by `(developerId, machineId, sessionId)`
+
+### Streaming Sync Engine
+
+Replaces the originally-planned polling-based sync engine with an MCP-client-based streaming engine. See [Remote Notification Bridge §Component 2](../designs/2026-02-19-remote-notification-bridge.md#component-2-exarchos-streaming-sync-engine) for full design.
+
+**Connection lifecycle:**
+
+```text
+Workflow enters 'delegate' phase
+  → Exarchos opens MCP connection to Basileus Workflow MCP Server
+  → Calls workflow_subscribe(workflowId) → SSE stream
+  → Events flow in real-time
+  → Connection maintained with application-layer heartbeat (SSE comment keep-alive, 15s interval)
+
+Workflow completes or is cancelled
+  → Exarchos closes MCP connection gracefully
+
+Connection lost
+  → Reconnect with exponential backoff (1s, 2s, 4s, 8s, max 60s)
+  → On reconnect: re-subscribe with Last-Event-ID header (MCP spec supports stream resumability)
+  → Server replays missed events from last confirmed sequence
+
+Persistent failure (>5min disconnected)
+  → Fall back to polling (30s interval, existing REST API endpoint)
+  → Queue outbound events in local outbox
+  → Resume streaming when connection restores
+```
+
+### Notification Delivery Layer
+
+The "last mile" from event-in-Exarchos to developer-awareness-in-Claude-Code. Three complementary layers provide increasing levels of interactivity. Each serves a different scenario — they are not fallbacks but **concurrent channels** optimized for different interaction patterns. See [Remote Notification Bridge §Component 3](../designs/2026-02-19-remote-notification-bridge.md#component-3-notification-delivery-layer) for full design.
+
+| Layer | Mechanism | Cost | Latency | Bidirectional? | Active When |
+|-------|-----------|------|---------|----------------|-------------|
+| **Layer 1: Piggyback** | `_notifications` field in MCP tool responses | Zero (bundled) | Next tool call | No (read-only) | Always |
+| **Layer 2: Hooks + Status** | `UserPromptSubmit` hook + Claude Code status line | Zero (hook/script) | Next user prompt | No (read-only) | Always |
+| **Layer 3: Watcher** | Agent team teammate with `exarchos_notify_wait` long-polling | Haiku tokens (~$0.01/relay) | ~1 second | **Yes** | During `/delegate` with remote tasks |
+
+**Layer 1 — MCP Tool Response Piggyback (Passive Awareness):** Every Exarchos MCP tool response includes a `_notifications` field with pending events since last acknowledgment. Zero cost — notifications are bundled with responses the agent is already making. Includes `_notificationSummary` with total count, action-required count, and highest priority for efficient triage.
+
+**Layer 2 — Claude Code Hooks + Status Line (Idle Awareness):** A `UserPromptSubmit` hook (`exarchos-notify --check --format=claude-code`) injects notification summaries as context when the user types. The status line (`~/.claude/statusline.sh`) shows a persistent notification count at the terminal bottom. Desktop notifications (`notify-send` on Linux, `osascript` on macOS) fire for `critical` priority events only.
+
+**Layer 3 — Watcher Teammate (Active Bidirectional):** A dedicated Claude Code agent team teammate (Haiku model for cost efficiency) whose sole job is relaying events between remote Agentic Coders and the developer. Spawned during `/delegate` when the Task Router dispatches at least one task to the remote tier. Shut down when all remote tasks complete. Uses `exarchos_notify_wait()` which blocks until an event arrives (consuming zero tokens while waiting), then sends a DM to the lead. The lead can respond via DM, which the watcher forwards as `exarchos_remote_respond` or `exarchos_remote_command` calls. At ~$0.01 per relay, a 12-task workflow with ~20 events costs ~$0.20 for full real-time monitoring.
+
+**Critical constraint:** MCP server→Claude Code push notifications are a dead end — Claude Code receives `notifications/message` but does not display them to the agent (GitHub Issue [#3174](https://github.com/anthropics/claude-code/issues/3174), Closed Not Planned). Resource subscriptions (`notifications/resources/updated`) are also not implemented (Issue [#7252](https://github.com/anthropics/claude-code/issues/7252)). The three-layer approach is the workaround.
+
+### Notification Priority Model
+
+Not all events warrant the same attention. The priority model determines batching, delivery timing, and notification surface:
+
+| Priority | Events | Batching | Layer 1 (Piggyback) | Layer 2 (Hook) | Layer 3 (Watcher DM) |
+|----------|--------|----------|---------------------|----------------|----------------------|
+| `info` | TaskProgressed, TestResult, ContainerProvisioned | Batched (up to 10, or 30s) | Summary count | Summary count | Suppressed (too noisy) |
+| `success` | TaskCompleted | Individual | Full notification | Summary line | Full DM with branch/test details |
+| `warning` | TaskFailed (retryable), high resource usage, budget >80% | Individual | Full notification | Summary line | Full DM with diagnostics |
+| `action-required` | Escalation, approval needed, budget exhausted | Individual | Full notification + actions | Emphasized summary | Full DM with inline action options |
+| `critical` | All tasks failed, security incident, workflow stuck | Immediate | Full notification + actions | Emphasized summary | Full DM + desktop notification |
+
+**Notification lifecycle:** Event arrives → priority evaluated → queued in notification queue → delivered via all active layers (deduplication by notification ID per layer) → removed after 1 hour or explicit `exarchos_notify_ack` → `action-required` notifications persist until responded to.
+
+### Notification Event Types
+
+Three new event types for the notification bridge, appended to the local event stream for audit trail completeness:
+
+```typescript
+type NotificationDelivered = WorkflowEvent & {
+  type: "NotificationDelivered";
+  notificationId: string;
+  deliveryChannel: "mcp-piggyback" | "hook" | "desktop" | "watcher-dm";
+  priority: NotificationPriority;  // "info" | "success" | "warning" | "action-required" | "critical"
+};
+
+type DeveloperCommandIssued = WorkflowEvent & {
+  type: "DeveloperCommandIssued";
+  commandType: "respond" | "cancel" | "reprioritize" | "provide_context" | "approve";
+  taskId: string;
+  content?: string;
+  source: "lead-direct" | "watcher-relay";  // how the command was issued
+};
+
+type WatcherLifecycle = WorkflowEvent & {
+  type: "WatcherLifecycle";
+  action: "spawned" | "shutdown";
+  model: string;        // e.g., "haiku"
+  reason: string;       // e.g., "remote tasks dispatched", "all remote tasks complete"
+};
+```
+
+### Workflow State HSM Integration
+
+The notification bridge activates during `delegate` phase and deactivates at phase transitions:
+
+```text
+ideate → plan → plan-review → [HUMAN CHECKPOINT]
+  → delegate
+      ├── Task Router dispatches tasks (local + remote)
+      ├── Exarchos opens MCP connection to Basileus (for remote tasks)
+      ├── If remote tasks dispatched: spawn watcher teammate (Layer 3)
+      ├── Events stream in real-time via SSE
+      ├── Watcher relays events to lead via DM (~1s latency)
+      ├── Lead responds to escalations via DM to watcher (bidirectional)
+      ├── All remote tasks complete → watcher shutdown
+  → review
+      ├── MCP connection still active (review may trigger re-execution)
+      ├── Watcher respawned if review dispatches new remote tasks
+  → synthesize → [HUMAN CHECKPOINT] → merge
+      └── MCP connection closed
+```
 
 ### Offline Resilience
 
@@ -1887,11 +2306,12 @@ When Basileus is unreachable:
 
 1. Exarchos continues all local operations normally (mode falls back to `local`)
 2. Events accumulate in the local JSONL log and outbox
-3. When connection is restored, the sync engine performs catch-up:
+3. When the MCP streaming connection is restored, the sync engine performs catch-up:
+   - Re-subscribes with `Last-Event-ID` header; server replays missed events
    - Sends all locally-accumulated events since last successful sync
-   - Receives all remotely-accumulated events
    - Reconciles using the conflict resolution strategy from [section 7](#7-unified-event-stream)
-4. The local workflow-state HSM remains authoritative — Exarchos never blocks local workflow progress for remote connectivity
+4. If streaming remains unavailable for >5 minutes, falls back to REST API polling (30s interval)
+5. The local workflow-state HSM remains authoritative — Exarchos never blocks local workflow progress for remote connectivity
 
 Local-first is the governing principle: the developer's productivity is never gated on network availability.
 
@@ -1900,20 +2320,20 @@ Local-first is the governing principle: the developer's productivity is never ga
 When multiple developers' Claude Code sessions need coordination:
 
 ```text
-Exarchos (Dev A) --POST event: task-blocked (needs API from Dev B)--> Basileus
-                                                                        |
-Basileus evaluates cross-session dependency                             |
-                                                                        |
-Exarchos (Dev B) <--GET pending: prioritize-task (API endpoint)-------- |
-                                                                        |
-Dev B teammate reacts to priority change                                |
-                                                                        |
-Exarchos (Dev B) --POST event: task-complete (API endpoint)-----------> |
-                                                                        |
-Exarchos (Dev A) <--GET pending: dependency-resolved--------------------
+Exarchos (Dev A) --MCP workflow_command: task-blocked (needs API from Dev B)--> Basileus
+                                                                                 |
+Basileus evaluates cross-session dependency                                      |
+                                                                                 |
+Exarchos (Dev B) <--SSE stream: prioritize-task (via workflow_subscribe)--------- |
+                                                                                 |
+Dev B watcher teammate relays priority change to lead via DM                     |
+                                                                                 |
+Exarchos (Dev B) --MCP workflow_command: task-complete (API endpoint)-----------> |
+                                                                                 |
+Exarchos (Dev A) <--SSE stream: dependency-resolved (via workflow_subscribe)------
 ```
 
-Since Exarchos runs behind NAT, Basileus uses a **polling model**: it queues commands and Exarchos polls for them every 30 seconds. A future enhancement could use WebSocket upgrade for lower latency.
+Cross-session commands now flow through the MCP streamable HTTP connection rather than the original polling model. Exarchos instances receive commands in real-time via their SSE subscriptions. The REST polling endpoint (`/api/coordination/pending`) is retained as a fallback for persistent MCP connection failure.
 
 ---
 
@@ -1932,7 +2352,9 @@ All concerns are handled by the unified `exarchos-mcp` server (the originally-en
 | Teammate lifecycle | `exarchos_team_spawn`, `exarchos_team_message`, `exarchos_team_broadcast`, `exarchos_team_shutdown`, `exarchos_team_status` | `team/tools.ts` |
 | Task management | `exarchos_task_claim`, `exarchos_task_complete`, `exarchos_task_fail` | `tasks/tools.ts` |
 | Stack management | `exarchos_stack_status`, `exarchos_stack_place` | `stack/tools.ts` |
-| Sync with Basileus | `exarchos_sync_now` (no-op sender) | `sync/composite.ts` |
+| Sync with Basileus | `exarchos_sync_now` (no-op sender; superseded by Streaming Sync Engine) | `sync/composite.ts` |
+| Remote notifications | `exarchos_notify_wait`, `exarchos_notify_ack` | `notify/tools.ts` |
+| Remote commands | `exarchos_remote_respond`, `exarchos_remote_command`, `exarchos_remote_status` | `remote/tools.ts` |
 
 ### Skill Mapping
 
@@ -1942,13 +2364,13 @@ Each SDLC skill maps to the pipeline as follows:
 |-------|---------------------|----------------------|
 | `/ideate` | Runs before teams are formed. No pipeline changes. | None |
 | `/plan` | Enhanced to produce `stackOrder` array with dependency-aware topological sort. Each task includes stack position metadata. | Stack order planning |
-| `/delegate` | Extended to spawn agent teams when criteria met (>= 3 independent tasks). **Progressive stacking** places completed work into Graphite stack. PRs created incrementally via `gt submit`. Task Router dispatches local vs. remote. | Agent teams + Task Router + Progressive stacking |
+| `/delegate` | Extended to spawn agent teams when criteria met (>= 3 independent tasks). **Progressive stacking** places completed work into PR stack. PRs created incrementally via `gh pr create`. Task Router dispatches local vs. remote. | Agent teams + Task Router + Progressive stacking |
 | `/review` | Refocused for stack-based review. Verifies all per-PR gates passed, applies `stack-ready` label, triggers Layer 4 advisory reviews on full stack. Stack coherence review. | Stack-based review |
-| `/synthesize` | Simplified -- no longer creates PR (PRs already exist from `/delegate`). Enqueues stack in Graphite merge queue via `gt merge`. Human checkpoint for merge approval. | Merge queue enqueue |
+| `/synthesize` | Simplified -- no longer creates PR (PRs already exist from `/delegate`). Enqueues stack in GitHub merge queue via `gh pr merge --auto --squash`. Human checkpoint for merge approval. | Merge queue enqueue |
 | `/debug` | Extended for competing hypothesis investigation via concurrent teammates. | Concurrent investigation |
 | `/refactor` (overhaul) | Extended to use agent teams for parallel refactoring tasks via the standard delegation pipeline. | Agent team delegation |
 
-> **Note:** `/integrate` has been eliminated. Its responsibilities are absorbed by progressive stacking within `/delegate` (branch merge, conflict resolution) and CI gate stratification (combined tests, build verification). See [Graphite Stacked PR Integration](../designs/2026-02-07-graphite-sdlc-integration.md) for the full design.
+> **Note:** `/integrate` has been eliminated. Its responsibilities are absorbed by progressive stacking within `/delegate` (branch merge, conflict resolution) and CI gate stratification (combined tests, build verification). Stacked PRs use GitHub-native `--base` targeting for ordering.
 
 ---
 
@@ -1962,10 +2384,17 @@ The Exarchos bridge is configured via a JSON file that controls operational mode
 {
   "mode": "local",
   "remote": {
-    "apiBaseUrl": "https://basileus.local/api",
+    "apiBaseUrl": "https://your-remote-server.example.com/api",
+    "mcpEndpoint": "https://your-remote-server.example.com/mcp/workflow",
     "auth": {
       "type": "token",
       "tokenEnvVar": "EXARCHOS_API_TOKEN"
+    },
+    "streaming": {
+      "enabled": true,
+      "heartbeatIntervalMs": 15000,
+      "reconnectBackoff": { "initialMs": 1000, "maxMs": 60000 },
+      "fallbackAfterMs": 300000
     }
   },
   "projection": {
@@ -1973,6 +2402,15 @@ The Exarchos bridge is configured via a JSON file that controls operational mode
     "localPath": "~/.claude/workflow-state/",
     "syncIntervalMs": 30000,
     "conflictResolution": "last-writer-wins"
+  },
+  "notifications": {
+    "enablePiggyback": true,
+    "enableHooks": true,
+    "enableDesktopNotifications": true,
+    "desktopMinPriority": "critical",
+    "batchingMaxEvents": 10,
+    "batchingMaxMs": 30000,
+    "expiryMs": 3600000
   },
   "views": {
     "refreshIntervalMs": 5000,
@@ -2041,6 +2479,14 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 - View materialization with mixed local + remote events (PipelineView, UnifiedTaskView)
 - Cross-workflow dependency detection (DependencyBlocked/DependencyResolved)
 
+#### Notification Bridge
+
+- Notification queue: priority evaluation, batching, acknowledgment, expiry
+- `exarchos_notify_wait`: blocking behavior, timeout, priority filtering, immediate return when queue non-empty
+- Notification priority model: correct classification of all event types across all three layers
+- Notification deduplication: same event delivered via Layer 1 and Layer 3, verify no duplicate display
+- Connection lifecycle state machine: connected → disconnected → reconnecting → fallback
+
 #### Quality Gates
 
 - Context quality scoring across all quality levels (parameterized tests)
@@ -2055,7 +2501,7 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 
 - End-to-end event flow: append event to JSONL, project to views, verify materialized state
 - Local-only mode operation (no remote dependency, all views from local events)
-- Remote projection with mock Basileus API (outbox drain, HTTP POST, confirmation)
+- Remote projection with mock Basileus Workflow MCP Server (MCP streaming connection, SSE event delivery, outbox drain)
 - Conflict resolution under concurrent writes (multiple agents appending simultaneously)
 - Circuit breaker triggering after repeated failures (3 fix cycles)
 
@@ -2063,9 +2509,14 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 
 - End-to-end developer-led flow: Exarchos initialization, task routing, mixed local/remote execution, branch merge
 - End-to-end autonomous flow: CI event trigger, Basileus workflow creation, Agentic Coder execution, PR creation
-- Offline resilience: local tasks continue when Basileus is unreachable, events accumulate, catch-up sync on reconnection
-- Cross-workflow coordination: DependencyBlocked emission, priority elevation, DependencyResolved, blocked task resumption
-- End-to-end context assembly with a real repository clone (Tier 1 deterministic + Tier 2 RAG with mock Knowledge system)
+- MCP client↔server: Exarchos connects to Basileus Workflow MCP Server, subscribes, receives events via SSE
+- Command round-trip: developer command → Exarchos → Basileus Workflow MCP Server → Agentic Coder → acknowledgment
+- Watcher relay: watcher receives notification via `exarchos_notify_wait`, sends DM, lead responds, response proxied to Basileus
+- Reconnection: simulate network drop, verify catch-up with `Last-Event-ID`
+- Fallback: simulate persistent failure (>5min), verify polling fallback activates
+- Offline resilience: local tasks continue when Basileus is unreachable, events accumulate, catch-up sync on reconnection via MCP streaming
+- Cross-workflow coordination: DependencyBlocked emission, priority elevation via SSE stream, DependencyResolved, blocked task resumption
+- End-to-end context assembly with a real repository clone (Context Tier 1 deterministic + Context Tier 2 RAG with mock Knowledge system)
 - Gate execution in a Docker DevContainer (Trufflehog secret scan, dotnet test)
 - Auto-remediation loop: inject known CI failures, verify fix application and escalation
 
@@ -2083,6 +2534,11 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 - 2-feature concurrent pipeline with mixed local/remote tasks, verify interleaved execution
 - Verify PipelineView shows both features accurately with correct task counts and phases
 - Verify event stream contains interleaved events from both backends with correct `source` tags
+- Full notification loop: Agentic Coder emits `TaskCompleted` → Marten → Basileus Workflow MCP Server → SSE → Exarchos → watcher DM to lead
+- Escalation round-trip: Agentic Coder escalates → watcher relays → developer responds via DM → response delivered to container
+- Multi-workflow streaming: two concurrent workflows streaming events, verify isolation and correct routing
+- Watcher lifecycle: spawned on remote task dispatch, shut down when all remote tasks complete
+- Layer degradation: watcher not active (no team), verify Layer 1 + Layer 2 still deliver notifications
 
 ---
 
@@ -2095,10 +2551,10 @@ The autonomous invocation path (Path B) integrates with CI/CD systems:
 | Phase 1: Foundation | **Complete** | Unified exarchos-mcp server with 27 MCP tools, local JSONL event store (19 of 30 event types), Zod schemas, HSM state machine with 26 guards across feature/debug/refactor workflows |
 | Phase 2: Team Coordinator | **Complete** | Team spawn/message/broadcast/shutdown/status lifecycle, task claim/complete/fail, role definitions and composition strategy |
 | Phase 3: Materialized Views | **Complete** | CQRS views (PipelineView, UnifiedTaskView, WorkflowStatusView, TeamStatusView, TaskDetailView), view materialization from event sequences, snapshot persistence |
-| Phase 4: Remote Projection | **Planned** | Basileus HTTP client, outbox delivery with real sender, event schema mapping, Task Router score-based routing |
-| Phase 5: Bidirectional Sync | **Planned** | Remote event polling, conflict resolution, cross-session coordination, dual-write mode, Agentic Coder container dispatching |
+| Phase 4: Remote Projection + Streaming Sync | **Planned** | Basileus Workflow MCP Server, MCP streaming client in Exarchos, `workflow_subscribe` SSE stream, outbox delivery with real sender, event schema mapping, Task Router score-based routing. Supersedes original polling design — see [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md). |
+| Phase 5: Notification Bridge + Cross-Session Coordination | **Planned** | Three-layer notification delivery (piggyback + hooks + watcher teammate), `exarchos_notify_wait` long-polling tool, `exarchos_remote_*` command tools, notification priority model, watcher teammate lifecycle, conflict resolution, cross-session coordination via MCP, Agentic Coder container dispatching. Supersedes original polling design — see [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md). |
 
-> **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool has plumbing in place (stream discovery, outbox drain) but uses a no-op sender until the Basileus remote client is implemented in Phase 4. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) will be added to the event schema when Phases 4-5 are implemented.
+> **Note:** Phases 1-3 are fully implemented and operational in local mode. The `exarchos_sync_now` tool has plumbing in place (stream discovery, outbox drain) but uses a no-op sender until the MCP Streaming Sync Engine replaces it in Phase 4. Remote-only event types (`ContainerProvisioned`, `CodingAttemptStarted`, `CodingAttemptCompleted`, `ContainerDestroyed`, `DependencyBlocked`, `DependencyResolved`, `RemediationAttempted`, `RemediationExhausted`) and notification bridge event types (`NotificationDelivered`, `DeveloperCommandIssued`, `WatcherLifecycle`) will be added to the event schema when Phases 4-5 are implemented.
 
 ### Verification Infrastructure
 
@@ -2135,7 +2591,7 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 | CLI and documentation (Phase 1) | **Not started** | `exarchos` CLI binary, getting started docs |
 | Extension architecture (Phase 2) | **Not started** | Plugin-based extensibility for workflows, gates, views |
 | AI client abstraction (Phase 3) | **Not started** | `AgentCapabilities` interface, multi-client support |
-| SaaS tier (Phase 4) | **Not started** | Basileus integration, remote compute, web dashboard |
+| Remote backend integration (Phase 4) | **Not started** | Basileus integration, remote compute, web dashboard |
 | Flywheel and team features (Phase 5) | **Not started** | Multi-tenant analytics, cross-developer coordination |
 
 ---
@@ -2179,45 +2635,68 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 
 **Deliverable:** Teammates query pre-computed views for workflow state, remaining work, and team activity.
 
-### Phase 4: Remote Projection
+### Phase 4: Remote Projection + Streaming Sync
 
-**Scope:** Local to remote event sync
+**Scope:** MCP streaming connection to Basileus, replacing polling-based sync. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md).
 
-- Implement `BridgeClient` for Basileus HTTP communication
-- Implement outbox pattern for reliable delivery
+- Implement Basileus Workflow MCP Server (new .NET MCP server co-located with AgentHost):
+  - `workflow_subscribe` — Marten `ISubscription` → `Channel<T>` → SSE stream per workflow
+  - `workflow_command` — route commands to Agentic Coder containers
+  - `task_status` — real-time task status
+  - `pipeline_overview` — aggregate PipelineView
+  - Bearer token authentication (`McpTokenGenerator` / `McpAuthenticationHandler`)
+  - Register in Aspire AppHost
+- Implement Exarchos Streaming Sync Engine (MCP client):
+  - Open MCP streamable HTTP connection to Basileus during `delegate` phase
+  - Call `workflow_subscribe(workflowId)` → SSE stream
+  - Application-layer SSE keep-alive (15s interval)
+  - Reconnect with exponential backoff + `Last-Event-ID` resume
+  - Fallback to REST API polling after >5min disconnect
+- Implement outbox pattern for reliable outbound delivery
 - Implement event schema mapping (local to Marten EventMessage)
-- Add `exarchos_sync_now` tool
-- Implement sync engine with high-water mark tracking
 - Implement Task Router with score-based routing
 
-**Deliverable:** Events flow from local to remote. Workflows registered with Basileus get a Marten stream.
+**Deliverable:** Events flow bidirectionally via MCP streaming. Workflows registered with Basileus get a Marten stream with real-time SSE subscriptions.
 
-**Dependency:** Basileus API endpoints (can be mocked for local development).
+**Dependency:** Basileus API + MCP endpoints (can be mocked for local development). .NET MCP SDK `ModelContextProtocol.AspNetCore` (already referenced in Basileus, v0.4.0-preview.3).
 
-### Phase 5: Bidirectional Sync and Cross-Session Coordination
+### Phase 5: Notification Bridge + Cross-Session Coordination
 
-**Scope:** Remote to local sync + multi-developer coordination
+**Scope:** Three-layer notification delivery + multi-developer coordination. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md).
 
-- Implement polling for remote events
-- Implement conflict resolution
-- Implement cross-session command polling
-- Add dual-write mode
-- Cache invalidation when remote events arrive
+- Implement notification queue with priority model (`info`, `success`, `warning`, `action-required`, `critical`)
+- Implement Layer 1 — MCP tool response piggyback (`_notifications` + `_notificationSummary` in all Exarchos tool responses)
+- Implement Layer 2 — Claude Code hooks:
+  - `UserPromptSubmit` hook (`exarchos-notify --check --format=claude-code`)
+  - Status line script (`~/.claude/statusline.sh` reading notification count)
+  - Desktop notifications (`notify-send` / `osascript`) for `critical` priority
+- Implement Layer 3 — Watcher Teammate:
+  - `exarchos_notify_wait` tool (long-polling, blocks until event arrives)
+  - Watcher spawn/shutdown lifecycle (spawned during `/delegate` when remote tasks dispatched)
+  - Watcher prompt (Haiku model, relay-only behavior)
+- Implement `exarchos_notify_ack` for notification dismissal
+- Implement `exarchos_remote_respond`, `exarchos_remote_command`, `exarchos_remote_status` (proxied to Basileus Workflow MCP Server)
+- Implement notification deduplication (per notification ID, per delivery layer)
+- Implement conflict resolution for bidirectional event streams
+- Implement cross-session coordination via MCP (replacing polling model)
 - Implement Agentic Coder container dispatching via Task Router
 
-**Deliverable:** Full bidirectional event projection between local and Basileus. Multi-developer workflows coordinated through shared event stream.
+**Deliverable:** Full real-time notification delivery (~1s latency) with bidirectional developer-to-agent communication. Multi-developer workflows coordinated through MCP streaming.
 
 ### Open Questions with Recommendations
 
 | Question | Options | Recommendation |
 |----------|---------|----------------|
 | **Resource allocation** — When multiple features compete for remote containers, how does Basileus prioritize? | FIFO queue, priority-based, token budget per developer | Start with FIFO; add priority scoring in Phase 5 based on feature urgency and developer budget |
-| **Task Router learning** — Should routing decisions improve over time? | Static heuristics, learned from task completion data | Collect completion data (success rate, duration, cost by backend) from Phase 4. Add adaptive scoring in a later release. |
+| **Task Router learning** — Should routing decisions improve over time? | Static heuristics, learned from task completion data | **Resolved in §5.** Learned Scoring (local-first with remote enrichment) and Budget-Aware Routing are now designed as first-class Task Router features. See [Learned Scoring](#learned-scoring-local-first-with-remote-enrichment) and [Budget-Aware Routing](#budget-aware-routing). |
 | **Partial remote failure** — If a remote container fails mid-task, should Exarchos retry locally? | Basileus retry, local fallback, hybrid | Basileus retries remotely up to 2 times, then falls back to local if Exarchos is available |
 | **Token cost visibility** — Should PipelineView show per-task token costs? | Aggregate only, per-task breakdown | Include per-task breakdown with local/remote split to help developers optimize routing |
 | **Multi-developer coordination** — How do Exarchos instances discover each other? | Direct discovery, shared event stream | Through the shared Marten event stream + Basileus Cross-Session Coordinator (no direct communication) |
 | **Event store separation** — Separate JSONL log or reuse workflow-state `_events`? | Shared, separate | Separate — the `_events` array is capped at 100 entries, insufficient for full sync history |
-| **Push vs. pull for inbound events** — Can Basileus push to Exarchos? | Push (WebSocket), pull (polling) | Polling (30s interval) since Exarchos runs behind NAT. WebSocket upgrade as future enhancement. |
+| **Push vs. pull for inbound events** — Can Basileus push to Exarchos? | Push (WebSocket), pull (polling), MCP streaming | **Resolved.** MCP streamable HTTP — Exarchos initiates an outbound HTTPS connection (NAT-safe) to the Basileus Workflow MCP Server and receives events via SSE stream. Polling retained as fallback. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md). |
+| **Async `PostToolUse` hook as notification channel** — Could an async `PostToolUse` hook on all Exarchos tools check for high-priority notifications and inject a `systemMessage`? | `UserPromptSubmit` only, `PostToolUse` async, both | More frequent delivery than `UserPromptSubmit` alone. Needs testing. See [Remote Notification Bridge §Remaining Open Questions](../designs/2026-02-19-remote-notification-bridge.md#remaining-open-questions). |
+| **MCP session multiplexing limits** — What is the practical limit on concurrent SSE subscriptions within a single MCP streamable HTTP session? | Spec does not specify | Load testing needed. One `workflow_subscribe` call per workflow, all on the same session. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md). |
+| **Marten subscription ordering guarantees** — Under concurrent multi-workflow event appends, does the async daemon guarantee per-stream ordering? | Expected yes (per-stream sequences) | Needs verification under concurrent load. See [Remote Notification Bridge](../designs/2026-02-19-remote-notification-bridge.md). |
 | **Teammate MCP discovery** — Will teammates in worktrees discover the Exarchos MCP server? | Project-level `.mcp.json`, user-level `~/.claude.json` | May need user-level configuration; investigate during Phase 2 |
 | **Session resumption** — Agent teams cannot resume sessions. | Spawn replacements, replay from checkpoint | Detect orphaned teammates via event heartbeats. Spawn replacements and replay from last checkpoint. |
 | **Token budget** — Agent teams consume significantly more tokens. | No limit, per-teammate budgets, team budget | Enforce per-teammate token budgets via the existing workflow budget algebra |
@@ -2231,12 +2710,13 @@ See [Productization Roadmap ADR](./productization-roadmap.md) for full roadmap.
 |----------|-------------|
 | [System Index](./system-index.md) | Entry-point reference mapping concepts to authoritative locations |
 | [Platform Architecture](./platform-architecture.md) | Three-tier runtime, Agentic.Workflow, event sourcing, deployment, resources |
-| [Productization Roadmap](./productization-roadmap.md) | Strategic roadmap for OSS local tool and optional SaaS tier |
+| [Productization Roadmap](./productization-roadmap.md) | Roadmap for OSS local tool and optional remote backend tier |
 | [`docs/designs/2026-01-18-agentic-coder.md`](../designs/2026-01-18-agentic-coder.md) | Full Agentic Coder design (remote tier) |
-| [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Graphite Stacked PR Integration design |
+| [`docs/designs/2026-02-07-graphite-sdlc-integration.md`](../designs/2026-02-07-graphite-sdlc-integration.md) | Stacked PR Integration design (historical — originally Graphite-based, now GitHub-native) |
 | [`docs/designs/2026-02-15-autonomous-code-verification.md`](../designs/2026-02-15-autonomous-code-verification.md) | Verification flywheel design (property-based testing, benchmarks, CodeQualityView) |
-| [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Full productization assessment (source for Productization Roadmap ADR) |
+| [`docs/designs/2026-02-15-productization-assessment.md`](../designs/2026-02-15-productization-assessment.md) | Architecture assessment (source for Productization Roadmap ADR) |
 | [`docs/designs/2026-02-15-content-hardening.md`](../designs/2026-02-15-content-hardening-trigger-harness.md) | Content hardening trigger harness design (fully implemented) |
+| [`docs/designs/2026-02-19-remote-notification-bridge.md`](../designs/2026-02-19-remote-notification-bridge.md) | Remote Notification Bridge: MCP streaming sync, three-layer notification delivery, watcher teammate. Supersedes Phases 4-5 transport design (polling → MCP streaming). |
 
 ## References
 

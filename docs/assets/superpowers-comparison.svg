@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="720">
+  <title>Claude Skills vs Exarchos</title>
+  <desc>Side-by-side comparison of what happens after context compaction: Claude skills lose state while Exarchos persists it locally via event-sourced MCP.</desc>
+
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
+    .title { fill: #e5e7eb; font-size: 13px; font-weight: 600 }
+    .head { fill: #e5e7eb; font-size: 12px; font-weight: 600 }
+    .label { fill: #6b7280; font-size: 10px }
+    .val { fill: #9ca3af; font-size: 10px }
+    .xm { fill: #ef4444; font-size: 12px; font-weight: 600 }
+    .cm { fill: #10B981; font-size: 12px; font-weight: 600 }
+    .foot { fill: #6b7280; font-size: 10px; font-style: italic }
+  </style>
+
+  <!-- Background -->
+  <rect width="720" height="380" fill="#1a1a2e" rx="8"/>
+
+  <!-- Title -->
+  <text class="title" x="360" y="32" text-anchor="middle">After Context Compaction</text>
+  <line x1="60" y1="46" x2="660" y2="46" stroke="#374151" stroke-width="1"/>
+
+  <!-- Left panel: Claude Skills -->
+  <rect x="24" y="58" width="326" height="276" rx="6" fill="#1f2937" stroke="#374151" stroke-width="1"/>
+  <text class="head" x="187" y="84" text-anchor="middle">Claude Skills</text>
+  <text class="label" x="187" y="100" text-anchor="middle">Markdown-based workflows</text>
+  <line x1="44" y1="112" x2="330" y2="112" stroke="#374151" stroke-width="0.5"/>
+
+  <!-- Superpowers items -->
+  <text class="label" x="44" y="138">State persistence</text>
+  <text class="xm" x="44" y="158">&#x2717;</text>
+  <text class="val" x="62" y="158">Lost. Starts from scratch.</text>
+
+  <text class="label" x="44" y="190">Quality verification</text>
+  <text class="xm" x="44" y="210">&#x2717;</text>
+  <text class="val" x="62" y="210">Agent self-review (skippable)</text>
+
+  <text class="label" x="44" y="242">Workflow state</text>
+  <text class="xm" x="44" y="262">&#x2717;</text>
+  <text class="val" x="62" y="262">Markdown files (session-scoped)</text>
+
+  <text class="label" x="44" y="294">Agent coordination</text>
+  <text class="xm" x="44" y="314">&#x2717;</text>
+  <text class="val" x="62" y="314">Manual orchestration</text>
+
+  <!-- Right panel: Exarchos -->
+  <rect x="370" y="58" width="326" height="276" rx="6" fill="#1f2937" stroke="#374151" stroke-width="1"/>
+  <text class="head" x="533" y="84" text-anchor="middle">Exarchos</text>
+  <text class="label" x="533" y="100" text-anchor="middle">Event-sourced workflows</text>
+  <line x1="390" y1="112" x2="676" y2="112" stroke="#374151" stroke-width="0.5"/>
+
+  <!-- Exarchos items -->
+  <text class="label" x="390" y="138">State persistence</text>
+  <text class="cm" x="390" y="158">&#x2713;</text>
+  <text class="val" x="408" y="158">/rehydrate restores in ~2-3k tokens</text>
+
+  <text class="label" x="390" y="190">Quality verification</text>
+  <text class="cm" x="390" y="210">&#x2713;</text>
+  <text class="val" x="408" y="210">Deterministic scripts (enforced)</text>
+
+  <text class="label" x="390" y="242">Workflow state</text>
+  <text class="cm" x="390" y="262">&#x2713;</text>
+  <text class="val" x="408" y="262">Local MCP server (no cloud deps)</text>
+
+  <text class="label" x="390" y="294">Agent coordination</text>
+  <text class="cm" x="390" y="314">&#x2713;</text>
+  <text class="val" x="408" y="314">Automated worktree delegation</text>
+
+  <!-- Footer -->
+  <text class="foot" x="360" y="362" text-anchor="middle">All state persisted locally.</text>
+</svg>

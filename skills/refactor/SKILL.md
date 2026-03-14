@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: "Code improvement workflow with two tracks: polish (small, direct changes) and overhaul (large, delegated restructuring). Use when the user says \"refactor\", \"clean up\", \"restructure\", \"reorganize\", \"refactor this code\", or runs /refactor. Handles explore, brief, implement, validate, and documentation phases. Do NOT use for bug fixes (use /debug) or new features (use /ideate). Applies to existing code only."
+description: "Code improvement workflow with polish and overhaul tracks. Triggers: 'refactor', 'clean up', 'restructure', 'reorganize', or /refactor. Phases: explore, brief, implement, validate. Existing code only — Do NOT use for bug fixes (/debug) or new features (/ideate)."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -9,9 +9,14 @@ metadata:
   phase-affinity:
     - explore
     - brief
-    - implement
-    - validate
-    - update-docs
+    - polish-implement
+    - polish-validate
+    - polish-update-docs
+    - overhaul-plan
+    - overhaul-plan-review
+    - overhaul-delegate
+    - overhaul-review
+    - overhaul-update-docs
     - synthesize
 ---
 
@@ -24,12 +29,12 @@ Two-track workflow for improving existing code. Polish track for small, containe
 ## Triggers
 
 Activate this skill when:
-- User runs `/refactor` command
+- User runs `/exarchos:refactor` command
 - User wants to improve existing code structure
 - User mentions "refactor", "restructure", "clean up", "migrate"
 - User asks to "move", "extract", "rename", or "reorganize" code
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `/refactor` when the code *works* but needs structural improvement. Use `/debug` when something is *broken* (error, crash, wrong behavior).
+**Disambiguation:** If the user says "fix" or "clean up" — use `/exarchos:refactor` when the code *works* but needs structural improvement. Use `/exarchos:debug` when something is *broken* (error, crash, wrong behavior).
 
 ## Workflow Overview
 
@@ -57,13 +62,13 @@ Activate this skill when:
 
 ```bash
 # Default: overhaul track
-/refactor "Description of what needs refactoring"
+/exarchos:refactor "Description of what needs refactoring"
 
 # Fast path: polish track
-/refactor --polish "Small contained refactor description"
+/exarchos:refactor --polish "Small contained refactor description"
 
 # Explore first, then decide track
-/refactor --explore "Unsure of scope, explore first"
+/exarchos:refactor --explore "Unsure of scope, explore first"
 ```
 
 ### Mid-Workflow Commands
@@ -73,7 +78,7 @@ Activate this skill when:
 /exarchos:refactor --switch-overhaul
 
 # Resume after context compaction
-/exarchos:resume
+/exarchos:rehydrate
 ```
 
 ## Track Comparison
@@ -86,11 +91,21 @@ Activate this skill when:
 | Documentation | Mandatory update phase | Mandatory update phase |
 | Human Checkpoints | 0 | 1 (merge) |
 
+## Characterization Testing (Both Tracks)
+
+Before modifying any existing code behavior, capture current behavior as characterization tests. This is a mandatory pre-step for both tracks:
+
+1. **Before changes:** Write tests that document what the code **currently does** (not what it should do). Exercise the code through the most appropriate observable seam (API, CLI, integration boundary, or function) with representative inputs and assert on actual outputs/effects.
+2. **During changes:** Any characterization test failure means behavior changed. Evaluate: intentional or accidental?
+3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
+
+This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
 ## Polish Track
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.
 
-Phases: Explore -> Brief -> Implement -> Validate -> Update Docs -> Complete
+HSM phases: `explore` → `brief` → `polish-implement` → `polish-validate` → `polish-update-docs` → `completed`
 
 For detailed phase instructions, state management, and auto-chain behavior, see `@skills/refactor/references/polish-track.md`.
 
@@ -98,7 +113,7 @@ For detailed phase instructions, state management, and auto-chain behavior, see 
 
 Rigorous path for architectural changes, migrations, and multi-file restructuring. Uses full delegation model with worktree isolation.
 
-Phases: Explore -> Brief -> Plan -> Delegate -> Review -> Update Docs -> Synthesize
+HSM phases: `explore` → `brief` → `overhaul-plan` → `overhaul-plan-review` → `overhaul-delegate` → `overhaul-review` → `overhaul-update-docs` → `synthesize` → `completed`
 
 For detailed phase instructions, skill invocations, and auto-chain behavior, see `@skills/refactor/references/overhaul-track.md`.
 
@@ -109,45 +124,28 @@ Initialize refactor workflow:
 action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 ```
 
-Full state schema:
-```json
-{
-  "version": "1.1",
-  "featureId": "refactor-<slug>",
-  "workflowType": "refactor",
-  "track": "polish | overhaul",
-  "phase": "explore | brief | polish-implement | polish-validate | polish-update-docs | overhaul-plan | overhaul-delegate | overhaul-review | overhaul-update-docs | synthesize | completed | cancelled | blocked",
-  "explore": {
-    "startedAt": "ISO8601",
-    "completedAt": "ISO8601 | null",
-    "scopeAssessment": {
-      "filesAffected": ["string"],
-      "modulesAffected": ["string"],
-      "testCoverage": "good | gaps | none",
-      "recommendedTrack": "polish | overhaul"
-    }
-  },
-  "brief": {  // See references/brief-template.md for field descriptions
-    "problem": "string",
-    "goals": ["string"],
-    "approach": "string",
-    "affectedAreas": ["string"],
-    "outOfScope": ["string"],
-    "successCriteria": ["string"],
-    "docsToUpdate": ["string"]
-  },
-  "artifacts": {
-    "plan": "string | null",
-    "pr": "string | null",
-    "updatedDocs": ["string"]
-  },
-  "validation": {
-    "testsPass": "boolean",
-    "goalsVerified": ["string"],
-    "docsUpdated": "boolean"
-  }
-}
-```
+Use `describe` to discover the full state schema at runtime: `exarchos_workflow({ action: "describe", actions: ["init"] })`.
+
+### Phase Transitions and Guards
+
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, `explore` must transition to `brief` before `overhaul-plan` — attempting `explore` → `overhaul-plan` directly will be rejected by the HSM. From `brief` you must go to `polish-implement` or `overhaul-plan`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
+
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+
+The pattern for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "refactor" })`
+for phase transitions, guards, and playbook guidance.
+
+### Decision Runbooks
+
+For track-selection criteria at the explore phase, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "scope-decision" })`
+
+This runbook provides structured criteria for choosing between polish and overhaul tracks based on file count, structural impact, and PR scope.
 
 ## Track Switching
 
@@ -193,6 +191,6 @@ When Exarchos MCP tools are available, emit events throughout the refactor workf
 1. **At workflow start (explore):** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
 2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (polish/overhaul)
 3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
-4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `gt create` per implementer prompt)
-5. **Polish track commit:** Single `gt create -m "refactor: <description>"` — no multi-branch stacking needed
+4. **Overhaul track stacking:** Handled by `/exarchos:delegate` (subagents use `git commit` + `git push` per implementer prompt)
+5. **Polish track commit:** Single `git commit -m "refactor: <description>"` + `git push` — no multi-branch stacking needed
 6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"

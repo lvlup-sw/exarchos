@@ -15,6 +15,7 @@ PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
 MARKETPLACE_JSON="${REPO_ROOT}/.claude-plugin/marketplace.json"
 MANIFEST_JSON="${REPO_ROOT}/manifest.json"
 PACKAGE_JSON="${REPO_ROOT}/package.json"
+MCP_PACKAGE_JSON="${REPO_ROOT}/servers/exarchos-mcp/package.json"
 CHECK_MODE=false
 
 require_arg() {
@@ -70,6 +71,13 @@ if [[ "$CHECK_MODE" == "true" ]]; then
     echo "MISMATCH: manifest.json version=$MANIFEST_VER, expected=$VERSION" >&2
     ((ERRORS++)) || true
   fi
+  if [[ -f "$MCP_PACKAGE_JSON" ]]; then
+    MCP_VER=$(jq -r '.version' "$MCP_PACKAGE_JSON")
+    if [[ "$MCP_VER" != "$VERSION" ]]; then
+      echo "MISMATCH: servers/exarchos-mcp/package.json version=$MCP_VER, expected=$VERSION" >&2
+      ((ERRORS++)) || true
+    fi
+  fi
 
   if [[ $ERRORS -gt 0 ]]; then
     exit 1
@@ -93,4 +101,10 @@ mv "${MARKETPLACE_JSON}.tmp" "$MARKETPLACE_JSON"
 jq --arg v "$VERSION" '.version = $v' "$MANIFEST_JSON" > "${MANIFEST_JSON}.tmp"
 mv "${MANIFEST_JSON}.tmp" "$MANIFEST_JSON"
 
-echo "Synced version ${VERSION} to plugin.json, marketplace.json, and manifest.json"
+# Update servers/exarchos-mcp/package.json
+if [[ -f "$MCP_PACKAGE_JSON" ]]; then
+  jq --arg v "$VERSION" '.version = $v' "$MCP_PACKAGE_JSON" > "${MCP_PACKAGE_JSON}.tmp"
+  mv "${MCP_PACKAGE_JSON}.tmp" "$MCP_PACKAGE_JSON"
+fi
+
+echo "Synced version ${VERSION} to plugin.json, marketplace.json, manifest.json, and exarchos-mcp/package.json"

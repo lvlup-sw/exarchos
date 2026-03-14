@@ -1,0 +1,79 @@
+name: PR Body Check
+
+on:
+  pull_request:
+    types: [opened, edited, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-pr-body:
+    if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      github.event.pull_request.user.login != 'renovate[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !startsWith(github.event.pull_request.title, '[Graphite MQ]')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup GitHub CLI
+        env:
+          GH_VERSION: '2.65.0'
+        run: |
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar xz -C /tmp
+            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Validate PR body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          BODY="$(gh pr view "$PR" --json body -q .body)"
+
+          # Determine required sections from template or defaults
+          if [[ -f ".exarchos/pr-template.md" ]]; then
+            SECTIONS=()
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^##[[:space:]]+(.+)$ ]]; then
+                trimmed="${BASH_REMATCH[1]}"
+                trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+                SECTIONS+=("$trimmed")
+              fi
+            done < .exarchos/pr-template.md
+          else
+            SECTIONS=("Summary" "Changes" "Test Plan")
+          fi
+
+          # Safeguard: if template exists but yielded no sections, fall back to defaults
+          if [[ ${#SECTIONS[@]} -eq 0 ]]; then
+            echo "Warning: .exarchos/pr-template.md has no ## headings, using defaults"
+            SECTIONS=("Summary" "Changes" "Test Plan")
+          fi
+
+          # Escape regex metacharacters in section names
+          escape_ere() { printf '%s' "$1" | sed 's/[.[*^$()+?{|\\]/\\&/g'; }
+
+          MISSING=()
+          for section in "${SECTIONS[@]}"; do
+            escaped="$(escape_ere "$section")"
+            if ! printf '%s\n' "$BODY" | grep -qiE "^##[[:space:]]+${escaped}[[:space:]]*$"; then
+              MISSING+=("$section")
+            fi
+          done
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "PR body validation failed."
+            for s in "${MISSING[@]}"; do
+              echo "  Missing: ## $s"
+            done
+            echo ""
+            echo "Required sections: ${SECTIONS[*]}"
+            exit 1
+          fi
+          echo "PR body validation passed."

@@ -1,6 +1,6 @@
 ---
 name: quality-review
-description: "Stage 2 code quality review after spec compliance passes. Use when the user says 'quality review', 'check code quality', or runs /review (stage 2). Requires spec-review to have passed first (stage 2 of /review). Checks SOLID principles, DRY, security, and test quality. Do NOT use for spec compliance — use spec-review instead. Do NOT use for brainstorming."
+description: "Stage 2 code quality review. Triggers: 'quality review', 'check code quality', or /review stage 2. Requires spec-review to have passed first. Checks SOLID, DRY, security, and test quality. Do NOT use for spec compliance — use spec-review instead."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -17,11 +17,13 @@ Stage 2 of two-stage review: Assess code quality, maintainability, and engineeri
 
 **Prerequisite:** Spec review must PASS before quality review.
 
+> **MANDATORY:** Before accepting any rationalization for rubber-stamping code quality, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
+
 ## Triggers
 
 Activate this skill when:
 - Spec review has passed
-- `/review` command (after spec review)
+- `/exarchos:review` command (after spec review)
 - Ready to assess code quality
 - Before synthesis/merge
 
@@ -29,17 +31,33 @@ Activate this skill when:
 
 This skill runs in a SUBAGENT spawned by the orchestrator, not inline.
 
-The orchestrator provides the state file path, diff output from `~/.claude/scripts/review-diff.sh`, task ID, and spec review results (must be PASS).
+The orchestrator provides the state file path, diff output from `exarchos_orchestrate({ action: "review_diff" })`, task ID, and spec review results (must be PASS).
 
 The subagent reads the state file for artifact paths, uses the diff output instead of full files, runs static analysis, performs a code walkthrough, generates a report, and returns the verdict.
+
+### Data Handoff Protocol
+
+The **orchestrator** is responsible for generating the diff before dispatching the quality-review subagent. The subagent does NOT generate its own diff.
+
+**Orchestrator responsibilities:**
+1. Generate diff: `git diff main...HEAD` or `git diff main...integration-branch`
+2. Pass diff content in the subagent dispatch prompt
+3. Include state file path for artifact resolution
+4. Include spec review results (must be PASS)
+
+**Subagent responsibilities:**
+1. Receive diff content from dispatch prompt (do NOT re-generate)
+2. Read state file for design/plan artifact paths
+3. Run static analysis and security scripts against the working tree
+4. Return structured JSON verdict
 
 ### Context-Efficient Input
 
 Instead of reading full files, receive the integrated diff:
 
 ```bash
-# Generate integrated diff for review (Graphite stack vs main)
-gt diff main > /tmp/stack-diff.patch
+# Generate integrated diff for review (branch stack vs main)
+git diff main...HEAD > /tmp/stack-diff.patch
 
 # Alternative: git diff for integration branch
 git diff main...integration-branch > /tmp/integration-diff.patch
@@ -50,6 +68,12 @@ git diff main...integration-branch > /tmp/integration-diff.patch
 ```
 
 This reduces context consumption by 80-90% while providing the complete picture.
+
+### Pre-Review Schema Discovery
+
+Before evaluating, query the review strategy runbook to determine the appropriate evaluation approach:
+
+- **Evaluation strategy:** `exarchos_orchestrate({ action: "runbook", id: "review-strategy" })` to determine single-pass vs two-pass evaluation strategy based on diff size and task count.
 
 ### Review Scope: Combined Changes
 
@@ -79,11 +103,21 @@ This enables catching:
 
 ## Review Process
 
+### Check Quality Signals
+
+Before reviewing, query quality signals for the skill(s) under review:
+```
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
+```
+- If `regressions` is non-empty, report active quality regressions to the user before proceeding
+- If any hint has `confidenceLevel: 'actionable'`, present the `suggestedAction` to the user
+- If `gatePassRate < 0.80` for the target skill, warn about degrading quality
+
 ### Step 0: Verify Spec Review Passed (MANDATORY)
 
 Before proceeding, confirm spec review passed for all tasks:
 
-```
+```text
 action: "get", featureId: "<id>", query: "reviews"
 ```
 
@@ -92,36 +126,45 @@ If ANY task has `specReview.status !== "pass"`, STOP and return:
 { "verdict": "blocked", "summary": "Spec review not passed — run spec-review first" }
 ```
 
-### Step 1: Static Analysis
+### Step 0.5: Verify Review Triage (Conditional — run when delegation phase preceded this review)
 
-Run the static analysis gate:
+If this review follows a delegation phase, verify triage routing:
 
-```bash
-scripts/static-analysis-gate.sh --repo-root <repo-root>
+```typescript
+exarchos_orchestrate({
+  action: "verify_review_triage",
+  stateFile: "<state-file>"
+})
 ```
 
-The script runs lint, typecheck, and quality-check (if available), distinguishing errors from warnings.
+`passed: true`: triage routing correct — continue to Step 1. `passed: false`: triage issues found — investigate and resolve before proceeding.
 
-**On exit 0:** All analysis passes -- proceed to Step 2.
-**On exit 1:** Errors found -- fix before continuing review.
+### Step 1: Static Analysis + Security + Extended Gates
 
-### Step 2: Code Walkthrough
+> **Runbook:** Run quality evaluation gates via runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "quality-evaluation" })`
+> If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_convergence", "check_review_verdict"] })`
 
-Assess each modified file against the quality checklists:
-- Consult `references/code-quality-checklist.md` for code quality, SOLID, DRY, and structural criteria
-- Consult `references/security-checklist.md` for security review criteria
-- Consult `references/typescript-standards.md` for TypeScript-specific conventions (file organization, naming, patterns)
+Run automated gates via orchestrate actions. See `references/gate-execution.md` for orchestrate action signatures and response handling.
 
-### Step 2.5: Security Scan (Automated)
+1. `check_static_analysis` — lint, typecheck, quality-check (D2). **Must pass** before continuing.
+2. `check_security_scan` — security pattern detection (D1). Include findings in report.
+3. Optional D3-D5 gates: `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism` — advisory, feed convergence view.
 
-Run automated security pattern detection:
+### Step 2: Test Desiderata Evaluation
 
-```bash
-scripts/security-scan.sh --repo-root <repo-root> --base-branch main
-```
+Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four properties are critical for agentic code:
 
-**On exit 0:** No security patterns detected.
-**On exit 1:** Potential security issues found -- include in review report.
+| Property | What to check | Flag when |
+|---|---|---|
+| **Behavioral** | Tests assert on observable behavior, not implementation details | Mock call count assertions, internal state inspection, testing private methods |
+| **Structure-insensitive** | Tests survive refactoring without behavioral change | Tests coupled to internal helper method signatures, tests that break when internals are renamed |
+| **Deterministic** | Tests produce the same result every run | Uncontrolled `Date.now()`, `Math.random()`, `setTimeout` race conditions, network-dependent tests |
+| **Specific** | Test failures pinpoint the cause | `toBeTruthy()` / `toBeDefined()` without additional specific assertions, catch-all tests with vague descriptions |
+
+**Test layer mismatch detection:** Flag unit tests with >3 mocked dependencies as potential layer mismatches — unit tests with many mocks often indicate the test is asserting integration concerns rather than unit logic. Advisory finding: suggest re-classifying as integration test with real collaborators.
+
+Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the `issues` array with `category: "test-quality"`.
 
 ### Step 3: Generate Report
 
@@ -152,6 +195,28 @@ If HIGH-priority issues found:
 3. Re-review quality after fixes
 4. Only mark APPROVED when all HIGH items resolved and tests pass
 
+**Fix loop iteration limit: max 3.** If HIGH-priority issues persist after 3 fix-review cycles, pause and escalate to the user with a summary of unresolved issues. The user can override: `/exarchos:review --max-fix-iterations 5`
+
+### Post-Fix Spec Compliance Check (MANDATORY after fix cycle)
+
+After the quality-review fix loop completes and quality passes, re-verify that the quality fixes did not break spec compliance. Run inline (not a full dispatch):
+
+1. Run spec verification commands:
+   ```bash
+   npm run test:run
+   npm run typecheck
+   ```
+   ```typescript
+   exarchos_orchestrate({
+     action: "check_tdd_compliance",
+     featureId: "<featureId>",
+     taskId: "<taskId>",
+     branch: "<branch>"
+   })
+   ```
+2. If all pass: proceed to APPROVED transition
+3. If any fail: return to NEEDS_FIXES with spec regression noted in issues array
+
 ## Required Output Format
 
 The subagent MUST return results as structured JSON. The orchestrator parses this JSON to populate state. Any other format is an error.
@@ -163,7 +228,7 @@ The subagent MUST return results as structured JSON. The orchestrator parses thi
   "issues": [
     {
       "severity": "HIGH | MEDIUM | LOW",
-      "category": "security | solid | dry | perf | naming | other",
+      "category": "security | solid | dry | perf | naming | test-quality | other",
       "file": "path/to/file",
       "line": 123,
       "description": "Issue description",
@@ -200,16 +265,32 @@ If an issue spans multiple tasks:
 ## State Management
 
 **On review complete:**
-```
+```text
 action: "set", featureId: "<id>", updates: {
-  "reviews": { "quality": { "status": "pass", "summary": "...", "issues": [...] } }
+  "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 ```
 
 **On all reviews pass — advance to synthesis:**
-```
+```text
 action: "set", featureId: "<id>", phase: "synthesize"
 ```
+
+### Phase Transitions and Guards
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+**Quick reference:**
+- `review` → `synthesize` requires guard `all-reviews-passed` — all `reviews.{name}.status` must be passing
+- `review` → `delegate` requires guard `any-review-failed` — triggers fix cycle when any review fails
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })`
+for orchestrate action schemas.
 
 ## Completion Criteria
 
@@ -220,59 +301,43 @@ action: "set", featureId: "<id>", phase: "synthesize"
 - [ ] Code is maintainable
 - [ ] State file updated with review results
 
-## Determine Verdict
+### Decision Runbooks
 
-Classify review findings into a routing verdict:
+For review verdict routing, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`
 
-```bash
-scripts/review-verdict.sh --high <N> --medium <N> --low <N>
+This runbook provides structured criteria for routing between APPROVED and NEEDS_FIXES verdicts based on finding severity and fix cycle count. APPROVED transitions to synthesize; NEEDS_FIXES transitions back to delegate for a fix cycle. (BLOCKED routing is only relevant in plan-review, not here.)
+
+## Convergence & Verdict
+
+Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.
+
+Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and dimension results, emits gate events, and returns APPROVED or NEEDS_FIXES.
+
+## Auto-Transition
+
+All transitions are automatic — no user confirmation. See `references/auto-transition.md` for per-verdict transition details, Skill invocations, and integration notes.
+
+### Recording Results
+
+Before transitioning, record the review verdict. The reviews value MUST be an object with a `status` field, not a flat string:
+
+**APPROVED:**
 ```
+exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+  reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
+}, phase: "synthesize" })
+```
+Then invoke `/exarchos:synthesize`.
 
-**On exit 0 (APPROVED):** Proceed to synthesis.
-**On exit 1 (NEEDS_FIXES):** Route to `/exarchos:delegate --fixes`.
-**On exit 2 (BLOCKED):** Return to design phase.
+**NEEDS_FIXES:**
+```
+exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+  reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
+}})
+```
+Then invoke `/exarchos:delegate --fixes`.
 
-## Transition
+> **Gate events:** Do NOT manually emit `gate.executed` events via `exarchos_event`. Gate events are automatically emitted by the `check_review_verdict` orchestrate handler. Manual emission causes duplicates.
 
-All transitions happen **immediately** without user confirmation:
-
-### If APPROVED:
-1. Update state: `action: "set", featureId: "<id>", phase: "synthesize"`
-2. Output: "Quality review passed. Auto-continuing to synthesis..."
-3. Auto-invoke synthesize:
-   ```typescript
-   Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
-   ```
-
-### If NEEDS_FIXES:
-1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality": { "status": "fail", "issues": [...] } } }`
-2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
-3. Auto-invoke delegate with fix tasks:
-   ```typescript
-   Skill({ skill: "exarchos:delegate", args: "--fixes <plan-path>" })
-   ```
-
-### If BLOCKED:
-1. Update state: `action: "set", featureId: "<id>", phase: "blocked"`
-2. Output: "Quality review blocked: [issue]. Returning to design..."
-3. Auto-invoke ideate for redesign:
-   ```typescript
-   Skill({ skill: "exarchos:ideate", args: "--redesign <feature-name>" })
-   ```
-
-This is NOT a human checkpoint - workflow continues autonomously.
-
-## Exarchos Integration
-
-When Exarchos MCP tools are available, emit gate events during review:
-
-1. **Read CI status** via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
-2. **Emit gate events** via `exarchos_event` with `action: "append"`, type `gate.executed` (include `gateName`, `layer`, `passed`, `duration`)
-3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
-4. **When all per-PR gates pass**, apply `stack-ready` label to the PR
-
-## Performance Notes
-
-- Complete each step fully before advancing — quality over speed
-- Do not skip validation checks even when the change appears trivial
-- Read each checklist file completely before scoring. Do not skip security or SOLID checks even for small changes.
+> **Guard shape:** The `all-reviews-passed` guard requires `reviews.{name}.status` to be a passing value (`pass`, `passed`, `approved`, `fixes-applied`). Flat strings like `reviews: { "quality-review": "pass" }` are silently ignored and will block the `review → synthesize` transition.

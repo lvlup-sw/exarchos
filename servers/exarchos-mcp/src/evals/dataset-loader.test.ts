@@ -3,6 +3,7 @@ import { fc } from '@fast-check/vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { loadDataset } from './dataset-loader.js';
 import type { EvalCase } from './types.js';
 
@@ -156,6 +157,57 @@ describe('loadDataset', () => {
     for (let i = 0; i < 10; i++) {
       expect(result[i].id).toBe(`c-${i + 1}`);
     }
+  });
+});
+
+// ─── Real Dataset Loading Tests ──────────────────────────────────────────────
+
+describe('loadDataset_RealDatasets', () => {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const REPO_EVALS_DIR = path.resolve(__dirname, '..', '..', '..', '..', 'evals');
+
+  it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'brainstorming', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_ImplementationPlanningGolden_ParsesWithoutErrors', async () => {
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'implementation-planning', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_RefactorGolden_ParsesWithoutErrors', async () => {
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'refactor', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
+    expect(cases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('LoadDataset_DebugGolden_ParsesWithoutErrors', async () => {
+    // Arrange
+    const datasetPath = path.join(REPO_EVALS_DIR, 'debug', 'datasets', 'golden.jsonl');
+
+    // Act
+    const cases = await loadDataset(datasetPath);
+
+    // Assert
+    expect(cases.length).toBeGreaterThanOrEqual(3);
   });
 });
 

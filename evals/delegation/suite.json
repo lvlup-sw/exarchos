@@ -3,7 +3,7 @@
   "metadata": {
     "skill": "delegation",
     "phaseAffinity": "delegate",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "assertions": [
     {
@@ -13,7 +13,8 @@
       "config": {
         "required": [
           { "tool": "exarchos_workflow", "action": "set" },
-          { "tool": "exarchos_orchestrate", "action": "team_spawn" }
+          { "tool": "exarchos_orchestrate", "action": "team_spawn" },
+          { "tool": "exarchos_orchestrate", "action": "check_tdd_compliance" }
         ]
       }
     },
@@ -33,6 +34,15 @@
         "rubric": "Evaluate whether the delegation trace shows a comprehensive task decomposition. Score 1 if the tasks cover all major components of the design (API, data model, tests, integration). Score 0 if major components are missing from the task list. Give partial credit for partial coverage.",
         "outputPath": "tasks"
       }
+    },
+    {
+      "type": "llm-similarity",
+      "name": "delegation-output-similarity",
+      "threshold": 0.7,
+      "config": {
+        "outputPath": "tasks",
+        "expectedPath": "tasks"
+      }
     }
   ],
   "datasets": {
@@ -47,6 +57,10 @@
     "capability-llm": {
       "path": "./datasets/capability-llm.jsonl",
       "description": "LLM-graded task decomposition quality scenarios"
+    },
+    "capability-quality": {
+      "path": "./datasets/capability-quality.jsonl",
+      "description": "Quality-focused delegation scenarios testing code quality outcomes"
     }
   }
 }

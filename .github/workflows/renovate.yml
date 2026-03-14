@@ -11,7 +11,8 @@ on:
 jobs:
   renovate:
     name: Renovate
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4

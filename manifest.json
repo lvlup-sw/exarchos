@@ -1,5 +1,5 @@
 {
-  "version": "2.0.6",
+  "version": "2.5.0",
   "components": {
     "core": [
       {
@@ -11,6 +11,12 @@
       {
         "id": "skills",
         "source": "skills",
+        "target": "skills",
+        "type": "directory"
+      },
+      {
+        "id": "companion-skills",
+        "source": "companion-skills",
         "target": "skills",
         "type": "directory"
       },
@@ -29,20 +35,7 @@
         "required": true,
         "type": "bundled",
         "bundlePath": "dist/exarchos-mcp.js",
-        "devEntryPoint": "servers/exarchos-mcp/dist/index.js",
-        "cliBundlePath": "dist/exarchos-cli.js"
-      },
-      {
-        "id": "graphite",
-        "name": "Graphite",
-        "description": "Stacked PRs and merge queue",
-        "required": true,
-        "type": "external",
-        "command": "gt",
-        "args": [
-          "mcp"
-        ],
-        "prerequisite": "gt"
+        "devEntryPoint": "servers/exarchos-mcp/dist/index.js"
       },
       {
         "id": "microsoft-learn",
@@ -62,13 +55,6 @@
         "default": true
       },
       {
-        "id": "github@claude-plugins-official",
-        "name": "GitHub",
-        "description": "PRs, issues, code search",
-        "required": false,
-        "default": true
-      },
-      {
         "id": "serena@claude-plugins-official",
         "name": "Serena",
         "description": "Semantic code analysis",
@@ -85,25 +71,11 @@
     ],
     "ruleSets": [
       {
-        "id": "coding-standards",
-        "name": "Coding Standards",
-        "description": "SOLID, control flow, error handling, and language-specific conventions for TypeScript and C#",
+        "id": "safety",
+        "name": "Safety",
+        "description": "Critical safety rules always loaded via session-start progressive disclosure",
         "files": [
-          "coding-standards.md",
-          "tdd.md"
-        ],
-        "default": true
-      },
-      {
-        "id": "workflow",
-        "name": "Workflow & Orchestration",
-        "description": "PR descriptions, MCP tool guidance, safety, and path resolution",
-        "files": [
-          "pr-descriptions.md",
-          "mcp-tool-guidance.md",
-          "skill-path-resolution.md",
-          "rm-safety.md",
-          "telemetry-awareness.md"
+          "rm-safety.md"
         ],
         "default": true
       }

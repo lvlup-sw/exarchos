@@ -242,7 +242,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           ...view,
           reviews: {
             ...view.reviews,
-            [String(data.pr)]: event.data,
+            [String(data.pr)]: data,
           },
         };
       }
@@ -266,7 +266,6 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'team.task.completed':
       case 'team.task.failed':
       case 'team.disbanded':
-      case 'team.context.injected':
       case 'team.task.planned':
       case 'team.teammate.dispatched':
       case 'tool.invoked':

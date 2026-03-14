@@ -26,15 +26,9 @@ function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
+// ─── Module-Level SnapshotStore Configuration ────────────────────────────────
 
-let moduleEventStore: EventStore | null = null;
 let moduleSnapshotStore: SnapshotStore | null = null;
-
-/** Configure the EventStore instance used by cleanup handlers. */
-export function configureCleanupEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
 
 /** Configure the SnapshotStore instance used by cleanup handlers. */
 export function configureCleanupSnapshotStore(store: SnapshotStore | null): void {
@@ -185,6 +179,7 @@ async function emitLegacyTransitionEvents(
 export async function handleCleanup(
   input: CleanupInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -343,12 +338,12 @@ export async function handleCleanup(
   // ─── Event emission + state write ─────────────────────────────────────
 
   const stateRecord = state as unknown as Record<string, unknown>;
-  const useEventFirst = isEventSourced(stateRecord) && moduleEventStore !== null;
+  const useEventFirst = isEventSourced(stateRecord) && eventStore !== null;
 
   if (useEventFirst) {
     // ES v2: emit events BEFORE writing state
     try {
-      await emitCleanupEvents(moduleEventStore!, {
+      await emitCleanupEvents(eventStore!, {
         featureId: input.featureId,
         currentPhase,
         synthesis,
@@ -375,9 +370,9 @@ export async function handleCleanup(
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
   // V1 legacy: best-effort event emission AFTER state write
-  if (!useEventFirst && moduleEventStore) {
+  if (!useEventFirst && eventStore) {
     await emitLegacyTransitionEvents(
-      moduleEventStore,
+      eventStore,
       input.featureId,
       transitionResult.events,
     );

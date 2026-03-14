@@ -11,10 +11,10 @@ Fix production issues or critical regressions ASAP. Speed over ceremony.
 ## Phases
 
 ```
-Triage -> Investigate -> Implement -> Validate -> Completed
-  |          |            |           |           |
-  |          |            |           |           +- Human checkpoint: merge
-  |          |            |           +- Smoke tests only
+triage -> investigate -> hotfix-implement -> hotfix-validate -> completed
+  |          |            |                   |                  |
+  |          |            |                   |                  +- Human checkpoint: merge
+  |          |            |                   +- Smoke tests only
   |          |            +- Minimal fix, no worktree
   |          +- 15 min max, focused on root cause
   +- Capture symptom, select track
@@ -32,12 +32,16 @@ Use `@skills/debug/references/triage-questions.md` to gather:
 
 Run deterministic track selection:
 
-```bash
-scripts/select-debug-track.sh --urgency <critical|high|medium|low> --root-cause-known <yes|no>
+```typescript
+exarchos_orchestrate({
+  action: "select_debug_track",
+  urgency: "<critical|high|medium|low>",
+  rootCauseKnown: "<yes|no>"
+})
 ```
 
-**On exit 0:** Hotfix track selected.
-**On exit 1:** Thorough track selected.
+**On `passed: true`:** Hotfix track selected.
+**On `passed: false`:** Thorough track selected.
 
 **Save triage results and advance:**
 ```
@@ -62,12 +66,15 @@ Use `@skills/debug/references/investigation-checklist.md`.
 
 Run the investigation timer to enforce the 15-minute time-box:
 
-```bash
-scripts/investigation-timer.sh --state-file <state-file>
+```typescript
+exarchos_orchestrate({
+  action: "investigation_timer",
+  stateFile: "<state-file>"
+})
 ```
 
-**On exit 0:** Within budget -- continue investigation.
-**On exit 1:** Budget exceeded -- escalate to thorough track.
+**On `passed: true`:** Within budget -- continue investigation.
+**On `passed: false`:** Budget exceeded -- escalate to thorough track.
 
 **Record findings:**
 ```
@@ -83,7 +90,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
     "rootCause": "<root cause>",
     "completedAt": "<ISO8601>"
   }
-}, phase: "implement"
+}, phase: "hotfix-implement"
 ```
 
 ### 3. Implement Phase
@@ -96,7 +103,7 @@ Apply minimal fix directly (no worktree):
 ```
 action: "set", featureId: "debug-<issue-slug>", updates: {
   "artifacts": { "fixDesign": "<brief fix description>" }
-}, phase: "validate"
+}, phase: "hotfix-validate"
 ```
 
 ### 4. Validate Phase

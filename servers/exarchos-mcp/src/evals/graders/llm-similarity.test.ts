@@ -164,6 +164,38 @@ describe('LlmSimilarityGrader', () => {
     );
   });
 
+  it('LlmSimilarityGrader_MissingOutputPath_ReturnsSkipped', async () => {
+    const result = await grader.grade(
+      {},
+      { tool_calls: [], trace_events: [] },
+      { tasks: ['T1'] },
+      { outputPath: 'tasks', expectedPath: 'tasks' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('tasks');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesSimilarity).not.toHaveBeenCalled();
+  });
+
+  it('LlmSimilarityGrader_MissingExpectedPath_ReturnsSkipped', async () => {
+    const result = await grader.grade(
+      {},
+      { tasks: ['T1'] },
+      { tool_calls: [] },
+      { outputPath: 'tasks', expectedPath: 'tasks' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain('Skipped');
+    expect(result.reason).toContain('tasks');
+    expect(result.details?.['skipped']).toBe(true);
+    expect(mockMatchesSimilarity).not.toHaveBeenCalled();
+  });
+
   it('LlmSimilarityGrader_NoApiKey_ReturnsSkipped', async () => {
     delete process.env['ANTHROPIC_API_KEY'];
 

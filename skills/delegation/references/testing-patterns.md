@@ -2,6 +2,23 @@
 
 Code patterns for TDD implementation. Referenced from `rules/tdd.md`.
 
+## Test File Co-location
+
+Test files live alongside their source files, not in a separate `tests/` directory.
+
+| Language | Source | Test |
+|----------|--------|------|
+| TypeScript | `src/foo.ts` | `src/foo.test.ts` |
+| C# | `Services/OrderService.cs` | `Services/OrderService.Tests.cs` |
+| Bash | `scripts/check-pr-comments.sh` | `scripts/check-pr-comments.test.sh` |
+
+## Naming Convention
+
+Tests use `Method_Scenario_Outcome` format:
+- TypeScript: `it('GetOrder_InvalidId_ReturnsNotFound', ...)`
+- C#: `public async Task GetOrder_InvalidId_ReturnsNotFound()`
+- Bash: function name `test_no_args_exit_2`
+
 ## TypeScript (Vitest)
 
 ```typescript

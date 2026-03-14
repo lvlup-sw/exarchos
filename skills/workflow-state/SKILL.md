@@ -1,6 +1,6 @@
 ---
 name: workflow-state
-description: "Checkpoint and resume workflow state for context persistence across sessions. Use when the user says 'save progress', 'checkpoint', 'I need to stop', or runs /checkpoint or /resume. Saves current workflow phase, task progress, and artifacts for later resumption. Do NOT use for workflow initialization (handled by ideate/debug/refactor commands)."
+description: "Checkpoint and resume workflow state for context persistence across sessions. Use when the user says 'save progress', 'checkpoint', 'I need to stop', or runs /checkpoint or /rehydrate. Saves current workflow phase, task progress, and artifacts for later resumption. Do NOT use for workflow initialization (handled by ideate/debug/refactor commands)."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -27,20 +27,24 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (`/exarchos:ideate`)
 - Transitioning between workflow phases
-- Restoring context after summarization (`/exarchos:resume`)
+- Restoring context after summarization (`/exarchos:rehydrate`)
 - Saving progress for later continuation (`/exarchos:checkpoint`)
 
 ## Phase Transitions
 
 Valid transitions, guards, and prerequisites for all workflow types are documented in `references/phase-transitions.md`. **CRITICAL:** When a transition has a guard, send the prerequisite `updates` and `phase` in a single `set` call — updates apply before guards evaluate.
 
-## State File Location
+### Schema Discovery
 
-```
-~/.claude/workflow-state/<feature-id>.state.json
-```
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_event({ action: "describe", eventTypes: ["workflow.transition", "task.completed"] })`
+for event data schemas.
 
-State files are gitignored - they persist locally but are not committed.
+## State Location
+
+Workflow state lives in the **MCP event store**, not the filesystem. Use `exarchos_workflow get` to read state and `exarchos_view pipeline` to discover active workflows. Do **not** scan `~/.claude/workflow-state/*.state.json` — that path is legacy and may be stale or empty.
 
 ## State Operations
 
@@ -84,12 +88,16 @@ For context restoration after summarization, use `mcp__plugin_exarchos_exarchos_
 
 To verify state matches git reality, the SessionStart hook automatically reconciles on resume. For manual verification, run the reconciliation script:
 
-```bash
-scripts/reconcile-state.sh --state-file <state-file> --repo-root <repo-root>
+```typescript
+exarchos_orchestrate({
+  action: "reconcile_state",
+  stateFile: "<state-file>",
+  repoRoot: "<repo-root>"
+})
 ```
 
-**On exit 0:** State is consistent.
-**On exit 1:** Discrepancies found — review output and resolve.
+**On `passed: true`:** State is consistent.
+**On `passed: false`:** Discrepancies found — review output and resolve.
 
 ## Integration Points
 

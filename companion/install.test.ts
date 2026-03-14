@@ -26,10 +26,9 @@ describe('Companion Installer', () => {
       const result = installCompanion(claudeHome, claudeJsonPath);
 
       const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
-      expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
       expect(settings.enabledPlugins['serena@claude-plugins-official']).toBe(true);
       expect(settings.enabledPlugins['context7@claude-plugins-official']).toBe(true);
-      expect(result.pluginsEnabled).toHaveLength(3);
+      expect(result.pluginsEnabled).toHaveLength(2);
     });
 
     it('companionInstall_existingSettings_mergesWithoutOverwrite', () => {
@@ -47,7 +46,7 @@ describe('Companion Installer', () => {
       expect(settings.model).toBe('claude-opus-4-6');
       expect(settings.enabledPlugins['custom@marketplace']).toBe(true);
       // New plugins added
-      expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
+      expect(settings.enabledPlugins['serena@claude-plugins-official']).toBe(true);
     });
   });
 
@@ -89,7 +88,7 @@ describe('Companion Installer', () => {
 
       // Settings should be unchanged
       const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
-      expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
+      expect(settings.enabledPlugins['serena@claude-plugins-official']).toBe(true);
     });
   });
 
@@ -101,9 +100,9 @@ describe('Companion Installer', () => {
       const result = installCompanion(claudeHome, claudeJsonPath);
 
       // Should succeed despite malformed settings
-      expect(result.pluginsEnabled).toHaveLength(3);
+      expect(result.pluginsEnabled).toHaveLength(2);
       const settings = JSON.parse(readFileSync(join(claudeHome, 'settings.json'), 'utf-8'));
-      expect(settings.enabledPlugins['github@claude-plugins-official']).toBe(true);
+      expect(settings.enabledPlugins['serena@claude-plugins-official']).toBe(true);
     });
 
     it('companionInstall_malformedMcpConfig_recoversGracefully', () => {

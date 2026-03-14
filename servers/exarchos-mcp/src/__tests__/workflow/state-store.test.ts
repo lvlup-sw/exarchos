@@ -102,6 +102,55 @@ describe('State Store', () => {
     });
   });
 
+  // ─── #775: explore field initialization ──────────────────────────────────
+
+  describe('InitStateFile_RefactorWorkflow_IncludesExploreField', () => {
+    it('should include explore: {} in refactor workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'refactor-explore', 'refactor');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+
+    it('should include explore: {} in feature workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'feature-explore', 'feature');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+
+    it('should include explore: {} in debug workflow initial state', async () => {
+      const { state } = await initStateFile(tmpDir, 'debug-explore', 'debug');
+
+      const stateRecord = state as unknown as Record<string, unknown>;
+      expect(stateRecord.explore).toBeDefined();
+      expect(stateRecord.explore).toEqual({});
+    });
+  });
+
+  describe('HandleSet_ExploreScope_ThenTransitionToBrief_Succeeds', () => {
+    it('should allow setting explore.scopeAssessment on initialized refactor state', async () => {
+      const { stateFile, state } = await initStateFile(tmpDir, 'refactor-scope', 'refactor');
+
+      // Set explore.scopeAssessment via applyDotPath (simulating exarchos_workflow set)
+      const stateRecord = state as unknown as Record<string, unknown>;
+      applyDotPath(stateRecord, 'explore.scopeAssessment', 'Files assessed: 5 modules');
+
+      // Verify the value was set
+      const explore = stateRecord.explore as Record<string, unknown>;
+      expect(explore.scopeAssessment).toBe('Files assessed: 5 modules');
+
+      // Write back and re-read to verify persistence
+      await writeStateFile(stateFile, state);
+      const reloaded = await readStateFile(stateFile);
+      const reloadedRecord = reloaded as unknown as Record<string, unknown>;
+      const reloadedExplore = reloadedRecord.explore as Record<string, unknown>;
+      expect(reloadedExplore.scopeAssessment).toBe('Files assessed: 5 modules');
+    });
+  });
+
   describe('ReadStateFile_ValidJSON_ParsesAndValidates', () => {
     it('should read and validate a state file from disk', async () => {
       const { stateFile } = await initStateFile(tmpDir, 'read-test', 'feature');
@@ -307,10 +356,43 @@ describe('State Store', () => {
       expect(obj.count).toEqual({ nested: true });
     });
 
-    it('should replace arrays, not merge them', () => {
+    it('should replace arrays of primitives, not merge them', () => {
       const obj: Record<string, unknown> = { tags: ['a', 'b'] };
       applyDotPath(obj, 'tags', ['c']);
       expect(obj.tags).toEqual(['c']);
+    });
+
+    it('should replace arrays of objects by id field entirely (#1003)', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [
+          { id: '1', status: 'complete', title: 'Task 1' },
+          { id: '2', status: 'complete', title: 'Task 2' },
+          { id: '3', status: 'in-progress', title: 'Task 3' },
+        ],
+      };
+      // Arrays are replaced entirely — old entries do not persist
+      applyDotPath(obj, 'tasks', [{ id: '3', status: 'complete' }]);
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toEqual({ id: '3', status: 'complete' });
+    });
+
+    it('should replace arrays when incoming has different ids (#1003)', () => {
+      const obj: Record<string, unknown> = {
+        tasks: [{ id: '1', status: 'complete' }],
+      };
+      applyDotPath(obj, 'tasks', [{ id: '2', status: 'pending' }]);
+      const tasks = obj.tasks as Array<Record<string, unknown>>;
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]).toEqual({ id: '2', status: 'pending' });
+    });
+
+    it('should replace arrays when incoming has no id fields', () => {
+      const obj: Record<string, unknown> = {
+        items: [{ id: '1', name: 'A' }],
+      };
+      applyDotPath(obj, 'items', [{ name: 'B' }, { name: 'C' }]);
+      expect(obj.items).toEqual([{ name: 'B' }, { name: 'C' }]);
     });
 
     it('should still work with dot-path notation for nested values', () => {
@@ -719,19 +801,37 @@ describe('State Store', () => {
       }
     });
 
-    it('should throw STATE_CORRUPT when migration fails due to missing version', async () => {
+    it('should migrate versionless state by treating missing version as v1.0', async () => {
       const stateFile = path.join(tmpDir, 'no-version.state.json');
-      // Write valid JSON but without version field
+      // Write a complete v1.0 state without a version field
       await fs.writeFile(
         stateFile,
         JSON.stringify({
           featureId: 'test',
           workflowType: 'feature',
+          createdAt: '2025-01-15T10:00:00Z',
+          updatedAt: '2025-01-15T10:30:00Z',
+          phase: 'ideate',
+          artifacts: { design: null, plan: null, pr: null },
+          tasks: [],
+          worktrees: {},
+          reviews: {},
+          synthesis: {
+            integrationBranch: null,
+            mergeOrder: [],
+            mergedBranches: [],
+            prUrl: null,
+            prFeedback: [],
+          },
+          _version: 1,
         }),
         'utf-8',
       );
 
-      await expect(readStateFile(stateFile)).rejects.toThrow(ErrorCode.STATE_CORRUPT);
+      const result = await readStateFile(stateFile);
+      expect(result.version).toBe('1.1');
+      expect(result._history).toBeDefined();
+      expect(result._checkpoint).toBeDefined();
     });
   });
 
@@ -1386,7 +1486,12 @@ describe('State Store', () => {
       expect(failures).toHaveLength(1);
 
       const failureReason = (failures[0] as PromiseRejectedResult).reason;
-      expect(failureReason.message).toContain(ErrorCode.STATE_ALREADY_EXISTS);
+      // Race loser may get STATE_ALREADY_EXISTS (EEXIST from link) or
+      // FILE_IO_ERROR (ENOENT if temp file cleanup races with link) — both valid
+      const msg = failureReason.message;
+      expect(
+        msg.includes(ErrorCode.STATE_ALREADY_EXISTS) || msg.includes(ErrorCode.FILE_IO_ERROR),
+      ).toBe(true);
     });
 
     it('InitStateFile_SimulatedCrashBeforeLink_OnlyTempExists', async () => {

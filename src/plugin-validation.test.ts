@@ -14,15 +14,24 @@ describe('Core Plugin Structure', () => {
       const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
       expect(plugin.name).toBe('exarchos');
       expect(plugin.version).toBe(pkgVersion);
-      expect(plugin.author).toEqual({ name: 'Levelup Software' });
+      expect(plugin.author).toEqual({ name: 'LevelUp Software' });
       expect(plugin.commands).toBe('./commands/');
       expect(plugin.skills).toBe('./skills/');
       // hooks/hooks.json is auto-loaded by Claude Code — declaring it in plugin.json causes duplicates
       expect(plugin.hooks).toBeUndefined();
       expect(plugin.mcpServers).toBeDefined();
       expect(plugin.mcpServers.exarchos).toBeDefined();
-      // Graphite is a required external dependency, not bundled in plugin
-      expect(plugin.mcpServers.graphite).toBeUndefined();
+      // Only the exarchos server should be bundled in plugin
+      expect(Object.keys(plugin.mcpServers)).toEqual(['exarchos']);
+    });
+
+    it('PluginJson_McpServerEnv_IncludesExarchosPluginRoot', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
+      expect(plugin.mcpServers.exarchos.env).toHaveProperty(
+        'EXARCHOS_PLUGIN_ROOT',
+        '${CLAUDE_PLUGIN_ROOT}',
+      );
     });
   });
 
@@ -117,7 +126,6 @@ describe('Core Plugin Structure', () => {
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.keywords).toContain('claude-code-plugin');
       expect(pkg.keywords).toContain('agent-governance');
-      expect(pkg.keywords).toContain('graphite');
       expect(pkg.keywords).toContain('event-sourcing');
     });
   });

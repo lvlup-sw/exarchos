@@ -48,7 +48,6 @@ EOF
 cat > "$TMPDIR1/companion/settings.json" << 'EOF'
 {
   "enabledPlugins": {
-    "github@claude-plugins-official": true,
     "serena@claude-plugins-official": true,
     "context7@claude-plugins-official": true
   }

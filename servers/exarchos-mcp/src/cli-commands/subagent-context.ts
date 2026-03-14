@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { TOOL_REGISTRY } from '../registry.js';
+import { getFullRegistry } from '../registry.js';
 import type { CommandResult } from '../cli.js';
+import { expandTilde } from '../utils/paths.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ export function filterToolsForPhaseAndRole(
   const available: FilteredComposite[] = [];
   const denied: FilteredComposite[] = [];
 
-  for (const composite of TOOL_REGISTRY) {
+  for (const composite of getFullRegistry()) {
     const availActions: string[] = [];
     const deniedActions: string[] = [];
 
@@ -487,7 +488,7 @@ function resolveHomeDir(): string {
  */
 function resolveStateDir(): string {
   const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return envDir;
+  if (envDir) return expandTilde(envDir);
 
   return path.join(resolveHomeDir(), '.claude', 'workflow-state');
 }

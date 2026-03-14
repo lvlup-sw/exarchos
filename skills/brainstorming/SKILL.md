@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "Collaborative design exploration for new features and architecture decisions. Use when the user says \"let's brainstorm\", \"let's ideate\", \"explore options\", or runs /ideate. Presents 2-3 distinct approaches with trade-offs, then documents the chosen approach as a design document. Do NOT use for implementation planning or code review. Use when no design document exists yet for the target feature. Do NOT use if a design document already exists — use /plan instead."
+description: "Collaborative design exploration for new features and architecture decisions. Triggers: 'brainstorm', 'ideate', 'explore options', or /ideate. Presents 2-3 approaches with trade-offs, documents chosen approach. Do NOT use for implementation planning or code review. Requires no existing design document — use /plan if one exists."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -19,9 +19,11 @@ Collaborative design exploration for new features, architecture decisions, and c
 
 Activate this skill when:
 - User says "let's brainstorm", "let's ideate", or "let's explore"
-- User runs `/ideate` command
+- User runs `/exarchos:ideate` command
 - User wants to discuss design options before implementation
 - A problem has multiple valid solutions needing evaluation
+
+For a complete worked example, see `references/worked-example.md`.
 
 ## Three-Phase Process
 
@@ -50,11 +52,23 @@ Use the approach format from `references/design-template.md`. Present genuinely 
 
 ### Phase 3: Design Presentation
 
-**Goal:** Document the chosen approach in detail.
+**Goal:** Document the chosen approach in detail with numbered requirements.
 
 Document the chosen approach using the structure in `references/design-template.md`. Sections of 200-300 words max. Use diagrams for complex flows.
 
+**Requirements format (MANDATORY):**
+- Use numbered requirement identifiers: `DR-1`, `DR-2`, ..., `DR-N`
+- Each requirement MUST have an `**Acceptance criteria:**` block with concrete, testable criteria
+- At least one requirement MUST address error handling, failure modes, or edge cases
+- These DR-N identifiers are provenance anchors — implementation plans trace tasks to them
+
 **Save Location:** `docs/designs/YYYY-MM-DD-<feature>.md`
+
+## Iteration Limits
+
+**Design iterations: max 3.** If Phase 2 (Exploration) cycles through 3 rounds of presenting approaches without the user converging on a choice, pause and summarize the trade-offs for the user to make a final decision.
+
+The user can override: `/exarchos:ideate --max-iterations 5`
 
 ## Anti-Patterns
 
@@ -73,7 +87,7 @@ This skill manages workflow state for context persistence.
 
 ### On Start (before Phase 1)
 
-Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"` and the featureId.
+Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `workflowType: "feature"`, and the featureId.
 
 This creates a state file tracked by the MCP server.
 
@@ -83,16 +97,55 @@ This creates a state file tracked by the MCP server.
 action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 ```
 
+### Phase Transitions and Guards
+
+This skill is the entry point for the **feature workflow** (`workflowType: "feature"`). The full lifecycle is:
+
+```
+ideate → plan → plan-review → delegate ⇄ review → synthesize → completed
+```
+
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance.
+
 ## Completion Verification
 
 Run the ideation artifact verification:
 
-```bash
-scripts/verify-ideate-artifacts.sh --state-file <state-file> --docs-dir docs/designs
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_design_completeness",
+  featureId: "<featureId>",
+  designPath: "docs/designs/YYYY-MM-DD-<feature>.md"
+})
 ```
 
-**On exit 0:** All completion criteria met — proceed to /exarchos:plan.
-**On exit 1:** Missing artifacts — review output and complete before continuing.
+**On `passed: true`:** All completion criteria met — proceed to gate check.
+**On `passed: false`:** Missing artifacts — review output and complete before continuing. If the check is advisory (`advisory: true`), emit a warning but do not block auto-chain.
+
+## Adversarial Gate Check (ideate → plan)
+
+After artifact verification passes, run the design completeness gate check. This is the D1 (spec fidelity) lightweight adversarial check at the ideate → plan boundary.
+
+```typescript
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "check_design_completeness",
+  featureId: "<id>",
+  designPath: "<path>"
+})
+```
+
+The handler returns a structured result: `{ passed, advisory, findings[], checkCount, passCount, failCount }`.
+
+- **`passed=true`:** Design complete — all requirements have acceptance criteria and error coverage.
+- **`passed=false, advisory=true`:** Findings detected. These are advisory — they do NOT block the auto-chain to `/exarchos:plan`. Present `result.data.findings` to the user alongside the transition message.
+
+Gate events (`gate.executed`) are emitted automatically by the handler — no manual event emission is needed.
 
 ## Transition
 
@@ -103,13 +156,15 @@ After brainstorming completes, **auto-continue to planning** (no user confirmati
 Before invoking `/exarchos:plan`:
 1. Verify `artifacts.design` exists in workflow state
 2. Verify the design file exists on disk: `test -f "$DESIGN_PATH"`
-3. If either fails: "Design artifact not found, cannot auto-chain to /exarchos:plan"
+3. Run `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "check_design_completeness", featureId: "<id>", designPath: "<path>" })` (advisory — record findings but don't block)
+4. If steps 1 or 2 fail: "Design artifact not found, cannot auto-chain to /exarchos:plan"
 
 ### Chain Steps
 
 1. Update state: `action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
 
-2. Output: "Design saved. Auto-continuing to implementation planning..."
+2. If `result.data.passed === false` and `result.data.advisory === true`: Output `result.data.findings` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
+   If `result.data.passed === true`: Output: "Design complete. Auto-continuing to implementation planning..."
 
 3. Invoke immediately:
    ```typescript

@@ -25,8 +25,8 @@ jobs:
   # (Inlined to avoid cross-repo reusable workflow access issues)
   # ============================================================
   label-sync:
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -107,8 +107,8 @@ jobs:
   # AUTO-TRIAGE: Label new issues based on content
   # ============================================================
   auto-triage:
-    if: github.event_name == 'issues' && github.event.action == 'opened'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'issues' && github.event.action == 'opened'
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -153,26 +153,40 @@ jobs:
   # AUTO-ASSIGN: Assign PR author as assignee
   # ============================================================
   auto-assign-author:
-    if: github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'pull_request' && github.event.action == 'opened' && github.event.pull_request.user.type != 'Bot'
+    runs-on: self-hosted
     permissions:
       pull-requests: write
     steps:
       - name: Assign PR author
-        run: gh pr edit "$PR_URL" --add-assignee "$AUTHOR"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                assignees: [context.payload.pull_request.user.login]
+              });
+              console.log(`Assigned ${context.payload.pull_request.user.login} to PR #${context.payload.pull_request.number}`);
+            } catch (error) {
+              if (error.status === 403 || error.status === 422) {
+                console.log(`Skipping assignment for ${context.payload.pull_request.user.login}: ${error.message}`);
+                return;
+              }
+              throw error;
+            }
 
   # ============================================================
   # PROJECT SYNC: Add issues/PRs to project board
   # ============================================================
   project-sync:
     if: |
-      (github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      ((github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened'))
+    runs-on: self-hosted
     steps:
       - name: Add to project
         uses: actions/add-to-project@v1.0.2
@@ -186,9 +200,10 @@ jobs:
   project-field-init:
     needs: project-sync
     if: |
-      (github.event_name == 'issues' && github.event.action == 'opened') ||
-      (github.event_name == 'pull_request' && github.event.action == 'opened')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      ((github.event_name == 'issues' && github.event.action == 'opened') ||
+      (github.event_name == 'pull_request' && github.event.action == 'opened'))
+    runs-on: self-hosted
     steps:
       - name: Initialize project fields
         uses: actions/github-script@v8
@@ -366,9 +381,10 @@ jobs:
   # ============================================================
   project-status-update:
     if: |
-      github.event_name == 'issues' ||
-      github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
+      (github.event_name == 'issues' ||
+      github.event_name == 'pull_request')
+    runs-on: self-hosted
     steps:
       - name: Update project status
         uses: actions/github-script@v8
@@ -475,8 +491,8 @@ jobs:
   # STALE MANAGEMENT: Mark and close inactive issues
   # ============================================================
   stale:
-    if: github.event_name == 'schedule'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'schedule'
+    runs-on: self-hosted
     permissions:
       issues: write
     steps:
@@ -499,13 +515,23 @@ jobs:
   # ============================================================
   auto-merge-renovate:
     if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.user.login == 'renovate[bot]'
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     permissions:
       contents: write
       pull-requests: write
     steps:
+      - name: Setup GitHub CLI
+        env:
+          GH_VERSION: '2.65.0'
+        run: |
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+              | tar xz -C /tmp
+            echo "/tmp/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          fi
       - name: Enable auto-merge for Renovate PRs
         run: gh pr merge --auto --squash "$PR_URL"
         env:
@@ -516,8 +542,8 @@ jobs:
   # RELEASE AUTOMATION: Generate changelog and release
   # ============================================================
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: self-hosted
     permissions:
       contents: write
     steps:
@@ -525,12 +551,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install git-cliff
+        run: |
+          GIT_CLIFF_VERSION="2.7.0"
+          curl -fsSL "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C /tmp
+          echo "/tmp/git-cliff-${GIT_CLIFF_VERSION}" >> "$GITHUB_PATH"
+
       - name: Generate changelog
         id: changelog
-        uses: orhun/git-cliff-action@v3
-        with:
-          config: .github/cliff.toml
-          args: --latest --strip header
+        run: |
+          CHANGELOG=$(git-cliff --config .github/cliff.toml --latest --strip header 2>/dev/null || echo "")
+          echo "content<<CLIFF_EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG" >> "$GITHUB_OUTPUT"
+          echo "CLIFF_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

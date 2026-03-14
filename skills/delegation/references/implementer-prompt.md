@@ -1,5 +1,7 @@
 # Implementer Prompt Template
 
+**Note:** On Claude Code, this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec) and the native agent file `agents/exarchos-implementer.md` is generated from the registry at build time. This reference document is the canonical prompt evolution record and is used directly by cross-platform clients (Cursor, Copilot CLI, etc.) that lack native agent support.
+
 Use this template when dispatching tasks via the Task tool.
 
 ## Quality Hints Integration
@@ -68,6 +70,29 @@ You MUST follow strict Test-Driven Development:
 2. Extract helpers for clarity
 3. Run tests after each change
 4. **VERIFY tests stay green**
+
+## Testing Approach (Testing Trophy)
+
+Prefer **integration tests with real collaborators** (sociable tests). Mock only at infrastructure boundaries (HTTP, database, filesystem). This gives the best confidence-per-effort ratio.
+
+- **Acceptance test tasks** (`testLayer: acceptance`): Use real collaborators throughout. No mocks except true external boundaries. This test stays RED until inner tasks complete — it is the "north star."
+- **Integration test tasks** (`testLayer: integration`): Default layer. Use real collaborators, mock only infrastructure boundaries.
+- **Unit test tasks** (`testLayer: unit`): For isolated complex logic only. Mocking is acceptable here.
+
+## Characterization Testing
+
+When a task has `characterizationRequired: true`, capture existing behavior BEFORE modifying code:
+
+1. Write tests that document what the code **currently does** (not what it should do)
+2. Use snapshot-style assertions: capture output, assert it matches
+3. Make your changes — any characterization test failure means behavior changed
+4. Document which characterization test failures are intentional vs accidental
+
+## Acceptance Test Completion Check
+
+When a task has `acceptanceTestRef`, run the parent acceptance test after completing your inner task:
+- Still failing → expected (other inner tasks may not be complete yet)
+- Now passing → the feature may be complete; report this in your completion output
 
 ## Property-Based Testing Patterns
 
@@ -180,17 +205,65 @@ This regenerates TypeScript types from the OpenAPI spec. Include generated files
 After completing each logical task within your assignment:
 
 1. Stage the relevant files: `git add <files>`
-2. Create a stacked branch: `gt create <task-branch-name> -m "feat: <task summary>"`
-3. Continue to the next task (you are now on a new branch stacked on the previous)
+2. Commit with a descriptive message: `git commit -m "feat: <task summary>"`
+3. Continue to the next task
 
 After all tasks are complete:
-4. Submit the full stack: `gt submit --no-interactive --publish --stack`
+4. Push your branch: `git push -u origin <branch-name>`
 
-**IMPORTANT:** When using Graphite, never use `git commit` or `git push`. Always use `gt create` and `gt submit`.
+PR creation is handled during the synthesis phase — do not create PRs from implementation tasks.
 
 ### Grouping Guidance
 
-Stack branches should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one stack layer. For example, if you implement types + config + tests for a module, that's one `gt create`, not three.
+Commits should match logical review units, not individual TDD test cycles. Group related changes that form a coherent feature into one commit. For example, if you implement types + config + tests for a module, that's one commit, not three.
+
+## Provenance Reporting
+
+When completing a task, include structured provenance data in your completion report. This data flows into the `task.completed` event for traceability through the provenance chain.
+
+### Required Fields
+
+1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`)
+2. **tests** — Tests written, each with name and file path
+3. **files** — Files created or modified
+4. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
+
+### Structured Format
+
+Report provenance as a JSON object in your task completion call:
+
+```json
+{
+  "implements": ["DR-1", "DR-3"],
+  "acceptanceTestRef": "task-000",
+  "tests": [
+    { "name": "validateEmail_InvalidFormat_ReturnsError", "file": "src/validators/email.test.ts" },
+    { "name": "validateEmail_ValidFormat_ReturnsSuccess", "file": "src/validators/email.test.ts" }
+  ],
+  "files": ["src/validators/email.ts", "src/validators/email.test.ts"]
+}
+```
+
+### Passing Provenance in Task Completion
+
+When using Exarchos MCP to mark a task complete, pass provenance fields in the `result` parameter:
+
+```typescript
+exarchos_orchestrate({
+  action: "task_complete",
+  taskId: "task-001",
+  streamId: "<featureId>",
+  result: {
+    summary: "Implemented email validation with TDD",
+    implements: ["DR-1"],
+    acceptanceTestRef: "task-000",
+    tests: [{ name: "validateEmail_InvalidFormat_ReturnsError", file: "src/validators/email.test.ts" }],
+    files: ["src/validators/email.ts", "src/validators/email.test.ts"]
+  }
+})
+```
+
+These fields are extracted by `handleTaskComplete` and included in the `task.completed` event, enabling the ProvenanceView to trace requirements through to implementation.
 
 ## Completion
 
@@ -198,7 +271,8 @@ When done, report:
 1. Test file path and test name
 2. Implementation file path
 3. Test results (pass/fail)
-4. Any issues encountered
+4. Provenance: implements (requirement IDs), acceptanceTestRef (if present), tests (name + file), files (paths)
+5. Any issues encountered
 ```
 
 ## Usage Example
@@ -304,7 +378,7 @@ describe('validateEmail', () => {
 2. **No File References** - Don't say "see plan.md" - paste content
 3. **Explicit Paths** - Absolute paths to working directory and files
 4. **TDD Mandatory** - Always include TDD requirements
-5. **Graphite-First** - Include commit strategy section; always use `gt create` and `gt submit`
+5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
 
 ## Agent Teams vs Subagent Mode

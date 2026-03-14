@@ -3,18 +3,65 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
-import { handleEventAppend, handleEventQuery, handleBatchAppend, resetModuleEventStore } from './tools.js';
+import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 
 let tempDir: string;
+let eventStore: EventStore;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(tmpdir(), 'event-tools-test-'));
-  resetModuleEventStore();
+  eventStore = new EventStore(tempDir);
 });
 
 afterEach(async () => {
-  resetModuleEventStore();
   await rm(tempDir, { recursive: true, force: true });
+});
+
+// ─── T4: VALIDATION_ERROR for malformed model-emitted event data ────────────
+
+describe('handleEventAppend data validation', () => {
+  it('HandleEventAppend_ModelEventInvalidData_ReturnsValidationError', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'validate-test',
+        event: {
+          type: 'team.task.completed',
+          data: { foo: 'bar' },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VALIDATION_ERROR');
+    expect(result.error!.message).toContain('team.task.completed');
+  });
+
+  it('HandleEventAppend_ModelEventValidData_Succeeds', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'validate-test',
+        event: {
+          type: 'team.task.completed',
+          data: {
+            taskId: 'task-001',
+            teammateName: 'worker-1',
+            durationMs: 5000,
+            filesChanged: ['a.ts'],
+            testsPassed: true,
+            qualityGateResults: {},
+          },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toBeDefined();
+  });
 });
 
 // ─── Prototype Pollution Prevention ─────────────────────────────────────────
@@ -27,6 +74,7 @@ describe('handleEventQuery field projection', () => {
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', '__proto__', 'sequence'] },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -44,6 +92,7 @@ describe('handleEventQuery field projection', () => {
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'constructor'] },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -60,6 +109,7 @@ describe('handleEventQuery field projection', () => {
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'prototype'] },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -76,6 +126,7 @@ describe('handleEventQuery field projection', () => {
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['__proto__', 'constructor', 'prototype'] },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -94,6 +145,7 @@ describe('handleEventQuery field projection', () => {
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'sequence', 'streamId', 'timestamp'] },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -125,6 +177,7 @@ describe('handleBatchAppend', () => {
         ],
       },
       tempDir,
+      store,
     );
 
     // Assert
@@ -136,7 +189,7 @@ describe('handleBatchAppend', () => {
     expect(sequences[2].sequence).toBe(4);
 
     // Verify all events exist in the stream
-    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
     expect(queryResult.data).toHaveLength(4);
   });
@@ -148,6 +201,7 @@ describe('handleBatchAppend', () => {
         events: [],
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(false);
@@ -165,6 +219,7 @@ describe('handleBatchAppend', () => {
         ],
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
@@ -173,7 +228,7 @@ describe('handleBatchAppend', () => {
     expect(sequences).toHaveLength(1);
 
     // Verify only 1 event in stream
-    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     expect(queryResult.data).toHaveLength(1);
   });
@@ -194,6 +249,7 @@ describe('handleBatchAppend', () => {
         ],
       },
       tempDir,
+      store,
     );
 
     // Assert: entire batch fails
@@ -201,7 +257,7 @@ describe('handleBatchAppend', () => {
     expect(result.error).toBeDefined();
 
     // Verify no new events were appended (only the seed event)
-    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, store);
     expect(queryResult.success).toBe(true);
     expect(queryResult.data).toHaveLength(1);
   });
@@ -218,6 +274,7 @@ describe('handleBatchAppend', () => {
         ],
       },
       tempDir,
+      eventStore,
     );
 
     const batch2 = handleBatchAppend(
@@ -230,6 +287,7 @@ describe('handleBatchAppend', () => {
         ],
       },
       tempDir,
+      eventStore,
     );
 
     // Act: run both concurrently
@@ -240,7 +298,7 @@ describe('handleBatchAppend', () => {
     expect(result2.success).toBe(true);
 
     // Total 6 events, with sequential sequence numbers (no gaps, no interleaving)
-    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     const events = queryResult.data as Array<{ sequence: number; type: string }>;
     expect(events).toHaveLength(6);
@@ -266,6 +324,50 @@ describe('handleBatchAppend', () => {
   });
 });
 
+// ─── Dot-path field projection in event queries ─────────────────────────────
+
+describe('handleEventQuery dot-path field projection', () => {
+  it('handleEventQuery_WithoutFieldsParam_ReturnsCompleteEvents', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('dot-path-test', {
+      type: 'task.completed',
+      data: { taskId: 't1', title: 'My Task', assignee: 'agent-1' },
+    });
+
+    const result = await handleEventQuery({ stream: 'dot-path-test' }, tempDir, store);
+
+    expect(result.success).toBe(true);
+    const events = result.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    const eventData = events[0].data as Record<string, unknown>;
+    expect(eventData).toBeDefined();
+    expect(eventData.taskId).toBe('t1');
+    expect(eventData.title).toBe('My Task');
+    expect(eventData.assignee).toBe('agent-1');
+  });
+
+  it('handleEventQuery_WithDotPathFields_ReturnsNestedProjection', async () => {
+    const store = new EventStore(tempDir);
+    await store.append('dot-path-test', {
+      type: 'task.completed',
+      data: { taskId: 't1', title: 'My Task', assignee: 'agent-1' },
+    });
+
+    const result = await handleEventQuery(
+      { stream: 'dot-path-test', fields: ['type', 'data.taskId'] },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = result.data as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('task.completed');
+    const eventData = events[0].data as Record<string, unknown>;
+    expect(eventData).toEqual({ taskId: 't1' });
+  });
+});
+
 // ─── Multi-tenant field passthrough ──────────────────────────────────────────
 
 describe('tenant field passthrough', () => {
@@ -277,15 +379,16 @@ describe('tenant field passthrough', () => {
           type: 'workflow.started',
           tenantId: 'tenant-abc',
           organizationId: 'org-xyz',
-          data: { feature: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
         },
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
 
-    const query = await handleEventQuery({ stream: 'tenant-test' }, tempDir);
+    const query = await handleEventQuery({ stream: 'tenant-test' }, tempDir, eventStore);
     const events = query.data as Array<Record<string, unknown>>;
     expect(events).toHaveLength(1);
     expect(events[0].tenantId).toBe('tenant-abc');
@@ -302,11 +405,12 @@ describe('tenant field passthrough', () => {
         ],
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
 
-    const query = await handleEventQuery({ stream: 'tenant-batch' }, tempDir);
+    const query = await handleEventQuery({ stream: 'tenant-batch' }, tempDir, eventStore);
     const events = query.data as Array<Record<string, unknown>>;
     expect(events).toHaveLength(2);
     expect(events[0].tenantId).toBe('tenant-1');

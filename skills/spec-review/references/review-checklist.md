@@ -5,14 +5,23 @@ description: "Validation script invocations and report template for spec complia
 
 # Spec Review Checklist
 
+## Adversarial Review Posture
+
+You are an ADVERSARIAL reviewer. Your job is to find what's wrong, not confirm what's right.
+
+- Do NOT trust the implementer's self-assessment of completeness
+- Do NOT assume passing tests mean the spec is satisfied
+- Do NOT accept "it works" as evidence of correctness
+- Independently verify each spec requirement against the actual code
+- Treat every claim as unverified until you see the evidence yourself
+
+Consult `references/rationalization-refutation.md` when you feel tempted to accept a rationalization for skipping verification.
+
 ## Automated Verification
 
 Run these scripts as the authoritative checks:
 
 ```bash
-# TDD compliance (test-first ordering, naming conventions, coverage)
-scripts/check-tdd-compliance.sh --repo-root <repo-root> --base-branch main
-
 # Full test suite
 npm run test:run
 
@@ -21,6 +30,16 @@ npm run test:coverage
 
 # Type safety
 npm run typecheck
+```
+
+```typescript
+// TDD compliance (test-first ordering, naming conventions, coverage)
+exarchos_orchestrate({
+  action: "check_tdd_compliance",
+  featureId: "<featureId>",
+  taskId: "<taskId>",
+  branch: "<branch>"
+})
 ```
 
 ## Manual Checks
@@ -53,7 +72,7 @@ After scripts pass, verify:
 
 ## Completion Criteria
 
-- [ ] `check-tdd-compliance.sh` passes
+- [ ] `check_tdd_compliance` orchestrate action passes
 - [ ] All tests pass
 - [ ] Coverage meets thresholds
 - [ ] All spec requirements verified

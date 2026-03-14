@@ -1,0 +1,59 @@
+{
+  "description": "Implementation planning skill evaluation suite",
+  "metadata": {
+    "skill": "implementation-planning",
+    "phaseAffinity": "plan",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "set" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "plan-artifact-created",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["artifacts.plan"]
+      }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "plan-decomposition-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the planning trace produces a comprehensive task decomposition with appropriate dependency ordering and testing strategy. Score 1 if tasks cover data model, core implementation, tests, and integration with correct parallel groups and dependencies. Score 0 if major components are missing or dependencies are incorrect.",
+        "outputPath": "tasks"
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good planning traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Implementation planning capability scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded plan decomposition quality scenarios"
+    }
+  }
+}

@@ -123,9 +123,20 @@ export class InMemoryBackend implements StorageBackend {
       throw new VersionConflictError(featureId, expectedVersion, currentVersion);
     }
 
+    // When seeding from disk (no existing entry, no expectedVersion),
+    // initialize backend version from state._version to stay in sync
+    // with the persisted version counter. (#948)
+    let newVersion: number;
+    if (!entry && expectedVersion === undefined) {
+      const stateVersion = (state as Record<string, unknown>)._version;
+      newVersion = typeof stateVersion === 'number' ? stateVersion : currentVersion + 1;
+    } else {
+      newVersion = currentVersion + 1;
+    }
+
     this.states.set(featureId, {
       state,
-      version: currentVersion + 1,
+      version: newVersion,
     });
   }
 

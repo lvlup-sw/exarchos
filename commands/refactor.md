@@ -11,7 +11,7 @@ Start refactor workflow for: "$ARGUMENTS"
 Refactor workflows are **exploration-first**: understand scope before committing to a track.
 
 ```
-/exarchos:refactor → Explore → Brief → [Implement|Plan] → Validate → Update Docs → [CONFIRM]
+/exarchos:refactor → Explore → Brief → [polish-implement|overhaul-plan] → Validate → Update Docs → [CONFIRM]
                                     │
                    ┌────────────────┼────────────────┐
                    │                                 │
@@ -30,7 +30,7 @@ Follow the refactor skill: `@skills/refactor/SKILL.md`
 ### Default: Overhaul Track
 
 ```bash
-/refactor "Restructure the authentication module into separate concerns"
+/exarchos:refactor "Restructure the authentication module into separate concerns"
 ```
 
 Full delegation workflow with worktree isolation.
@@ -38,7 +38,7 @@ Full delegation workflow with worktree isolation.
 ### Fast Path: Polish Track
 
 ```bash
-/refactor --polish "Extract validation logic into utility functions"
+/exarchos:refactor --polish "Extract validation logic into utility functions"
 ```
 
 Direct implementation, <=5 files, single concern.
@@ -46,7 +46,7 @@ Direct implementation, <=5 files, single concern.
 ### Explore First
 
 ```bash
-/refactor --explore "Not sure of scope, assess first"
+/exarchos:refactor --explore "Not sure of scope, assess first"
 ```
 
 Explore to assess scope, then decide track.
@@ -54,7 +54,7 @@ Explore to assess scope, then decide track.
 ### Mid-Workflow: Switch to Overhaul
 
 ```bash
-/refactor --switch-overhaul
+/exarchos:refactor --switch-overhaul
 ```
 
 Switch from polish to overhaul if scope expands.
@@ -120,20 +120,34 @@ Both tracks auto-chain through phases with ONE human checkpoint.
 
 **Polish:**
 ```
-explore → brief → implement → validate → update-docs → [HUMAN: complete]
-          (auto)   (auto)      (auto)     (auto)
+explore → brief → polish-implement → polish-validate → polish-update-docs → [HUMAN: complete]
+          (auto)   (auto)             (auto)             (auto)
 ```
 
 **Overhaul:**
 ```
-explore → brief → plan → delegate → review → update-docs → synthesize → [HUMAN: merge]
-          (auto)  (auto)  (auto)    (auto)   (auto)        (auto)
+explore → brief → overhaul-plan → overhaul-delegate → overhaul-review → overhaul-update-docs → synthesize → [HUMAN: merge]
+          (auto)  (auto)          (auto)              (auto)           (auto)                  (auto)
 ```
+
+## When to Use /exarchos:refactor vs /exarchos:debug
+
+| Signal | Use /exarchos:refactor | Use /exarchos:debug |
+|--------|--------------|-----------|
+| Code works but is messy/complex | Yes | No |
+| Something is broken or wrong | No | Yes |
+| "This should be reorganized" | Yes | No |
+| Users report a bug or regression | No | Yes |
+| Performance degradation | Switch to /exarchos:refactor if structural | Start with /exarchos:debug (investigate) |
+| SOLID violations in working code | Yes | No |
+| Error in production logs | No | Yes |
+
+**Rule of thumb:** If there is _dissatisfaction_ with working code (hard to read, violates SOLID, duplicated logic), use `/exarchos:refactor`. If there is a _symptom_ (something that should work but doesn't), use `/exarchos:debug`.
 
 ## Resume Support
 
-Refactor workflows resume like other workflows:
+Refactor workflows resume via MCP auto-discovery:
 
 ```bash
-/exarchos:resume ~/.claude/workflow-state/refactor-<slug>.state.json
+/exarchos:rehydrate
 ```

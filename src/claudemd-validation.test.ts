@@ -4,17 +4,15 @@ import { join } from 'node:path';
 
 const repoRoot = join(import.meta.dirname, '..');
 
-describe('CLAUDE.md rules consolidation', () => {
+describe('CLAUDE.md validation', () => {
   const content = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf-8');
 
-  it('claudeMd_essentialRuleSections_present', () => {
-    // Check for essential sections (case-insensitive header matching)
+  it('claudeMd_essentialSections_present', () => {
     const requiredPatterns = [
-      /##.*coding\s+standards/i,
-      /##.*tdd/i,
-      /##.*orchestrator/i,
-      /##.*workflow/i,
-      /##.*mcp.*tool/i,
+      /##.*build.*test/i,
+      /##.*architecture/i,
+      /##.*safety/i,
+      /##.*key\s+conventions/i,
     ];
     for (const pattern of requiredPatterns) {
       expect(content, `Missing section matching ${pattern}`).toMatch(pattern);
@@ -27,7 +25,6 @@ describe('CLAUDE.md rules consolidation', () => {
   });
 
   it('claudeMd_hasExistingSections', () => {
-    // Existing sections that should be preserved
     expect(content).toContain('## Build & Test');
     expect(content).toContain('## Key Conventions');
   });

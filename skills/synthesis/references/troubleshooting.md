@@ -41,7 +41,7 @@ If the user receives PR review comments:
    > Or use GitHub MCP `pull_request_read` if available.
 
 3. Creates fix tasks from review comments
-4. After fixes, amend the stack with `mcp__graphite__run_gt_cmd` using `["modify", "-m", "fix: <description>"]` and resubmit with `["submit", "--no-interactive", "--publish", "--merge-when-ready"]`
+4. After fixes, amend the commit with `git commit --amend -m "fix: <description>"` and push with `git push --force-with-lease`
 5. Return to merge confirmation
 
 ## Final Report Template
@@ -50,7 +50,7 @@ If the user receives PR review comments:
 ## Synthesis Complete
 
 ### Pull Requests
-[PR URLs from gt log --short]
+[PR URLs from gh pr list]
 
 ### Stack Branches
 - task/001-types
@@ -88,24 +88,24 @@ If workflow state doesn't match git reality:
 3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
 ## PR Creation Failed
-If `gt submit` fails:
+If `gh pr create` fails:
 1. Check the error output for specific guidance
-2. Run `gt log` to verify the stack state
-3. If rebase conflict: run `gt restack` to resolve
+2. Run `gh pr list --json number,baseRefName,headRefName` to verify the branch state
+3. If rebase conflict: run `git rebase origin/<base>` to resolve
 4. If authentication issue: check GitHub token permissions
 
 ## Stack Rebase Conflict
-If `gt restack` encounters conflicts:
+If `git rebase` encounters conflicts:
 1. Resolve conflicts manually in each affected file
-2. Run `git add <resolved-files>` then `gt continue`
-3. After resolution, re-run `gt submit --no-interactive --publish --merge-when-ready`
+2. Run `git add <resolved-files>` then `git rebase --continue`
+3. After resolution, push with `git push --force-with-lease`
 
 ## Exarchos Integration
 
 When Exarchos MCP tools are available:
 
-1. **After stack submission:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gt log --short`
-2. **Monitor merge status:** Use `mcp__graphite__run_gt_cmd` with `["log", "--short"]` to check stack/PR status
+1. **After stack submission:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `stack.enqueued` including PR numbers from `gh pr list --json number`
+2. **Monitor merge status:** Use `gh pr list --json number,state,mergedAt` to check stack/PR status
 3. **On successful merge:** Call `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` with event type `phase.transitioned` to mark workflow complete
 
 ## Performance Notes

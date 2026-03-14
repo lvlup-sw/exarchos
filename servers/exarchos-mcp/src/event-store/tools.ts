@@ -1,25 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
+import { coercedStringArray } from '../coerce.js';
 import { EventStore, SequenceConflictError } from './store.js';
 import type { EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
+import { buildValidatedEvent } from './event-factory.js';
 
-// ─── Module-Level EventStore (injected via registerEventTools) ───────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Returns a cached EventStore instance for the given state directory, creating one if needed. */
-function getStore(stateDir: string): EventStore {
-  if (!moduleEventStore) {
-    moduleEventStore = new EventStore(stateDir);
-  }
-  return moduleEventStore;
-}
-
-/** For testing: reset the module-level EventStore */
-export function resetModuleEventStore(): void {
-  moduleEventStore = null;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
 
@@ -32,6 +19,7 @@ export async function handleEventAppend(
     idempotencyKey?: string;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -48,23 +36,28 @@ export async function handleEventAppend(
     };
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   try {
-    const event = await store.append(
+    // Validate at the system boundary (MCP tool handler = untrusted input)
+    // Sequence 1 is a placeholder — appendValidated overwrites it with the real sequence
+    const validatedEvent = buildValidatedEvent(args.stream, 1, {
+      type: eventType,
+      data: args.event.data as Record<string, unknown> | undefined,
+      correlationId: args.event.correlationId as string | undefined,
+      causationId: args.event.causationId as string | undefined,
+      agentId: args.event.agentId as string | undefined,
+      agentRole: args.event.agentRole as string | undefined,
+      tenantId: args.event.tenantId as string | undefined,
+      organizationId: args.event.organizationId as string | undefined,
+      source: args.event.source as string | undefined,
+      timestamp: args.event.timestamp as string | undefined,
+    });
+
+    // Append without re-validating (already validated above)
+    const event = await store.appendValidated(
       args.stream,
-      {
-        type: eventType,
-        data: args.event.data as Record<string, unknown> | undefined,
-        correlationId: args.event.correlationId as string | undefined,
-        causationId: args.event.causationId as string | undefined,
-        agentId: args.event.agentId as string | undefined,
-        agentRole: args.event.agentRole as string | undefined,
-        tenantId: args.event.tenantId as string | undefined,
-        organizationId: args.event.organizationId as string | undefined,
-        source: args.event.source as string | undefined,
-        timestamp: args.event.timestamp as string | undefined,
-      },
+      validatedEvent,
       (args.expectedSequence !== undefined || args.idempotencyKey !== undefined)
         ? {
             expectedSequence: args.expectedSequence,
@@ -75,6 +68,15 @@ export async function handleEventAppend(
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
+    if (err instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Event data validation failed for type '${eventType}': ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        },
+      };
+    }
     if (err instanceof SequenceConflictError) {
       return {
         success: false,
@@ -103,6 +105,7 @@ export async function handleBatchAppend(
     events: Array<Record<string, unknown>>;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -129,7 +132,7 @@ export async function handleBatchAppend(
     }
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   try {
     const storeEvents = args.events.map((event) => ({
@@ -175,6 +178,7 @@ export async function handleEventQuery(
     fields?: string[];
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.stream) {
     return {
@@ -183,7 +187,7 @@ export async function handleEventQuery(
     };
   }
 
-  const store = getStore(stateDir);
+  const store = eventStore;
 
   const hasFilterFields = args.filter || args.limit !== undefined || args.offset !== undefined;
   const filters = hasFilterFields
@@ -226,7 +230,7 @@ export async function handleEventQuery(
 // ─── Registration Function ──────────────────────────────────────────────────
 
 export function registerEventTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  moduleEventStore = eventStore;
+  // moduleEventStore removed — EventStore now threaded via DispatchContext
   server.tool(
     'exarchos_event_append',
     'Append an event to the event store with optional optimistic concurrency and idempotency key',
@@ -236,7 +240,7 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
       expectedSequence: z.number().int().optional(),
       idempotencyKey: z.string().optional(),
     },
-    async (args) => formatResult(await handleEventAppend(args, stateDir)),
+    async (args) => formatResult(await handleEventAppend(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -247,8 +251,8 @@ export function registerEventTools(server: McpServer, stateDir: string, eventSto
       filter: z.record(z.string(), z.unknown()).optional(),
       limit: z.number().int().positive().optional(),
       offset: z.number().int().nonnegative().optional(),
-      fields: z.array(z.string()).optional(),
+      fields: coercedStringArray().optional(),
     },
-    async (args) => formatResult(await handleEventQuery(args, stateDir)),
+    async (args) => formatResult(await handleEventQuery(args, stateDir, eventStore)),
   );
 }

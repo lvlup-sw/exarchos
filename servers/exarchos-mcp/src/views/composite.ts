@@ -4,18 +4,32 @@
 // individual MCP tools with a single `exarchos_view` entry point.
 
 import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { handleDescribe } from '../describe/handler.js';
+import { TOOL_REGISTRY } from '../registry.js';
 import {
   handleViewPipeline,
   handleViewTasks,
   handleViewWorkflowStatus,
   handleViewTeamPerformance,
   handleViewDelegationTimeline,
+  handleViewDelegationReadiness,
   handleViewCodeQuality,
   handleViewQualityHints,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
+  handleViewSessionProvenance,
+  handleViewQualityAttribution,
+  handleViewSynthesisReadiness,
+  handleViewShepherdStatus,
+  handleViewProvenance,
+  handleViewIdeateReadiness,
+  handleViewConvergence,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
+
+const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
 /**
  * Composite handler that dispatches to existing view/stack handlers
@@ -23,15 +37,17 @@ import { handleViewTelemetry } from '../telemetry/tools.js';
  */
 export async function handleView(
   args: Record<string, unknown>,
-  stateDir: string,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const { stateDir, eventStore } = ctx;
   const { action, ...rest } = args;
 
   switch (action) {
     case 'pipeline':
       return handleViewPipeline(
-        rest as { limit?: number; offset?: number },
+        rest as { limit?: number; offset?: number; includeCompleted?: boolean },
         stateDir,
+        eventStore,
       );
 
     case 'tasks':
@@ -44,12 +60,14 @@ export async function handleView(
           fields?: string[];
         },
         stateDir,
+        eventStore,
       );
 
     case 'workflow_status':
       return handleViewWorkflowStatus(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'stack_status':
@@ -85,12 +103,21 @@ export async function handleView(
       return handleViewTeamPerformance(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
       );
 
     case 'delegation_timeline':
       return handleViewDelegationTimeline(
         rest as { workflowId?: string },
         stateDir,
+        eventStore,
+      );
+
+    case 'delegation_readiness':
+      return handleViewDelegationReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
       );
 
     case 'code_quality':
@@ -102,12 +129,14 @@ export async function handleView(
           limit?: number;
         },
         stateDir,
+        eventStore,
       );
 
     case 'quality_hints':
       return handleViewQualityHints(
         rest as { workflowId?: string; skill?: string },
         stateDir,
+        eventStore,
       );
 
     case 'eval_results':
@@ -118,7 +147,71 @@ export async function handleView(
           limit?: number;
         },
         stateDir,
+        eventStore,
       );
+
+    case 'quality_correlation':
+      return handleViewQualityCorrelation(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'quality_attribution':
+      return handleViewQualityAttribution(
+        rest as {
+          workflowId?: string;
+          dimension?: string;
+          skill?: string;
+          timeRange?: { start: string; end: string };
+        },
+        stateDir,
+        eventStore,
+      );
+
+    case 'session_provenance':
+      return handleViewSessionProvenance(
+        rest as { sessionId?: string; workflowId?: string; metric?: string },
+        stateDir,
+      );
+
+    case 'synthesis_readiness':
+      return handleViewSynthesisReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'shepherd_status':
+      return handleViewShepherdStatus(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'provenance':
+      return handleViewProvenance(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'ideate_readiness':
+      return handleViewIdeateReadiness(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'convergence':
+      return handleViewConvergence(
+        rest as { workflowId?: string },
+        stateDir,
+        eventStore,
+      );
+
+    case 'describe':
+      return handleDescribe(rest as { actions: string[] }, viewActions);
 
     default:
       return {
@@ -135,9 +228,19 @@ export async function handleView(
             'telemetry',
             'team_performance',
             'delegation_timeline',
+            'delegation_readiness',
             'code_quality',
             'quality_hints',
             'eval_results',
+            'quality_correlation',
+            'quality_attribution',
+            'session_provenance',
+            'synthesis_readiness',
+            'shepherd_status',
+            'provenance',
+            'ideate_readiness',
+            'convergence',
+            'describe',
           ] as const,
         },
       };

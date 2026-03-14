@@ -34,17 +34,14 @@ git log --oneline -5  # Confirm all task commits present
 
 ### Step 2: Submit Stacked PRs
 
-Follow `@rules/pr-descriptions.md` for concise format.
+Follow `@skills/synthesis/references/pr-descriptions.md` for concise format.
 
-**Always use Graphite** to submit stacked PRs:
-```typescript
-mcp__graphite__run_gt_cmd({
-  args: ["submit", "--no-interactive", "--publish", "--merge-when-ready", "--stack"],
-  cwd: "<repo-root>"
-})
+Create PRs for each branch in the stack (bottom-up) and enable auto-merge:
+```bash
+# For each branch in the stack (bottom-up):
+gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body "<pr-body>"
+gh pr merge <number> --auto --squash
 ```
-
-**NEVER use `gh pr create` or `mcp__plugin_github_github__create_pull_request`** — these create non-stacked PRs that bypass Graphite's stack management.
 
 ### Step 3: Cleanup (After Merge)
 ```bash
@@ -72,10 +69,8 @@ Tests: X pass | Build: 0 errors
 
 You can make direct edits to stack branches at any time:
 - Edit files in your IDE
-- Stage and commit via Graphite: `gt modify -m "fix: <description>"`
-- Resubmit the stack: `gt submit --no-interactive`
-
-**NEVER use `git commit` or `git push`** — always use `gt modify` and `gt submit` to keep the stack consistent.
+- Stage and amend: `git add <files> && git commit --amend -m "fix: <description>"`
+- Push the changes: `git push --force-with-lease`
 
 ## Idempotency
 
@@ -119,4 +114,4 @@ This is one of only TWO human checkpoints in the workflow.
    ```
    After fixes complete, workflow returns here automatically.
 
-6. **On 'no'**: "Workflow paused. Run `/exarchos:resume` to continue later."
+6. **On 'no'**: "Workflow paused. Run `/exarchos:rehydrate` to continue later."

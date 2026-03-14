@@ -22,16 +22,24 @@ action: "get", featureId: "<feature-id>", query: ".artifacts.plan"
 
 Then read the specific task section:
 
-```bash
-~/.claude/scripts/extract-task.sh <plan-path> <task-id>
+```typescript
+exarchos_orchestrate({
+  action: "extract_task",
+  planPath: "<plan-path>",
+  taskId: "<task-id>"
+})
 ```
 
 ## Reading for Review
 
 If reviewing, read the diff instead of full files:
 
-```bash
-~/.claude/scripts/review-diff.sh <worktree-path> main
+```typescript
+exarchos_orchestrate({
+  action: "review_diff",
+  worktreePath: "<worktree-path>",
+  baseBranch: "main"
+})
 ```
 
 ## Reading Design Context
@@ -54,5 +62,5 @@ Read({ file_path: "<design-path>" })
 
 1. **Read on demand** - Only read files when you need the information
 2. **Use diffs** - Prefer diffs over full file contents for reviews
-3. **Extract sections** - Use extract-task.sh for single task context
+3. **Extract sections** - Use `extract_task` action for single task context
 4. **Trust state file** - The state file is the source of truth for workflow state

@@ -16,6 +16,28 @@ export interface Guard {
   readonly id: string;
   readonly evaluate: (state: Record<string, unknown>) => GuardResult;
   readonly description: string;
+  /** True for guards defined in custom workflow configs (async shell execution). */
+  readonly custom?: boolean;
+}
+
+// ─── Guard Composition ──────────────────────────────────────────────────────
+
+/**
+ * Compose multiple guards into a single guard that requires all to pass.
+ * Returns the first failure encountered, or true if all pass.
+ */
+export function composeGuards(id: string, description: string, ...innerGuards: Guard[]): Guard {
+  return {
+    id,
+    description,
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      for (const guard of innerGuards) {
+        const result = guard.evaluate(state);
+        if (result !== true) return result;
+      }
+      return true;
+    },
+  };
 }
 
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
@@ -53,14 +75,25 @@ export const FAILED_STATUSES = new Set(['fail', 'failed', 'needs_fixes']);
 
 /** Review expectedShape constant used by multiple guards. */
 const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
-  reviews: { '<name>': { status: 'pass' } },
+  reviews: { '<name>': { status: 'pass (or verdict: "pass")' } },
 };
 
 /**
- * Collects all `status` field values from a reviews object, handling both flat
+ * Extract the review status string from an entry, checking `status` first,
+ * then `verdict` as a synonym (see GitHub #1004).
+ */
+function extractStatus(entry: Record<string, unknown>): string | undefined {
+  if (typeof entry.status === 'string') return entry.status;
+  if (typeof entry.verdict === 'string') return entry.verdict;
+  return undefined;
+}
+
+/**
+ * Collects all review status values from a reviews object, handling both flat
  * and nested shapes:
  *   - flat:   reviews.overhaul = { status: "approved", ... }
- *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+ *   - flat:   reviews.overhaul = { verdict: "pass", ... }
+ *   - nested: reviews.A1 = { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
  * Also supports the legacy `passed: boolean` shape for backward compatibility.
  */
 export function collectReviewStatuses(
@@ -70,19 +103,21 @@ export function collectReviewStatuses(
   for (const [key, value] of Object.entries(reviews)) {
     if (typeof value !== 'object' || value === null) continue;
     const entry = value as Record<string, unknown>;
-    if (typeof entry.status === 'string') {
-      // Flat review: { status: "approved", ... }
-      results.push({ path: key, status: entry.status });
+    const status = extractStatus(entry);
+    if (status !== undefined) {
+      // Flat review: { status: "approved", ... } or { verdict: "pass", ... }
+      results.push({ path: key, status });
     } else if (typeof entry.passed === 'boolean') {
       // Legacy: { passed: true/false }
       results.push({ path: key, status: entry.passed ? 'passed' : 'failed' });
     } else {
-      // Nested: { specReview: { status: "pass" }, qualityReview: { status: "approved" } }
+      // Nested: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
       for (const [subKey, subValue] of Object.entries(entry)) {
         if (typeof subValue !== 'object' || subValue === null) continue;
         const sub = subValue as Record<string, unknown>;
-        if (typeof sub.status === 'string') {
-          results.push({ path: `${key}.${subKey}`, status: sub.status });
+        const subStatus = extractStatus(sub);
+        if (subStatus !== undefined) {
+          results.push({ path: `${key}.${subKey}`, status: subStatus });
         } else if (typeof sub.passed === 'boolean') {
           results.push({ path: `${key}.${subKey}`, status: sub.passed ? 'passed' : 'failed' });
         }
@@ -122,6 +157,11 @@ function buildFailedReviewsExpectedShape(
   }
   return { reviews: reviewEntries };
 }
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+export const MAX_PLAN_REVISIONS = 3;
+const MAX_SYNTHESIZE_RETRIES = 3;
 
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
@@ -233,7 +273,16 @@ export const guards = {
       if (synthesis?.prUrl != null) return true;
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
       if (artifacts?.pr != null) return true;
-      return { passed: false, reason: 'pr-url-exists not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'pr-url-exists not satisfied: synthesis.prUrl or artifacts.pr must be set',
+        expectedShape: { synthesis: { prUrl: '<pr-url>' } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { synthesis: { prUrl: '<pr-url>' } } },
+        },
+      };
     },
   },
 
@@ -242,7 +291,16 @@ export const guards = {
     description: 'Human must have unblocked the workflow',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.unblocked === true) return true;
-      return { passed: false, reason: 'human-unblocked not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'human-unblocked not satisfied: set state.unblocked to true',
+        expectedShape: { unblocked: true },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { unblocked: true } },
+        },
+      };
     },
   },
 
@@ -279,7 +337,16 @@ export const guards = {
     description: 'Hotfix track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'hotfix') return true;
-      return { passed: false, reason: 'hotfix-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `hotfix-track-selected not satisfied: state.track must be 'hotfix' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'hotfix' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'hotfix' } },
+        },
+      };
     },
   },
 
@@ -288,7 +355,16 @@ export const guards = {
     description: 'Thorough track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'thorough') return true;
-      return { passed: false, reason: 'thorough-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `thorough-track-selected not satisfied: state.track must be 'thorough' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'thorough' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'thorough' } },
+        },
+      };
     },
   },
 
@@ -354,8 +430,10 @@ export const guards = {
     id: 'scope-assessment-complete',
     description: 'Scope assessment must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
+      // Check under explore.scopeAssessment (canonical) or root scopeAssessment (legacy/convenience)
       const explore = state.explore as Record<string, unknown> | undefined;
       if (explore?.scopeAssessment != null) return true;
+      if (state.scopeAssessment != null) return true;
       return {
         passed: false,
         reason: 'scope-assessment-complete not satisfied',
@@ -383,7 +461,16 @@ export const guards = {
     description: 'Polish track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'polish') return true;
-      return { passed: false, reason: 'polish-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `polish-track-selected not satisfied: state.track must be 'polish' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'polish' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'polish' } },
+        },
+      };
     },
   },
 
@@ -392,7 +479,16 @@ export const guards = {
     description: 'Overhaul track must be selected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       if (state.track === 'overhaul') return true;
-      return { passed: false, reason: 'overhaul-track-selected not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: `overhaul-track-selected not satisfied: state.track must be 'overhaul' (current: ${JSON.stringify(state.track ?? undefined)})`,
+        expectedShape: { track: 'overhaul' },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { track: 'overhaul' } },
+        },
+      };
     },
   },
 
@@ -430,7 +526,16 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       if (planReview?.approved === true) return true;
-      return { passed: false, reason: 'plan-review-complete not satisfied' };
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'plan-review-complete not satisfied: planReview.approved must be true',
+        expectedShape: { planReview: { approved: true } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { planReview: { approved: true } } },
+        },
+      };
     },
   },
 
@@ -440,7 +545,11 @@ export const guards = {
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const planReview = state.planReview as Record<string, unknown> | undefined;
       if (planReview?.gapsFound === true) return true;
-      return { passed: false, reason: 'plan-review-gaps-found not satisfied' };
+      return {
+        passed: false,
+        reason: 'plan-review-gaps-found not satisfied: planReview.gapsFound must be true',
+        expectedShape: { planReview: { gapsFound: true } },
+      };
     },
   },
 
@@ -456,6 +565,125 @@ export const guards = {
         };
       }
       return true;
+    },
+  },
+
+  teamDisbandedEmitted: {
+    id: 'team-disbanded-emitted',
+    description: 'Team must be disbanded before transitioning out of delegation',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+      // No team spawned (subagent mode) — guard passes automatically
+      const hasTeamSpawned = events.some((e) => e.type === 'team.spawned');
+      if (!hasTeamSpawned) return true;
+      const hasDisbanded = events.some((e) => e.type === 'team.disbanded');
+      if (hasDisbanded) return true;
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'team-disbanded-emitted not satisfied: team.disbanded event not found in _events',
+        expectedShape: {
+          type: 'team.disbanded',
+          data: {
+            totalDurationMs: 'number',
+            tasksCompleted: 'number',
+            tasksFailed: 'number',
+          },
+        },
+        suggestedFix: {
+          tool: 'exarchos_event',
+          params: {
+            action: 'append',
+            featureId,
+            type: 'team.disbanded',
+            data: {
+              totalDurationMs: 0,
+              tasksCompleted: 0,
+              tasksFailed: 0,
+            },
+          },
+        },
+      };
+    },
+  },
+
+  escalationRequired: {
+    id: 'escalation-required',
+    description: 'Investigation determined fix requires architectural redesign',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const investigation = state.investigation as Record<string, unknown> | undefined;
+      if (investigation?.escalate === true) return true;
+      return {
+        passed: false,
+        reason: 'escalation-required not satisfied',
+        expectedShape: { investigation: { escalate: true } },
+      };
+    },
+  },
+
+  revisionsExhausted: {
+    id: 'revisions-exhausted',
+    description: 'Plan revision count has reached the maximum allowed',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const planReview = state.planReview as Record<string, unknown> | undefined;
+      const rawCount = planReview?.revisionCount;
+      const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
+      if (count >= MAX_PLAN_REVISIONS) return true;
+      return {
+        passed: false,
+        reason: `revisions-exhausted not satisfied: ${count}/${MAX_PLAN_REVISIONS} revisions`,
+      };
+    },
+  },
+
+  prRequested: {
+    id: 'pr-requested',
+    description: 'PR creation has been requested',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      if (synthesis?.requested === true) return true;
+      return {
+        passed: false,
+        reason: 'pr-requested not satisfied',
+        expectedShape: { synthesis: { requested: true } },
+      };
+    },
+  },
+
+  synthesizeRetryable: {
+    id: 'synthesize-retryable',
+    description: 'Synthesis can be retried (has error and retries remaining)',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      if (synthesis?.lastError == null) {
+        return {
+          passed: false,
+          reason: 'synthesize-retryable not satisfied: no lastError recorded',
+        };
+      }
+      const rawRetry = synthesis.retryCount;
+      const retryCount = typeof rawRetry === 'number' && Number.isFinite(rawRetry) ? rawRetry : 0;
+      if (retryCount >= MAX_SYNTHESIZE_RETRIES) {
+        return {
+          passed: false,
+          reason: `synthesize-retryable not satisfied: ${retryCount}/${MAX_SYNTHESIZE_RETRIES} retries exhausted`,
+        };
+      }
+      return true;
+    },
+  },
+
+  fixVerifiedDirectly: {
+    id: 'fix-verified-directly',
+    description: 'Fix was pushed directly to main without PR',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const resolution = state.resolution as Record<string, unknown> | undefined;
+      if (resolution?.directPush === true && resolution.commitSha != null) return true;
+      return {
+        passed: false,
+        reason: 'fix-verified-directly not satisfied: resolution.directPush and resolution.commitSha required',
+        expectedShape: { resolution: { directPush: true, commitSha: '<commit-sha>' } },
+      };
     },
   },
 

@@ -141,10 +141,11 @@ Action: {required change}
 
 ### Step 8: Push and Report
 
-After all fixes complete, use Graphite to commit and push:
+After all fixes complete, commit and push:
 ```bash
-gt modify -m "fix: address PR review feedback"
-gt submit --no-interactive
+git add <fixed-files>
+git commit -m "fix: address PR review feedback"
+git push
 ```
 
 Report to user: total fixes by priority, files modified. Then auto-chain to `/exarchos:synthesize` for merge confirmation.

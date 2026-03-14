@@ -1,6 +1,6 @@
 ---
 name: debug
-description: "Bug investigation and fix workflow with hotfix and thorough tracks. Use when the user says 'debug', 'fix bug', 'investigate issue', 'something is broken', 'debug this issue', or runs /debug. Hotfix track for quick fixes, thorough track for complex bugs requiring root cause analysis. Do NOT use for feature development or planned refactoring. Do NOT escalate to /ideate unless the fix requires architectural redesign — implementation complexity alone is not sufficient reason to escalate."
+description: "Bug investigation and fix workflow. Triggers: 'debug', 'fix bug', 'investigate issue', 'something is broken', or /debug. Hotfix track for quick fixes, thorough track for root cause analysis. Do NOT use for feature development or refactoring. Do NOT escalate to /ideate unless the fix requires architectural redesign."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -11,9 +11,11 @@ metadata:
     - investigate
     - rca
     - design
-    - implement
-    - validate
-    - review
+    - debug-implement
+    - debug-validate
+    - debug-review
+    - hotfix-implement
+    - hotfix-validate
     - synthesize
 ---
 
@@ -26,12 +28,12 @@ Investigation-first workflow for debugging and regression fixes. Provides two tr
 ## Triggers
 
 Activate this skill when:
-- User runs `/debug` command
+- User runs `/exarchos:debug` command
 - User reports a bug or regression
 - User needs to investigate an error
 - User says "fix this bug" or similar
 
-**Disambiguation:** If the user says "fix" or "clean up" — use `/debug` when something is *broken* (error, crash, wrong behavior). Use `/refactor` when the code *works* but needs structural improvement.
+**Disambiguation:** If the user says "fix" or "clean up" — use `/exarchos:debug` when something is *broken* (error, crash, wrong behavior). Use `/exarchos:refactor` when the code *works* but needs structural improvement.
 
 ## Workflow Overview
 
@@ -59,28 +61,26 @@ Activate this skill when:
 
 ```bash
 # Default: thorough track
-/debug "Description of the bug"
+/exarchos:debug "Description of the bug"
 
 # Fast path: hotfix track
-/debug --hotfix "Production is down - users can't login"
+/exarchos:debug --hotfix "Production is down - users can't login"
 
 # Escalate to feature workflow
-/debug --escalate "This needs architectural changes"
+/exarchos:debug --escalate "This needs architectural changes"
 ```
 
 ### Mid-Workflow Commands
 
-These are user-facing commands (the orchestrator resolves them to namespaced form internally):
-
 ```bash
 # Switch from hotfix to thorough (during investigation)
-/debug --switch-thorough
+/exarchos:debug --switch-thorough
 
-# Escalate to /ideate (manual handoff)
-/debug --escalate "Reason for escalation"
+# Escalate to /exarchos:ideate (manual handoff)
+/exarchos:debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/resume
+/exarchos:rehydrate
 ```
 
 ## Track Comparison
@@ -94,11 +94,23 @@ These are user-facing commands (the orchestrator resolves them to namespaced for
 | Review | Smoke test only | Spec review |
 | Human Checkpoints | 1 (merge) | 1 (merge) |
 
+### Decision Runbooks
+
+For track-selection criteria at the triage phase, query the decision runbook:
+`exarchos_orchestrate({ action: "runbook", id: "triage-decision" })`
+
+For investigation escalation criteria, query:
+`exarchos_orchestrate({ action: "runbook", id: "investigation-decision" })`
+
+These runbooks encode the structured decision trees for track selection. The agent reads the decision tree and follows the guidance — the platform does not execute branches.
+
 ## Hotfix Track
 
 Fix production issues ASAP. Speed over ceremony.
 
-**Phases:** Triage (see `references/triage-questions.md`) -> Investigate (15 min max) -> Implement (no worktree) -> Validate -> Merge
+**HSM phases:** `triage` → `investigate` (15 min max) → `hotfix-implement` (no worktree) → `hotfix-validate` → `completed`
+
+See `references/triage-questions.md` for triage guidance.
 
 ### Investigation Timer
 
@@ -113,9 +125,20 @@ For detailed phase instructions, see `references/hotfix-track.md`.
 
 Fix bugs with proper rigor. Full RCA documentation.
 
-**Phases:** Triage -> Investigate -> RCA -> Design -> Implement (worktree + TDD) -> Review -> Synthesize -> Merge
+**HSM phases:** `triage` → `investigate` → `rca` → `design` → `debug-implement` (worktree + TDD) → `debug-validate` → `debug-review` → `synthesize` → `completed`
 
 For detailed phase instructions, see `references/thorough-track.md`. For systematic investigation methodology, see `references/investigation-checklist.md`.
+
+### Characterization Testing (Thorough Track Only)
+
+Before fixing a bug in the thorough track, capture the buggy behavior as a characterization test:
+
+1. **Before fix:** Write a test that documents the current (buggy) behavior — it should PASS with the bug present
+2. **Write the fix test:** Write a test that describes the correct behavior — it should FAIL (this is the standard TDD RED phase)
+3. **Apply the fix:** Implement the fix. The fix test should now PASS, and the characterization test should now FAIL
+4. **Verify:** The characterization test failing confirms the bug is actually fixed. If it still passes, the fix didn't address the root cause.
+
+This is not required for the hotfix track — hotfixes prioritize speed over documentation.
 
 ### Track Switching
 
@@ -126,18 +149,18 @@ For detailed switching logic, see `references/thorough-track.md`.
 
 ## Auto-Chain Behavior
 
-Both tracks have ONE human checkpoint: merge confirmation.
+Both tracks have ONE human checkpoint before completion.
 
 **Hotfix auto-chain:**
 ```
-triage → investigate → implement → validate → [HUMAN: merge]
-         (auto)        (auto)       (auto)
+triage → investigate → hotfix-implement → [HUMAN: hotfix-validate] → completed
+         (auto)        (auto)
 ```
 
 **Thorough auto-chain:**
 ```
-triage → investigate → rca → design → implement → review → synthesize → [HUMAN: merge]
-         (auto)        (auto) (auto)   (auto)      (auto)   (auto)
+triage → investigate → rca → design → debug-implement → debug-validate → debug-review → [HUMAN: synthesize] → completed
+         (auto)        (auto) (auto)   (auto)           (auto)            (auto)
 ```
 
 ## State Management
@@ -149,13 +172,23 @@ action: "init", featureId: "debug-<issue-slug>", workflowType: "debug"
 
 See `@skills/debug/references/state-schema.md` for full schema.
 
+### Phase Transitions and Guards
+
+Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/workflow-state/references/phase-transitions.md` for the exact prerequisite for each guard.
+
+### Schema Discovery
+
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "debug" })`
+for phase transitions, guards, and playbook guidance.
+
 ## Integration Points
 
-### With /resume
+### With /exarchos:rehydrate
 
 Debug workflows resume like feature workflows:
 ```bash
-/resume ~/.claude/workflow-state/debug-<issue-slug>.state.json
+/exarchos:rehydrate
 ```
 
 ### With Existing Skills
@@ -181,6 +214,14 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
+**Completion guard shapes** — set these via `exarchos_workflow set` before transitioning to `completed`:
+
+| Exit path | Guard | Required state |
+|-----------|-------|----------------|
+| Direct push (no PR) | `fix-verified-directly` | `resolution: { directPush: true, commitSha: "<sha>" }` |
+| Validation passed | `validation-passed` | `validation: { passed: true }` |
+| Via PR | Through `synthesize` → `completed` | `prUrl` must exist |
+
 ### Thorough Complete
 
 - [ ] Full RCA documented in docs/rca/ (use `references/rca-template.md`)
@@ -188,6 +229,8 @@ Extended to support:
 - [ ] TDD implementation with tests
 - [ ] Spec review passed
 - [ ] PR merged
+
+**Completion guard shapes** — the thorough track exits through `synthesize` → `completed` (guard: `pr-url-exists`, requires `prUrl` in state).
 
 ## Anti-Patterns
 

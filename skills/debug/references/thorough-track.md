@@ -11,14 +11,14 @@ Fix bugs with proper rigor. Capture institutional knowledge through RCA.
 ## Phases
 
 ```
-Triage -> Investigate -> RCA -> Design -> Implement -> Review -> Synthesize -> Completed
-  |          |          |       |         |          |          |           |
-  |          |          |       |         |          |          |           +- Merge
-  |          |          |       |         |          |          +- Create PR
-  |          |          |       |         |          +- Spec review only
-  |          |          |       |         +- TDD in worktree
-  |          |          |       +- Brief fix approach
-  |          |          +- Full RCA document
+triage -> investigate -> rca -> design -> debug-implement -> debug-validate -> debug-review -> synthesize -> completed
+  |          |           |       |         |                  |                 |                |
+  |          |           |       |         |                  |                 |                +- Merge
+  |          |           |       |         |                  |                 +- Create PR
+  |          |           |       |         |                  +- Spec review only
+  |          |           |       |         +- TDD in worktree
+  |          |           |       +- Brief fix approach
+  |          |           +- Full RCA document
   |          +- Systematic investigation
   +- Capture symptom, select track
 ```
@@ -73,7 +73,7 @@ Brief fix approach (NOT a full design document).
 ```
 action: "set", featureId: "debug-<issue-slug>", updates: {
   "artifacts.fixDesign": "<fix approach description>"
-}, phase: "implement"
+}, phase: "debug-implement"
 ```
 
 ### 5. Implement Phase
@@ -99,7 +99,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
     "branch": "feature/debug-<issue-slug>",
     "status": "active"
   }
-}, phase: "review"
+}, phase: "debug-validate"
 ```
 
 ### 6. Review Phase
@@ -108,12 +108,16 @@ Spec review only (not quality review - this is a fix, not new feature).
 
 Run the debug review gate to verify test coverage for the bug fix:
 
-```bash
-scripts/debug-review-gate.sh --repo-root <path> --base-branch <branch>
+```typescript
+exarchos_orchestrate({
+  action: "debug_review_gate",
+  repoRoot: "<path>",
+  baseBranch: "<branch>"
+})
 ```
 
-**On exit 0:** Review passed -- tests added and passing.
-**On exit 1:** Gaps found -- missing tests or regressions.
+**On `passed: true`:** Review passed -- tests added and passing.
+**On `passed: false`:** Gaps found -- missing tests or regressions.
 
 Additionally verify:
 - [ ] Fix matches RCA root cause
@@ -129,14 +133,17 @@ action: "set", featureId: "debug-<issue-slug>", phase: "synthesize"
 
 ### 7. Synthesize Phase
 
-Create PR via Graphite MCP:
+Create PR via GitHub CLI:
 
-```
-# Stage and create branch with fix commit
-mcp__graphite__run_gt_cmd({ args: ["create", "-m", "fix: <issue summary>"], cwd: "<repo-root>" })
+```bash
+# Stage, commit, and push
+git add <fixed-files>
+git commit -m "fix: <issue summary>"
+git push -u origin <branch-name>
 
-# Submit to create the PR
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"], cwd: "<repo-root>" })
+# Create PR and enable auto-merge
+gh pr create --base main --title "fix: <issue summary>" --body "<pr-body>"
+gh pr merge <number> --auto --squash
 ```
 
 Then update the PR description:
@@ -162,7 +169,7 @@ See: docs/rca/YYYY-MM-DD-<issue-slug>.md
 
 ### Hotfix -> Thorough
 
-When `scripts/investigation-timer.sh` exits with code 1 (budget exceeded), switch to thorough track:
+When `exarchos_orchestrate({ action: "investigation_timer" })` returns `passed: false` (budget exceeded), switch to thorough track:
 
 **Switch to thorough track:**
 

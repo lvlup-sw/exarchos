@@ -122,12 +122,12 @@ action: "set", featureId: "refactor-<slug>", updates: {
     "docsToUpdate": ["<from explore>"],
     "capturedAt": "<ISO8601>"
   }
-}, phase: "<implement|plan>"
+}, phase: "<polish-implement|overhaul-plan>"
 ```
 
 Phase transitions:
-- Polish track -> `implement`
-- Overhaul track -> `plan`
+- Polish track -> `polish-implement`
+- Overhaul track -> `overhaul-plan`
 
 ## Validation
 
@@ -160,13 +160,13 @@ After brief is captured, auto-continue to next phase:
 
 ### Polish Track
 
-1. Update state: `.phase = "implement"`
+1. Update state: `.phase = "polish-implement"`
 2. Output: "Brief captured. Auto-continuing to implementation..."
 3. Continue with implement phase inline (no Skill invocation - orchestrator implements directly)
 
 ### Overhaul Track
 
-1. Update state: `.phase = "plan"`
+1. Update state: `.phase = "overhaul-plan"`
 2. Output: "Brief captured. Auto-continuing to planning..."
 3. Invoke immediately:
    ```typescript

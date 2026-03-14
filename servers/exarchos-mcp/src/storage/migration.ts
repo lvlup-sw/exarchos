@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowEventBase, type WorkflowEvent } from '../event-store/schemas.js';
 import { WorkflowStateSchema } from '../workflow/schemas.js';
+import { migrateState } from '../workflow/migration.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { StorageBackend } from './backend.js';
 import { logger } from '../logger.js';
@@ -20,16 +21,17 @@ const LEGACY_CLEANUP_PATTERNS = [
 // ─── State Migration ────────────────────────────────────────────────────────
 
 /**
- * Migrates legacy `*.state.json` files into the StorageBackend.
+ * Imports `*.state.json` files into the StorageBackend.
  *
  * For each `*.state.json` file found:
+ * - Skips if the featureId already exists in the backend (idempotent)
  * - Parses the JSON content
  * - Validates against WorkflowStateSchema
  * - Extracts the featureId from the filename (`{featureId}.state.json`)
  * - Inserts into the backend via `setState()`
- * - Renames the original file to `*.state.json.migrated`
  *
- * Corrupt or invalid files are skipped (not renamed).
+ * The `.state.json` file is kept on disk as a crash-recovery backup.
+ * Corrupt or invalid files are skipped.
  */
 export async function migrateLegacyStateFiles(
   backend: StorageBackend,
@@ -51,6 +53,9 @@ export async function migrateLegacyStateFiles(
     const filePath = path.join(stateDir, file);
     const featureId = file.replace('.state.json', '');
 
+    // Idempotent: skip if backend already has this state
+    if (backend.getState(featureId) != null) continue;
+
     let raw: unknown;
     try {
       const content = readFileSync(filePath, 'utf-8');
@@ -60,7 +65,15 @@ export async function migrateLegacyStateFiles(
       continue;
     }
 
-    const parsed = WorkflowStateSchema.safeParse(raw);
+    let migrated: unknown;
+    try {
+      migrated = migrateState(raw);
+    } catch (err) {
+      logger.warn({ file, err: err instanceof Error ? err.message : String(err) }, 'Skipping legacy state file: migration failed');
+      continue;
+    }
+
+    const parsed = WorkflowStateSchema.safeParse(migrated);
     if (!parsed.success) {
       logger.warn({ file, error: parsed.error.message }, 'Skipping invalid legacy state file');
       continue;
@@ -68,9 +81,6 @@ export async function migrateLegacyStateFiles(
     const state: WorkflowState = parsed.data;
 
     backend.setState(featureId, state);
-
-    // Rename to .migrated after successful insert
-    await rename(filePath, filePath + '.migrated');
   }
 }
 

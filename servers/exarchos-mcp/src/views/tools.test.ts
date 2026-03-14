@@ -13,6 +13,9 @@ import {
   handleViewDelegationTimeline,
   handleViewCodeQuality,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
+  handleViewProvenance,
+  handleViewIdeateReadiness,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
@@ -79,10 +82,12 @@ describe('Singleton Cache', () => {
 
 describe('View Handlers', () => {
   let tmpDir: string;
+  let store: EventStore;
 
   beforeEach(async () => {
     resetMaterializerCache();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-view-test-'));
+    store = new EventStore(tmpDir);
   });
 
   afterEach(async () => {
@@ -111,7 +116,7 @@ describe('View Handlers', () => {
       });
 
       // Act
-      const result = await handleViewTeamPerformance({ workflowId: 'test-wf' }, tmpDir);
+      const result = await handleViewTeamPerformance({ workflowId: 'test-wf' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -154,7 +159,7 @@ describe('View Handlers', () => {
       });
 
       // Act
-      const result = await handleViewDelegationTimeline({ workflowId: 'test-wf' }, tmpDir);
+      const result = await handleViewDelegationTimeline({ workflowId: 'test-wf' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -170,7 +175,7 @@ describe('View Handlers', () => {
   describe('handleViewCodeQuality', () => {
     it('HandleViewCodeQuality_ReturnsEmptyState_WhenNoEvents', async () => {
       // Act
-      const result = await handleViewCodeQuality({}, tmpDir);
+      const result = await handleViewCodeQuality({}, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -218,7 +223,7 @@ describe('View Handlers', () => {
       });
 
       // Act: query specific stream
-      const result = await handleViewCodeQuality({ workflowId: 'quality-wf' }, tmpDir);
+      const result = await handleViewCodeQuality({ workflowId: 'quality-wf' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -261,7 +266,7 @@ describe('View Handlers', () => {
       });
 
       // Act: filter to delegation skill only
-      const result = await handleViewCodeQuality({ workflowId: 'skill-wf', skill: 'delegation' }, tmpDir);
+      const result = await handleViewCodeQuality({ workflowId: 'skill-wf', skill: 'delegation' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -304,7 +309,7 @@ describe('View Handlers', () => {
       });
 
       // Act: filter to typecheck gate only
-      const result = await handleViewCodeQuality({ workflowId: 'gate-wf', gate: 'typecheck' }, tmpDir);
+      const result = await handleViewCodeQuality({ workflowId: 'gate-wf', gate: 'typecheck' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -312,6 +317,73 @@ describe('View Handlers', () => {
       const gates = data.gates as Record<string, unknown>;
       expect(Object.keys(gates)).toEqual(['typecheck']);
       expect(gates).not.toHaveProperty('lint');
+    });
+
+    it('HandleViewCodeQuality_WithRegressions_EmitsQualityRegressionEvents', async () => {
+      // Arrange: seed 3 consecutive gate failures for same gate+skill combo
+      const store = new EventStore(tmpDir);
+      for (let i = 1; i <= 3; i++) {
+        await store.append('regression-wf', {
+          streamId: 'regression-wf',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: 'typecheck',
+            layer: 'build',
+            passed: false,
+            duration: 100,
+            details: { skill: 'delegation', commit: `commit-${i}`, reason: 'type error' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act
+      await handleViewCodeQuality({ workflowId: 'regression-wf' }, tmpDir, store);
+
+      // Assert: query event store for quality.regression events
+      const allEvents = await store.query('regression-wf');
+      const regressionEvents = allEvents.filter(e => e.type === 'quality.regression');
+      expect(regressionEvents.length).toBeGreaterThanOrEqual(1);
+      const regressionData = regressionEvents[0].data as Record<string, unknown>;
+      expect(regressionData).toMatchObject({
+        skill: 'delegation',
+        gate: 'typecheck',
+        consecutiveFailures: 3,
+        firstFailureCommit: 'commit-1',
+        lastFailureCommit: 'commit-3',
+      });
+    });
+
+    it('HandleViewCodeQuality_CalledTwice_DoesNotEmitDuplicateRegressions', async () => {
+      // Arrange: seed 3 consecutive gate failures
+      const store = new EventStore(tmpDir);
+      for (let i = 1; i <= 3; i++) {
+        await store.append('dedup-wf', {
+          streamId: 'dedup-wf',
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: 'typecheck',
+            layer: 'build',
+            passed: false,
+            duration: 100,
+            details: { skill: 'delegation', commit: `commit-${i}`, reason: 'type error' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // Act: call twice
+      await handleViewCodeQuality({ workflowId: 'dedup-wf' }, tmpDir, store);
+      await handleViewCodeQuality({ workflowId: 'dedup-wf' }, tmpDir, store);
+
+      // Assert: should have exactly 1 quality.regression event, not 2
+      const allEvents = await store.query('dedup-wf');
+      const regressionEvents = allEvents.filter(e => e.type === 'quality.regression');
+      expect(regressionEvents).toHaveLength(1);
     });
 
     it('HandleViewCodeQuality_WithLimit_LimitsArrays', async () => {
@@ -352,7 +424,7 @@ describe('View Handlers', () => {
       }
 
       // Act: limit to 1 entry
-      const result = await handleViewCodeQuality({ workflowId: 'limit-wf', limit: 1 }, tmpDir);
+      const result = await handleViewCodeQuality({ workflowId: 'limit-wf', limit: 1 }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -369,7 +441,7 @@ describe('View Handlers', () => {
   describe('handleViewEvalResults', () => {
     it('handleViewEvalResults_NoEvents_ReturnsEmptyState', async () => {
       // Act
-      const result = await handleViewEvalResults({}, tmpDir);
+      const result = await handleViewEvalResults({}, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -421,7 +493,7 @@ describe('View Handlers', () => {
       });
 
       // Act: filter to delegation skill only
-      const result = await handleViewEvalResults({ workflowId: 'eval-stream', skill: 'delegation' }, tmpDir);
+      const result = await handleViewEvalResults({ workflowId: 'eval-stream', skill: 'delegation' }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
@@ -455,13 +527,135 @@ describe('View Handlers', () => {
       }
 
       // Act: limit to 2 entries
-      const result = await handleViewEvalResults({ workflowId: 'eval-limit', limit: 2 }, tmpDir);
+      const result = await handleViewEvalResults({ workflowId: 'eval-limit', limit: 2 }, tmpDir, store);
 
       // Assert
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       const runs = data.runs as unknown[];
       expect(runs).toHaveLength(2);
+    });
+  });
+
+  // ─── T13: handleViewProvenance ─────────────────────────────────────────────
+
+  describe('handleViewProvenance', () => {
+    it('handleViewProvenance_ReturnsProvenanceState', async () => {
+      // Arrange: seed event store with provenance-relevant events
+      const store = new EventStore(tmpDir);
+      await store.append('test-id', {
+        streamId: 'test-id',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'workflow.started',
+        data: { featureId: 'test-id', workflowType: 'feature' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewProvenance({ workflowId: 'test-id' }, tmpDir, store);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('featureId');
+      expect(data).toHaveProperty('requirements');
+      expect(data).toHaveProperty('coverage');
+      expect(data).toHaveProperty('orphanTasks');
+    });
+  });
+
+  // ─── T13: handleViewIdeateReadiness ──────────────────────────────────────────
+
+  describe('handleViewIdeateReadiness', () => {
+    it('handleViewIdeateReadiness_ReturnsReadinessState', async () => {
+      // Arrange: seed event store with ideate-readiness-relevant events
+      const store = new EventStore(tmpDir);
+      await store.append('test-id', {
+        streamId: 'test-id',
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'workflow.started',
+        data: { featureId: 'test-id', workflowType: 'feature' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewIdeateReadiness({ workflowId: 'test-id' }, tmpDir, store);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('ready');
+      expect(data).toHaveProperty('designArtifactExists');
+      expect(data).toHaveProperty('gateResult');
+    });
+  });
+
+  // ─── handleViewQualityCorrelation ──────────────────────────────────────────
+
+  describe('handleViewQualityCorrelation', () => {
+    it('HandleViewQualityCorrelation_NoEvents_ReturnsEmptyCorrelation', async () => {
+      // Act
+      const result = await handleViewQualityCorrelation({}, tmpDir, store);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      expect(data.skills).toEqual({});
+    });
+
+    it('HandleViewQualityCorrelation_WithMatchingEvents_ReturnsCorrelatedData', async () => {
+      // Arrange: seed both code quality and eval events for the same skill
+      const store = new EventStore(tmpDir);
+      const streamId = 'corr-wf';
+
+      // Seed code quality events
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Seed eval events
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        data: {
+          runId: 'run-001',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 9,
+          failed: 1,
+          avgScore: 0.9,
+          duration: 5000,
+        },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewQualityCorrelation({ workflowId: streamId }, tmpDir, store);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data).toHaveProperty('skills');
+      const skills = data.skills as Record<string, Record<string, unknown>>;
+      expect(skills).toHaveProperty('delegation');
+      expect(skills['delegation'].evalScore).toBe(0.9);
+      expect(skills['delegation'].gatePassRate).toBe(1);
     });
   });
 });
@@ -495,7 +689,7 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Cold call to populate materializer state
-    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir);
+    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir, store);
     expect(coldResult.success).toBe(true);
 
     // Add more events
@@ -504,12 +698,11 @@ describe('Delta Query (sinceSequence)', () => {
       data: { taskId: 't1', title: 'Build login', branch: 'feat/login' },
     });
 
-    // Spy on the cached store
-    const cachedStore = getOrCreateEventStore(tmpDir);
-    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+    // Spy on the store passed to handler
+    const storeQuerySpy = vi.spyOn(store, 'query');
 
     // Act: warm call
-    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir);
+    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-delta' }, tmpDir, store);
     expect(warmResult.success).toBe(true);
 
     // Assert: store.query was called with sinceSequence filter
@@ -532,7 +725,7 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Cold call
-    await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir);
+    await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir, store);
 
     // Add more events
     await store.append('wf-delta-tasks', {
@@ -541,11 +734,10 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Spy on the cached store
-    const cachedStore = getOrCreateEventStore(tmpDir);
-    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+    const storeQuerySpy = vi.spyOn(store, 'query');
 
     // Act: warm call
-    const warmResult = await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir);
+    const warmResult = await handleViewTasks({ workflowId: 'wf-delta-tasks' }, tmpDir, store);
     expect(warmResult.success).toBe(true);
 
     // Assert: store.query was called with sinceSequence filter
@@ -565,7 +757,7 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Cold call
-    await handleViewPipeline({}, tmpDir);
+    await handleViewPipeline({}, tmpDir, store);
 
     // Add more events
     await store.append('wf-delta-pipe', {
@@ -574,11 +766,10 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Spy on the cached store
-    const cachedStore = getOrCreateEventStore(tmpDir);
-    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+    const storeQuerySpy = vi.spyOn(store, 'query');
 
     // Act: warm call
-    const warmResult = await handleViewPipeline({}, tmpDir);
+    const warmResult = await handleViewPipeline({}, tmpDir, store);
     expect(warmResult.success).toBe(true);
 
     // Assert: store.query was called with sinceSequence filter for the stream
@@ -605,7 +796,7 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Cold call
-    await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir);
+    await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir, store);
 
     // Add more events
     await store.append('wf-delta-team', {
@@ -621,11 +812,10 @@ describe('Delta Query (sinceSequence)', () => {
     });
 
     // Spy on the cached store
-    const cachedStore = getOrCreateEventStore(tmpDir);
-    const storeQuerySpy = vi.spyOn(cachedStore, 'query');
+    const storeQuerySpy = vi.spyOn(store, 'query');
 
     // Act: warm call
-    const warmResult = await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir);
+    const warmResult = await handleViewTeamPerformance({ workflowId: 'wf-delta-team' }, tmpDir, store);
     expect(warmResult.success).toBe(true);
 
     // Assert: store.query was called with sinceSequence filter
@@ -663,14 +853,14 @@ describe('Skip loadFromSnapshot on warm calls', () => {
     });
 
     // Cold call to populate materializer state
-    await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir);
+    await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir, store);
 
     // Spy on materializer.loadFromSnapshot for warm call
     const materializer = getOrCreateMaterializer(tmpDir);
     const loadSpy = vi.spyOn(materializer, 'loadFromSnapshot');
 
     // Act: warm call (materializer already has state)
-    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir);
+    const warmResult = await handleViewWorkflowStatus({ workflowId: 'wf-snap' }, tmpDir, store);
     expect(warmResult.success).toBe(true);
 
     // Assert: loadFromSnapshot should NOT have been called
@@ -691,7 +881,7 @@ describe('Skip loadFromSnapshot on warm calls', () => {
     const loadSpy = vi.spyOn(materializer, 'loadFromSnapshot');
 
     // Act: cold call (no cached state)
-    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-cold' }, tmpDir);
+    const coldResult = await handleViewWorkflowStatus({ workflowId: 'wf-cold' }, tmpDir, store);
     expect(coldResult.success).toBe(true);
 
     // Assert: loadFromSnapshot SHOULD have been called (cold = no cached state)
@@ -745,7 +935,7 @@ describe('Backend Integration (Task 12)', () => {
     registerViewTools(mockServer, tmpDir, store);
 
     // Act
-    const result = await handleViewWorkflowStatus({ workflowId: 'wf-backend' }, tmpDir);
+    const result = await handleViewWorkflowStatus({ workflowId: 'wf-backend' }, tmpDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -777,7 +967,7 @@ describe('Backend Integration (Task 12)', () => {
     registerViewTools(mockServer, tmpDir, store);
 
     // Act
-    const result = await handleViewPipeline({}, tmpDir);
+    const result = await handleViewPipeline({}, tmpDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -812,7 +1002,7 @@ describe('Backend Integration (Task 12)', () => {
     registerViewTools(mockServer, tmpDir, store);
 
     // Act
-    const result = await handleViewTasks({ workflowId: 'wf-tasks-backend' }, tmpDir);
+    const result = await handleViewTasks({ workflowId: 'wf-tasks-backend' }, tmpDir, store);
 
     // Assert
     expect(result.success).toBe(true);

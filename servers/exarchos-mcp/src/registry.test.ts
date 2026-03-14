@@ -1,14 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { z } from 'zod';
 import {
   buildCompositeSchema,
   buildRegistrationSchema,
+  buildToolDescription,
   coercedRecord,
   coercedPositiveInt,
   coercedNonnegativeInt,
+  coercedStringArray,
   TOOL_REGISTRY,
+  registerCustomTool,
+  unregisterCustomTool,
+  getFullRegistry,
+  clearCustomTools,
+  findActionInRegistry,
 } from './registry.js';
-import type { ToolAction } from './registry.js';
+import type { ToolAction, CompositeTool } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -193,6 +200,44 @@ describe('coercedNonnegativeInt', () => {
   });
 });
 
+describe('coercedStringArray', () => {
+  const schema = coercedStringArray();
+
+  it('should accept a native array', () => {
+    const result = schema.safeParse(['a', 'b']);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(['a', 'b']);
+  });
+
+  it('should coerce a JSON-stringified array', () => {
+    const result = schema.safeParse('["phase","featureId"]');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual(['phase', 'featureId']);
+  });
+
+  it('should reject a non-array string', () => {
+    const result = schema.safeParse('not-json');
+    expect(result.success).toBe(false);
+  });
+
+  it('should reject a stringified object', () => {
+    const result = schema.safeParse('{"a":1}');
+    expect(result.success).toBe(false);
+  });
+
+  it('should accept an empty array', () => {
+    const result = schema.safeParse([]);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual([]);
+  });
+
+  it('should coerce a stringified empty array', () => {
+    const result = schema.safeParse('[]');
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).toEqual([]);
+  });
+});
+
 // ─── Registration Schema JSON Output ────────────────────────────────────────
 
 describe('buildRegistrationSchema JSON Schema', () => {
@@ -263,19 +308,19 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 6 actions: init, get, set, cancel, cleanup, reconcile', () => {
+    it('should have 7 actions: init, get, set, cancel, cleanup, reconcile, describe', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'describe']);
     });
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 4 actions for task management and review triage', () => {
+    it('should have 50 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(4);
+      expect(composite!.actions).toHaveLength(50);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -284,9 +329,77 @@ describe('TOOL_REGISTRY', () => {
           'task_complete',
           'task_fail',
           'review_triage',
+          'prepare_delegation',
+          'prepare_synthesis',
+          'assess_stack',
+          'check_design_completeness',
+          'check_plan_coverage',
+          'check_tdd_compliance',
+          'check_post_merge',
+          'check_task_decomposition',
+          'check_static_analysis',
+          'check_security_scan',
+          'check_context_economy',
+          'check_operational_resilience',
+          'check_workflow_determinism',
+          'check_review_verdict',
+          'check_convergence',
+          'check_provenance_chain',
+          'check_event_emissions',
+          'extract_task',
+          'review_diff',
+          'verify_worktree',
+          'select_debug_track',
+          'investigation_timer',
+          'check_coverage_thresholds',
+          'assess_refactor_scope',
+          'check_pr_comments',
+          'validate_pr_body',
+          'validate_pr_stack',
+          'debug_review_gate',
+          'extract_fix_tasks',
+          'generate_traceability',
+          'spec_coverage_check',
+          'verify_worktree_baseline',
+          'setup_worktree',
+          'verify_delegation_saga',
+          'post_delegation_check',
+          'reconcile_state',
+          'pre_synthesis_check',
+          'new_project',
+          'check_coderabbit',
+          'check_polish_scope',
+          'needs_schema_sync',
+          'verify_doc_links',
+          'verify_review_triage',
         ]),
       );
     });
+  });
+
+  it('OrchestrateActions_MatchCompositeHandlers_InSync', async () => {
+    const composite = findComposite('exarchos_orchestrate');
+    expect(composite).toBeDefined();
+    const registryNames = new Set(composite!.actions.map((a) => a.name));
+
+    const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
+
+    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
+    const SPECIAL_ACTIONS = new Set(['describe', 'runbook']);
+
+    for (const handlerKey of ACTION_HANDLER_KEYS) {
+      expect(
+        registryNames.has(handlerKey),
+        `Handler '${handlerKey}' in composite.ts is missing from registry.ts orchestrateActions`,
+      ).toBe(true);
+    }
+    for (const registryName of registryNames) {
+      if (SPECIAL_ACTIONS.has(registryName)) continue;
+      expect(
+        ACTION_HANDLER_KEYS.includes(registryName),
+        `Registry action '${registryName}' has no handler in composite.ts`,
+      ).toBe(true);
+    }
   });
 
   it('should have non-empty phases for every action except init', () => {
@@ -479,5 +592,517 @@ describe('TOOL_REGISTRY', () => {
       const result = action!.schema.safeParse({});
       expect(result.success).toBe(true);
     });
+  });
+});
+
+// ─── CLI Hints Tests ──────────────────────────────────────────────────────────
+
+describe('CLI hints', () => {
+  it('ToolAction_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a ToolAction with cli hints
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test action',
+      schema: z.object({ id: z.string() }),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      cli: {
+        alias: 'ls',
+        group: 'Inspection',
+        examples: ['exarchos test ls'],
+        flags: { id: { alias: 'i', description: 'The ID' } },
+        format: 'table',
+      },
+    };
+    // Assert: cli fields are accessible
+    expect(action.cli?.alias).toBe('ls');
+    expect(action.cli?.flags?.id?.alias).toBe('i');
+    expect(action.cli?.format).toBe('table');
+  });
+
+  it('CompositeTool_AcceptsCliHints_TypeChecks', () => {
+    // Arrange: create a CompositeTool with cli hints
+    const tool: CompositeTool = {
+      name: 'exarchos_test',
+      description: 'test tool',
+      actions: [],
+      cli: { alias: 'tst', group: 'Testing' },
+    };
+    // Assert
+    expect(tool.cli?.alias).toBe('tst');
+  });
+
+  it('ToolAction_WithoutCliHints_StillWorks', () => {
+    // Arrange: ToolAction without cli field (backward compat)
+    const action: ToolAction = {
+      name: 'test',
+      description: 'test',
+      schema: z.object({}),
+      phases: new Set([]),
+      roles: new Set([]),
+    };
+    // Assert: cli is undefined
+    expect(action.cli).toBeUndefined();
+  });
+
+  it('TOOL_REGISTRY_EntriesStillTypeCheck', () => {
+    // Assert: existing registry is valid (no cli field = still works)
+    expect(TOOL_REGISTRY.length).toBeGreaterThan(0);
+    for (const tool of TOOL_REGISTRY) {
+      expect(tool.name).toBeTruthy();
+      expect(tool.actions.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ─── Task 23: CLI Hints on Core Actions ──────────────────────────────────────
+
+describe('CLI hints on core workflow actions', () => {
+  it('WorkflowTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('wf');
+  });
+
+  it('InitAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.workflowType?.alias).toBe('t');
+  });
+
+  it('GetAction_HasStatusAlias', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('status');
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.query?.alias).toBe('q');
+  });
+
+  it('SetAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_workflow', 'set');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+  });
+
+  it('ViewTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('vw');
+  });
+
+  it('PipelineAction_HasLsAlias', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action).toBeDefined();
+    expect(action!.cli?.alias).toBe('ls');
+  });
+
+  it('TasksAction_HasFlagAliases', () => {
+    const action = findAction('exarchos_view', 'tasks');
+    expect(action).toBeDefined();
+    expect(action!.cli?.flags?.workflowId?.alias).toBe('w');
+    expect(action!.cli?.flags?.limit?.alias).toBe('l');
+  });
+
+  it('EventTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('ev');
+  });
+
+  it('OrchestrateTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('orch');
+  });
+
+  it('SyncTool_HasCliAlias', () => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_sync');
+    expect(tool).toBeDefined();
+    expect(tool!.cli?.alias).toBe('sy');
+  });
+});
+
+// ─── Task 24: CLI Examples on Common Actions ─────────────────────────────────
+
+describe('CLI examples on common actions', () => {
+  it('CliHints_ExamplesPresent_ForCommonActions', () => {
+    const initAction = findAction('exarchos_workflow', 'init');
+    expect(initAction!.cli?.examples).toBeDefined();
+    expect(initAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const getAction = findAction('exarchos_workflow', 'get');
+    expect(getAction!.cli?.examples).toBeDefined();
+    expect(getAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const setAction = findAction('exarchos_workflow', 'set');
+    expect(setAction!.cli?.examples).toBeDefined();
+    expect(setAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const pipelineAction = findAction('exarchos_view', 'pipeline');
+    expect(pipelineAction!.cli?.examples).toBeDefined();
+    expect(pipelineAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const tasksAction = findAction('exarchos_view', 'tasks');
+    expect(tasksAction!.cli?.examples).toBeDefined();
+    expect(tasksAction!.cli!.examples!.length).toBeGreaterThan(0);
+
+    const appendAction = findAction('exarchos_event', 'append');
+    expect(appendAction!.cli?.examples).toBeDefined();
+    expect(appendAction!.cli!.examples!.length).toBeGreaterThan(0);
+  });
+
+  it('InitAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'init');
+    expect(action!.cli!.examples).toContain('exarchos wf init -f my-feature -t feature');
+  });
+
+  it('GetAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_workflow', 'get');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature');
+    expect(action!.cli!.examples).toContain('exarchos wf status -f my-feature -q phase');
+  });
+
+  it('PipelineAction_ExamplesContainExpectedContent', () => {
+    const action = findAction('exarchos_view', 'pipeline');
+    expect(action!.cli!.examples).toContain('exarchos vw ls');
+  });
+});
+
+// ─── Dynamic Tool Registration Tests ─────────────────────────────────────────
+
+describe('Dynamic Tool Registration', () => {
+  const customTool: CompositeTool = {
+    name: 'exarchos_deploy',
+    description: 'Custom deployment tool',
+    actions: [
+      {
+        name: 'trigger',
+        description: 'Trigger a deployment',
+        schema: z.object({ target: z.string() }),
+        phases: new Set(['deploy']),
+        roles: new Set(['lead']),
+      },
+      {
+        name: 'status',
+        description: 'Get deployment status',
+        schema: z.object({ deployId: z.string().optional() }),
+        phases: new Set(['deploy']),
+        roles: new Set(['any']),
+      },
+    ],
+  };
+
+  afterEach(() => {
+    clearCustomTools();
+  });
+
+  it('RegisterCustomTool_AddsToRegistry', () => {
+    registerCustomTool(customTool);
+
+    const full = getFullRegistry();
+    const found = full.find((t) => t.name === 'exarchos_deploy');
+    expect(found).toBeDefined();
+    expect(found!.description).toBe('Custom deployment tool');
+    expect(found!.actions).toHaveLength(2);
+  });
+
+  it('RegisterCustomTool_BuiltInName_Throws', () => {
+    const builtInNames = [
+      'exarchos_workflow',
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+      'exarchos_sync',
+    ];
+
+    for (const name of builtInNames) {
+      const badTool: CompositeTool = {
+        name,
+        description: 'trying to override',
+        actions: [
+          {
+            name: 'a',
+            description: 'a',
+            schema: z.object({}),
+            phases: new Set(['ideate']),
+            roles: new Set(['any']),
+          },
+          {
+            name: 'b',
+            description: 'b',
+            schema: z.object({}),
+            phases: new Set(['ideate']),
+            roles: new Set(['any']),
+          },
+        ],
+      };
+      expect(
+        () => registerCustomTool(badTool),
+        `Should throw for built-in tool name: ${name}`,
+      ).toThrow(/built-in/i);
+    }
+  });
+
+  it('GetFullRegistry_ReturnsBuiltInPlusCustom', () => {
+    // Before registration
+    expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length);
+
+    // After registration
+    registerCustomTool(customTool);
+    expect(getFullRegistry()).toHaveLength(TOOL_REGISTRY.length + 1);
+
+    // Built-ins are still there
+    const names = getFullRegistry().map((t) => t.name);
+    expect(names).toContain('exarchos_workflow');
+    expect(names).toContain('exarchos_deploy');
+  });
+
+  it('RegisterCustomTool_GeneratesValidSchema', () => {
+    registerCustomTool(customTool);
+
+    const full = getFullRegistry();
+    const tool = full.find((t) => t.name === 'exarchos_deploy')!;
+    const schema = buildRegistrationSchema(tool.actions);
+
+    // Should accept valid input
+    const result = schema.safeParse({ action: 'trigger', target: 'production' });
+    expect(result.success).toBe(true);
+
+    // Should reject invalid action
+    const invalid = schema.safeParse({ action: 'nonexistent' });
+    expect(invalid.success).toBe(false);
+  });
+
+  it('UnregisterCustomTool_RemovesTool', () => {
+    registerCustomTool(customTool);
+    expect(getFullRegistry().find((t) => t.name === 'exarchos_deploy')).toBeDefined();
+
+    unregisterCustomTool('exarchos_deploy');
+    expect(getFullRegistry().find((t) => t.name === 'exarchos_deploy')).toBeUndefined();
+  });
+
+  it('UnregisterCustomTool_BuiltInName_Throws', () => {
+    expect(
+      () => unregisterCustomTool('exarchos_workflow'),
+    ).toThrow(/built-in|cannot unregister/i);
+  });
+
+  it('UnregisterCustomTool_UnknownName_Throws', () => {
+    expect(
+      () => unregisterCustomTool('exarchos_nonexistent'),
+    ).toThrow(/not registered|not found/i);
+  });
+
+  it('RegisterCustomTool_DuplicateName_Throws', () => {
+    registerCustomTool(customTool);
+    expect(
+      () => registerCustomTool(customTool),
+    ).toThrow(/already registered/i);
+  });
+});
+
+// ─── Gate Metadata Tests ──────────────────────────────────────────────────────
+
+describe('Gate Metadata', () => {
+  it('GateMetadata_CheckActions_HaveGateField', () => {
+    // check_event_emissions is intentionally excluded — it's an advisory hint action
+    // that returns missing event suggestions, not a gate with blocking/dimension metadata.
+    const expectedCheckActions = new Set([
+      'check_tdd_compliance', 'check_static_analysis', 'check_security_scan',
+      'check_context_economy', 'check_operational_resilience', 'check_workflow_determinism',
+      'check_review_verdict', 'check_convergence', 'check_provenance_chain',
+      'check_design_completeness', 'check_plan_coverage', 'check_task_decomposition',
+      'check_post_merge',
+    ]);
+    const visited = new Set<string>();
+
+    for (const composite of TOOL_REGISTRY) {
+      for (const action of composite.actions) {
+        if (expectedCheckActions.has(action.name)) {
+          visited.add(action.name);
+          expect(action.gate, `${action.name} should have gate metadata`).toBeDefined();
+          expect(typeof action.gate!.blocking).toBe('boolean');
+        }
+      }
+    }
+
+    // Ensure every expected check action was actually found in the registry
+    for (const expected of expectedCheckActions) {
+      expect(
+        visited.has(expected),
+        `Expected check action '${expected}' was not found in TOOL_REGISTRY`,
+      ).toBe(true);
+    }
+  });
+});
+
+// ─── Slim Description Tests ───────────────────────────────────────────────────
+
+describe('Slim Description', () => {
+  it('SlimDescription_AllVisibleTools_HaveSlimDescription', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      expect(tool.slimDescription, `${tool.name} should have slimDescription`).toBeDefined();
+      expect(tool.slimDescription!.length).toBeGreaterThan(0);
+      expect(tool.slimDescription!).toContain('describe');  // Must mention describe action
+    }
+  });
+});
+
+// ─── Dual Mode buildToolDescription Tests ─────────────────────────────────────
+
+describe('buildToolDescription dual mode', () => {
+  it('BuildToolDescription_SlimMode_ReturnsSlimDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool, true);
+    expect(desc).toBe(tool.slimDescription);
+  });
+
+  it('BuildToolDescription_FullMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const full = buildToolDescription(tool, false);
+    expect(full).toContain('Actions:');
+    expect(full).toContain('- init(');
+  });
+
+  it('BuildToolDescription_DefaultMode_ReturnsFullDescription', () => {
+    const tool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
+    const desc = buildToolDescription(tool);
+    expect(desc).toContain('Actions:');
+    expect(desc).toContain('- init(');
+  });
+});
+
+// ─── findActionInRegistry Tests ──────────────────────────────────────────────
+
+describe('findActionInRegistry', () => {
+  it('FindActionInRegistry_ValidAction_ReturnsAction', () => {
+    const action = findActionInRegistry('exarchos_workflow', 'init');
+    expect(action).toBeDefined();
+    expect(action!.name).toBe('init');
+  });
+
+  it('FindActionInRegistry_InvalidAction_ReturnsUndefined', () => {
+    expect(findActionInRegistry('exarchos_workflow', 'nonexistent')).toBeUndefined();
+  });
+
+  it('FindActionInRegistry_InvalidTool_ReturnsUndefined', () => {
+    expect(findActionInRegistry('nonexistent_tool', 'init')).toBeUndefined();
+  });
+});
+
+// ─── Runbook Action Registry Tests ──────────────────────────────────────────
+
+describe('Runbook action in registry', () => {
+  it('RunbookAction_ExistsInOrchestrateRegistry', () => {
+    const orchTool = findComposite('exarchos_orchestrate');
+    expect(orchTool).toBeDefined();
+    const runbookAction = orchTool!.actions.find(a => a.name === 'runbook');
+    expect(runbookAction, 'exarchos_orchestrate should have a runbook action').toBeDefined();
+    expect(runbookAction!.description).toBeTruthy();
+    // Should accept both empty and parameterized input
+    expect(runbookAction!.schema.safeParse({}).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ phase: 'delegate' }).success).toBe(true);
+    expect(runbookAction!.schema.safeParse({ id: 'task-completion' }).success).toBe(true);
+  });
+});
+
+// ─── Describe Action Registry Tests ──────────────────────────────────────────
+
+describe('Describe action in registry', () => {
+  it('DescribeAction_AllVisibleTools_HaveDescribeAction', () => {
+    for (const tool of TOOL_REGISTRY) {
+      if (tool.hidden) continue;
+      const describeAction = tool.actions.find(a => a.name === 'describe');
+      expect(describeAction, `${tool.name} should have a describe action`).toBeDefined();
+    }
+  });
+});
+
+// ─── Quality Hints View Action Tests ─────────────────────────────────────────
+
+describe('quality_hints view action', () => {
+  it('ViewActions_IncludesQualityHintsAction', () => {
+    const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(viewTool).toBeDefined();
+    const qualityHints = viewTool!.actions.find((a) => a.name === 'quality_hints');
+    expect(qualityHints).toBeDefined();
+    expect(qualityHints!.name).toBe('quality_hints');
+  });
+
+  it('QualityHints_SchemaAcceptsWorkflowIdAndSkill', () => {
+    const action = findActionInRegistry('exarchos_view', 'quality_hints');
+    expect(action).toBeDefined();
+
+    // workflowId only
+    const result1 = action!.schema.safeParse({ workflowId: 'test-feature' });
+    expect(result1.success).toBe(true);
+
+    // workflowId + skill
+    const result2 = action!.schema.safeParse({
+      workflowId: 'test-feature',
+      skill: 'refactor',
+    });
+    expect(result2.success).toBe(true);
+
+    // empty object (both optional)
+    const result3 = action!.schema.safeParse({});
+    expect(result3.success).toBe(true);
+  });
+});
+
+// ─── AutoEmits Drift Tests ──────────────────────────────────────────────────
+
+describe('AutoEmits Drift Tests', () => {
+  it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
+    const { EVENT_EMISSION_REGISTRY } = await import('./event-store/schemas.js');
+
+    // At least one action must have autoEmits populated
+    let anyPopulated = false;
+    const violations: string[] = [];
+
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        anyPopulated = true;
+
+        for (const emission of action.autoEmits) {
+          const source = (EVENT_EMISSION_REGISTRY as Record<string, string>)[emission.event];
+          if (!source) {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' not found in EVENT_EMISSION_REGISTRY`,
+            );
+          } else if (source !== 'auto') {
+            violations.push(
+              `${tool.name}.${action.name}: autoEmits '${emission.event}' has source '${source}', expected 'auto'`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(anyPopulated, 'At least one action must have autoEmits populated').toBe(true);
+    expect(violations, `AutoEmits drift:\n${violations.join('\n')}`).toEqual([]);
+  });
+
+  it('RegistryDrift_DescriptionEmitsImpliesAutoEmitsField', () => {
+    const emitsPatterns = [/Auto-emits/i, /Emits gate\.executed/i, /Emits task\./i];
+    const violations: string[] = [];
+
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        const matchesPattern = emitsPatterns.some((p) => p.test(action.description));
+        if (matchesPattern) {
+          if (!action.autoEmits || action.autoEmits.length === 0) {
+            violations.push(
+              `${tool.name}.${action.name}: description mentions emissions but autoEmits is empty/undefined. Description: "${action.description}"`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
 });

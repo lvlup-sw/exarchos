@@ -58,7 +58,7 @@ Ensure dependencies are respected in delegation.
 ## Review Phase
 
 ```
-/review ~/.claude/workflow-state/<feature>.state.json
+/exarchos:review ~/.claude/workflow-state/<feature>.state.json
 ```
 
 ### Refactor Review Criteria

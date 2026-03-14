@@ -5,7 +5,7 @@
     "email": "oss@levelupsoftware.com"
   },
   "metadata": {
-    "description": "SDLC workflow plugins for Claude Code",
+    "description": "Structure for agentic development — SDLC workflow plugins for Claude Code",
     "version": "1.0.0"
   },
   "plugins": [
@@ -14,10 +14,10 @@
       "source": {
         "source": "npm",
         "package": "@lvlup-sw/exarchos",
-        "version": "2.0.6"
+        "version": "2.5.0"
       },
-      "description": "SDLC workflows with agent team coordination, quality gates, and Graphite stacked PRs",
-      "version": "2.0.6",
+      "description": "Durable SDLC workflows with convergence gates, agent teams, and audit trail",
+      "version": "2.5.0",
       "author": {
         "name": "Levelup Software"
       },
@@ -25,9 +25,9 @@
       "tags": [
         "workflow",
         "sdlc",
-        "graphite",
-        "stacked-prs",
-        "tdd"
+        "quality-gates",
+        "agent-teams",
+        "durable-workflows"
       ]
     }
   ]

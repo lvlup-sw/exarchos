@@ -253,6 +253,63 @@ describe('handleEvalRun CI mode', () => {
   });
 });
 
+// ─── Layer-Aware Exit Codes ──────────────────────────────────────────────────
+
+describe('handleEvalRun — layer-aware exit codes', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
+  it('handleEvalRun_RegressionFailures_ReturnsEvalFailed', async () => {
+    // Arrange — regression layer with failures
+    const summaries = [makeSummary({ suiteId: 'suite-a', total: 5, passed: 3, failed: 2 })];
+    mockRunAll.mockResolvedValue(summaries);
+
+    // Act
+    const result = await handleEvalRun({ ci: true, layer: 'regression' }, '/fake/evals');
+
+    // Assert — regression failures should produce EVAL_FAILED error
+    expect(result.error).toBeDefined();
+    expect(result.error?.code).toBe('EVAL_FAILED');
+    expect(result.passed).toBe(false);
+  });
+
+  it('handleEvalRun_CapabilityFailuresOnly_ReturnsSuccessWithWarnings', async () => {
+    // Arrange — capability layer with failures
+    const summaries = [makeSummary({ suiteId: 'suite-a', total: 5, passed: 3, failed: 2 })];
+    mockRunAll.mockResolvedValue(summaries);
+
+    // Act
+    const result = await handleEvalRun({ ci: true, layer: 'capability' }, '/fake/evals');
+
+    // Assert — capability failures should NOT produce an error, but should include warning info
+    expect(result.error).toBeUndefined();
+    expect(result.passed).toBe(true);
+    expect(result.failures).toBe(2);
+    expect(result.warning).toBeDefined();
+  });
+
+  it('handleEvalRun_LayerFilter_PassedToRunAll', async () => {
+    // Arrange
+    const summaries = [makeSummary({ suiteId: 'delegation' })];
+    mockRunAll.mockResolvedValue(summaries);
+
+    // Act
+    await handleEvalRun({ layer: 'regression' }, '/fake/evals');
+
+    // Assert — layer should be passed through to runAll
+    const callArgs = mockRunAll.mock.calls[0];
+    expect(callArgs[1]).toMatchObject({ layer: 'regression' });
+  });
+});
+
 // ─── resolveEvalsDir ────────────────────────────────────────────────────────
 
 describe('resolveEvalsDir', () => {

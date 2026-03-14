@@ -61,8 +61,8 @@ When using `--mode agent-team`:
 1. **Pre-delegation intelligence:** Query `exarchos_view team_performance` for historical metrics
 2. **Team creation:** Create team with named teammates, each assigned to a worktree
 3. **Task list setup:** Create native Claude Code tasks with dependency annotations
-4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content (MUST include Commit Strategy section with Graphite `gt create`/`gt submit` instructions)
-5. **Event emission:** Append `team.spawned` event with teamSize, teammateNames, taskCount
+4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content (MUST include Commit Strategy section with `git commit`/`git push` instructions)
+5. **Event emission:** Append `team.spawned` event with `event.data`: teamSize, teammateNames, taskCount, dispatchMode
 
 Teammates self-coordinate via shared task list. No `Task()` calls needed.
 
@@ -87,11 +87,12 @@ When using `--mode agent-team`:
 
 When tasks complete, run the post-delegation check:
 
-```bash
-bash scripts/post-delegation-check.sh \
-  --state-file <path-to-state.json> \
-  --repo-root <project-root> \
-  [--skip-tests]
+```typescript
+exarchos_orchestrate({
+  action: "post_delegation_check",
+  stateFile: "<path-to-state.json>",
+  repoRoot: "<project-root>"
+})
 ```
 
 **Validates:**
@@ -101,9 +102,9 @@ bash scripts/post-delegation-check.sh \
 - Per-worktree test runs pass (unless `--skip-tests`)
 - State file consistency (all tasks have id and status fields)
 
-**On exit 0:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
+**On `passed: true`:** All delegation results collected and verified. Update TodoWrite status, then check if schema sync is needed (Step 7) and proceed to review phase.
 
-**On exit 1:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
+**On `passed: false`:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
 ### Agent Teams Collection (enhanced)
 
@@ -113,15 +114,18 @@ When using `--mode agent-team`:
 - On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
 - Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
 - After all teammates finish: append `team.disbanded` event with summary metrics
-- Run `post-delegation-check.sh` as usual for final validation
+- Run `exarchos_orchestrate({ action: "post_delegation_check" })` as usual for final validation
 
 ## Step 7: Schema Sync (Auto-Detection)
 
 After all tasks complete, check if API files were modified:
 
-```bash
-bash scripts/needs-schema-sync.sh --repo-root <path> [--base-branch main]
+```typescript
+exarchos_orchestrate({
+  action: "needs_schema_sync",
+  repoRoot: "<path>"
+})
 ```
 
-**On exit 0:** No sync needed — proceed to review.
-**On exit 1:** Sync needed — API files modified (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). Run `npm run sync:schemas` and commit via Graphite before proceeding. See `@skills/sync-schemas/SKILL.md`.
+**On `passed: true`:** No sync needed — proceed to review.
+**On `passed: false`:** Sync needed — API files modified (`*Endpoints.cs`, `Models/*.cs`, `Requests/*.cs`, `Responses/*.cs`, `Dtos/*.cs`). Run `npm run sync:schemas` and commit before proceeding.

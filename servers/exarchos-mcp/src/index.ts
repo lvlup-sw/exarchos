@@ -6,54 +6,36 @@ import { homedir } from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-import { TOOL_REGISTRY, buildRegistrationSchema, buildToolDescription } from './registry.js';
-import { formatResult, type ToolResult } from './format.js';
 import { logger } from './logger.js';
-
-// Composite handlers
-import { handleWorkflow } from './workflow/composite.js';
-import { handleEvent } from './event-store/composite.js';
-import { handleOrchestrate } from './orchestrate/composite.js';
-import { handleView } from './views/composite.js';
-import { handleSync } from './sync/composite.js';
-
-// EventStore configuration — workflow modules require explicit injection
-// (non-workflow modules use lazy init via getStore())
-import { configureWorkflowEventStore } from './workflow/tools.js';
-import { configureNextActionEventStore } from './workflow/next-action.js';
-import { configureCancelEventStore } from './workflow/cancel.js';
-import { configureCleanupEventStore, configureCleanupSnapshotStore } from './workflow/cleanup.js';
-import { configureQueryEventStore } from './workflow/query.js';
-import { configureQualityEventStore } from './quality/hints.js';
-import { configureStateStoreBackend } from './workflow/state-store.js';
+import { expandTilde } from './utils/paths.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
 
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
 
-// Telemetry middleware
-import { withTelemetry } from './telemetry/middleware.js';
+// EventStore is now threaded via DispatchContext — no module-level injection needed
+import { configureCleanupSnapshotStore } from './workflow/cleanup.js';
+import { configureStateStoreBackend } from './workflow/state-store.js';
+
+// New dispatch layer
+import { initializeContext } from './core/context.js';
+import { createMcpServer } from './adapters/mcp.js';
+import { buildCli } from './adapters/cli.js';
+import type { DispatchContext } from './core/dispatch.js';
+
+// Hook CLI commands invoked by Claude Code hooks (hooks.json).
+// These are detected early in main() and routed through a lightweight path
+// that avoids the expensive backend initialization and heavy eval deps.
+const HOOK_COMMANDS = new Set([
+  'pre-compact', 'session-start', 'guard', 'task-gate', 'teammate-gate',
+  'subagent-context', 'session-end',
+]);
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
-export const SERVER_VERSION = '1.0.0';
-
-// ─── Composite Handler Map ──────────────────────────────────────────────────
-
-type CompositeHandler = (
-  args: Record<string, unknown>,
-  stateDir: string,
-) => Promise<ToolResult>;
-
-const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
-  exarchos_workflow: handleWorkflow,
-  exarchos_event: handleEvent,
-  exarchos_orchestrate: handleOrchestrate,
-  exarchos_view: handleView,
-  exarchos_sync: handleSync,
-};
+export const SERVER_VERSION = '2.4.0';
 
 // ─── Server Options ─────────────────────────────────────────────────────────
 
@@ -152,70 +134,142 @@ export function registerBackendCleanup(backend: StorageBackend): void {
   });
 }
 
-// ─── Server Factory ──────────────────────────────────────────────────────────
+// ─── Server Factory (backward compat) ────────────────────────────────────────
 
+/**
+ * Creates an MCP server with the given state directory and options.
+ *
+ * Synchronous wrapper that initializes DispatchContext inline and delegates
+ * to createMcpServer(). Kept for backward compatibility with existing tests.
+ *
+ * For new code, prefer initializeContext() + createMcpServer() directly.
+ */
 export function createServer(
   stateDir: string,
   options?: CreateServerOptions,
 ): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   const backend = options?.backend;
 
-  // Configure the module-level storage backend for state operations
+  // Configure module-level stores (EventStore is threaded via DispatchContext)
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
 
-  // Configure module-level EventStore for workflow modules (no lazy init)
-  configureWorkflowEventStore(eventStore);
-  configureNextActionEventStore(eventStore);
-  configureCancelEventStore(eventStore);
-  configureCleanupEventStore(eventStore);
+  // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
-  configureQueryEventStore(eventStore);
-  configureQualityEventStore(eventStore);
 
-  // Register composite tools from registry
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
-  for (const tool of TOOL_REGISTRY) {
-    const handler = COMPOSITE_HANDLERS[tool.name];
-    if (!handler) continue;
-
-    const inputSchema = buildRegistrationSchema(tool.actions);
-    const description = buildToolDescription(tool);
-
-    const baseHandler = async (args: Record<string, unknown>) =>
-      formatResult(await handler(args, stateDir));
-
-    // Use registerTool() so the strict ZodObject is passed as inputSchema
-    // directly, preserving .strict() validation that rejects unrecognized keys.
-    // The server.tool() overload treats ZodObjects as annotations, not schemas.
-    server.registerTool(
-      tool.name,
-      { description, inputSchema },
-      enableTelemetry
-        ? withTelemetry(baseHandler, tool.name, eventStore)
-        : baseHandler,
-    );
-  }
-
-  return server;
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry };
+  return createMcpServer(ctx);
 }
 
 // ─── State Directory Resolution ──────────────────────────────────────────────
 
 export async function resolveStateDir(): Promise<string> {
   if (process.env.WORKFLOW_STATE_DIR) {
-    return process.env.WORKFLOW_STATE_DIR;
+    return expandTilde(process.env.WORKFLOW_STATE_DIR);
   }
 
   return path.join(homedir(), '.claude', 'workflow-state');
 }
 
+// ─── Hook CLI Utilities ──────────────────────────────────────────────────
+// Inlined from cli.ts to avoid importing the full module (and its eval deps).
+
+function hookParseStdinJson(input: string): Record<string, unknown> {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return {};
+  const parsed: unknown = JSON.parse(trimmed);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError('Expected JSON object, received ' + (Array.isArray(parsed) ? 'array' : typeof parsed));
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function hookOutputJson(obj: unknown): void {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+function hookReadStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) { resolve(''); return; }
+    const chunks: Buffer[] = [];
+    process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    process.stdin.on('error', reject);
+  });
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────────────────
 
 async function main() {
+  // ─── Hook Command Fast Path ────────────────────────────────────────────────
+  // Hook commands (session-start, pre-compact, guard, etc.) are invoked as
+  // subprocesses by Claude Code with tight timeouts (5-10s). They only need
+  // lightweight state-dir access, not the full SQLite backend or hydration.
+  // Intercept them here before the expensive initialization path.
+  const hookCommand = process.argv[2];
+  if (hookCommand && HOOK_COMMANDS.has(hookCommand)) {
+    // Parse --plugin-root from argv if present (used by SessionStart hook)
+    const pluginRootIdx = process.argv.indexOf('--plugin-root');
+    if (pluginRootIdx !== -1 && process.argv[pluginRootIdx + 1]) {
+      process.env.EXARCHOS_PLUGIN_ROOT = process.argv[pluginRootIdx + 1];
+    }
+
+    // Lightweight hook router — avoids importing cli.ts which transitively
+    // pulls in promptfoo/playwright via eval handlers.
+    const { resolveStateDir: resolveStateDirSync } = await import('./workflow/state-store.js');
+
+    const rawInput = await hookReadStdin();
+    const stdinData = hookParseStdinJson(rawInput);
+
+    type HookResult = { error?: { code: string; message: string }; [key: string]: unknown };
+
+    const handlers: Record<string, () => Promise<HookResult>> = {
+      'pre-compact': async () => {
+        const { handlePreCompact } = await import('./cli-commands/pre-compact.js');
+        return handlePreCompact(stdinData, resolveStateDirSync());
+      },
+      'session-start': async () => {
+        const { handleSessionStart } = await import('./cli-commands/session-start.js');
+        const os = await import('node:os');
+        return handleSessionStart(stdinData, resolveStateDirSync(), path.join(os.homedir(), '.claude', 'teams'));
+      },
+      'guard': async () => {
+        const { handleGuard } = await import('./cli-commands/guard.js');
+        return handleGuard(stdinData);
+      },
+      'task-gate': async () => {
+        const { handleTaskGate } = await import('./cli-commands/gates.js');
+        return handleTaskGate(stdinData);
+      },
+      'teammate-gate': async () => {
+        const { handleTeammateGate } = await import('./cli-commands/gates.js');
+        return handleTeammateGate(stdinData);
+      },
+      'subagent-context': async () => {
+        const { handleSubagentContext } = await import('./cli-commands/subagent-context.js');
+        return handleSubagentContext(stdinData);
+      },
+      'session-end': async () => {
+        const { handleSessionEnd } = await import('./cli-commands/session-end.js');
+        return handleSessionEnd(stdinData, resolveStateDirSync());
+      },
+    };
+
+    const handler = handlers[hookCommand];
+    const result = await handler();
+
+    hookOutputJson(result);
+
+    if (result.error) {
+      const isGateCommand = hookCommand === 'task-gate' || hookCommand === 'teammate-gate';
+      process.exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;
+    }
+    return;
+  }
+
   const stateDir = await resolveStateDir();
 
   // Ensure state directory exists
@@ -237,6 +291,21 @@ async function main() {
     registerBackendCleanup(backend);
   }
 
+  // Use new dispatch layer — initializes EventStore with PID lock
+  const ctx = await initializeContext(stateDir, {
+    backend,
+    projectRoot: process.cwd(),
+  });
+
+  // Merge sidecar event files written by hook subprocesses / sidecar-mode agents.
+  // Must run AFTER initializeContext so we use the PID-locked EventStore.
+  if (!ctx.eventStore.inSidecarMode) {
+    const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
+    await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
+    });
+  }
+
   // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
   void import('./storage/lifecycle.js')
     .then(({ checkCompaction, rotateTelemetry, DEFAULT_LIFECYCLE_POLICY }) => {
@@ -251,9 +320,11 @@ async function main() {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
     });
 
-  const server = createServer(stateDir, { backend });
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Unified entry point — all routing via Commander CLI.
+  // `exarchos mcp` starts the MCP server; other commands are CLI mode.
+  // No args shows help.
+  const program = buildCli(ctx);
+  await program.parseAsync(process.argv);
 }
 
 // Only run main when executed directly (not when imported for testing)

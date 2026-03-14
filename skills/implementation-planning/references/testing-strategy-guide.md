@@ -9,6 +9,8 @@ testingStrategy: {
   exampleTests: true;           // Always required (literal true)
   propertyTests: boolean;       // Property-based tests required?
   benchmarks: boolean;          // Performance benchmarks required?
+  testLayer: 'acceptance' | 'integration' | 'unit';  // Required (property is a separate axis via propertyTests)
+  characterizationRequired?: boolean;  // Pre-capture behavior before modifying existing code?
   properties?: string[];        // Guidance: which properties to verify
   performanceSLAs?: PerformanceSLA[]; // Guidance: performance targets
 }
@@ -79,9 +81,28 @@ When `benchmarks: true`, populate `performanceSLAs` with targets:
 }
 ```
 
+## Test Layer Selection (Testing Trophy Distribution)
+
+The planner MUST assign `testLayer` to each task. Follow the Testing Trophy distribution: **integration-heavy, unit-light**.
+
+| Layer | When to assign | Default? |
+|---|---|---|
+| `acceptance` | First task per feature or DR-N cluster with Given/When/Then criteria. Tests feature from user perspective with real collaborators. | No — explicitly assigned |
+| `integration` | Task tests multiple components working together. Uses real collaborators, mocks only at infrastructure boundaries. | **Yes — default layer** |
+| `unit` | Task involves isolated complex logic (parsers, algorithms, math). Pure functions with complex edge cases. | No — only for naturally isolated code |
+
+
+> **Note:** `propertyTests: true` can coexist with any `testLayer` value — it's an independent overlay, not a mutually exclusive layer.
+
+**Sociable test preference:** Default to using real collaborators (sociable tests). Mock only at infrastructure boundaries — external HTTP services, databases, filesystem. If a test requires >3 mocked dependencies, the task may be at the wrong test layer.
+
+## Characterization Testing
+
+Assign `characterizationRequired: true` when the task modifies existing code behavior (refactoring, fixing, enhancing). The implementer captures current behavior before making changes. Not applicable for new code creation.
+
 ## Auto-Determination
 
-The planner MUST auto-determine `propertyTests` and `benchmarks` for each task based on the category tables above. Do NOT leave these fields for the implementer to decide. Analyze each task's description and file paths to match against the categories. When uncertain, default to `false`.
+The planner MUST auto-determine `propertyTests`, `benchmarks`, and `testLayer` for each task based on the category tables above. Do NOT leave these fields for the implementer to decide. Analyze each task's description and file paths to match against the categories. When uncertain, default `testLayer` to `"integration"`, `propertyTests` to `false`, and `benchmarks` to `false`.
 
 ## Reference
 

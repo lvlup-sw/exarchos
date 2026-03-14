@@ -1,0 +1,59 @@
+{
+  "description": "Refactor skill evaluation suite",
+  "metadata": {
+    "skill": "refactor",
+    "phaseAffinity": "refactor",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "init" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "workflow-type-correct",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["workflowType"]
+      }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "refactor-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the refactor trace demonstrates scope-appropriate track selection and behavioral preservation. Score 1 if scope assessment matches track choice (polish for small changes, overhaul for structural) and the refactor preserves existing behavior. Score 0 if track is mismatched to scope or behavioral changes are introduced without justification.",
+        "outputPath": "brief"
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good refactor traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Refactor capability scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded refactor quality scenarios"
+    }
+  }
+}

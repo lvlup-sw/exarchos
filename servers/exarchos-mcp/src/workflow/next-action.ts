@@ -16,52 +16,14 @@ import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
-
-let moduleEventStore: EventStore | null = null;
-
-/** Configure the EventStore instance used by next-action handlers. */
-export function configureNextActionEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
-}
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── Human Checkpoint Phases ────────────────────────────────────────────────
 
 export const HUMAN_CHECKPOINT_PHASES: Record<string, ReadonlySet<string>> = {
   feature: new Set(['plan-review', 'synthesize']),
   debug: new Set(['hotfix-validate', 'synthesize']),
-  refactor: new Set(['polish-update-docs', 'synthesize']),
-};
-
-// ─── Phase-to-Action Mapping ────────────────────────────────────────────────
-
-export const PHASE_ACTION_MAP: Record<string, Record<string, string>> = {
-  feature: {
-    ideate: 'AUTO:plan',
-    plan: 'AUTO:plan-review',
-    'plan-review': 'AUTO:delegate',
-    delegate: 'AUTO:review',
-    review: 'AUTO:synthesize',
-  },
-  debug: {
-    triage: 'AUTO:debug-investigate',
-    investigate: 'AUTO:debug-rca',
-    rca: 'AUTO:debug-design',
-    design: 'AUTO:debug-implement',
-    'debug-implement': 'AUTO:debug-validate',
-    'debug-validate': 'AUTO:debug-review',
-    'debug-review': 'AUTO:debug-synthesize',
-    'hotfix-implement': 'AUTO:debug-validate',
-  },
-  refactor: {
-    explore: 'AUTO:refactor-brief',
-    'polish-implement': 'AUTO:refactor-validate',
-    'polish-validate': 'AUTO:refactor-update-docs',
-    'overhaul-plan': 'AUTO:refactor-delegate',
-    'overhaul-delegate': 'AUTO:refactor-review',
-    'overhaul-review': 'AUTO:refactor-update-docs',
-    'overhaul-update-docs': 'AUTO:refactor-synthesize',
-  },
+  refactor: new Set(['overhaul-plan-review', 'polish-update-docs', 'synthesize']),
 };
 
 // ─── Compound State Lookup ──────────────────────────────────────────────────
@@ -90,8 +52,9 @@ export function findCompoundForPhase(
 export async function handleNextAction(
   input: NextActionInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
-  const eventStore = moduleEventStore;
+  // eventStore is now passed as parameter
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -104,6 +67,15 @@ export async function handleNextAction(
         error: {
           code: ErrorCode.STATE_NOT_FOUND,
           message: `State not found for feature: ${input.featureId}`,
+        },
+      };
+    }
+    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_CORRUPT) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.STATE_CORRUPT,
+          message: `Corrupt state for feature: ${input.featureId}: ${err.message}`,
         },
       };
     }
@@ -141,8 +113,7 @@ export async function handleNextAction(
   }
 
   // Check circuit breaker for fix-cycle transitions.
-  // Circuit breaker requires EventStore; always configured via configureNextActionEventStore
-  // in index.ts. Guard retained for test isolation where module-level store may not be set.
+  // Circuit breaker requires EventStore; now threaded via DispatchContext parameter.
   const compound = findCompoundForPhase(workflowType, currentPhase);
   if (compound && eventStore) {
     const cbState = await checkCircuitBreakerFromStore(
@@ -225,9 +196,8 @@ export async function handleNextAction(
         };
       }
 
-      // Use the phase-to-action map, or derive from the target
-      const actionMap = PHASE_ACTION_MAP[workflowType];
-      const action = actionMap?.[currentPhase] ?? `AUTO:${transition.to}`;
+      // Derive action from the HSM target phase
+      const action = `AUTO:${transition.to}`;
 
       return {
         success: true,
@@ -254,11 +224,11 @@ export async function handleNextAction(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerNextActionTool(server: McpServer, stateDir: string): void {
+export function registerNextActionTool(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_next_action',
     'Determine the next auto-continue action based on current phase and guards',
     { featureId: z.string().min(1).regex(/^[a-z0-9-]+$/) },
-    async (args) => formatResult(await handleNextAction(args, stateDir)),
+    async (args) => formatResult(await handleNextAction(args, stateDir, eventStore)),
   );
 }

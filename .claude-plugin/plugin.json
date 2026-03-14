@@ -1,9 +1,9 @@
 {
   "name": "exarchos",
-  "description": "SDLC workflows for Claude Code with agent team coordination, quality gates, and Graphite stacked PRs.",
-  "version": "2.0.6",
+  "description": "Structure for agentic development — durable SDLC workflows with convergence gates, agent teams, and full audit trail.",
+  "version": "2.5.0",
   "author": {
-    "name": "Levelup Software"
+    "name": "LevelUp Software"
   },
   "homepage": "https://github.com/lvlup-sw/exarchos",
   "repository": "https://github.com/lvlup-sw/exarchos",
@@ -11,12 +11,17 @@
   "keywords": [
     "workflow",
     "sdlc",
-    "graphite",
-    "stacked-prs",
     "event-sourcing",
-    "tdd",
-    "code-review",
-    "agent-teams"
+    "quality-gates",
+    "agent-teams",
+    "durable-workflows",
+    "audit-trail",
+    "code-review"
+  ],
+  "agents": [
+    "./agents/implementer.md",
+    "./agents/fixer.md",
+    "./agents/reviewer.md"
   ],
   "commands": "./commands/",
   "skills": "./skills/",
@@ -25,10 +30,12 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/dist/exarchos-mcp.js"
+        "${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js",
+        "mcp"
       ],
       "env": {
-        "WORKFLOW_STATE_DIR": "~/.claude/workflow-state"
+        "WORKFLOW_STATE_DIR": "~/.claude/workflow-state",
+        "EXARCHOS_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       }
     }
   }

@@ -1,10 +1,15 @@
 import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
+import { getInitialPhase } from './state-machine.js';
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
+import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
+import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
+import { expandTilde } from '../utils/paths.js';
+import { logger } from '../logger.js';
 import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
@@ -44,12 +49,7 @@ function extractFeatureIdFromPath(stateFile: string): string {
 export const MAX_ARRAY_GAP = 1;
 
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
-
-const INITIAL_PHASE: Record<WorkflowType, string> = {
-  feature: 'ideate',
-  debug: 'triage',
-  refactor: 'explore',
-};
+// Now delegated to state-machine.ts getInitialPhase() for built-in + custom types
 
 // ─── State Store Error ─────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ export async function initStateFile(
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
   const now = new Date().toISOString();
-  const initialPhase = INITIAL_PHASE[workflowType];
+  const initialPhase = getInitialPhase(workflowType);
 
   const rawState = {
     version: CURRENT_VERSION,
@@ -94,6 +94,7 @@ export async function initStateFile(
     tasks: [],
     worktrees: {},
     reviews: {},
+    explore: {},
     synthesis: {
       integrationBranch: null,
       mergeOrder: [],
@@ -139,6 +140,19 @@ export async function initStateFile(
         );
       }
       throw err;
+    }
+
+    // Write-through: also write .state.json as crash-recovery backup.
+    try {
+      await fs.mkdir(stateDir, { recursive: true });
+      const tmpPath = `${stateFile}.init.${process.pid}`;
+      await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+      await fs.rename(tmpPath, stateFile);
+    } catch (err) {
+      logger.warn(
+        { stateFile, err: err instanceof Error ? err.message : String(err) },
+        'Failed to write .state.json backup; backend write succeeded',
+      );
     }
     return { stateFile, state };
   }
@@ -327,6 +341,21 @@ export async function writeStateFile(
       }
       throw err;
     }
+
+    // Write-through: also write .state.json as crash-recovery backup.
+    // Backend is the primary store; file write failure is non-fatal.
+    try {
+      const dir = path.dirname(stateFile);
+      await fs.mkdir(dir, { recursive: true });
+      const tmpPath = `${stateFile}.tmp.${process.pid}`;
+      await fs.writeFile(tmpPath, JSON.stringify(stateWithVersion, null, 2), 'utf-8');
+      await fs.rename(tmpPath, stateFile);
+    } catch (err) {
+      logger.warn(
+        { stateFile, err: err instanceof Error ? err.message : String(err) },
+        'Failed to write .state.json backup; backend write succeeded',
+      );
+    }
     return;
   }
 
@@ -409,7 +438,7 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 
 /**
  * Deep-merge source into target, returning a new merged object.
- * Arrays are replaced, not merged.
+ * Arrays are always replaced entirely (no id-based upsert).
  */
 export function deepMerge(
   target: Record<string, unknown>,
@@ -422,6 +451,8 @@ export function deepMerge(
         result[key] as Record<string, unknown>,
         source[key] as Record<string, unknown>,
       );
+    } else if (Array.isArray(result[key]) && Array.isArray(source[key])) {
+      result[key] = source[key];
     } else {
       result[key] = source[key];
     }
@@ -540,6 +571,8 @@ export function applyDotPath(
         record[lastSegment] as Record<string, unknown>,
         value as Record<string, unknown>,
       );
+    } else if (Array.isArray(record[lastSegment]) && Array.isArray(value)) {
+      record[lastSegment] = value;
     } else {
       record[lastSegment] = value;
     }
@@ -669,6 +702,33 @@ function applyEventToState(
   }
 }
 
+// ─── Hydrate Events from Store ──────────────────────────────────────────────
+
+/**
+ * Query all events for a feature from the event store and map them to
+ * the internal format used by guards and the `_events` materialized view.
+ *
+ * Maps external types (e.g. `workflow.transition`) to internal types
+ * (e.g. `transition`) via `mapExternalToInternalType`, spreads all
+ * `e.data` fields at the top level, and preserves `metadata: e.data`
+ * for backward compatibility.
+ *
+ * Callers decide catch semantics: `handleSet` falls back to an empty
+ * array on failure, while `reconcileFromEvents` logs a warning.
+ */
+export async function hydrateEventsFromStore(
+  featureId: string,
+  eventStore: EventStore,
+): Promise<readonly Record<string, unknown>[]> {
+  const storeEvents = await eventStore.query(featureId);
+  return storeEvents.map((e) => ({
+    type: mapExternalToInternalType(e.type),
+    timestamp: e.timestamp,
+    ...(e.data as Record<string, unknown> ?? {}),
+    metadata: e.data as Record<string, unknown> ?? {},
+  }));
+}
+
 // ─── Reconcile State from Events ────────────────────────────────────────────
 
 /**
@@ -686,6 +746,17 @@ export async function reconcileFromEvents(
   featureId: string,
   eventStore: EventStore,
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
+  // Merge sidecar events from hook subprocesses and sidecar-mode agents
+  // before querying, so reconcile sees the complete event stream.
+  if (!eventStore.inSidecarMode) {
+    await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Sidecar merge before reconcile failed — continuing with existing events',
+      );
+    });
+  }
+
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
   // Read existing state or create from workflow.started event
@@ -770,8 +841,43 @@ export async function reconcileFromEvents(
     }
   }
 
-  // Write updated state with CAS guard (Fix 2)
-  await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
+  // Hydrate _events from full event stream for guard evaluation.
+  // This ensures guards (e.g. teamDisbandedEmitted) can evaluate from
+  // the materialized _events view after reconciliation.
+  try {
+    stateRecord._events = await hydrateEventsFromStore(featureId, eventStore);
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'Failed to hydrate _events during reconcile — guards may fail',
+    );
+  }
+
+  // Write updated state with CAS guard, retrying on version conflict.
+  // The backend's version counter can desync from state._version (e.g., after
+  // DB self-healing or mixed JSONL-only/backend usage). Reconcile is a recovery
+  // operation, so retry by re-reading the current backend version.
+  try {
+    await writeStateFile(stateFile, state, { expectedVersion: initialVersion });
+  } catch (err) {
+    if (err instanceof VersionConflictError) {
+      // Re-read to get the backend's actual version, then force-write
+      try {
+        const freshState = await readStateFile(stateFile);
+        const freshVersion = getStateVersion(freshState);
+        await writeStateFile(stateFile, state, { expectedVersion: freshVersion });
+      } catch (retryErr) {
+        if (retryErr instanceof VersionConflictError) {
+          // Last resort: write without CAS — reconcile IS the recovery mechanism
+          await writeStateFile(stateFile, state);
+        } else {
+          throw retryErr;
+        }
+      }
+    } else {
+      throw err;
+    }
+  }
 
   return { reconciled: eventsApplied > 0, eventsApplied };
 }
@@ -779,9 +885,9 @@ export async function reconcileFromEvents(
 // ─── Resolve State Directory ───────────────────────────────────────────────
 
 export function resolveStateDir(): string {
-  // Check environment variable first
+  // Check environment variable first (expand ~ since Node.js fs doesn't)
   const envDir = process.env.WORKFLOW_STATE_DIR;
-  if (envDir) return envDir;
+  if (envDir) return expandTilde(envDir);
 
   return path.join(homedir(), '.claude', 'workflow-state');
 }

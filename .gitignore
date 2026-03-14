@@ -6,6 +6,12 @@ node_modules/
 dist/
 coverage/
 
+# TypeScript compiled output in src/
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
+
 # Ignore node_modules in plugins
 plugins/*/servers/*/node_modules/
 plugins/*/servers/*/dist/
@@ -21,8 +27,18 @@ plugins/*/servers/*/coverage/
 .terraform.lock.hcl
 
 .worktrees/
+.claude/worktrees/
 .serena/
 ~/
 
 # Benchmark output
 benchmark-results.json
+
+# VitePress build output
+documentation/.vitepress/dist/
+documentation/.vitepress/cache/
+
+# Sensitive/local files
+.env
+.env.local
+docs/marketing/

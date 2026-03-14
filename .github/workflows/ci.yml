@@ -13,10 +13,12 @@ permissions:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: self-hosted
     outputs:
       root: ${{ steps.filter.outputs.root }}
       mcp: ${{ steps.filter.outputs.mcp }}
+      prompts: ${{ steps.filter.outputs.prompts }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,12 +34,19 @@ jobs:
             mcp:
               - 'servers/exarchos-mcp/**'
               - '.github/workflows/ci.yml'
+            prompts:
+              - 'skills/**'
+              - 'commands/**'
+              - 'rules/**'
+              - 'evals/**'
+              - 'servers/exarchos-mcp/src/evals/**'
+              - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
 
   test-root:
     name: Root Package
     needs: changes
-    if: ${{ needs.changes.outputs.root == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -55,8 +64,11 @@ jobs:
   test-mcp:
     name: Exarchos MCP Server
     needs: changes
-    if: ${{ needs.changes.outputs.mcp == 'true' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    runs-on: self-hosted
+    env:
+      RUN_EVALS: ${{ needs.changes.outputs.prompts == 'true' && '1' || '' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     defaults:
       run:
         working-directory: servers/exarchos-mcp
@@ -75,9 +87,9 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: self-hosted
     needs: [changes, test-root, test-mcp]
-    if: always()
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
         run: |

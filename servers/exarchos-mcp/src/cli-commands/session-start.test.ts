@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleSessionStart, detectNativeTeam, queryTelemetryHints, detectGraphite } from './session-start.js';
+import { handleSessionStart, detectNativeTeam, queryTelemetryHints } from './session-start.js';
+
+vi.mock('../session/manifest.js', () => ({
+  writeManifestEntry: vi.fn().mockResolvedValue(undefined),
+  findUnextractedSessions: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../session/transcript-parser.js', () => ({
+  parseTranscript: vi.fn().mockResolvedValue([]),
+}));
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -1126,41 +1135,42 @@ describe('session-start command', () => {
     });
   });
 
-  // ─── Graphite Detection in handleSessionStart ─────────────────────────────
+  // ─── Graphite Removal Verification ─────────────────────────────────────────
 
-  describe('handleSessionStart graphite detection', () => {
-    it('should include graphiteAvailable field in result with no workflows', async () => {
+  describe('handleSessionStart no graphite', () => {
+    it('handleSessionStart_Result_NoGraphiteAvailableField', async () => {
       // Arrange — empty state dir (no checkpoints, no state files)
 
       // Act
       const result = await handleSessionStart({}, tmpDir);
 
-      // Assert — field must exist and be a boolean
-      expect(result).toHaveProperty('graphiteAvailable');
-      expect(typeof result.graphiteAvailable).toBe('boolean');
+      // Assert — graphiteAvailable field must NOT exist
+      expect(result).not.toHaveProperty('graphiteAvailable');
     });
+  });
 
-    it('should include graphiteAvailable field in result with checkpoint', async () => {
-      // Arrange — checkpoint exists
-      const checkpoint = createCheckpointFile();
+  // ─── Behavioral Guidance ──────────────────────────────────────────────────
+
+  describe('behavioral guidance', () => {
+    it('handleSessionStart_WithCheckpoint_IncludesBehavioralGuidance', async () => {
+      // Arrange — checkpoint for delegate phase with a state file containing workflowType
+      const checkpoint = createCheckpointFile({
+        featureId: 'guidance-feature',
+        phase: 'delegate',
+        stateFile: path.join(tmpDir, 'guidance-feature.state.json'),
+      });
       await fs.writeFile(
-        path.join(tmpDir, `${checkpoint.featureId}.checkpoint.json`),
+        path.join(tmpDir, 'guidance-feature.checkpoint.json'),
         JSON.stringify(checkpoint),
       );
-
-      // Act
-      const result = await handleSessionStart({}, tmpDir);
-
-      // Assert
-      expect(result).toHaveProperty('graphiteAvailable');
-      expect(typeof result.graphiteAvailable).toBe('boolean');
-    });
-
-    it('should include graphiteAvailable field in result with active workflow', async () => {
-      // Arrange — state file but no checkpoint
-      const stateData = createValidStateFile();
+      // Write corresponding state file so workflowType can be read
+      const stateData = createValidStateFile({
+        featureId: 'guidance-feature',
+        workflowType: 'feature',
+        phase: 'delegate',
+      });
       await fs.writeFile(
-        path.join(tmpDir, 'test-feature.state.json'),
+        path.join(tmpDir, 'guidance-feature.state.json'),
         JSON.stringify(stateData, null, 2),
       );
 
@@ -1168,59 +1178,342 @@ describe('session-start command', () => {
       const result = await handleSessionStart({}, tmpDir);
 
       // Assert
-      expect(result).toHaveProperty('graphiteAvailable');
-      expect(typeof result.graphiteAvailable).toBe('boolean');
+      expect(result.behavioralGuidance).toBeDefined();
+      expect(result.behavioralGuidance).toContain('exarchos_workflow');
     });
 
-    it('should include graphiteAvailable field when teamsDir is provided', async () => {
-      // Arrange
-      const teamsDir = path.join(tmpDir, 'teams');
-      await fs.mkdir(teamsDir, { recursive: true });
+    it('handleSessionStart_NoCheckpoint_ActiveWorkflow_IncludesBehavioralGuidance', async () => {
+      // Arrange — state file with phase=delegate, workflowType=feature (no checkpoint)
+      const stateData = createValidStateFile({
+        featureId: 'no-cp-guidance',
+        workflowType: 'feature',
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'no-cp-guidance.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
 
       // Act
-      const result = await handleSessionStart({}, tmpDir, teamsDir);
+      const result = await handleSessionStart({}, tmpDir);
 
       // Assert
-      expect(result).toHaveProperty('graphiteAvailable');
-      expect(typeof result.graphiteAvailable).toBe('boolean');
+      expect(result.behavioralGuidance).toBeDefined();
     });
 
-    it('should include graphiteAvailable field when state dir does not exist', async () => {
-      // Arrange
-      const nonExistentDir = path.join(tmpDir, 'does-not-exist');
+    it('handleSessionStart_TerminalPhase_NoBehavioralGuidance', async () => {
+      // Arrange — state file with phase=completed
+      const stateData = createValidStateFile({
+        featureId: 'completed-feature',
+        phase: 'completed',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'completed-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
 
       // Act
-      const result = await handleSessionStart({}, nonExistentDir);
+      const result = await handleSessionStart({}, tmpDir);
 
       // Assert
-      expect(result).toHaveProperty('graphiteAvailable');
-      expect(typeof result.graphiteAvailable).toBe('boolean');
+      expect(result.behavioralGuidance).toBeUndefined();
+    });
+
+    it('handleSessionStart_BehavioralGuidance_MatchesPhasePlaybook', async () => {
+      // Arrange — state file with phase=review, workflowType=feature
+      const stateData = createValidStateFile({
+        featureId: 'review-guidance',
+        workflowType: 'feature',
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'review-guidance.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.behavioralGuidance).toBeDefined();
+      expect(result.behavioralGuidance).toContain('quality-review');
+      expect(result.behavioralGuidance).toContain('gate.executed');
     });
   });
 
-  // ─── Graphite CLI Detection ──────────────────────────────────────────────
+  // ─── Session Manifest Integration (Task 008) ───────────────────────────────
 
-  describe('detectGraphite', () => {
-    it('should return true when gt is on PATH', () => {
-      // Arrange — mock exec that succeeds (gt is found)
-      const mockExec = (() => Buffer.from('/usr/local/bin/gt\n')) as unknown as typeof import('node:child_process').execSync;
+  describe('session manifest integration', () => {
+    let manifestMocks: typeof import('../session/manifest.js');
 
-      // Act
-      const result = detectGraphite(mockExec);
-
-      // Assert
-      expect(result).toBe(true);
+    beforeEach(async () => {
+      manifestMocks = await import('../session/manifest.js');
+      vi.mocked(manifestMocks.writeManifestEntry).mockReset().mockResolvedValue(undefined);
+      vi.mocked(manifestMocks.findUnextractedSessions).mockReset().mockResolvedValue([]);
     });
 
-    it('should return false when gt is not found', () => {
-      // Arrange — mock exec that throws (command not found)
-      const mockExec = (() => { throw new Error('command not found: gt'); }) as unknown as typeof import('node:child_process').execSync;
+    it('handleSessionStart_WritesManifestEntry_WithSessionMetadata', async () => {
+      // Arrange
+      const stdinData = {
+        session_id: 'sess-abc-123',
+        transcript_path: '/home/user/.claude/projects/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
 
       // Act
-      const result = detectGraphite(mockExec);
+      await handleSessionStart(stdinData, tmpDir);
 
       // Assert
-      expect(result).toBe(false);
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const callArgs = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0];
+      expect(callArgs[0]).toBe(tmpDir);
+      const entry = callArgs[1];
+      expect(entry.sessionId).toBe('sess-abc-123');
+      expect(entry.transcriptPath).toBe('/home/user/.claude/projects/transcript.jsonl');
+      expect(entry.cwd).toBe('/home/user/project');
+      expect(entry.startedAt).toBeDefined();
+      // startedAt should be a valid ISO date
+      expect(new Date(entry.startedAt).toISOString()).toBe(entry.startedAt);
+    });
+
+    it('handleSessionStart_ResolvesWorkflowId_FromActiveWorkflows', async () => {
+      // Arrange — active workflow state file
+      const stdinData = {
+        session_id: 'sess-with-workflow',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+      const stateData = createValidStateFile({
+        featureId: 'active-feature',
+        phase: 'delegate',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'active-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const entry = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0][1];
+      expect(entry.workflowId).toBe('active-feature');
+    });
+
+    it('handleSessionStart_NoActiveWorkflow_ManifestEntryHasUndefinedWorkflowId', async () => {
+      // Arrange — no state files, no checkpoints
+      const stdinData = {
+        session_id: 'sess-no-workflow',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert
+      expect(manifestMocks.writeManifestEntry).toHaveBeenCalledOnce();
+      const entry = vi.mocked(manifestMocks.writeManifestEntry).mock.calls[0][1];
+      expect(entry.workflowId).toBeUndefined();
+    });
+
+    it('handleSessionStart_ManifestWriteFailure_DoesNotBreakExistingBehavior', async () => {
+      // Arrange — writeManifestEntry throws
+      vi.mocked(manifestMocks.writeManifestEntry).mockRejectedValue(new Error('disk full'));
+      const stdinData = {
+        session_id: 'sess-fail-write',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: '/home/user/project',
+      };
+      const stateData = createValidStateFile({
+        featureId: 'resilient-feature',
+        phase: 'review',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'resilient-feature.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — session-start still returns workflow info
+      expect(result.workflows).toBeDefined();
+      expect(result.workflows).toHaveLength(1);
+      expect(result.workflows![0].featureId).toBe('resilient-feature');
+      expect(result.error).toBeUndefined();
+    });
+  });
+
+  // ─── Safety Rules Injection ────────────────────────────────────────────────
+
+  describe('safety rules injection', () => {
+    const originalPluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+    let pluginRootDir: string;
+
+    beforeEach(async () => {
+      pluginRootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-plugin-'));
+    });
+
+    afterEach(async () => {
+      // Restore env var
+      if (originalPluginRoot !== undefined) {
+        process.env.EXARCHOS_PLUGIN_ROOT = originalPluginRoot;
+      } else {
+        delete process.env.EXARCHOS_PLUGIN_ROOT;
+      }
+      // Clean up temp plugin root dir
+      await fs.rm(pluginRootDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    it('SessionStart_IncludesSafetyRulesInContextDocument', async () => {
+      // Arrange — create rules/rm-safety.md in the plugin root
+      const rulesDir = path.join(pluginRootDir, 'rules');
+      await fs.mkdir(rulesDir, { recursive: true });
+      await fs.writeFile(
+        path.join(rulesDir, 'rm-safety.md'),
+        '# rm Safety\n\n**NEVER:** rm -rf /',
+      );
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert
+      expect(result.contextDocument).toBeDefined();
+      expect(result.contextDocument).toContain('rm Safety');
+    });
+
+    it('SessionStart_GracefulWhenNoRulesDirectory', async () => {
+      // Arrange — plugin root exists but has no rules/ subdirectory
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert — should not crash, contextDocument should be undefined or not contain safety rules
+      expect(result.contextDocument === undefined || !result.contextDocument.includes('rm Safety')).toBe(true);
+    });
+  });
+
+  // ─── Session Retry Mechanism (Task 011) ────────────────────────────────────
+
+  describe('session retry mechanism', () => {
+    let manifestMocks: typeof import('../session/manifest.js');
+    let parserMocks: typeof import('../session/transcript-parser.js');
+
+    beforeEach(async () => {
+      manifestMocks = await import('../session/manifest.js');
+      parserMocks = await import('../session/transcript-parser.js');
+      vi.mocked(manifestMocks.writeManifestEntry).mockReset().mockResolvedValue(undefined);
+      vi.mocked(manifestMocks.findUnextractedSessions).mockReset().mockResolvedValue([]);
+      vi.mocked(parserMocks.parseTranscript).mockReset().mockResolvedValue([]);
+    });
+
+    it('handleSessionStart_UnextractedSession_RetriesExtraction', async () => {
+      // Arrange — one unextracted session with existing transcript
+      const transcriptPath = path.join(tmpDir, 'old-transcript.jsonl');
+      await fs.writeFile(transcriptPath, '{"type":"assistant"}\n');
+
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'old-sess-1', transcriptPath, cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z', workflowId: 'feat-1' },
+      ]);
+
+      const mockEvents = [
+        { t: 'tool' as const, ts: '2025-01-01T00:00:01Z', tool: 'Read', cat: 'native' as const, inB: 10, outB: 20, sid: 'old-sess-1', wid: 'feat-1' },
+      ];
+      vi.mocked(parserMocks.parseTranscript).mockResolvedValue(mockEvents);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript called for the unextracted session
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath, { sessionId: 'old-sess-1', workflowId: 'feat-1' });
+
+      // Assert — events written to sessions/{sessionId}.events.jsonl
+      const eventsPath = path.join(tmpDir, 'sessions', 'old-sess-1.events.jsonl');
+      const eventsContent = await fs.readFile(eventsPath, 'utf-8');
+      expect(eventsContent.trim().split('\n')).toHaveLength(1);
+      const parsed = JSON.parse(eventsContent.trim().split('\n')[0]);
+      expect(parsed.t).toBe('tool');
+    });
+
+    it('handleSessionStart_TranscriptGone_MarksSessionAsOrphan', async () => {
+      // Arrange — unextracted session whose transcript file no longer exists
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'orphan-sess', transcriptPath: '/nonexistent/transcript.jsonl', cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript should NOT be called
+      expect(parserMocks.parseTranscript).not.toHaveBeenCalled();
+
+      // Assert — orphan marker appended to manifest
+      const manifestPath = path.join(tmpDir, 'sessions', '.manifest.jsonl');
+      const content = await fs.readFile(manifestPath, 'utf-8');
+      const lines = content.trim().split('\n');
+      const orphanLine = lines.find((l) => l.includes('orphan-sess'));
+      expect(orphanLine).toBeDefined();
+      const orphanEntry = JSON.parse(orphanLine!);
+      expect(orphanEntry.sessionId).toBe('orphan-sess');
+      expect(orphanEntry.reason).toBe('transcript_not_found');
+      expect(orphanEntry.orphanedAt).toBeDefined();
+    });
+
+    it('handleSessionStart_MultipleUnextracted_ProcessesAll', async () => {
+      // Arrange — two unextracted sessions
+      const transcriptPath1 = path.join(tmpDir, 'transcript-1.jsonl');
+      const transcriptPath2 = path.join(tmpDir, 'transcript-2.jsonl');
+      await fs.writeFile(transcriptPath1, '{"type":"assistant"}\n');
+      await fs.writeFile(transcriptPath2, '{"type":"assistant"}\n');
+
+      vi.mocked(manifestMocks.findUnextractedSessions).mockResolvedValue([
+        { sessionId: 'multi-sess-1', transcriptPath: transcriptPath1, cwd: '/tmp', startedAt: '2025-01-01T00:00:00Z' },
+        { sessionId: 'multi-sess-2', transcriptPath: transcriptPath2, cwd: '/tmp', startedAt: '2025-01-01T00:01:00Z' },
+      ]);
+
+      vi.mocked(parserMocks.parseTranscript).mockResolvedValue([]);
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+
+      // Act
+      await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — parseTranscript called for both
+      expect(parserMocks.parseTranscript).toHaveBeenCalledTimes(2);
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath1, { sessionId: 'multi-sess-1', workflowId: undefined });
+      expect(parserMocks.parseTranscript).toHaveBeenCalledWith(transcriptPath2, { sessionId: 'multi-sess-2', workflowId: undefined });
+    });
+
+    it('handleSessionStart_RetryFailure_DoesNotBreakStartup', async () => {
+      // Arrange — findUnextractedSessions throws
+      vi.mocked(manifestMocks.findUnextractedSessions).mockRejectedValue(new Error('corrupt manifest'));
+
+      const stdinData = { session_id: 'current-sess', transcript_path: '/tmp/current.jsonl', cwd: '/tmp' };
+      const stateData = createValidStateFile({
+        featureId: 'resilient-feature-2',
+        phase: 'plan',
+      });
+      await fs.writeFile(
+        path.join(tmpDir, 'resilient-feature-2.state.json'),
+        JSON.stringify(stateData, null, 2),
+      );
+
+      // Act
+      const result = await handleSessionStart(stdinData, tmpDir);
+
+      // Assert — session-start still returns workflow info normally
+      expect(result.workflows).toBeDefined();
+      expect(result.workflows).toHaveLength(1);
+      expect(result.workflows![0].featureId).toBe('resilient-feature-2');
+      expect(result.error).toBeUndefined();
     });
   });
 });

@@ -9,11 +9,18 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handlePreCompact } from './cli-commands/pre-compact.js';
 import { handleSessionStart } from './cli-commands/session-start.js';
+import { handleSessionEnd } from './cli-commands/session-end.js';
 import { handleGuard } from './cli-commands/guard.js';
 import { handleTaskGate, handleTeammateGate } from './cli-commands/gates.js';
 import { handleSubagentContext } from './cli-commands/subagent-context.js';
+import { handleSubagentStop } from './cli-commands/subagent-stop.js';
 import { handleAssembleContext } from './cli-commands/assemble-context.js';
 import { handleEvalRun, resolveEvalsDir } from './cli-commands/eval-run.js';
+import { handleEvalCapture } from './cli-commands/eval-capture.js';
+import { handleEvalCompare } from './cli-commands/eval-compare.js';
+import { handleQualityCheck } from './cli-commands/quality-check.js';
+import { handleCalibrate } from './cli-commands/eval-calibrate.js';
+import { CalibrateInputSchema } from './evals/calibration-types.js';
 import { resolveStateDir } from './workflow/state-store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -38,6 +45,12 @@ const KNOWN_COMMANDS = [
   'subagent-context',
   'assemble-context',
   'eval-run',
+  'eval-capture',
+  'eval-compare',
+  'quality-check',
+  'eval-calibrate',
+  'session-end',
+  'subagent-stop',
 ] as const;
 
 type KnownCommand = (typeof KNOWN_COMMANDS)[number];
@@ -57,6 +70,24 @@ const commandHandlers: Record<KnownCommand, CommandHandler> = {
   'subagent-context': handleSubagentContext,
   'assemble-context': async (stdinData) => handleAssembleContext(stdinData, resolveStateDir()),
   'eval-run': async (stdinData) => handleEvalRun(stdinData, resolveEvalsDir()),
+  'eval-capture': async (stdinData) => handleEvalCapture(stdinData, resolveStateDir()),
+  'eval-compare': async (stdinData) => handleEvalCompare(stdinData, resolveStateDir()),
+  'quality-check': async (stdinData) => handleQualityCheck(stdinData, resolveStateDir()),
+  'eval-calibrate': async (stdinData) => {
+    const parsed = CalibrateInputSchema.safeParse(stdinData);
+    if (!parsed.success) {
+      const firstIssue = parsed.error.issues[0];
+      return {
+        error: {
+          code: 'INVALID_INPUT',
+          message: `Invalid calibrate input: ${firstIssue.path.join('.')} - ${firstIssue.message}`,
+        },
+      };
+    }
+    return handleCalibrate(parsed.data, resolveEvalsDir());
+  },
+  'session-end': async (stdinData) => handleSessionEnd(stdinData, resolveStateDir()),
+  'subagent-stop': handleSubagentStop,
 };
 
 // ─── Stdin Parsing ──────────────────────────────────────────────────────────
@@ -127,6 +158,12 @@ export async function routeCommand(
 // ─── Main Entry Point ───────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Parse --plugin-root from argv if present (used by SessionStart hook)
+  const pluginRootIdx = process.argv.indexOf('--plugin-root');
+  if (pluginRootIdx !== -1 && process.argv[pluginRootIdx + 1]) {
+    process.env.EXARCHOS_PLUGIN_ROOT = process.argv[pluginRootIdx + 1];
+  }
+
   const command = process.argv[2];
 
   if (!command) {

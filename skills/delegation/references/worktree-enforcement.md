@@ -17,13 +17,13 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 
 Before dispatching ANY implementer, run the worktree setup script:
 
-```bash
-bash scripts/setup-worktree.sh \
-  --repo-root <project-root> \
-  --task-id <task-id> \
-  --task-name <task-name> \
-  [--base-branch main] \
-  [--skip-tests]
+```typescript
+exarchos_orchestrate({
+  action: "setup_worktree",
+  repoRoot: "<project-root>",
+  taskId: "<task-id>",
+  taskName: "<task-name>"
+})
 ```
 
 **Validates:**
@@ -33,11 +33,9 @@ bash scripts/setup-worktree.sh \
 - `npm install` ran in worktree
 - Baseline tests pass in worktree
 
-**On exit 0:** Worktree is ready. Proceed with implementer dispatch.
+**On `passed: true`:** Worktree is ready. Proceed with implementer dispatch.
 
-**On exit 1:** Setup failed. Review the markdown checklist output for which step failed. Fix the issue before dispatching.
-
-**On exit 2:** Usage error. Check required arguments: `--repo-root`, `--task-id`, `--task-name`.
+**On `passed: false`:** Setup failed. Review the checklist output for which step failed. Fix the issue before dispatching.
 
 ## Worktree State Tracking
 
@@ -51,6 +49,15 @@ Include in ALL implementer prompts:
 1. **Absolute worktree path** as Working Directory
 2. **Worktree verification block** (from implementer-prompt.md template)
 3. **Abort instructions** if not in worktree
+
+## Native Worktree Isolation
+
+When the `exarchos-implementer` agent definition includes `isolation: worktree` in its frontmatter, Claude Code handles worktree creation natively. The `prepare_delegation` action accepts `nativeIsolation: true` to skip manual worktree creation while preserving quality pre-checks. The worktree verification in the agent system prompt remains as defense-in-depth.
+
+When using native isolation:
+- Claude Code creates and manages the worktree lifecycle
+- The `prepare_delegation` action skips `setup-worktree.sh` but still validates state, checks quality signals, and detects benchmarks
+- The worktree verification block in the implementer prompt acts as a safety net — if native isolation fails silently, the agent self-aborts rather than modifying the main project root
 
 ## Anti-Patterns
 

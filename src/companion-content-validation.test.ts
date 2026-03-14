@@ -8,8 +8,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 describe('Companion content separation', () => {
   describe('Core rules', () => {
     it('coreRules_mcpToolGuidance_onlyReferencesCoreMcpTools', () => {
-      const content = readFileSync(join(repoRoot, 'rules/mcp-tool-guidance.md'), 'utf-8');
-      // Core should reference Exarchos and Graphite
+      const content = readFileSync(join(repoRoot, 'skills/shared/references/mcp-tool-guidance.md'), 'utf-8');
+      // Core should reference Exarchos
       expect(content).toContain('Exarchos');
       // Core should NOT reference companion tools
       expect(content).not.toMatch(/mcp__plugin_github/);

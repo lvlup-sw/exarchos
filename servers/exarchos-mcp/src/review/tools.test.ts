@@ -249,7 +249,8 @@ describe('orchestrate review_triage action', () => {
       basileusConnected: false,
     };
 
-    const result = await handleOrchestrate(args as Record<string, unknown>, tmpDir);
+    const { EventStore } = await import('../event-store/store.js');
+    const result = await handleOrchestrate(args as Record<string, unknown>, { stateDir: tmpDir, eventStore: new EventStore(tmpDir), enableTelemetry: false });
 
     expect(result.success).toBe(true);
     const data = result.data as {

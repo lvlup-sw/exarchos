@@ -71,26 +71,9 @@ vi.mock('../../views/composite.js', () => ({
   handleView: mockHandleView,
 }));
 
-// Mock EventStore configuration (workflow modules require explicit injection)
-vi.mock('../../workflow/tools.js', () => ({
-  configureWorkflowEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/next-action.js', () => ({
-  configureNextActionEventStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/cancel.js', () => ({
-  configureCancelEventStore: vi.fn(),
-}));
-
+// Mock remaining module-level configuration functions
 vi.mock('../../workflow/cleanup.js', () => ({
-  configureCleanupEventStore: vi.fn(),
   configureCleanupSnapshotStore: vi.fn(),
-}));
-
-vi.mock('../../workflow/query.js', () => ({
-  configureQueryEventStore: vi.fn(),
 }));
 
 vi.mock('../../event-store/store.js', () => ({
@@ -119,7 +102,7 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('createServer', () => {
-    it('should register exactly 5 composite tools', () => {
+    it('should register only non-hidden composite tools', () => {
       createServer('/tmp/test-state-dir');
 
       const expectedTools = [
@@ -127,21 +110,27 @@ describe('MCP Server Entry Point', () => {
         'exarchos_event',
         'exarchos_orchestrate',
         'exarchos_view',
-        'exarchos_sync',
       ];
 
-      expect(toolRegistrations.size).toBe(5);
+      expect(toolRegistrations.size).toBe(4);
 
       for (const toolName of expectedTools) {
         expect(toolRegistrations.has(toolName)).toBe(true);
       }
+
+      // Hidden tools should NOT be registered
+      expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
 
-    it('should register one tool per registry entry', () => {
+    it('should register one tool per non-hidden registry entry', () => {
       createServer('/tmp/test-state-dir');
 
       for (const tool of TOOL_REGISTRY) {
-        expect(toolRegistrations.has(tool.name)).toBe(true);
+        if (tool.hidden) {
+          expect(toolRegistrations.has(tool.name)).toBe(false);
+        } else {
+          expect(toolRegistrations.has(tool.name)).toBe(true);
+        }
       }
     });
 
@@ -202,7 +191,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleWorkflow).toHaveBeenCalledWith(
         { action: 'init', featureId: 'test-feat', workflowType: 'feature' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -214,7 +203,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleEvent).toHaveBeenCalledWith(
         { action: 'append', stream: 'my-stream', event: { type: 'test' } },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -226,7 +215,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleOrchestrate).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'task_claim', taskId: 'T1' }),
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -238,7 +227,7 @@ describe('MCP Server Entry Point', () => {
 
       expect(mockHandleView).toHaveBeenCalledWith(
         { action: 'pipeline' },
-        '/tmp/test-state-dir',
+        expect.objectContaining({ stateDir: '/tmp/test-state-dir' }),
       );
     });
 
@@ -275,17 +264,9 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('sync tools', () => {
-    it('should return success for exarchos_sync now action', async () => {
+    it('should not register exarchos_sync (hidden tool)', () => {
       createServer('/tmp/test-state-dir');
-      const result = await toolRegistrations.get('exarchos_sync')!.handler({
-        action: 'now',
-      });
-
-      const typedResult = result as { content: Array<{ type: string; text: string }>; isError: boolean };
-      expect(typedResult.isError).toBe(false);
-      const parsed = JSON.parse(typedResult.content[0].text);
-      expect(parsed.success).toBe(true);
-      expect(parsed.data.message).toContain('no remote configured');
+      expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
   });
 
@@ -296,6 +277,11 @@ describe('MCP Server Entry Point', () => {
       try {
         delete process.env.EXARCHOS_TELEMETRY;
         createServer('/tmp/test-state-dir');
+        // Telemetry wrapping now happens during dispatch (tool invocation),
+        // not during registration. Invoke a handler to trigger withTelemetry.
+        await toolRegistrations.get('exarchos_workflow')!.handler({
+          action: 'init', featureId: 'test-feat', workflowType: 'feature',
+        });
         expect(withTelemetry).toHaveBeenCalled();
       } finally {
         if (originalEnv === undefined) { delete process.env.EXARCHOS_TELEMETRY; }
@@ -342,7 +328,7 @@ describe('MCP Server Entry Point', () => {
 
     it('should export SERVER_VERSION', async () => {
       const { SERVER_VERSION } = await import('../../index.js');
-      expect(SERVER_VERSION).toBe('1.0.0');
+      expect(SERVER_VERSION).toBe('2.4.0');
     });
   });
 });

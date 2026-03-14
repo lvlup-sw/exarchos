@@ -21,23 +21,38 @@ Or auto-invoked after review failures.
 
 2. **Extract fix tasks** from failure reports:
 
-   ```bash
-   bash scripts/extract-fix-tasks.sh --state-file <path> [--review-report <path>] [--repo-root <path>]
+   ```typescript
+   exarchos_orchestrate({
+     action: "extract_fix_tasks",
+     stateFile: "<path>",
+     reviewReport: "<path>",
+     repoRoot: "<path>"
+   })
    ```
 
-   **On exit 0:** Tasks extracted successfully (JSON array on stdout).
-   **On exit 1:** Parse error — review report or state file malformed.
+   **On `passed: true`:** Tasks extracted successfully (JSON array in output).
+   **On `passed: false`:** Parse error — review report or state file malformed.
 
 3. **Create fix tasks** for each issue:
    - Use `fixer-prompt.md` template
    - Include full issue context
    - Specify target worktree
 
-4. **Dispatch fixers** (same as implementers, different prompt):
+4. **Dispatch fixers** — prefer resume when `agentId` is available, otherwise fresh dispatch:
+
+   **Resume (Claude Code):**
    ```typescript
    Task({
-     subagent_type: "general-purpose",
-     model: "opus",
+     resume: "[agentId from workflow state]",
+     prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
+   })
+   ```
+
+   **Fresh dispatch (cross-platform):**
+   ```typescript
+   Task({
+     subagent_type: "exarchos-fixer",
+     run_in_background: true,
      description: "Fix: [issue summary]",
      prompt: "[fixer-prompt template with issue details]"
    })
@@ -48,6 +63,35 @@ Or auto-invoked after review failures.
    ```typescript
    Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
+
+## Resume-First Strategy
+
+When fixing failed tasks, prefer resuming the original agent over dispatching a fresh fixer. Resume preserves the implementer's full context (file reads, reasoning, partial progress), making fixes faster and more accurate.
+
+### agentId Tracking
+
+The `agentId` is captured from the `Task()` completion output and stored in workflow task state. The `SubagentStop` hook (`hooks/hooks.json`) automatically captures `agentId` when `exarchos-implementer` or `exarchos-fixer` agents complete.
+
+Check workflow state for `agentId`:
+```text
+exarchos_workflow get with fields: ["tasks"]
+→ tasks[id=<taskId>].agentId
+```
+
+### Decision Flow
+
+1. **agentId available + Claude Code?** → Resume with failure context
+2. **agentId unavailable or non-Claude-Code client?** → Fresh dispatch with `exarchos-fixer` agent type
+3. **Resume fails?** → Fall back to fresh dispatch
+
+### Gate Chain After Fix
+
+After any fix (resume or fresh dispatch), run the `task-fix` runbook:
+```typescript
+exarchos_orchestrate({ action: "runbook", id: "task-fix" })
+```
+
+This executes the gate chain: re-run tests → TDD compliance check → static analysis → mark task complete if all pass. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis", "task_complete"] })`
 
 ## Fix Task Structure
 

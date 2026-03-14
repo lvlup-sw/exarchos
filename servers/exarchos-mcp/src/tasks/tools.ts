@@ -2,12 +2,16 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
+import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
+import type { WorkflowState } from '../workflow/types.js';
+import { logger } from '../logger.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -166,6 +170,11 @@ export async function handleTaskComplete(
   args: {
     taskId: string;
     result?: Record<string, unknown>;
+    evidence?: {
+      type: 'test' | 'build' | 'typecheck' | 'manual';
+      output: string;
+      passed: boolean;
+    };
     streamId: string;
   },
   stateDir: string,
@@ -186,6 +195,35 @@ export async function handleTaskComplete(
 
   const store = getOrCreateEventStore(stateDir);
 
+  // Manual evidence bypass: docs-only or non-code tasks can skip gate checks
+  const manualBypass = args.evidence?.type === 'manual' && args.evidence.passed === true;
+
+  // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
+  const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
+
+  const hasPassingGate = (gateName: string): boolean =>
+    gateEvents.some((e) => {
+      const d = e.data as Record<string, unknown> | undefined;
+      if (!d) return false;
+      const details = d.details as Record<string, unknown> | undefined;
+      return d.gateName === gateName && d.passed === true &&
+        (details != null && (!details.taskId || details.taskId === args.taskId));
+    });
+
+  const unmetGates: string[] = [];
+  if (!manualBypass && !hasPassingGate('tdd-compliance')) unmetGates.push('tdd-compliance');
+  if (!manualBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
+  if (unmetGates.length > 0) {
+    return {
+      success: false,
+      error: {
+        code: 'GATE_NOT_PASSED',
+        message: `Required gates not passed: ${unmetGates.join(', ')}. Run these checks first.`,
+        unmetGates,
+      },
+    };
+  }
+
   const data: Record<string, unknown> = { taskId: args.taskId };
   if (args.result) {
     if (args.result.artifacts) {
@@ -194,13 +232,74 @@ export async function handleTaskComplete(
     if (args.result.duration !== undefined) {
       data.duration = args.result.duration;
     }
+    if (args.result.implements) {
+      data.implements = args.result.implements;
+    }
+    if (args.result.tests) {
+      data.tests = args.result.tests;
+    }
+    if (args.result.files) {
+      data.files = args.result.files;
+    }
+  }
+
+  // Evidence storage: include evidence and set verified flag
+  if (args.evidence) {
+    data.evidence = args.evidence;
+    data.verified = true;
+  } else {
+    data.verified = false;
   }
 
   try {
     const event = await store.append(args.streamId, {
       type: 'task.completed',
       data,
-    });
+    }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
+
+    // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
+    // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
+    const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const state = await readStateFile(stateFile);
+        if (!Array.isArray(state.tasks)) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: state.tasks is not an array',
+          );
+          break;
+        }
+        const tasks = state.tasks as Array<{ id: string; status: string }>;
+        const task = tasks.find((t) => t.id === args.taskId);
+        if (!task) {
+          logger.warn(
+            { streamId: args.streamId, taskId: args.taskId, attempt },
+            'task_complete state sync skipped: task not found in state.tasks',
+          );
+          break;
+        }
+        task.status = 'complete';
+        const rawVersion = (state as Record<string, unknown>)._version;
+        const version = typeof rawVersion === 'number' ? rawVersion : 1;
+        (state as Record<string, unknown>).updatedAt = new Date().toISOString();
+        await writeStateFile(stateFile, state, {
+          expectedVersion: version,
+          skipValidation: true,
+        });
+        break;
+      } catch (syncErr) {
+        if (syncErr instanceof VersionConflictError && attempt < maxAttempts) {
+          continue; // Re-read and retry
+        }
+        logger.warn(
+          { streamId: args.streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
+          'task_complete state sync failed',
+        );
+        break;
+      }
+    }
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
@@ -261,7 +360,7 @@ export async function handleTaskFail(
     const event = await store.append(args.streamId, {
       type: 'task.failed',
       data,
-    });
+    }, { idempotencyKey: `${args.streamId}:task.failed:${args.taskId}` });
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
@@ -293,10 +392,15 @@ export function registerTaskTools(server: McpServer, stateDir: string, _eventSto
 
   server.tool(
     'exarchos_task_complete',
-    'Mark a task as complete with optional artifacts',
+    'Mark a task as complete with optional artifacts and evidence',
     {
       taskId: z.string().min(1),
       result: z.record(z.string(), z.unknown()).optional(),
+      evidence: z.object({
+        type: z.enum(['test', 'build', 'typecheck', 'manual']),
+        output: z.string(),
+        passed: z.boolean(),
+      }).optional(),
       streamId: z.string().min(1),
     },
     async (args) => formatResult(await handleTaskComplete(args, stateDir)),

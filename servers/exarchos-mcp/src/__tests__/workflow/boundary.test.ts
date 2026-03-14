@@ -7,14 +7,12 @@ import {
   handleGet,
   handleSet,
   handleSummary,
-  configureWorkflowEventStore,
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
 import { getFixCycleCount, mapInternalToExternalType } from '../../workflow/events.js';
 import { appendEvent } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
 import { EventStore } from '../../event-store/store.js';
-import { configureQueryEventStore } from '../../workflow/query.js';
 import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
 
 /**
@@ -120,39 +118,42 @@ describe('Cross-Module Boundary Tests', () => {
 
   /** Advance feature workflow: ideate → plan → plan-review → delegate */
   async function advanceToDelegate(featureId: string, eventStore?: EventStore): Promise<void> {
+    const es = eventStore ?? null;
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'design.md' } },
       stateDir,
-      eventStore,
+      es,
     );
-    await handleSet({ featureId, phase: 'plan' }, stateDir, eventStore);
+    await handleSet({ featureId, phase: 'plan' }, stateDir, es);
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'plan.md' } },
       stateDir,
-      eventStore,
+      es,
     );
-    await handleSet({ featureId, phase: 'plan-review' }, stateDir, eventStore);
+    await handleSet({ featureId, phase: 'plan-review' }, stateDir, es);
     await handleSet(
       { featureId, updates: { planReview: { approved: true } } },
       stateDir,
-      eventStore,
+      es,
     );
-    await handleSet({ featureId, phase: 'delegate' }, stateDir, eventStore);
+    await handleSet({ featureId, phase: 'delegate' }, stateDir, es);
   }
 
   // ─── Test 1: handleSet → handleGet round-trip ─────────────────────────────
 
   it('HandleSet_ThenHandleGet_RoundTrip — write then read artifact via dot-path', async () => {
-    await handleInit({ featureId: 'round-trip', workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId: 'round-trip', workflowType: 'feature' }, stateDir, null);
 
     await handleSet(
       { featureId: 'round-trip', updates: { 'artifacts.design': 'docs/design.md' } },
       stateDir,
+      null,
     );
 
     const result = await handleGet(
       { featureId: 'round-trip', query: 'artifacts.design' },
       stateDir,
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -162,18 +163,20 @@ describe('Cross-Module Boundary Tests', () => {
   // ─── Test 2: Nested object updates preserve siblings ──────────────────────
 
   it('HandleSet_NestedObjectUpdate_PreservesSiblings — sequential updates dont clobber', async () => {
-    await handleInit({ featureId: 'siblings', workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId: 'siblings', workflowType: 'feature' }, stateDir, null);
 
     await handleSet(
       { featureId: 'siblings', updates: { 'artifacts.design': 'a' } },
       stateDir,
+      null,
     );
     await handleSet(
       { featureId: 'siblings', updates: { 'artifacts.plan': 'b' } },
       stateDir,
+      null,
     );
 
-    const result = await handleGet({ featureId: 'siblings' }, stateDir);
+    const result = await handleGet({ featureId: 'siblings' }, stateDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
@@ -185,30 +188,34 @@ describe('Cross-Module Boundary Tests', () => {
   // ─── Test 3: Phase transition with dynamic guard field ────────────────────
 
   it('HandleSet_PhaseTransition_WithDynamicGuardField — dynamic fields survive read for guard eval', async () => {
-    await handleInit({ featureId: 'guard-dynamic', workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId: 'guard-dynamic', workflowType: 'feature' }, stateDir, null);
 
     // Advance to plan-review
     await handleSet(
       { featureId: 'guard-dynamic', updates: { 'artifacts.design': 'design.md' } },
       stateDir,
+      null,
     );
-    await handleSet({ featureId: 'guard-dynamic', phase: 'plan' }, stateDir);
+    await handleSet({ featureId: 'guard-dynamic', phase: 'plan' }, stateDir, null);
     await handleSet(
       { featureId: 'guard-dynamic', updates: { 'artifacts.plan': 'plan.md' } },
       stateDir,
+      null,
     );
-    await handleSet({ featureId: 'guard-dynamic', phase: 'plan-review' }, stateDir);
+    await handleSet({ featureId: 'guard-dynamic', phase: 'plan-review' }, stateDir, null);
 
     // Set dynamic field via handleSet
     await handleSet(
       { featureId: 'guard-dynamic', updates: { planReview: { approved: true } } },
       stateDir,
+      null,
     );
 
     // Transition to delegate — guard reads planReview.approved (dynamic field)
     const result = await handleSet(
       { featureId: 'guard-dynamic', phase: 'delegate' },
       stateDir,
+      null,
     );
 
     expect(result.success).toBe(true);
@@ -219,14 +226,15 @@ describe('Cross-Module Boundary Tests', () => {
   // ─── Test 4: Init → Set → Get preserves all default fields ───────────────
 
   it('HandleInit_ThenHandleSet_ArtifactUpdate_FullStatePreserved — all defaults intact', async () => {
-    await handleInit({ featureId: 'full-state', workflowType: 'feature' }, stateDir);
+    await handleInit({ featureId: 'full-state', workflowType: 'feature' }, stateDir, null);
 
     await handleSet(
       { featureId: 'full-state', updates: { 'artifacts.design': 'design.md' } },
       stateDir,
+      null,
     );
 
-    const result = await handleGet({ featureId: 'full-state' }, stateDir);
+    const result = await handleGet({ featureId: 'full-state' }, stateDir, null);
     expect(result.success).toBe(true);
 
     const state = result.data as Record<string, unknown>;
@@ -249,16 +257,18 @@ describe('Cross-Module Boundary Tests', () => {
   describe('HandleSummary_CircuitBreakerState_MatchesRealEvents', () => {
     it('should report correct fixCycleCount from real state-machine events', async () => {
       const eventStore = new EventStore(stateDir);
-      configureWorkflowEventStore(eventStore);
-      configureQueryEventStore(eventStore);
-      await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir);
+      await handleInit({ featureId: 'cb-e2e', workflowType: 'feature' }, stateDir, eventStore);
 
       // Advance to delegate (pass eventStore so transitions are recorded)
       await advanceToDelegate('cb-e2e', eventStore);
 
       // Perform 2 fix cycles: delegate → review (fail) → delegate
       for (let i = 0; i < 2; i++) {
-        // delegate → review (all tasks complete — empty array passes)
+        // delegate → review: append team.disbanded event to event store
+        await eventStore.append('cb-e2e', {
+          type: 'team.disbanded',
+          data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+        });
         await handleSet({ featureId: 'cb-e2e', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed
@@ -274,7 +284,7 @@ describe('Cross-Module Boundary Tests', () => {
       }
 
       // Verify circuit breaker state via handleSummary
-      const summaryResult = await handleSummary({ featureId: 'cb-e2e' }, stateDir);
+      const summaryResult = await handleSummary({ featureId: 'cb-e2e' }, stateDir, eventStore);
       expect(summaryResult.success).toBe(true);
 
       const data = summaryResult.data as Record<string, unknown>;
@@ -287,15 +297,17 @@ describe('Cross-Module Boundary Tests', () => {
 
     it('should show circuit breaker open after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
-      configureWorkflowEventStore(eventStore);
-      configureQueryEventStore(eventStore);
-      await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir);
+      await handleInit({ featureId: 'cb-open', workflowType: 'feature' }, stateDir, eventStore);
 
       await advanceToDelegate('cb-open', eventStore);
 
       // Perform 3 fix cycles (max for implementation compound): delegate → review (fail) → delegate
       for (let i = 0; i < 3; i++) {
-        // delegate → review (all tasks complete — empty array passes)
+        // delegate → review: append team.disbanded event to event store
+        await eventStore.append('cb-open', {
+          type: 'team.disbanded',
+          data: { totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
+        });
         await handleSet({ featureId: 'cb-open', phase: 'review' }, stateDir, eventStore);
 
         // Set review as failed
@@ -310,7 +322,7 @@ describe('Cross-Module Boundary Tests', () => {
         expect(fixResult.success).toBe(true);
       }
 
-      const summaryResult = await handleSummary({ featureId: 'cb-open' }, stateDir);
+      const summaryResult = await handleSummary({ featureId: 'cb-open' }, stateDir, eventStore);
       expect(summaryResult.success).toBe(true);
 
       const data = summaryResult.data as Record<string, unknown>;

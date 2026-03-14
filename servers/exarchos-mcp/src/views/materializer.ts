@@ -26,12 +26,15 @@ export interface MaterializerOptions {
   readonly snapshotInterval?: number;
   readonly maxCacheEntries?: number;
   readonly backend?: StorageBackend;
+  /** Size of the sliding window for thrashing detection (default: 100). */
+  readonly thrashingWindowSize?: number;
 }
 
 // ─── Default Snapshot Interval ─────────────────────────────────────────────
 
 const DEFAULT_SNAPSHOT_INTERVAL = 50;
 const DEFAULT_MAX_CACHE_ENTRIES = 100;
+const DEFAULT_THRASHING_WINDOW_SIZE = 100;
 
 /** Read EXARCHOS_MAX_CACHE_ENTRIES from env, falling back to default on invalid/missing. */
 function parseEnvMaxCacheEntries(): number {
@@ -65,11 +68,24 @@ export class ViewMaterializer {
   private readonly maxCacheEntries: number;
   private readonly backend?: StorageBackend;
 
+  // Pending snapshot writes (fire-and-forget, but flushable for tests/shutdown)
+  private pendingSnapshots: Promise<void>[] = [];
+
+  // Cache hit/miss counters
+  private cacheHits = 0;
+  private cacheMisses = 0;
+
+  // Thrashing detection sliding window
+  private readonly thrashingWindowSize: number;
+  private recentMisses = 0;
+  private recentTotal = 0;
+
   constructor(options?: MaterializerOptions) {
     this.snapshotStore = options?.snapshotStore;
     this.snapshotInterval = options?.snapshotInterval ?? parseEnvSnapshotInterval();
     this.maxCacheEntries = options?.maxCacheEntries ?? parseEnvMaxCacheEntries();
     this.backend = options?.backend;
+    this.thrashingWindowSize = options?.thrashingWindowSize ?? DEFAULT_THRASHING_WINDOW_SIZE;
   }
 
   /**
@@ -77,6 +93,21 @@ export class ViewMaterializer {
    */
   register<T>(viewName: string, projection: ViewProjection<T>): void {
     this.projections.set(viewName, projection as ViewProjection<unknown>);
+  }
+
+  /**
+   * Unregister a named projection and remove all cached state for it.
+   */
+  unregister(viewName: string): void {
+    this.projections.delete(viewName);
+    // Remove all cached states for this projection
+    const prefix = `${viewName}:`;
+    for (const key of [...this.states.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.states.delete(key);
+        this.lastSnapshotHwm.delete(key);
+      }
+    }
   }
 
   /**
@@ -91,6 +122,27 @@ export class ViewMaterializer {
 
     const stateKey = `${viewName}:${streamId}`;
     let state = this.states.get(stateKey) as ViewState<T> | undefined;
+
+    // Track cache hit/miss
+    if (state) {
+      this.cacheHits++;
+    } else {
+      this.cacheMisses++;
+      this.recentMisses++;
+    }
+    this.recentTotal++;
+
+    // Check for thrashing at window boundary
+    if (this.recentTotal >= this.thrashingWindowSize) {
+      if (this.recentMisses / this.recentTotal > 0.5) {
+        viewLogger.warn(
+          { missRate: (this.recentMisses / this.recentTotal).toFixed(2), cacheSize: this.states.size, maxCacheEntries: this.maxCacheEntries },
+          'View cache thrashing detected — miss rate exceeds 50% over last window. Consider increasing EXARCHOS_MAX_CACHE_ENTRIES',
+        );
+      }
+      this.recentMisses = 0;
+      this.recentTotal = 0;
+    }
 
     if (!state) {
       state = {
@@ -139,15 +191,25 @@ export class ViewMaterializer {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Backend view cache save failed');
           }
         } else if (this.snapshotStore) {
-          // Fire and forget - snapshot is async but we don't block materialization
-          this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
+          // Fire and forget - snapshot is async but we don't block materialization.
+          // Track the promise so flush() can await completion for tests/shutdown.
+          const savePromise = this.snapshotStore.save(streamId, viewName, currentView, maxSequence).catch((err) => {
             viewLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Snapshot save failed');
           });
+          this.pendingSnapshots.push(savePromise);
         }
       }
     }
 
     return currentView;
+  }
+
+  /**
+   * Await all pending snapshot writes. Useful for tests and graceful shutdown.
+   */
+  async flush(): Promise<void> {
+    await Promise.all(this.pendingSnapshots);
+    this.pendingSnapshots = [];
   }
 
   /**
@@ -198,6 +260,19 @@ export class ViewMaterializer {
       this.states.set(stateKey, state);
     }
     return state as ViewState<T> | undefined;
+  }
+
+  /**
+   * Return cumulative cache statistics for monitoring and diagnostics.
+   */
+  getCacheStats(): { hits: number; misses: number; size: number; missRate: number } {
+    const total = this.cacheHits + this.cacheMisses;
+    return {
+      hits: this.cacheHits,
+      misses: this.cacheMisses,
+      size: this.states.size,
+      missRate: total > 0 ? this.cacheMisses / total : 0,
+    };
   }
 
   /**

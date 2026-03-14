@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   update-prs:
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: self-hosted
     steps:
       - uses: actions/setup-node@v6
         with:

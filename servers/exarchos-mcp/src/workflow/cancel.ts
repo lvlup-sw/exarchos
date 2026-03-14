@@ -21,20 +21,23 @@ import type { EventStore } from '../event-store/store.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
-// ─── Module-Level EventStore Configuration ──────────────────────────────────
+// ─── Event-Sourcing Version Discriminator ───────────────────────────────────
 
-let moduleEventStore: EventStore | null = null;
+const CURRENT_ES_VERSION = 2;
 
-/** Configure the EventStore instance used by cancel handlers. */
-export function configureCancelEventStore(store: EventStore | null): void {
-  moduleEventStore = store;
+/** Check whether a workflow state uses the pure event-sourcing path. */
+function isEventSourced(state: Record<string, unknown>): boolean {
+  return state._esVersion === CURRENT_ES_VERSION;
 }
+
+// ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
 // ─── handleCancel ──────────────────────────────────────────────────────────
 
 export async function handleCancel(
   input: CancelInput,
   stateDir: string,
+  eventStore: EventStore | null,
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -112,18 +115,47 @@ export async function handleCancel(
     };
   }
 
-  // Bridge compensation events to external event store (best-effort)
-  if (moduleEventStore && compensationResult.events.length > 0) {
-    try {
-      for (const event of compensationResult.events) {
-        const externalType = mapInternalToExternalType(event.type);
-        await moduleEventStore.append(input.featureId, {
-          type: externalType as import('../event-store/schemas.js').EventType,
-          data: { ...event.metadata, featureId: input.featureId },
-        });
+  // Determine event-sourcing version for v1/v2 path discrimination
+  // Note: v2 workflows may run without an EventStore during CLI/hook contexts (migration period).
+  // When eventStore is null, we gracefully fall back to v1 legacy path.
+  const useEventFirst = isEventSourced(mutableState) && eventStore !== null;
+
+  // Bridge compensation events to external event store
+  if (eventStore && compensationResult.events.length > 0) {
+    if (useEventFirst) {
+      // ES v2: event-first — propagate errors, abort cancel if append fails
+      try {
+        for (let i = 0; i < compensationResult.events.length; i++) {
+          const event = compensationResult.events[i];
+          const externalType = mapInternalToExternalType(event.type);
+          await eventStore.append(input.featureId, {
+            type: externalType as import('../event-store/schemas.js').EventType,
+            data: { ...event.metadata, featureId: input.featureId },
+          }, { idempotencyKey: `${input.featureId}:cancel:compensation:${event.type}:${event.metadata?.taskId ?? event.metadata?.action ?? i}` });
+        }
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed during cancel compensation: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
       }
-    } catch {
-      // External store is supplementary; JSONL append failure must not break cancel
+    } else {
+      // V1 legacy: best-effort — swallow errors
+      try {
+        for (let i = 0; i < compensationResult.events.length; i++) {
+          const event = compensationResult.events[i];
+          const externalType = mapInternalToExternalType(event.type);
+          await eventStore.append(input.featureId, {
+            type: externalType as import('../event-store/schemas.js').EventType,
+            data: { ...event.metadata, featureId: input.featureId },
+          });
+        }
+      } catch {
+        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
+      }
     }
   }
 
@@ -149,35 +181,71 @@ export async function handleCancel(
   cancelMetadata.compensationActions = compensationResult.actions.length;
   cancelMetadata.compensationSuccess = compensationResult.success;
 
-  // Event-first: emit to external event store BEFORE mutating state (best-effort)
-
-  if (moduleEventStore) {
-    try {
-      for (const transitionEvent of transitionResult.events) {
-        await moduleEventStore.append(input.featureId, {
-          type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+  // Event-first: emit to external event store BEFORE mutating state
+  if (eventStore) {
+    if (useEventFirst) {
+      // ES v2: event-first — propagate errors, abort cancel if append fails
+      try {
+        for (const transitionEvent of transitionResult.events) {
+          await eventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          }, { idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled` });
+        }
+        // Emit cancel event with distinct type and full metadata
+        await eventStore.append(input.featureId, {
+          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
           data: {
-            from: transitionEvent.from,
-            to: transitionEvent.to,
-            trigger: transitionEvent.trigger,
+            from: currentPhase,
+            to: 'cancelled',
+            trigger: 'user-cancel',
             featureId: input.featureId,
-            ...(transitionEvent.metadata ?? {}),
+            ...cancelMetadata,
+          },
+        }, { idempotencyKey: `${input.featureId}:cancel:complete` });
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: ErrorCode.EVENT_APPEND_FAILED,
+            message: `Event append failed during cancel: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        };
+      }
+    } else {
+      // V1 legacy: best-effort — swallow errors
+      try {
+        for (const transitionEvent of transitionResult.events) {
+          await eventStore.append(input.featureId, {
+            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+            data: {
+              from: transitionEvent.from,
+              to: transitionEvent.to,
+              trigger: transitionEvent.trigger,
+              featureId: input.featureId,
+              ...(transitionEvent.metadata ?? {}),
+            },
+          });
+        }
+        await eventStore.append(input.featureId, {
+          type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
+          data: {
+            from: currentPhase,
+            to: 'cancelled',
+            trigger: 'user-cancel',
+            featureId: input.featureId,
+            ...cancelMetadata,
           },
         });
+      } catch {
+        // V1 legacy: external store is supplementary; JSONL append failure must not break cancel
       }
-      // Emit cancel event with distinct type and full metadata
-      await moduleEventStore.append(input.featureId, {
-        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
-        data: {
-          from: currentPhase,
-          to: 'cancelled',
-          trigger: 'user-cancel',
-          featureId: input.featureId,
-          ...cancelMetadata,
-        },
-      });
-    } catch {
-      // External store is supplementary; JSONL append failure must not break cancel
     }
   }
 
@@ -225,7 +293,7 @@ export async function handleCancel(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerCancelTool(server: McpServer, stateDir: string): void {
+export function registerCancelTool(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
   server.tool(
     'exarchos_workflow_cancel',
     'Cancel a workflow with saga compensation and cleanup',
@@ -234,6 +302,6 @@ export function registerCancelTool(server: McpServer, stateDir: string): void {
       reason: z.string().optional(),
       dryRun: z.boolean().optional(),
     },
-    async (args) => formatResult(await handleCancel(args, stateDir)),
+    async (args) => formatResult(await handleCancel(args, stateDir, eventStore)),
   );
 }

@@ -7,7 +7,9 @@ import { WORKFLOW_STATUS_VIEW } from '../views/workflow-status-view.js';
 import type { WorkflowStatusViewState } from '../views/workflow-status-view.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
-import { PHASE_ACTION_MAP, HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { getHSMDefinition } from '../workflow/state-machine.js';
+import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const execFileAsync = promisify(execFileCb);
@@ -37,10 +39,15 @@ function computeNextAction(workflowType: string, phase: string): string {
     return `WAIT:human-checkpoint:${phase}`;
   }
 
-  const actionMap = PHASE_ACTION_MAP[workflowType];
-  const action = actionMap?.[phase];
-  if (action) {
-    return action;
+  // Derive from HSM transitions (first non-fix-cycle outbound transition)
+  try {
+    const hsm = getHSMDefinition(workflowType);
+    const transition = hsm.transitions.find(t => t.from === phase && !t.isFixCycle);
+    if (transition) {
+      return `AUTO:${transition.to}`;
+    }
+  } catch {
+    // Unknown workflow type — fall through
   }
 
   return `WAIT:in-progress:${phase}`;
@@ -157,6 +164,7 @@ async function formatArtifactRef(
 
 interface ContextSections {
   header: string;
+  behavioral: string;
   taskTable: string;
   events: string;
   gitState: string;
@@ -168,8 +176,8 @@ function truncateToCharBudget(sections: ContextSections): {
   document: string;
   truncated: boolean;
 } {
-  // Always include header + task table + next action
-  const coreParts = [sections.header, sections.taskTable, sections.nextAction].filter(
+  // Always include header + behavioral + task table + next action
+  const coreParts = [sections.header, sections.behavioral, sections.taskTable, sections.nextAction].filter(
     (s) => s.length > 0,
   );
 
@@ -297,6 +305,13 @@ export async function handleAssembleContext(
   const workflowType =
     (typeof stateData?.workflowType === 'string' ? stateData.workflowType : statusView?.workflowType) ?? '';
 
+  // 3b. Look up phase playbook for behavioral guidance
+  let behavioralSection = '';
+  const playbook = getPlaybook(workflowType, phase);
+  if (playbook) {
+    behavioralSection = renderPlaybook(playbook);
+  }
+
   // 4. Build task rows from CQRS view, fallback to state file
   const taskRows: TaskRow[] = [];
   let totalTaskCount = 0;
@@ -367,6 +382,7 @@ export async function handleAssembleContext(
   // 11. Assemble and truncate to budget
   const sections: ContextSections = {
     header,
+    behavioral: behavioralSection,
     taskTable,
     events: eventsSection,
     gitState: gitSection,

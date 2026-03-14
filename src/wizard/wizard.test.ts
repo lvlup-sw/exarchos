@@ -71,13 +71,6 @@ function createTestManifest(): Manifest {
           required: false,
           default: true,
         },
-        {
-          id: 'graphite',
-          name: 'Graphite',
-          description: 'Stacked PRs',
-          required: false,
-          default: false,
-        },
       ],
       ruleSets: [
         {
@@ -128,7 +121,7 @@ describe('runWizard', () => {
     const prompts = new MockPromptAdapter([
       'dev',                                // mode
       ['context7', 'microsoft-learn'],      // optional mcpServers
-      ['serena', 'graphite'],               // optional plugins
+      ['serena'],                            // optional plugins
       ['coding-standards', 'pr-descriptions'], // ruleSets
       true,                                 // confirm
     ]);
@@ -197,7 +190,7 @@ describe('runWizard', () => {
       mode: 'dev',
       selections: {
         mcpServers: ['context7'],
-        plugins: ['serena', 'graphite'],
+        plugins: ['serena'],
         ruleSets: ['coding-standards'],
         model: 'claude-sonnet-4-20250514',
       },
@@ -209,7 +202,7 @@ describe('runWizard', () => {
     const prompts = new MockPromptAdapter([
       'dev',
       ['context7'],
-      ['serena', 'graphite'],
+      ['serena'],
       ['coding-standards'],
       true,
     ]);
@@ -248,7 +241,7 @@ describe('runNonInteractive', () => {
       mode: 'dev',
       selections: {
         mcpServers: ['context7'],
-        plugins: ['graphite'],
+        plugins: ['serena'],
         ruleSets: ['pr-descriptions'],
         model: 'claude-sonnet-4-20250514',
       },
@@ -265,7 +258,7 @@ describe('runNonInteractive', () => {
     expect(result.selections.mcpServers).toContain('context7');
     expect(result.selections.mcpServers).toContain('exarchos'); // required always included
     expect(result.selections.plugins).toContain('github'); // required always included
-    expect(result.selections.plugins).toContain('graphite');
+    expect(result.selections.plugins).toContain('serena');
     expect(result.selections.ruleSets).toContain('pr-descriptions');
   });
 

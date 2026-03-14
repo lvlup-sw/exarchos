@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { ArtifactsSchema, SynthesisSchema } from './schemas.js';
+import { ArtifactsSchema, SynthesisSchema, TaskStatusSchema } from './schemas.js';
 import { z } from 'zod';
+
+// ─── TaskStatusSchema alias tests ─────────────────────────────────────────
+
+describe('TaskStatusSchema', () => {
+  it('TaskStatusSchema_CompletedAlias_NormalizesToComplete', () => {
+    const result = TaskStatusSchema.safeParse('completed');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('complete');
+    }
+  });
+
+  it('TaskStatusSchema_Complete_ParsesUnchanged', () => {
+    const result = TaskStatusSchema.safeParse('complete');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('complete');
+    }
+  });
+
+  it('TaskStatusSchema_InvalidValue_Rejects', () => {
+    const result = TaskStatusSchema.safeParse('done');
+    expect(result.success).toBe(false);
+  });
+});
 
 // ─── Schema Passthrough Tests ──────────────────────────────────────────────
 
@@ -272,6 +297,71 @@ describe('WorkflowStateSchema _esVersion field', () => {
     };
     const result = WorkflowStateSchema.safeParse(input);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── TaskSchema Agent Tracking Fields ─────────────────────────────────────
+
+describe('TaskSchema agent tracking fields', () => {
+  it('TaskSchema_AgentId_AcceptsOptionalString', async () => {
+    const { TaskSchema } = await import('./schemas.js');
+    const input = {
+      id: 'task-010',
+      title: 'Extend state schema',
+      status: 'in_progress',
+      agentId: 'agent-abc-123',
+    };
+    const result = TaskSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.agentId).toBe('agent-abc-123');
+    }
+  });
+
+  it('TaskSchema_AgentResumed_AcceptsOptionalBoolean', async () => {
+    const { TaskSchema } = await import('./schemas.js');
+    const input = {
+      id: 'task-010',
+      title: 'Extend state schema',
+      status: 'in_progress',
+      agentResumed: true,
+    };
+    const result = TaskSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.agentResumed).toBe(true);
+    }
+  });
+
+  it('TaskSchema_LastExitReason_AcceptsOptionalString', async () => {
+    const { TaskSchema } = await import('./schemas.js');
+    const input = {
+      id: 'task-010',
+      title: 'Extend state schema',
+      status: 'complete',
+      lastExitReason: 'subtask_completed',
+    };
+    const result = TaskSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.lastExitReason).toBe('subtask_completed');
+    }
+  });
+
+  it('TaskSchema_BackwardCompatible_AcceptsWithoutNewFields', async () => {
+    const { TaskSchema } = await import('./schemas.js');
+    const input = {
+      id: 'task-010',
+      title: 'Extend state schema',
+      status: 'pending',
+    };
+    const result = TaskSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.agentId).toBeUndefined();
+      expect(result.data.agentResumed).toBeUndefined();
+      expect(result.data.lastExitReason).toBeUndefined();
+    }
   });
 });
 

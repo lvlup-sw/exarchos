@@ -1,9 +1,9 @@
 ---
 name: shepherd
-description: "Shepherd PRs through CI checks and code reviews to merge readiness. Use after /synthesize to monitor CI, address ALL review feedback (CodeRabbit, Graphite, Sentry, humans), fix failures, restack, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd. Do NOT use before PRs are published — run /synthesize first."
+description: "Shepherd PRs through CI and reviews to merge readiness. Operates as an iteration loop within the synthesize phase (not a separate HSM phase). Uses assess_stack to check PR health, fix failures, and request approval. Triggers: 'shepherd', 'tend PRs', 'check CI', or /shepherd."
 metadata:
   author: exarchos
-  version: 1.2.0
+  version: 2.0.0
   mcp-server: exarchos
   category: workflow
   phase-affinity: synthesize
@@ -11,164 +11,138 @@ metadata:
 
 # Shepherd Skill
 
-## Overview
+Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
-Iterative loop that shepherds published PRs through CI checks and **all** code reviews to merge readiness. Runs after `/synthesize` (or `/review` if PRs already exist). Monitors CI, reads and addresses feedback from **every reviewer** (CodeRabbit, Graphite agent, Sentry, human reviewers, and any other bots), fixes failures, restacks as needed, and requests approval when everything is green.
+> **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. Events (`shepherd.iteration`, `ci.status`) and the `shepherd_status` view track loop progress without requiring a phase transition.
 
 **Position in workflow:**
-```
-/synthesize → /shepherd (assess → fix → restack → loop) → /cleanup
+```text
+/exarchos:synthesize → /exarchos:shepherd (assess → fix → resubmit → loop) → /exarchos:cleanup
+              ^^^^^^^^^ runs within synthesize phase
 ```
 
 ## Triggers
 
-Activate this skill when:
-- User runs `/shepherd` command
-- User says "shepherd", "tend PRs", "check CI", "address review feedback"
+Activate when:
+- User runs `/exarchos:shepherd` or says "shepherd", "tend PRs", "check CI"
 - PRs are published and need monitoring through the CI/review gauntlet
-- After `/synthesize` completes and PRs are enqueued
+- After `/exarchos:synthesize` completes and PRs are enqueued
 
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in `synthesis.prUrl` or `artifacts.pr`)
-- Graphite stack submitted (`gt submit` already ran)
+- PRs created and pushed (`gh pr create` already ran)
 - GitHub MCP tools available (preferred) or `gh` CLI authenticated
 
 ## Process
 
-The shepherd loop repeats until all PRs are green or the user aborts.
+> **Runbook:** Each shepherd iteration follows the shepherd-iteration runbook:
+> `exarchos_orchestrate({ action: "runbook", id: "shepherd-iteration" })`
+> If runbook unavailable, use `describe` to retrieve action schemas: `exarchos_orchestrate({ action: "describe", actions: ["assess_stack"] })`
 
-### 1. Assess
+The shepherd loop repeats until all PRs are healthy or escalation criteria are met. Default: 5 iterations.
 
-Gather the current state of all PRs in the stack. See `references/assess-checklist.md` for detailed steps.
+### Step 0 — Surface Quality Signals
 
-**Read PR URLs from workflow state:**
+At the start of each iteration, query quality hints to inform the assessment:
 ```
-mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<id>", fields: ["synthesis", "artifacts"] })
+mcp__plugin_exarchos_exarchos__exarchos_view({ action: "code_quality", workflowId: "<featureId>" })
 ```
+- If `regressions` is non-empty, include regression context in the status report
+- If any hint has `confidenceLevel: 'actionable'`, surface the `suggestedAction` in the iteration summary
+- If `gatePassRate < 0.80` for any skill, flag degrading quality trends
 
-**For each PR, check four dimensions:**
+This step ensures the agent acts on accumulated quality intelligence before polling individual PRs.
 
-| Dimension | Tool | Pass condition |
-|-----------|------|----------------|
-| CI checks | GitHub MCP `pull_request_read` or `gh pr checks` | All checks pass |
-| Formal reviews | GitHub MCP `pull_request_read` (reviews) | No CHANGES_REQUESTED |
-| Inline review comments | GitHub MCP `pull_request_read` (review comments) | All addressed (replied to or resolved) |
-| Stack health | `mcp__graphite__run_gt_cmd({ args: ["log"] })` | Correct base targeting, no conflicts |
+### Step 1 — Assess
 
-**CRITICAL — Inline review comments are the most commonly missed dimension.** Formal review status (APPROVED/CHANGES_REQUESTED) only captures reviews submitted through GitHub's review workflow. Many automated reviewers — Sentry, Graphite agent, and others — leave **inline comments** that do NOT affect formal review status. You MUST read the full comment list for every PR.
-
-**Read ALL inline review comments via GitHub MCP:**
+Invoke the `assess_stack` composite action to check all PR dimensions at once:
 ```
-mcp__plugin_github_github__pull_request_read({
-  method: "get_review_comments",
-  owner: "<owner>",
-  repo: "<repo>",
-  pullNumber: <number>
+mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
+  action: "assess_stack",
+  featureId: "<id>",
+  prNumbers: [123, 124, 125]
 })
 ```
 
-Categorize comments by source:
-- **sentry[bot]** — Bug predictions, security findings
-- **graphite-app[bot]** — Architectural concerns, code quality rules
-- **coderabbitai[bot]** — Code review suggestions, refactoring
-- **github-actions[bot]** — Automated gate checks (usually informational)
-- **Human reviewers** — Direct feedback requiring response
+The composite action internally handles:
+- CI status checking for all PRs
+- Formal review status (APPROVED / CHANGES_REQUESTED)
+- Inline review comment polling and thread resolution (Sentry, CodeRabbit, humans)
+- Stack health verification
+- Event emission: `gate.executed` events per CI check (feeds CodeQualityView) and `ci.status` events per PR (feeds ShepherdStatusView). See `references/gate-event-emission.md` for the event format.
 
-For each comment thread, check if it has been **replied to** (has child comments with `in_reply_to_id` matching). Unreplied threads are unaddressed.
+Review the returned `actionItems` and `recommendation`:
 
-**Report status to user:**
-```markdown
-## PR Status — Iteration <N>
+| Recommendation | Action |
+|----------------|--------|
+| `request-approval` | Skip to Step 4 |
+| `fix-and-resubmit` | Proceed to Step 2 |
+| `wait` | Inform user, pause, re-assess after delay |
+| `escalate` | See `references/escalation-criteria.md` |
 
-| PR | CI | Reviews | Comments | Stack |
-|----|-----|---------|----------|-------|
-| #123 | pass | approved | 2 Sentry (replied), 1 Graphite (unaddressed) | healthy |
-| #124 | fail | pending | 3 CodeRabbit (replied) | healthy |
+### Step 2 — Fix
 
-### Unaddressed Comments
-- **PR #123** — Graphite: `resolveEvalsDir` should use injected config (eval-run.ts:14)
-```
+Address each blocking action item from the assessment. Consult `references/fix-strategies.md` for detailed strategies per issue type.
 
-### 2. Evaluate
+**Remediation event protocol (FLYWHEEL):**
 
-If ALL dimensions pass for ALL PRs → skip to step 5 (Request Approval).
-
-**"All dimensions pass" means:**
-- All CI checks succeed
-- No CHANGES_REQUESTED formal reviews
-- Every inline review comment has been addressed (replied to, fixed, or acknowledged)
-- Stack health is good
-
-Otherwise, categorize issues:
-
-| Issue type | Action |
-|------------|--------|
-| CI failure | Investigate logs, fix directly or dispatch |
-| Unaddressed Sentry comments | Read bug predictions, fix real bugs, acknowledge false positives |
-| Unaddressed Graphite comments | Read architectural feedback, fix or respond with rationale |
-| Unaddressed CodeRabbit comments | Read suggestions, fix or respond with rationale |
-| Unaddressed human comments | Read carefully, fix required changes, answer questions |
-| Base branch wrong | Restack via `gt restack` |
-| Stack broken | Reconstruct via `scripts/reconstruct-stack.sh` |
-
-### 3. Fix
-
-Address issues based on type. See `references/fix-strategies.md` for detailed strategies.
-
-**For ALL inline review comments (any source):**
-1. Read ALL PR review comments via GitHub MCP:
-   ```
-   mcp__plugin_github_github__pull_request_read({
-     method: "get_review_comments", owner: "<owner>", repo: "<repo>", pullNumber: <number>
-   })
-   ```
-2. Group by author to identify each reviewer's concerns
-3. For each unaddressed comment thread:
-   - **Actionable bug/fix**: Apply code change, reply confirming fix
-   - **Valid suggestion (defer)**: Reply acknowledging with rationale for deferring
-   - **Intentional design choice**: Reply explaining the design decision
-   - **False positive**: Reply explaining why the concern doesn't apply
-   - **Already fixed (outdated)**: Reply confirming which commit addressed it
-4. Reply using GitHub MCP `add_reply_to_pull_request_comment` tool:
-   ```
-   mcp__plugin_github_github__add_reply_to_pull_request_comment({
-     owner, repo, pullNumber, commentId: <numeric_id>, body: "<response>"
+1. **BEFORE applying a fix**, emit `remediation.attempted`:
+   ```typescript
+   mcp__plugin_exarchos_exarchos__exarchos_event({
+     action: "append",
+     stream: "<featureId>",
+     event: {
+       type: "remediation.attempted",
+       data: { taskId: "<taskId>", skill: "shepherd", gateName: "<failing-gate>", attemptNumber: <N>, strategy: "direct-fix" }
+     }
    })
    ```
 
-**Every comment must get a reply.** Do not skip comments from any reviewer. The goal is that a human scanning the PR sees every thread has a response.
+2. Apply the fix (CI failure, review comment response, stack restack).
 
-**For CI failures:**
-1. Read check details via GitHub MCP:
+3. **AFTER the next assess confirms the fix resolved the gate**, emit `remediation.succeeded`:
    ```
-   mcp__plugin_github_github__pull_request_read({
-     method: "get_status", owner: "<owner>", repo: "<repo>", pullNumber: <number>
+   mcp__plugin_exarchos_exarchos__exarchos_event({
+     action: "append",
+     stream: "<featureId>",
+     event: {
+       type: "remediation.succeeded",
+       data: { taskId: "<taskId>", skill: "shepherd", gateName: "<gate>", totalAttempts: <N>, finalStrategy: "direct-fix" }
+     }
    })
    ```
-2. Identify failure cause from logs
-3. Fix directly (if small) or dispatch via delegation
-4. Push fixes to the appropriate stack branch
 
-**For stack issues:**
-1. Restack: `mcp__graphite__run_gt_cmd({ args: ["restack"] })`
-2. Verify: `mcp__graphite__run_gt_cmd({ args: ["log"] })`
+These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in CodeQualityView.
 
-### 4. Resubmit
+**Action item types:**
 
-After fixes are applied:
+| Type | Strategy |
+|------|----------|
+| `ci-fix` | Read logs, reproduce locally, fix, commit to stack branch |
+| `comment-reply` | Read context from `actionItem.context`, compose response, post via GitHub MCP |
+| `review-address` | Fix code for CHANGES_REQUESTED, reply to each thread |
+| `restack` | Run `git rebase origin/<base>`, verify with `gh pr list` |
+| `escalate` | Consult `references/escalation-criteria.md` |
+
+Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
+
+### Step 3 — Resubmit
+
+After fixes are applied, resubmit the stack:
+```bash
+git push --force-with-lease
+# Re-enable auto-merge if needed:
+gh pr merge <number> --auto --squash
 ```
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
-```
 
-Return to step 1 (Assess) for the next iteration.
+Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching `request-approval`, escalate per `references/escalation-criteria.md`.
 
-### 5. Request Approval
+### Step 4 — Request Approval
 
-When all checks and reviews are green:
+When `assess_stack` returns `recommendation: 'request-approval'` (all checks green, all comments addressed):
 
-1. Identify required approvers (repo settings or user-specified)
-2. Request review via GitHub MCP:
+1. Request review via GitHub MCP:
    ```
    mcp__plugin_github_github__update_pull_request({
      owner: "<owner>", repo: "<repo>", pullNumber: <number>,
@@ -176,7 +150,8 @@ When all checks and reviews are green:
    })
    ```
    Fallback (if MCP token lacks write scope): `gh pr edit <number> --add-reviewer <approver>`
-3. Report to user:
+
+2. Report to user:
    ```markdown
    ## Ready for Approval
 
@@ -187,21 +162,14 @@ When all checks and reviews are green:
    - #123: <url>
    - #124: <url>
 
-   Run `/cleanup` after merge completes.
+   Run `/exarchos:cleanup` after merge completes.
    ```
-
-## Iteration Limits
-
-**Default: 5 iterations.** If the loop exceeds this limit without all PRs going green, pause and report to the user with a summary of persistent issues.
-
-The user can override: `/shepherd --max-iterations 10`
 
 ## State Management
 
-Track shepherd progress in the workflow state under the `shepherd` field.
+Track shepherd progress via workflow state:
 
-### Initialize Shepherd
-
+**Initialize:**
 ```
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set",
@@ -211,112 +179,69 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
       "startedAt": "<ISO8601>",
       "currentIteration": 0,
       "maxIterations": 5,
-      "iterations": [],
       "approvalRequested": false
     }
   }
 })
 ```
 
-### Record Iteration
+**After each iteration:** Update `currentIteration`, record assessment summary and actions taken. On approval: set `approvalRequested: true` with timestamp and approver list.
 
-After each assess cycle:
-```
-mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
-  featureId: "<id>",
-  updates: {
-    "shepherd": {
-      "currentIteration": <N>,
-      "iterations": [
-        {
-          "iteration": <N>,
-          "assessedAt": "<ISO8601>",
-          "ciStatus": "pass | fail | pending",
-          "reviewComments": {
-            "sentry": { "total": 2, "addressed": 2 },
-            "graphite": { "total": 3, "addressed": 1 },
-            "coderabbit": { "total": 5, "addressed": 5 },
-            "human": { "total": 0, "addressed": 0 }
-          },
-          "formalReviews": "approved | changes_requested | pending | none",
-          "stackHealth": "healthy | needs-restack | broken",
-          "actions": ["fixed Sentry bug in trace-pattern.ts", "replied to Graphite DI concern on PR #624"],
-          "result": "all-green | fixes-applied | blocked"
-        }
-      ]
-    }
-  }
-})
-```
+### Phase Transitions and Guards
 
-### Record Approval Request
+For the full transition table, consult `@skills/workflow-state/references/phase-transitions.md`.
 
-```
-mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
-  featureId: "<id>",
-  updates: {
-    "shepherd": {
-      "approvalRequested": true,
-      "approvalRequestedAt": "<ISO8601>",
-      "approvers": ["<username>"]
-    }
-  }
-})
-```
+The shepherd skill operates within the `synthesize` phase and does not drive phase transitions directly.
 
-## Completion Criteria
+### Schema Discovery
 
-- [ ] All CI checks pass on all PRs
-- [ ] No CHANGES_REQUESTED from any formal reviewer
-- [ ] **Every inline review comment on every PR has a reply** (Sentry, Graphite, CodeRabbit, humans, any other bot)
-- [ ] Stack is healthy (correct base branches, no conflicts)
-- [ ] Approval requested from required reviewers
-- [ ] State updated with shepherd history
+Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
+for phase transitions, guards, and playbook guidance. Use
+`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })`
+for event data schemas before emitting events.
+
+## Event Emission
+
+Before emitting any shepherd events, consult `references/shepherd-event-schemas.md` for full Zod schemas, type constraints, and example payloads. Use `exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status"] })` to discover required fields at runtime.
+
+| Event | When | Purpose |
+|-------|------|---------|
+| `shepherd.started` | On skill start (emitted by `assess_stack`) | Audit trail |
+| `shepherd.iteration` | After each assess cycle | Track progress |
+| `gate.executed` | Per CI check (emitted by `assess_stack`) | CodeQualityView -- gate pass rates |
+| `ci.status` | Per CI check result | ShepherdStatusView -- PR health tracking |
+| `remediation.attempted` | Before applying a fix | selfCorrectionRate metric |
+| `remediation.succeeded` | After fix confirmed | avgRemediationAttempts metric |
+| `shepherd.approval_requested` | On requesting review | Audit trail |
+| `shepherd.completed` | On merge detected (emitted by `assess_stack`) | Audit trail |
+
+## Domain Knowledge
+
+Consult these references for detailed guidance:
+- `references/fix-strategies.md` — Fix approaches per issue type, response templates, remediation event emission details
+- `references/escalation-criteria.md` — When to stop iterating and escalate to the user
+- `references/gate-event-emission.md` — Event format for `gate.executed` (now emitted by `assess_stack`)
+- `references/shepherd-event-schemas.md` — Full Zod-aligned schemas for all four shepherd lifecycle events
+
+### Decision Runbooks
+
+When iteration limits are reached or CI repeatedly fails, consult the escalation runbook:
+`exarchos_orchestrate({ action: "runbook", id: "shepherd-escalation" })`
+
+This runbook provides structured criteria for deciding whether to keep iterating, escalate to the user, or abort the shepherd loop based on iteration count, CI stability, and review status.
 
 ## Anti-Patterns
 
 | Don't | Do Instead |
 |-------|------------|
+| Poll CI/reviews directly | Use `assess_stack` composite action |
 | Force-merge with failing CI | Fix the failures first |
-| Only check CodeRabbit and ignore other reviewers | Read ALL inline comments from every source |
-| Treat formal review status as the only signal | Inline comments exist independently of review status |
-| Dismiss comments without reading | Address or acknowledge each comment with a reply |
-| Skip restack when base branch changes | Always verify stack health |
-| Loop indefinitely | Respect iteration limits, escalate to user |
-| Fix issues without recording in state | Track every iteration for resumability |
-| Push directly to main | All fixes go through the stack branches |
-| Report "all green" without checking comments | Verify zero unaddressed inline comments first |
-
-## Exarchos Integration
-
-When Exarchos MCP tools are available:
-
-1. **On shepherd start:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.started` with PR URLs and iteration count
-2. **On each iteration:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.iteration` with assessment results and actions taken
-3. **On approval request:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.approval_requested` with approver list
-4. **On completion:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` — event type `shepherd.completed` with total iterations and final status
-
-## Troubleshooting
-
-| Issue | Cause | Resolution |
-|-------|-------|------------|
-| CI check stuck in pending | GitHub Actions queue delay | Wait 5 min, re-check. If still pending, re-trigger via `gh run rerun <id>` |
-| CodeRabbit not reviewing | PR too large or rate-limited | Check `scripts/check-coderabbit.sh` output. Wait 10 min or split PR |
-| Stack base branch wrong | Rebase drift after fixes | `mcp__graphite__run_gt_cmd` with `["restack"]`, then resubmit |
-| Iteration limit exceeded | Persistent flaky test or review loop | Report blockers to user with iteration history |
-| Resubmit creates draft PRs | Missing `--publish` flag | Always use `--publish --merge-when-ready` together |
-| Sentry/Graphite comments missed | Only checked formal review status | Always read `pulls/{number}/comments` for inline threads |
-
-## Performance Notes
-
-- Check all PR dimensions in parallel (CI, formal reviews, inline comments, stack health) rather than sequentially
-- Use `--jq` filters to reduce API response size when reading comments
-- Limit iteration state recording to changed fields (don't re-record entire history each iteration)
+| Ignore inline comments | Address every thread with a reply |
+| Loop indefinitely | Respect iteration limits, escalate |
+| Skip remediation events | Emit `remediation.attempted` / `remediation.succeeded` for every fix |
+| Push directly to main | All fixes go through stack branches |
 
 ## Transition
 
-After approval is granted and PRs merge:
-- Run `/cleanup` to resolve the workflow to completed state
-- Shepherd state persists in workflow for audit trail
+After approval is granted and PRs merge, run `/exarchos:cleanup` to resolve the workflow to completed state.

@@ -1,10 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   getHSMDefinition,
   executeTransition,
   getValidTransitions,
+  findTransition,
+  registerWorkflowType,
+  unregisterWorkflowType,
 } from '../../workflow/state-machine.js';
-import type { HSMDefinition, State, Transition } from '../../workflow/state-machine.js';
+import type { HSMDefinition, State, Transition, WorkflowDefinition } from '../../workflow/state-machine.js';
 import { guards } from '../../workflow/guards.js';
 
 // ─── Task 003: HSM State/Transition Definitions ─────────────────────────────
@@ -92,7 +95,7 @@ describe('HSM State Definitions', () => {
         (t) => t.from === 'delegate' && t.to === 'review'
       );
       expect(delegateToReview).toBeDefined();
-      expect(delegateToReview!.guard!.id).toBe('all-tasks-complete');
+      expect(delegateToReview!.guard!.id).toBe('all-tasks-complete+team-disbanded');
 
       // integrate transitions should NOT exist
       expect(transitions.find((t) => t.from === 'integrate')).toBeUndefined();
@@ -299,9 +302,10 @@ describe('HSM State Definitions', () => {
       expect(hsm.states['overhaul-track'].type).toBe('compound');
       expect(hsm.states['overhaul-track'].maxFixCycles).toBe(3);
 
-      // OverhaulTrack children: plan, delegate, review, update-docs (no integrate)
+      // OverhaulTrack children: plan, plan-review, delegate, review, update-docs (no integrate)
       for (const child of [
         'overhaul-plan',
+        'overhaul-plan-review',
         'overhaul-delegate',
         'overhaul-review',
         'overhaul-update-docs',
@@ -354,10 +358,15 @@ describe('HSM State Definitions', () => {
         )
       ).toBeDefined();
 
-      // Overhaul track flow (no integrate step)
+      // Overhaul track flow (no integrate step, plan-review before delegate)
       expect(
         transitions.find(
-          (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-delegate'
+          (t) => t.from === 'overhaul-plan' && t.to === 'overhaul-plan-review'
+        )
+      ).toBeDefined();
+      expect(
+        transitions.find(
+          (t) => t.from === 'overhaul-plan-review' && t.to === 'overhaul-delegate'
         )
       ).toBeDefined();
       expect(
@@ -389,6 +398,13 @@ describe('HSM State Definitions', () => {
       );
       expect(reviewToDelegate).toBeDefined();
       expect(reviewToDelegate!.isFixCycle).toBe(true);
+
+      // blocked → overhaul-delegate (recovery)
+      expect(
+        transitions.find(
+          (t) => t.from === 'blocked' && t.to === 'overhaul-delegate'
+        )
+      ).toBeDefined();
 
       // synthesize → completed
       expect(
@@ -1368,12 +1384,44 @@ describe('Refactor HSM executeTransition', () => {
   });
 
   describe('overhaul track flow', () => {
-    it('completes overhaul-plan to overhaul-delegate transition', () => {
+    it('completes overhaul-plan to overhaul-plan-review transition', () => {
       const hsm = getHSMDefinition('refactor');
       const state: Record<string, unknown> = {
         phase: 'overhaul-plan',
         track: 'overhaul',
         artifacts: { plan: 'docs/plan.md' },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-plan-review');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-plan-review');
+    });
+
+    it('completes overhaul-plan-review to overhaul-delegate transition', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'overhaul-plan-review',
+        track: 'overhaul',
+        planReview: { approved: true },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-delegate');
+    });
+
+    it('completes blocked to overhaul-delegate recovery transition', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'blocked',
+        track: 'overhaul',
+        unblocked: true,
         _events: [],
         _history: {},
       };
@@ -1697,6 +1745,7 @@ describe('getValidTransitions guard metadata', () => {
       id: 'merge-verified',
       description: 'Merge must be verified by the orchestrator before cleanup',
     });
+    expect(completedTarget!.universal).toBe(true);
   });
 
   it('returns empty array for final states', () => {
@@ -1776,7 +1825,7 @@ describe('Guard edge cases', () => {
     const state: Record<string, unknown> = {
       phase: 'delegate',
       tasks: [],
-      _events: [],
+      _events: [{ type: 'team.disbanded' }],
       _history: {},
     };
 
@@ -1788,7 +1837,7 @@ describe('Guard edge cases', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'delegate',
-      _events: [],
+      _events: [{ type: 'team.disbanded' }],
       _history: {},
     };
 
@@ -2077,7 +2126,7 @@ describe('Diagnostic Event Emission', () => {
       expect(result.events[0].from).toBe('delegate');
       expect(result.events[0].to).toBe('review');
       expect(result.events[0].metadata).toBeDefined();
-      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete');
+      expect(result.events[0].metadata!.guard).toBe('all-tasks-complete+team-disbanded');
     });
   });
 
@@ -2148,6 +2197,170 @@ describe('Diagnostic Event Emission', () => {
       expect(result.events.length).toBe(1);
       expect(result.events[0].type).toBe('circuit-open');
       expect(result.events[0].metadata!.compoundStateId).toBe('overhaul-track');
+    });
+  });
+});
+
+// ─── Task: Synthesize retry transitions ───────────────────────────────────────
+
+describe('Synthesize retry transitions', () => {
+  describe('Feature HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_TransitionsToDelegate', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'merge conflict', retryCount: 1 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('delegate');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'merge conflict', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_WhenNoError_FailsGuard', () => {
+      const hsm = getHSMDefinition('feature');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: {},
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesDelegateTarget', () => {
+      const hsm = getHSMDefinition('feature');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const delegateTarget = targets.find((t) => t.phase === 'delegate');
+      expect(delegateTarget).toBeDefined();
+      expect(delegateTarget!.guard!.id).toBe('synthesize-retryable');
+    });
+  });
+
+  describe('Debug HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_ThoroughTrack_TransitionsToDebugImplement', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'thorough',
+        synthesis: { lastError: 'merge conflict', retryCount: 0 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'debug-implement');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('debug-implement');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetryable_HotfixTrack_TransitionsToHotfixImplement', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'hotfix',
+        synthesis: { lastError: 'merge conflict', retryCount: 0 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'hotfix-implement');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('hotfix-implement');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('debug');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        track: 'thorough',
+        synthesis: { lastError: 'merge conflict', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'debug-implement');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesTrackAwareTargets', () => {
+      const hsm = getHSMDefinition('debug');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const debugImplTarget = targets.find((t) => t.phase === 'debug-implement');
+      expect(debugImplTarget).toBeDefined();
+      expect(debugImplTarget!.guard!.id).toBe('synthesize-retryable+thorough-track');
+      const hotfixImplTarget = targets.find((t) => t.phase === 'hotfix-implement');
+      expect(hotfixImplTarget).toBeDefined();
+      expect(hotfixImplTarget!.guard!.id).toBe('synthesize-retryable+hotfix-track');
+    });
+  });
+
+  describe('Refactor HSM', () => {
+    it('SynthesizeRetry_WhenRetryable_TransitionsToOverhaulDelegate', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'CI failed', retryCount: 2 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(true);
+      expect(result.newPhase).toBe('overhaul-delegate');
+      expect(result.idempotent).toBe(false);
+    });
+
+    it('SynthesizeRetry_WhenRetriesExhausted_FailsGuard', () => {
+      const hsm = getHSMDefinition('refactor');
+      const state: Record<string, unknown> = {
+        phase: 'synthesize',
+        synthesis: { lastError: 'CI failed', retryCount: 3 },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'overhaul-delegate');
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('GUARD_FAILED');
+    });
+
+    it('SynthesizeRetry_ValidTransitions_IncludesOverhaulDelegateTarget', () => {
+      const hsm = getHSMDefinition('refactor');
+      const targets = getValidTransitions(hsm, 'synthesize');
+      const overhaulDelegateTarget = targets.find((t) => t.phase === 'overhaul-delegate');
+      expect(overhaulDelegateTarget).toBeDefined();
+      expect(overhaulDelegateTarget!.guard!.id).toBe('synthesize-retryable');
     });
   });
 });
@@ -2401,5 +2614,438 @@ describe('universal cleanup transition', () => {
     // Should be idempotent
     expect(result.success).toBe(true);
     expect(result.idempotent).toBe(true);
+  });
+});
+
+// ─── Task 3: Debug Escalation HSM Transition ────────────────────────────────
+
+describe('Debug HSM Escalation Transition', () => {
+  it('debugHSM_InvestigateToCancel_EscalationTransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'cancelled',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('escalation-required');
+  });
+
+  it('debugHSM_InvestigateToCancelled_SucceedsWhenEscalationRequired', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      investigation: { escalate: true, rootCause: 'architectural issue' },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'cancelled');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('cancelled');
+  });
+
+  it('debugHSM_InvestigateToCancelled_FailsWhenNoEscalation', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      investigation: { rootCause: 'simple bug' },
+      _events: [],
+      _history: {},
+    };
+
+    // Note: cancel is a universal transition, so investigate → cancelled
+    // via the escalation guard will fail, but universal cancel will succeed.
+    // The guard-gated transition is distinct from universal cancel.
+    // Let's verify the guard-gated transition is in the definition.
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'cancelled',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+
+    // Verify the guard fails for non-escalation state
+    const guardResult = transition!.guard!.evaluate(state);
+    expect(guardResult).not.toBe(true);
+  });
+});
+
+// ─── Task 4: Plan Revision Termination HSM Transition ───────────────────────
+
+describe('Feature HSM Plan Revision Termination', () => {
+  it('featureHSM_PlanReviewToBlocked_RevisionsExhaustedTransitionExists', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'plan-review' && t.to === 'blocked',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('revisions-exhausted');
+  });
+
+  it('featureHSM_PlanReviewToBlocked_SucceedsWhenRevisionsExhausted', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'plan-review',
+      planReview: { revisionCount: 3 },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'blocked');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('blocked');
+  });
+
+  it('featureHSM_PlanReviewToBlocked_FailsWhenRevisionsBelowMax', () => {
+    const hsm = getHSMDefinition('feature');
+    const state: Record<string, unknown> = {
+      phase: 'plan-review',
+      planReview: { revisionCount: 1 },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'blocked');
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+});
+
+// ─── Task 8: Hotfix-Validate to Synthesize HSM Transition ───────────────────
+
+describe('Debug HSM Hotfix-Validate to Synthesize', () => {
+  it('debugHSM_HotfixValidateToSynthesize_TransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'hotfix-validate' && t.to === 'synthesize',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('validation+pr-requested');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_SucceedsWhenValidAndPrRequested', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      synthesis: { requested: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('synthesize');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_FailsWhenNoPrRequested', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'synthesize');
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+
+  it('debugHSM_HotfixValidateToCompleted_StillWorksWithoutPr', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'hotfix-validate',
+      validation: { testsPass: true },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('debugHSM_HotfixValidateToSynthesize_BeforeCompletedInTransitionOrder', () => {
+    const hsm = getHSMDefinition('debug');
+    const transitions = hsm.transitions;
+
+    // Find indices of both transitions from hotfix-validate
+    const synthIdx = transitions.findIndex(
+      (t) => t.from === 'hotfix-validate' && t.to === 'synthesize',
+    );
+    const completedIdx = transitions.findIndex(
+      (t) => t.from === 'hotfix-validate' && t.to === 'completed',
+    );
+
+    // synthesize transition must come before completed transition
+    expect(synthIdx).toBeGreaterThanOrEqual(0);
+    expect(completedIdx).toBeGreaterThanOrEqual(0);
+    expect(synthIdx).toBeLessThan(completedIdx);
+  });
+});
+
+// ─── Bug #957: Universal completed transition tagged as universal ─────────────
+
+describe('getValidTransitions universal tagging', () => {
+  it('tags universal completed target with universal: true', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const completedTarget = targets.find((t) => t.phase === 'completed');
+    expect(completedTarget).toBeDefined();
+    expect(completedTarget!.universal).toBe(true);
+  });
+
+  it('tags universal cancelled target with universal: true', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const cancelTarget = targets.find((t) => t.phase === 'cancelled');
+    expect(cancelTarget).toBeDefined();
+    expect(cancelTarget!.universal).toBe(true);
+  });
+
+  it('does not tag explicit transitions as universal', () => {
+    const hsm = getHSMDefinition('feature');
+    const targets = getValidTransitions(hsm, 'ideate');
+
+    const planTarget = targets.find((t) => t.phase === 'plan');
+    expect(planTarget).toBeDefined();
+    expect(planTarget!.universal).toBeUndefined();
+  });
+
+  it('does not tag explicit completed transition as universal (hotfix-validate)', () => {
+    const hsm = getHSMDefinition('debug');
+    const targets = getValidTransitions(hsm, 'hotfix-validate');
+
+    const completedTarget = targets.find((t) => t.phase === 'completed');
+    expect(completedTarget).toBeDefined();
+    // hotfix-validate has an explicit completed transition, so it should NOT be universal
+    expect(completedTarget!.universal).toBeUndefined();
+  });
+});
+
+// ─── Bug #958: Direct-to-main hotfix completion ──────────────────────────────
+
+describe('Debug HSM direct-push completion', () => {
+  it('fixVerifiedDirectly guard passes with directPush and commitSha', () => {
+    expect(guards.fixVerifiedDirectly).toBeDefined();
+    const state = {
+      resolution: { directPush: true, commitSha: 'abc123' },
+    } as Record<string, unknown>;
+    expect(guards.fixVerifiedDirectly.evaluate(state)).toBe(true);
+  });
+
+  it('fixVerifiedDirectly guard fails without directPush', () => {
+    const state = {
+      resolution: { commitSha: 'abc123' },
+    } as Record<string, unknown>;
+    const result = guards.fixVerifiedDirectly.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as { passed: boolean }).passed).toBe(false);
+  });
+
+  it('fixVerifiedDirectly guard fails without commitSha', () => {
+    const state = {
+      resolution: { directPush: true },
+    } as Record<string, unknown>;
+    const result = guards.fixVerifiedDirectly.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as { passed: boolean }).passed).toBe(false);
+  });
+
+  it('debugHSM_InvestigateToCompleted_SucceedsWithDirectPush', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      resolution: { directPush: true, commitSha: 'abc123' },
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('debugHSM_InvestigateToCompleted_FailsWithoutDirectPush', () => {
+    const hsm = getHSMDefinition('debug');
+    const state: Record<string, unknown> = {
+      phase: 'investigate',
+      _events: [],
+      _history: {},
+    };
+
+    const result = executeTransition(hsm, state, 'completed');
+
+    expect(result.success).toBe(false);
+  });
+
+  it('debugHSM_InvestigateToCompleted_TransitionExists', () => {
+    const hsm = getHSMDefinition('debug');
+    const transition = hsm.transitions.find(
+      (t) => t.from === 'investigate' && t.to === 'completed',
+    );
+    expect(transition).toBeDefined();
+    expect(transition!.guard).toBeDefined();
+    expect(transition!.guard!.id).toBe('fix-verified-directly');
+  });
+});
+
+// ─── Task 19: HSM Registry Extension for Custom Workflows ──────────────────
+
+describe('HSM Registry Extension', () => {
+  const CUSTOM_NAME = 'custom-deploy';
+
+  afterEach(() => {
+    try { unregisterWorkflowType(CUSTOM_NAME); } catch { /* ignore if not registered */ }
+  });
+
+  it('RegisterWorkflowType_AddsToHsmRegistry', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['init', 'build', 'deploy', 'done'],
+      initialPhase: 'init',
+      transitions: [
+        { from: 'init', to: 'build', event: 'start-build' },
+        { from: 'build', to: 'deploy', event: 'build-complete' },
+        { from: 'deploy', to: 'done', event: 'deploy-complete' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+    expect(hsm).toBeDefined();
+    expect(hsm.id).toBe(CUSTOM_NAME);
+    expect(hsm.states['init']).toBeDefined();
+    expect(hsm.states['build']).toBeDefined();
+    expect(hsm.states['deploy']).toBeDefined();
+    expect(hsm.states['done']).toBeDefined();
+  });
+
+  it('RegisterWorkflowType_ExtendsBuiltIn_InheritsTransitions', () => {
+    const featureHsm = getHSMDefinition('feature');
+    const featureTransitionCount = featureHsm.transitions.length;
+
+    const definition: WorkflowDefinition = {
+      extends: 'feature',
+      phases: ['extra-review'],
+      initialPhase: 'ideate',
+      transitions: [
+        { from: 'synthesize', to: 'extra-review', event: 'needs-extra-review' },
+        { from: 'extra-review', to: 'completed', event: 'extra-review-done' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+    expect(hsm.id).toBe(CUSTOM_NAME);
+
+    // Should have inherited states from feature
+    expect(hsm.states['ideate']).toBeDefined();
+    expect(hsm.states['plan']).toBeDefined();
+    expect(hsm.states['delegate']).toBeDefined();
+
+    // Should have the new state
+    expect(hsm.states['extra-review']).toBeDefined();
+
+    // Should have more transitions than just the custom ones (inherited + new)
+    expect(hsm.transitions.length).toBeGreaterThan(2);
+
+    // The custom transition should exist
+    const customTransition = hsm.transitions.find(
+      (t) => t.from === 'synthesize' && t.to === 'extra-review',
+    );
+    expect(customTransition).toBeDefined();
+  });
+
+  it('RegisterWorkflowType_CustomPhases_ValidTransitions', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['start', 'middle', 'end'],
+      initialPhase: 'start',
+      transitions: [
+        { from: 'start', to: 'middle', event: 'advance' },
+        { from: 'middle', to: 'end', event: 'finish' },
+      ],
+    };
+
+    registerWorkflowType(CUSTOM_NAME, definition);
+
+    const hsm = getHSMDefinition(CUSTOM_NAME);
+
+    // Execute a transition
+    const state = { phase: 'start', _events: [], _history: {} };
+    const result = executeTransition(hsm, state, 'middle');
+
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('middle');
+  });
+
+  it('RegisterWorkflowType_DuplicateName_Throws', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['a', 'b'],
+      initialPhase: 'a',
+      transitions: [{ from: 'a', to: 'b', event: 'go' }],
+    };
+
+    expect(() => registerWorkflowType('feature', definition)).toThrow(
+      'Cannot override built-in workflow type: feature',
+    );
+    expect(() => registerWorkflowType('debug', definition)).toThrow(
+      'Cannot override built-in workflow type: debug',
+    );
+    expect(() => registerWorkflowType('refactor', definition)).toThrow(
+      'Cannot override built-in workflow type: refactor',
+    );
+  });
+});
+
+describe('findTransition', () => {
+  it('FindTransition_ExistingTransition_ReturnsTransition', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'plan');
+    expect(transition).toBeDefined();
+    expect(transition!.from).toBe('ideate');
+    expect(transition!.to).toBe('plan');
+  });
+
+  it('FindTransition_NoMatch_ReturnsUndefined', () => {
+    const hsm = getHSMDefinition('feature');
+    const transition = findTransition(hsm, 'ideate', 'completed');
+    expect(transition).toBeUndefined();
+  });
+
+  it('FindTransition_CustomWorkflowWithGuard_ReturnsGuard', () => {
+    const definition: WorkflowDefinition = {
+      phases: ['build', 'deploy'],
+      initialPhase: 'build',
+      transitions: [
+        { from: 'build', to: 'deploy', event: 'build-done', guard: 'check-build' },
+      ],
+      guards: {
+        'check-build': { command: 'echo ok' },
+      },
+    };
+
+    registerWorkflowType('find-test', definition);
+    try {
+      const hsm = getHSMDefinition('find-test');
+      const transition = findTransition(hsm, 'build', 'deploy');
+      expect(transition).toBeDefined();
+      expect(transition!.guard).toBeDefined();
+      expect(transition!.guard!.id).toBe('check-build');
+    } finally {
+      unregisterWorkflowType('find-test');
+    }
   });
 });

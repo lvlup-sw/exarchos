@@ -1,11 +1,14 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 import type { CommandResult } from '../cli.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { generateHints } from '../telemetry/hints.js';
+import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
+import { writeManifestEntry, findUnextractedSessions } from '../session/manifest.js';
+import { parseTranscript } from '../session/transcript-parser.js';
+import type { SessionManifestEntry } from '../session/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +57,7 @@ export interface SessionStartResult extends CommandResult {
   readonly orphanedTeams?: ReadonlyArray<string>;
   readonly telemetryHints?: ReadonlyArray<string>;
   readonly contextDocument?: string;
-  readonly graphiteAvailable?: boolean;
+  readonly behavioralGuidance?: string;
 }
 
 // ─── Terminal Phases ────────────────────────────────────────────────────────
@@ -77,25 +80,6 @@ function isCheckpointData(value: unknown): value is CheckpointData {
     Array.isArray(obj.tasks) &&
     typeof obj.stateFile === 'string'
   );
-}
-
-// ─── Graphite CLI Detection ─────────────────────────────────────────────────
-
-/**
- * Detect whether the Graphite CLI (`gt`) is available on PATH.
- * Uses synchronous `which` for fast (~10ms) detection.
- * The `exec` parameter is injectable for testing.
- */
-export function detectGraphite(
-  exec: (cmd: string, opts?: Record<string, unknown>) => Buffer = execSync,
-): boolean {
-  try {
-    const cmd = process.platform === 'win32' ? 'where gt' : 'which gt';
-    exec(cmd, { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // ─── Checkpoint Reader ──────────────────────────────────────────────────────
@@ -373,6 +357,72 @@ export async function queryTelemetryHints(stateDir: string): Promise<string[]> {
   return hints.map((h) => `${h.tool}: ${h.hint}`);
 }
 
+// ─── Session Manifest Retry ──────────────────────────────────────────────────
+
+/**
+ * Retry extraction for sessions that were started but never had their
+ * SessionEnd hook fire successfully. Scans the manifest for entries
+ * without a corresponding `.events.jsonl` file.
+ *
+ * For each unextracted session:
+ * - If the transcript file still exists, parse it and write events
+ * - If the transcript is gone, append an orphan marker to the manifest
+ *
+ * Failures are silently caught — retries must never break session startup.
+ */
+async function retryUnextractedSessions(stateDir: string): Promise<void> {
+  const unextracted = await findUnextractedSessions(stateDir);
+  if (unextracted.length === 0) return;
+
+  const sessionsDir = path.join(stateDir, 'sessions');
+  await fs.mkdir(sessionsDir, { recursive: true });
+
+  for (const entry of unextracted) {
+    // Validate sessionId to prevent path traversal in filenames
+    if (!/^[a-zA-Z0-9_-]+$/.test(entry.sessionId)) continue;
+
+    const transcriptExists = await fs.access(entry.transcriptPath).then(() => true, () => false);
+
+    if (transcriptExists) {
+      const events = await parseTranscript(entry.transcriptPath, {
+        sessionId: entry.sessionId,
+        workflowId: entry.workflowId,
+      });
+      const eventsPath = path.join(sessionsDir, `${entry.sessionId}.events.jsonl`);
+      const eventsContent = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      await fs.writeFile(eventsPath, eventsContent, 'utf-8');
+    } else {
+      const manifestPath = path.join(sessionsDir, '.manifest.jsonl');
+      const orphanMarker = {
+        sessionId: entry.sessionId,
+        orphanedAt: new Date().toISOString(),
+        reason: 'transcript_not_found',
+      };
+      await fs.appendFile(manifestPath, JSON.stringify(orphanMarker) + '\n', 'utf-8');
+    }
+  }
+}
+
+// ─── Safety Rules Reader ─────────────────────────────────────────────────────
+
+/**
+ * Read safety rules from the plugin root's rules/ directory.
+ * Returns the content of rm-safety.md, or undefined
+ * if EXARCHOS_PLUGIN_ROOT is not set or the file doesn't exist.
+ */
+async function readSafetyRules(): Promise<string | undefined> {
+  const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+  if (!pluginRoot) return undefined;
+
+  const safetyFile = path.join(pluginRoot, 'rules', 'rm-safety.md');
+
+  try {
+    return await fs.readFile(safetyFile, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
@@ -458,29 +508,32 @@ async function enrichWithTelemetryHints(
   return { ...result, telemetryHints: hints };
 }
 
-/** Graphite CLI not-found informational message. */
-const GRAPHITE_INSTALL_MESSAGE =
-  'Graphite CLI not found. Exarchos requires Graphite for PR management.\n' +
-  'Install: https://graphite.dev/docs/install\n' +
-  'After install, restart Claude Code.';
-
 /**
- * Final enrichment: attach Graphite availability and telemetry hints.
- * When `graphiteAvailable` is false, an informational message is included
- * in the result output to guide the user toward installation.
+ * Final enrichment: attach telemetry hints.
  */
 async function enrichResult(
   result: SessionStartResult,
   stateDir: string,
-  graphiteAvailable: boolean,
 ): Promise<SessionStartResult> {
-  const withTelemetry = await enrichWithTelemetryHints(result, stateDir);
-  const enriched: SessionStartResult = { ...withTelemetry, graphiteAvailable };
-  if (!graphiteAvailable) {
-    const existingOutput = typeof enriched.output === 'string' ? enriched.output + '\n' : '';
-    return { ...enriched, output: existingOutput + GRAPHITE_INSTALL_MESSAGE };
-  }
-  return enriched;
+  return enrichWithTelemetryHints(result, stateDir);
+}
+
+// ─── Behavioral Guidance Lookup ───────────────────────────────────────────
+
+/**
+ * Look up behavioral guidance for a given workflow phase.
+ * Returns the rendered playbook string or undefined if:
+ * - The phase is terminal (completed/cancelled)
+ * - No playbook is registered for the workflow type + phase combination
+ */
+function getBehavioralGuidanceForPhase(
+  workflowType: string,
+  phase: string,
+): string | undefined {
+  if (TERMINAL_PHASES.has(phase)) return undefined;
+  const playbook = getPlaybook(workflowType, phase);
+  if (!playbook) return undefined;
+  return renderPlaybook(playbook);
 }
 
 /**
@@ -498,15 +551,17 @@ async function enrichResult(
  * that exceed optimization thresholds.
  */
 export async function handleSessionStart(
-  _stdinData: Record<string, unknown>,
+  stdinData: Record<string, unknown>,
   stateDir: string,
   teamsDir?: string,
 ): Promise<SessionStartResult> {
-  // Step 0: Detect Graphite CLI availability (fast sync check)
-  const graphiteAvailable = detectGraphite();
-
   // Step 1: Check for checkpoint files (highest priority)
   const checkpoints = await readAndDeleteCheckpoints(stateDir);
+
+  // Collect discovered workflows for manifest workflowId resolution
+  const discoveredWorkflows: WorkflowInfo[] = [];
+
+  let result: SessionStartResult;
 
   if (checkpoints.length > 0) {
     // Collect featureIds from checkpoints to exclude from state file discovery
@@ -527,6 +582,26 @@ export async function handleSessionStart(
     // Collect pre-computed context documents from checkpoint references
     const contextDocument = await collectContextDocuments(checkpoints, stateDir);
 
+    // Look up behavioral guidance for the first non-terminal checkpoint workflow
+    let behavioralGuidance: string | undefined;
+    for (const cp of checkpoints) {
+      if (TERMINAL_PHASES.has(cp.phase)) continue;
+      try {
+        const resolvedStateDir = path.resolve(stateDir);
+        const resolvedStateFile = path.resolve(cp.stateFile);
+        if (!resolvedStateFile.startsWith(resolvedStateDir + path.sep) && resolvedStateFile !== resolvedStateDir) {
+          continue;
+        }
+        const stateRaw = await fs.readFile(resolvedStateFile, 'utf-8');
+        const stateData = JSON.parse(stateRaw) as Record<string, unknown>;
+        const wfType = typeof stateData.workflowType === 'string' ? stateData.workflowType : '';
+        behavioralGuidance = getBehavioralGuidanceForPhase(wfType, cp.phase);
+        if (behavioralGuidance) break; // Only first active workflow with resolved guidance
+      } catch {
+        // Graceful fallback — try next checkpoint
+      }
+    }
+
     // Also check for active state files not covered by checkpoints
     try {
       const stateFiles = (await listStateFiles(stateDir)).valid;
@@ -545,40 +620,122 @@ export async function handleSessionStart(
       // Non-critical: if listing fails, we still have checkpoint data
     }
 
-    const baseResult: SessionStartResult = contextDocument
-      ? { workflows, contextDocument }
-      : { workflows };
+    discoveredWorkflows.push(...workflows);
+
+    const baseResult: SessionStartResult = {
+      ...(workflows.length > 0 && { workflows }),
+      ...(contextDocument && { contextDocument }),
+      ...(behavioralGuidance && { behavioralGuidance }),
+    };
 
     if (teamsDir) {
       const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
-      const merged = contextDocument ? { ...teamResult, contextDocument } : teamResult;
-      return enrichResult(merged, stateDir, graphiteAvailable);
+      const merged = {
+        ...teamResult,
+        ...(contextDocument && { contextDocument }),
+        ...(behavioralGuidance && { behavioralGuidance }),
+      };
+      result = await enrichResult(merged, stateDir);
+    } else {
+      result = await enrichResult(baseResult, stateDir);
     }
-    return enrichResult(baseResult, stateDir, graphiteAvailable);
+  } else {
+    // Step 2: No checkpoints — discover active workflows from state files
+    try {
+      const stateFiles = (await listStateFiles(stateDir)).valid;
+      const activeWorkflows = stateFiles.filter(
+        (entry) => !TERMINAL_PHASES.has(entry.state.phase),
+      );
+
+      const workflows: WorkflowInfo[] = activeWorkflows.map((entry) => ({
+        featureId: entry.featureId,
+        phase: entry.state.phase,
+        summary: `Active workflow discovered (${entry.state.workflowType})`,
+        nextAction: `WAIT:in-progress:${entry.state.phase}`,
+      }));
+
+      discoveredWorkflows.push(...workflows);
+
+      // Look up behavioral guidance for the first non-terminal workflow
+      let behavioralGuidance: string | undefined;
+      for (const entry of activeWorkflows) {
+        if (TERMINAL_PHASES.has(entry.state.phase)) continue;
+        behavioralGuidance = getBehavioralGuidanceForPhase(
+          entry.state.workflowType ?? '',
+          entry.state.phase,
+        );
+        if (behavioralGuidance) break; // Only first active workflow with resolved guidance
+      }
+
+      if (activeWorkflows.length === 0 && !teamsDir) {
+        result = await enrichResult({}, stateDir);
+      } else if (teamsDir) {
+        const teamResult = await applyNativeTeamDetection(workflows, teamsDir);
+        result = await enrichResult(
+          { ...teamResult, ...(behavioralGuidance && { behavioralGuidance }) },
+          stateDir,
+        );
+      } else if (workflows.length === 0) {
+        result = await enrichResult({}, stateDir);
+      } else {
+        result = await enrichResult(
+          { workflows, ...(behavioralGuidance && { behavioralGuidance }) },
+          stateDir,
+        );
+      }
+    } catch {
+      // If state dir doesn't exist or is unreadable, still check for orphaned teams
+      if (teamsDir) {
+        result = await enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir);
+      } else {
+        result = await enrichResult({}, stateDir);
+      }
+    }
   }
 
-  // Step 2: No checkpoints — discover active workflows from state files
+  // Step 3: Write session manifest entry (non-critical — failures must not break startup)
   try {
-    const stateFiles = (await listStateFiles(stateDir)).valid;
-    const activeWorkflows = stateFiles.filter(
-      (entry) => !TERMINAL_PHASES.has(entry.state.phase),
-    );
+    const sessionId = typeof stdinData.session_id === 'string' ? stdinData.session_id : undefined;
+    const transcriptPath = typeof stdinData.transcript_path === 'string' ? stdinData.transcript_path : undefined;
+    const cwd = typeof stdinData.cwd === 'string' ? stdinData.cwd : undefined;
+    const branch = typeof stdinData.branch === 'string' ? stdinData.branch : undefined;
 
-    if (activeWorkflows.length === 0 && !teamsDir) return enrichResult({}, stateDir, graphiteAvailable);
+    if (sessionId && transcriptPath && cwd) {
+      const workflowId = discoveredWorkflows.length > 0
+        ? discoveredWorkflows[0].featureId
+        : undefined;
 
-    const workflows: WorkflowInfo[] = activeWorkflows.map((entry) => ({
-      featureId: entry.featureId,
-      phase: entry.state.phase,
-      summary: `Active workflow discovered (${entry.state.workflowType})`,
-      nextAction: `WAIT:in-progress:${entry.state.phase}`,
-    }));
+      const manifestEntry: SessionManifestEntry = {
+        sessionId,
+        transcriptPath,
+        cwd,
+        startedAt: new Date().toISOString(),
+        ...(workflowId !== undefined && { workflowId }),
+        ...(branch !== undefined && { branch }),
+      };
 
-    if (teamsDir) return enrichResult(await applyNativeTeamDetection(workflows, teamsDir), stateDir, graphiteAvailable);
-    if (workflows.length === 0) return enrichResult({}, stateDir, graphiteAvailable);
-    return enrichResult({ workflows }, stateDir, graphiteAvailable);
+      await writeManifestEntry(stateDir, manifestEntry);
+    }
   } catch {
-    // If state dir doesn't exist or is unreadable, still check for orphaned teams
-    if (teamsDir) return enrichResult(await applyNativeTeamDetection([], teamsDir), stateDir, graphiteAvailable);
-    return enrichResult({}, stateDir, graphiteAvailable);
+    // Manifest write failure must not break session startup
   }
+
+  // Step 4: Retry extraction for unextracted sessions (non-critical)
+  try {
+    await retryUnextractedSessions(stateDir);
+  } catch {
+    // Retry failure must not break session startup
+  }
+
+  // Step 5: Inject safety rules from plugin root (L1 progressive disclosure)
+  const safetyRules = await readSafetyRules();
+  if (safetyRules) {
+    const existingContext = result.contextDocument;
+    const combinedContext = existingContext
+      ? `${existingContext}\n---\n${safetyRules}`
+      : safetyRules;
+    result = { ...result, contextDocument: combinedContext };
+  }
+
+  return result;
 }

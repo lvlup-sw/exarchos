@@ -31,14 +31,14 @@ function arbWorkflowEvent(streamId: string, sequence: number): fc.Arbitrary<Work
     source: fc.option(fc.string({ minLength: 1, maxLength: 30 }), { nil: undefined }),
     data: fc.option(
       fc.dictionary(
-        fc.string({ minLength: 1, maxLength: 20 }),
+        fc.string({ minLength: 1, maxLength: 20 }).filter((k) => k !== '__proto__'),
         fc.oneof(
           fc.string({ maxLength: 200 }),
           fc.integer(),
           fc.boolean(),
           fc.constant(null),
           fc.array(fc.oneof(fc.string(), fc.integer(), fc.boolean()), { maxLength: 5 }),
-          fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }), fc.string(), { maxKeys: 3 }),
+          fc.dictionary(fc.string({ minLength: 1, maxLength: 10 }).filter((k) => k !== '__proto__'), fc.string(), { maxKeys: 3 }),
         ),
         { maxKeys: 5 },
       ),

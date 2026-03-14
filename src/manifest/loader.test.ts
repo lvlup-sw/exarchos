@@ -292,14 +292,12 @@ describe('Real Manifest File (E5)', () => {
     const manifest = loadManifest(manifestPath);
     const required = getRequiredComponents(manifest);
     expect(required.servers).toContain('exarchos');
-    expect(required.servers).toContain('graphite');
   });
 
   it('manifest_ContainsAllPlugins', () => {
     const manifest = loadManifest(manifestPath);
     const pluginIds = manifest.components.plugins.map((p) => p.id);
     expect(pluginIds).toContain('exarchos@lvlup-sw');
-    expect(pluginIds).toContain('github@claude-plugins-official');
     expect(pluginIds).toContain('serena@claude-plugins-official');
     expect(pluginIds).toContain('context7@claude-plugins-official');
   });
@@ -314,8 +312,7 @@ describe('Real Manifest File (E5)', () => {
   it('manifest_ContainsAllRuleSets', () => {
     const manifest = loadManifest(manifestPath);
     const ruleSetIds = manifest.components.ruleSets.map((r) => r.id);
-    expect(ruleSetIds).toContain('coding-standards');
-    expect(ruleSetIds).toContain('workflow');
+    expect(ruleSetIds).toContain('safety');
   });
 
   it('manifest_RuleSetFiles_AllExist', () => {
@@ -336,16 +333,22 @@ describe('Real Manifest File (E5)', () => {
     expect(manifest.version).toBe(pkg.version);
   });
 
-  it('manifest_ExarchosMcpServer_HasCliBundlePath', () => {
+  it('manifest_ExarchosMcpServer_NoSeparateCliBundlePath', () => {
     const manifest = loadManifest(manifestPath);
     const exarchos = manifest.components.mcpServers.find((s) => s.id === 'exarchos');
     expect(exarchos).toBeDefined();
-    expect(exarchos!.cliBundlePath).toBe('dist/exarchos-cli.js');
+    expect(exarchos!.cliBundlePath).toBeUndefined();
   });
 
   it('manifest_CoreComponents_DoesNotIncludeHooks', () => {
     const manifest = loadManifest(manifestPath);
     const coreIds = manifest.components.core.map((c) => c.id);
     expect(coreIds).not.toContain('hooks');
+  });
+
+  it('loadManifest_McpServers_DoesNotContainGraphite', () => {
+    const manifest = loadManifest(manifestPath);
+    const serverIds = manifest.components.mcpServers.map((s) => s.id);
+    expect(serverIds).not.toContain('graphite');
   });
 });

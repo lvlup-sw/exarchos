@@ -8,10 +8,52 @@ How to address common issues found during shepherd assessment.
 |-----------|----------|
 | Single file, < 20 lines changed | Fix directly in the stack branch |
 | Multiple files, contained concern | Fix directly if < 5 files |
-| Cross-cutting or architectural | Delegate via `/delegate --pr-fixes [PR_URL]` |
+| Cross-cutting or architectural | Delegate via `/exarchos:delegate --pr-fixes [PR_URL]` |
 | Test changes needed | Fix directly (keep TDD cycle tight) |
 
 **Default to fixing directly** — delegation adds overhead. Only delegate when the fix scope warrants it.
+
+## Remediation Event Emission
+
+When fixing CI failures or addressing review comments that require code changes, emit remediation events to track self-correction metrics in CodeQualityView.
+
+**When a fix attempt is made** (after applying a code change for a CI failure or review finding):
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  event: {
+    type: "remediation.attempted",
+    data: {
+      taskId: "<taskId>",
+      skill: "shepherd",
+      gateName: "<failing-check-name-or-review-source>",
+      attemptNumber: <N>,
+      strategy: "direct-fix"
+    }
+  }
+})
+```
+
+**When the next iteration confirms the fix resolved the issue:**
+```
+mcp__plugin_exarchos_exarchos__exarchos_event({
+  action: "append",
+  stream: "<featureId>",
+  event: {
+    type: "remediation.succeeded",
+    data: {
+      taskId: "<taskId>",
+      skill: "shepherd",
+      gateName: "<check-name-or-review-source>",
+      totalAttempts: <N>,
+      finalStrategy: "direct-fix"
+    }
+  }
+})
+```
+
+These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in CodeQualityView. Emit `remediation.attempted` each time you push a fix, and `remediation.succeeded` when the subsequent assess cycle confirms the issue is resolved.
 
 ## CI Failures
 
@@ -24,18 +66,19 @@ How to address common issues found during shepherd assessment.
    })
    ```
 2. Checkout the failing branch:
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["checkout", "<branch-name>"] })
+   ```bash
+   git checkout <branch-name>
    ```
 3. Run the linter locally to reproduce:
    ```bash
    npm run lint    # or project-specific command
    ```
 4. Fix the issues
-5. Commit and resubmit:
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["modify", "-m", "fix: lint errors"] })
-   mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
+5. Commit and push:
+   ```bash
+   git add <fixed-files>
+   git commit --amend -m "fix: lint errors"
+   git push --force-with-lease
    ```
 
 ### Test Failures
@@ -67,7 +110,7 @@ If a test passes locally but fails in CI:
 
 ## Addressing Inline Review Comments
 
-**Every inline review comment on every PR must be addressed with a reply.** This applies to ALL sources — Sentry, Graphite, CodeRabbit, humans, and any other bot that leaves comments.
+**Every inline review comment on every PR must be addressed with a reply.** This applies to ALL sources — Sentry, CodeRabbit, humans, and any other bot that leaves comments.
 
 ### Reading Comments
 
@@ -132,26 +175,6 @@ How to handle:
 - Type mismatches (string vs. enum, array vs. object)
 - Unreachable error paths due to upstream validation
 
-### Graphite Agent Comments
-
-Graphite's `app[bot]` reviews are based on **custom org-level rules** (architectural rules, code quality standards). They focus on structural concerns rather than line-level bugs.
-
-How to handle:
-1. Read the full comment — Graphite often cites which custom rule triggered the finding
-2. Evaluate against the project's phase and scope:
-   - Is this a valid concern that should be fixed now?
-   - Is this a valid concern better addressed in a later phase?
-   - Does the code follow existing patterns in the codebase?
-3. If fixing now: apply the change, reply confirming
-4. If deferring: reply with rationale — cite existing patterns, phase boundaries, or follow-up tracking
-
-**Common Graphite findings:**
-- Dependency injection / configuration patterns
-- O(n²) or performance concerns
-- Unused parameters or dead code
-- Breaking change detection
-- PR description quality
-
 ### CodeRabbit Comments
 
 CodeRabbit leaves detailed code review suggestions with severity indicators. It re-reviews automatically on push, so code fixes may auto-resolve threads.
@@ -184,34 +207,38 @@ Human comments require the most careful handling:
 
 ## Stack Issues
 
-### Needs Restack
+### Needs Rebase
 
 When the base branch (usually `main`) has advanced:
-```
-mcp__graphite__run_gt_cmd({ args: ["restack"] })
+```bash
+git rebase origin/<base>
+git push --force-with-lease
 ```
 
-If restack has conflicts:
+If rebase has conflicts:
 1. Resolve conflicts in each affected file
 2. `git add <resolved-files>` then continue:
+   ```bash
+   git rebase --continue
    ```
-   mcp__graphite__run_gt_cmd({ args: ["continue"] })
-   ```
-3. After resolution, resubmit
+3. After resolution, push: `git push --force-with-lease`
 
 ### Wrong Base Branch
 
 If a PR targets the wrong base:
-```
-mcp__graphite__run_gt_cmd({ args: ["restack"] })
-mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
+```bash
+gh pr edit <number> --base <correct-base>
+git rebase origin/<correct-base>
+git push --force-with-lease
 ```
 
 ### Stack Reconstruction
 
 If the stack is in a broken state:
-```bash
-scripts/reconstruct-stack.sh
+```typescript
+exarchos_orchestrate({
+  action: "reconstruct_stack"
+})
 ```
 
 Then resubmit.
@@ -221,26 +248,27 @@ Then resubmit.
 When making fixes to stack branches:
 
 1. **Checkout the target branch:**
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["checkout", "<branch-name>"] })
+   ```bash
+   git checkout <branch-name>
    ```
 
 2. **Apply fixes and amend:**
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["modify", "-m", "fix: <description>"] })
-   ```
-
-3. **Restack dependent branches:**
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["restack"] })
+   ```bash
+   git add <fixed-files>
+   git commit --amend -m "fix: <description>"
    ```
 
-4. **Resubmit the full stack:**
-   ```
-   mcp__graphite__run_gt_cmd({ args: ["submit", "--no-interactive", "--publish", "--merge-when-ready"] })
+3. **Rebase dependent branches (bottom-up, onto updated parent):**
+   ```bash
+   git rebase <updated-parent-branch>
    ```
 
-**IMPORTANT:** Always resubmit with `--publish --merge-when-ready` to maintain merge queue enrollment.
+4. **Push the fixes:**
+   ```bash
+   git push --force-with-lease
+   ```
+
+**IMPORTANT:** After pushing, verify auto-merge is still enabled: `gh pr view <number> --json autoMergeRequest`.
 
 ## Responding on PRs
 
@@ -255,7 +283,7 @@ mcp__plugin_github_github__add_issue_comment({
   owner: "<owner>",
   repo: "<repo>",
   issue_number: <number>,
-  body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to Graphite DI concern...\n\nAll inline review threads have replies."
+  body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to DI concern...\n\nAll inline review threads have replies."
 })
 ```
 Fallback (if MCP token lacks write scope): `gh pr comment <number> --body "..."`

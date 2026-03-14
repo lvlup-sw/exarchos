@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { DispatchContext } from '../core/dispatch.js';
+import { EventStore } from '../event-store/store.js';
 
 // Mock the view tools module
 vi.mock('./tools.js', () => ({
@@ -10,6 +12,14 @@ vi.mock('./tools.js', () => ({
   handleViewCodeQuality: vi.fn(),
   handleViewQualityHints: vi.fn(),
   handleViewEvalResults: vi.fn(),
+  handleViewQualityCorrelation: vi.fn(),
+  handleViewSessionProvenance: vi.fn(),
+  handleViewQualityAttribution: vi.fn(),
+  handleViewDelegationReadiness: vi.fn(),
+  handleViewSynthesisReadiness: vi.fn(),
+  handleViewShepherdStatus: vi.fn(),
+  handleViewProvenance: vi.fn(),
+  handleViewIdeateReadiness: vi.fn(),
 }));
 
 // Mock the stack tools module
@@ -33,11 +43,25 @@ import {
   handleViewCodeQuality,
   handleViewQualityHints,
   handleViewEvalResults,
+  handleViewQualityCorrelation,
+  handleViewSessionProvenance,
+  handleViewQualityAttribution,
+  handleViewDelegationReadiness,
+  handleViewSynthesisReadiness,
+  handleViewShepherdStatus,
+  handleViewProvenance,
+  handleViewIdeateReadiness,
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 
 const STATE_DIR = '/tmp/test-state';
+
+function makeCtx(stateDir: string): DispatchContext {
+  return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
+}
+
+const CTX = makeCtx(STATE_DIR);
 
 describe('handleView', () => {
   beforeEach(() => {
@@ -52,13 +76,14 @@ describe('handleView', () => {
       const args = { action: 'pipeline', limit: 10, offset: 0 };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
       expect(handleViewPipeline).toHaveBeenCalledWith(
         { limit: 10, offset: 0 },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -78,7 +103,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -91,6 +116,7 @@ describe('handleView', () => {
           fields: ['taskId', 'status'],
         },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -103,13 +129,14 @@ describe('handleView', () => {
       const args = { action: 'workflow_status', workflowId: 'wf-2' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
       expect(handleViewWorkflowStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-2' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -120,7 +147,7 @@ describe('handleView', () => {
       const args = { action: 'team_status', workflowId: 'wf-3' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -141,7 +168,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -170,7 +197,7 @@ describe('handleView', () => {
       };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -198,7 +225,7 @@ describe('handleView', () => {
       const args = { action: 'telemetry', compact: true, tool: 'workflow_get' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -220,7 +247,7 @@ describe('handleView', () => {
       const args = { action: 'team_performance', workflowId: 'wf-4' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -228,6 +255,7 @@ describe('handleView', () => {
       expect(handleViewTeamPerformance).toHaveBeenCalledWith(
         { workflowId: 'wf-4' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -243,7 +271,7 @@ describe('handleView', () => {
       const args = { action: 'delegation_timeline', workflowId: 'test' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -251,6 +279,7 @@ describe('handleView', () => {
       expect(handleViewDelegationTimeline).toHaveBeenCalledWith(
         { workflowId: 'test' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -266,7 +295,7 @@ describe('handleView', () => {
       const args = { action: 'code_quality', workflowId: 'wf-5' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -274,6 +303,7 @@ describe('handleView', () => {
       expect(handleViewCodeQuality).toHaveBeenCalledWith(
         { workflowId: 'wf-5' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
@@ -292,7 +322,7 @@ describe('handleView', () => {
       const args = { action: 'quality_hints', workflowId: 'wf-6' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -300,6 +330,7 @@ describe('handleView', () => {
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-6' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -316,13 +347,14 @@ describe('handleView', () => {
       const args = { action: 'quality_hints', workflowId: 'wf-7', skill: 'target-skill' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-7', skill: 'target-skill' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -336,7 +368,7 @@ describe('handleView', () => {
       const args = { action: 'quality_hints' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -356,7 +388,7 @@ describe('handleView', () => {
       const args = { action: 'eval_results', workflowId: 'eval-wf', skill: 'delegation', limit: 5 };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result).toBe(expected);
@@ -364,17 +396,277 @@ describe('handleView', () => {
       expect(handleViewEvalResults).toHaveBeenCalledWith(
         { workflowId: 'eval-wf', skill: 'delegation', limit: 5 },
         STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('quality_correlation', () => {
+    it('HandleView_QualityCorrelation_DispatchesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: { delegation: { skill: 'delegation', gatePassRate: 0.9, evalScore: 0.85, evalTrend: 'stable', qualityTrend: 'stable', regressionCount: 0 } } },
+      };
+      vi.mocked(handleViewQualityCorrelation).mockResolvedValue(expected);
+      const args = { action: 'quality_correlation', workflowId: 'corr-wf' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
+        { workflowId: 'corr-wf' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleView_QualityCorrelation_NoWorkflowId_DelegatesWithoutIt', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: { skills: {} },
+      };
+      vi.mocked(handleViewQualityCorrelation).mockResolvedValue(expected);
+      const args = { action: 'quality_correlation' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
+        {},
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('session_provenance', () => {
+    it('exarchosView_SessionProvenance_BySession_ReturnsSessionData', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        sessionId: 'sess-1',
+        tools: { Read: 5 },
+        toolsByCategory: { native: 5, mcp_exarchos: 0, mcp_other: 0 },
+        tokens: { in: 1000, out: 500, cacheR: 200, cacheW: 100 },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance', sessionId: 'sess-1' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        { sessionId: 'sess-1' },
+        STATE_DIR,
+      );
+    });
+
+    it('exarchosView_SessionProvenance_ByWorkflow_ReturnsAggregatedData', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        workflowId: 'wf-1',
+        sessions: 3,
+        tokens: { in: 5000, out: 2500, cacheR: 1000, cacheW: 500 },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance', workflowId: 'wf-1' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        { workflowId: 'wf-1' },
+        STATE_DIR,
+      );
+    });
+
+    it('exarchosView_SessionProvenance_InvalidQuery_ReturnsError', async () => {
+      // Arrange
+      const expected = {
+        success: false,
+        error: { code: 'INVALID_QUERY', message: 'Either sessionId or workflowId is required' },
+      };
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      const args = { action: 'session_provenance' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(handleViewSessionProvenance).toHaveBeenCalledWith(
+        {},
+        STATE_DIR,
+      );
+    });
+  });
+
+  describe('delegation_readiness', () => {
+    it('HandleView_DelegationReadiness_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          ready: false,
+          blockers: ['Plan not yet approved'],
+          plan: { approved: false, taskCount: 0 },
+          quality: { queried: false, gatePassRate: 0, regressions: 0 },
+          worktrees: { expected: 0, ready: 0, failed: 0 },
+        },
+      };
+      vi.mocked(handleViewDelegationReadiness).mockResolvedValue(expected);
+      const args = { action: 'delegation_readiness', workflowId: 'wf-dr' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewDelegationReadiness).toHaveBeenCalledWith(
+        { workflowId: 'wf-dr' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('synthesis_readiness', () => {
+    it('HandleView_SynthesisReadiness_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          ready: false,
+          blockers: ['No tasks assigned'],
+          tasks: { total: 0, completed: 0, failed: 0 },
+          review: { specPassed: false, qualityPassed: false, findingsBySeverity: {} },
+          tests: { lastRunPassed: false, typecheckPassed: false, coveragePercent: 0 },
+          stack: { restacked: false, conflicts: 0 },
+        },
+      };
+      vi.mocked(handleViewSynthesisReadiness).mockResolvedValue(expected);
+      const args = { action: 'synthesis_readiness', workflowId: 'wf-sr' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewSynthesisReadiness).toHaveBeenCalledWith(
+        { workflowId: 'wf-sr' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('shepherd_status', () => {
+    it('HandleView_ShepherdStatus_RoutesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          overallStatus: 'unknown',
+          prs: [],
+          iteration: 0,
+          maxIterations: 5,
+        },
+      };
+      vi.mocked(handleViewShepherdStatus).mockResolvedValue(expected);
+      const args = { action: 'shepherd_status', workflowId: 'wf-ss' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewShepherdStatus).toHaveBeenCalledWith(
+        { workflowId: 'wf-ss' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('provenance', () => {
+    it('handleView_Provenance_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          featureId: '',
+          requirements: [],
+          coverage: 0,
+          orphanTasks: [],
+        },
+      };
+      vi.mocked(handleViewProvenance).mockResolvedValue(expected);
+      const args = { action: 'provenance', workflowId: 'test-id' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewProvenance).toHaveBeenCalledWith(
+        { workflowId: 'test-id' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+  });
+
+  describe('ideate_readiness', () => {
+    it('handleView_IdeateReadiness_DelegatesToHandler', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          ready: false,
+          designArtifactExists: false,
+          gateResult: { checked: false, passed: false, advisory: false, findings: [] },
+        },
+      };
+      vi.mocked(handleViewIdeateReadiness).mockResolvedValue(expected);
+      const args = { action: 'ideate_readiness', workflowId: 'test-id' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewIdeateReadiness).toHaveBeenCalledWith(
+        { workflowId: 'test-id' },
+        STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
 
   describe('unknown action', () => {
-    it('HandleView_UnknownAction_IncludesEvalResultsAndCodeQuality', async () => {
+    it('HandleView_UnknownAction_IncludesAllViewActions', async () => {
       // Arrange
       const args = { action: 'nonexistent' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
@@ -383,6 +675,13 @@ describe('handleView', () => {
       expect(validTargets).toContain('code_quality');
       expect(validTargets).toContain('quality_hints');
       expect(validTargets).toContain('eval_results');
+      expect(validTargets).toContain('quality_correlation');
+      expect(validTargets).toContain('session_provenance');
+      expect(validTargets).toContain('delegation_readiness');
+      expect(validTargets).toContain('synthesis_readiness');
+      expect(validTargets).toContain('shepherd_status');
+      expect(validTargets).toContain('provenance');
+      expect(validTargets).toContain('ideate_readiness');
     });
 
     it('should return error for unknown action', async () => {
@@ -390,12 +689,98 @@ describe('handleView', () => {
       const args = { action: 'nonexistent' };
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
       expect(result.error?.message).toContain('nonexistent');
+    });
+  });
+
+  describe('quality_attribution', () => {
+    it('HandleViewAttribution_ValidQuery_ReturnsAttributionResult', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          dimension: 'skill',
+          entries: [
+            { name: 'delegation', dimension: 'skill', contribution: 0.67, passRate: 0.9, executionCount: 20 },
+          ],
+          totalExecutions: 30,
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { workflowId: 'test-wf', dimension: 'skill' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleViewAttribution_InvalidDimension_ReturnsError', async () => {
+      // Arrange
+      const expected = {
+        success: false,
+        error: {
+          code: 'VIEW_ERROR',
+          message: 'Invalid attribution dimension: invalid',
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', dimension: 'invalid' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid attribution dimension');
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { dimension: 'invalid' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
+    });
+
+    it('HandleViewAttribution_WithSkillFilter_FiltersResults', async () => {
+      // Arrange
+      const expected = {
+        success: true,
+        data: {
+          dimension: 'skill',
+          entries: [
+            { name: 'delegation', dimension: 'skill', contribution: 1.0, passRate: 0.9, executionCount: 20 },
+          ],
+          totalExecutions: 20,
+        },
+      };
+      vi.mocked(handleViewQualityAttribution).mockResolvedValue(expected);
+      const args = { action: 'quality_attribution', workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' };
+
+      // Act
+      const result = await handleView(args, CTX);
+
+      // Assert
+      expect(result).toBe(expected);
+      expect(result.success).toBe(true);
+      const data = result.data as { entries: Array<{ name: string }> };
+      expect(data.entries).toHaveLength(1);
+      expect(data.entries[0].name).toBe('delegation');
+      expect(handleViewQualityAttribution).toHaveBeenCalledWith(
+        { workflowId: 'test-wf', dimension: 'skill', skill: 'delegation' },
+        STATE_DIR,
+        CTX.eventStore,
+      );
     });
   });
 
@@ -405,7 +790,7 @@ describe('handleView', () => {
       const args = {};
 
       // Act
-      const result = await handleView(args, STATE_DIR);
+      const result = await handleView(args, CTX);
 
       // Assert
       expect(result.success).toBe(false);

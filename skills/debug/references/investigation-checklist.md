@@ -90,9 +90,9 @@ For hotfix track, investigation is time-boxed:
 0:10  - Should have narrowed to general area
 0:15  - DECISION POINT
        │
-       ├─ Root cause found → Continue to fix phase
+       ├─ Root cause found → Transition to `hotfix-implement` (set track = "hotfix")
        │
-       └─ Root cause NOT found → Switch to thorough track
+       └─ Root cause NOT found → Transition to `rca` (set track = "thorough")
 ```
 
 ### 15-Minute Checkpoint Questions
@@ -102,7 +102,7 @@ At 15 minutes, ask:
 2. Do I know exactly what code to change?
 3. Am I confident the fix won't break other things?
 
-If any answer is "no" -> switch to thorough track.
+If any answer is "no" → transition to `rca` (set `track = "thorough"`).
 
 ### Switching to Thorough Track
 

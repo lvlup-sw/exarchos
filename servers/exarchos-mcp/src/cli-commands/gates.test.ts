@@ -17,6 +17,11 @@ vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
 }));
 
+// Mock the hook event sidecar writer so gates.ts calls are intercepted
+vi.mock('../event-store/hook-event-writer.js', () => ({
+  writeHookEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Wrap node:fs/promises readFile to support CAS race simulation.
 // All other functions pass through to the real implementation.
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -47,6 +52,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 import { execSync } from 'node:child_process';
+import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries, readTeamConfig, resolveTeammateFromConfig } from './gates.js';
 import type { CommandResult } from '../cli.js';
 
@@ -808,23 +814,11 @@ describe('Quality Gate Commands', () => {
       );
     }
 
-    async function readEventLines(): Promise<Record<string, unknown>[]> {
-      const eventFile = path.join(tempDir, 'event-test-workflow.events.jsonl');
-      try {
-        const content = await fsp.readFile(eventFile, 'utf-8');
-        return content
-          .trim()
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as Record<string, unknown>);
-      } catch {
-        return [];
-      }
-    }
-
     it('should emit team.task.completed event when quality checks pass', async () => {
       // Arrange
       mockExecSync.mockReturnValue(Buffer.from(''));
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
       await writeStateFile(state);
 
@@ -837,18 +831,18 @@ describe('Quality Gate Commands', () => {
       // Act
       await handleTeammateGate(input);
 
-      // Assert
-      const events = await readEventLines();
-      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
-      expect(completedEvents).toHaveLength(1);
+      // Assert — writeHookEvent should be called with team.task.completed via sidecar
+      const completedCalls = mockWrite.mock.calls.filter(
+        (call) => call[2].type === 'team.task.completed',
+      );
+      expect(completedCalls).toHaveLength(1);
 
-      const event = completedEvents[0];
-      const data = event.data as Record<string, unknown>;
-      expect(data.taskId).toBe('task-evt-001');
-      expect(data.teammateName).toBe('worker-1');
-      expect(typeof data.durationMs).toBe('number');
-      expect((data.durationMs as number)).toBeGreaterThan(0);
-      expect(data.testsPassed).toBe(true);
+      const [, , event] = completedCalls[0];
+      expect(event.data.taskId).toBe('task-evt-001');
+      expect(event.data.teammateName).toBe('worker-1');
+      expect(typeof event.data.durationMs).toBe('number');
+      expect((event.data.durationMs as number)).toBeGreaterThan(0);
+      expect(event.data.testsPassed).toBe(true);
     });
 
     it('should not emit team.task.completed event when quality checks fail', async () => {
@@ -865,6 +859,8 @@ describe('Quality Gate Commands', () => {
         return Buffer.from('');
       });
 
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
       await writeStateFile(state);
 
@@ -877,15 +873,18 @@ describe('Quality Gate Commands', () => {
       // Act
       await handleTeammateGate(input);
 
-      // Assert — no team.task.completed event should be written
-      const events = await readEventLines();
-      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
-      expect(completedEvents).toHaveLength(0);
+      // Assert — no team.task.completed event should be written via sidecar
+      const completedCalls = mockWrite.mock.calls.filter(
+        (call) => call[2].type === 'team.task.completed',
+      );
+      expect(completedCalls).toHaveLength(0);
     });
 
     it('should not emit event when no matching task for cwd', async () => {
       // Arrange — state has a worktree at a different path
       mockExecSync.mockReturnValue(Buffer.from(''));
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = createActiveState({ cwdPath: '/tmp/other-worktree' });
       await writeStateFile(state);
 
@@ -898,9 +897,8 @@ describe('Quality Gate Commands', () => {
       // Act
       const result = await handleTeammateGate(input);
 
-      // Assert — no event written, but gate still passes
-      const events = await readEventLines();
-      expect(events).toHaveLength(0);
+      // Assert — no event written via sidecar, but gate still passes
+      expect(mockWrite).not.toHaveBeenCalled();
       expect(result.continue).toBe(true);
     });
 
@@ -913,6 +911,8 @@ describe('Quality Gate Commands', () => {
         return Buffer.from('');
       });
 
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = createActiveState({ cwdPath: '/tmp/event-worktree' });
       await writeStateFile(state);
 
@@ -925,13 +925,13 @@ describe('Quality Gate Commands', () => {
       // Act
       await handleTeammateGate(input);
 
-      // Assert
-      const events = await readEventLines();
-      const completedEvents = events.filter((e) => e.type === 'team.task.completed');
-      expect(completedEvents).toHaveLength(1);
+      // Assert — writeHookEvent called with filesChanged in data via sidecar
+      const completedCalls = mockWrite.mock.calls.filter(
+        (call) => call[2].type === 'team.task.completed',
+      );
+      expect(completedCalls).toHaveLength(1);
 
-      const data = completedEvents[0].data as Record<string, unknown>;
-      const filesChanged = data.filesChanged as string[];
+      const filesChanged = completedCalls[0][2].data.filesChanged as string[];
       expect(filesChanged).toContain('src/auth/login.ts');
       expect(filesChanged).toContain('src/api/routes.ts');
     });
@@ -1144,6 +1144,8 @@ describe('Quality Gate Commands', () => {
     it('EmitTeamTaskEvent_CircuitBreakerOpened_EmitsTeamTaskFailedEvent', async () => {
       // Arrange
       makeQualityFail();
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = {
         featureId: 'circuit-event-test',
         phase: 'overhaul-delegate',
@@ -1179,24 +1181,23 @@ describe('Quality Gate Commands', () => {
       // Assert — circuit should be open
       expect(result.circuitOpen).toBe(true);
 
-      // Assert — team.task.failed event should be emitted with correct shape
-      const eventFile = path.join(tempDir, 'circuit-event-test.events.jsonl');
-      const content = await fsp.readFile(eventFile, 'utf-8');
-      const events = content.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-      const failedEvents = events.filter((e: Record<string, unknown>) => e.type === 'team.task.failed');
-      expect(failedEvents).toHaveLength(1);
+      // Assert — team.task.failed event emitted via sidecar writer
+      const failedCalls = mockWrite.mock.calls.filter(
+        (call) => call[2].type === 'team.task.failed',
+      );
+      expect(failedCalls).toHaveLength(1);
 
       // Verify shape matches TeamTaskFailedData schema
-      const data = failedEvents[0].data as Record<string, unknown>;
-      expect(typeof data.taskId).toBe('string');
-      expect(typeof data.teammateName).toBe('string');
-      expect(typeof data.failureReason).toBe('string');
-      expect(data.gateResults).toBeDefined();
-      expect(typeof data.gateResults).toBe('object');
+      const event = failedCalls[0][2];
+      expect(typeof event.data.taskId).toBe('string');
+      expect(typeof event.data.teammateName).toBe('string');
+      expect(typeof event.data.failureReason).toBe('string');
+      expect(event.data.gateResults).toBeDefined();
+      expect(typeof event.data.gateResults).toBe('object');
 
       // Verify actual values
-      expect(data.teammateName).toBe('worker-cb');
-      expect(data.failureReason).toContain('typecheck');
+      expect(event.data.teammateName).toBe('worker-cb');
+      expect(event.data.failureReason).toContain('typecheck');
     });
 
     it('should track different cwds independently', async () => {
@@ -1385,6 +1386,190 @@ describe('Quality Gate Commands', () => {
     });
   });
 
+  // ─── Sidecar Writer Migration ──────────────────────────────────────────────
+
+  describe('sidecar writer migration', () => {
+    let tempDir: string;
+    const originalEnv = process.env.WORKFLOW_STATE_DIR;
+    const mockWriteHookEvent = vi.mocked(writeHookEvent);
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-sidecar-test-'));
+      process.env.WORKFLOW_STATE_DIR = tempDir;
+      mockWriteHookEvent.mockClear();
+    });
+
+    afterEach(async () => {
+      process.env.WORKFLOW_STATE_DIR = originalEnv;
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('emitTeamTaskEvent_OnSuccess_WritesSidecarWithIdempotencyKey', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = {
+        featureId: 'sidecar-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: 'task-sc-001',
+            title: 'Sidecar test task',
+            status: 'in_progress',
+            branch: 'feat/sc',
+            startedAt: new Date(Date.now() - 5000).toISOString(),
+          },
+        ],
+        worktrees: {
+          'wt-sc-001': {
+            branch: 'feat/sc',
+            status: 'active',
+            taskId: 'task-sc-001',
+            path: '/tmp/sidecar-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'sidecar-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-sc',
+        cwd: '/tmp/sidecar-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert — writeHookEvent should be called with team.task.completed and idempotency key
+      expect(mockWriteHookEvent).toHaveBeenCalledTimes(1);
+      const [stateDir, streamId, event] = mockWriteHookEvent.mock.calls[0];
+      expect(stateDir).toBe(tempDir);
+      expect(streamId).toBe('sidecar-test');
+      expect(event.type).toBe('team.task.completed');
+      expect(event.idempotencyKey).toBe('sidecar-test:team.task.completed:task-sc-001');
+      expect(event.data.taskId).toBe('task-sc-001');
+      expect(event.data.teammateName).toBe('worker-sc');
+    });
+
+    it('emitTeamTaskEvent_OnFailure_WritesSidecarWithFailureReason', async () => {
+      // Arrange — make quality checks fail and trip the circuit breaker
+      resetQualityRetries('__all__');
+      const typecheckError = new Error('Type checking failed');
+      (typecheckError as NodeJS.ErrnoException).status = 1;
+      (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+      (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from('type error');
+
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+          throw typecheckError;
+        }
+        return Buffer.from('');
+      });
+
+      const state = {
+        featureId: 'sidecar-fail-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: 'task-scf-001',
+            title: 'Sidecar fail test task',
+            status: 'in_progress',
+            branch: 'feat/scf',
+          },
+        ],
+        worktrees: {
+          'wt-scf-001': {
+            branch: 'feat/scf',
+            status: 'active',
+            taskId: 'task-scf-001',
+            path: '/tmp/sidecar-fail-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'sidecar-fail-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-scf',
+        cwd: '/tmp/sidecar-fail-worktree',
+      };
+
+      // Act — call 3 times to trip the circuit breaker (only then does it emit team.task.failed)
+      await handleTeammateGate(input);
+      await handleTeammateGate(input);
+      await handleTeammateGate(input);
+
+      // Assert — writeHookEvent should be called with team.task.failed
+      const failCalls = mockWriteHookEvent.mock.calls.filter(
+        (call) => call[2].type === 'team.task.failed',
+      );
+      expect(failCalls).toHaveLength(1);
+
+      const [, streamId, event] = failCalls[0];
+      expect(streamId).toBe('sidecar-fail-test');
+      expect(event.type).toBe('team.task.failed');
+      expect(event.data.failureReason).toContain('typecheck');
+      // On the circuit-breaker path, taskId/featureId are not passed (no completion context),
+      // so taskId falls back to anon-{teammateName} — stable for retry dedup
+      expect(event.idempotencyKey).toContain(':team.task.failed:anon-');
+
+      // Cleanup circuit breaker state
+      resetQualityRetries('__all__');
+    });
+
+    it('emitTeamTaskEvent_IdempotencyKey_IncludesTaskIdAndStreamId', async () => {
+      // Arrange
+      mockExecSync.mockReturnValue(Buffer.from(''));
+      const state = {
+        featureId: 'idem-key-test',
+        phase: 'overhaul-delegate',
+        tasks: [
+          {
+            id: 'task-ik-42',
+            title: 'Idempotency key task',
+            status: 'in_progress',
+            branch: 'feat/ik',
+            startedAt: new Date(Date.now() - 1000).toISOString(),
+          },
+        ],
+        worktrees: {
+          'wt-ik-001': {
+            branch: 'feat/ik',
+            status: 'active',
+            taskId: 'task-ik-42',
+            path: '/tmp/idem-key-worktree',
+          },
+        },
+        _version: 1,
+      };
+      await fsp.writeFile(
+        path.join(tempDir, 'idem-key-test.state.json'),
+        JSON.stringify(state),
+      );
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TeammateIdle',
+        teammate_name: 'worker-ik',
+        cwd: '/tmp/idem-key-worktree',
+      };
+
+      // Act
+      await handleTeammateGate(input);
+
+      // Assert — idempotency key format is {streamId}:{eventType}:{taskId}
+      expect(mockWriteHookEvent).toHaveBeenCalled();
+      const [, , event] = mockWriteHookEvent.mock.calls[0];
+      expect(event.idempotencyKey).toMatch(/^idem-key-test:team\.task\.completed:task-ik-42$/);
+    });
+  });
+
   // ─── Task 004: Single-Writer Compliance ─────────────────────────────────────
 
   describe('single-writer compliance', () => {
@@ -1404,6 +1589,8 @@ describe('Quality Gate Commands', () => {
     it('should emit team.task.completed event on quality pass', async () => {
       // Arrange
       mockExecSync.mockReturnValue(Buffer.from(''));
+      const mockWrite = vi.mocked(writeHookEvent);
+      mockWrite.mockClear();
       const state = {
         featureId: 'single-writer-test',
         phase: 'overhaul-delegate',
@@ -1443,14 +1630,13 @@ describe('Quality Gate Commands', () => {
       // Assert — gate passes
       expect(result.continue).toBe(true);
 
-      // Assert — event was emitted
-      const eventFile = path.join(tempDir, 'single-writer-test.events.jsonl');
-      const content = await fsp.readFile(eventFile, 'utf-8');
-      const events = content.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-      const completedEvents = events.filter((e: Record<string, unknown>) => e.type === 'team.task.completed');
-      expect(completedEvents).toHaveLength(1);
-      expect((completedEvents[0].data as Record<string, unknown>).taskId).toBe('task-sw-001');
-      expect((completedEvents[0].data as Record<string, unknown>).teammateName).toBe('worker-sw');
+      // Assert — event was emitted via sidecar writer
+      const completedCalls = mockWrite.mock.calls.filter(
+        (call) => call[2].type === 'team.task.completed',
+      );
+      expect(completedCalls).toHaveLength(1);
+      expect(completedCalls[0][2].data.taskId).toBe('task-sw-001');
+      expect(completedCalls[0][2].data.teammateName).toBe('worker-sw');
     });
 
     it('should NOT mutate workflow state file on quality pass', async () => {

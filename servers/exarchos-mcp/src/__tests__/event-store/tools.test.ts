@@ -3,13 +3,14 @@ import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../event-store/store.js';
-import { handleEventAppend, handleEventQuery, registerEventTools, resetModuleEventStore } from '../../event-store/tools.js';
+import { handleEventAppend, handleEventQuery, registerEventTools } from '../../event-store/tools.js';
 
 let tempDir: string;
+let eventStore: EventStore;
 
 beforeEach(async () => {
-  resetModuleEventStore();
   tempDir = await mkdtemp(path.join(tmpdir(), 'event-tools-test-'));
+  eventStore = new EventStore(tempDir);
 });
 
 afterEach(async () => {
@@ -25,10 +26,11 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
         },
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
@@ -42,10 +44,12 @@ describe('handleEventAppend', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     const result = await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
@@ -56,6 +60,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       { stream: '', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(false);
@@ -66,6 +71,7 @@ describe('handleEventAppend', () => {
     const result = await handleEventAppend(
       { stream: 'my-workflow', event: {} },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(false);
@@ -76,6 +82,7 @@ describe('handleEventAppend', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
 
     // Correct expected sequence
@@ -86,6 +93,7 @@ describe('handleEventAppend', () => {
         expectedSequence: 1,
       },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data!.sequence).toBe(2);
@@ -97,12 +105,13 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
@@ -131,6 +140,7 @@ describe('handleEventAppend', () => {
         event: { type: 'workflow.started' },
       },
       tempDir,
+      eventStore,
     );
 
     expect(result.success).toBe(true);
@@ -146,16 +156,17 @@ describe('handleEventAppend', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test-feature' },
+          data: { featureId: 'test-feature', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
       },
       tempDir,
+      eventStore,
     );
 
     // Query the store to verify the full event is persisted
-    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
 
     const events = queryResult.data as Array<Record<string, unknown>>;
@@ -163,7 +174,7 @@ describe('handleEventAppend', () => {
     expect(events[0].streamId).toBe('my-workflow');
     expect(events[0].sequence).toBe(1);
     expect(events[0].type).toBe('workflow.started');
-    expect(events[0].data).toEqual({ featureId: 'test-feature' });
+    expect(events[0].data).toEqual({ featureId: 'test-feature', workflowType: 'feature' });
     expect(events[0].correlationId).toBe('corr-1');
     expect(events[0].agentId).toBe('agent-1');
   });
@@ -172,10 +183,12 @@ describe('handleEventAppend', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
 
     // Expected 1, but actual is 2
@@ -186,6 +199,7 @@ describe('handleEventAppend', () => {
         expectedSequence: 1,
       },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('SEQUENCE_CONFLICT');
@@ -199,13 +213,15 @@ describe('handleEventQuery', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
 
-    const result = await handleEventQuery({ stream: 'my-workflow' }, tempDir);
+    const result = await handleEventQuery({ stream: 'my-workflow' }, tempDir, eventStore);
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
   });
@@ -214,19 +230,23 @@ describe('handleEventQuery', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', filter: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
@@ -236,19 +256,23 @@ describe('handleEventQuery', () => {
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.started' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'task.assigned' } },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       { stream: 'my-workflow', event: { type: 'workflow.transition' } },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', filter: { sinceSequence: 2 } },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(1);
@@ -256,13 +280,13 @@ describe('handleEventQuery', () => {
   });
 
   it('should return empty for nonexistent stream', async () => {
-    const result = await handleEventQuery({ stream: 'nonexistent' }, tempDir);
+    const result = await handleEventQuery({ stream: 'nonexistent' }, tempDir, eventStore);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 
   it('should return error when stream is missing', async () => {
-    const result = await handleEventQuery({}, tempDir);
+    const result = await handleEventQuery({}, tempDir, eventStore);
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
@@ -276,12 +300,14 @@ describe('handleEventQuery Pagination', () => {
       await handleEventAppend(
         { stream: 'my-workflow', event: { type: 'task.assigned' } },
         tempDir,
+        eventStore,
       );
     }
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', limit: 2 },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
@@ -292,12 +318,14 @@ describe('handleEventQuery Pagination', () => {
       await handleEventAppend(
         { stream: 'my-workflow', event: { type: 'task.assigned' } },
         tempDir,
+        eventStore,
       );
     }
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', offset: 3 },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
@@ -308,12 +336,14 @@ describe('handleEventQuery Pagination', () => {
       await handleEventAppend(
         { stream: 'my-workflow', event: { type: 'task.assigned' } },
         tempDir,
+        eventStore,
       );
     }
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', limit: 3, offset: 2 },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(3);
@@ -329,17 +359,19 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           correlationId: 'corr-1',
           agentId: 'agent-1',
         },
       },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'sequence'] },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     const events = result.data as Record<string, unknown>[];
@@ -358,26 +390,29 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           agentId: 'agent-1',
         },
       },
       tempDir,
+      eventStore,
     );
     await handleEventAppend(
       {
         stream: 'my-workflow',
         event: {
           type: 'task.assigned',
-          data: { teamId: 'team-1' },
+          data: { taskId: 'task-1', title: 'Test task' },
         },
       },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'timestamp'] },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     const events = result.data as Record<string, unknown>[];
@@ -399,16 +434,18 @@ describe('handleEventQuery Fields Projection', () => {
         stream: 'my-workflow',
         event: {
           type: 'workflow.started',
-          data: { featureId: 'test' },
+          data: { featureId: 'test', workflowType: 'feature' },
           correlationId: 'corr-1',
         },
       },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow' },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     const events = result.data as Record<string, unknown>[];
@@ -430,11 +467,13 @@ describe('handleEventQuery Fields Projection', () => {
         event: { type: 'workflow.started' },
       },
       tempDir,
+      eventStore,
     );
 
     const result = await handleEventQuery(
       { stream: 'my-workflow', fields: ['type', 'nonexistent'] },
       tempDir,
+      eventStore,
     );
     expect(result.success).toBe(true);
     const events = result.data as Record<string, unknown>[];
@@ -462,8 +501,9 @@ describe('registerEventTools', () => {
     registerEventTools(mockServer, tempDir, store);
 
     const result = await handleEventAppend(
-      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test' } } },
+      { stream: 'wf-consolidation', event: { type: 'workflow.started', data: { featureId: 'test', workflowType: 'feature' } } },
       tempDir,
+      store,
     );
     expect(result.success).toBe(true);
 
@@ -471,23 +511,25 @@ describe('registerEventTools', () => {
     expect(events).toHaveLength(1);
   });
 
-  it('getStore should cache singleton when moduleEventStore is null', async () => {
-    // Without registration, the first call to a handler should cache a new EventStore
-    // and subsequent calls should reuse it (no orphan instances)
+  it('eventStore threaded via parameter ensures consistent store usage', async () => {
+    // EventStore is now threaded via DispatchContext — multiple calls with
+    // the same store instance should share state (no orphan instances)
     const result1 = await handleEventAppend(
-      { stream: 'wf-cache-test', event: { type: 'workflow.started', data: { featureId: 'cache1' } } },
+      { stream: 'wf-cache-test', event: { type: 'workflow.started', data: { featureId: 'cache1', workflowType: 'feature' } } },
       tempDir,
+      eventStore,
     );
     expect(result1.success).toBe(true);
 
     const result2 = await handleEventAppend(
-      { stream: 'wf-cache-test', event: { type: 'task.assigned', data: {} } },
+      { stream: 'wf-cache-test', event: { type: 'task.assigned', data: { taskId: 'task-1', title: 'Test' } } },
       tempDir,
+      eventStore,
     );
     expect(result2.success).toBe(true);
 
     // Both events should be visible via query (same store instance)
-    const queryResult = await handleEventQuery({ stream: 'wf-cache-test' }, tempDir);
+    const queryResult = await handleEventQuery({ stream: 'wf-cache-test' }, tempDir, eventStore);
     expect(queryResult.success).toBe(true);
     expect(queryResult.data).toHaveLength(2);
   });

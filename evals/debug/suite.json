@@ -1,0 +1,59 @@
+{
+  "description": "Debug skill evaluation suite",
+  "metadata": {
+    "skill": "debug",
+    "phaseAffinity": "debug",
+    "version": "1.0.0"
+  },
+  "assertions": [
+    {
+      "type": "tool-call",
+      "name": "tool-call-correctness",
+      "threshold": 1.0,
+      "config": {
+        "required": [
+          { "tool": "exarchos_workflow", "action": "init" }
+        ]
+      }
+    },
+    {
+      "type": "trace-pattern",
+      "name": "phase-transition-sequence",
+      "threshold": 0.8,
+      "config": {
+        "ordered": true
+      }
+    },
+    {
+      "type": "exact-match",
+      "name": "workflow-type-correct",
+      "threshold": 1.0,
+      "config": {
+        "fields": ["workflowType"]
+      }
+    },
+    {
+      "type": "llm-rubric",
+      "name": "root-cause-analysis-quality",
+      "threshold": 0.7,
+      "config": {
+        "rubric": "Evaluate whether the debug trace demonstrates systematic root cause analysis. Score 1 if the trace shows severity triage, evidence gathering, root cause identification, and targeted fix. Score 0 if the fix is applied without investigation or root cause is guessed without evidence.",
+        "outputPath": "investigation"
+      }
+    }
+  ],
+  "datasets": {
+    "regression": {
+      "path": "./datasets/regression.jsonl",
+      "description": "Known-good debug traces that must not regress"
+    },
+    "capability": {
+      "path": "./datasets/golden.jsonl",
+      "description": "Debug capability scenarios"
+    },
+    "capability-llm": {
+      "path": "./datasets/capability-llm.jsonl",
+      "description": "LLM-graded root cause analysis quality scenarios"
+    }
+  }
+}

@@ -1,7 +1,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
-import { PHASE_ACTION_MAP, HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { getHSMDefinition } from '../workflow/state-machine.js';
 import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from '../cli.js';
 
@@ -46,14 +47,17 @@ function computeNextAction(workflowType: string, phase: string): string {
     return `WAIT:human-checkpoint:${phase}`;
   }
 
-  // Look up phase-to-action map
-  const actionMap = PHASE_ACTION_MAP[workflowType];
-  const action = actionMap?.[phase];
-  if (action) {
-    return action;
+  // Derive from HSM transitions (first non-fix-cycle outbound transition)
+  try {
+    const hsm = getHSMDefinition(workflowType);
+    const transition = hsm.transitions.find(t => t.from === phase && !t.isFixCycle);
+    if (transition) {
+      return `AUTO:${transition.to}`;
+    }
+  } catch {
+    // Unknown workflow type — fall through
   }
 
-  // Fallback: in progress
   return `WAIT:in-progress:${phase}`;
 }
 

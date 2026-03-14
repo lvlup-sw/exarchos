@@ -1,9 +1,15 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { JudgeCalibratedDataSchema, type WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
 export const EVAL_RESULTS_VIEW = 'eval-results';
+
+// ─── Bounds ─────────────────────────────────────────────────────────────────
+
+export const MAX_EVAL_RUNS = 100;
+export const MAX_CALIBRATIONS = 50;
+export const MAX_SCORE_HISTORY = 50;
 
 // ─── View State Interfaces ─────────────────────────────────────────────────
 
@@ -37,10 +43,22 @@ export interface EvalRegression {
   readonly consecutiveFailures: number;
 }
 
+export interface CalibrationRecord {
+  readonly skill: string;
+  readonly rubricName: string;
+  readonly split: string;
+  readonly tpr: number;
+  readonly tnr: number;
+  readonly accuracy: number;
+  readonly f1: number;
+  readonly calibratedAt: string;
+}
+
 export interface EvalResultsViewState {
   readonly skills: Record<string, SkillEvalMetrics>;
   readonly runs: ReadonlyArray<EvalRunRecord>;
   readonly regressions: ReadonlyArray<EvalRegression>;
+  readonly calibrations: ReadonlyArray<CalibrationRecord>;
 }
 
 // ─── Internal Tracking State ───────────────────────────────────────────────
@@ -150,7 +168,10 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
 
   // Update score history for trend calculation
   const prevScoreHistory = state._scoreHistory[suiteId] ?? { scores: [] };
-  const updatedScores = [...prevScoreHistory.scores, avgScore];
+  let updatedScores = [...prevScoreHistory.scores, avgScore];
+  if (updatedScores.length > MAX_SCORE_HISTORY) {
+    updatedScores = updatedScores.slice(updatedScores.length - MAX_SCORE_HISTORY);
+  }
   const trend = calculateTrend(updatedScores);
 
   // Count regressions for this skill
@@ -175,10 +196,15 @@ function handleEvalRunCompleted(state: InternalState, event: WorkflowEvent): Eva
     capabilityPassRate,
   };
 
+  let updatedRuns = [...state.runs, newRun];
+  if (updatedRuns.length > MAX_EVAL_RUNS) {
+    updatedRuns = updatedRuns.slice(updatedRuns.length - MAX_EVAL_RUNS);
+  }
+
   return fromInternal({
     ...state,
     skills: { ...state.skills, [suiteId]: updatedSkill },
-    runs: [...state.runs, newRun],
+    runs: updatedRuns,
     _scoreHistory: { ...state._scoreHistory, [suiteId]: { scores: updatedScores } },
   });
 }
@@ -264,6 +290,33 @@ function handleEvalCaseCompleted(state: InternalState, event: WorkflowEvent): Ev
   });
 }
 
+function handleJudgeCalibrated(state: InternalState, event: WorkflowEvent): EvalResultsViewState {
+  const parsed = JudgeCalibratedDataSchema.safeParse(event.data);
+  if (!parsed.success) return fromInternal(state);
+  const data = parsed.data;
+
+  const record: CalibrationRecord = {
+    skill: data.skill,
+    rubricName: data.rubricName,
+    split: data.split,
+    tpr: data.tpr,
+    tnr: data.tnr,
+    accuracy: data.accuracy,
+    f1: data.f1,
+    calibratedAt: event.timestamp,
+  };
+
+  let updatedCalibrations = [...state.calibrations, record];
+  if (updatedCalibrations.length > MAX_CALIBRATIONS) {
+    updatedCalibrations = updatedCalibrations.slice(updatedCalibrations.length - MAX_CALIBRATIONS);
+  }
+
+  return fromInternal({
+    ...state,
+    calibrations: updatedCalibrations,
+  });
+}
+
 // ─── Projection ────────────────────────────────────────────────────────────
 
 export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
@@ -271,6 +324,7 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
     skills: {},
     runs: [],
     regressions: [],
+    calibrations: [],
   }),
 
   apply: (view: EvalResultsViewState, event: WorkflowEvent): EvalResultsViewState => {
@@ -285,6 +339,12 @@ export const evalResultsProjection: ViewProjection<EvalResultsViewState> = {
         if (!event.data) return view;
         const state = toInternal(view);
         return handleEvalCaseCompleted(state, event);
+      }
+
+      case 'eval.judge.calibrated': {
+        if (!event.data) return view;
+        const state = toInternal(view);
+        return handleJudgeCalibrated(state, event);
       }
 
       default:

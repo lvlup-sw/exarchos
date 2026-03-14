@@ -46,14 +46,20 @@ name: explore-checklist
 
 Run the scope assessment script for a deterministic track recommendation:
 
-```bash
-bash scripts/assess-refactor-scope.sh --files <file1,file2,...>
-# or
-bash scripts/assess-refactor-scope.sh --state-file <path>
+```typescript
+exarchos_orchestrate({
+  action: "assess_refactor_scope",
+  files: ["<file1>", "<file2>", "..."]
+})
+// or
+exarchos_orchestrate({
+  action: "assess_refactor_scope",
+  stateFile: "<path>"
+})
 ```
 
-**On Exit 0:** Polish recommended — scope is contained (<=5 files, single module).
-**On Exit 1:** Overhaul recommended — scope exceeds polish limits (>5 files or cross-module).
+**On `passed: true`:** Polish recommended — scope is contained (<=5 files, single module).
+**On `passed: false`:** Overhaul recommended — scope exceeds polish limits (>5 files or cross-module).
 
 ## Output
 
