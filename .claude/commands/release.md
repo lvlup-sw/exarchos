@@ -78,6 +78,8 @@ Read `~/.claude/plugins/installed_plugins.json` and update the `exarchos@lvlup-s
 
 **Claude Code resolves the plugin version from the marketplace clone, not just `installed_plugins.json`.** If this falls behind, Claude Code loads the old version.
 
+The marketplace is at `lvlup-sw/.github` (not the exarchos repo itself):
+
 ```bash
 cd ~/.claude/plugins/marketplaces/lvlup-sw && git fetch origin main && git reset --hard origin/main
 ```
@@ -85,7 +87,7 @@ cd ~/.claude/plugins/marketplaces/lvlup-sw && git fetch origin main && git reset
 **Verify the marketplace clone version matches:**
 
 ```bash
-grep '"version"' ~/.claude/plugins/marketplaces/lvlup-sw/package.json
+jq '.plugins[] | select(.name=="exarchos") | .version' ~/.claude/plugins/marketplaces/lvlup-sw/claude-plugins/marketplace.json
 # Must show $VERSION
 ```
 
