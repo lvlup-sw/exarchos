@@ -47,7 +47,7 @@ Each check has: ID, pattern, what it detects, severity, and false-positive guida
 ## DIM-3: Contracts
 
 ### T-3.1: Unsafe type assertions
-- **Pattern:** `\bas\s+\w+` (excluding `as const`)
+- **Pattern:** `\bas\s+(?!const\b)\w+`
 - **Severity:** MEDIUM
 - **Detects:** Type assertions that bypass TypeScript's type checking
 - **False positives:** Assertions after validated guards (e.g., `as Foo` after `instanceof Foo` check)

@@ -56,7 +56,7 @@ Execute `assay:scan` targeting Architecture and Topology dimensions specifically
 
 - Collects measurable signals: file sizes, parameter counts, import depth, circular references
 - Establishes a baseline of deterministic findings before qualitative assessment
-- Each automated finding is tagged with `provenance: "automated"`
+- Each automated finding sets `skill: "scan"` and `deterministic: true`
 
 ### Step 3: Layer Qualitative Assessment
 
@@ -113,8 +113,8 @@ Detect import cycles between modules:
 
 Format all findings per `@skills/backend-quality/references/findings-format.md`:
 
-- Each finding includes: dimension, severity, file, evidence, root cause, suggested fix
-- Findings tagged with provenance (`automated` from scan, `qualitative` from agent assessment)
+- Each finding includes: dimension, severity, title, evidence, explanation, suggestion (optional), skill, deterministic
+- Scan findings use `deterministic: true`; qualitative findings use `deterministic: false`
 - Grouped by dimension (Architecture, then Topology), sorted by severity within each group
 - Include an executive summary with finding counts by severity
 

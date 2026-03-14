@@ -40,7 +40,7 @@ When `scan` and a qualitative skill both flag the same issue, merge them. The de
 
 After deduplication, compute the coverage matrix:
 
-```
+```text
 For each dimension (DIM-1 through DIM-7):
   - deterministic_checks: count of scan checks run for this dimension
   - qualitative_assessed: was a specialized skill invoked for this dimension?

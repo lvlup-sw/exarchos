@@ -9,9 +9,11 @@ const INVOKABLE_SKILLS = ['audit', 'critique', 'harden', 'distill', 'verify', 's
 const ALL_SKILLS = ['backend-quality', ...INVOKABLE_SKILLS];
 
 function parseFrontmatter(content: string): Record<string, unknown> | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
-  return parseYaml(match[1]) as Record<string, unknown>;
+  const parsed = parseYaml(match[1]);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
 }
 
 function readSkill(name: string): string {
@@ -38,12 +40,12 @@ describe('Skill Frontmatter', () => {
     expect(desc.length, `${skill} description is ${desc.length} chars`).toBeLessThanOrEqual(1024);
   });
 
-  it.each(INVOKABLE_SKILLS)('AllInvokableSkills_Frontmatter_HasTriggers — %s', (skill) => {
+  it.each(INVOKABLE_SKILLS)('InvokableSkills_Body_HasTriggerDocumentation — %s', (skill) => {
     const content = readSkill(skill);
     const fm = parseFrontmatter(content);
     expect(fm).not.toBeNull();
     const desc = fm!.description as string;
-    // Triggers should be mentioned in description or body
+    // Triggers should be documented in the description or in a Triggers section
     const hasTriggerKeywords = /trigger|use when|run when|invoke when/i.test(desc) ||
       /## Triggers/i.test(content);
     expect(hasTriggerKeywords, `${skill} has no trigger documentation`).toBe(true);

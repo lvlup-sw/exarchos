@@ -9,9 +9,11 @@ const ALL_DIMENSIONS = ['topology', 'observability', 'contracts', 'test-fidelity
 const INVOKABLE_SKILLS = ['audit', 'critique', 'harden', 'distill', 'verify', 'scan'];
 
 function parseFrontmatter(content: string): Record<string, unknown> | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
-  return parseYaml(match[1]) as Record<string, unknown>;
+  const parsed = parseYaml(match[1]);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
 }
 
 describe('Dimension Coverage', () => {

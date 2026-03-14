@@ -4,7 +4,7 @@ How the exarchos quality review phase delegates general backend quality checks t
 
 ## Architecture
 
-```
+```text
 /exarchos:review (quality-review stage)
     │
     ├── Invoke assay:audit (general backend quality)

@@ -257,7 +257,7 @@ A layered architecture organizes code into horizontal layers with strict depende
   |  Infrastructure   |  (database, file system, external APIs)
   +-------------------+
 
-  Rule: each layer may only depend on layers closer to the core (inward).
+  Rule: each layer may only depend on the same layer or layers closer to the core (inward).
   Domain (core) NEVER imports from Infrastructure, Application, or Presentation.
 ```
 
@@ -274,8 +274,8 @@ A layered architecture organizes code into horizontal layers with strict depende
 
 1. **Establish layer boundaries:** Map directories to layers (e.g., `src/domain/`, `src/infra/`, `src/app/`)
 2. **Build import graph with layer annotations:** Tag each module with its layer
-3. **Check direction:** For each import, verify the importing module's layer is above (or equal to) the imported module's layer
-4. **Flag violations:** Any import going "upward" (from a lower layer to a higher layer) is a violation
+3. **Check direction:** For each import, verify the importing module's layer is the same or closer to the periphery than the imported module's layer
+4. **Flag violations:** Any import pointing outward (from a core layer to a peripheral layer) is a violation
 
 ---
 
