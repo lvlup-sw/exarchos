@@ -42,10 +42,17 @@ describe('Core Plugin Structure', () => {
       const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
       expect(marketplace.name).toBe('lvlup-sw');
       expect(marketplace.owner.name).toBe('Levelup Software');
-      expect(marketplace.plugins).toHaveLength(1);
-      expect(marketplace.plugins[0].name).toBe('exarchos');
-      expect(marketplace.plugins[0].version).toBe(pkgVersion);
-      expect(marketplace.plugins[0].category).toBe('productivity');
+      expect(marketplace.plugins.length).toBeGreaterThanOrEqual(1);
+      const exarchos = marketplace.plugins.find((p: { name: string }) => p.name === 'exarchos');
+      expect(exarchos).toBeDefined();
+      expect(exarchos.version).toBe(pkgVersion);
+      expect(exarchos.category).toBe('productivity');
+      for (const plugin of marketplace.plugins) {
+        expect(plugin).toHaveProperty('name');
+        expect(plugin).toHaveProperty('source');
+        expect(plugin).toHaveProperty('description');
+        expect(plugin).toHaveProperty('category');
+      }
     });
   });
 
