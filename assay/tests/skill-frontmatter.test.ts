@@ -36,6 +36,7 @@ describe('Skill Frontmatter', () => {
     const content = readSkill(skill);
     const fm = parseFrontmatter(content);
     expect(fm).not.toBeNull();
+    expect(typeof fm!.description, `${skill} description must be a string`).toBe('string');
     const desc = fm!.description as string;
     expect(desc.length, `${skill} description is ${desc.length} chars`).toBeLessThanOrEqual(1024);
   });
@@ -44,6 +45,7 @@ describe('Skill Frontmatter', () => {
     const content = readSkill(skill);
     const fm = parseFrontmatter(content);
     expect(fm).not.toBeNull();
+    expect(typeof fm!.description, `${skill} description must be a string`).toBe('string');
     const desc = fm!.description as string;
     // Triggers should be documented in the description or in a Triggers section
     const hasTriggerKeywords = /trigger|use when|run when|invoke when/i.test(desc) ||

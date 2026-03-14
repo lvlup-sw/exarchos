@@ -284,7 +284,7 @@ A layered architecture organizes code into horizontal layers with strict depende
 ### When to Use Interfaces vs Direct Dependencies
 
 **Use an interface (abstraction boundary) when:**
-- The dependency crosses an architectural layer (domain -> infrastructure)
+- The dependency crosses an architectural layer boundary (e.g., application -> infrastructure)
 - You need to swap implementations (testing, multi-environment, migration)
 - The dependency is volatile (external API, third-party library likely to change)
 - Multiple implementations exist or are planned (e.g., FileStorage: local, S3, GCS)
