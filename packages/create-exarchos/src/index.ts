@@ -75,7 +75,9 @@ export async function run(argv: string[]): Promise<void> {
       default: detected ?? undefined,
     });
 
-    const companionChoices = buildCompanionChoices(env);
+    const excludeSet = new Set(args.companions.exclude);
+    const companionChoices = buildCompanionChoices(env)
+      .filter(c => !excludeSet.has(c.value));
     if (companionChoices.length > 0) {
       selectedCompanionIds = await checkbox({
         message: 'Add companions:',

@@ -22,7 +22,7 @@ We want a single "paved path" entry point that installs Exarchos and lets the us
 |---------|-------------|--------|
 | `@lvlup-sw/exarchos` | Core plugin + MCP server + CLI | Ships as-is |
 | `@lvlup-sw/exarchos-dev` | Installs Serena, Context7, Microsoft Learn | Being deprecated |
-| axiom | Backend quality plugin (DIM-1 through DIM-7) | Separate marketplace plugin |
+| axiom | Backend quality plugin (8 dimensions incl. prose quality) | Separate marketplace plugin |
 | impeccable | Frontend design quality plugin | Separate marketplace plugin, `npx skills add` |
 
 ### What we want

@@ -20,15 +20,7 @@ describe('Environment Detection', () => {
     vi.resetAllMocks();
   });
 
-  it('detectEnvironment_ClaudeDirAndClaudeOnPath_ReturnsClaudeCode', () => {
-    vi.mocked(existsSync).mockImplementation((p) =>
-      typeof p === 'string' && p.includes('.claude')
-    );
-
-    expect(detectEnvironment()).toBe('claude-code');
-  });
-
-  it('detectEnvironment_ClaudeDirOnly_ReturnsClaudeCode', () => {
+  it('detectEnvironment_ClaudeDirPresent_ReturnsClaudeCode', () => {
     vi.mocked(existsSync).mockImplementation((p) =>
       typeof p === 'string' && p.includes('.claude')
     );
