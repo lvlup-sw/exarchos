@@ -1,0 +1,5 @@
+{
+  "title": "Herding Cats",
+  "timeLimit": 2,
+  "tags": ["matching", "constraint-satisfaction", "greedy"]
+}
