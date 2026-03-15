@@ -58,6 +58,11 @@ export function computeVerdict(sampleResults: SampleResult[]): Verdict {
     return 'tle';
   }
 
+  // Preserve RTE verdict when all samples are runtime errors
+  if (verdicts.every((v) => v === 'rte')) {
+    return 'rte';
+  }
+
   return 'fail';
 }
 

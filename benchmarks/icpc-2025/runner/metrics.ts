@@ -44,7 +44,8 @@ export class MetricsCollector {
 
   /** Produce final metrics object. */
   toMetrics(solutionCode?: string): Metrics {
-    const wallClockMs = this.endTime - this.startTime;
+    const effectiveEndTime = this.endTime || performance.now();
+    const wallClockMs = effectiveEndTime - this.startTime;
     return {
       totalTokens: this.inputTokens + this.outputTokens,
       inputTokens: this.inputTokens,

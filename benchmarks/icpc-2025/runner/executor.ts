@@ -79,6 +79,7 @@ function findSolutionFile(outputDir: string, language: string): string | undefin
     cpp: '.cpp',
     c: '.c',
     python: '.py',
+    typescript: '.ts',
     java: '.java',
     rust: '.rs',
   };
@@ -129,6 +130,12 @@ export async function spawnSession(
         (child as ChildProcess).kill('SIGTERM');
       }
     }, config.sessionTimeout * 1000);
+
+    if (child.stdout) {
+      child.stdout.on('data', () => {
+        // Drain stdout to prevent pipe buffer overflow blocking the child process
+      });
+    }
 
     if (child.stderr) {
       child.stderr.on('data', (chunk: Buffer) => {

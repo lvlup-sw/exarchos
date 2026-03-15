@@ -99,6 +99,8 @@ export class RunStateManager {
     if (!existsSync(this.resultsDir)) {
       mkdirSync(this.resultsDir, { recursive: true });
     }
-    writeFileSync(this.partialPath, JSON.stringify(this.progress, null, 2), 'utf-8');
+    const tmpPath = `${this.partialPath}.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(this.progress, null, 2), 'utf-8');
+    renameSync(tmpPath, this.partialPath);
   }
 }

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { loadArm, buildPrompt } from './arms.js';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ProblemDefinition } from './types.js';
 
-const ARMS_DIR = join(import.meta.dirname, '..', 'arms');
+const ARMS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'arms');
 
 const sampleProblem: ProblemDefinition = {
   id: 'test-problem',

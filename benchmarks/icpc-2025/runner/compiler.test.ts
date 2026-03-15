@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { detectLanguage, compile, execute, runSolution } from './compiler.js';
 
-const TEST_DIR = join(import.meta.dirname, '.test-fixtures');
+const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-fixtures');
 
 function hasGpp(): boolean {
   try {
