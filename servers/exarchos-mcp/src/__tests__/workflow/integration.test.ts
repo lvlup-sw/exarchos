@@ -202,11 +202,14 @@ describe('Integration', () => {
       expect(toReview.success).toBe(true);
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
 
-      // review -> synthesize: requires all reviews passed (reviews is z.record -- schema field)
+      // review -> synthesize: requires all reviews passed with required dimensions
       await handleSet(
         {
           featureId: 'full-saga',
-          updates: { 'reviews.quality': { passed: true, reviewer: 'bot' } },
+          updates: {
+            'reviews.spec-compliance': { status: 'pass', reviewer: 'bot' },
+            'reviews.code-quality': { status: 'pass', reviewer: 'bot' },
+          },
         },
         stateDir,
         eventStore,

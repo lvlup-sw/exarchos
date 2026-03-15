@@ -52,6 +52,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
+        '**Project type:** Node.js',
         '',
         '- **PASS**: Lint',
         '- **PASS**: Typecheck',
@@ -63,6 +64,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       ].join('\n'),
       passCount: 2,
       failCount: 0,
+      projectType: 'Node.js',
     });
   });
 
@@ -76,6 +78,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
+        '**Project type:** Node.js',
         '',
         '- **FAIL**: Lint — Lint errors found',
         '- **PASS**: Typecheck',
@@ -87,6 +90,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       ].join('\n'),
       passCount: 1,
       failCount: 1,
+      projectType: 'Node.js',
     });
   });
 
@@ -101,6 +105,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
+        '**Project type:** Node.js',
         '',
         '- **SKIP**: Lint — --skip-lint',
         '- **PASS**: Typecheck',
@@ -112,6 +117,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       ].join('\n'),
       passCount: 1,
       failCount: 0,
+      projectType: 'Node.js',
     });
   });
 
@@ -126,6 +132,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
+        '**Project type:** Node.js',
         '',
         '- **PASS**: Lint',
         '- **SKIP**: Typecheck — --skip-typecheck',
@@ -137,6 +144,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       ].join('\n'),
       passCount: 1,
       failCount: 0,
+      projectType: 'Node.js',
     });
   });
 
@@ -177,6 +185,7 @@ describe('quality-check path', () => {
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
+        '**Project type:** Node.js',
         '',
         '- **PASS**: Lint',
         '- **PASS**: Typecheck',
@@ -188,6 +197,7 @@ describe('quality-check path', () => {
       ].join('\n'),
       passCount: 3,
       failCount: 0,
+      projectType: 'Node.js',
     });
   });
 });

@@ -480,4 +480,75 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('state.reviews is missing');
   });
+
+  it('SynthesisReadyGuard_MissingRequiredDimensions_ReturnsFailed', () => {
+    // Agent sets only one review but two are required
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-compliance': { status: 'pass' },
+      },
+      _requiredReviews: ['spec-compliance', 'code-quality'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('Missing required review dimensions');
+    expect(failure.reason).toContain('code-quality');
+    expect(failure.expectedShape).toBeDefined();
+    expect(failure.suggestedFix).toBeDefined();
+  });
+
+  it('SynthesisReadyGuard_AllRequiredDimensionsPresent_Passes', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-compliance': { status: 'pass' },
+        'code-quality': { status: 'approved' },
+      },
+      _requiredReviews: ['spec-compliance', 'code-quality'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_RequiredDimensionPresentButFailed_ReturnsFailed', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-compliance': { status: 'pass' },
+        'code-quality': { status: 'fail' },
+      },
+      _requiredReviews: ['spec-compliance', 'code-quality'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('Reviews not passed');
+    expect(failure.reason).toContain('code-quality');
+  });
+
+  it('SynthesisReadyGuard_NoRequiredReviewsConfigured_FallsBackToExistingBehavior', () => {
+    // Without _requiredReviews, any passing reviews should satisfy the guard
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'arbitrary-review': { status: 'pass' },
+      },
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
 });

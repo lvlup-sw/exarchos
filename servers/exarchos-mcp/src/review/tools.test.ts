@@ -250,7 +250,9 @@ describe('orchestrate review_triage action', () => {
     };
 
     const { EventStore } = await import('../event-store/store.js');
-    const result = await handleOrchestrate(args as Record<string, unknown>, { stateDir: tmpDir, eventStore: new EventStore(tmpDir), enableTelemetry: false });
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+    const result = await handleOrchestrate(args as Record<string, unknown>, { stateDir: tmpDir, eventStore, enableTelemetry: false });
 
     expect(result.success).toBe(true);
     const data = result.data as {

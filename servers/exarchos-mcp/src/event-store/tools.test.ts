@@ -64,6 +64,92 @@ describe('handleEventAppend data validation', () => {
   });
 });
 
+// ─── Misplaced Event Fields Detection ────────────────────────────────────────
+
+describe('handleEventAppend misplaced fields', () => {
+  it('rejects event with type-specific fields at top level', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'misplaced-test',
+        event: {
+          type: 'gate.executed',
+          gateName: 'static-analysis',
+          layer: 'D2',
+          passed: true,
+          details: { reason: 'builds clean' },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('VALIDATION_ERROR');
+    expect(result.error!.message).toContain('should be inside "data"');
+    expect(result.error!.message).toContain('gateName');
+  });
+
+  it('accepts event with fields correctly inside data envelope', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'correct-test',
+        event: {
+          type: 'gate.executed',
+          data: {
+            gateName: 'static-analysis',
+            layer: 'D2',
+            passed: true,
+            details: { reason: 'builds clean' },
+          },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('allows unknown top-level fields for events without data schema', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'unknown-test',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test', workflowType: 'feature' },
+          correlationId: 'corr-123',
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('handleBatchAppend misplaced fields', () => {
+  it('rejects batch with misplaced fields in any event', async () => {
+    const result = await handleBatchAppend(
+      {
+        stream: 'batch-misplaced',
+        events: [
+          { type: 'task.assigned', data: { taskId: 't1' } },
+          { type: 'gate.executed', gateName: 'lint', layer: 'D2', passed: true },
+        ],
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe('VALIDATION_ERROR');
+    expect(result.error!.message).toContain('events[1]');
+    expect(result.error!.message).toContain('gateName');
+  });
+});
+
 // ─── Prototype Pollution Prevention ─────────────────────────────────────────
 
 describe('handleEventQuery field projection', () => {

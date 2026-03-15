@@ -66,6 +66,7 @@ const PhaseConfig = z.object({
 const WorkflowConfig = z.object({
   'skip-phases': z.array(z.string()).optional(),
   'max-fix-cycles': z.number().int().min(1).max(10).optional(),
+  'required-reviews': z.array(z.string().min(1)).optional(),
   phases: z.record(z.string(), PhaseConfig).optional(),
 }).strict();
 

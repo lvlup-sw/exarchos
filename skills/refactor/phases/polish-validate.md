@@ -143,7 +143,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 action: "set", featureId: "refactor-<slug>", updates: {
   "validation.testsPass": false,
   "validation.failureReason": "<reason>"
-}, phase: "implement"
+}, phase: "polish-implement"
 ```
 
 ## Pass/Fail Handling

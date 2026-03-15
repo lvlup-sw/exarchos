@@ -415,7 +415,7 @@ export async function handleSet(
   input: SetInput,
   stateDir: string,
   eventStore: EventStore | null,
-  options?: { skipPhases?: readonly string[] },
+  options?: { skipPhases?: readonly string[]; requiredReviews?: readonly string[] },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -459,6 +459,28 @@ export async function handleSet(
 
       for (const [dotPath, value] of Object.entries(input.updates)) {
         applyDotPath(mutableState, dotPath, value);
+      }
+    }
+
+    // ─── Inject required reviews for guard evaluation ──────────────────
+    // The allReviewsPassed guard reads _requiredReviews to enforce that
+    // specific review dimensions exist (not just that present reviews pass).
+    // Explicit config overrides workflow-type defaults.
+    if (input.phase) {
+      if (options?.requiredReviews?.length) {
+        // Explicit config: use as-is
+        mutableState._requiredReviews = options.requiredReviews;
+      } else {
+        // Workflow-type-aware defaults: feature workflows require both
+        // review stages per the documented two-stage review process
+        const workflowType = state.workflowType as string;
+        const defaults: Record<string, readonly string[]> = {
+          feature: ['spec-compliance', 'code-quality'],
+        };
+        const typeDefaults = defaults[workflowType];
+        if (typeDefaults?.length) {
+          mutableState._requiredReviews = typeDefaults;
+        }
       }
     }
 
