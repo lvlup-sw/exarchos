@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
+import { handleInit, handleGet, handleSet, handleReconcileState, handleCheckpoint } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleDescribe } from '../describe/handler.js';
@@ -26,11 +26,17 @@ export async function handleWorkflow(
       return handleGet(rest as Parameters<typeof handleGet>[0], stateDir, eventStore);
     case 'set': {
       const skipPhases = ctx.projectConfig?.workflow.skipPhases;
+      const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
+      const setOptions: Record<string, unknown> = {};
+      if (skipPhases?.length) setOptions.skipPhases = skipPhases;
+      if (requiredReviews?.length) setOptions.requiredReviews = requiredReviews;
       return handleSet(
         rest as Parameters<typeof handleSet>[0],
         stateDir,
         eventStore,
-        skipPhases?.length ? { skipPhases } : undefined,
+        Object.keys(setOptions).length > 0
+          ? setOptions as { skipPhases?: readonly string[]; requiredReviews?: readonly string[] }
+          : undefined,
       );
     }
     case 'cancel':
@@ -39,6 +45,8 @@ export async function handleWorkflow(
       return handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir, eventStore);
     case 'reconcile':
       return handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore);
+    case 'checkpoint':
+      return handleCheckpoint(rest as Parameters<typeof handleCheckpoint>[0], stateDir, eventStore);
     case 'describe':
       return handleDescribe(
         rest as { actions?: string[]; topology?: string; playbook?: string; config?: boolean },
@@ -50,7 +58,7 @@ export async function handleWorkflow(
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, describe`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, checkpoint, describe`,
         },
       };
   }

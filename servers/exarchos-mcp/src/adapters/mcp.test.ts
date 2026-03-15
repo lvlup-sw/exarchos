@@ -22,6 +22,7 @@ describe('createMcpServer', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-adapter-test-'));
     const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
     ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
   });
 

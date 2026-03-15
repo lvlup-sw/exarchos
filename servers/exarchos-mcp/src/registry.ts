@@ -397,6 +397,19 @@ const workflowActions: readonly ToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
   },
+  {
+    name: 'checkpoint',
+    description: 'Create an explicit checkpoint, resetting the operation counter. Persists checkpoint metadata to workflow state and emits workflow.checkpoint event',
+    schema: z.object({
+      featureId: featureIdSchema,
+      summary: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'workflow.checkpoint', condition: 'always' },
+    ],
+  },
   makeWorkflowDescribeAction(),
 ];
 
@@ -1251,10 +1264,10 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, and reconcile workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, and reconcile workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint',
   },
   {
     name: 'exarchos_event',

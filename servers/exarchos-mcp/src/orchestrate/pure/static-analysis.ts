@@ -41,7 +41,7 @@ export type RunCommandFn = (
 ) => CommandResult;
 
 export interface StaticAnalysisInput {
-  /** Repository root containing package.json. */
+  /** Repository root to analyze. */
   readonly repoRoot: string;
   /** Skip lint check. */
   readonly skipLint?: boolean;
@@ -62,6 +62,8 @@ export interface StaticAnalysisResult {
   readonly passCount: number;
   /** Number of checks that failed. */
   readonly failCount: number;
+  /** Detected project type (undefined if no recognized project). */
+  readonly projectType?: string;
 }
 
 // ============================================================
@@ -143,6 +145,127 @@ function runNpmCheck(
 }
 
 // ============================================================
+// PROJECT TYPE DETECTION
+// ============================================================
+
+type ProjectType = 'Node.js' | '.NET' | 'Rust' | 'Go';
+
+/**
+ * Detect project type from files present in the repository root.
+ * Returns undefined if no recognized project type is found.
+ */
+function detectProjectType(repoRoot: string): ProjectType | undefined {
+  if (fs.existsSync(path.join(repoRoot, 'package.json'))) {
+    return 'Node.js';
+  }
+
+  try {
+    const entries = fs.readdirSync(repoRoot);
+    if (entries.some((e) => String(e).endsWith('.csproj') || String(e).endsWith('.sln'))) {
+      return '.NET';
+    }
+  } catch {
+    // readdirSync failure — fall through
+  }
+
+  if (fs.existsSync(path.join(repoRoot, 'go.mod'))) {
+    return 'Go';
+  }
+
+  if (fs.existsSync(path.join(repoRoot, 'Cargo.toml'))) {
+    return 'Rust';
+  }
+
+  return undefined;
+}
+
+// ============================================================
+// GENERIC CHECK RUNNER
+// ============================================================
+
+function runGenericCheck(
+  name: string,
+  cmd: string,
+  args: readonly string[],
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skip: boolean,
+): CheckResult {
+  if (skip) {
+    return { name, status: 'SKIP', detail: 'skipped by flag' };
+  }
+
+  try {
+    const result = runCommand(cmd, args, { cwd: repoRoot });
+    if (result.exitCode === 0) {
+      return { name, status: 'PASS' };
+    }
+    const detail = result.stderr.trim() || result.stdout.trim() || `${cmd} ${args.join(' ')} failed`;
+    return { name, status: 'FAIL', detail };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { name, status: 'FAIL', detail: message };
+  }
+}
+
+// ============================================================
+// PLATFORM-SPECIFIC CHECK RUNNERS
+// ============================================================
+
+function runNodeChecks(
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skipLint: boolean,
+  skipTypecheck: boolean,
+): CheckResult[] {
+  const pkgResult = readPackageJson(repoRoot);
+  if ('error' in pkgResult) {
+    return [{ name: 'package.json', status: 'FAIL', detail: pkgResult.error }];
+  }
+  const { packageJson } = pkgResult;
+
+  return [
+    runNpmCheck('Lint', 'lint', packageJson, repoRoot, runCommand, skipLint),
+    runNpmCheck('Typecheck', 'typecheck', packageJson, repoRoot, runCommand, skipTypecheck),
+    runNpmCheck('Quality check', 'quality-check', packageJson, repoRoot, runCommand, false),
+  ];
+}
+
+function runDotnetChecks(
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skipLint: boolean,
+  skipTypecheck: boolean,
+): CheckResult[] {
+  return [
+    runGenericCheck('Build', 'dotnet', ['build', '--no-restore', '-warnaserror'], repoRoot, runCommand, skipLint && skipTypecheck),
+  ];
+}
+
+function runGoChecks(
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skipLint: boolean,
+  skipTypecheck: boolean,
+): CheckResult[] {
+  return [
+    runGenericCheck('Vet', 'go', ['vet', './...'], repoRoot, runCommand, skipLint),
+  ];
+}
+
+function runRustChecks(
+  repoRoot: string,
+  runCommand: RunCommandFn,
+  skipLint: boolean,
+  skipTypecheck: boolean,
+): CheckResult[] {
+  return [
+    runGenericCheck('Check', 'cargo', ['check'], repoRoot, runCommand, skipTypecheck),
+    runGenericCheck('Clippy', 'cargo', ['clippy', '--', '-D', 'warnings'], repoRoot, runCommand, skipLint),
+  ];
+}
+
+// ============================================================
 // MAIN FUNCTION
 // ============================================================
 
@@ -159,31 +282,69 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  // Validate repo root
-  const pkgResult = readPackageJson(repoRoot);
-  if ('error' in pkgResult) {
+  // Validate repoRoot exists on disk
+  try {
+    if (!fs.existsSync(repoRoot) || !fs.statSync(repoRoot).isDirectory()) {
+      return {
+        status: 'error',
+        output: '',
+        error: `Invalid repoRoot: ${repoRoot} does not exist or is not a directory`,
+        passCount: 0,
+        failCount: 0,
+      };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     return {
       status: 'error',
       output: '',
-      error: pkgResult.error,
+      error: `Invalid repoRoot: ${message}`,
       passCount: 0,
       failCount: 0,
     };
   }
-  const { packageJson } = pkgResult;
 
-  // Run checks
-  const checks: CheckResult[] = [];
+  // Detect project type
+  const projectType = detectProjectType(repoRoot);
 
-  checks.push(
-    runNpmCheck('Lint', 'lint', packageJson, repoRoot, runCommand, skipLint)
-  );
-  checks.push(
-    runNpmCheck('Typecheck', 'typecheck', packageJson, repoRoot, runCommand, skipTypecheck)
-  );
-  checks.push(
-    runNpmCheck('Quality check', 'quality-check', packageJson, repoRoot, runCommand, false)
-  );
+  if (!projectType) {
+    const output = [
+      '## Static Analysis Report',
+      '',
+      `**Repository:** \`${repoRoot}\``,
+      '',
+      '- **SKIP**: No recognized project type (no package.json, *.csproj, go.mod, or Cargo.toml)',
+      '',
+      '---',
+      '',
+      '**Result: PASS** (0/0 checks — no applicable toolchain detected)',
+    ].join('\n');
+
+    return {
+      status: 'pass',
+      output,
+      passCount: 0,
+      failCount: 0,
+      projectType: undefined,
+    };
+  }
+
+  // Run platform-specific checks
+  let checks: CheckResult[];
+  switch (projectType) {
+    case 'Node.js':
+      checks = runNodeChecks(repoRoot, runCommand, skipLint, skipTypecheck);
+      break;
+    case '.NET':
+      checks = runDotnetChecks(repoRoot, runCommand, skipLint, skipTypecheck);
+      break;
+    case 'Go':
+      checks = runGoChecks(repoRoot, runCommand, skipLint, skipTypecheck);
+      break;
+    case 'Rust':
+      checks = runRustChecks(repoRoot, runCommand, skipLint, skipTypecheck);
+      break;
+  }
 
   // Tally results
   let passCount = 0;
@@ -199,6 +360,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     '## Static Analysis Report',
     '',
     `**Repository:** \`${repoRoot}\``,
+    `**Project type:** ${projectType}`,
     '',
   ];
 
@@ -230,5 +392,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     output,
     passCount,
     failCount,
+    projectType,
   };
 }

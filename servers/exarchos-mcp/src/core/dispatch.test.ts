@@ -20,6 +20,7 @@ describe('dispatch', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dispatch-test-'));
     eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
   });
 
   afterEach(async () => {

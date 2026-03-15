@@ -307,7 +307,7 @@ describe('runStaticAnalysis', () => {
   // ============================================================
 
   describe('usage errors', () => {
-    it('missing package.json returns error', () => {
+    it('empty directory with no project files returns pass (no applicable toolchain)', () => {
       const emptyDir = path.join(tmpDir, 'empty');
       fs.mkdirSync(emptyDir, { recursive: true });
 
@@ -316,8 +316,9 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      expect(result.status).toBe('error');
-      expect(result.error).toMatch(/package\.json/i);
+      expect(result.status).toBe('pass');
+      expect(result.projectType).toBeUndefined();
+      expect(result.output).toContain('No recognized project type');
     });
 
     it('non-existent repo root returns error', () => {
@@ -327,7 +328,7 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.status).toBe('error');
-      expect(result.error).toMatch(/package\.json/i);
+      expect(result.error).toContain('does not exist');
     });
   });
 
@@ -387,6 +388,138 @@ describe('runStaticAnalysis', () => {
 
       // Should show something like "2/2 checks passed"
       expect(result.output).toMatch(/\d+\/\d+ checks passed/);
+    });
+  });
+
+  // ============================================================
+  // PLATFORM DETECTION — NON-NODE.JS PROJECTS
+  // ============================================================
+
+  describe('platform detection', () => {
+    function createProjectDir(files: Record<string, string>): string {
+      const repoRoot = path.join(tmpDir, 'project-' + Math.random().toString(36).slice(2));
+      fs.mkdirSync(repoRoot, { recursive: true });
+      for (const [name, content] of Object.entries(files)) {
+        fs.writeFileSync(path.join(repoRoot, name), content, 'utf-8');
+      }
+      return repoRoot;
+    }
+
+    it('detects Node.js project and sets projectType', () => {
+      const repoRoot = createPackageJson({ lint: 'eslint .' });
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
+      expect(result.projectType).toBe('Node.js');
+    });
+
+    it('.NET project (*.csproj) runs dotnet build', () => {
+      const repoRoot = createProjectDir({ 'MyApp.csproj': '<Project />' });
+
+      const runner = successRunner();
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: runner,
+      });
+
+      expect(result.status).toBe('pass');
+      expect(result.projectType).toBe('.NET');
+      expect(result.output).toContain('.NET');
+      // Should call dotnet, not npm
+      const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c: unknown[]) => c[0] === 'dotnet')).toBe(true);
+      expect(calls.some((c: unknown[]) => c[0] === 'npm')).toBe(false);
+    });
+
+    it('.NET project (*.sln) is detected', () => {
+      const repoRoot = createProjectDir({ 'MyApp.sln': '' });
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
+      expect(result.projectType).toBe('.NET');
+    });
+
+    it('Go project (go.mod) runs go vet', () => {
+      const repoRoot = createProjectDir({ 'go.mod': 'module example.com/myapp' });
+
+      const runner = successRunner();
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: runner,
+      });
+
+      expect(result.status).toBe('pass');
+      expect(result.projectType).toBe('Go');
+      const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c: unknown[]) => c[0] === 'go')).toBe(true);
+    });
+
+    it('Rust project (Cargo.toml) runs cargo check and clippy', () => {
+      const repoRoot = createProjectDir({ 'Cargo.toml': '[package]\nname = "myapp"' });
+
+      const runner = successRunner();
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: runner,
+      });
+
+      expect(result.status).toBe('pass');
+      expect(result.projectType).toBe('Rust');
+      const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c: unknown[]) => c[0] === 'cargo')).toBe(true);
+    });
+
+    it('unrecognized project type returns pass with no checks', () => {
+      const repoRoot = createProjectDir({ 'README.md': '# Hello' });
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
+      expect(result.status).toBe('pass');
+      expect(result.projectType).toBeUndefined();
+      expect(result.passCount).toBe(0);
+      expect(result.failCount).toBe(0);
+    });
+
+    it('.NET project reports failure when dotnet build fails', () => {
+      const repoRoot = createProjectDir({ 'MyApp.csproj': '<Project />' });
+
+      const runner = failingRunner({ 'build': { stderr: 'error CS1002: ; expected' } });
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: runner,
+      });
+
+      expect(result.status).toBe('fail');
+      expect(result.failCount).toBeGreaterThan(0);
+    });
+
+    it('Node.js takes priority over other project files', () => {
+      // A project with both package.json and Cargo.toml should be detected as Node.js
+      const repoRoot = createProjectDir({
+        'Cargo.toml': '[package]',
+      });
+      // Also add package.json
+      fs.writeFileSync(
+        path.join(repoRoot, 'package.json'),
+        JSON.stringify({ name: 'hybrid', scripts: { lint: 'eslint .' } }),
+        'utf-8',
+      );
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
+      expect(result.projectType).toBe('Node.js');
     });
   });
 });

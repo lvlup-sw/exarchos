@@ -2,9 +2,46 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z, ZodError } from 'zod';
 import { coercedStringArray } from '../coerce.js';
 import { EventStore, SequenceConflictError } from './store.js';
-import type { EventType } from './schemas.js';
+import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
 import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
+
+// ─── Misplaced Field Detection ──────────────────────────────────────────────
+
+/** Known envelope fields that belong at the top level of an event. */
+const ENVELOPE_FIELDS = new Set([
+  'type', 'data', 'correlationId', 'causationId', 'agentId', 'agentRole',
+  'tenantId', 'organizationId', 'source', 'timestamp', 'idempotencyKey',
+  'schemaVersion',
+]);
+
+/**
+ * Detect event-type-specific fields that were placed at the top level
+ * instead of inside the `data` envelope. Returns misplaced field names
+ * or an empty array if none are found.
+ */
+function detectMisplacedFields(event: Record<string, unknown>): string[] {
+  const eventType = event.type as EventType | undefined;
+  if (!eventType) return [];
+
+  const dataSchema = EVENT_DATA_SCHEMAS[eventType];
+  if (!dataSchema) return [];
+
+  // Extract known field names from the Zod schema
+  const schemaShape = (dataSchema as z.ZodObject<z.ZodRawShape>).shape;
+  if (!schemaShape || typeof schemaShape !== 'object') return [];
+
+  const dataFieldNames = new Set(Object.keys(schemaShape));
+  const misplaced: string[] = [];
+
+  for (const key of Object.keys(event)) {
+    if (!ENVELOPE_FIELDS.has(key) && dataFieldNames.has(key)) {
+      misplaced.push(key);
+    }
+  }
+
+  return misplaced;
+}
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
@@ -37,6 +74,18 @@ export async function handleEventAppend(
   }
 
   const store = eventStore;
+
+  // Detect fields that should be inside data but were placed at the top level
+  const misplaced = detectMisplacedFields(args.event);
+  if (misplaced.length > 0) {
+    return {
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: `Event fields placed at wrong level — ${misplaced.map(f => `"${f}"`).join(', ')} should be inside "data", not at the top level. Wrap them: { type: "${eventType}", data: { ${misplaced.join(', ')}: ... } }`,
+      },
+    };
+  }
 
   try {
     // Validate at the system boundary (MCP tool handler = untrusted input)
@@ -121,13 +170,24 @@ export async function handleBatchAppend(
     };
   }
 
-  // Validate all events have a type before passing to store
+  // Validate all events have a type and no misplaced fields
   for (let i = 0; i < args.events.length; i++) {
     const eventType = args.events[i]?.type as EventType | undefined;
     if (!eventType) {
       return {
         success: false,
         error: { code: 'INVALID_INPUT', message: `events[${i}].type is required` },
+      };
+    }
+
+    const misplaced = detectMisplacedFields(args.events[i]);
+    if (misplaced.length > 0) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `events[${i}]: fields placed at wrong level — ${misplaced.map(f => `"${f}"`).join(', ')} should be inside "data", not at the top level. Wrap them: { type: "${eventType}", data: { ${misplaced.join(', ')}: ... } }`,
+        },
       };
     }
   }

@@ -308,11 +308,11 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 7 actions: init, get, set, cancel, cleanup, reconcile, describe', () => {
+    it('should have 8 actions: init, get, set, cancel, cleanup, reconcile, checkpoint, describe', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'checkpoint', 'describe']);
     });
   });
 

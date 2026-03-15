@@ -270,9 +270,11 @@ describe('handleOrchestrate integration', () => {
     const isolatedDir = mkdtempSync(join(tmpdir(), 'check-event-emissions-route-'));
     try {
       const { EventStore } = await import('../event-store/store.js');
+      const eventStore = new EventStore(isolatedDir);
+      await eventStore.initialize();
       const result = await handleOrchestrate(
         { action: 'check_event_emissions', featureId: 'test' },
-        { stateDir: isolatedDir, eventStore: new EventStore(isolatedDir), enableTelemetry: false },
+        { stateDir: isolatedDir, eventStore, enableTelemetry: false },
       );
 
       // Should NOT return UNKNOWN_ACTION — meaning the handler is registered

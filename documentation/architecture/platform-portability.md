@@ -99,7 +99,7 @@ Point any MCP client at the stdio server:
 ```
 
 You get all four composite tools:
-- `exarchos_workflow` -- init, get, set, cancel, cleanup, reconcile
+- `exarchos_workflow` -- init, get, set, cancel, cleanup, reconcile, checkpoint
 - `exarchos_event` -- append, query, batch
 - `exarchos_orchestrate` -- convergence gates, runbooks, agent specs, script execution
 - `exarchos_view` -- pipeline, tasks, telemetry, convergence status

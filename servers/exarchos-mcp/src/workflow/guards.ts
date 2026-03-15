@@ -202,7 +202,7 @@ export const guards = {
 
   allReviewsPassed: {
     id: 'all-reviews-passed',
-    description: 'All reviews must have passed',
+    description: 'All required reviews must be present and have passed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       const reviews = state.reviews as Record<string, unknown> | undefined;
       if (!reviews) {
@@ -213,6 +213,37 @@ export const guards = {
           expectedShape: REVIEW_EXPECTED_SHAPE,
         };
       }
+
+      // Enforce required review dimensions if configured
+      const requiredReviews = state._requiredReviews as readonly string[] | undefined;
+      if (requiredReviews && requiredReviews.length > 0) {
+        const missing = requiredReviews.filter((key) => !reviews[key]);
+        if (missing.length > 0) {
+          const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+          const expectedUpdates: Record<string, unknown> = {};
+          for (const key of missing) {
+            expectedUpdates[`reviews.${key}.status`] = 'pass';
+          }
+          return {
+            passed: false,
+            reason: `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
+            expectedShape: {
+              reviews: Object.fromEntries(
+                missing.map((key) => [key, { status: 'pass' }]),
+              ),
+            },
+            suggestedFix: {
+              tool: 'exarchos_workflow',
+              params: {
+                action: 'set',
+                featureId,
+                updates: expectedUpdates,
+              },
+            },
+          };
+        }
+      }
+
       const statuses = collectReviewStatuses(reviews);
       if (statuses.length === 0) {
         return {

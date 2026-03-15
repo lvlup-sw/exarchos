@@ -45,7 +45,7 @@ Must return: `"polish"`
 ```
 action: "get", featureId: "refactor-<slug>", query: ".phase"
 ```
-Must return: `"implement"`
+Must return: `"polish-implement"`
 
 **Check goals:**
 ```
@@ -58,7 +58,7 @@ Must return: populated array
 | Field | Requirement |
 |-------|-------------|
 | `.track` | "polish" |
-| `.phase` | "implement" |
+| `.phase` | "polish-implement" |
 | `.brief.problem` | Non-empty string |
 | `.brief.goals` | 1-3 items |
 | `.brief.affectedAreas` | 1-5 files |
