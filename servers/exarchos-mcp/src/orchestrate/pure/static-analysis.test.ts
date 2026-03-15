@@ -321,14 +321,14 @@ describe('runStaticAnalysis', () => {
       expect(result.output).toContain('No recognized project type');
     });
 
-    it('non-existent repo root returns pass (no applicable toolchain)', () => {
+    it('non-existent repo root returns error', () => {
       const result = runStaticAnalysis({
         repoRoot: path.join(tmpDir, 'nonexistent'),
         runCommand: successRunner(),
       });
 
-      expect(result.status).toBe('pass');
-      expect(result.projectType).toBeUndefined();
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('does not exist');
     });
   });
 

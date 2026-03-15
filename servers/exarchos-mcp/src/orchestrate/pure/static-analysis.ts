@@ -249,7 +249,7 @@ function runGoChecks(
   skipTypecheck: boolean,
 ): CheckResult[] {
   return [
-    runGenericCheck('Vet', 'go', ['vet', './...'], repoRoot, runCommand, skipTypecheck),
+    runGenericCheck('Vet', 'go', ['vet', './...'], repoRoot, runCommand, skipLint),
   ];
 }
 
@@ -277,6 +277,28 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       status: 'error',
       output: '',
       error: 'Missing repoRoot',
+      passCount: 0,
+      failCount: 0,
+    };
+  }
+
+  // Validate repoRoot exists on disk
+  try {
+    if (!fs.existsSync(repoRoot) || !fs.statSync(repoRoot).isDirectory()) {
+      return {
+        status: 'error',
+        output: '',
+        error: `Invalid repoRoot: ${repoRoot} does not exist or is not a directory`,
+        passCount: 0,
+        failCount: 0,
+      };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: 'error',
+      output: '',
+      error: `Invalid repoRoot: ${message}`,
       passCount: 0,
       failCount: 0,
     };

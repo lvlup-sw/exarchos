@@ -23,6 +23,7 @@ vi.mock('node:fs', () => ({
     })
   ),
   existsSync: vi.fn(() => true),
+  statSync: vi.fn(() => ({ isDirectory: () => true })),
 }));
 
 function makePassRunner(): RunCommandFn {

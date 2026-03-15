@@ -608,6 +608,9 @@ export async function handleSet(
           result.newPhase,
         );
       }
+
+      // Clean up transient guard-evaluation field — not persisted to state
+      delete mutableState._requiredReviews;
     }
 
     // ─── Event-first: append transition events BEFORE CAS write ───────
