@@ -49,19 +49,21 @@ If you previously added the marketplace with `/plugin marketplace add lvlup-sw/e
 
 Your installed plugins remain intact. Only the marketplace pointer changes.
 
-## Dev companion (optional)
+## Companions (optional)
 
-The dev companion adds three additional MCP servers for code analysis and documentation lookup:
+Optional companion tools add code analysis and documentation lookup:
 
 ```bash
-npx @lvlup-sw/exarchos-dev
+npx create-exarchos
 ```
 
-This installs:
+The interactive installer offers:
 
 - Serena: semantic code analysis. Symbol navigation, reference finding, cross-file understanding.
 - Context7: up-to-date library documentation. Pulls current docs instead of relying on training data.
 - Microsoft Learn: Azure and .NET documentation from the official Microsoft API.
+- Axiom: backend code quality skills.
+- Impeccable: code standards enforcement.
 
 These are optional. Exarchos works without them. They help when you need to navigate unfamiliar codebases or check library APIs during a workflow.
 

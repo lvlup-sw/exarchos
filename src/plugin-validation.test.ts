@@ -104,7 +104,6 @@ describe('Core Plugin Structure', () => {
       const pkgPath = join(repoRoot, 'package.json');
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       expect(pkg.scripts.validate).toBe('bash scripts/validate-plugin.sh');
-      expect(pkg.scripts['validate:companion']).toBe('bash scripts/validate-companion.sh');
     });
 
     it('packageJson_keywords_updatedForPlugin', () => {

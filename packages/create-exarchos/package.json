@@ -1,0 +1,21 @@
+{
+  "name": "create-exarchos",
+  "version": "0.1.0",
+  "description": "Interactive installer for Exarchos and companion ecosystem",
+  "type": "module",
+  "bin": { "create-exarchos": "./dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": { "node": ">=20.0.0" }
+}

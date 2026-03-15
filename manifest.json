@@ -15,12 +15,6 @@
         "type": "directory"
       },
       {
-        "id": "companion-skills",
-        "source": "companion-skills",
-        "target": "skills",
-        "type": "directory"
-      },
-      {
         "id": "scripts",
         "source": "scripts",
         "target": "scripts",
