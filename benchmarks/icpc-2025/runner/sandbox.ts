@@ -41,9 +41,10 @@ export async function runInSandbox(
 
     const timer = setTimeout(() => {
       timedOut = true;
+      if (proc.pid === undefined) return;
       try {
         // Kill the entire process group to catch child processes too
-        process.kill(-proc.pid!, 'SIGKILL');
+        process.kill(-proc.pid, 'SIGKILL');
       } catch {
         try {
           proc.kill('SIGKILL');

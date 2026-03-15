@@ -118,11 +118,23 @@ export async function spawnSession(
     let stderrData = '';
     let timedOut = false;
 
-    const child = spawnFn(claudePath, args, {
-      env,
-      cwd: config.outputDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let child: ChildProcess;
+    try {
+      child = spawnFn(claudePath, args, {
+        env,
+        cwd: config.outputDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      const wallClockSeconds = (Date.now() - startTime) / 1000;
+      resolve({
+        wallClockSeconds,
+        iterationCount: 0,
+        exitReason: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
 
     let escalationId: ReturnType<typeof setTimeout> | undefined;
 
@@ -149,7 +161,7 @@ export async function spawnSession(
       });
     }
 
-    child.on('close', (exitCode: number | null) => {
+    child.on('close', (exitCode: number | null, signal: NodeJS.Signals | null) => {
       clearTimeout(timeoutId);
       if (escalationId) clearTimeout(escalationId);
       const wallClockSeconds = (Date.now() - startTime) / 1000;
@@ -165,6 +177,18 @@ export async function spawnSession(
 
       const solutionPath = findSolutionFile(config.outputDir, config.language);
       const tokenUsage = parseTokenUsage(stderrData);
+
+      // Signal-terminated process (exitCode is null when killed by signal)
+      if (signal != null) {
+        resolve({
+          wallClockSeconds,
+          iterationCount: 0,
+          exitReason: 'error',
+          tokenUsage,
+          error: `Process terminated by signal ${signal}`,
+        });
+        return;
+      }
 
       // Non-zero exit without a solution indicates an error
       if (exitCode !== null && exitCode !== 0 && !solutionPath) {

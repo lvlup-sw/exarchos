@@ -86,7 +86,9 @@ export async function execute(
 
     const timer = setTimeout(() => {
       timedOut = true;
-      killProcessGroup(proc.pid!);
+      if (proc.pid !== undefined) {
+        killProcessGroup(proc.pid);
+      }
     }, timeLimitMs);
 
     proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));

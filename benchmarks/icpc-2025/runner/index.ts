@@ -202,7 +202,8 @@ export async function runBenchmark(
         const armResult = buildArmResultFromSession(armId, sessionResult, compileResult);
         armResults.push(armResult);
         onProgress?.(problem.id, armId, armResult, problem.title);
-      } catch {
+      } catch (err) {
+        console.error(`Session failed for ${problem.id}:${armId}:`, err);
         const armResult = buildErrorArmResult(armId);
         armResults.push(armResult);
         onProgress?.(problem.id, armId, armResult, problem.title);
@@ -285,7 +286,7 @@ async function main(): Promise<void> {
     language: getFlag('language') ?? 'cpp',
     model: getFlag('model'),
     resumeRunId: getFlag('resume'),
-    sessionTimeout: parseInt(getFlag('timeout') ?? '600', 10),
+    sessionTimeout: parseInt(getFlag('timeout') ?? '600', 10) || 600,
   };
 
   // Dynamic imports for real dependencies (not used in tests)
