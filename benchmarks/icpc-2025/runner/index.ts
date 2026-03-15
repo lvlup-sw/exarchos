@@ -82,7 +82,8 @@ function buildArmResultFromSession(
   };
 
   if (sessionResult.exitReason !== 'completed' || !compileResult) {
-    const verdict = sessionResult.exitReason === 'timeout' ? 'tle' as const : 'rte' as const;
+    const verdictMap = { timeout: 'tle', no_solution: 'no_solution', error: 'rte' } as const;
+    const verdict = verdictMap[sessionResult.exitReason as keyof typeof verdictMap] ?? 'rte' as const;
 
     return {
       arm: armId,
