@@ -1,0 +1,5 @@
+{
+  "title": "Lava Moat",
+  "timeLimit": 4,
+  "tags": ["geometry", "triangulation", "shortest-path"]
+}

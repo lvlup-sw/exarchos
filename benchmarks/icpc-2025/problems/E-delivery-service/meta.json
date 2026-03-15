@@ -1,0 +1,5 @@
+{
+  "title": "Delivery Service",
+  "timeLimit": 12,
+  "tags": ["graph", "connectivity", "incremental"]
+}
