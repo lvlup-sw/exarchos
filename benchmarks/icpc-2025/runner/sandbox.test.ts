@@ -19,17 +19,17 @@ function hasGpp(): boolean {
 
 const describeWithGpp = hasGpp() ? describe : describe.skip;
 
-beforeAll(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
-});
-
-afterAll(() => {
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true });
-  }
-});
-
 describeWithGpp('runInSandbox', () => {
+  beforeAll(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterAll(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
+  });
+
   it('sandbox_NormalExecution_CompletesSuccessfully', async () => {
     const srcPath = join(TEST_DIR, 'echo.cpp');
     writeFileSync(srcPath, `
@@ -114,7 +114,7 @@ int main() {
     );
 
     expect(result.truncated).toBe(true);
-    expect(result.stdout.length).toBeLessThanOrEqual(maxBytes + 100); // allow small buffer overshoot
+    expect(result.stdout.length).toBeLessThanOrEqual(maxBytes);
   });
 
   it('sandbox_NonZeroExit_CapturesExitCode', async () => {

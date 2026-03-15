@@ -85,9 +85,9 @@ export function buildArmResult(
 }
 
 export interface AggregateStats {
-  totalSolved: Record<ArmId, number>;
-  meanTokens: Record<ArmId, number>;
-  meanTime: Record<ArmId, number>;
+  totalSolved: Partial<Record<ArmId, number>>;
+  meanTokens: Partial<Record<ArmId, number>>;
+  meanTime: Partial<Record<ArmId, number>>;
   totalProblems: number;
 }
 
@@ -126,9 +126,9 @@ export function aggregateResults(problems: ProblemResult[]): AggregateStats {
   }
 
   return {
-    totalSolved: totalSolved as Record<ArmId, number>,
-    meanTokens: meanTokens as Record<ArmId, number>,
-    meanTime: meanTime as Record<ArmId, number>,
+    totalSolved: totalSolved as Partial<Record<ArmId, number>>,
+    meanTokens: meanTokens as Partial<Record<ArmId, number>>,
+    meanTime: meanTime as Partial<Record<ArmId, number>>,
     totalProblems: problems.length,
   };
 }

@@ -32,6 +32,7 @@ export class RunStateManager {
           typeof parsed === 'object' &&
           parsed !== null &&
           'runId' in parsed &&
+          'timestamp' in parsed &&
           'completed' in parsed &&
           'results' in parsed
         ) {

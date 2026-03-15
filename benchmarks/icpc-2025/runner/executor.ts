@@ -60,12 +60,12 @@ function buildEnv(arm: ArmConfig): Record<string, string> {
  * Looks for JSON with input_tokens and output_tokens.
  */
 function parseTokenUsage(stderr: string): { input: number; output: number } | undefined {
-  const tokenPattern = /\{[^}]*"input_tokens"\s*:\s*(\d+)[^}]*"output_tokens"\s*:\s*(\d+)[^}]*\}/;
-  const match = stderr.match(tokenPattern);
-  if (match) {
+  const inputMatch = stderr.match(/"input_tokens"\s*:\s*(\d+)/);
+  const outputMatch = stderr.match(/"output_tokens"\s*:\s*(\d+)/);
+  if (inputMatch && outputMatch) {
     return {
-      input: parseInt(match[1], 10),
-      output: parseInt(match[2], 10),
+      input: parseInt(inputMatch[1], 10),
+      output: parseInt(outputMatch[1], 10),
     };
   }
   return undefined;
@@ -124,10 +124,16 @@ export async function spawnSession(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    let escalationId: ReturnType<typeof setTimeout> | undefined;
+
     const timeoutId = setTimeout(() => {
       timedOut = true;
       if (child.kill) {
         (child as ChildProcess).kill('SIGTERM');
+        // Escalate to SIGKILL if SIGTERM is ignored
+        escalationId = setTimeout(() => {
+          try { (child as ChildProcess).kill('SIGKILL'); } catch { /* already dead */ }
+        }, 5000);
       }
     }, config.sessionTimeout * 1000);
 
@@ -143,8 +149,9 @@ export async function spawnSession(
       });
     }
 
-    child.on('close', () => {
+    child.on('close', (exitCode: number | null) => {
       clearTimeout(timeoutId);
+      if (escalationId) clearTimeout(escalationId);
       const wallClockSeconds = (Date.now() - startTime) / 1000;
 
       if (timedOut) {
@@ -158,6 +165,18 @@ export async function spawnSession(
 
       const solutionPath = findSolutionFile(config.outputDir, config.language);
       const tokenUsage = parseTokenUsage(stderrData);
+
+      // Non-zero exit without a solution indicates an error
+      if (exitCode !== null && exitCode !== 0 && !solutionPath) {
+        resolve({
+          wallClockSeconds,
+          iterationCount: 0,
+          exitReason: 'error',
+          tokenUsage,
+          error: `Process exited with code ${exitCode}`,
+        });
+        return;
+      }
 
       if (!solutionPath) {
         resolve({
@@ -180,6 +199,7 @@ export async function spawnSession(
 
     child.on('error', (err: Error) => {
       clearTimeout(timeoutId);
+      if (escalationId) clearTimeout(escalationId);
       const wallClockSeconds = (Date.now() - startTime) / 1000;
       resolve({
         wallClockSeconds,

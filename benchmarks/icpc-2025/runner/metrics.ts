@@ -1,6 +1,7 @@
 import type { Metrics } from './types.js';
 
 export class MetricsCollector {
+  private started: boolean = false;
   private startTime: number = 0;
   private endTime: number = 0;
   private inputTokens: number = 0;
@@ -9,6 +10,7 @@ export class MetricsCollector {
 
   /** Record start time. */
   start(): void {
+    this.started = true;
     this.startTime = performance.now();
   }
 
@@ -45,7 +47,8 @@ export class MetricsCollector {
   /** Produce final metrics object. */
   toMetrics(solutionCode?: string): Metrics {
     const effectiveEndTime = this.endTime || performance.now();
-    const wallClockMs = effectiveEndTime - this.startTime;
+    const wallClockMs =
+      this.started ? effectiveEndTime - this.startTime : 0;
     return {
       totalTokens: this.inputTokens + this.outputTokens,
       inputTokens: this.inputTokens,
