@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
-// We'll mock fs and child_process
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
   return { ...actual, existsSync: vi.fn() };
@@ -11,7 +10,7 @@ vi.mock('node:fs', async () => {
 
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-  return { ...actual, execSync: vi.fn() };
+  return { ...actual, execFileSync: vi.fn() };
 });
 
 import { detectEnvironment, isCommandAvailable } from './detect.js';
@@ -25,7 +24,6 @@ describe('Environment Detection', () => {
     vi.mocked(existsSync).mockImplementation((p) =>
       typeof p === 'string' && p.includes('.claude')
     );
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/claude'));
 
     expect(detectEnvironment()).toBe('claude-code');
   });
@@ -34,7 +32,6 @@ describe('Environment Detection', () => {
     vi.mocked(existsSync).mockImplementation((p) =>
       typeof p === 'string' && p.includes('.claude')
     );
-    vi.mocked(execSync).mockImplementation(() => { throw new Error('not found'); });
 
     expect(detectEnvironment()).toBe('claude-code');
   });
@@ -51,7 +48,6 @@ describe('Environment Detection', () => {
     const cwdCursorPath = join(process.cwd(), '.cursor');
     vi.mocked(existsSync).mockImplementation((p) => {
       if (typeof p !== 'string') return false;
-      // Only the cwd-based .cursor path exists
       return p === cwdCursorPath;
     });
 
@@ -60,7 +56,6 @@ describe('Environment Detection', () => {
 
   it('detectEnvironment_BothClaudeAndCursor_PrefersClaudeCode', () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/claude'));
 
     expect(detectEnvironment()).toBe('claude-code');
   });
@@ -72,14 +67,19 @@ describe('Environment Detection', () => {
   });
 
   it('isCommandAvailable_ExistingCommand_ReturnsTrue', () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from('/usr/bin/node'));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('/usr/bin/node'));
 
     expect(isCommandAvailable('node')).toBe(true);
   });
 
   it('isCommandAvailable_MissingCommand_ReturnsFalse', () => {
-    vi.mocked(execSync).mockImplementation(() => { throw new Error('not found'); });
+    vi.mocked(execFileSync).mockImplementation(() => { throw new Error('not found'); });
 
     expect(isCommandAvailable('nonexistent-command-xyz')).toBe(false);
+  });
+
+  it('isCommandAvailable_ShellMetachars_ReturnsFalse', () => {
+    expect(isCommandAvailable('cmd; rm -rf /')).toBe(false);
+    expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
   });
 });

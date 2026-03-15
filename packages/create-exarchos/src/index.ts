@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Environment, InstallResult, Companion } from './types.js';
 import { parseArgs } from './cli.js';
 import { detectEnvironment } from './detect.js';
@@ -30,6 +30,18 @@ function getInstaller(env: Environment): Installer {
     case 'cursor': return cursor as Installer;
     case 'generic-mcp': return genericMcp as Installer;
     case 'cli': return cli as Installer;
+  }
+}
+
+function safeInstall(fn: () => InstallResult, name: string): InstallResult {
+  try {
+    return fn();
+  } catch (err: unknown) {
+    return {
+      success: false,
+      name,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -87,7 +99,7 @@ export async function run(argv: string[]): Promise<void> {
 
   // Install Exarchos
   process.stdout.write('  Installing Exarchos...\n');
-  const exarchosResult = installer.installExarchos();
+  const exarchosResult = safeInstall(() => installer.installExarchos(), 'exarchos');
   printResult(exarchosResult, 'Exarchos installed');
 
   if (!exarchosResult.success) {
@@ -101,17 +113,25 @@ export async function run(argv: string[]): Promise<void> {
     const companion = allCompanions.find(c => c.id === companionId);
     if (!companion) continue;
 
-    const result = installer.installCompanion(companion);
+    const result = safeInstall(() => installer.installCompanion(companion), companion.name);
     printResult(result, 'Companion installed');
   }
 
   process.stdout.write('\n  Run /ideate to start.\n');
 }
 
-// CLI entry point — compare resolved paths to handle symlinks and URL encoding
-const thisFile = fileURLToPath(import.meta.url);
-const entryFile = process.argv[1] ? resolve(process.argv[1]) : '';
-if (thisFile === entryFile) {
+// CLI entry point — resolve symlinks on both sides for npx compatibility
+const isMainModule = (() => {
+  try {
+    const thisFile = realpathSync(fileURLToPath(import.meta.url));
+    const entryFile = process.argv[1] ? realpathSync(process.argv[1]) : '';
+    return thisFile === entryFile;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMainModule) {
   run(process.argv.slice(2)).catch((err: unknown) => {
     process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

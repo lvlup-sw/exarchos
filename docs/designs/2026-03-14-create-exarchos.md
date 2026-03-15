@@ -231,7 +231,7 @@ metadata:
 
 #### Pattern catalog → deterministic checks
 
-The 24 patterns map to check IDs following axiom's `T-{dim}.{seq}` convention:
+The 24 patterns map to prose-quality check IDs using the `PQ-{category}.{seq}` convention:
 
 | Category | Patterns | Check IDs | Severity |
 |----------|----------|-----------|----------|

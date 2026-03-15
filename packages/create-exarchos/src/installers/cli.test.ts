@@ -30,4 +30,15 @@ describe('CLI Installer', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
+
+  it('installCompanion_Cli_ReturnsSkipped', () => {
+    const result = installCompanion({
+      id: 'axiom',
+      name: 'axiom',
+      description: 'backend quality checks',
+      default: true,
+      install: {},
+    });
+    expect(result).toEqual({ success: true, name: 'axiom', skipped: true });
+  });
 });
