@@ -79,10 +79,21 @@ export async function execute(
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
-    const proc = spawn(executablePath, [], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
-    });
+    let proc;
+    try {
+      proc = spawn(executablePath, [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true,
+      });
+    } catch (err) {
+      resolve({
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+        exitCode: null,
+        timedOut: false,
+      });
+      return;
+    }
 
     const timer = setTimeout(() => {
       timedOut = true;

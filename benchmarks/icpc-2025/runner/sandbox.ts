@@ -33,11 +33,23 @@ export async function runInSandbox(
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
-    const proc = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: options.workDir,
-      detached: true,
-    });
+    let proc;
+    try {
+      proc = spawn(command, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: options.workDir,
+        detached: true,
+      });
+    } catch (err) {
+      resolve({
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+        exitCode: null,
+        timedOut: false,
+        truncated: false,
+      });
+      return;
+    }
 
     const timer = setTimeout(() => {
       timedOut = true;

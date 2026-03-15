@@ -332,7 +332,8 @@ async function main(): Promise<void> {
 }
 
 // Run CLI if invoked directly
-const isMainModule = process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js');
+import { fileURLToPath } from 'node:url';
+const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMainModule) {
   main().catch((err) => {
     console.error('Benchmark failed:', err);
