@@ -128,6 +128,7 @@ export async function runBenchmark(
   config: RunConfig,
   deps: RunnerDeps,
   resumeState?: ResumeState,
+  onProgress?: (problemId: string, armId: ArmId, result: ArmResult, title: string) => void,
 ): Promise<BenchmarkRun> {
   const runId = config.resumeRunId ?? randomUUID().slice(0, 8);
   const completedPairs = resumeState?.completedPairs ?? new Set<string>();
@@ -198,9 +199,13 @@ export async function runBenchmark(
           };
         }
 
-        armResults.push(buildArmResultFromSession(armId, sessionResult, compileResult));
+        const armResult = buildArmResultFromSession(armId, sessionResult, compileResult);
+        armResults.push(armResult);
+        onProgress?.(problem.id, armId, armResult, problem.title);
       } catch {
-        armResults.push(buildErrorArmResult(armId));
+        const armResult = buildErrorArmResult(armId);
+        armResults.push(armResult);
+        onProgress?.(problem.id, armId, armResult, problem.title);
       }
     }
 
@@ -297,23 +302,28 @@ async function main(): Promise<void> {
     generateReport,
   };
 
-  // Build resume state from previous run if --resume was provided
+  // Set up state manager for progress persistence and resume
+  const { RunStateManager } = await import('./run-state.js');
+  const runId = config.resumeRunId ?? randomUUID().slice(0, 8);
+  const stateManager = new RunStateManager(config.resultsDir, runId);
+  const progress = stateManager.load();
+
   let resumeState: ResumeState | undefined;
-  if (config.resumeRunId) {
-    const { RunStateManager } = await import('./run-state.js');
-    const stateManager = new RunStateManager(config.resultsDir, config.resumeRunId);
-    const progress = stateManager.load();
-    if (progress.completed.length > 0) {
-      const completedPairs = new Set(progress.completed.map((c) => `${c.problemId}:${c.arm}`));
-      const previousResults = new Map<string, ProblemResult>();
-      for (const result of progress.results) {
-        previousResults.set(result.problemId, result);
-      }
-      resumeState = { completedPairs, previousResults };
+  if (config.resumeRunId && progress.completed.length > 0) {
+    const completedPairs = new Set(progress.completed.map((c) => `${c.problemId}:${c.arm}`));
+    const previousResults = new Map<string, ProblemResult>();
+    for (const result of progress.results) {
+      previousResults.set(result.problemId, result);
     }
+    resumeState = { completedPairs, previousResults };
   }
 
-  const run = await runBenchmark(config, deps, resumeState);
+  // Override resumeRunId so runBenchmark uses the same runId
+  config.resumeRunId = runId;
+
+  const run = await runBenchmark(config, deps, resumeState, (problemId, armId, result, title) => {
+    stateManager.recordCompletion(problemId, armId, result, title);
+  });
   console.log(`Benchmark complete: ${run.runId}`);
   console.log(`Results: ${config.resultsDir}/${run.runId}.json`);
   console.log(`Report: ${config.reportsDir}/${run.runId}.md`);
