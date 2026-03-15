@@ -9,7 +9,6 @@ describe('Cleanup Validation', () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'));
     expect(pkg.workspaces).toBeDefined();
     expect(pkg.workspaces).toContain('packages/*');
-    expect(pkg.workspaces).toContain('servers/*');
   });
 
   it('CompanionDir_DoesNotExist_RemovedFromRepo', () => {

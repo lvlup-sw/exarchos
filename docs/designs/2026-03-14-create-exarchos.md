@@ -43,7 +43,7 @@ We want a single "paved path" entry point that installs Exarchos and lets the us
 
 ```json
 {
-  "workspaces": ["packages/*", "servers/*"]
+  "workspaces": ["packages/*"]
 }
 ```
 
@@ -287,7 +287,7 @@ Add npm workspaces to root `package.json`:
 
 ```json
 {
-  "workspaces": ["packages/*", "servers/*"]
+  "workspaces": ["packages/*"]
 }
 ```
 
@@ -301,7 +301,7 @@ Update `scripts/sync-versions.sh` to include `packages/create-exarchos/package.j
 - DR-4: Non-interactive mode with `--yes` flag
 - DR-5: Final deprecation release of `@lvlup-sw/exarchos-dev` with passthrough
 - DR-6: Delete `companion/` and `companion-skills/` directories
-- DR-7: npm workspaces for monorepo (`packages/*`, `servers/*`)
+- DR-7: npm workspaces for monorepo (`packages/*`)
 - DR-8: Axiom DIM-8: Prose Quality — new `humanize` skill with 24-pattern check catalog
 - DR-9: Axiom dimension count updated (7 → 8) across all references
 - DR-10: Axiom audit orchestration updated to include humanize

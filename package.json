@@ -68,7 +68,6 @@
     "@inquirer/prompts": "^8.2.1"
   },
   "workspaces": [
-    "packages/*",
-    "servers/*"
+    "packages/*"
   ]
 }
