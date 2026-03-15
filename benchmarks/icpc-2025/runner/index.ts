@@ -297,7 +297,23 @@ async function main(): Promise<void> {
     generateReport,
   };
 
-  const run = await runBenchmark(config, deps);
+  // Build resume state from previous run if --resume was provided
+  let resumeState: ResumeState | undefined;
+  if (config.resumeRunId) {
+    const { RunStateManager } = await import('./run-state.js');
+    const stateManager = new RunStateManager(config.resultsDir, config.resumeRunId);
+    const progress = stateManager.load();
+    if (progress.completed.length > 0) {
+      const completedPairs = new Set(progress.completed.map((c) => `${c.problemId}:${c.arm}`));
+      const previousResults = new Map<string, ProblemResult>();
+      for (const result of progress.results) {
+        previousResults.set(result.problemId, result);
+      }
+      resumeState = { completedPairs, previousResults };
+    }
+  }
+
+  const run = await runBenchmark(config, deps, resumeState);
   console.log(`Benchmark complete: ${run.runId}`);
   console.log(`Results: ${config.resultsDir}/${run.runId}.json`);
   console.log(`Report: ${config.reportsDir}/${run.runId}.md`);
