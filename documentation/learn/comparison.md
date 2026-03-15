@@ -31,10 +31,10 @@ MCP server overhead. The MCP server adds a process and file I/O to your developm
 
 ## Complementary tools
 
-Exarchos manages workflow state and coordination. It doesn't do code analysis or fetch documentation. The dev companion (`npx @lvlup-sw/exarchos-dev`) optionally installs three MCP servers that fill those gaps:
+Exarchos manages workflow state and coordination. It doesn't do code analysis or fetch documentation. Optional companions (`npx create-exarchos`) install MCP servers that fill those gaps:
 
 - Serena provides semantic code analysis: symbol resolution, reference finding, and structural understanding of your codebase.
 - Context7 provides up-to-date library documentation, so the agent works with current APIs instead of stale training data.
 - Microsoft Learn provides Azure and .NET documentation for projects in that ecosystem.
 
-These are independent tools. You can use Exarchos without them, or use them without Exarchos. The dev companion just makes it easy to install them together.
+These are independent tools. You can use Exarchos without them, or use them without Exarchos. The `create-exarchos` installer makes it easy to install them together.

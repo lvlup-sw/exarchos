@@ -57,16 +57,16 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `stack_place` | Record a stack position with `position`, `taskId`, `branch`, optional `prUrl` |
 
 ## GitHub (`mcp__plugin_github_github__*`)
-> Available with exarchos-dev-tools companion. Fallback: use `gh` CLI.
+> Optional companion (`npx create-exarchos`). Fallback: use `gh` CLI.
 
 ## Serena (`mcp__plugin_serena_serena__*`)
-> Available with exarchos-dev-tools companion. Fallback: use Grep/Read/Glob.
+> Optional companion (`npx create-exarchos`). Fallback: use Grep/Read/Glob.
 
 ## Context7 (`mcp__plugin_context7_context7__*`)
-> Available with exarchos-dev-tools companion. Fallback: use WebSearch.
+> Optional companion (`npx create-exarchos`). Fallback: use WebSearch.
 
 ## Microsoft Learn (`mcp__microsoft-learn__*`)
-> Available with exarchos-dev-tools companion. Fallback: use WebSearch.
+> Optional companion (`npx create-exarchos`). Fallback: use WebSearch.
 
 ## Workflow Transition Errors
 
@@ -86,4 +86,4 @@ A compound state's fix cycle limit was reached. Escalate to user or cancel the w
 | Manually edit workflow state JSON | Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` |
 | Skip state reconciliation on resume | The SessionStart hook handles reconciliation automatically |
 
-> See companion reference for additional tool anti-patterns (Serena, GitHub MCP, Context7).
+> See companion documentation for additional tool anti-patterns (Serena, GitHub MCP, Context7). Install companions: `npx create-exarchos`.

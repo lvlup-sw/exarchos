@@ -121,17 +121,6 @@ npm pack @lvlup-sw/exarchos@$VERSION --dry-run 2>&1 | grep better_sqlite3.node
 
 **Do NOT use `claude plugin update`** — the npm CDN aggressively caches old tarballs.
 
-## Companion
+## Companion (deprecated)
 
-If the companion also needs updating:
-
-```bash
-cd companion && npm run build && npm publish --access public
-cd /tmp && npx --yes @lvlup-sw/exarchos-dev@latest
-```
-
-For local dev (no publish needed):
-
-```bash
-node companion/dist/install.js
-```
+The `@lvlup-sw/exarchos-dev` companion package has been deprecated. Use `npx create-exarchos` instead. See `docs/deprecation/exarchos-dev.md` for migration details.

@@ -47,9 +47,9 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 npx @lvlup-sw/exarchos mcp
 ```
 
-**Dev companion** (optional — adds Serena, Context7, and Microsoft Learn):
+**Interactive installer** (installs Exarchos + optional companions):
 ```bash
-npx @lvlup-sw/exarchos-dev
+npx create-exarchos
 ```
 
 <details>
@@ -102,9 +102,9 @@ Structured input over natural language. Strict schema validation over loose pars
 | Component | Source | Purpose |
 |-----------|--------|---------|
 | Exarchos | Core plugin | Workflow state, event log, team coordination, convergence gates |
-| Serena | [Dev companion](companion/) | Semantic code analysis |
-| Context7 | [Dev companion](companion/) | Up-to-date library documentation |
-| Microsoft Learn | [Dev companion](companion/) | Azure and .NET documentation |
+| Serena | Optional companion (`npx create-exarchos`) | Semantic code analysis |
+| Context7 | Optional companion (`npx create-exarchos`) | Up-to-date library documentation |
+| Microsoft Learn | Optional companion (`npx create-exarchos`) | Azure and .NET documentation |
 
 ## Workflows
 

@@ -1,207 +1,584 @@
-# Implementation plan: create-exarchos
+# Implementation Plan: create-exarchos
 
+**Feature ID:** skill-distribution
 **Design:** `docs/designs/2026-03-14-create-exarchos.md`
-**Type:** TypeScript (new package)
-**Tasks:** 8
-**Out of scope:** DR-6 (humanize in axiom) — separate repo, separate workflow
+**Date:** 2026-03-14
 
-All code lives in `create-exarchos/` at repo root. Tests use vitest. Package has one runtime dep (`@inquirer/prompts`) and Node built-ins.
+## Task Summary
 
----
+| Task | Description | Dependencies | Parallel Group |
+|------|-------------|-------------|----------------|
+| 001 | Axiom DIM-8: Prose Quality | None | A |
+| 002 | Monorepo scaffolding + companion registry | None | A |
+| 003 | Environment detection | 002 | B |
+| 004 | Platform installers (all four) | 002 | B |
+| 005 | CLI entry point + prompts + non-interactive mode | 003, 004 | C |
+| 006 | Cleanup: delete companion/, enable workspaces, deprecation | 005 | D |
 
-## Task group A: Foundation (sequential)
+## Parallelization
 
-### Task 1: Package scaffold and shared utilities
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests for shared utilities extracted from companion installer:
-   - File: `create-exarchos/src/shared.test.ts`
-   - `parseJsonFile_ValidJson_ReturnsParsed`
-   - `parseJsonFile_InvalidJson_ReturnsEmpty`
-   - `parseJsonFile_MissingFile_ReturnsEmpty`
-   - `enablePlugins_NewSettings_WritesPluginEntries`
-   - `enablePlugins_ExistingSettings_MergesWithoutOverwrite`
-   - `registerMcpServer_NewConfig_WritesServerEntry`
-   - `registerMcpServer_ExistingServer_SkipsWithoutOverwrite`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/shared.ts`
-   - Extract `parseJsonFile`, `enablePlugins`, `registerMcpServer` from `companion/src/install.ts`
-   - Generalize to accept paths as parameters (no hardcoded home dir)
-
-3. [GREEN] Create package scaffold:
-   - `create-exarchos/package.json` (name: `create-exarchos`, bin: `create-exarchos`)
-   - `create-exarchos/tsconfig.json`
-
-**Dependencies:** None
-**Parallelizable:** No (foundation for all other tasks)
-
-### Task 2: Environment detection
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests:
-   - File: `create-exarchos/src/detect.test.ts`
-   - `detectEnvironment_ClaudeDirAndBinary_ReturnsClaudeCode`
-   - `detectEnvironment_ClaudeDirNoBinary_ReturnsClaudeCode` (plugin dir still works)
-   - `detectEnvironment_CursorDirExists_ReturnsCursor`
-   - `detectEnvironment_NothingDetected_ReturnsNull`
-   - `detectEnvironment_BothExist_PrefersClaudeCode`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/detect.ts`
-   - Check `~/.claude/` existence, `claude` on PATH (via `which`)
-   - Check `.cursor/` in cwd and home
-   - Return `'claude-code' | 'cursor' | null`
-
-**Dependencies:** None
-**Parallelizable:** Yes (parallel with Task 3)
-
-### Task 3: Companion registry
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests:
-   - File: `create-exarchos/src/companions.test.ts`
-   - `COMPANIONS_AllHaveRequiredFields`
-   - `COMPANIONS_DefaultsMatchDesign` (axiom, impeccable, serena, context7 default true; microsoft-learn false)
-   - `getCompanionsForEnv_ClaudeCode_FiltersToClaudeCodeInstallable`
-   - `getCompanionsForEnv_Cursor_FiltersToCursorInstallable`
-   - `getCompanionsForEnv_Generic_FiltersToGenericInstallable`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/companions.ts`
-   - `Companion` interface and `COMPANIONS` array from design doc
-   - `getCompanionsForEnv(env: Environment): Companion[]` — filter to companions that have install config for the given environment
-
-**Dependencies:** None
-**Parallelizable:** Yes (parallel with Task 2)
-
----
-
-## Task group B: Installers (parallel, all depend on Task 1)
-
-### Task 4: Claude Code installer
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests:
-   - File: `create-exarchos/src/installers/claude-code.test.ts`
-   - `installExarchos_ClaudeCode_AddsMarketplaceAndPlugin` (mock execSync)
-   - `installCompanion_PluginType_CallsPluginInstall`
-   - `installCompanion_McpType_RegistersMcpServer`
-   - `installCompanion_SettingsType_EnablesInSettings`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/installers/claude-code.ts`
-   - `installExarchos()`: run `claude plugin marketplace add` + `claude plugin install`
-   - `installCompanion(companion)`: branch on install.claudeCode shape — plugin, mcp, or settings.json enablement
-   - Uses `shared.ts` for settings/mcp writes
-
-**Dependencies:** Task 1
-**Parallelizable:** Yes
-
-### Task 5: Cursor installer
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests:
-   - File: `create-exarchos/src/installers/cursor.test.ts`
-   - `installExarchos_Cursor_WritesMcpJson`
-   - `installCompanion_Skills_CallsNpxSkillsAdd` (mock execSync)
-   - `installCompanion_Mcp_WritesMcpJsonEntry`
-   - `installExarchos_ExistingMcpJson_MergesWithoutOverwrite`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/installers/cursor.ts`
-   - `installExarchos()`: write/merge `.cursor/mcp.json` with Exarchos server config
-   - `installCompanion(companion)`: branch on install.cursor shape — skills via `npx skills add`, mcp via config merge
-
-**Dependencies:** Task 1
-**Parallelizable:** Yes (parallel with Task 4)
-
-### Task 6: Generic MCP and CLI installers
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests:
-   - File: `create-exarchos/src/installers/generic-mcp.test.ts`
-   - `installExarchos_Generic_WritesMcpJson`
-   - `installCompanion_Generic_WritesMcpEntry`
-   - File: `create-exarchos/src/installers/cli.test.ts`
-   - `installExarchos_Cli_RunsNpmInstallGlobal` (mock execSync)
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/installers/generic-mcp.ts`
-   - File: `create-exarchos/src/installers/cli.ts`
-
-**Dependencies:** Task 1
-**Parallelizable:** Yes (parallel with Tasks 4, 5)
-
----
-
-## Task group C: CLI orchestration (depends on groups A + B)
-
-### Task 7: Interactive prompts and CLI entry point
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write tests for the orchestration logic (prompts mocked):
-   - File: `create-exarchos/src/index.test.ts`
-   - `run_InteractiveClaudeCode_InstallsExarchosAndSelectedCompanions`
-   - `run_YesFlag_SkipsPromptsUsesDefaults`
-   - `run_YesFlagWithEnv_UsesSpecifiedEnv`
-   - `run_YesFlagWithNoAxiom_ExcludesAxiom`
-   - `run_DetectedEnv_PreSelectsInPrompt`
-
-2. [GREEN] Implement:
-   - File: `create-exarchos/src/prompts.ts` — `promptEnvironment(detected)`, `promptCompanions(available)`
-   - File: `create-exarchos/src/index.ts` — CLI entry point: parse args, detect env, prompt, dispatch to installer
-   - Wire `--yes`, `--env`, `--no-<companion>` flags
-   - Output: header, progress lines with checkmarks, final "Run /ideate to start"
-
-3. [REFACTOR] Extract arg parsing if complex
-
-**Dependencies:** Tasks 2, 3, 4, 5, 6
-**Parallelizable:** No
-
-### Task 8: Deprecation shim for exarchos-dev
-
-**Phase:** RED → GREEN → REFACTOR
-
-1. [RED] Write test:
-   - File: `companion/src/deprecation.test.ts`
-   - `deprecationShim_PrintsWarning_CallsCreateExarchos` (mock execSync)
-
-2. [GREEN] Implement:
-   - File: `companion/src/install.ts` — replace CLI entry point with deprecation notice + `npx create-exarchos` passthrough
-   - Update `companion/package.json` version to 3.0.0 (breaking: behavior change)
-
-**Dependencies:** Task 7
-**Parallelizable:** No
-
----
-
-## Execution order
-
-```
-Task 1 (shared) ──→ Task 4 (claude-code installer)  ─┐
-                ├──→ Task 5 (cursor installer)        ├──→ Task 7 (CLI + prompts) ──→ Task 8 (deprecation)
-                ├──→ Task 6 (generic + cli installer)  ─┘
-Task 2 (detect) ──────────────────────────────────────┘
-Task 3 (companions) ─────────────────────────────────┘
+```text
+Group A (parallel):  [Task 001: axiom DIM-8]  +  [Task 002: scaffolding]
+                                                        │
+Group B (parallel):                      [Task 003: detect]  +  [Task 004: installers]
+                                                        │
+Group C (sequential):                            [Task 005: CLI entry point]
+                                                        │
+Group D (sequential):                            [Task 006: cleanup]
 ```
 
-**Parallel groups:**
-- Group 1: Tasks 1, 2, 3 (foundation — 1 is sequential, 2+3 parallel)
-- Group 2: Tasks 4, 5, 6 (installers — all parallel, depend on Task 1)
-- Group 3: Task 7 (orchestration — depends on all above)
-- Group 4: Task 8 (deprecation — depends on Task 7)
+---
 
-## Validation
+## Task 001: Axiom DIM-8 — Prose Quality
 
-- All tests pass (`npm run test:run` in create-exarchos/)
-- TypeScript strict mode, no `any`
-- `npx create-exarchos --yes --env claude-code` completes without error in dry-run mode
-- Package builds and `npm pack` produces valid tarball
+**Repo:** `../axiom` (cross-repo — NOT in exarchos worktree)
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Update test expectations to include DIM-8
+
+- **File:** `tests/dimension-coverage.test.ts`
+- Add `'prose-quality'` to `ALL_DIMENSIONS` array (line 8)
+- Add `'humanize'` to `INVOKABLE_SKILLS` array (line 9)
+- Update test name `DimensionsTaxonomy_AllSeven_DefinedInDimensionsMd` → `DimensionsTaxonomy_AllEight_DefinedInDimensionsMd`
+- Add `'DIM-8'` to `expectedHeaders` array (line 25)
+- **Expected failure:** `Dimension 'prose-quality' not covered by any skill`, `Missing dimension: DIM-8`, `Missing expected skill file: skills/humanize/SKILL.md`
+
+### 2. [GREEN] Implement DIM-8 across axiom
+
+**a) Add DIM-8 to dimension taxonomy**
+
+- **File:** `skills/backend-quality/references/dimensions.md`
+- Add after DIM-7 section:
+
+```markdown
+## DIM-8: Prose Quality
+
+**Definition:** The absence of detectable AI-writing patterns in documentation, comments, user-facing strings, and prose content. Prose quality violations erode trust, signal unreviewed AI output, and make content feel generic rather than purposeful.
+
+**Invariants:**
+- Documentation reads as written by a domain expert, not generated by a language model
+- No chatbot correspondence artifacts (sycophantic openers, "let me know" closers)
+- Technical writing is direct and specific, not padded with filler phrases or hedging
+
+**Detectable Signals:**
+- AI vocabulary clustering (additionally, crucial, delve, landscape, tapestry, testament, underscore, vibrant)
+- Collaborative communication artifacts ("I hope this helps", "Certainly!", "Would you like...")
+- Knowledge-cutoff disclaimers ("as of [date]", "based on available information")
+- Structural tells (em dash overuse, rule of three, inline-header vertical lists, title case headings)
+- Content inflation (inflated significance, promotional language, superficial -ing analyses)
+- Filler and hedging (generic positive conclusions, excessive hedging, wordy phrases)
+
+**Severity Guide:**
+- **HIGH:** Chatbot artifacts or knowledge-cutoff disclaimers left in shipped content
+- **MEDIUM:** AI vocabulary clustering (3+ AI-typical words in a paragraph) or structural tells
+- **LOW:** Isolated filler phrases or mild hedging
+```
+
+- Update intro: "Seven canonical dimensions" → "Eight canonical dimensions"
+- Update Dimension Independence section to reference DIM-8
+
+**b) Create humanize skill**
+
+- **File:** `skills/humanize/SKILL.md`
+- Frontmatter:
+
+```yaml
+---
+name: humanize
+description: "Scan for AI writing patterns in markdown, docs, comments, and user-facing strings. Detects 24 cataloged AI-writing tells across content, language, style, communication, and filler categories. Triggers: 'check prose', 'AI writing', 'humanize', or /axiom:humanize. Do NOT use for code quality — use other axiom skills."
+user-invokable: true
+metadata:
+  author: lvlup-sw
+  version: 0.1.0
+  category: assessment
+  dimensions:
+    - prose-quality
+---
+```
+
+- Process: scope resolution → deterministic scan (PQ-* checks) → qualitative assessment → findings in standard format
+- Triggers: positive (scan prose, check writing, humanize) and negative (not for code quality)
+- Default file scope: `*.md`, `*.txt`, `*.mdx`, plus comments and user-facing strings in source files
+- References: link to `@skills/humanize/references/ai-writing-patterns.md` and `@skills/humanize/references/severity-guide.md`
+
+**c) Create AI writing patterns reference**
+
+- **File:** `skills/humanize/references/ai-writing-patterns.md`
+- 24 patterns organized into 5 categories:
+  - Content Patterns (PQ-1.1 through PQ-1.6): inflated significance, notability emphasis, superficial -ing analyses, promotional language, vague attributions, formulaic sections
+  - Language/Grammar Patterns (PQ-2.1 through PQ-2.6): AI vocabulary words, copula avoidance, negative parallelisms, rule of three, elegant variation, false ranges
+  - Style Patterns (PQ-3.1 through PQ-3.6): em dash overuse, boldface overuse, inline-header lists, title case headings, emojis in prose, curly quotes
+  - Communication Patterns (PQ-4.1 through PQ-4.3): collaborative artifacts, knowledge-cutoff disclaimers, sycophantic tone
+  - Filler/Hedging Patterns (PQ-5.1 through PQ-5.3): filler phrases, excessive hedging, generic positive conclusions
+- Each pattern includes: detection keywords/regex, problem description, before/after examples, false-positive guidance
+
+**d) Create severity guide reference**
+
+- **File:** `skills/humanize/references/severity-guide.md`
+- Maps each pattern category to severity levels with rationale
+- HIGH: patterns that are dead giveaways of unreviewed AI output (chatbot artifacts, disclaimers)
+- MEDIUM: patterns that cluster to create an AI-generated feel (vocabulary, structural tells, content inflation)
+- LOW: patterns that are minor style issues (isolated filler, mild hedging)
+- Frequency-based escalation: 1 occurrence = LOW, 3+ = MEDIUM, 5+ = HIGH for vocabulary patterns
+
+**e) Add PQ-* checks to deterministic check catalog**
+
+- **File:** `skills/backend-quality/references/deterministic-checks.md`
+- Add `## DIM-8: Prose Quality` section after DIM-7
+- 10 deterministic checks:
+
+| Check | Pattern | Severity |
+|-------|---------|----------|
+| PQ-8.1 | AI vocabulary clustering (>=3 of: additionally, crucial, delve, foster, garner, intricate, landscape, pivotal, tapestry, testament, underscore, vibrant per paragraph) | MEDIUM |
+| PQ-8.2 | Chatbot collaborative artifacts ("I hope this helps", "Of course!", "Certainly!", etc.) | HIGH |
+| PQ-8.3 | Knowledge-cutoff disclaimers ("as of my last training", "based on available information") | HIGH |
+| PQ-8.4 | Sycophantic openers ("Great question!", "That's a great", "Absolutely!") | HIGH |
+| PQ-8.5 | Em dash density (> 1 per 100 words in a file) | LOW |
+| PQ-8.6 | Superficial -ing analyses ("highlighting the", "underscoring its", "fostering a") | MEDIUM |
+| PQ-8.7 | Inflated significance ("serves as a testament", "pivotal role", "evolving landscape") | MEDIUM |
+| PQ-8.8 | Promotional language ("boasts a", "groundbreaking", "breathtaking", "must-visit") | MEDIUM |
+| PQ-8.9 | Filler phrases ("in order to", "due to the fact that", "it is worth noting") | LOW |
+| PQ-8.10 | Generic positive conclusions ("the future looks bright", "exciting times", "paving the way") | MEDIUM |
+
+**f) Update audit orchestration**
+
+- **File:** `skills/audit/SKILL.md`
+  - "all 7 dimensions" → "all 8 dimensions"
+  - Step 3: Add `5. **\`axiom:humanize\`** — Prose Quality (DIM-8)` after verify
+  - Step 5: "all 7 dimensions" → "all 8 dimensions"
+
+- **File:** `skills/audit/references/composition-guide.md`
+  - Add row: `| 6 | \`axiom:humanize\` | Prose Quality |`
+  - "DIM-1 through DIM-7" → "DIM-1 through DIM-8"
+
+**g) Update backend-quality SKILL.md**
+
+- **File:** `skills/backend-quality/SKILL.md`
+  - Update dimension count references (7 → 8)
+
+**h) Version bump**
+
+- **File:** `.claude-plugin/plugin.json`
+  - `"version": "0.2.5"` → `"version": "0.3.0"` (minor bump: additive feature)
+  - Update description to mention eight dimensions
+
+### 3. [REFACTOR] Verify all tests pass
+
+- Run `npm run test:run` — all 4 test files should pass
+- Verify `dimension-coverage` test covers prose-quality via humanize skill
+- Verify `cross-references` test validates humanize → ai-writing-patterns.md link
+- Verify `skill-frontmatter` test validates humanize frontmatter
+
+**Dependencies:** None
+**Parallelizable:** Yes (different repo, fully independent)
+
+---
+
+## Task 002: Monorepo Scaffolding + Companion Registry
+
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Write tests for companion registry and types
+
+- **File:** `packages/create-exarchos/src/companions.test.ts`
+- Expected tests:
+
+```typescript
+describe('Companion Registry', () => {
+  it('getCompanions_All_ReturnsFiveCompanions')
+  it('getDefaultCompanions_DefaultsOnly_ReturnsFour')
+  it('filterCompanions_ExcludeById_RemovesSpecified')
+  it('filterCompanions_IncludeNonDefault_AddsWhenSelected')
+  it('getCompanionInstall_ClaudeCodeEnv_ReturnsPluginConfig')
+  it('getCompanionInstall_CursorEnv_ReturnsSkillsOrMcpConfig')
+  it('getCompanionInstall_GenericEnv_ReturnsMcpConfigOrNull')
+  it('getCompanionInstall_CliEnv_ReturnsNull')
+});
+```
+
+- **File:** `packages/create-exarchos/src/utils.test.ts`
+- Expected tests:
+
+```typescript
+describe('Utilities', () => {
+  it('parseJsonFile_ValidJson_ReturnsParsed')
+  it('parseJsonFile_InvalidJson_ReturnsEmpty')
+  it('parseJsonFile_MissingFile_ReturnsEmpty')
+  it('writeJsonFile_WritesWithIndent_AddsTrailingNewline')
+  it('runCommand_SuccessfulCommand_ReturnsSuccess')
+  it('runCommand_FailedCommand_ReturnsError')
+});
+```
+
+- **Expected failure:** Cannot find module `./companions.js`, `./utils.js`
+
+### 2. [GREEN] Implement package scaffolding and companion registry
+
+**a) Package scaffolding**
+
+- **File:** `packages/create-exarchos/package.json`
+
+```json
+{
+  "name": "create-exarchos",
+  "version": "0.1.0",
+  "description": "Interactive installer for Exarchos and companion ecosystem",
+  "type": "module",
+  "bin": { "create-exarchos": "./dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": { "node": ">=20.0.0" }
+}
+```
+
+- **File:** `packages/create-exarchos/tsconfig.json` — ESM, NodeNext, strict: true
+- **File:** `packages/create-exarchos/vitest.config.ts`
+
+**b) Types**
+
+- **File:** `packages/create-exarchos/src/types.ts`
+- `Environment = 'claude-code' | 'cursor' | 'generic-mcp' | 'cli'`
+- `McpServerConfig`, `CompanionInstall`, `Companion`, `InstallResult`, `CliArgs` interfaces
+
+**c) Companion registry**
+
+- **File:** `packages/create-exarchos/src/companions.ts`
+- `COMPANIONS` array with 5 entries matching design doc registry
+- `getCompanions(): Companion[]`
+- `getDefaultCompanions(): Companion[]` — filter where `default === true`
+- `filterCompanions(all, exclude, include): Companion[]` — apply include/exclude
+- `getCompanionInstall(companion, env): CompanionInstall | undefined` — lookup per environment
+
+**d) Shared utilities**
+
+- **File:** `packages/create-exarchos/src/utils.ts`
+- `parseJsonFile<T>(path, label): T` — safe JSON parse with fallback
+- `writeJsonFile(path, data): void` — JSON.stringify with 2-space indent + trailing newline
+- `runCommand(cmd): { success: boolean; output?: string; error?: string }` — execSync wrapper
+
+### 3. [REFACTOR] Ensure strict TypeScript compliance, no `any`
+
+**Dependencies:** None
+**Parallelizable:** Yes (parallel with Task 001)
+
+---
+
+## Task 003: Environment Detection
+
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Write tests for environment detection
+
+- **File:** `packages/create-exarchos/src/detect.test.ts`
+
+```typescript
+describe('Environment Detection', () => {
+  it('detectEnvironment_ClaudeDirAndClaudeOnPath_ReturnsClaudeCode')
+  it('detectEnvironment_ClaudeDirOnly_ReturnsClaudeCode')
+  it('detectEnvironment_CursorDirInHome_ReturnsCursor')
+  it('detectEnvironment_CursorDirInCwd_ReturnsCursor')
+  it('detectEnvironment_BothClaudeAndCursor_PrefersClaudeCode')
+  it('detectEnvironment_NeitherDetected_ReturnsNull')
+  it('isCommandAvailable_ExistingCommand_ReturnsTrue')
+  it('isCommandAvailable_MissingCommand_ReturnsFalse')
+});
+```
+
+- **Expected failure:** Cannot find module `./detect.js`
+
+### 2. [GREEN] Implement environment detection
+
+- **File:** `packages/create-exarchos/src/detect.ts`
+- `detectEnvironment(): Environment | null` — checks in priority order:
+  1. Claude Code: `~/.claude/` exists → `'claude-code'`
+  2. Cursor: `~/.cursor/` or `./.cursor/` exists → `'cursor'`
+  3. Neither → `null` (caller prompts user or uses `--env` flag)
+- `isCommandAvailable(cmd: string): boolean` — `which` / `command -v` check via execSync
+- Uses only `fs.existsSync`, `child_process.execSync`, `os.homedir`
+
+### 3. [REFACTOR] Extract path constants if needed
+
+**Dependencies:** Task 002 (imports `Environment` type from `types.ts`)
+**Parallelizable:** Yes (with Task 004)
+
+---
+
+## Task 004: Platform Installers
+
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Write tests for all four installers
+
+- **File:** `packages/create-exarchos/src/installers/claude-code.test.ts`
+
+```typescript
+describe('Claude Code Installer', () => {
+  it('installExarchos_ClaudeCode_RunsPluginInstallCommand')
+  it('installCompanion_PluginType_RunsPluginInstall')
+  it('installCompanion_McpType_WritesToClaudeJson')
+  it('installCompanion_NoConfig_CreatesNewClaudeJson')
+  it('installExarchos_CommandFails_ReturnsError')
+});
+```
+
+- **File:** `packages/create-exarchos/src/installers/cursor.test.ts`
+
+```typescript
+describe('Cursor Installer', () => {
+  it('installExarchos_Cursor_WritesMcpJsonWithExarchosServer')
+  it('installCompanion_McpType_AddsToCursorMcpJson')
+  it('installCompanion_SkillsType_RunsNpxSkillsAdd')
+  it('installExarchos_ExistingMcpJson_MergesConfig')
+});
+```
+
+- **File:** `packages/create-exarchos/src/installers/generic-mcp.test.ts`
+
+```typescript
+describe('Generic MCP Installer', () => {
+  it('installExarchos_GenericMcp_WritesDotMcpJson')
+  it('installCompanion_McpType_AddsToDotMcpJson')
+  it('installExarchos_ExistingMcpJson_MergesConfig')
+});
+```
+
+- **File:** `packages/create-exarchos/src/installers/cli.test.ts`
+
+```typescript
+describe('CLI Installer', () => {
+  it('installExarchos_Cli_RunsNpmInstallGlobal')
+  it('installExarchos_CommandFails_ReturnsError')
+});
+```
+
+- **Expected failure:** Cannot find modules
+
+### 2. [GREEN] Implement all four installers
+
+**a) Installer interface**
+
+- **File:** `packages/create-exarchos/src/installers/types.ts`
+
+```typescript
+export interface Installer {
+  installExarchos(): InstallResult;
+  installCompanion(companion: Companion): InstallResult;
+}
+```
+
+**b) Claude Code installer**
+
+- **File:** `packages/create-exarchos/src/installers/claude-code.ts`
+- `installExarchos()`: runs `claude plugin install exarchos@lvlup-sw` via `runCommand()`
+- `installCompanion(companion)`: if `plugin` → `claude plugin install ${plugin}`; if `mcp` → write to `~/.claude.json` via `parseJsonFile` + `writeJsonFile`
+
+**c) Cursor installer**
+
+- **File:** `packages/create-exarchos/src/installers/cursor.ts`
+- `installExarchos()`: writes Exarchos MCP server config to `.cursor/mcp.json`
+  - Server config: `{ "command": "npx", "args": ["@lvlup-sw/exarchos", "mcp"] }`
+- `installCompanion(companion)`: if `mcp` → merge into `.cursor/mcp.json`; if `skills` → `npx skills add ${skills}`
+
+**d) Generic MCP installer**
+
+- **File:** `packages/create-exarchos/src/installers/generic-mcp.ts`
+- `installExarchos()`: writes Exarchos MCP server config to `.mcp.json` in cwd
+- `installCompanion(companion)`: if `mcp` → merge into `.mcp.json`
+
+**e) CLI installer**
+
+- **File:** `packages/create-exarchos/src/installers/cli.ts`
+- `installExarchos()`: runs `npm install -g @lvlup-sw/exarchos`
+- `installCompanion()`: returns `{ success: true, skipped: true }` — companions are MCP/plugin features
+
+### 3. [REFACTOR] DRY up MCP config writing between Cursor and generic-mcp installers
+
+**Dependencies:** Task 002 (imports types, companions, utils)
+**Parallelizable:** Yes (with Task 003)
+
+---
+
+## Task 005: CLI Entry Point + Prompts + Non-Interactive Mode
+
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Write tests for CLI arg parsing and orchestration
+
+- **File:** `packages/create-exarchos/src/cli.test.ts`
+
+```typescript
+describe('CLI Arg Parsing', () => {
+  it('parseArgs_NoFlags_ReturnsInteractiveDefaults')
+  it('parseArgs_YesFlag_ReturnsNonInteractive')
+  it('parseArgs_YFlag_ReturnsNonInteractive')
+  it('parseArgs_EnvClaudeCode_SetsEnvironment')
+  it('parseArgs_EnvCursor_SetsEnvironment')
+  it('parseArgs_InvalidEnv_Throws')
+  it('parseArgs_NoAxiomFlag_AddsToExclude')
+  it('parseArgs_NoImpeccableFlag_AddsToExclude')
+  it('parseArgs_MultipleNoFlags_AddsAllToExclude')
+});
+```
+
+- **File:** `packages/create-exarchos/src/prompts.test.ts`
+
+```typescript
+describe('Prompts', () => {
+  it('buildEnvironmentChoices_AllFourOptions_ReturnsSelectConfig')
+  it('buildCompanionChoices_DefaultsChecked_ReturnsCheckboxConfig')
+  it('buildCompanionChoices_EnvFiltered_ExcludesUnavailable')
+});
+```
+
+- **File:** `packages/create-exarchos/src/index.test.ts`
+
+```typescript
+describe('Main Orchestration', () => {
+  it('run_NonInteractive_DetectsEnvInstallsDefaults')
+  it('run_NonInteractive_WithEnvFlag_UsesSpecifiedEnv')
+  it('run_NonInteractive_WithExcludes_SkipsExcluded')
+  it('run_ExarchosInstallFails_ReportsError')
+  it('run_CompanionInstallFails_ContinuesWithOthers')
+});
+```
+
+- **Expected failure:** Cannot find modules
+
+### 2. [GREEN] Implement CLI, prompts, and entry point
+
+**a) CLI arg parsing**
+
+- **File:** `packages/create-exarchos/src/cli.ts`
+- `parseArgs(argv: string[]): CliArgs` — parses `--yes`/`-y`, `--env <env>`, `--no-<companion-id>`
+- Validates `--env` against `['claude-code', 'cursor', 'generic-mcp', 'cli']`
+- Returns `{ interactive, env, companions: { include: [], exclude: [] } }`
+
+**b) Interactive prompts**
+
+- **File:** `packages/create-exarchos/src/prompts.ts`
+- `promptEnvironment(detected: Environment | null): Promise<Environment>` — select prompt; pre-selects detected env
+- `promptCompanions(env: Environment): Promise<string[]>` — checkbox prompt; defaults checked; filters companions unavailable for env
+- Uses `@inquirer/prompts` (`select`, `checkbox`)
+
+**c) Entry point**
+
+- **File:** `packages/create-exarchos/src/index.ts`
+- `#!/usr/bin/env node` shebang
+- `run(argv: string[]): Promise<void>` — orchestrates:
+  1. Parse args
+  2. Print banner: `"Exarchos — a local-first SDLC workflow harness\n"`
+  3. If interactive: prompt environment, prompt companions
+  4. If non-interactive: detect environment (or use `--env`), use defaults minus excludes
+  5. Get installer for environment
+  6. Install Exarchos → print `"✓ Exarchos installed"` or `"✗ Exarchos install failed: ..."`
+  7. Install each selected companion → print `"✓ companion-name installed"` per success
+  8. Print `"\nRun /ideate to start."`
+- Graceful error handling: continue installing remaining companions if one fails
+
+### 3. [REFACTOR] Clean up error messages, consistent output formatting
+
+**Dependencies:** Tasks 003, 004
+**Parallelizable:** No (depends on Group B)
+
+---
+
+## Task 006: Cleanup — Delete Companion, Enable Workspaces, Deprecation
+
+**Phase:** RED → GREEN → REFACTOR
+
+### 1. [RED] Write structural validation tests
+
+- **File:** `packages/create-exarchos/src/structure.test.ts`
+
+```typescript
+describe('Package Structure', () => {
+  it('WorkspaceConfig_RootPackageJson_HasWorkspacesField')
+  it('WorkspaceConfig_PackagesDir_ContainsCreateExarchos')
+  it('CompanionDir_DoesNotExist_RemovedFromRepo')
+  it('CompanionSkillsDir_DoesNotExist_RemovedFromRepo')
+  it('VersionSync_Script_IncludesCreateExarchos')
+});
+```
+
+- **Expected failure:** workspaces field missing, companion/ still exists
+
+### 2. [GREEN] Execute cleanup
+
+**a) Delete companion directories**
+
+- Remove `companion/` directory entirely (all contents: src, dist, .claude-plugin, rules, skills, package.json, etc.)
+- Remove `companion-skills/` directory if present
+- Remove `validate:companion` script from root `package.json`
+
+**b) Enable npm workspaces**
+
+- **File:** `package.json` (root)
+- Add `"workspaces": ["packages/*", "servers/*"]`
+
+**c) Update version sync script**
+
+- **File:** `scripts/sync-versions.sh`
+- Add `CREATE_PACKAGE_JSON="${REPO_ROOT}/packages/create-exarchos/package.json"` variable
+- Add sync + check logic for create-exarchos version
+
+**d) Content overlay assessment**
+
+- `rules/mcp-tool-guidance.md`: Check if exarchos core `rules/` already has this content (companion symlinked to it). If the rule is unique to companion, move it to exarchos core rules. If already present in core, no action needed.
+- `skills/workflow-state/references/companion-mcp-reference.md`: If this reference describes companion MCP server usage at runtime (not installation), keep it in exarchos core. If it's installation-only content now handled by create-exarchos, remove it.
+
+**e) Deprecation documentation**
+
+- Create `docs/deprecation/exarchos-dev.md` with release checklist:
+  1. Publish final `@lvlup-sw/exarchos-dev` with deprecation notice + passthrough to `npx create-exarchos`
+  2. Run `npm deprecate @lvlup-sw/exarchos-dev "Use npx create-exarchos instead"`
+
+### 3. [REFACTOR] Verify clean build and test suite
+
+- Run `npm install` from root (workspaces resolve)
+- Run `npm run test:run` from `packages/create-exarchos/`
+- Verify no references to `companion/` remain (except git history, docs/plans, docs/designs)
+
+**Dependencies:** Task 005 (create-exarchos must be functional before removing companion)
+**Parallelizable:** No (sequential, final task)
+
+---
+
+## Cross-Repo Notes
+
+### Axiom (Task 001)
+
+Task 001 operates on `../axiom` (the `lvlup-sw/axiom` repo), not the exarchos repo:
+
+- **Cannot use exarchos worktrees** — agent works directly in the axiom repo
+- **Separate test suite** — `cd ../axiom && npm run test:run`
+- **Separate commit/PR** — axiom changes committed and PR'd in axiom repo
+- **No merge conflicts** — completely independent of exarchos tasks
+
+### Coordination
+
+- Tasks 002-006 are all in the exarchos repo and use standard worktree delegation
+- Task 001 (axiom) can start and complete independently
+- The create-exarchos companion registry (Task 002) references axiom by plugin name (`axiom@lvlup-sw`), not by code — no build-time dependency
+
+## Test Execution Summary
+
+| Task | Test Files | Test Count |
+|------|-----------|-----------|
+| 001 | `tests/dimension-coverage.test.ts` (updated) | ~3 updated |
+| 002 | `packages/create-exarchos/src/{companions,utils}.test.ts` | ~14 |
+| 003 | `packages/create-exarchos/src/detect.test.ts` | ~8 |
+| 004 | `packages/create-exarchos/src/installers/*.test.ts` (4 files) | ~14 |
+| 005 | `packages/create-exarchos/src/{cli,prompts,index}.test.ts` (3 files) | ~17 |
+| 006 | `packages/create-exarchos/src/structure.test.ts` | ~5 |
+| **Total** | **12 test files** | **~61 tests** |
