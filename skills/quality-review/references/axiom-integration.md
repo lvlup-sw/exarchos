@@ -1,40 +1,39 @@
 # Axiom Plugin Integration
 
-How the exarchos quality review phase delegates general backend quality checks to the axiom plugin while retaining domain-specific checks. Axiom is an optional companion plugin — quality review runs with or without it.
+How the exarchos quality review integrates general backend quality checks — through MCP-served check catalogs (platform-agnostic) and optional companion plugins (platform-dependent). Axiom and impeccable are optional skill libraries that enhance depth when available.
 
 ## Architecture
 
+Quality checks are layered across three tiers, each progressively more platform-dependent:
+
+- **Tier 1** (MCP gates): Automated checks via `exarchos_orchestrate` actions. Platform-agnostic.
+- **Tier 2** (MCP-served catalog): `prepare_review` returns structured check patterns that any LLM agent executes. Platform-agnostic.
+- **Tier 3** (Companion skills): `axiom:audit` and `impeccable:critique` provide deeper qualitative analysis. Platform-dependent (Claude Code, Cursor).
+
 ```text
-/exarchos:review (quality-review stage)
+Any MCP client (Claude Code, Cursor, generic)
     │
-    ├── Tier 1: Exarchos-native checks (always runs)
+    ├── Tier 1: MCP Gates (always, automated)
     │   ├── check_static_analysis (D2 gate)
     │   ├── check_security_scan (D1 gate)
     │   ├── check_context_economy (D3 gate — advisory)
     │   ├── check_workflow_determinism (D5 gate — advisory)
     │   └── Test Desiderata evaluation
     │
-    ├── Tier 2: Plugin-enhanced checks (conditional)
-    │   ├── Detect axiom:audit skill availability
-    │   ├── Check .exarchos.yml plugins.axiom.enabled (default: true)
-    │   ├── If available + enabled → invoke axiom:audit
-    │   │   └── Returns: findings[] in Standard Finding Format
-    │   ├── Detect impeccable:critique skill availability
-    │   ├── Check .exarchos.yml plugins.impeccable.enabled (default: true)
-    │   └── If available + enabled → invoke impeccable:critique
-    │       └── Returns: design quality findings[]
+    ├── Tier 2: MCP-Served Check Catalog (always, agent-executed)
+    │   ├── prepare_review → returns catalog as structured data
+    │   │   ├── Grep patterns (error handling, type safety, test quality, ...)
+    │   │   ├── Structural checks (nesting depth, function length, ...)
+    │   │   └── Heuristic instructions (LLM-guided checks)
+    │   ├── Agent executes checks against codebase
+    │   └── Findings fed as pluginFindings to check_review_verdict
     │
-    ├── Merge findings (exarchos-native + axiom + impeccable)
+    ├── Tier 3: Companion Plugin Skills (platform-dependent, optional)
+    │   ├── axiom:audit — deeper qualitative backend analysis (7 dimensions)
+    │   ├── impeccable:critique — design quality analysis
+    │   └── Findings fed as additional pluginFindings to verdict
     │
-    ├── Tier 3: Verdict computation (always runs)
-    │   ├── check_convergence (D1-D5 aggregate status)
-    │   ├── check_review_verdict (merged finding counts + dimension results)
-    │   ├── APPROVED: no HIGH findings in blocking dimensions
-    │   ├── NEEDS_FIXES: any HIGH or MEDIUM_count > threshold
-    │   └── BLOCKED: critical architectural or security issues
-    │
-    ├── Emit workflow events (gate.executed — automatic)
-    └── Transition phase
+    └── Verdict: check_review_verdict merges ALL findings → APPROVED | NEEDS_FIXES
 ```
 
 ## Dimension Ownership Split
@@ -60,14 +59,16 @@ The quality review draws from three independent sources. Each source owns distin
 
 ## Detection and Invocation Protocol
 
-### Step 1: Detect Plugin Availability
+Plugin detection and invocation is performed by the **orchestrator** (commands/review.md), not by the quality-review subagent. The subagent does not have Skill tool access and should not attempt plugin invocation.
 
-Check for the companion plugin skills in the available skills list:
+### Step 1: Detect Plugin Availability (Orchestrator)
+
+After the quality-review subagent returns its verdict, the orchestrator checks for companion plugins in its available skills list:
 
 - `axiom:audit` — general backend quality (7 dimensions)
 - `impeccable:critique` — design quality (UI, accessibility, design system, responsive)
 
-### Step 2: Check Configuration Override
+### Step 2: Check Configuration Override (Orchestrator)
 
 Read the project's `.exarchos.yml` for explicit plugin toggles:
 
@@ -86,10 +87,10 @@ A plugin is invoked only when BOTH conditions are met:
 
 If the `plugins` key or any sub-key is absent from `.exarchos.yml`, the default is `enabled: true`.
 
-### Step 3: Invoke and Merge
+### Step 3: Invoke and Merge (Orchestrator)
 
 **axiom:audit invocation:**
-1. Pass the diff content and the list of changed files
+1. `Skill({ skill: "axiom:audit" })` with the diff content and list of changed files
 2. axiom returns findings in Standard Finding Format (`severity`, `dimension`, `file`, `line`, `message`)
 3. Map axiom findings to the unified list:
    - `dimension` (DIM-1 through DIM-7) becomes the category prefix (e.g., `axiom:DIM-1-topology`)
@@ -97,21 +98,29 @@ If the `plugins` key or any sub-key is absent from `.exarchos.yml`, the default 
    - axiom HIGH findings are treated identically to exarchos-native HIGH findings
 
 **impeccable:critique invocation:**
-1. Pass the diff content
+1. `Skill({ skill: "impeccable:critique" })` with the diff content
 2. impeccable returns design quality findings (`severity`, `category`, `file`, `line`, `message`)
 3. Map all impeccable findings under the `design-quality` category
 
-**Merge:** Append all plugin findings to the exarchos-native findings list. The merged list is the input to `check_review_verdict`.
+**Merge:** Append all plugin findings to the subagent's findings list. The merged list informs verdict escalation.
+
+### Step 4: Verdict Escalation (Orchestrator)
+
+Compare plugin findings against the subagent's verdict:
+
+- If the subagent returned **APPROVED** but plugins found HIGH-severity issues → escalate to **NEEDS_FIXES**
+- If the subagent returned **NEEDS_FIXES** → preserve (plugins may add more findings but verdict is already failing)
+- If no plugins ran → preserve subagent verdict as-is
 
 ## Graceful Degradation
 
-When a plugin is not installed or is disabled, the quality review proceeds without it. The review report includes a "Plugin Coverage" section that communicates the status of each optional plugin:
+When a plugin is not installed or is disabled, the orchestrator skips it and the review proceeds with exarchos-native checks only. The orchestrator logs a "Plugin Coverage" note in the review output:
 
 - **Not installed:** Suggests the install command (`claude plugin install axiom@lvlup-sw` or `claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable`)
 - **Disabled via config:** Notes the config key to re-enable
 - **Active:** Reports the number of dimensions checked and findings produced
 
-The verdict computation is unaffected by plugin absence — it operates on whatever findings are present in the merged list.
+The subagent's verdict is unaffected by plugin absence — it operates on exarchos-native findings. Plugins can only escalate (APPROVED → NEEDS_FIXES), never downgrade.
 
 ## Verdict Mapping
 

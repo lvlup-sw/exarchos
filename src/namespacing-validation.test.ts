@@ -19,8 +19,9 @@ function collectMdFiles(dir: string): string[] {
   return results;
 }
 
-// Match Skill({ skill: "X" where X does NOT start with exarchos:
-const UN_NAMESPACED_SKILL = /Skill\(\{\s*skill:\s*"(?!exarchos:)[a-z]/g;
+// Match Skill({ skill: "X" where X does NOT start with a namespace prefix (word:)
+// Allows exarchos: and companion plugin namespaces (axiom:, impeccable:, etc.)
+const UN_NAMESPACED_SKILL = /Skill\(\{\s*skill:\s*"(?![a-z][-a-z]*:)[a-z]/g;
 
 function findUnNamespacedSkillCalls(dir: string): string[] {
   const files = collectMdFiles(dir);

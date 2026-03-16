@@ -334,6 +334,83 @@ describe('handleReviewVerdict', () => {
     });
   });
 
+  // ─── Plugin Findings ───────────────────────────────────────────────────
+
+  describe('plugin findings', () => {
+    it('HandleReviewVerdict_PluginFindings_MergesCountsIntoVerdict', async () => {
+      const result = await handleReviewVerdict({
+        featureId: 'test-plugin-merge',
+        high: 0,
+        medium: 1,
+        low: 0,
+        pluginFindings: [
+          { source: 'catalog', severity: 'HIGH', message: 'Empty catch block' },
+          { source: 'catalog', severity: 'MEDIUM', message: 'TODO found' },
+        ],
+      }, STATE_DIR);
+      expect(result.success).toBe(true);
+      expect((result as { data: { high: number } }).data.high).toBe(1); // 0 native + 1 plugin HIGH
+      expect((result as { data: { medium: number } }).data.medium).toBe(2); // 1 native + 1 plugin MEDIUM
+      expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
+    });
+
+    it('HandleReviewVerdict_PluginHighFinding_EscalatesApprovedToNeedsFixes', async () => {
+      const result = await handleReviewVerdict({
+        featureId: 'test-plugin-escalate',
+        high: 0,
+        medium: 0,
+        low: 0,
+        pluginFindings: [
+          { source: 'axiom', severity: 'HIGH', dimension: 'DIM-2', file: 'src/foo.ts', line: 42, message: 'Swallowed error' },
+        ],
+      }, STATE_DIR);
+      expect(result.success).toBe(true);
+      expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
+    });
+
+    it('HandleReviewVerdict_PluginMediumOnly_DoesNotEscalate', async () => {
+      const result = await handleReviewVerdict({
+        featureId: 'test-plugin-medium',
+        high: 0,
+        medium: 0,
+        low: 0,
+        pluginFindings: [
+          { source: 'catalog', severity: 'MEDIUM', message: 'Non-null assertion' },
+        ],
+      }, STATE_DIR);
+      expect(result.success).toBe(true);
+      expect((result as { data: { verdict: string } }).data.verdict).toBe('APPROVED');
+      expect((result as { data: { medium: number } }).data.medium).toBe(1);
+    });
+
+    it('HandleReviewVerdict_EmptyPluginFindings_NoEffect', async () => {
+      const result = await handleReviewVerdict({
+        featureId: 'test-plugin-empty',
+        high: 0,
+        medium: 2,
+        low: 1,
+        pluginFindings: [],
+      }, STATE_DIR);
+      expect(result.success).toBe(true);
+      expect((result as { data: { high: number } }).data.high).toBe(0);
+      expect((result as { data: { medium: number } }).data.medium).toBe(2);
+      expect((result as { data: { low: number } }).data.low).toBe(1);
+      expect((result as { data: { verdict: string } }).data.verdict).toBe('APPROVED');
+    });
+
+    it('HandleReviewVerdict_NoPluginFindings_BackwardsCompatible', async () => {
+      // Existing behavior — no pluginFindings param at all
+      const result = await handleReviewVerdict({
+        featureId: 'test-no-plugin',
+        high: 1,
+        medium: 0,
+        low: 0,
+      }, STATE_DIR);
+      expect(result.success).toBe(true);
+      expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
+    });
+  });
+
   // ─── Per-Dimension Gate Events ──────────────────────────────────────────
 
   describe('per-dimension gate events', () => {

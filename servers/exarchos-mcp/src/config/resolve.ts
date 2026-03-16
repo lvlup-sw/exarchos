@@ -13,6 +13,10 @@ export interface ResolvedGateConfig {
   readonly params: Readonly<Record<string, unknown>>;
 }
 
+export interface ResolvedPluginConfig {
+  readonly enabled: boolean;
+}
+
 export interface ResolvedProjectConfig {
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
@@ -41,6 +45,10 @@ export interface ResolvedProjectConfig {
   };
   readonly hooks: {
     readonly on: Readonly<Record<string, readonly { readonly command: string; readonly timeout: number }[]>>;
+  };
+  readonly plugins: {
+    readonly axiom: ResolvedPluginConfig;
+    readonly impeccable: ResolvedPluginConfig;
   };
 }
 
@@ -93,6 +101,10 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   },
   hooks: {
     on: {},
+  },
+  plugins: {
+    axiom: { enabled: true },
+    impeccable: { enabled: true },
   },
 });
 
@@ -225,6 +237,10 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     }
   }
 
+  // ── Plugins ──
+  const axiomEnabled = project.plugins?.axiom?.enabled ?? DEFAULTS.plugins.axiom.enabled;
+  const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
+
   const resolved: ResolvedProjectConfig = {
     review: {
       dimensions,
@@ -235,6 +251,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     workflow: { skipPhases, maxFixCycles, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
+    plugins: { axiom: { enabled: axiomEnabled }, impeccable: { enabled: impeccableEnabled } },
   };
 
   return deepFreeze(resolved);

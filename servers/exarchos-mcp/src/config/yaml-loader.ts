@@ -13,7 +13,7 @@ const YAML_FILENAMES = ['.exarchos.yml', '.exarchos.yaml'] as const;
 
 // ─── Section-level parsing keys ─────────────────────────────────────────────
 
-const SECTION_KEYS = ['review', 'vcs', 'workflow', 'tools', 'hooks'] as const;
+const SECTION_KEYS = ['review', 'vcs', 'workflow', 'tools', 'hooks', 'plugins'] as const;
 
 // ─── Load Project Config ────────────────────────────────────────────────────
 

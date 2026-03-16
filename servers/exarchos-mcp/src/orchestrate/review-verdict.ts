@@ -6,6 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { PluginFinding } from '../review/check-catalog.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
 
@@ -18,6 +19,7 @@ interface ReviewVerdictArgs {
   readonly low: number;
   readonly blockedReason?: string;
   readonly dimensionResults?: Record<string, { passed: boolean; findingCount: number }>;
+  readonly pluginFindings?: readonly PluginFinding[];
 }
 
 interface ReviewVerdictResult {
@@ -120,15 +122,31 @@ export async function handleReviewVerdict(
     };
   }
 
-  // Compute verdict in pure TypeScript
-  const verdict = computeVerdict(args);
-  const report = generateVerdictReport(verdict, args);
+  // Merge plugin finding counts into native counts
+  let mergedHigh = args.high;
+  let mergedMedium = args.medium;
+  let mergedLow = args.low;
+
+  if (args.pluginFindings?.length) {
+    for (const finding of args.pluginFindings) {
+      switch (finding.severity) {
+        case 'HIGH': mergedHigh++; break;
+        case 'MEDIUM': mergedMedium++; break;
+        case 'LOW': mergedLow++; break;
+      }
+    }
+  }
+
+  // Compute verdict in pure TypeScript using merged counts
+  const mergedCounts = { high: mergedHigh, medium: mergedMedium, low: mergedLow, blockedReason: args.blockedReason };
+  const verdict = computeVerdict(mergedCounts);
+  const report = generateVerdictReport(verdict, mergedCounts);
 
   const result: ReviewVerdictResult = {
     verdict,
-    high: args.high,
-    medium: args.medium,
-    low: args.low,
+    high: mergedHigh,
+    medium: mergedMedium,
+    low: mergedLow,
     ...(args.blockedReason ? { blockedReason: args.blockedReason } : {}),
     report,
   };
@@ -148,14 +166,19 @@ export async function handleReviewVerdict(
   }
 
   // Emit summary gate event (fire-and-forget)
+  const pluginSources = args.pluginFindings?.length
+    ? [...new Set(args.pluginFindings.map(f => f.source))]
+    : undefined;
+
   try {
     const store = getOrCreateEventStore(stateDir);
     await emitGateEvent(store, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
       verdict,
       phase: 'review',
-      high: args.high,
-      medium: args.medium,
-      low: args.low,
+      high: mergedHigh,
+      medium: mergedMedium,
+      low: mergedLow,
+      ...(pluginSources ? { pluginSources } : {}),
     });
   } catch { /* fire-and-forget */ }
 
