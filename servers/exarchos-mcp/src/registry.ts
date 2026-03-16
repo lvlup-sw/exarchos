@@ -662,7 +662,7 @@ const orchestrateActions: readonly ToolAction[] = [
         severity: z.enum(['HIGH', 'MEDIUM', 'LOW']),
         dimension: z.string().optional(),
         file: z.string().optional(),
-        line: z.number().optional(),
+        line: z.number().int().positive().optional(),
         message: z.string(),
       })).optional(),
     }),
