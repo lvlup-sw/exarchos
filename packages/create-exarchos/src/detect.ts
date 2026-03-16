@@ -5,8 +5,12 @@ import { homedir } from 'node:os';
 import type { Environment } from './types.js';
 
 export function detectEnvironment(): Environment | null {
-  const claudeDir = join(homedir(), '.claude');
-  if (existsSync(claudeDir)) return 'claude-code';
+  // Check for ~/.claude.json (Claude Code config) rather than ~/.claude/ directory,
+  // which can be created by tools like playwright-cli installing skills.
+  const claudeConfig = join(homedir(), '.claude.json');
+  if (existsSync(claudeConfig)) return 'claude-code';
+  const copilotDir = join(homedir(), '.copilot');
+  if (existsSync(copilotDir)) return 'copilot-cli';
   const cursorHome = join(homedir(), '.cursor');
   const cursorCwd = join(process.cwd(), '.cursor');
   if (existsSync(cursorHome) || existsSync(cursorCwd)) return 'cursor';

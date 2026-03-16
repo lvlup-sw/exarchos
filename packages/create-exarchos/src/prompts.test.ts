@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { buildEnvironmentChoices, buildCompanionChoices } from './prompts.js';
 
 describe('Prompts', () => {
-  it('buildEnvironmentChoices_AllFourOptions_ReturnsFourChoices', () => {
+  it('buildEnvironmentChoices_AllFiveOptions_ReturnsFiveChoices', () => {
     const choices = buildEnvironmentChoices(null);
-    expect(choices).toHaveLength(4);
+    expect(choices).toHaveLength(5);
     const values = choices.map(c => c.value);
     expect(values).toContain('claude-code');
+    expect(values).toContain('copilot-cli');
     expect(values).toContain('cursor');
     expect(values).toContain('generic-mcp');
     expect(values).toContain('cli');

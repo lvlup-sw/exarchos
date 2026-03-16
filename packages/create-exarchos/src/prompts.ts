@@ -10,6 +10,7 @@ export interface Choice<T> {
 export function buildEnvironmentChoices(_detected: Environment | null): Choice<Environment>[] {
   return [
     { name: 'Claude Code', value: 'claude-code' },
+    { name: 'Copilot CLI', value: 'copilot-cli' },
     { name: 'Cursor', value: 'cursor' },
     { name: 'Other MCP client', value: 'generic-mcp' },
     { name: 'Terminal (CLI only)', value: 'cli' },

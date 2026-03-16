@@ -1,6 +1,6 @@
 import type { CliArgs, Environment } from './types.js';
 
-const VALID_ENVS: Environment[] = ['claude-code', 'cursor', 'generic-mcp', 'cli'];
+const VALID_ENVS: Environment[] = ['claude-code', 'copilot-cli', 'cursor', 'generic-mcp', 'cli'];
 
 export function parseArgs(argv: string[]): CliArgs {
   const result: CliArgs = {

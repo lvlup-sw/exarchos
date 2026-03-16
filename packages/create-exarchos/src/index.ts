@@ -9,6 +9,7 @@ import { getDefaultCompanions, getCompanions, filterCompanions, getCompanionInst
 import { buildEnvironmentChoices, buildCompanionChoices } from './prompts.js';
 
 import * as claudeCode from './installers/claude-code.js';
+import * as copilotCli from './installers/copilot-cli.js';
 import * as cursor from './installers/cursor.js';
 import * as genericMcp from './installers/generic-mcp.js';
 import * as cli from './installers/cli.js';
@@ -27,6 +28,7 @@ function getInstaller(env: Environment): Installer {
   // without optional args (which is how run() uses them).
   switch (env) {
     case 'claude-code': return claudeCode as Installer;
+    case 'copilot-cli': return copilotCli as Installer;
     case 'cursor': return cursor as Installer;
     case 'generic-mcp': return genericMcp as Installer;
     case 'cli': return cli as Installer;
