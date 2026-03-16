@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 50 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
+    it('should have 51 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(50);
+      expect(composite!.actions).toHaveLength(51);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -372,6 +372,7 @@ describe('TOOL_REGISTRY', () => {
           'needs_schema_sync',
           'verify_doc_links',
           'verify_review_triage',
+          'prepare_review',
         ]),
       );
     });
@@ -1104,5 +1105,74 @@ describe('AutoEmits Drift Tests', () => {
     }
 
     expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
+  });
+});
+
+// ─── Plugin Integration: prepare_review & pluginFindings (DR-1, DR-3) ────────
+
+describe('Plugin Integration Registry Wiring', () => {
+  it('RegistryActions_PrepareReview_Registered', () => {
+    const orchTool = findComposite('exarchos_orchestrate');
+    expect(orchTool).toBeDefined();
+    const prepareReview = orchTool!.actions.find((a) => a.name === 'prepare_review');
+    expect(prepareReview, 'exarchos_orchestrate should have a prepare_review action').toBeDefined();
+    expect(prepareReview!.description).toBeTruthy();
+    // Should accept valid input
+    expect(prepareReview!.schema.safeParse({ featureId: 'test-feature' }).success).toBe(true);
+    // Should accept optional fields
+    expect(prepareReview!.schema.safeParse({
+      featureId: 'test-feature',
+      scope: 'full',
+      dimensions: ['error-handling'],
+    }).success).toBe(true);
+    // Should include review phases
+    expect(prepareReview!.phases.has('review')).toBe(true);
+    expect(prepareReview!.phases.has('overhaul-review')).toBe(true);
+    expect(prepareReview!.phases.has('debug-review')).toBe(true);
+    // Should be lead-only
+    expect(prepareReview!.roles.has('lead')).toBe(true);
+  });
+
+  it('RegistryActions_CheckReviewVerdict_HasPluginFindingsInSchema', () => {
+    const action = findAction('exarchos_orchestrate', 'check_review_verdict');
+    expect(action).toBeDefined();
+
+    // Verify the schema shape includes pluginFindings by checking parsed output
+    const result = action!.schema.safeParse({
+      featureId: 'test-feature',
+      high: 0,
+      medium: 1,
+      low: 2,
+      pluginFindings: [
+        {
+          source: 'axiom',
+          severity: 'MEDIUM',
+          dimension: 'error-handling',
+          file: 'src/foo.ts',
+          line: 42,
+          message: 'Missing error boundary',
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    // Crucially: the parsed data must RETAIN pluginFindings (not strip it)
+    if (result.success) {
+      const data = result.data as Record<string, unknown>;
+      expect(data.pluginFindings).toBeDefined();
+      expect(Array.isArray(data.pluginFindings)).toBe(true);
+      const findings = data.pluginFindings as Array<Record<string, unknown>>;
+      expect(findings).toHaveLength(1);
+      expect(findings[0].source).toBe('axiom');
+      expect(findings[0].severity).toBe('MEDIUM');
+    }
+
+    // Should also accept without pluginFindings (optional)
+    const resultWithout = action!.schema.safeParse({
+      featureId: 'test-feature',
+      high: 0,
+      medium: 0,
+      low: 0,
+    });
+    expect(resultWithout.success).toBe(true);
   });
 });
