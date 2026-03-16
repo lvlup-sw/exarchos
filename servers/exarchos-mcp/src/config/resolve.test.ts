@@ -209,4 +209,34 @@ describe('resolveConfig', () => {
     skipPhases.push('test');
     expect(skipPhases).toHaveLength(3);
   });
+
+  it('ResolveConfig_EmptyConfig_PluginsDefaultToEnabled', () => {
+    const resolved = resolveConfig({});
+    expect(resolved.plugins.axiom.enabled).toBe(true);
+    expect(resolved.plugins.impeccable.enabled).toBe(true);
+  });
+
+  it('ResolveConfig_AxiomDisabled_ResolvesCorrectly', () => {
+    const resolved = resolveConfig({ plugins: { axiom: { enabled: false } } });
+    expect(resolved.plugins.axiom.enabled).toBe(false);
+    expect(resolved.plugins.impeccable.enabled).toBe(true);
+  });
+
+  it('ResolveConfig_ImpeccableDisabled_ResolvesCorrectly', () => {
+    const resolved = resolveConfig({ plugins: { impeccable: { enabled: false } } });
+    expect(resolved.plugins.axiom.enabled).toBe(true);
+    expect(resolved.plugins.impeccable.enabled).toBe(false);
+  });
+
+  it('ResolveConfig_BothDisabled_ResolvesCorrectly', () => {
+    const resolved = resolveConfig({ plugins: { axiom: { enabled: false }, impeccable: { enabled: false } } });
+    expect(resolved.plugins.axiom.enabled).toBe(false);
+    expect(resolved.plugins.impeccable.enabled).toBe(false);
+  });
+
+  it('ResolveConfig_PluginsPartial_MissingKeyDefaultsToEnabled', () => {
+    const resolved = resolveConfig({ plugins: {} });
+    expect(resolved.plugins.axiom.enabled).toBe(true);
+    expect(resolved.plugins.impeccable.enabled).toBe(true);
+  });
 });
