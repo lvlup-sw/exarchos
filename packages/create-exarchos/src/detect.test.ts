@@ -20,12 +20,21 @@ describe('Environment Detection', () => {
     vi.resetAllMocks();
   });
 
-  it('detectEnvironment_ClaudeDirPresent_ReturnsClaudeCode', () => {
+  it('detectEnvironment_ClaudeJsonPresent_ReturnsClaudeCode', () => {
     vi.mocked(existsSync).mockImplementation((p) =>
-      typeof p === 'string' && p.includes('.claude')
+      typeof p === 'string' && p.endsWith('.claude.json')
     );
 
     expect(detectEnvironment()).toBe('claude-code');
+  });
+
+  it('detectEnvironment_ClaudeDirOnly_DoesNotDetectClaudeCode', () => {
+    // ~/.claude/ directory alone (e.g. from playwright skills) should not trigger claude-code
+    vi.mocked(existsSync).mockImplementation((p) =>
+      typeof p === 'string' && p.endsWith('/.claude')
+    );
+
+    expect(detectEnvironment()).toBeNull();
   });
 
   it('detectEnvironment_CopilotDirPresent_ReturnsCopilotCli', () => {
