@@ -7,6 +7,8 @@ import type { Environment } from './types.js';
 export function detectEnvironment(): Environment | null {
   const claudeDir = join(homedir(), '.claude');
   if (existsSync(claudeDir)) return 'claude-code';
+  const copilotDir = join(homedir(), '.copilot');
+  if (existsSync(copilotDir)) return 'copilot-cli';
   const cursorHome = join(homedir(), '.cursor');
   const cursorCwd = join(process.cwd(), '.cursor');
   if (existsSync(cursorHome) || existsSync(cursorCwd)) return 'cursor';

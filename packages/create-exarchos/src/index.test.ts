@@ -16,6 +16,11 @@ vi.mock('./installers/claude-code.js', () => ({
   installCompanion: vi.fn((c) => ({ success: true, name: c.name })),
 }));
 
+vi.mock('./installers/copilot-cli.js', () => ({
+  installExarchos: vi.fn(() => ({ success: true, name: 'exarchos' })),
+  installCompanion: vi.fn((c) => ({ success: true, name: c.name })),
+}));
+
 vi.mock('./installers/cursor.js', () => ({
   installExarchos: vi.fn(() => ({ success: true, name: 'exarchos' })),
   installCompanion: vi.fn((c) => ({ success: true, name: c.name })),
@@ -50,8 +55,8 @@ describe('Main Orchestration', () => {
     await run(['--yes']);
 
     expect(claudeCodeInstaller.installExarchos).toHaveBeenCalled();
-    // Should install default companions (axiom, impeccable, serena, context7)
-    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(4);
+    // Should install default companions (axiom, impeccable, serena, context7, exa, playwright)
+    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(6);
   });
 
   it('run_NonInteractive_WithEnvFlag_UsesSpecifiedEnv', async () => {
@@ -67,8 +72,8 @@ describe('Main Orchestration', () => {
     await run(['--yes', '--no-axiom']);
 
     expect(claudeCodeInstaller.installExarchos).toHaveBeenCalled();
-    // Should install 3 companions (impeccable, serena, context7) — axiom excluded
-    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(3);
+    // Should install 5 companions (impeccable, serena, context7, exa, playwright) — axiom excluded
+    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(5);
     const calls = vi.mocked(claudeCodeInstaller.installCompanion).mock.calls;
     const companionIds = calls.map(c => c[0].id);
     expect(companionIds).not.toContain('axiom');
@@ -95,7 +100,7 @@ describe('Main Orchestration', () => {
 
     await run(['--yes']);
 
-    // Should have tried all 4 companions despite first failure
-    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(4);
+    // Should have tried all 6 companions despite first failure
+    expect(claudeCodeInstaller.installCompanion).toHaveBeenCalledTimes(6);
   });
 });

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { Companion, InstallResult } from '../types.js';
-import { mergeMcpServer, EXARCHOS_SERVER_CONFIG } from './shared.js';
+import { mergeMcpServer, runPostInstallCommands, EXARCHOS_SERVER_CONFIG } from './shared.js';
 
 export function installExarchos(mcpJsonPath?: string): InstallResult {
   const configPath = mcpJsonPath ?? join(process.cwd(), '.mcp.json');
@@ -14,7 +14,11 @@ export function installCompanion(companion: Companion, mcpJsonPath?: string): In
   if (install.mcp) {
     const configPath = mcpJsonPath ?? join(process.cwd(), '.mcp.json');
     mergeMcpServer(configPath, '.mcp.json', companion.id, install.mcp);
-    return { success: true, name: companion.name };
   }
-  return { success: true, name: companion.name, skipped: true };
+  const cmdErr = runPostInstallCommands(install, companion.name);
+  if (cmdErr) return cmdErr;
+  if (!install.mcp && !install.commands?.length) {
+    return { success: true, name: companion.name, skipped: true };
+  }
+  return { success: true, name: companion.name };
 }

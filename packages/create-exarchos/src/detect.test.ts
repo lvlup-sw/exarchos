@@ -28,6 +28,14 @@ describe('Environment Detection', () => {
     expect(detectEnvironment()).toBe('claude-code');
   });
 
+  it('detectEnvironment_CopilotDirPresent_ReturnsCopilotCli', () => {
+    vi.mocked(existsSync).mockImplementation((p) =>
+      typeof p === 'string' && p.includes('.copilot')
+    );
+
+    expect(detectEnvironment()).toBe('copilot-cli');
+  });
+
   it('detectEnvironment_CursorDirInHome_ReturnsCursor', () => {
     vi.mocked(existsSync).mockImplementation((p) =>
       typeof p === 'string' && p.includes('.cursor')

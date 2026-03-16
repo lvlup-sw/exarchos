@@ -24,6 +24,11 @@ describe('CLI Arg Parsing', () => {
     expect(args.env).toBe('claude-code');
   });
 
+  it('parseArgs_EnvCopilotCli_SetsEnvironment', () => {
+    const args = parseArgs(['--env', 'copilot-cli']);
+    expect(args.env).toBe('copilot-cli');
+  });
+
   it('parseArgs_EnvCursor_SetsEnvironment', () => {
     const args = parseArgs(['--env', 'cursor']);
     expect(args.env).toBe('cursor');
