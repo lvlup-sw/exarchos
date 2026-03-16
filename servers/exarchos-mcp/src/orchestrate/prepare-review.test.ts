@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { handlePrepareReview } from './prepare-review.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 
-// The handler takes (args, stateDir). stateDir is needed for the handler signature
-// but prepare_review doesn't use it directly. Use a temp dir or empty string.
 const stateDir = '/tmp/test-prepare-review';
 
 describe('handlePrepareReview', () => {
@@ -60,5 +61,45 @@ describe('handlePrepareReview', () => {
   it('HandlePrepareReview_MissingFeatureId_ReturnsError', async () => {
     const result = await handlePrepareReview({ featureId: '' }, stateDir);
     expect(result.success).toBe(false);
+  });
+
+  // ─── Config-driven plugin status ──────────────────────────────────────
+
+  describe('config-driven plugin status', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = mkdtempSync(join(tmpdir(), 'prepare-review-'));
+    });
+
+    afterEach(() => {
+      rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('HandlePrepareReview_RepoRootWithConfig_ReadsPluginStatus', async () => {
+      writeFileSync(join(tempDir, '.exarchos.yml'), `plugins:\n  axiom:\n    enabled: false\n  impeccable:\n    enabled: true\n`);
+      const result = await handlePrepareReview({ featureId: 'test-config', repoRoot: tempDir }, stateDir);
+      expect(result.success).toBe(true);
+      const data = (result as any).data;
+      expect(data.pluginStatus.axiom.enabled).toBe(false);
+      expect(data.pluginStatus.impeccable.enabled).toBe(true);
+    });
+
+    it('HandlePrepareReview_RepoRootNoConfig_DefaultsToEnabled', async () => {
+      // tempDir exists but has no .exarchos.yml
+      const result = await handlePrepareReview({ featureId: 'test-no-config', repoRoot: tempDir }, stateDir);
+      expect(result.success).toBe(true);
+      const data = (result as any).data;
+      expect(data.pluginStatus.axiom.enabled).toBe(true);
+      expect(data.pluginStatus.impeccable.enabled).toBe(true);
+    });
+
+    it('HandlePrepareReview_NoRepoRoot_DefaultsToEnabled', async () => {
+      const result = await handlePrepareReview({ featureId: 'test-no-root' }, stateDir);
+      expect(result.success).toBe(true);
+      const data = (result as any).data;
+      expect(data.pluginStatus.axiom.enabled).toBe(true);
+      expect(data.pluginStatus.impeccable.enabled).toBe(true);
+    });
   });
 });

@@ -1083,6 +1083,7 @@ const orchestrateActions: readonly ToolAction[] = [
       featureId: z.string().min(1),
       scope: z.string().optional(),
       dimensions: z.array(z.string()).optional(),
+      repoRoot: z.string().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,

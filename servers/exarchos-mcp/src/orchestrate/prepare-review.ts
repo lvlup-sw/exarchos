@@ -7,6 +7,8 @@
 
 import type { ToolResult } from '../format.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
+import { loadProjectConfig } from '../config/yaml-loader.js';
+import { resolveConfig, DEFAULTS } from '../config/resolve.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -14,6 +16,7 @@ interface PrepareReviewArgs {
   readonly featureId: string;
   readonly scope?: string;
   readonly dimensions?: readonly string[];
+  readonly repoRoot?: string;
 }
 
 // ─── Finding Format Schema ──────────────────────────────────────────────────
@@ -59,16 +62,18 @@ export async function handlePrepareReview(
     dimensions = QUALITY_CHECK_CATALOG.dimensions.filter((d) => requested.has(d.id));
   }
 
-  // 3. Plugin status defaults — in a full integration, this would read .exarchos.yml
-  // via loadProjectConfig(). For now, default both to enabled since config loading
-  // requires a project root which may not be available in all contexts.
+  // 3. Resolve plugin status from .exarchos.yml if repoRoot provided, else defaults
+  const resolved = args.repoRoot
+    ? resolveConfig(loadProjectConfig(args.repoRoot))
+    : undefined;
+
   const pluginStatus = {
     axiom: {
-      enabled: true,
+      enabled: resolved?.plugins.axiom.enabled ?? DEFAULTS.plugins.axiom.enabled,
       hint: 'Install with: claude plugin install axiom@lvlup-sw',
     },
     impeccable: {
-      enabled: true,
+      enabled: resolved?.plugins.impeccable.enabled ?? DEFAULTS.plugins.impeccable.enabled,
       hint: 'Install with: claude plugin install impeccable@impeccable',
     },
   };
