@@ -72,7 +72,8 @@ describe('handlePrepareReview', () => {
   });
 
   it('HandlePrepareReview_MissingFeatureId_ReturnsError', async () => {
-    expectError(await handlePrepareReview({ featureId: '' }, stateDir));
+    const err = expectError(await handlePrepareReview({ featureId: '' }, stateDir));
+    expect(err.code).toBe('INVALID_INPUT');
   });
 
   // ─── Config-driven plugin status ──────────────────────────────────────
