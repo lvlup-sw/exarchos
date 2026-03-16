@@ -308,108 +308,37 @@ For review verdict routing, query the decision runbook:
 
 This runbook provides structured criteria for routing between APPROVED and NEEDS_FIXES verdicts based on finding severity and fix cycle count. APPROVED transitions to synthesize; NEEDS_FIXES transitions back to delegate for a fix cycle. (BLOCKED routing is only relevant in plan-review, not here.)
 
-## Optional Plugin Integration
+## MCP-Served Quality Check Catalog (Tier 2)
 
-After completing Steps 1-3 above, check for optional companion plugins that provide additional quality dimensions. This is **Tier 2** of the three-tiered review model:
+After Tier 1 MCP gates complete, execute the quality check catalog. This provides deterministic quality checks (grep patterns, structural analysis) that run on **any MCP platform** — no companion plugins required.
 
-- **Tier 1 (always runs):** Exarchos-native checks — static analysis, security, convergence gates (Steps 1-3 above)
-- **Tier 2 (conditional):** Plugin-enhanced checks — axiom and impeccable (this section)
-- **Tier 3 (always runs):** Verdict computation — merges all findings and routes (next section)
+### Step 2.5: Execute Check Catalog
 
-### Plugin Detection
-
-Before invoking any companion plugin, verify two conditions:
-
-1. **Availability:** Check your available skills list for the plugin skill name (`axiom:audit` or `impeccable:critique`). If the skill is not listed, the plugin is not installed.
-2. **Configuration:** Check the project's `.exarchos.yml` for explicit enable/disable overrides under `plugins.<name>.enabled`. If the key is absent, the default is `true` (enabled).
-
-```yaml
-# .exarchos.yml — plugin overrides (all optional, defaults to enabled)
-plugins:
-  axiom:
-    enabled: true    # default; set false to skip axiom even when installed
-  impeccable:
-    enabled: true    # default; set false to skip impeccable even when installed
+```typescript
+exarchos_orchestrate({ action: "prepare_review", featureId: "<id>" })
 ```
 
-A plugin is invoked **only** when it is BOTH available (skill present) AND enabled (config not set to `false`).
+The response contains:
+- `catalog` — structured check dimensions with grep patterns, structural thresholds, and heuristic instructions
+- `findingFormat` — the TypeScript interface for submitting findings
+- `pluginStatus` — which companion plugins are configured in `.exarchos.yml`
 
-### axiom:audit Integration
+Execute each check in the catalog against the codebase:
+- **grep checks:** Run the `pattern` against files matching `fileGlob`
+- **structural checks:** Evaluate against the `threshold` (e.g., nesting depth, function length)
+- **heuristic checks:** Use judgment guided by the `description`
 
-When axiom is available and enabled, invoke it to cover 7 general backend quality dimensions:
+Collect all matches as findings in the format specified by `findingFormat`, then pass them as `pluginFindings` to `check_review_verdict`.
 
-| Dimension | Scope |
-|-----------|-------|
-| DIM-1 | Topology |
-| DIM-2 | Observability |
-| DIM-3 | Contracts |
-| DIM-4 | Test Fidelity |
-| DIM-5 | Hygiene |
-| DIM-6 | Architecture |
-| DIM-7 | Resilience |
+### Companion Plugin Enhancement (Tier 3 — Platform-Dependent)
 
-**Invocation:**
-
-1. Invoke `axiom:audit` with the diff content and the list of changed files from the review scope.
-2. axiom returns findings in Standard Finding Format: each finding has `severity`, `dimension`, `file`, `line`, and `message` fields.
-3. Map axiom dimensions to the unified findings list:
-   - Axiom `dimension` (DIM-1 through DIM-7) maps directly as the finding category prefix (e.g., `axiom:DIM-1-topology`)
-   - Axiom `severity` maps directly: HIGH, MEDIUM, LOW
-   - Axiom HIGH findings escalate to exarchos HIGH severity — they are treated identically to exarchos-native HIGH findings for verdict purposes
-4. Append all mapped axiom findings to the unified findings list.
-
-### impeccable:critique Integration
-
-When impeccable is available and enabled, invoke it to cover design quality concerns:
-
-- UI consistency
-- Accessibility
-- Design system compliance
-- Responsive design
-
-**Invocation:**
-
-1. Invoke `impeccable:critique` with the diff content.
-2. impeccable returns design quality findings with `severity`, `category`, `file`, `line`, and `message` fields.
-3. Map all impeccable findings to informational entries under the `design-quality` category in the unified findings list.
-4. Append all mapped impeccable findings to the unified findings list.
-
-### Plugin Coverage Output
-
-Include a "Plugin Coverage" section in the review report (after the Findings Detail section). This section communicates which optional plugins contributed to the review and which were absent.
-
-When a plugin is **not installed** (skill not available):
-```
-## Plugin Coverage
-
-- axiom: not installed (install with `claude plugin install axiom@lvlup-sw` for 7 additional quality dimensions)
-- impeccable: not installed (install with `claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable` for design quality checks)
-```
-
-When a plugin is **installed but disabled** via `.exarchos.yml`:
-```
-- axiom: disabled via .exarchos.yml (set plugins.axiom.enabled: true to enable)
-```
-
-When a plugin is **installed and enabled** (ran successfully):
-```
-- axiom: active (7 dimensions checked, N findings)
-```
-
-### Merged Findings for Verdict
-
-After plugin integration completes, the unified findings list contains findings from all sources:
-- **Exarchos-native:** Static analysis, security scan, test desiderata, convergence gates
-- **axiom** (if available and enabled): DIM-1 through DIM-7 findings
-- **impeccable** (if available and enabled): Design quality findings
-
-Pass this complete merged findings list to the verdict computation step below. The verdict logic is unchanged — HIGH findings in blocking dimensions trigger NEEDS_FIXES regardless of finding source.
+On platforms with skill support (Claude Code, Cursor), the orchestrator may additionally invoke `axiom:audit` and `impeccable:critique` for deeper qualitative analysis. These findings are also passed as `pluginFindings`. See `references/axiom-integration.md` for the full three-tiered architecture.
 
 ## Convergence & Verdict
 
 Query convergence status and compute verdict via orchestrate. See `references/convergence-and-verdict.md` for full orchestrate calls, response fields, and verdict routing logic.
 
-Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts (from ALL sources — exarchos-native + axiom + impeccable merged together) and dimension results, emits gate events, and returns APPROVED or NEEDS_FIXES.
+Summary: `check_convergence` returns per-dimension D1-D5 status. `check_review_verdict` takes finding counts and optional `pluginFindings` array (from catalog execution and companion plugins), emits gate events, and returns APPROVED or NEEDS_FIXES.
 
 ## Auto-Transition
 

@@ -6,19 +6,11 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { PluginFinding } from '../review/check-catalog.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Argument & Result Types ────────────────────────────────────────────────
-
-interface PluginFinding {
-  readonly source: string;
-  readonly severity: 'HIGH' | 'MEDIUM' | 'LOW';
-  readonly dimension?: string;
-  readonly file?: string;
-  readonly line?: number;
-  readonly message: string;
-}
 
 interface ReviewVerdictArgs {
   readonly featureId: string;
