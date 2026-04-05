@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleSyncNow } from './sync-handler.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventSender } from './types.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -57,7 +58,11 @@ describe('handleSyncNow', () => {
       JSON.stringify(entries2),
     );
 
-    const result = await handleSyncNow(tmpDir);
+    const mockSender: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
+    };
+
+    const result = await handleSyncNow(tmpDir, undefined, mockSender);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -80,7 +85,11 @@ describe('handleSyncNow', () => {
       JSON.stringify(entries),
     );
 
-    const result = await handleSyncNow(tmpDir);
+    const mockSender: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
+    };
+
+    const result = await handleSyncNow(tmpDir, undefined, mockSender);
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
@@ -88,7 +97,7 @@ describe('handleSyncNow', () => {
     const results = data.results as Array<{ streamId: string; sent: number; failed: number }>;
     expect(results).toHaveLength(1);
     expect(results[0].streamId).toBe('test-stream');
-    // The no-op sender successfully "sends" each entry
+    // The mock sender successfully "sends" each entry
     expect(results[0].sent).toBe(2);
     expect(results[0].failed).toBe(0);
   });
@@ -104,19 +113,20 @@ describe('handleSyncNow', () => {
   });
 
   it('handleSyncNow_SenderFailure_ReportsFailedCount', async () => {
-    // The built-in no-op sender doesn't fail, so instead we test
-    // the path where the stateDir doesn't exist (which also succeeds with 0 streams).
-    // For a true sender failure test, we need to verify the error path in handleSyncNow
-    // by providing a directory that causes drain to fail.
-    //
-    // We can trigger this by writing an invalid JSON outbox file that the Outbox.loadEntries
-    // will fail to parse, which gets caught by the try/catch in handleSyncNow.
+    // Trigger a drain failure by writing invalid JSON to an outbox file.
+    // The Outbox.loadEntries will fail to parse, which gets caught by
+    // the try/catch in handleSyncNow.
+    // A sender must be provided so the drain path is exercised.
     await fs.writeFile(
       path.join(tmpDir, 'broken-stream.outbox.json'),
       'NOT_VALID_JSON{{{',
     );
 
-    const result = await handleSyncNow(tmpDir);
+    const mockSender: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 0, streamVersion: 0 }),
+    };
+
+    const result = await handleSyncNow(tmpDir, undefined, mockSender);
 
     // The outer try/catch in handleSyncNow catches the error
     expect(result.success).toBe(false);
