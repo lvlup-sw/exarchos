@@ -502,6 +502,20 @@ export class EventStore {
             );
           }
         }
+
+        // Outbox replication: write entries for at-least-once delivery
+        if (this.outbox) {
+          for (const fullEvent of toAppend) {
+            try {
+              await this.outbox.addEntry(streamId, fullEvent);
+            } catch (err) {
+              storeLogger.error(
+                { err: err instanceof Error ? err.message : String(err) },
+                'Outbox entry failed during batch append',
+              );
+            }
+          }
+        }
       }
 
       return toAppend;

@@ -1527,6 +1527,47 @@ describe('EventStore Outbox Integration', () => {
     expect(parsed.streamId).toBe('my-workflow');
     expect(parsed.sequence).toBe(1);
   });
+
+  it('batchAppend writes entries to outbox when outbox is set', async () => {
+    const store = new EventStore(tempDir);
+    const outbox = new Outbox(tempDir);
+    const addEntrySpy = vi.spyOn(outbox, 'addEntry');
+
+    store.setOutbox(outbox);
+
+    const events = await store.batchAppend('my-workflow', [
+      { type: 'workflow.started', data: { featureId: 'test' } },
+      { type: 'workflow.transition', data: { from: 'triage', to: 'investigate' } },
+    ]);
+
+    expect(events).toHaveLength(2);
+    expect(addEntrySpy).toHaveBeenCalledTimes(2);
+    expect(addEntrySpy).toHaveBeenCalledWith('my-workflow', events[0]);
+    expect(addEntrySpy).toHaveBeenCalledWith('my-workflow', events[1]);
+  });
+
+  it('batchAppend outbox failure does not fail the append', async () => {
+    const store = new EventStore(tempDir);
+    const outbox = new Outbox(tempDir);
+    vi.spyOn(outbox, 'addEntry').mockRejectedValue(new Error('Outbox disk full'));
+
+    store.setOutbox(outbox);
+
+    const events = await store.batchAppend('my-workflow', [
+      { type: 'workflow.started', data: { featureId: 'test' } },
+      { type: 'workflow.transition', data: { from: 'triage', to: 'investigate' } },
+    ]);
+
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe('workflow.started');
+    expect(events[1].type).toBe('workflow.transition');
+
+    // Verify JSONL was still written successfully
+    const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    expect(lines).toHaveLength(2);
+  });
 });
 
 // ─── EventStore Query with Event Migration ──────────────────────────────────
