@@ -3,20 +3,7 @@
 import * as fs from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import { Outbox } from './outbox.js';
-import type { EventSender, AppendEventsResponse, ExarchosEventDto } from './types.js';
-
-// ─── No-Op Event Sender ─────────────────────────────────────────────────────
-
-/** A no-op sender used when no remote is configured. Logs but does not send. */
-const noopSender: EventSender = {
-  async appendEvents(
-    _streamId: string,
-    _events: ExarchosEventDto[],
-  ): Promise<AppendEventsResponse> {
-    // No remote configured; events marked confirmed locally (no actual send)
-    return { accepted: 0, streamVersion: 0 };
-  },
-};
+import type { EventSender } from './types.js';
 
 // ─── Stream Discovery ───────────────────────────────────────────────────────
 
@@ -35,10 +22,15 @@ async function discoverOutboxStreams(stateDir: string): Promise<string[]> {
 
 /**
  * Discovers all outbox streams in stateDir and drains pending entries.
- * Since no remote client is configured yet, uses a no-op sender that
- * marks entries as confirmed locally without actually sending.
+ * When no sender is provided (local mode), skips the drain entirely so
+ * pending entries are preserved. When a sender IS provided, drains
+ * pending entries through it.
  */
-export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
+export async function handleSyncNow(
+  stateDir: string,
+  outbox?: Outbox,
+  sender?: EventSender,
+): Promise<ToolResult> {
   try {
     const streamIds = await discoverOutboxStreams(stateDir);
 
@@ -52,11 +44,23 @@ export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
       };
     }
 
-    const outbox = new Outbox(stateDir);
+    // Local mode: no sender available, skip drain to preserve pending entries
+    if (!sender) {
+      return {
+        success: true,
+        data: {
+          streams: streamIds.length,
+          message: `Local mode: ${streamIds.length} stream(s) with pending entries (drain skipped)`,
+        },
+      };
+    }
+
+    // Remote/dual mode: drain pending entries through the sender
+    const effectiveOutbox = outbox ?? new Outbox(stateDir);
     const results: Array<{ streamId: string; sent: number; failed: number }> = [];
 
     for (const streamId of streamIds) {
-      const result = await outbox.drain(noopSender, streamId);
+      const result = await effectiveOutbox.drain(sender, streamId);
       results.push({ streamId, ...result });
     }
 
@@ -65,7 +69,7 @@ export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
       data: {
         streams: streamIds.length,
         results,
-        message: `Drained ${streamIds.length} stream(s); no remote configured`,
+        message: `Drained ${streamIds.length} stream(s)`,
       },
     };
   } catch (err) {

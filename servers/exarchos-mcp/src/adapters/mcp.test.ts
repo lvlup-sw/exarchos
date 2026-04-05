@@ -57,6 +57,32 @@ describe('createMcpServer', () => {
     expect(TOOL_REGISTRY.length).toBe(5);
   });
 
+  it('createMcpServer_declaresChannelCapability', async () => {
+    // Arrange
+    const { createMcpServer } = await import('./mcp.js');
+
+    // Act
+    const server = createMcpServer(ctx);
+    const capabilities = server.server.getCapabilities();
+
+    // Assert — experimental capabilities should include claude/channel
+    expect(capabilities.experimental).toBeDefined();
+    expect(capabilities.experimental).toHaveProperty('claude/channel');
+    expect(capabilities.experimental!['claude/channel']).toEqual({});
+  });
+
+  it('createMcpServer_exposesServerForNotifications', async () => {
+    // Arrange
+    const { createMcpServer } = await import('./mcp.js');
+
+    // Act
+    const server = createMcpServer(ctx);
+
+    // Assert — server.server should be accessible and have a notification method
+    expect(server.server).toBeDefined();
+    expect(typeof server.server.notification).toBe('function');
+  });
+
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
     // Arrange: create context with slimRegistration enabled
     const slimCtx: DispatchContext = { ...ctx, slimRegistration: true };

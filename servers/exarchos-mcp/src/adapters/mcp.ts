@@ -18,7 +18,16 @@ const SERVER_VERSION = '1.1.0';
  * 2. Wraps the ToolResult with formatResult() for MCP wire format
  */
 export function createMcpServer(ctx: DispatchContext): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      capabilities: {
+        experimental: {
+          'claude/channel': {},
+        },
+      },
+    },
+  );
 
   for (const tool of getFullRegistry()) {
     if (tool.hidden) continue;

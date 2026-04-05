@@ -10,6 +10,7 @@ import { migrateEvent } from './event-migration.js';
 import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
 import { getSidecarPath } from './hook-event-writer.js';
+import { validateStreamId } from '../shared/validation.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -56,21 +57,8 @@ export interface QueryFilters {
   offset?: number;
 }
 
-// ─── Stream ID Validation ────────────────────────────────────────────────────
-
-const SAFE_STREAM_ID_PATTERN = /^[a-z0-9-]+$/;
-
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
 const SEQUENCE_REGEX = /"sequence":(\d+)/;
-
-/** Validates that a stream ID matches the safe pattern (lowercase alphanumeric and hyphens). */
-function validateStreamId(streamId: string): void {
-  if (!SAFE_STREAM_ID_PATTERN.test(streamId)) {
-    throw new Error(
-      `Invalid streamId "${streamId}": must match ${SAFE_STREAM_ID_PATTERN} (lowercase alphanumeric and hyphens only)`,
-    );
-  }
-}
 
 /** Parse an integer from an environment variable with a fallback default. */
 function parseEnvInt(envVar: string, defaultValue: number): number {
@@ -512,6 +500,20 @@ export class EventStore {
               { err: err instanceof Error ? err.message : String(err), streamId, count: toAppend.length },
               'Backend batch dual-write failed — stores may diverge',
             );
+          }
+        }
+
+        // Outbox replication: write entries for at-least-once delivery
+        if (this.outbox) {
+          for (const fullEvent of toAppend) {
+            try {
+              await this.outbox.addEntry(streamId, fullEvent);
+            } catch (err) {
+              storeLogger.error(
+                { err: err instanceof Error ? err.message : String(err) },
+                'Outbox entry failed during batch append',
+              );
+            }
           }
         }
       }
