@@ -20,7 +20,7 @@ export async function handleSync(
 
   switch (action) {
     case 'now':
-      return handleSyncNow(stateDir);
+      return handleSyncNow(stateDir, ctx.outbox);
 
     default:
       return {

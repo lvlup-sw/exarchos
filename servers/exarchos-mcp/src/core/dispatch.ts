@@ -4,6 +4,7 @@ import type { ExarchosConfig } from '../config/define.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { VcsProvider } from '../vcs/provider.js';
 import type { ConfigHookRunner } from '../hooks/config-hooks.js';
+import type { Outbox } from '../sync/outbox.js';
 import { withTelemetry } from '../telemetry/middleware.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 
@@ -30,6 +31,7 @@ export interface DispatchContext {
   readonly vcsProvider?: VcsProvider;
   readonly hookRunner?: ConfigHookRunner;
   readonly slimRegistration?: boolean;
+  readonly outbox?: Outbox;
 }
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────

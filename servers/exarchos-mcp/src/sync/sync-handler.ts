@@ -38,7 +38,7 @@ async function discoverOutboxStreams(stateDir: string): Promise<string[]> {
  * Since no remote client is configured yet, uses a no-op sender that
  * marks entries as confirmed locally without actually sending.
  */
-export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
+export async function handleSyncNow(stateDir: string, outbox?: Outbox): Promise<ToolResult> {
   try {
     const streamIds = await discoverOutboxStreams(stateDir);
 
@@ -52,11 +52,11 @@ export async function handleSyncNow(stateDir: string): Promise<ToolResult> {
       };
     }
 
-    const outbox = new Outbox(stateDir);
+    const effectiveOutbox = outbox ?? new Outbox(stateDir);
     const results: Array<{ streamId: string; sent: number; failed: number }> = [];
 
     for (const streamId of streamIds) {
-      const result = await outbox.drain(noopSender, streamId);
+      const result = await effectiveOutbox.drain(noopSender, streamId);
       results.push({ streamId, ...result });
     }
 
