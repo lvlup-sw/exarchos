@@ -3,6 +3,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import { handleEventDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
+import { classifyPriority } from '../channel/priority.js';
 
 const VALID_ACTIONS = ['append', 'query', 'batch_append', 'describe'] as const;
 type EventAction = (typeof VALID_ACTIONS)[number];
@@ -34,6 +35,37 @@ async function fireHookIfConfigured(
   }
 }
 
+/**
+ * Push a successfully-appended event to the Channel Emitter (if configured).
+ * Priority is derived from the event type. Fire-and-forget — errors are
+ * swallowed so the event pipeline is never blocked.
+ */
+async function pushToChannelIfConfigured(
+  ctx: DispatchContext,
+  appendArgs: Record<string, unknown>,
+  result: ToolResult,
+): Promise<void> {
+  if (!ctx.channelEmitter || !result.success) return;
+  try {
+    const event = appendArgs.event as Record<string, unknown> | undefined;
+    const data = result.data as Record<string, unknown> | undefined;
+    const eventType = (event?.type as string) ?? '';
+    const priority = classifyPriority(eventType);
+    await ctx.channelEmitter.push(
+      {
+        streamId: (appendArgs.stream as string) ?? '',
+        sequence: (data?.sequence as number) ?? 0,
+        type: eventType,
+        data: (event?.data as Record<string, unknown>) ?? {},
+        timestamp: (data?.timestamp as string) ?? new Date().toISOString(),
+      },
+      priority,
+    );
+  } catch {
+    // Channel push is fire-and-forget — never block the event pipeline
+  }
+}
+
 /** Composite handler that routes `action` to the appropriate event-store handler. */
 export async function handleEvent(
   args: Record<string, unknown>,
@@ -51,6 +83,7 @@ export async function handleEvent(
         eventStore,
       );
       await fireHookIfConfigured(ctx, rest, result);
+      await pushToChannelIfConfigured(ctx, rest, result);
       return result;
     }
     case 'query': {
@@ -68,18 +101,44 @@ export async function handleEvent(
         stateDir,
         eventStore,
       );
-      if (result.success && ctx?.hookRunner) {
+      if (result.success) {
         const batchArgs = rest as { stream?: string; events?: Array<Record<string, unknown>> };
-        for (const event of batchArgs.events ?? []) {
-          try {
-            await ctx.hookRunner({
-              type: (event.type as string) ?? '',
-              data: (event.data as Record<string, unknown>) ?? {},
-              featureId: (batchArgs.stream as string) ?? '',
-              timestamp: new Date().toISOString(),
-            });
-          } catch {
-            // Hooks are fire-and-forget — never block the event pipeline
+        const events = batchArgs.events ?? [];
+        const resultData = result.data as Array<Record<string, unknown>> | undefined;
+        for (let i = 0; i < events.length; i++) {
+          const event = events[i];
+          const ack = resultData?.[i];
+          // Fire hooks
+          if (ctx?.hookRunner) {
+            try {
+              await ctx.hookRunner({
+                type: (event.type as string) ?? '',
+                data: (event.data as Record<string, unknown>) ?? {},
+                featureId: (batchArgs.stream as string) ?? '',
+                timestamp: new Date().toISOString(),
+              });
+            } catch {
+              // Hooks are fire-and-forget — never block the event pipeline
+            }
+          }
+          // Push to channel
+          if (ctx.channelEmitter) {
+            try {
+              const eventType = (event.type as string) ?? '';
+              const priority = classifyPriority(eventType);
+              await ctx.channelEmitter.push(
+                {
+                  streamId: (batchArgs.stream as string) ?? '',
+                  sequence: (ack?.sequence as number) ?? 0,
+                  type: eventType,
+                  data: (event.data as Record<string, unknown>) ?? {},
+                  timestamp: (ack?.timestamp as string) ?? new Date().toISOString(),
+                },
+                priority,
+              );
+            } catch {
+              // Channel push is fire-and-forget — never block the event pipeline
+            }
           }
         }
       }

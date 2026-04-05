@@ -5,6 +5,7 @@ import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { VcsProvider } from '../vcs/provider.js';
 import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
+import type { ChannelEmitter } from '../channel/emitter.js';
 import { withTelemetry } from '../telemetry/middleware.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 
@@ -32,6 +33,7 @@ export interface DispatchContext {
   readonly hookRunner?: ConfigHookRunner;
   readonly slimRegistration?: boolean;
   readonly outbox?: Outbox;
+  readonly channelEmitter?: ChannelEmitter;
 }
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────
