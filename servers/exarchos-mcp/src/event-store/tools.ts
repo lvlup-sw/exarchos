@@ -1,9 +1,7 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z, ZodError } from 'zod';
-import { coercedStringArray } from '../coerce.js';
 import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
-import { formatResult, pickFields, toEventAck, type ToolResult } from '../format.js';
+import { pickFields, toEventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
 
 // ─── Misplaced Field Detection ──────────────────────────────────────────────
@@ -287,32 +285,3 @@ export async function handleEventQuery(
   }
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerEventTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  // moduleEventStore removed — EventStore now threaded via DispatchContext
-  server.tool(
-    'exarchos_event_append',
-    'Append an event to the event store with optional optimistic concurrency and idempotency key',
-    {
-      stream: z.string().min(1),
-      event: z.record(z.string(), z.unknown()),
-      expectedSequence: z.number().int().optional(),
-      idempotencyKey: z.string().optional(),
-    },
-    async (args) => formatResult(await handleEventAppend(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_event_query',
-    'Query events from the event store with optional filters (type, sinceSequence, since, until), pagination (limit, offset), and field projection (fields)',
-    {
-      stream: z.string().min(1),
-      filter: z.record(z.string(), z.unknown()).optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
-      fields: coercedStringArray().optional(),
-    },
-    async (args) => formatResult(await handleEventQuery(args, stateDir, eventStore)),
-  );
-}
