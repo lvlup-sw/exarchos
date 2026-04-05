@@ -167,12 +167,12 @@ export async function handleInit(
       _meta: buildCheckpointMeta(state._checkpoint),
     };
   } catch (err) {
-    if (err instanceof StateStoreError && err.code === ErrorCode.STATE_ALREADY_EXISTS) {
+    if (err instanceof StateStoreError) {
       return {
         success: false,
         error: {
-          code: ErrorCode.STATE_ALREADY_EXISTS,
-          message: `State already exists for feature: ${input.featureId}`,
+          code: err.code,
+          message: err.message,
         },
       };
     }
