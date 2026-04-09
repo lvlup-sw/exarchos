@@ -15,6 +15,7 @@
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { RuntimeMap } from './runtimes/types.js';
+import { detectRuntime, type DetectDeps } from './runtimes/detect.js';
 
 /**
  * Result shape returned by the injected spawn function. We intentionally keep
@@ -54,6 +55,12 @@ export interface InstallSkillsOpts {
   errLog?: (msg: string) => void;
   /** Used for tilde expansion in `skillsInstallPath`. Default: `os.homedir`. */
   homeDir?: () => string;
+  /**
+   * Injected detection dependencies forwarded to `detectRuntime()` when
+   * auto-detection runs (i.e. when `agent` is unset). Defaults to real PATH
+   * + process.env lookups.
+   */
+  detectDeps?: DetectDeps;
 }
 
 /**
@@ -115,19 +122,34 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const spawn = opts.spawn ?? defaultSpawn;
   const homeDirFn = opts.homeDir ?? (() => homedir());
 
-  if (opts.agent === undefined) {
-    throw new Error(
-      'installSkills: no agent specified and auto-detection not yet wired. ' +
-        'Pass opts.agent explicitly.',
-    );
-  }
-
-  const runtime = findRuntime(runtimes, opts.agent);
-  if (!runtime) {
-    const supported = runtimes.map((r) => r.name).join(', ');
-    throw new Error(
-      `Unknown runtime: "${opts.agent}". Supported: ${supported || '(none)'}.`,
-    );
+  // Resolve target runtime.
+  //   - If `agent` is set, look it up and throw on miss.
+  //   - If `agent` is unset, run auto-detection. A null result falls back to
+  //     `generic`; an AmbiguousRuntimeError is propagated so task 021 can
+  //     prompt the user (interactive) or error out (non-interactive).
+  let runtime: RuntimeMap | undefined;
+  if (opts.agent !== undefined) {
+    runtime = findRuntime(runtimes, opts.agent);
+    if (!runtime) {
+      const supported = runtimes.map((r) => r.name).join(', ');
+      throw new Error(
+        `Unknown runtime: "${opts.agent}". Supported: ${supported || '(none)'}.`,
+      );
+    }
+  } else {
+    const detected = detectRuntime(runtimes, opts.detectDeps);
+    if (detected) {
+      runtime = detected;
+    } else {
+      // No agent detected — fall back to generic.
+      runtime = findRuntime(runtimes, 'generic');
+      if (!runtime) {
+        throw new Error(
+          `No agent detected and no 'generic' runtime available as fallback. ` +
+            `Pass --agent explicitly.`,
+        );
+      }
+    }
   }
 
   const home = homeDirFn();
