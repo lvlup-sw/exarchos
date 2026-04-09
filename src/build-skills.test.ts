@@ -284,11 +284,15 @@ interface RuntimeFixtureOverrides {
 }
 
 function makeRuntimeYaml(name: string, placeholders: Record<string, string>): string {
+  // Use double-quoted scalars so values do not pick up a trailing newline
+  // (block scalars `|` would). Escape backslashes and double quotes.
+  const escape = (s: string): string =>
+    s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   const placeholderLines =
     Object.keys(placeholders).length === 0
       ? '  {}'
       : Object.entries(placeholders)
-          .map(([k, v]) => `  ${k}: |\n${v.split('\n').map((line) => `    ${line}`).join('\n')}`)
+          .map(([k, v]) => `  ${k}: "${escape(v)}"`)
           .join('\n');
   return [
     `name: ${name}`,

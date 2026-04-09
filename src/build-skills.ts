@@ -20,11 +20,14 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { loadAllRuntimes } from './runtimes/load.js';
+import type { RuntimeMap } from './runtimes/types.js';
 
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
@@ -313,15 +316,21 @@ export function copyReferences(srcDir: string, destDir: string): void {
  * Does not follow symlinks (via `statSync` + file/dir branching). Hidden
  * dotfiles are included — unlike `operations/copy.ts::smartCopyDirectory`
  * which skips them — because references can legitimately include
- * `.gitkeep` or similar markers.
+ * `.gitkeep` or similar markers. `writtenPaths` is an optional out-param
+ * that `buildAllSkills` uses to track every file it produced so the
+ * stale-cleanup pass can avoid deleting fresh output.
  */
-function copyTreePreservingMtime(src: string, dest: string): void {
+function copyTreePreservingMtime(
+  src: string,
+  dest: string,
+  writtenPaths?: Set<string>,
+): void {
   const srcStat = statSync(src);
   if (srcStat.isDirectory()) {
     mkdirSync(dest, { recursive: true });
     const entries = readdirSync(src);
     for (const entry of entries) {
-      copyTreePreservingMtime(join(src, entry), join(dest, entry));
+      copyTreePreservingMtime(join(src, entry), join(dest, entry), writtenPaths);
     }
     return;
   }
@@ -331,5 +340,234 @@ function copyTreePreservingMtime(src: string, dest: string): void {
     const contents = readFileSync(src);
     writeFileSync(dest, contents);
     utimesSync(dest, srcStat.atime, srcStat.mtime);
+    if (writtenPaths) writtenPaths.add(resolve(dest));
   }
+}
+
+// -----------------------------------------------------------------------------
+// Task 007: buildAllSkills orchestrator
+// -----------------------------------------------------------------------------
+
+/**
+ * Summary returned by `buildAllSkills` so callers (the CLI, tests) can
+ * report on what happened without re-scanning the output tree.
+ */
+export interface BuildReport {
+  variantsWritten: number;
+  referencesCopied: number;
+  overridesUsed: string[];
+  warnings: string[];
+}
+
+/**
+ * Orchestrator: render every source skill once per loaded runtime into
+ * a per-runtime output tree.
+ *
+ * For each `srcDir/**\/SKILL.md` source:
+ *   - If a runtime-specific override `SKILL.<runtime>.md` exists in the
+ *     same skill directory, that override is written verbatim to the
+ *     runtime's output (no rendering, no placeholder validation). The
+ *     override path is recorded in `BuildReport.overridesUsed`.
+ *   - Otherwise the source body is rendered with the runtime's
+ *     `placeholders` map and the result is validated with
+ *     `assertNoUnresolvedPlaceholders` before being written.
+ *   - Any `references/` subdirectory next to the source `SKILL.md` is
+ *     mirrored under each runtime's output variant.
+ *
+ * After writing all variants, any file under `outDir/<runtime>/` that
+ * was not produced by this run is removed. Files outside
+ * `outDir/<runtime>/` are never touched.
+ *
+ * Throws if `srcDir` contains no `SKILL.md` files.
+ *
+ * @param opts.srcDir - Source root (e.g. `skills-src/`).
+ * @param opts.outDir - Per-runtime output root (e.g. `skills/`). Each
+ *   runtime gets a subdirectory named after its `RuntimeMap.name`.
+ * @param opts.runtimesDir - Directory containing runtime YAML files
+ *   consumed by `loadAllRuntimes`.
+ * @returns Populated `BuildReport`.
+ */
+export function buildAllSkills(opts: {
+  srcDir: string;
+  outDir: string;
+  runtimesDir: string;
+}): BuildReport {
+  const runtimes: RuntimeMap[] = loadAllRuntimes(opts.runtimesDir);
+  const skillDirs = walkSkillSourceDirs(opts.srcDir);
+
+  if (skillDirs.length === 0) {
+    throw new Error(
+      `buildAllSkills: no SKILL.md files found under ${opts.srcDir} — refusing to produce an empty build.`,
+    );
+  }
+
+  // Per-runtime set of file paths we produced this run. Used by the
+  // stale-cleanup pass at the end so we only delete orphans, never
+  // files that the current run legitimately wrote.
+  const writtenByRuntime = new Map<string, Set<string>>();
+  for (const rt of runtimes) writtenByRuntime.set(rt.name, new Set());
+
+  const overridesUsed: string[] = [];
+  const warnings: string[] = [];
+  let variantsWritten = 0;
+  let referencesCopied = 0;
+
+  for (const skillDir of skillDirs) {
+    const skillRel = relative(opts.srcDir, skillDir);
+    const sourcePath = join(skillDir, 'SKILL.md');
+    const body = readFileSync(sourcePath, 'utf8');
+
+    for (const rt of runtimes) {
+      const written = writtenByRuntime.get(rt.name)!;
+      const outSkillDir = join(opts.outDir, rt.name, skillRel);
+      const outSkillFile = join(outSkillDir, 'SKILL.md');
+      mkdirSync(outSkillDir, { recursive: true });
+
+      // Escape hatch: runtime-specific override file wins for this
+      // runtime only, and is written verbatim with no rendering.
+      const overridePath = join(skillDir, `SKILL.${rt.name}.md`);
+      if (existsSync(overridePath)) {
+        const overrideBody = readFileSync(overridePath, 'utf8');
+        writeFileSync(outSkillFile, overrideBody);
+        written.add(resolve(outSkillFile));
+        overridesUsed.push(overridePath);
+        variantsWritten++;
+      } else {
+        const rendered = render(body, rt.placeholders, {
+          sourcePath,
+          runtimeName: rt.name,
+        });
+        assertNoUnresolvedPlaceholders(rendered, sourcePath, rt.name);
+        writeFileSync(outSkillFile, rendered);
+        written.add(resolve(outSkillFile));
+        variantsWritten++;
+      }
+
+      // References: mirror next to the variant under each runtime.
+      if (existsSync(join(skillDir, 'references'))) {
+        const before = written.size;
+        copyTreePreservingMtime(
+          join(skillDir, 'references'),
+          join(outSkillDir, 'references'),
+          written,
+        );
+        referencesCopied += written.size - before;
+      }
+    }
+  }
+
+  // Stale cleanup: any file under `outDir/<runtime>/` not written this
+  // run is deleted. We intentionally scope this to the per-runtime
+  // subtree so we can never touch unrelated files that happen to sit
+  // under `outDir` for other reasons.
+  for (const rt of runtimes) {
+    const runtimeRoot = join(opts.outDir, rt.name);
+    if (!existsSync(runtimeRoot)) continue;
+    const written = writtenByRuntime.get(rt.name)!;
+    cleanStaleFiles(runtimeRoot, written);
+  }
+
+  return { variantsWritten, referencesCopied, overridesUsed, warnings };
+}
+
+/**
+ * Walk `srcDir` recursively and return the absolute path of every
+ * directory that contains a `SKILL.md` file. We return directories (not
+ * the `SKILL.md` files themselves) so downstream code can locate the
+ * adjacent `references/` and `SKILL.<runtime>.md` override files.
+ */
+function walkSkillSourceDirs(srcDir: string): string[] {
+  const results: string[] = [];
+  if (!existsSync(srcDir)) return results;
+
+  const stack: string[] = [srcDir];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      continue;
+    }
+
+    // If this directory contains a SKILL.md, record it.
+    if (entries.includes('SKILL.md')) {
+      results.push(current);
+    }
+
+    // Recurse into subdirectories regardless — skill trees may nest.
+    for (const entry of entries) {
+      const full = join(current, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory() && entry !== 'references') {
+        stack.push(full);
+      }
+    }
+  }
+  return results.sort();
+}
+
+/**
+ * Recursively walk `root` and remove any file that is not present in
+ * `keep`. After file removal, empty directories are pruned bottom-up so
+ * the tree stays tidy.
+ *
+ * Safety: callers must scope `root` to a per-runtime subtree under
+ * `outDir` so we never touch unrelated files.
+ */
+function cleanStaleFiles(root: string, keep: Set<string>): void {
+  if (!existsSync(root)) return;
+
+  const walk = (dir: string): boolean => {
+    // Returns `true` if the directory still contains any surviving entries
+    // after the recursive cleanup pass — caller uses that to decide
+    // whether to rmdir this directory too.
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return false;
+    }
+
+    let survivorCount = 0;
+    for (const entry of entries) {
+      const full = join(dir, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        const hadSurvivors = walk(full);
+        if (hadSurvivors) {
+          survivorCount++;
+        } else {
+          try {
+            rmSync(full, { recursive: true, force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      } else if (st.isFile()) {
+        if (keep.has(resolve(full))) {
+          survivorCount++;
+        } else {
+          try {
+            rmSync(full, { force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+    }
+    return survivorCount > 0;
+  };
+
+  walk(root);
 }
