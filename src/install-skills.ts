@@ -16,6 +16,16 @@ import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { RuntimeMap } from './runtimes/types.js';
 import { detectRuntime, AmbiguousRuntimeError, type DetectDeps } from './runtimes/detect.js';
+import {
+  AMBIGUOUS_INTERACTIVE_QUESTION,
+  ambiguousNonInteractiveNoticeMessage,
+  ambiguousNonInteractiveThrowMessage,
+  childExitErrorMessage,
+  childExitRetryHeader,
+  missingGenericFallbackMessage,
+  noAgentDetectedFallbackMessage,
+  unknownRuntimeMessage,
+} from './install-skills-messages.js';
 
 /**
  * Result shape returned by the injected spawn function. We intentionally keep
@@ -157,9 +167,8 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   if (opts.agent !== undefined) {
     runtime = findRuntime(runtimes, opts.agent);
     if (!runtime) {
-      const supported = runtimes.map((r) => r.name).join(', ');
       throw new Error(
-        `Unknown runtime: "${opts.agent}". Supported: ${supported || '(none)'}.`,
+        unknownRuntimeMessage(opts.agent, runtimes.map((r) => r.name)),
       );
     }
   } else {
@@ -171,22 +180,16 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
         // No agent detected — fall back to generic with a clear message.
         runtime = findRuntime(runtimes, 'generic');
         if (!runtime) {
-          throw new Error(
-            `No agent detected and no 'generic' runtime available as fallback. ` +
-              `Pass --agent explicitly.`,
-          );
+          throw new Error(missingGenericFallbackMessage());
         }
-        log(
-          `No agent detected on this host. Installing generic skills bundle ` +
-            `(${runtime.name}). Pass --agent to target a specific runtime.`,
-        );
+        log(noAgentDetectedFallbackMessage(runtime.name));
       }
     } catch (err) {
       if (err instanceof AmbiguousRuntimeError) {
         if (isInteractive) {
           const chooser = opts.prompt ?? defaultPrompt;
           const choice = await chooser(
-            'Multiple agents detected. Which one should we install skills for?',
+            AMBIGUOUS_INTERACTIVE_QUESTION,
             err.candidates,
           );
           const picked = findRuntime(runtimes, choice);
@@ -197,15 +200,8 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
           }
           runtime = picked;
         } else {
-          // Non-interactive: surface remediation and throw.
-          errLog(
-            `Ambiguous runtime detection. Candidates: ${err.candidates.join(', ')}. ` +
-              `Re-run with --agent <name> to disambiguate.`,
-          );
-          throw new Error(
-            `Ambiguous runtime detection. Candidates: ${err.candidates.join(', ')}. ` +
-              `Pass --agent <name> to disambiguate.`,
-          );
+          errLog(ambiguousNonInteractiveNoticeMessage(err.candidates));
+          throw new Error(ambiguousNonInteractiveThrowMessage(err.candidates));
         }
       } else {
         throw err;
@@ -238,11 +234,9 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const result = await spawn(cmd, args);
   if (result.code !== 0) {
     if (result.stderr) errLog(result.stderr);
-    errLog(`Command failed with exit code ${result.code}. To retry manually:`);
+    errLog(childExitRetryHeader(result.code));
     errLog(`  ${commandString}`);
-    const error: InstallSkillsError = new Error(
-      `install-skills: child process exited with code ${result.code}`,
-    );
+    const error: InstallSkillsError = new Error(childExitErrorMessage(result.code));
     error.exitCode = result.code;
     throw error;
   }
