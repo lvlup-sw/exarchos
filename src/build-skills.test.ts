@@ -9,12 +9,36 @@
  *   - Task 007: buildAllSkills orchestrator + escape hatch
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   render,
   assertNoUnresolvedPlaceholders,
   parseTokenArgs,
+  copyReferences,
 } from './build-skills.js';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+
+const tempDirs: string[] = [];
+
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'build-skills-test-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const d = tempDirs.pop()!;
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  }
+});
 
 describe('render — task 003: placeholder substitution core', () => {
   it('Render_SimpleToken_SubstitutesValue', () => {
@@ -175,5 +199,76 @@ describe('parseTokenArgs + argument-aware render — task 005', () => {
     };
     const out = render(body, placeholders);
     expect(out).toBe('Next, invoke the `plan` skill with arguments: $PLAN');
+  });
+});
+
+describe('copyReferences — task 006', () => {
+  it('CopyReferences_SourceHasReferences_CopiedToTarget', () => {
+    const src = makeTempDir();
+    const dest = makeTempDir();
+    mkdirSync(join(src, 'references'), { recursive: true });
+    writeFileSync(join(src, 'references', 'one.md'), 'ref one');
+    writeFileSync(join(src, 'references', 'two.md'), 'ref two');
+
+    copyReferences(src, dest);
+
+    expect(readFileSync(join(dest, 'references', 'one.md'), 'utf8')).toBe('ref one');
+    expect(readFileSync(join(dest, 'references', 'two.md'), 'utf8')).toBe('ref two');
+  });
+
+  it('CopyReferences_NoReferences_NoOp', () => {
+    const src = makeTempDir();
+    const dest = makeTempDir();
+    // src has no `references/` subdir
+    copyReferences(src, dest);
+    expect(existsSync(join(dest, 'references'))).toBe(false);
+  });
+
+  it('CopyReferences_NestedFiles_PreservesStructure', () => {
+    const src = makeTempDir();
+    const dest = makeTempDir();
+    mkdirSync(join(src, 'references', 'a', 'b'), { recursive: true });
+    writeFileSync(join(src, 'references', 'a', 'b', 'c.txt'), 'deep');
+    writeFileSync(join(src, 'references', 'top.txt'), 'top');
+
+    copyReferences(src, dest);
+
+    expect(readFileSync(join(dest, 'references', 'a', 'b', 'c.txt'), 'utf8')).toBe('deep');
+    expect(readFileSync(join(dest, 'references', 'top.txt'), 'utf8')).toBe('top');
+  });
+
+  it('CopyReferences_Idempotent_SecondRunIsNoop', () => {
+    const src = makeTempDir();
+    const dest = makeTempDir();
+    mkdirSync(join(src, 'references'), { recursive: true });
+    writeFileSync(join(src, 'references', 'stable.md'), 'stable content');
+
+    copyReferences(src, dest);
+    const firstStat = statSync(join(dest, 'references', 'stable.md'));
+
+    copyReferences(src, dest);
+    const secondStat = statSync(join(dest, 'references', 'stable.md'));
+
+    // Content identical after second run.
+    expect(readFileSync(join(dest, 'references', 'stable.md'), 'utf8')).toBe('stable content');
+    // mtime preserved → utimesSync pinned it, so the two stats match.
+    expect(secondStat.mtimeMs).toBe(firstStat.mtimeMs);
+  });
+
+  it('CopyReferences_BinaryFile_CopiedUnchanged', () => {
+    const src = makeTempDir();
+    const dest = makeTempDir();
+    mkdirSync(join(src, 'references'), { recursive: true });
+    // Construct a binary blob: all byte values 0..255.
+    const binary = Buffer.alloc(256);
+    for (let i = 0; i < 256; i++) binary[i] = i;
+    writeFileSync(join(src, 'references', 'blob.bin'), binary);
+    const srcHash = createHash('sha256').update(binary).digest('hex');
+
+    copyReferences(src, dest);
+
+    const copied = readFileSync(join(dest, 'references', 'blob.bin'));
+    const destHash = createHash('sha256').update(copied).digest('hex');
+    expect(destHash).toBe(srcHash);
   });
 });
