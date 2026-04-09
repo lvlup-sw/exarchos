@@ -15,6 +15,7 @@ import {
   assertNoUnresolvedPlaceholders,
   parseTokenArgs,
   copyReferences,
+  buildAllSkills,
 } from './build-skills.js';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -270,5 +271,188 @@ describe('copyReferences — task 006', () => {
     const copied = readFileSync(join(dest, 'references', 'blob.bin'));
     const destHash = createHash('sha256').update(copied).digest('hex');
     expect(destHash).toBe(srcHash);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 007 test helpers: lay down a full set of six runtime YAMLs inside a
+// temp dir so `buildAllSkills` / `loadAllRuntimes` can be exercised end-to-end.
+// -----------------------------------------------------------------------------
+
+interface RuntimeFixtureOverrides {
+  placeholders?: Record<string, string>;
+}
+
+function makeRuntimeYaml(name: string, placeholders: Record<string, string>): string {
+  const placeholderLines =
+    Object.keys(placeholders).length === 0
+      ? '  {}'
+      : Object.entries(placeholders)
+          .map(([k, v]) => `  ${k}: |\n${v.split('\n').map((line) => `    ${line}`).join('\n')}`)
+          .join('\n');
+  return [
+    `name: ${name}`,
+    `capabilities:`,
+    `  hasSubagents: true`,
+    `  hasSlashCommands: true`,
+    `  hasHooks: true`,
+    `  hasSkillChaining: true`,
+    `  mcpPrefix: "mcp__${name}__"`,
+    `skillsInstallPath: "~/.${name}/skills"`,
+    `detection:`,
+    `  binaries:`,
+    `    - ${name}`,
+    `  envVars:`,
+    `    - ${name.toUpperCase()}_SESSION`,
+    `placeholders:`,
+    placeholderLines,
+    ``,
+  ].join('\n');
+}
+
+function writeRuntimeFixtures(
+  runtimesDir: string,
+  overrides: Record<string, RuntimeFixtureOverrides> = {},
+): void {
+  mkdirSync(runtimesDir, { recursive: true });
+  const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+  const defaultPlaceholders: Record<string, string> = {
+    AGENT_LABEL: 'agent',
+    SKILL_INVOCATION: 'call the skill',
+  };
+  for (const name of names) {
+    const override = overrides[name]?.placeholders;
+    const placeholders = override ?? defaultPlaceholders;
+    writeFileSync(join(runtimesDir, `${name}.yaml`), makeRuntimeYaml(name, placeholders));
+  }
+}
+
+describe('buildAllSkills — task 007', () => {
+  it('BuildAllSkills_OneSkillOneRuntime_GeneratesCorrectPath', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
+    writeRuntimeFixtures(runtimesDir);
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const clauPath = join(outDir, 'claude', 'foo', 'SKILL.md');
+    expect(existsSync(clauPath)).toBe(true);
+    expect(readFileSync(clauPath, 'utf8')).toBe('Hello agent');
+  });
+
+  it('BuildAllSkills_SixRuntimes_GeneratesSixVariants', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    writeRuntimeFixtures(runtimesDir);
+
+    const report = buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const runtimes = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const rt of runtimes) {
+      expect(existsSync(join(outDir, rt, 'foo', 'SKILL.md'))).toBe(true);
+    }
+    expect(report.variantsWritten).toBe(6);
+  });
+
+  it('BuildAllSkills_ReferencesSubdirectory_CopiedToEachVariant', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    writeFileSync(join(srcDir, 'foo', 'references', 'note.md'), 'a shared reference');
+    writeRuntimeFixtures(runtimesDir);
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const runtimes = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const rt of runtimes) {
+      expect(readFileSync(join(outDir, rt, 'foo', 'references', 'note.md'), 'utf8')).toBe(
+        'a shared reference',
+      );
+    }
+  });
+
+  it('BuildAllSkills_RuntimeSpecificOverrideFile_PrefersOverride', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'default: {{AGENT_LABEL}}');
+    // Claude-specific override — used verbatim (no rendering).
+    writeFileSync(join(srcDir, 'foo', 'SKILL.claude.md'), 'verbatim claude override {{UNRESOLVED}}');
+    writeRuntimeFixtures(runtimesDir);
+
+    const report = buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Claude gets the verbatim override (tokens left intact — no rendering).
+    expect(readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8')).toBe(
+      'verbatim claude override {{UNRESOLVED}}',
+    );
+    // Other runtimes still use SKILL.md + render.
+    expect(readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8')).toBe('default: agent');
+    // Override usage recorded in report.
+    expect(report.overridesUsed.length).toBeGreaterThan(0);
+    expect(report.overridesUsed.some((p) => p.includes('SKILL.claude.md'))).toBe(true);
+  });
+
+  it('BuildAllSkills_CleansStaleOutput_RemovesOrphanedVariants', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    writeRuntimeFixtures(runtimesDir);
+
+    // Pre-seed a stale output that is not produced by this build.
+    mkdirSync(join(outDir, 'claude', 'old-skill'), { recursive: true });
+    writeFileSync(join(outDir, 'claude', 'old-skill', 'SKILL.md'), 'stale content');
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Stale file removed.
+    expect(existsSync(join(outDir, 'claude', 'old-skill', 'SKILL.md'))).toBe(false);
+    // Fresh output present.
+    expect(existsSync(join(outDir, 'claude', 'foo', 'SKILL.md'))).toBe(true);
+  });
+
+  it('BuildAllSkills_EmptySourceDir_Throws', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(srcDir, { recursive: true }); // exists but empty (no SKILL.md files)
+    writeRuntimeFixtures(runtimesDir);
+
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).toThrow(/no.*SKILL\.md|empty/i);
+  });
+
+  it('BuildAllSkills_RuntimeWithNoPlaceholders_CopiesUnchanged', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    // Body with no tokens at all.
+    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'plain content no tokens');
+    // Generic has no placeholders — should still copy unchanged.
+    writeRuntimeFixtures(runtimesDir, { generic: { placeholders: {} } });
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    expect(readFileSync(join(outDir, 'generic', 'foo', 'SKILL.md'), 'utf8')).toBe(
+      'plain content no tokens',
+    );
   });
 });
