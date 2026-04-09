@@ -1,0 +1,14 @@
+name: claude
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: true
+  hasHooks: true
+  hasSkillChaining: true
+skillsInstallPath: "~/.claude/skills"
+detection:
+  binaries:
+    - claude
+  envVars:
+    - CLAUDE_CODE_SESSION
+placeholders:
+  agentLabel: subagent
