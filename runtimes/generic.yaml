@@ -1,0 +1,38 @@
+# Lowest-common-denominator runtime map.
+#
+# This map describes a hypothetical agent runtime with none of the
+# capabilities Exarchos likes to lean on (subagents, slash commands, hooks,
+# skill chaining). Any target runtime the installer does not explicitly
+# recognise falls back to this map.
+#
+# Design rationale:
+#   - `hasSubagents: false` → the renderer must emit prose delegation
+#     instructions ("Execute each task sequentially") rather than a Task tool
+#     call, because we cannot assume any spawn primitive exists.
+#   - `hasSlashCommands: false` → commands are referenced by name only,
+#     without a `/prefix:` sigil.
+#   - `hasHooks: false` → any hook-driven flows must be degraded to inline
+#     checks or documented as manual steps.
+#   - `hasSkillChaining: false` → chain tokens are replaced with a plain
+#     "invoke the next skill" directive.
+#   - `mcpPrefix: "mcp__exarchos__"` → canonical stdio-MCP tool prefix used
+#     when exarchos is installed as a bare MCP server (no plugin wrapping).
+#
+# Implements: DR-4, DR-5 (generic branch)
+name: generic
+capabilities:
+  hasSubagents: false
+  hasSlashCommands: false
+  hasHooks: false
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "~/.agents/skills"
+detection:
+  binaries: []
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: ""
+  TASK_TOOL: "[sequential execution]"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: "Execute each task sequentially in the current session, one at a time, against the prepared worktrees."
