@@ -10,7 +10,11 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { render, assertNoUnresolvedPlaceholders } from './build-skills.js';
+import {
+  render,
+  assertNoUnresolvedPlaceholders,
+  parseTokenArgs,
+} from './build-skills.js';
 
 describe('render — task 003: placeholder substitution core', () => {
   it('Render_SimpleToken_SubstitutesValue', () => {
@@ -116,5 +120,60 @@ describe('render — task 004: error handling', () => {
     expect(err).toBeDefined();
     expect(err!.message).toContain('STILL_HERE');
     expect(err!.message).toContain('skills/foo/SKILL.md:4');
+  });
+});
+
+describe('parseTokenArgs + argument-aware render — task 005', () => {
+  it('ParseTokenArgs_NoArgs_ReturnsEmptyMap', () => {
+    expect(parseTokenArgs('')).toEqual({});
+  });
+
+  it('ParseTokenArgs_SingleArg_ReturnsOneEntry', () => {
+    expect(parseTokenArgs('next="plan"')).toEqual({ next: 'plan' });
+  });
+
+  it('ParseTokenArgs_MultipleArgs_ReturnsAll', () => {
+    expect(parseTokenArgs('next="plan" args="$PLAN" mode="fast"')).toEqual({
+      next: 'plan',
+      args: '$PLAN',
+      mode: 'fast',
+    });
+  });
+
+  it('ParseTokenArgs_ArgWithSpaces_QuotedCorrectly', () => {
+    expect(parseTokenArgs('next="plan file" args="--help"')).toEqual({
+      next: 'plan file',
+      args: '--help',
+    });
+  });
+
+  it('ParseTokenArgs_MalformedArg_ThrowsWithContext', () => {
+    // Missing closing quote — should throw with context about the broken input.
+    expect(() => parseTokenArgs('next="plan')).toThrow(/malformed|unterminated|quote/i);
+  });
+
+  it('Render_ChainTokenWithArgs_SubstitutesPlaceholderVariables', () => {
+    const body = '{{CHAIN next="plan" args="$PLAN"}}';
+    const placeholders = { CHAIN: 'run {{next}} with {{args}}' };
+    const out = render(body, placeholders);
+    expect(out).toBe('run plan with $PLAN');
+  });
+
+  it('Render_ChainTokenWithArgs_ClaudeVariant_ExpandsToSkillCall', () => {
+    const body = '{{CHAIN next="plan" args="$PLAN"}}';
+    const placeholders = {
+      CHAIN: 'Skill({ skill: "exarchos:{{next}}", args: "{{args}}" })',
+    };
+    const out = render(body, placeholders);
+    expect(out).toBe('Skill({ skill: "exarchos:plan", args: "$PLAN" })');
+  });
+
+  it('Render_ChainTokenWithArgs_GenericVariant_ExpandsToProseInstruction', () => {
+    const body = '{{CHAIN next="plan" args="$PLAN"}}';
+    const placeholders = {
+      CHAIN: 'Next, invoke the `{{next}}` skill with arguments: {{args}}',
+    };
+    const out = render(body, placeholders);
+    expect(out).toBe('Next, invoke the `plan` skill with arguments: $PLAN');
   });
 });
