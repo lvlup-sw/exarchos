@@ -15,7 +15,7 @@
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { RuntimeMap } from './runtimes/types.js';
-import { detectRuntime, type DetectDeps } from './runtimes/detect.js';
+import { detectRuntime, AmbiguousRuntimeError, type DetectDeps } from './runtimes/detect.js';
 
 /**
  * Result shape returned by the injected spawn function. We intentionally keep
@@ -61,6 +61,28 @@ export interface InstallSkillsOpts {
    * + process.env lookups.
    */
   detectDeps?: DetectDeps;
+  /**
+   * Whether stdin is a TTY and the user can respond to prompts. Defaults to
+   * `process.stdout.isTTY && !process.env.NON_INTERACTIVE`. In
+   * non-interactive mode, ambiguous runtime detection becomes a hard error
+   * with a remediation hint rather than a prompt.
+   */
+  isInteractive?: boolean;
+  /**
+   * Prompt the user to choose from a list of candidate strings. Used for
+   * disambiguation when auto-detection finds multiple matching runtimes.
+   * Default wraps `@inquirer/prompts.select`.
+   */
+  prompt?: (question: string, choices: string[]) => Promise<string>;
+}
+
+/**
+ * Augmented Error type the CLI main() can catch to propagate the child
+ * process's non-zero exit code. Using a discriminated property (`exitCode`)
+ * avoids defining a new Error subclass for a single field.
+ */
+export interface InstallSkillsError extends Error {
+  exitCode?: number;
 }
 
 /**
@@ -119,14 +141,18 @@ function findRuntime(runtimes: RuntimeMap[], name: string): RuntimeMap | undefin
 export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const runtimes = opts.runtimes ?? [];
   const log = opts.log ?? ((msg: string) => console.log(msg));
+  const errLog = opts.errLog ?? ((msg: string) => console.error(msg));
   const spawn = opts.spawn ?? defaultSpawn;
   const homeDirFn = opts.homeDir ?? (() => homedir());
+  const isInteractive =
+    opts.isInteractive ??
+    (Boolean(process.stdout.isTTY) && !process.env.NON_INTERACTIVE);
 
   // Resolve target runtime.
   //   - If `agent` is set, look it up and throw on miss.
   //   - If `agent` is unset, run auto-detection. A null result falls back to
-  //     `generic`; an AmbiguousRuntimeError is propagated so task 021 can
-  //     prompt the user (interactive) or error out (non-interactive).
+  //     `generic`; an AmbiguousRuntimeError is handled below by either
+  //     prompting (interactive) or surfacing remediation (non-interactive).
   let runtime: RuntimeMap | undefined;
   if (opts.agent !== undefined) {
     runtime = findRuntime(runtimes, opts.agent);
@@ -137,21 +163,57 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       );
     }
   } else {
-    const detected = detectRuntime(runtimes, opts.detectDeps);
-    if (detected) {
-      runtime = detected;
-    } else {
-      // No agent detected — fall back to generic.
-      runtime = findRuntime(runtimes, 'generic');
-      if (!runtime) {
-        throw new Error(
-          `No agent detected and no 'generic' runtime available as fallback. ` +
-            `Pass --agent explicitly.`,
+    try {
+      const detected = detectRuntime(runtimes, opts.detectDeps);
+      if (detected) {
+        runtime = detected;
+      } else {
+        // No agent detected — fall back to generic with a clear message.
+        runtime = findRuntime(runtimes, 'generic');
+        if (!runtime) {
+          throw new Error(
+            `No agent detected and no 'generic' runtime available as fallback. ` +
+              `Pass --agent explicitly.`,
+          );
+        }
+        log(
+          `No agent detected on this host. Installing generic skills bundle ` +
+            `(${runtime.name}). Pass --agent to target a specific runtime.`,
         );
+      }
+    } catch (err) {
+      if (err instanceof AmbiguousRuntimeError) {
+        if (isInteractive) {
+          const chooser = opts.prompt ?? defaultPrompt;
+          const choice = await chooser(
+            'Multiple agents detected. Which one should we install skills for?',
+            err.candidates,
+          );
+          const picked = findRuntime(runtimes, choice);
+          if (!picked) {
+            throw new Error(
+              `Ambiguous runtime prompt returned unknown name "${choice}".`,
+            );
+          }
+          runtime = picked;
+        } else {
+          // Non-interactive: surface remediation and throw.
+          errLog(
+            `Ambiguous runtime detection. Candidates: ${err.candidates.join(', ')}. ` +
+              `Re-run with --agent <name> to disambiguate.`,
+          );
+          throw new Error(
+            `Ambiguous runtime detection. Candidates: ${err.candidates.join(', ')}. ` +
+              `Pass --agent <name> to disambiguate.`,
+          );
+        }
+      } else {
+        throw err;
       }
     }
   }
 
+  // Build the command.
   const home = homeDirFn();
   const target = expandTilde(runtime.skillsInstallPath, home);
 
@@ -164,8 +226,41 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
     '--target',
     target,
   ];
+  const commandString = `${cmd} ${args.join(' ')}`;
 
-  log(`Running: ${cmd} ${args.join(' ')}`);
+  log(`Running: ${commandString}`);
 
-  await spawn(cmd, args);
+  // Execute and handle failure:
+  //   - Surface stderr verbatim so the user gets full diagnostics.
+  //   - Echo the exact command for manual retry.
+  //   - Throw an Error carrying the child's exitCode so the CLI main() can
+  //     forward it to process.exit(code).
+  const result = await spawn(cmd, args);
+  if (result.code !== 0) {
+    if (result.stderr) errLog(result.stderr);
+    errLog(`Command failed with exit code ${result.code}. To retry manually:`);
+    errLog(`  ${commandString}`);
+    const error: InstallSkillsError = new Error(
+      `install-skills: child process exited with code ${result.code}`,
+    );
+    error.exitCode = result.code;
+    throw error;
+  }
 }
+
+/**
+ * Default prompt implementation. Lazy-loads `@inquirer/prompts` so that unit
+ * tests never import it (tests inject their own `prompt` and take this path
+ * out of play). Keeps the hot path free of inquirer's startup cost in cases
+ * where the CLI doesn't need interactive disambiguation.
+ */
+const defaultPrompt = async (
+  question: string,
+  choices: string[],
+): Promise<string> => {
+  const { select } = await import('@inquirer/prompts');
+  return select({
+    message: question,
+    choices: choices.map((c) => ({ name: c, value: c })),
+  });
+};
