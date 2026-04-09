@@ -512,6 +512,97 @@ function walkSkillSourceDirs(srcDir: string): string[] {
   return results.sort();
 }
 
+// -----------------------------------------------------------------------------
+// Task 008: CLI entry (`npm run build:skills`)
+// -----------------------------------------------------------------------------
+
+/**
+ * Injectable side-effecting collaborators for `main()`. Tests override
+ * these to capture output and suppress process exit; production wires
+ * them to real `process` globals.
+ */
+export interface MainDeps {
+  cwd?: () => string;
+  exit?: (code: number) => never;
+  log?: (msg: string) => void;
+  errLog?: (msg: string) => void;
+}
+
+/**
+ * `npm run build:skills` entry point. Resolves default paths relative
+ * to `deps.cwd()`, runs `buildAllSkills`, prints a one-line summary on
+ * success, and exits with code 1 on any error (printed to stderr).
+ *
+ * Exported so the CLI test harness can invoke it with mocked deps. The
+ * self-invocation guard at the bottom of this file only triggers when
+ * the file is executed directly (e.g. via `node dist/build-skills.js`).
+ *
+ * @param _argv - Currently unused; reserved for future flag parsing
+ *   (e.g. `--srcDir`, `--outDir`). Named with a leading underscore to
+ *   silence the no-unused-vars lint while preserving the public shape.
+ * @param deps - Optional injected side-effecting collaborators.
+ */
+export function main(_argv: string[], deps: MainDeps = {}): void {
+  const cwd = deps.cwd ?? (() => process.cwd());
+  const exit = deps.exit ?? ((code: number) => process.exit(code));
+  const log = deps.log ?? ((msg: string) => console.log(msg));
+  const errLog = deps.errLog ?? ((msg: string) => console.error(msg));
+
+  const root = cwd();
+  const srcDir = join(root, 'skills-src');
+  const outDir = join(root, 'skills');
+  const runtimesDir = join(root, 'runtimes');
+
+  let report: BuildReport;
+  try {
+    report = buildAllSkills({ srcDir, outDir, runtimesDir });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errLog(`[build:skills] error: ${msg}`);
+    exit(1);
+    return; // unreachable in production; in tests exit throws
+  }
+
+  // Count distinct runtime names in the output path set so the summary
+  // does not need `buildAllSkills` to carry a separate runtime counter.
+  const runtimeCount = countRuntimesFromOutDir(outDir);
+  log(
+    `[build:skills] wrote ${report.variantsWritten} variants across ${runtimeCount} runtimes`,
+  );
+  if (report.overridesUsed.length > 0) {
+    log(`[build:skills] used ${report.overridesUsed.length} runtime override(s)`);
+  }
+  for (const warning of report.warnings) {
+    errLog(`[build:skills] warning: ${warning}`);
+  }
+}
+
+/**
+ * Count how many direct subdirectories of `outDir` exist. Each subdir
+ * corresponds to one rendered runtime. Returns 0 if `outDir` is absent.
+ */
+function countRuntimesFromOutDir(outDir: string): number {
+  if (!existsSync(outDir)) return 0;
+  try {
+    return readdirSync(outDir).filter((entry) => {
+      try {
+        return statSync(join(outDir, entry)).isDirectory();
+      } catch {
+        return false;
+      }
+    }).length;
+  } catch {
+    return 0;
+  }
+}
+
+// Self-invocation guard: only run `main()` when this file is executed
+// directly (e.g. `node dist/build-skills.js`). Importing it from a test
+// must NOT trigger a build.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2));
+}
+
 /**
  * Recursively walk `root` and remove any file that is not present in
  * `keep`. After file removal, empty directories are pruned bottom-up so
