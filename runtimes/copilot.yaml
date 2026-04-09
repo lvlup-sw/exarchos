@@ -1,0 +1,59 @@
+# GitHub Copilot CLI runtime map.
+#
+# ============================================================================
+# Recon findings (2026-04-08, github/copilot-cli @ main)
+# ============================================================================
+#
+# Sources consulted:
+#   1. https://raw.githubusercontent.com/github/copilot-cli/main/README.md
+#      Confirms `~/.copilot/` is the canonical user config dir for Copilot
+#      CLI (e.g. `~/.copilot/lsp-config.json`) and that the CLI is a
+#      slash-command-driven interactive shell.
+#   2. https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md
+#      Confirms two distinct delegation primitives:
+#        - `/delegate`: "delegate a task asynchronously to Copilot coding
+#          agent. Any unstaged changes will be committed to a new branch, a
+#          PR will be opened in your GitHub repository, and Copilot will
+#          complete work in the background." (v0.0.353+)
+#        - `task` tool / custom agents: "Sub-agents launched by the task
+#          tool are assigned human-readable IDs" and "Add configure-copilot
+#          sub-agent for managing MCP servers, custom agents, and skills
+#          via the task tool". Custom agents are pulled from
+#          `~/.copilot/agents`, `.github/agents`, or the org `.github` repo.
+#      There is also a `subagentStart` hook, a `/tasks` view, and an
+#      `&`-prefix shortcut that behaves like `/delegate`.
+#
+# Why we pick /delegate over the `task` tool:
+#   Exarchos's worktree fan-out pattern is inherently async: we create
+#   worktrees, hand each one to an implementer, and collect results later.
+#   `/delegate` maps more cleanly onto that shape (async, PR-producing,
+#   background) than a synchronous in-session `task` tool call, and it is
+#   the documented user-visible primitive. The `task` / custom-agent path
+#   is a valid alternative and may be used by a future variant runtime map
+#   if in-session parallelism is ever preferred.
+#
+# Skills install to `~/.copilot/skills` to match the rest of the
+# `~/.copilot/**` config family (agents, lsp-config.json). Copilot CLI
+# exposes MCP tools via the standard `mcp__<server>__<tool>` convention.
+#
+# ============================================================================
+#
+# Implements: DR-4, DR-5 (copilot branch)
+name: copilot
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: true
+  hasHooks: false
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "~/.copilot/skills"
+detection:
+  binaries:
+    - copilot
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: "/"
+  TASK_TOOL: "/delegate"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: '/delegate "{{description}}: {{prompt}}"'
