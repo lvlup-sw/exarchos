@@ -43,6 +43,13 @@ export interface RenderContext {
  * lines prefixed with the column of the opening `{{` so the rendered
  * output preserves visual indentation.
  *
+ * Tokens may carry arguments: `{{CHAIN next="plan" args="$PLAN"}}`. The
+ * renderer parses the args, looks up the placeholder value for `CHAIN`,
+ * and then performs a nested substitution of `{{next}}` / `{{args}}`
+ * inside that value using the parsed arg map. Nested substitution does
+ * NOT throw on unknown keys — only the outer pass validates against the
+ * main placeholder map.
+ *
  * Throws on unknown placeholder tokens — pass a populated `context` so the
  * error message can point at the offending source file and line.
  *
@@ -59,16 +66,50 @@ export function render(
   placeholders: Record<string, string>,
   context: RenderContext = {},
 ): string {
-  const sourcePath = context.sourcePath ?? '<unknown>';
-  const runtimeName = context.runtimeName ?? '<unknown>';
+  return substitute(body, placeholders, {
+    sourcePath: context.sourcePath ?? '<unknown>',
+    runtimeName: context.runtimeName ?? '<unknown>',
+    throwOnUnknown: true,
+  });
+}
 
-  return body.replace(PLACEHOLDER_REGEX, (_match, tokenName: string, _argString: string | undefined, offset: number) => {
-    if (!Object.prototype.hasOwnProperty.call(placeholders, tokenName)) {
+/**
+ * Core token-substitution engine shared by the top-level `render()` pass
+ * and the nested arg-value interpolation pass. The `throwOnUnknown` flag
+ * is the only semantic difference between the two modes: the outer pass
+ * validates tokens against the full placeholder map and raises on a miss,
+ * while the nested pass leaves unknown `{{key}}` references untouched so
+ * that arg interpolation never bleeds into a false-positive error.
+ */
+function substitute(
+  body: string,
+  values: Record<string, string>,
+  opts: { sourcePath: string; runtimeName: string; throwOnUnknown: boolean },
+): string {
+  return body.replace(PLACEHOLDER_REGEX, (match, tokenName: string, argString: string | undefined, offset: number) => {
+    if (!Object.prototype.hasOwnProperty.call(values, tokenName)) {
+      if (!opts.throwOnUnknown) {
+        return match;
+      }
       const line = lineOf(body, offset);
-      throw placeholderError(tokenName, sourcePath, runtimeName, line, Object.keys(placeholders));
+      throw placeholderError(tokenName, opts.sourcePath, opts.runtimeName, line, Object.keys(values));
     }
 
-    const value = placeholders[tokenName];
+    let value = values[tokenName];
+
+    // If the token carries arguments, parse them and run a nested pass
+    // that substitutes `{{key}}` tokens inside the placeholder value with
+    // the parsed arg map. Nested pass does not throw on unknown — an
+    // arg-less placeholder value containing `{{foo}}` is allowed.
+    if (argString !== undefined && argString.trim().length > 0) {
+      const args = parseTokenArgs(argString);
+      value = substitute(value, args, {
+        sourcePath: opts.sourcePath,
+        runtimeName: opts.runtimeName,
+        throwOnUnknown: false,
+      });
+    }
+
     if (!value.includes('\n')) {
       return value;
     }
@@ -81,6 +122,76 @@ export function render(
     const lines = value.split('\n');
     return lines.map((line, i) => (i === 0 ? line : indent + line)).join('\n');
   });
+}
+
+/**
+ * Parse a `key="value" key2="value2"` argument string into a map.
+ * Values must be double-quoted; whitespace between pairs is ignored.
+ * Unquoted values, unterminated quotes, or trailing garbage cause a
+ * `malformed token args` error.
+ *
+ * @param argString - Raw capture group from a `{{TOKEN ...}}` match.
+ * @returns The parsed key/value map (empty for an empty/whitespace input).
+ */
+export function parseTokenArgs(argString: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const trimmed = argString.trim();
+  if (trimmed.length === 0) return out;
+
+  // Step through the string collecting `key="value"` pairs. We deliberately
+  // hand-roll this rather than using a single regex so we can give a useful
+  // diagnostic at the exact position of a malformed token.
+  let i = 0;
+  const len = trimmed.length;
+
+  while (i < len) {
+    // Skip whitespace between pairs.
+    while (i < len && /\s/.test(trimmed[i])) i++;
+    if (i >= len) break;
+
+    // Read key identifier.
+    const keyStart = i;
+    while (i < len && /[\w-]/.test(trimmed[i])) i++;
+    if (i === keyStart) {
+      throw new Error(
+        `malformed token args: expected identifier at position ${i} in "${argString}"`,
+      );
+    }
+    const key = trimmed.slice(keyStart, i);
+
+    // Expect `=`.
+    if (i >= len || trimmed[i] !== '=') {
+      throw new Error(
+        `malformed token args: expected "=" after "${key}" at position ${i} in "${argString}"`,
+      );
+    }
+    i++; // consume `=`
+
+    // Expect opening quote.
+    if (i >= len || trimmed[i] !== '"') {
+      throw new Error(
+        `malformed token args: expected opening quote for "${key}" at position ${i} in "${argString}"`,
+      );
+    }
+    i++; // consume opening `"`
+
+    // Read value until closing quote. Backslash escapes are not supported
+    // (keep the vocabulary simple); a literal `"` inside a value is not
+    // allowed.
+    const valStart = i;
+    while (i < len && trimmed[i] !== '"') i++;
+    if (i >= len) {
+      throw new Error(
+        `malformed token args: unterminated quoted value for "${key}" in "${argString}"`,
+      );
+    }
+    const value = trimmed.slice(valStart, i);
+    i++; // consume closing `"`
+
+    out[key] = value;
+  }
+
+  return out;
 }
 
 /**
