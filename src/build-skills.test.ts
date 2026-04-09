@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { render } from './build-skills.js';
+import { render, assertNoUnresolvedPlaceholders } from './build-skills.js';
 
 describe('render — task 003: placeholder substitution core', () => {
   it('Render_SimpleToken_SubstitutesValue', () => {
@@ -61,5 +61,60 @@ describe('render — task 003: placeholder substitution core', () => {
     // Byte-for-byte identical: idempotence.
     expect(second).toBe(first);
     expect(Buffer.from(second).equals(Buffer.from(first))).toBe(true);
+  });
+});
+
+describe('render — task 004: error handling', () => {
+  it('Render_UnknownPlaceholder_ThrowsWithTokenNameAndLineNumber', () => {
+    const body = 'line 1\nline 2 with {{NOPE}}\nline 3';
+    const placeholders = { X: 'x' };
+    expect(() =>
+      render(body, placeholders, { sourcePath: 'skills-src/foo/SKILL.md', runtimeName: 'claude' }),
+    ).toThrowError(/\{\{NOPE\}\}/);
+    expect(() =>
+      render(body, placeholders, { sourcePath: 'skills-src/foo/SKILL.md', runtimeName: 'claude' }),
+    ).toThrowError(/skills-src\/foo\/SKILL\.md:2/);
+  });
+
+  it('Render_UnknownPlaceholder_ErrorListsKnownTokens', () => {
+    const body = '{{UNKNOWN}}';
+    const placeholders = { ZEBRA: 'z', APPLE: 'a', MANGO: 'm' };
+    let err: Error | undefined;
+    try {
+      render(body, placeholders, { sourcePath: 'x.md', runtimeName: 'claude' });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    // Alphabetically sorted: APPLE, MANGO, ZEBRA
+    expect(err!.message).toContain('APPLE, MANGO, ZEBRA');
+    expect(err!.message).toContain('runtimes/claude.yaml');
+  });
+
+  it('Render_UnresolvedPostRender_ThrowsViaAssert', () => {
+    // Residual braces after render: assertNoUnresolvedPlaceholders should
+    // flag them. Here we construct dirty output directly.
+    const rendered = 'line1\nline2 has {{LEFTOVER}}\nline3';
+    expect(() =>
+      assertNoUnresolvedPlaceholders(rendered, 'skills/foo/SKILL.md', 'claude'),
+    ).toThrow(/\{\{LEFTOVER\}\}/);
+  });
+
+  it('AssertNoUnresolvedPlaceholders_CleanInput_DoesNotThrow', () => {
+    const clean = 'hello world\nno placeholders here';
+    expect(() => assertNoUnresolvedPlaceholders(clean, 'x.md', 'claude')).not.toThrow();
+  });
+
+  it('AssertNoUnresolvedPlaceholders_ResidualBraces_ThrowsWithLocation', () => {
+    const dirty = 'a\nb\nc\n{{STILL_HERE}}';
+    let err: Error | undefined;
+    try {
+      assertNoUnresolvedPlaceholders(dirty, 'skills/foo/SKILL.md', 'claude');
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('STILL_HERE');
+    expect(err!.message).toContain('skills/foo/SKILL.md:4');
   });
 });
