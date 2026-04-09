@@ -55,6 +55,7 @@
   "author": "lvlup-sw",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
@@ -65,7 +66,8 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.2.1"
+    "@inquirer/prompts": "^8.2.1",
+    "js-yaml": "^4.1.1"
   },
   "workspaces": [
     "packages/*"
