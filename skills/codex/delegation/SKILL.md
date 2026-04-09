@@ -16,7 +16,7 @@ Dispatch implementation tasks to Claude Code subagents with proper context, work
 ## Triggers
 
 Activate this skill when:
-- User runs `/exarchos:delegate` command
+- User runs `delegate` command
 - Implementation plan is ready with extractable tasks
 - User wants to parallelize work across subagents
 
@@ -39,7 +39,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 | `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
-**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
+**Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `delegate --mode subagent|agent-team`.
 
 **CRITICAL:** Always specify `model: "opus"` for coding tasks (when not using native agent definitions).
 
@@ -121,32 +121,17 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 
 ### Parallel Dispatch
 
-Dispatch all independent tasks in a **single message** with multiple `Task` calls.
-
-**Claude Code Dispatch (native agents):**
+Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 ```typescript
-Task({
-  subagent_type: "exarchos-implementer",
-  run_in_background: true,
-  description: "Implement task-001: [title]",
-  prompt: `Task-specific context only: requirements, file paths, acceptance criteria`
+spawn_agent({
+  agent_type: "default",
+  message: "Implement task-001: [title]\n\nTask-specific context: requirements, file paths, acceptance criteria"
 })
+
 ```
 
-> **Note:** The agent's system prompt, model, isolation, skills, hooks, and memory are defined by the agent specification in `servers/exarchos-mcp/src/agents/definitions.ts`. The dispatch prompt provides ONLY task-specific context.
-
-**Cross-platform Dispatch (non-Claude-Code clients):**
-
-```typescript
-Task({
-  subagent_type: "general-purpose",
-  model: "opus",
-  run_in_background: true,
-  description: "Implement task-001: [title]",
-  prompt: `[Full implementer prompt — self-contained]`
-})
-```
+> **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
@@ -233,23 +218,14 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 
 ### Fix Failed Tasks
 
-If a task fails and `agentId` is available in workflow state:
+Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
-**Resume (Claude Code — preserves full implementer context):**
 ```typescript
-Task({
-  resume: "[agentId from workflow state]",
-  prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms."
+spawn_agent({
+  agent_type: "default",
+  message: "Fix failed task-001\n\nYour implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
-```
 
-**Fresh dispatch (cross-platform — when agentId unavailable or platform doesn't support resume):**
-```typescript
-Task({
-  subagent_type: "exarchos-fixer",
-  run_in_background: true,
-  prompt: "[Full failure context + original task context]"
-})
 ```
 
 After fix completes, run the `task-fix` runbook gate chain:
@@ -309,7 +285,7 @@ After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all `tasks[].status === "complete"` in workflow state
 2. Update state: `exarchos_workflow set` with `phase: "review"`
-3. Invoke: `Skill({ skill: "exarchos:review", args: "<plan-path>" })`
+3. Invoke: `[Invoke the exarchos:review skill with args: <plan-path>]`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
 
