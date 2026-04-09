@@ -15,6 +15,17 @@
  * Implements: DR-2, DR-3.
  */
 
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
  * tokens. Capture groups:
@@ -262,4 +273,63 @@ function lineOf(source: string, offset: number): number {
     if (source.charCodeAt(i) === 10 /* \n */) line++;
   }
   return line;
+}
+
+/**
+ * Recursively copy the `references/` subdirectory from `srcDir` to
+ * `destDir`. No-op if the source has no such subdirectory.
+ *
+ * Files are copied byte-for-byte (so binary blobs survive), and mtime is
+ * pinned via `utimesSync` so re-running the build does not perturb
+ * downstream consumers that key off of timestamps.
+ *
+ * Contract:
+ *   - `srcDir/references/` absent → no-op (do not create a `references/`
+ *     directory under `destDir`).
+ *   - `srcDir/references/` present → mirrored under `destDir/references/`
+ *     with full nested structure preserved.
+ *   - Idempotent: running twice in a row is equivalent to running once,
+ *     and produces byte- and mtime-identical files the second time.
+ *
+ * @param srcDir - Directory containing an optional `references/` subtree.
+ * @param destDir - Directory under which a mirror `references/` will be
+ *   written. Must already exist (caller's responsibility).
+ */
+export function copyReferences(srcDir: string, destDir: string): void {
+  const srcRefs = join(srcDir, 'references');
+  if (!existsSync(srcRefs)) return;
+  const srcStat = statSync(srcRefs);
+  if (!srcStat.isDirectory()) return;
+
+  const destRefs = join(destDir, 'references');
+  copyTreePreservingMtime(srcRefs, destRefs);
+}
+
+/**
+ * Recursively copy `src` to `dest`, creating directories as needed and
+ * pinning each file's mtime to the source's mtime so idempotence holds
+ * at the filesystem level.
+ *
+ * Does not follow symlinks (via `statSync` + file/dir branching). Hidden
+ * dotfiles are included — unlike `operations/copy.ts::smartCopyDirectory`
+ * which skips them — because references can legitimately include
+ * `.gitkeep` or similar markers.
+ */
+function copyTreePreservingMtime(src: string, dest: string): void {
+  const srcStat = statSync(src);
+  if (srcStat.isDirectory()) {
+    mkdirSync(dest, { recursive: true });
+    const entries = readdirSync(src);
+    for (const entry of entries) {
+      copyTreePreservingMtime(join(src, entry), join(dest, entry));
+    }
+    return;
+  }
+  if (srcStat.isFile()) {
+    // Ensure parent exists (handles top-level files when `dest` is new).
+    // Read + write so binary bytes round-trip exactly.
+    const contents = readFileSync(src);
+    writeFileSync(dest, contents);
+    utimesSync(dest, srcStat.atime, srcStat.mtime);
+  }
 }
