@@ -23,7 +23,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Types
-export type Action = 'install' | 'uninstall' | 'help';
+export type Action = 'install' | 'uninstall' | 'help' | 'install-skills';
 
 export interface ParsedArgs {
   action: Action;
@@ -31,6 +31,16 @@ export interface ParsedArgs {
   nonInteractive?: boolean;
   configPath?: string;
   skipVersionCheck?: boolean;
+  /**
+   * When action === 'install-skills', the target agent name (e.g. `claude`,
+   * `codex`). Omitted if the user let auto-detection decide.
+   */
+  agent?: string;
+  /**
+   * When action === 'install-skills', whether the user asked for help on
+   * the subcommand. The top-level `--help` still routes via `action: 'help'`.
+   */
+  help?: boolean;
 }
 
 // Legacy types (kept for backward compatibility with existing tests)
@@ -127,6 +137,14 @@ export async function removeMcpConfig(configPath: string): Promise<void> {
 // ─── CLI argument parsing ───────────────────────────────────────────────────
 
 export function parseArgs(args: string[]): ParsedArgs {
+  // Subcommand dispatch: if the first positional arg is a known subcommand
+  // name, route to its dedicated parser. We do this BEFORE the global
+  // --help/--uninstall flags so `install-skills --help` reaches the
+  // subcommand's own help path instead of the top-level help.
+  if (args[0] === 'install-skills') {
+    return parseInstallSkillsArgs(args.slice(1));
+  }
+
   if (args.includes('--help') || args.includes('-h')) {
     return { action: 'help' };
   }
@@ -153,6 +171,24 @@ export function parseArgs(args: string[]): ParsedArgs {
     result.configPath = args[configIdx + 1];
   }
 
+  return result;
+}
+
+/**
+ * Parse the subset of argv that follows `install-skills`. Returns a
+ * `ParsedArgs` whose `action === 'install-skills'`. Recognized flags:
+ *   --agent <name>   Target runtime (skip auto-detection).
+ *   --help, -h       Request subcommand-specific help.
+ */
+function parseInstallSkillsArgs(args: string[]): ParsedArgs {
+  const result: ParsedArgs = { action: 'install-skills' };
+  if (args.includes('--help') || args.includes('-h')) {
+    result.help = true;
+  }
+  const agentIdx = args.indexOf('--agent');
+  if (agentIdx !== -1 && agentIdx + 1 < args.length) {
+    result.agent = args[agentIdx + 1];
+  }
   return result;
 }
 
@@ -559,6 +595,7 @@ Exarchos - SDLC workflow automation for Claude Code
 
 Usage:
   npx github:lvlup-sw/exarchos [options]
+  npx github:lvlup-sw/exarchos install-skills [--agent <name>]
 
 Options:
   --help, -h            Show this help message
@@ -568,11 +605,19 @@ Options:
   --config <path>       Use a config file for selections
   --skip-version-check  Skip remote version check at startup
 
+Subcommands:
+  install-skills        Install the rendered skills bundle for a target
+                        agent runtime. Supported agents:
+                          generic, claude, codex, opencode, copilot, cursor
+                        Omit --agent to auto-detect from PATH and env vars.
+
 Examples:
   npx github:lvlup-sw/exarchos              Install configuration
   npx github:lvlup-sw/exarchos --dev        Install with symlinks
   npx github:lvlup-sw/exarchos --yes        Install with defaults
   npx github:lvlup-sw/exarchos --uninstall  Remove configuration
+  npx github:lvlup-sw/exarchos install-skills --agent claude
+  npx github:lvlup-sw/exarchos install-skills        (auto-detect)
 `);
 }
 
@@ -585,6 +630,31 @@ export async function main(): Promise<void> {
     case 'help':
       printHelp();
       break;
+    case 'install-skills': {
+      if (args.help) {
+        printHelp();
+        break;
+      }
+      // Lazy import so that (a) the heavier yaml/runtime modules are only
+      // loaded when this subcommand is actually invoked, and (b) the
+      // existing `install` code path has zero new dependencies.
+      const { installSkills } = await import('./install-skills.js');
+      const { loadAllRuntimes } = await import('./runtimes/load.js');
+      const repoRoot = getRepoRoot();
+      const runtimes = loadAllRuntimes(join(repoRoot, 'runtimes'));
+      try {
+        await installSkills({ agent: args.agent, runtimes });
+      } catch (err) {
+        // Forward the child's exit code if set; otherwise use 1.
+        const code =
+          err instanceof Error && 'exitCode' in err && typeof (err as { exitCode?: unknown }).exitCode === 'number'
+            ? (err as { exitCode: number }).exitCode
+            : 1;
+        console.error(`Error: ${(err as Error).message}`);
+        process.exit(code);
+      }
+      break;
+    }
     case 'uninstall': {
       const claudeHome = getClaudeHome();
       const claudeConfigPath = join(homedir(), '.claude.json');
