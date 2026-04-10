@@ -29,6 +29,7 @@ import { join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import type { RuntimeMap } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
+import { lintPlaceholders } from './placeholder-lint.js';
 
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
@@ -402,6 +403,25 @@ export function buildAllSkills(opts: {
     );
   }
 
+  // Pre-flight: enforce the placeholder vocabulary. Running this
+  // *before* the renderer means a stray `{{NOT_A_REAL_TOKEN}}`
+  // surfaces as a single aggregated error naming every offender,
+  // rather than throwing at the first `render()` call for whichever
+  // runtime happens to iterate first. Implements DR-3 (lint path).
+  //
+  // Vocabulary is derived from the union of placeholder keys across
+  // every loaded runtime map. In production the union collapses to
+  // the canonical five tokens defined in `runtimes/*.yaml`
+  // (MCP_PREFIX, COMMAND_PREFIX, TASK_TOOL, CHAIN, SPAWN_AGENT_CALL);
+  // in tests that use synthetic fixtures the union is whatever the
+  // fixtures declare — the lint self-adjusts so tests never need to
+  // carry a duplicate "allowed tokens" list.
+  const vocabulary = unionPlaceholderKeys(runtimes);
+  const lintResult = lintPlaceholders({ sourcesDir: opts.srcDir, vocabulary });
+  if (!lintResult.passed) {
+    throw new Error(lintResult.message);
+  }
+
   // Per-runtime set of file paths we produced this run. Used by the
   // stale-cleanup pass at the end so we only delete orphans, never
   // files that the current run legitimately wrote.
@@ -469,6 +489,21 @@ export function buildAllSkills(opts: {
   }
 
   return { variantsWritten, referencesCopied, overridesUsed, warnings };
+}
+
+/**
+ * Collect every placeholder identifier defined by any loaded runtime
+ * map into a sorted, de-duplicated list. The `buildAllSkills` lint
+ * preflight uses this as its vocabulary so a skill source is allowed
+ * to reference any token that at least one runtime knows how to
+ * render. Sorted for determinism in diagnostic messages.
+ */
+function unionPlaceholderKeys(runtimes: RuntimeMap[]): string[] {
+  const set = new Set<string>();
+  for (const rt of runtimes) {
+    for (const key of Object.keys(rt.placeholders)) set.add(key);
+  }
+  return [...set].sort();
 }
 
 /**
