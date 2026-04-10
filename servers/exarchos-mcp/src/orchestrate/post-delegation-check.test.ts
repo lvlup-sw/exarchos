@@ -47,7 +47,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 1: All tasks complete, tests pass → passed: true ────────────
 
-  it('allTasksComplete_testsPass_returnsPassed', () => {
+  it('allTasksComplete_testsPass_returnsPassed', async () => {
     // Arrange
     const stateJson = makeState([
       makeCompleteTask('task-1', 'wt-1'),
@@ -66,7 +66,7 @@ describe('handlePostDelegationCheck', () => {
     mockExecFileSync.mockReturnValue(Buffer.from(''));
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -81,49 +81,48 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 2: State file not found → error ────────────────────────────
 
-  it('stateFileNotFound_returnsError', () => {
+  it('stateFileNotFound_returnsError', async () => {
     // Arrange
     mockExistsSync.mockReturnValue(false);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/missing.json',
       repoRoot: '/repo',
     });
 
-    // Assert
+    // Assert — with no featureId/eventStore fallback, returns NO_STATE_SOURCE
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('STATE_FILE_NOT_FOUND');
-    expect(result.error?.message).toContain('/tmp/missing.json');
+    expect(result.error?.code).toBe('NO_STATE_SOURCE');
   });
 
   // ─── Test 3: Invalid JSON → error ────────────────────────────────────
 
-  it('invalidJson_returnsError', () => {
+  it('invalidJson_returnsError', async () => {
     // Arrange
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue('not valid json {{{');
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/bad.json',
       repoRoot: '/repo',
     });
 
-    // Assert
+    // Assert — invalid JSON falls through to NO_STATE_SOURCE with no event store fallback
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_JSON');
+    expect(result.error?.code).toBe('NO_STATE_SOURCE');
   });
 
   // ─── Test 4: No tasks → passed: false ─────────────────────────────────
 
-  it('noTasks_returnsNotPassed', () => {
+  it('noTasks_returnsNotPassed', async () => {
     // Arrange
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(makeState([]));
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -137,7 +136,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 5: Incomplete tasks → passed: false with list ───────────────
 
-  it('incompleteTasks_returnsNotPassedWithList', () => {
+  it('incompleteTasks_returnsNotPassedWithList', async () => {
     // Arrange
     const stateJson = makeState([
       makeCompleteTask('task-1'),
@@ -148,7 +147,7 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockReturnValue(stateJson);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -163,7 +162,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 6: skipTests=true → skips worktree test execution ───────────
 
-  it('skipTests_skipsWorktreeTestExecution', () => {
+  it('skipTests_skipsWorktreeTestExecution', async () => {
     // Arrange
     const stateJson = makeState([
       makeCompleteTask('task-1', 'wt-1'),
@@ -172,7 +171,7 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockReturnValue(stateJson);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
       skipTests: true,
@@ -188,7 +187,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 7: Worktree directory not found → fail for that worktree ────
 
-  it('worktreeDirNotFound_failsForThatWorktree', () => {
+  it('worktreeDirNotFound_failsForThatWorktree', async () => {
     // Arrange
     const stateJson = makeState([
       makeCompleteTask('task-1', 'wt-missing'),
@@ -202,7 +201,7 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockReturnValue(stateJson);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -216,7 +215,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 8: Tasks missing id/status → consistency fail ───────────────
 
-  it('tasksMissingIdOrStatus_consistencyFail', () => {
+  it('tasksMissingIdOrStatus_consistencyFail', async () => {
     // Arrange
     const stateJson = makeState([
       { id: 'task-1', status: 'complete' },
@@ -227,7 +226,7 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockReturnValue(stateJson);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });
@@ -241,7 +240,7 @@ describe('handlePostDelegationCheck', () => {
 
   // ─── Test 9: Report includes task status table ────────────────────────
 
-  it('report_includesTaskStatusTable', () => {
+  it('report_includesTaskStatusTable', async () => {
     // Arrange
     const stateJson = makeState([
       makeCompleteTask('task-1'),
@@ -251,7 +250,7 @@ describe('handlePostDelegationCheck', () => {
     mockReadFileSync.mockReturnValue(stateJson);
 
     // Act
-    const result = handlePostDelegationCheck({
+    const result = await handlePostDelegationCheck({
       stateFile: '/tmp/state.json',
       repoRoot: '/repo',
     });

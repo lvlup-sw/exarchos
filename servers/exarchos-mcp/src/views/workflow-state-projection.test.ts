@@ -59,6 +59,7 @@ describe('WorkflowStateProjection init', () => {
         prUrl: null,
         prFeedback: [],
       });
+      expect(state._events).toEqual([]);
       expect(state._version).toBe(1);
       expect(state._history).toEqual({});
       expect(state._checkpoint).toEqual({
@@ -432,6 +433,80 @@ describe('WorkflowStateProjection stack/review events', () => {
   });
 });
 
+// ─── Team Events (_events projection) ─────────────────────────────────────
+
+describe('WorkflowStateProjection team events', () => {
+  describe('Apply_TeamSpawned_AppendsToViewEvents', () => {
+    it('should append team.spawned to view._events', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T15:00:00.000Z';
+
+      const event = makeEvent(
+        'team.spawned',
+        { teamSize: 3, teammateNames: ['a', 'b', 'c'], taskCount: 3, dispatchMode: 'parallel' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({ type: 'team.spawned' });
+    });
+  });
+
+  describe('Apply_TeamDisbanded_AppendsToViewEvents', () => {
+    it('should append both team.spawned and team.disbanded to view._events', () => {
+      let state = workflowStateProjection.init();
+      const ts1 = '2026-02-19T15:00:00.000Z';
+      const ts2 = '2026-02-19T16:00:00.000Z';
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'team.spawned',
+          { teamSize: 2 },
+          { timestamp: ts1 },
+        ),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'team.disbanded',
+          { totalDurationMs: 5000 },
+          { timestamp: ts2 },
+        ),
+      );
+
+      expect(state._events).toHaveLength(2);
+      expect(state._events[0]).toMatchObject({ type: 'team.spawned' });
+      expect(state._events[1]).toMatchObject({ type: 'team.disbanded' });
+    });
+  });
+
+  describe('Apply_TeamSpawned_PreservesEventData', () => {
+    it('should preserve event data including teamSize in _events entry', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T15:00:00.000Z';
+
+      const event = makeEvent(
+        'team.spawned',
+        { teamSize: 3 },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toHaveLength(1);
+      const entry = next._events[0];
+      expect(entry.type).toBe('team.spawned');
+      expect(entry.timestamp).toBe(ts);
+      expect(entry.data).toBeDefined();
+      expect((entry.data as Record<string, unknown>).teamSize).toBe(3);
+    });
+  });
+});
+
 // ─── Observability and Unknown Events ──────────────────────────────────────
 
 describe('WorkflowStateProjection passthrough events', () => {
@@ -447,15 +522,9 @@ describe('WorkflowStateProjection passthrough events', () => {
     });
   });
 
-  describe('Apply_TeamSpawned_ReturnsStateUnchanged', () => {
-    it('should return state unchanged for observability events', () => {
+  describe('Apply_ObservabilityOnly_ReturnsStateUnchanged', () => {
+    it('should return state unchanged for non-team observability events', () => {
       const state = workflowStateProjection.init();
-
-      const teamSpawned = workflowStateProjection.apply(
-        state,
-        makeEvent('team.spawned', { teamSize: 3, teammateNames: ['a', 'b', 'c'], taskCount: 3, dispatchMode: 'parallel' }),
-      );
-      expect(teamSpawned).toEqual(state);
 
       const toolInvoked = workflowStateProjection.apply(
         state,

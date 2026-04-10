@@ -68,7 +68,7 @@ import { handlePrepareReview } from './prepare-review.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
-type ActionHandler = (args: Record<string, unknown>, stateDir: string) => Promise<ToolResult>;
+type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>;
 
 /** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
 function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
@@ -78,6 +78,14 @@ function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): 
 /** Wraps a typed handler that takes only args (no stateDir) and may be sync or async. */
 function adaptArgs<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
   return async (args) => handler(args as unknown as T);
+}
+
+/** Wraps a typed handler that needs eventStore from DispatchContext injected into args. */
+function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
+  return async (args, _stateDir, ctx) => {
+    const enriched = ctx?.eventStore ? { ...args, eventStore: ctx.eventStore } : args;
+    return handler(enriched as unknown as T);
+  };
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
@@ -120,8 +128,8 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
   setup_worktree: adaptArgs(handleSetupWorktree),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
-  post_delegation_check: adaptArgs(handlePostDelegationCheck),
-  reconcile_state: adaptArgs(handleReconcileState),
+  post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
+  reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: adaptArgs(handlePreSynthesisCheck),
   new_project: adaptArgs(handleNewProject),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
@@ -199,5 +207,5 @@ export async function handleOrchestrate(
     };
   }
 
-  return handler(rest as Record<string, unknown>, stateDir);
+  return handler(rest as Record<string, unknown>, stateDir, ctx);
 }

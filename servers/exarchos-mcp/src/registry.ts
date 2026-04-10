@@ -975,7 +975,8 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'post_delegation_check',
     description: 'Run post-delegation checks: task completion, test pass, branch existence',
     schema: z.object({
-      stateFile: z.string().min(1),
+      stateFile: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
       repoRoot: z.string().min(1),
       skipTests: z.boolean().optional(),
     }),
@@ -990,7 +991,8 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'reconcile_state',
     description: 'Reconcile workflow state file against git and filesystem reality',
     schema: z.object({
-      stateFile: z.string().min(1),
+      stateFile: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
       repoRoot: z.string().min(1),
     }),
     phases: ALL_PHASES,
@@ -1004,6 +1006,7 @@ const orchestrateActions: readonly ToolAction[] = [
       repoRoot: z.string().optional(),
       skipTests: z.boolean().optional(),
       skipStack: z.boolean().optional(),
+      testCommand: z.string().optional(),
     }),
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,

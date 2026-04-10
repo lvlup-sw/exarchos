@@ -198,6 +198,32 @@ describe('handleHookCommand', () => {
     }
   });
 
+  it('handleHookCommand_GateFailure_WritesErrorToStderr', async () => {
+    // Arrange
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { handleTaskGate } = await import('../cli-commands/gates.js');
+    vi.mocked(handleTaskGate).mockResolvedValueOnce({
+      error: { code: 'GATE_FAILED', message: 'typecheck failed:\nsrc/foo.ts: Type error' },
+    });
+
+    // Act
+    await handleHookCommand(
+      'task-gate',
+      ['node', 'exarchos', 'task-gate'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    // Assert — error message should be written to stderr
+    expect(stderrSpy).toHaveBeenCalled();
+    const stderrOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderrOutput).toContain('typecheck failed');
+    expect(stderrOutput).toContain('Type error');
+
+    stderrSpy.mockRestore();
+  });
+
   it('handleHookCommand_Success_ReturnsHandledTrue', async () => {
     const result = await handleHookCommand(
       'guard',

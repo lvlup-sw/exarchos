@@ -28,6 +28,7 @@ import {
   isStale,
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
+import { workflowLogger } from '../logger.js';
 import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
 import { applyPhaseSkips } from './phase-skip.js';
 import { getRegisteredGuard } from '../config/register.js';
@@ -498,6 +499,11 @@ export async function handleSet(
         // Best-effort: proceed with existing _events on query failure
         mutableState._events = mutableState._events ?? [];
       }
+    } else if (input.phase && !eventStore) {
+      workflowLogger.warn(
+        { featureId: input.featureId },
+        'eventStore unavailable during phase transition — _events will not be hydrated, guards may fail',
+      );
     }
 
     // ─── Phase transition (guards evaluate against updated state) ──────

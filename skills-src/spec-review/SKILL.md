@@ -249,6 +249,8 @@ Before invoking quality-review:
 1. Verify `reviews["spec-review"].status === "pass"` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The `all-reviews-passed` guard requires `reviews["spec-review"]` to be an object with a `status` field set to a passing value (`pass`, `passed`, `approved`, `fixes-applied`). Flat strings like `reviews: { "spec-review": "pass" }` are silently ignored and will block the `review → synthesize` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a `status` field, not a flat string:
    ```

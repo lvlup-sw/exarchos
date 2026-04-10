@@ -111,6 +111,10 @@ export async function handleHookCommand(
   outputJson(result);
 
   if (result.error) {
+    // Write error details to stderr so the agent (and hook runner) can see them.
+    // Without this, the agent gets "No stderr output" and the task state never transitions.
+    process.stderr.write(`[${result.error.code}] ${result.error.message}\n`);
+
     const isGateCommand = command === 'task-gate' || command === 'teammate-gate';
     const exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;
     return { handled: true, exitCode };

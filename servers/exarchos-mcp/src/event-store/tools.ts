@@ -1,8 +1,21 @@
 import { z, ZodError } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
-import { pickFields, toEventAck, type ToolResult } from '../format.js';
+import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
+
+/**
+ * Build an EventAck from a stored event. When the event has a non-positive
+ * sequence (sidecar write pending merge), the ack uses sequence -1 and sets
+ * `sequencePending: true` so callers do not misinterpret 0 as failure.
+ */
+function toSafeEventAck(event: { streamId: string; sequence: number; type: string }): EventAck {
+  const ack = toEventAck(event);
+  if (ack.sequence <= 0) {
+    return { ...ack, sequence: -1, sequencePending: true };
+  }
+  return ack;
+}
 
 // ─── Misplaced Field Detection ──────────────────────────────────────────────
 
@@ -113,7 +126,7 @@ export async function handleEventAppend(
         : undefined,
     );
 
-    return { success: true, data: toEventAck(event) };
+    return { success: true, data: toSafeEventAck(event) };
   } catch (err) {
     if (err instanceof ZodError) {
       return {
@@ -211,7 +224,7 @@ export async function handleBatchAppend(
 
     return {
       success: true,
-      data: appended.map(toEventAck),
+      data: appended.map(toSafeEventAck),
     };
   } catch (err) {
     return {

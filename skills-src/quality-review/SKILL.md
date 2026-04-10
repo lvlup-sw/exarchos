@@ -264,6 +264,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case `reviews["quality-review"]`, not camelCase `reviews.qualityReview`. The guard matches on the exact key string.
+
 **On review complete:**
 ```text
 action: "set", featureId: "<id>", updates: {
