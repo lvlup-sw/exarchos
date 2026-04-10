@@ -253,12 +253,12 @@ describe('Quality Gate Commands', () => {
       });
 
       it('HandleTaskGate_ActiveWorkflow_BypassesChecks', async () => {
-        // Arrange — create a valid active workflow state file with matching worktree
+        // Arrange — create a valid active workflow state file
         const state = {
           featureId: 'test',
           phase: 'delegate',
           tasks: [],
-          worktrees: { 'wt-001': { branch: 'feat/task-001', taskId: 'task-001', status: 'active', path: '/some/path' } },
+          worktrees: {},
           _version: 1,
         };
         await fsp.writeFile(

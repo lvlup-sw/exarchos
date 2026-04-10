@@ -284,16 +284,14 @@ export async function handleTaskGate(
   const validationError = validateCwd(input);
   if (validationError) return validationError;
 
-  // Bypass quality checks when the task's cwd belongs to an active exarchos workflow
+  // Bypass quality checks when an active exarchos workflow is managing quality gates.
+  // Note: worktree entries don't reliably store a `path` field yet, so we bypass
+  // for any active workflow. Tighten to identity-based checking once worktree path
+  // tracking is in place (see #1010 pipeline prune for stale workflow cleanup).
   const stateDir = resolveStateDir();
   const activeWorkflow = await findActiveWorkflowState(stateDir);
   if (activeWorkflow) {
-    const cwd = input.cwd as string;
-    const worktrees = Object.values(activeWorkflow.state.worktrees);
-    const belongsToWorkflow = worktrees.some((wt) => wt.path === cwd);
-    if (belongsToWorkflow) {
-      return { continue: true, message: 'task-gate: skipped (exarchos workflow manages quality gates)' };
-    }
+    return { continue: true, message: 'task-gate: skipped (exarchos workflow manages quality gates)' };
   }
 
   return runQualityChecks(input.cwd as string);

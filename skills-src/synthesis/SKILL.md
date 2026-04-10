@@ -136,9 +136,8 @@ After PRs are created and auto-merge is enabled, emit the `stack.submitted` even
 {{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "stack.submitted",
   data: {
-    prUrls: ["https://github.com/org/repo/pull/1", "..."],
-    mergeOrder: ["task-001-branch", "task-002-branch"],
-    baseBranch: "main"
+    branches: ["task-001-branch", "task-002-branch"],
+    prNumbers: [101, 102]
   }
 }})
 ```
@@ -149,11 +148,10 @@ During shepherd iterations (CI monitoring loop), emit after each assessment:
 {{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "shepherd.iteration",
   data: {
-    prNumber: 42,
-    ciStatus: "passing",
-    reviewState: "approved",
-    iterationNumber: 1,
-    action: "none"
+    iteration: 1,
+    prsAssessed: 2,
+    fixesApplied: 0,
+    status: "all-green"
   }
 }})
 ```
