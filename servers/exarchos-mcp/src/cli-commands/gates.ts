@@ -12,79 +12,90 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from '../cli.js';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
+import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
 import { resolveStateDir } from '../utils/paths.js';
-
-// ─── Check Definitions ─────────────────────────────────────────────────────
-
-interface QualityCheck {
-  readonly name: string;
-  readonly command: string;
-  readonly timeoutMs: number;
-  readonly failureLabel: string;
-}
-
-const QUALITY_CHECKS: readonly QualityCheck[] = [
-  {
-    name: 'typecheck',
-    command: 'npm run typecheck',
-    timeoutMs: 30_000,
-    failureLabel: 'typecheck failed',
-  },
-  {
-    name: 'test',
-    command: 'npm run test:run',
-    timeoutMs: 120_000,
-    failureLabel: 'tests failed',
-  },
-  {
-    name: 'clean-worktree',
-    command: 'git status --porcelain',
-    timeoutMs: 10_000,
-    failureLabel: 'uncommitted changes detected',
-  },
-];
 
 // ─── Core Quality Check Runner ─────────────────────────────────────────────
 
 /**
- * Run all quality checks sequentially in the given working directory.
+ * Run quality checks sequentially in the given working directory.
+ * Uses `detectTestCommands()` to determine which typecheck/test commands
+ * to run (if any), then always checks for a clean worktree.
  * Stops at the first failure and returns a GATE_FAILED error.
  * Returns `{ continue: true }` when all checks pass.
  */
 export async function runQualityChecks(cwd: string): Promise<CommandResult> {
-  for (const check of QUALITY_CHECKS) {
+  const cmds = detectTestCommands(cwd);
+
+  // Run typecheck if detected (commands from detectTestCommands are hardcoded trusted strings)
+  if (cmds.typecheck) {
     try {
-      const output = execSync(check.command, {
+      execSync(cmds.typecheck, {
         cwd,
-        timeout: check.timeoutMs,
+        timeout: 30_000,
         stdio: ['pipe', 'pipe', 'pipe'],
         encoding: 'buffer',
       });
-
-      // Special case: git status --porcelain returns empty when clean
-      if (check.name === 'clean-worktree') {
-        const statusOutput = output.toString('utf-8').trim();
-        if (statusOutput.length > 0) {
-          return {
-            error: {
-              code: 'GATE_FAILED',
-              message: `${check.failureLabel}:\n${statusOutput}`,
-            },
-          };
-        }
-      }
     } catch (err: unknown) {
       const stderr = extractStderr(err);
       const stdout = extractStdout(err);
       const detail = stderr || stdout || (err instanceof Error ? err.message : String(err));
-
       return {
         error: {
           code: 'GATE_FAILED',
-          message: `${check.failureLabel}:\n${detail}`,
+          message: `typecheck failed:\n${detail}`,
         },
       };
     }
+  }
+
+  // Run tests if detected (commands from detectTestCommands are hardcoded trusted strings)
+  if (cmds.test) {
+    try {
+      execSync(cmds.test, {
+        cwd,
+        timeout: 120_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'buffer',
+      });
+    } catch (err: unknown) {
+      const stderr = extractStderr(err);
+      const stdout = extractStdout(err);
+      const detail = stderr || stdout || (err instanceof Error ? err.message : String(err));
+      return {
+        error: {
+          code: 'GATE_FAILED',
+          message: `tests failed:\n${detail}`,
+        },
+      };
+    }
+  }
+
+  // Always check clean worktree
+  try {
+    const output = execSync('git status --porcelain', {
+      cwd,
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'buffer',
+    });
+    const statusOutput = output.toString('utf-8').trim();
+    if (statusOutput.length > 0) {
+      return {
+        error: {
+          code: 'GATE_FAILED',
+          message: `uncommitted changes detected:\n${statusOutput}`,
+        },
+      };
+    }
+  } catch (err: unknown) {
+    const detail = extractStderr(err) || extractStdout(err) || (err instanceof Error ? err.message : String(err));
+    return {
+      error: {
+        code: 'GATE_FAILED',
+        message: `git status failed:\n${detail}`,
+      },
+    };
   }
 
   return { continue: true };
@@ -272,6 +283,18 @@ export async function handleTaskGate(
 ): Promise<CommandResult> {
   const validationError = validateCwd(input);
   if (validationError) return validationError;
+
+  // Bypass quality checks when the task's cwd belongs to an active exarchos workflow
+  const stateDir = resolveStateDir();
+  const activeWorkflow = await findActiveWorkflowState(stateDir);
+  if (activeWorkflow) {
+    const cwd = input.cwd as string;
+    const worktrees = Object.values(activeWorkflow.state.worktrees);
+    const belongsToWorkflow = worktrees.some((wt) => wt.path === cwd);
+    if (belongsToWorkflow) {
+      return { continue: true, message: 'task-gate: skipped (exarchos workflow manages quality gates)' };
+    }
+  }
 
   return runQualityChecks(input.cwd as string);
 }

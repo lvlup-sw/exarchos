@@ -140,6 +140,22 @@ When using `--mode agent-team`, follow the 6-step saga in `references/agent-team
 
 Event emission contract for agent teams: see `references/agent-teams-saga.md` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by `check-event-emissions`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| `team.spawned` | After team creation, before dispatch | Orchestrator |
+| `team.task.planned` | For each task in the plan (use `batch_append`) | Orchestrator |
+| `team.teammate.dispatched` | After each subagent is spawned | Orchestrator |
+| `task.progressed` | After each TDD phase (red/green/refactor) | Subagent |
+| `team.disbanded` | After all subagents complete | Orchestrator |
+
+See `references/agent-teams-saga.md` for full event schemas and emission order.
+
+> **Note:** `task.progressed` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -249,6 +265,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: `ls .worktrees/` and verify branch state
 3. Reconcile: `exarchos_workflow reconcile` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as `worktrees["<wt-id>"]` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `branch` | string | Yes | Git branch name |
+| `taskId` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| `tasks` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| `status` | `"active"` \| `"merged"` \| `"removed"` | Yes | Worktree lifecycle status |
+
+Either `taskId` or `tasks` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+```json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+```
+
+**Multi-task example:**
+```json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+```
 
 ---
 

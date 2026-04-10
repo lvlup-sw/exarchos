@@ -35,6 +35,7 @@ export interface WorkflowStateView {
     prUrl: string | string[] | null;
     prFeedback: unknown[];
   };
+  _events: Array<{type: string; timestamp: string; data?: unknown}>;
   _version: number;
   _history: Record<string, string>;
   _checkpoint: CheckpointEntry;
@@ -99,6 +100,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       prUrl: null,
       prFeedback: [],
     },
+    _events: [],
     _version: 1,
     _history: {},
     _checkpoint: {
@@ -262,10 +264,15 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // ── Observability-only (return state unchanged) ────────────────────
 
       case 'team.spawned':
+      case 'team.disbanded':
+        return {
+          ...view,
+          _events: [...(view._events ?? []), { type: event.type, timestamp: event.timestamp, data: event.data }],
+        };
+
       case 'team.task.assigned':
       case 'team.task.completed':
       case 'team.task.failed':
-      case 'team.disbanded':
       case 'team.task.planned':
       case 'team.teammate.dispatched':
       case 'tool.invoked':

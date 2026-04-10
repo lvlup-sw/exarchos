@@ -22,6 +22,15 @@ vi.mock('../event-store/hook-event-writer.js', () => ({
   writeHookEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock detect-test-commands — defaults to returning npm typecheck/test:run
+// so existing tests continue to work. Individual tests can override via mockDetect.
+vi.mock('../orchestrate/detect-test-commands.js', () => ({
+  detectTestCommands: vi.fn().mockReturnValue({
+    typecheck: 'npm run typecheck',
+    test: 'npm run test:run',
+  }),
+}));
+
 // Wrap node:fs/promises readFile to support CAS race simulation.
 // All other functions pass through to the real implementation.
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -53,10 +62,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 import { execSync } from 'node:child_process';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
+import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
 import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries, readTeamConfig, resolveTeammateFromConfig } from './gates.js';
 import type { CommandResult } from '../cli.js';
 
 const mockExecSync = vi.mocked(execSync);
+const mockDetectTestCommands = vi.mocked(detectTestCommands);
 
 describe('Quality Gate Commands', () => {
   beforeEach(() => {
@@ -222,6 +233,140 @@ describe('Quality Gate Commands', () => {
       expect(mockExecSync).toHaveBeenCalledWith(
         expect.stringContaining('typecheck'),
         expect.objectContaining({ cwd: '/my/specific/worktree' }),
+      );
+    });
+
+    // ─── Task 005: Workflow Bypass ────────────────────────────────────────────
+
+    describe('workflow bypass', () => {
+      let tempStateDir: string;
+      const originalEnv = process.env.WORKFLOW_STATE_DIR;
+
+      beforeEach(() => {
+        tempStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-gate-bypass-'));
+        process.env.WORKFLOW_STATE_DIR = tempStateDir;
+      });
+
+      afterEach(async () => {
+        process.env.WORKFLOW_STATE_DIR = originalEnv;
+        await fsp.rm(tempStateDir, { recursive: true, force: true });
+      });
+
+      it('HandleTaskGate_ActiveWorkflow_BypassesChecks', async () => {
+        // Arrange — create a valid active workflow state file with matching worktree
+        const state = {
+          featureId: 'test',
+          phase: 'delegate',
+          tasks: [],
+          worktrees: { 'wt-001': { branch: 'feat/task-001', taskId: 'task-001', status: 'active', path: '/some/path' } },
+          _version: 1,
+        };
+        await fsp.writeFile(
+          path.join(tempStateDir, 'test.state.json'),
+          JSON.stringify(state),
+        );
+        mockExecSync.mockReturnValue(Buffer.from(''));
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TaskCompleted',
+          task_subject: 'Implement feature',
+          task_output: 'Done',
+          cwd: '/some/path',
+        };
+
+        // Act
+        const result = await handleTaskGate(input);
+
+        // Assert — should bypass checks and return continue: true
+        expect(result.continue).toBe(true);
+        expect(mockExecSync).not.toHaveBeenCalled();
+      });
+
+      it('HandleTaskGate_NoWorkflow_RunsChecks', async () => {
+        // Arrange — empty state dir (no workflow state files)
+        mockExecSync.mockReturnValue(Buffer.from(''));
+
+        const input: Record<string, unknown> = {
+          hook_event_name: 'TaskCompleted',
+          task_subject: 'Implement feature',
+          task_output: 'Done',
+          cwd: '/some/path',
+        };
+
+        // Act
+        const result = await handleTaskGate(input);
+
+        // Assert — checks should have been executed
+        expect(mockExecSync).toHaveBeenCalled();
+        expect(result.error).toBeUndefined();
+      });
+    });
+  });
+
+  // ─── Task 005: Stderr Feedback in Quality Checks ─────────────────────────
+
+  describe('RunQualityChecks error detail', () => {
+    it('RunQualityChecks_GateFails_ReturnsErrorWithDetail', async () => {
+      // Arrange — make typecheck fail with stderr content
+      const typecheckError = new Error('typecheck failed');
+      (typecheckError as NodeJS.ErrnoException).status = 1;
+      (typecheckError as unknown as { stdout: Buffer }).stdout = Buffer.from('');
+      (typecheckError as unknown as { stderr: Buffer }).stderr = Buffer.from(
+        "src/foo.ts(5,3): error TS2322: Type 'string' is not assignable to type 'number'.",
+      );
+
+      mockExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('typecheck')) {
+          throw typecheckError;
+        }
+        return Buffer.from('');
+      });
+
+      // Act
+      const result = await runQualityChecks('/tmp/worktree');
+
+      // Assert — error includes the failure label AND stderr content
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe('GATE_FAILED');
+      expect(result.error!.message).toContain('typecheck');
+      expect(result.error!.message).toContain('TS2322');
+      expect(result.error!.message).toContain("Type 'string' is not assignable to type 'number'");
+    });
+
+    it('RunQualityChecks_NoTestsDetected_SkipsTestAndTypecheck', async () => {
+      // Arrange — detectTestCommands returns null for both
+      mockDetectTestCommands.mockReturnValueOnce({ test: null, typecheck: null });
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      // Act
+      const result = await runQualityChecks('/tmp/worktree');
+
+      // Assert — only git status should be called (clean-worktree check)
+      expect(result).toEqual({ continue: true });
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'git status --porcelain',
+        expect.objectContaining({ cwd: '/tmp/worktree' }),
+      );
+    });
+
+    it('RunQualityChecks_CustomTestCommand_UsesDetectedCommand', async () => {
+      // Arrange — detectTestCommands returns custom commands
+      mockDetectTestCommands.mockReturnValueOnce({ test: 'cargo test', typecheck: 'cargo check' });
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      // Act
+      const result = await runQualityChecks('/tmp/worktree');
+
+      // Assert — cargo commands should be called
+      expect(result).toEqual({ continue: true });
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'cargo check',
+        expect.objectContaining({ cwd: '/tmp/worktree' }),
+      );
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'cargo test',
+        expect.objectContaining({ cwd: '/tmp/worktree' }),
       );
     });
   });

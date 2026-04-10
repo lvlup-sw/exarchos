@@ -8,14 +8,18 @@
 // Ported from scripts/reconcile-state.sh
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface ReconcileStateArgs {
-  readonly stateFile: string;
+  readonly stateFile?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
   readonly repoRoot: string;
 }
 
@@ -183,32 +187,20 @@ function checkTaskStatusConsistency(acc: CheckAccumulator, state: WorkflowState)
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleReconcileState(args: ReconcileStateArgs): ToolResult {
-  const { stateFile, repoRoot } = args;
+export async function handleReconcileState(args: ReconcileStateArgs): Promise<ToolResult> {
+  const { stateFile, featureId, eventStore, repoRoot } = args;
 
-  // Check 1: State file exists
-  if (!existsSync(stateFile)) {
-    return {
-      success: false,
-      error: { code: 'STATE_FILE_NOT_FOUND', message: `State file not found: ${stateFile}` },
-    };
+  // Resolve state via file or event store fallback
+  const resolveResult = await resolveWorkflowState({ stateFile, featureId, eventStore });
+  if ('error' in resolveResult) {
+    return resolveResult.error;
   }
 
-  // Check 1b: Valid JSON
-  let state: WorkflowState;
-  try {
-    const raw = readFileSync(stateFile, 'utf-8');
-    state = JSON.parse(raw) as WorkflowState;
-  } catch {
-    return {
-      success: false,
-      error: { code: 'INVALID_JSON', message: `Invalid JSON in state file: ${stateFile}` },
-    };
-  }
+  const state = resolveResult.state as unknown as WorkflowState;
 
   const acc: CheckAccumulator = { pass: 0, fail: 0, results: [] };
 
-  checkPass(acc, 'State file exists');
+  checkPass(acc, 'State resolved');
 
   // Check 2: Phase validity
   checkPhaseValid(acc, state);
@@ -232,7 +224,7 @@ export function handleReconcileState(args: ReconcileStateArgs): ToolResult {
   const report = [
     '## State Reconciliation Report',
     '',
-    `**State file:** \`${stateFile}\``,
+    `**State source:** \`${stateFile ?? featureId ?? 'event-store'}\``,
     `**Repo root:** \`${repoRoot}\``,
     '',
     ...acc.results,

@@ -182,6 +182,10 @@ async function main(): Promise<void> {
   outputJson(result);
 
   if (result.error) {
+    // Write error details to stderr so the agent (and hook runner) can see them.
+    // Without this, the agent gets "No stderr output" and the task state never transitions.
+    process.stderr.write(`[${result.error.code}] ${result.error.message}\n`);
+
     // Gate commands use exit code 2 to signal "blocked" to the hook runner
     const isGateCommand = command === 'task-gate' || command === 'teammate-gate';
     process.exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;

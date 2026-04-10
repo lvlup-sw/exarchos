@@ -7,15 +7,19 @@
 // Port of scripts/post-delegation-check.sh to TypeScript.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PostDelegationCheckArgs {
-  readonly stateFile: string;
+  readonly stateFile?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
   readonly repoRoot: string;
   readonly skipTests?: boolean;
 }
@@ -57,66 +61,7 @@ function checkSkip(label: string): CheckResult {
   return { label, outcome: 'SKIP' };
 }
 
-// ─── State Parsing ──────────────────────────────────────────────────────────
-
-function parseStateFile(stateFile: string): { state: StateFile } | { error: ToolResult } {
-  if (!existsSync(stateFile)) {
-    return {
-      error: {
-        success: false,
-        error: {
-          code: 'STATE_FILE_NOT_FOUND',
-          message: `State file not found: ${stateFile}`,
-        },
-      },
-    };
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync(stateFile, 'utf-8');
-  } catch {
-    return {
-      error: {
-        success: false,
-        error: {
-          code: 'STATE_FILE_READ_ERROR',
-          message: `Failed to read state file: ${stateFile}`,
-        },
-      },
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return {
-      error: {
-        success: false,
-        error: {
-          code: 'INVALID_JSON',
-          message: `Invalid JSON in state file: ${stateFile}`,
-        },
-      },
-    };
-  }
-
-  const state = parsed as StateFile;
-  if (!state || !Array.isArray(state.tasks)) {
-    return {
-      error: {
-        success: false,
-        error: {
-          code: 'INVALID_JSON',
-          message: `State file missing tasks array: ${stateFile}`,
-        },
-      },
-    };
-  }
-
-  return { state };
-}
+// ─── State Parsing (delegated to resolve-state.ts) ─────────────────────────
 
 // ─── Individual Checks ──────────────────────────────────────────────────────
 
@@ -211,7 +156,7 @@ function checkStateConsistency(tasks: readonly TaskEntry[]): CheckResult {
 // ─── Report Builder ─────────────────────────────────────────────────────────
 
 function buildReport(
-  stateFile: string,
+  stateSource: string,
   tasks: readonly TaskEntry[],
   checks: readonly CheckResult[],
   counts: CheckCounts,
@@ -220,7 +165,7 @@ function buildReport(
 
   lines.push('## Post-Delegation Results Report');
   lines.push('');
-  lines.push(`**State file:** \`${stateFile}\``);
+  lines.push(`**State source:** \`${stateSource}\``);
   lines.push('');
 
   // Task status table
@@ -257,17 +202,17 @@ function buildReport(
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handlePostDelegationCheck(args: PostDelegationCheckArgs): ToolResult {
-  const { stateFile, repoRoot, skipTests = false } = args;
+export async function handlePostDelegationCheck(args: PostDelegationCheckArgs): Promise<ToolResult> {
+  const { stateFile, featureId, eventStore, repoRoot, skipTests = false } = args;
 
-  // Parse state file (checks 1)
-  const parseResult = parseStateFile(stateFile);
-  if ('error' in parseResult) {
-    return parseResult.error;
+  // Resolve state via file or event store fallback
+  const resolveResult = await resolveWorkflowState({ stateFile, featureId, eventStore });
+  if ('error' in resolveResult) {
+    return resolveResult.error;
   }
 
-  const { state } = parseResult;
-  const { tasks } = state;
+  const state = resolveResult.state as unknown as StateFile;
+  const { tasks = [] } = state;
   const checks: CheckResult[] = [];
   const counts: CheckCounts = { pass: 0, fail: 0, skip: 0 };
 
@@ -285,7 +230,7 @@ export function handlePostDelegationCheck(args: PostDelegationCheckArgs): ToolRe
 
   if (tasksExistResult.outcome === 'FAIL') {
     // Cannot proceed without tasks
-    const report = buildReport(stateFile, tasks, checks, counts);
+    const report = buildReport(stateFile ?? featureId ?? 'event-store', tasks, checks, counts);
     return {
       success: true,
       data: { passed: false, report, checks: { ...counts } },
@@ -305,7 +250,7 @@ export function handlePostDelegationCheck(args: PostDelegationCheckArgs): ToolRe
   addCheck(checkStateConsistency(tasks));
 
   const passed = counts.fail === 0;
-  const report = buildReport(stateFile, tasks, checks, counts);
+  const report = buildReport(stateFile ?? featureId ?? 'event-store', tasks, checks, counts);
 
   return {
     success: true,

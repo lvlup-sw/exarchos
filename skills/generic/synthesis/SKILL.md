@@ -128,6 +128,38 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 - **'feedback'** -- Route to `delegate --pr-fixes [PR_URL]` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with `rehydrate`
 
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the `stack.submitted` event:
+
+```
+exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+```
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+```
+exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+```
+
+These events are checked by `check-event-emissions` during workflow validation. Missing emissions will trigger warnings.
+
 ### Post-Merge Cleanup
 
 After PRs merge, invoke cleanup:

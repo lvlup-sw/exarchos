@@ -7,16 +7,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
+  readdirSync: vi.fn(() => []),
 }));
 
 // ─── Mock node:child_process ────────────────────────────────────────────────
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+  execSync: vi.fn(),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
@@ -48,16 +50,17 @@ function setupValidState(stateJson: string): void {
 }
 
 /**
- * Mock execFileSync for checks 6+7 (stack + tests).
- * git/gh calls use encoding:'utf-8' → return string.
- * npm calls have no encoding → return Buffer.
+ * Mock execFileSync for check 6 (stack) + execSync for check 7 (tests).
+ * git/gh calls use execFileSync with encoding:'utf-8' → return string.
+ * Test/typecheck calls use execSync (shell command strings).
  */
 function mockStackAndTests(): void {
   vi.mocked(execFileSync)
     .mockReturnValueOnce('feature-branch\n' as unknown as Buffer)  // git branch --show-current
-    .mockReturnValueOnce('[{"number":1}]' as unknown as Buffer)    // gh pr list
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // npm test:run
-    .mockReturnValueOnce(Buffer.from(''));                           // npm typecheck
+    .mockReturnValueOnce('[{"number":1}]' as unknown as Buffer);   // gh pr list
+  vi.mocked(execSync)
+    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // test command
+    .mockReturnValueOnce(Buffer.from(''));                           // typecheck command
 }
 
 /** Mock execFileSync for stack-only (when tests are skipped). */
@@ -67,11 +70,11 @@ function mockStackOnly(): void {
     .mockReturnValueOnce('[{"number":1}]' as unknown as Buffer);   // gh pr list
 }
 
-/** Mock execFileSync for tests-only (when stack is skipped). */
+/** Mock execSync for tests-only (when stack is skipped). */
 function mockTestsOnly(): void {
-  vi.mocked(execFileSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // npm test:run
-    .mockReturnValueOnce(Buffer.from(''));                           // npm typecheck
+  vi.mocked(execSync)
+    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // test command
+    .mockReturnValueOnce(Buffer.from(''));                           // typecheck command
 }
 
 describe('handlePreSynthesisCheck', () => {
@@ -217,12 +220,8 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('SKIP');
-    // Verify npm commands were NOT called
-    const execFileCalls = vi.mocked(execFileSync).mock.calls;
-    const npmCalls = execFileCalls.filter(
-      (call) => typeof call[0] === 'string' && call[0] === 'npm',
-    );
-    expect(npmCalls).toHaveLength(0);
+    // Verify test commands were NOT called via execSync
+    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
   // ─── Test 8: skipStack=true → skips PR stack check ─────────────────────

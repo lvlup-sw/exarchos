@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
+import { detectTestCommands } from './detect-test-commands.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ export interface PreSynthesisCheckArgs {
   readonly repoRoot?: string;
   readonly skipTests?: boolean;
   readonly skipStack?: boolean;
+  readonly testCommand?: string;
 }
 
 interface CheckCounters {
@@ -390,32 +392,44 @@ function checkTestsPass(
   ctx: CheckContext,
   repoRoot: string,
   skipTests: boolean,
+  testCommand?: string,
 ): void {
   if (skipTests) {
     checkSkip(ctx, 'Tests pass (--skip-tests)');
     return;
   }
 
+  const cmds = detectTestCommands(repoRoot, testCommand);
+
+  if (cmds.test === null) {
+    checkSkip(ctx, 'Tests pass (no test runner detected)');
+    return;
+  }
+
   try {
-    execFileSync('npm', ['run', 'test:run'], {
+    const [testProg, ...testArgs] = cmds.test.split(/\s+/);
+    execFileSync(testProg, testArgs, {
       cwd: repoRoot,
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch {
-    checkFail(ctx, 'Tests pass', 'npm run test:run failed');
+    checkFail(ctx, 'Tests pass', `${cmds.test} failed`);
     return;
   }
 
-  try {
-    execFileSync('npm', ['run', 'typecheck'], {
-      cwd: repoRoot,
-      timeout: 60_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-  } catch {
-    checkFail(ctx, 'Tests pass', 'npm run typecheck failed');
-    return;
+  if (cmds.typecheck !== null) {
+    try {
+      const [tcProg, ...tcArgs] = cmds.typecheck.split(/\s+/);
+      execFileSync(tcProg, tcArgs, {
+        cwd: repoRoot,
+        timeout: 60_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      checkFail(ctx, 'Tests pass', `${cmds.typecheck} failed`);
+      return;
+    }
   }
 
   checkPass(ctx, 'Tests pass');
@@ -424,7 +438,7 @@ function checkTestsPass(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export function handlePreSynthesisCheck(args: PreSynthesisCheckArgs): ToolResult {
-  const { stateFile, repoRoot = '.', skipTests = false, skipStack = false } = args;
+  const { stateFile, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
 
   const ctx: CheckContext = {
     results: [],
@@ -452,7 +466,7 @@ export function handlePreSynthesisCheck(args: PreSynthesisCheckArgs): ToolResult
   checkPrStack(ctx, repoRoot, skipStack);
 
   // Check 7: Tests (independent of state file)
-  checkTestsPass(ctx, repoRoot, skipTests);
+  checkTestsPass(ctx, repoRoot, skipTests, testCommand);
 
   // Build report
   const total = ctx.counters.pass + ctx.counters.fail;

@@ -44,6 +44,8 @@ export interface EventAck {
   readonly streamId: string;
   readonly sequence: number;
   readonly type: string;
+  /** When true, the sequence number is provisional (sidecar write pending merge). */
+  readonly sequencePending?: boolean;
 }
 
 /** Extracts a minimal acknowledgement (streamId, sequence, type) from a full event to reduce response payload size. */

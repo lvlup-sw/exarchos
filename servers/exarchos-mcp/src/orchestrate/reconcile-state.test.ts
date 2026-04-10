@@ -42,7 +42,7 @@ describe('handleReconcileState', () => {
     vi.clearAllMocks();
   });
 
-  it('AllChecksPassing_ReturnsPassed', () => {
+  it('AllChecksPassing_ReturnsPassed', async () => {
     const stateJson = makeState({
       tasks: [
         { id: 'task-1', branch: 'feat/task-1', status: 'complete' },
@@ -55,7 +55,7 @@ describe('handleReconcileState', () => {
     // git rev-parse succeeds for branch
     mockExecFileSync.mockReturnValue(Buffer.from('abc123\n'));
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -67,37 +67,37 @@ describe('handleReconcileState', () => {
     expect(data.checks.pass).toBeGreaterThanOrEqual(5);
   });
 
-  it('StateFileNotFound_ReturnsError', () => {
+  it('StateFileNotFound_ReturnsError', async () => {
     mockExistsSync.mockReturnValue(false);
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/missing.state.json',
       repoRoot: '/tmp/repo',
     });
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('STATE_FILE_NOT_FOUND');
+    expect(result.error?.code).toBe('NO_STATE_SOURCE');
   });
 
-  it('InvalidJsonInStateFile_ReturnsError', () => {
+  it('InvalidJsonInStateFile_ReturnsError', async () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue('not valid json {{{');
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/bad.state.json',
       repoRoot: '/tmp/repo',
     });
 
     expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_JSON');
+    expect(result.error?.code).toBe('NO_STATE_SOURCE');
   });
 
-  it('InvalidPhaseForWorkflowType_ReturnsNotPassed', () => {
+  it('InvalidPhaseForWorkflowType_ReturnsNotPassed', async () => {
     const stateJson = makeState({ phase: 'nonexistent-phase' });
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -109,7 +109,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('nonexistent-phase');
   });
 
-  it('MissingGitBranches_ReturnsNotPassed', () => {
+  it('MissingGitBranches_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       tasks: [
         { id: 'task-1', branch: 'feat/task-1', status: 'complete' },
@@ -126,7 +126,7 @@ describe('handleReconcileState', () => {
         throw new Error('fatal: not a valid ref');
       });
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -137,7 +137,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('feat/task-2');
   });
 
-  it('MissingWorktrees_ReturnsNotPassed', () => {
+  it('MissingWorktrees_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       worktrees: {
         'wt-1': { path: '/tmp/worktree-1', status: 'active' },
@@ -159,7 +159,7 @@ describe('handleReconcileState', () => {
       'worktree /tmp/worktree-1\nHEAD def456\nbranch refs/heads/feat/wt-1\n\n',
     ));
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -170,7 +170,7 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('worktree-2');
   });
 
-  it('InProgressTaskWithoutBranch_ReturnsNotPassed', () => {
+  it('InProgressTaskWithoutBranch_ReturnsNotPassed', async () => {
     const stateJson = makeState({
       tasks: [
         { id: 'task-1', branch: '', status: 'in-progress' },
@@ -180,7 +180,7 @@ describe('handleReconcileState', () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -192,13 +192,13 @@ describe('handleReconcileState', () => {
     expect(data.report).toContain('in-progress');
   });
 
-  it('NoTasks_PassesBranchAndConsistencyChecks', () => {
+  it('NoTasks_PassesBranchAndConsistencyChecks', async () => {
     const stateJson = makeState({ tasks: [] });
 
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });
@@ -209,13 +209,13 @@ describe('handleReconcileState', () => {
     expect(data.checks.fail).toBe(0);
   });
 
-  it('UnknownWorkflowType_FailsPhaseCheckWithError', () => {
+  it('UnknownWorkflowType_FailsPhaseCheckWithError', async () => {
     const stateJson = makeState({ workflowType: 'unknown-type', phase: 'delegate' });
 
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(stateJson);
 
-    const result: ToolResult = handleReconcileState({
+    const result: ToolResult = await handleReconcileState({
       stateFile: '/tmp/test.state.json',
       repoRoot: '/tmp/repo',
     });

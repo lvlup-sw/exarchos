@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
+import type { EventAck } from '../format.js';
 
 let tempDir: string;
 let eventStore: EventStore;
@@ -503,5 +504,92 @@ describe('tenant field passthrough', () => {
     expect(events[0].organizationId).toBe('org-1');
     expect(events[1].tenantId).toBe('tenant-1');
     expect(events[1].organizationId).toBeUndefined();
+  });
+});
+
+// ─── Sidecar Mode: sequence:0 fix (#1062) ──────────────────────────────────
+
+describe('sidecar mode sequencePending', () => {
+  async function createSidecarStore(dir: string): Promise<EventStore> {
+    // Write a PID lock with our own PID to force sidecar mode
+    const lockPath = path.join(dir, '.event-store.lock');
+    await writeFile(lockPath, String(process.pid), 'utf-8');
+    const store = new EventStore(dir);
+    await store.initialize();
+    return store;
+  }
+
+  it('HandleEventAppend_SidecarMode_ReturnsSequencePendingNotZero', async () => {
+    const store = await createSidecarStore(tempDir);
+    expect(store.inSidecarMode).toBe(true);
+
+    const result = await handleEventAppend(
+      {
+        stream: 'sidecar-test',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test-feat', workflowType: 'feature' },
+        },
+      },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const ack = result.data as EventAck;
+    // Must NOT return sequence: 0 (which agents misinterpret as failure)
+    expect(ack.sequence).not.toBe(0);
+    // Should signal that sequence is pending assignment
+    expect(ack.sequencePending).toBe(true);
+    expect(ack.sequence).toBe(-1);
+    expect(ack.type).toBe('workflow.started');
+    expect(ack.streamId).toBe('sidecar-test');
+  });
+
+  it('HandleEventAppend_NormalMode_ReturnsPositiveSequence', async () => {
+    // Normal mode (no sidecar) — sequence must be >= 1
+    const result = await handleEventAppend(
+      {
+        stream: 'normal-test',
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'test-feat', workflowType: 'feature' },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const ack = result.data as EventAck;
+    expect(ack.sequence).toBeGreaterThanOrEqual(1);
+    // sequencePending should NOT be present (or be falsy) in normal mode
+    expect(ack.sequencePending).toBeFalsy();
+  });
+
+  it('HandleBatchAppend_SidecarMode_ReturnsSequencePending', async () => {
+    const store = await createSidecarStore(tempDir);
+    expect(store.inSidecarMode).toBe(true);
+
+    const result = await handleBatchAppend(
+      {
+        stream: 'sidecar-batch',
+        events: [
+          { type: 'task.assigned', data: { taskId: 't1' } },
+          { type: 'task.assigned', data: { taskId: 't2' } },
+        ],
+      },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const acks = result.data as EventAck[];
+    expect(acks).toHaveLength(2);
+    for (const ack of acks) {
+      expect(ack.sequence).not.toBe(0);
+      expect(ack.sequencePending).toBe(true);
+      expect(ack.sequence).toBe(-1);
+    }
   });
 });
