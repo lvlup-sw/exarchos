@@ -4,7 +4,11 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const skillsDir = resolve(__dirname, '../../../../skills');
+// Read from skills-src/ (canonical source) rather than skills/<runtime>/.
+// Runbook references are semantic content invariant across runtimes — they
+// live in the source body and are rendered byte-identically into every
+// runtime variant — so source-of-truth is the right tree to assert against.
+const skillsDir = resolve(__dirname, '../../../../skills-src');
 
 function readSkillFile(relativePath: string): string {
   const fullPath = resolve(skillsDir, relativePath);

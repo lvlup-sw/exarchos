@@ -1,0 +1,6 @@
+name: claude
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: [unbalanced, bracket
+  hasHooks: true
+    mcpPrefix: "broken-indentation

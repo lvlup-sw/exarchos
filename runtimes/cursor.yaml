@@ -1,0 +1,42 @@
+# Cursor CLI runtime map.
+#
+# Cursor CLI (`cursor-agent`, also invoked as `cursor`) has no in-session
+# subagent primitive comparable to Claude's `Task` tool or Codex's
+# `spawn_agent`. Exarchos therefore degrades delegation on Cursor to
+# sequential execution in the current session and emits a single
+# operator-visible warning per batch so the user is never quietly
+# serialised without knowing.
+#
+# Slash commands, hooks, and skill chaining are all marked false because
+# even when Cursor provides command-palette-like UX, exposing them to
+# Exarchos in a runtime-agnostic way would require per-session wiring we
+# do not have. Skills install to `~/.cursor/skills` to match the rest of
+# Cursor's user config tree.
+#
+# Detection tries both `cursor-agent` (the primary binary name documented
+# by Cursor) and `cursor` (the Electron GUI's CLI shim) because either
+# can be the entry point depending on how the user installed.
+#
+# Implements: DR-4, DR-5 (cursor), DR-6, OQ-4
+name: cursor
+capabilities:
+  hasSubagents: false
+  hasSlashCommands: false
+  hasHooks: false
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "~/.cursor/skills"
+detection:
+  binaries:
+    - cursor-agent
+    - cursor
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: ""
+  TASK_TOOL: "[sequential execution]"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: |
+    Cursor CLI has no in-session subagent primitive. Execute each task sequentially
+    in the current session, visiting each worktree in turn. Emit a single warning
+    once per delegation batch so operators know they are not getting parallelism.

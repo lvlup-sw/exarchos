@@ -1,0 +1,70 @@
+# Codex CLI runtime map.
+#
+# ============================================================================
+# Recon findings (2026-04-08, openai/codex @ main)
+# ============================================================================
+#
+# Sources consulted:
+#   1. codex-rs/core/templates/collab/experimental_prompt.md
+#      HTTP 200 — confirms Codex ships a "Multi agents" section in its
+#      experimental prompt describing when to spawn sub-agents, with
+#      references to `close_agent` and `wait_agent` tools.
+#   2. codex-rs/core/src/tools/handlers/multi_agents.rs
+#      Re-exports `SpawnAgentHandler`, `CloseAgentHandler`, `WaitAgentHandler`,
+#      `SendInputHandler`, `ResumeAgentHandler` from the `multi_agents/*.rs`
+#      submodules. Confirms the full v1 tool surface.
+#   3. codex-rs/core/src/tools/handlers/multi_agents/spawn.rs
+#      Declares `struct SpawnAgentArgs` with fields:
+#        - message: Option<String>
+#        - items:   Option<Vec<UserInput>>
+#        - agent_type: Option<String>     (role name; "default" implied)
+#        - model: Option<String>
+#        - reasoning_effort: Option<ReasoningEffort>
+#        - fork_context: bool (default false)
+#   4. codex-rs/tools/src/agent_tool.rs
+#      `create_spawn_agent_tool_v1` / `_v2` both register the OpenAI
+#      function-tool spec with `name: "spawn_agent".to_string()`. The v1
+#      variant has properties `message`, `agent_type`, `fork_context`, plus
+#      optionally model/reasoning_effort when not hidden.
+#
+# Conclusion: Codex's multi-agent delegation is a STANDARD OpenAI-style
+# function call, NOT a natural-language directive. The literal tool name
+# is `spawn_agent` and the minimum viable call is
+# `spawn_agent({ message: "..." })`. We therefore render SPAWN_AGENT_CALL
+# as a JSON-ish function invocation so that the downstream renderer can
+# templatize {{description}} and {{prompt}} consistently with other
+# runtimes (claude, opencode). The `agent_type: "default"` role is
+# explicit because leaving it unset picks up whatever role the CLI
+# considers default, and we want reproducible delegation behavior.
+#
+# Codex also exposes an `mcp__<server>__<tool>` prefix convention for
+# user-configured MCP servers (confirmed via codex-rs mcp tool wiring),
+# matching the OpenAI function-naming standard. When Exarchos is wired in
+# as an MCP server in `~/.codex/config.toml`, tools appear as
+# `mcp__exarchos__<tool>` — same as the generic/bare-MCP case.
+#
+# ============================================================================
+#
+# Implements: DR-4, DR-5 (codex branch), OQ-1
+name: codex
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: true
+  hasHooks: false
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "$HOME/.agents/skills"
+detection:
+  binaries:
+    - codex
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: ""
+  TASK_TOOL: "spawn_agent"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: |
+    spawn_agent({
+      agent_type: "default",
+      message: "{{description}}\n\n{{prompt}}"
+    })

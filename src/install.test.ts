@@ -3,6 +3,8 @@ import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { parseArgs, printHelp } from './install.js';
+import { REQUIRED_RUNTIME_NAMES } from './runtimes/load.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
@@ -1333,5 +1335,54 @@ describe('manifest.json ruleSets', () => {
     const ruleSetIds = manifest.components.ruleSets.map((rs: { id: string }) => rs.id);
     expect(ruleSetIds).toEqual(['safety']);
     expect(manifest.components.ruleSets[0].files).toEqual(['rm-safety.md']);
+  });
+});
+
+/**
+ * CLI-wiring tests for the `install-skills` subcommand (task 022).
+ *
+ * These tests cover the contract between the top-level CLI router
+ * (`src/install.ts`) and the programmatic `installSkills()` function:
+ *
+ *   1. `exarchos install-skills --help` parses without error.
+ *   2. The help text lists every supported runtime name.
+ *   3. `exarchos install-skills --agent <name>` is parsed into the
+ *      correct `ParsedArgs` shape.
+ *
+ * Implements: DR-7, DR-9.
+ */
+describe('exarchos CLI — install-skills subcommand (task 022)', () => {
+  it('ExarchosCli_InstallSkillsCommand_Registered', () => {
+    // Parsing `install-skills --help` should succeed without throwing and
+    // route the request at a new install-skills action.
+    const parsed = parseArgs(['install-skills', '--help']);
+    expect(parsed.action).toBe('install-skills');
+    expect(parsed.help).toBe(true);
+  });
+
+  it('ExarchosCli_InstallSkillsHelp_ListsSupportedAgents', () => {
+    // Capture printHelp output and assert it mentions install-skills plus
+    // every required runtime name.
+    const lines: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg?: unknown) => {
+      lines.push(typeof msg === 'string' ? msg : String(msg));
+    };
+    try {
+      printHelp();
+    } finally {
+      console.log = originalLog;
+    }
+    const help = lines.join('\n');
+    expect(help).toContain('install-skills');
+    for (const name of REQUIRED_RUNTIME_NAMES) {
+      expect(help).toContain(name);
+    }
+  });
+
+  it('ExarchosCli_InstallSkillsFlag_ParsedCorrectly', () => {
+    const parsed = parseArgs(['install-skills', '--agent', 'claude']);
+    expect(parsed.action).toBe('install-skills');
+    expect(parsed.agent).toBe('claude');
   });
 });

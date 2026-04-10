@@ -1,0 +1,38 @@
+# OpenCode CLI runtime map.
+#
+# OpenCode is a Claude-Code-compatible runtime. It exposes a `Task` tool
+# with the same argument shape as Claude (subagent_type + prompt), and
+# slash-command autoloading from the user config dir. It does NOT expose
+# hooks or the skill-chaining `Skill` tool, so `SPAWN_AGENT_CALL` mirrors
+# Claude's shape minus hooks/memory, and `CHAIN` falls back to a prose
+# directive the same way `generic.yaml` does.
+#
+# Skills install globally under `~/.config/opencode/skills/` (per the
+# OpenCode global config convention), unlike Claude which uses
+# `~/.claude/skills/`. OpenCode tools appear under the bare MCP prefix
+# `mcp__exarchos__` because OpenCode does not wrap MCP servers in a plugin
+# namespace.
+#
+# Implements: DR-4, DR-5, OQ-3
+name: opencode
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: true
+  hasHooks: false
+  hasSkillChaining: false
+  mcpPrefix: "mcp__exarchos__"
+skillsInstallPath: "~/.config/opencode/skills"
+detection:
+  binaries:
+    - opencode
+  envVars: []
+placeholders:
+  MCP_PREFIX: "mcp__exarchos__"
+  COMMAND_PREFIX: "/"
+  TASK_TOOL: "Task"
+  CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  SPAWN_AGENT_CALL: |
+    Task({
+      subagent_type: "exarchos-implementer",
+      prompt: "{{prompt}}"
+    })

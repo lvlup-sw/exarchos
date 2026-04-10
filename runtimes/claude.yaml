@@ -1,0 +1,49 @@
+# Claude Code runtime map — the reference target.
+#
+# Claude Code is the runtime Exarchos was originally designed against, so it
+# exercises every capability: subagents (`Task` tool, optionally
+# `run_in_background: true`), slash commands (`/exarchos:foo`), hooks
+# (SessionStart / PreToolUse / PostToolUse / Stop), and skill chaining via
+# the `Skill` tool.
+#
+# Exarchos is distributed as a Claude Code plugin via the lvlup-sw
+# marketplace, and plugin MCP tools are exposed with the namespaced prefix
+# `mcp__plugin_<plugin>_<server>__`. When users instead install Exarchos as
+# a bare MCP server the prefix collapses to `mcp__exarchos__` — that path
+# is covered by `generic.yaml` / `opencode.yaml` / `copilot.yaml` /
+# `cursor.yaml`, not this file.
+#
+# Placeholder contract:
+#   - `SPAWN_AGENT_CALL` uses the `Task` tool with `run_in_background: true`
+#     so the caller may fan out. `{{description}}` and `{{prompt}}` are
+#     rendered by the renderer pass (task 007 / 008 — Lane A).
+#   - `CHAIN` uses the `Skill` tool with `exarchos:{{next}}` as the
+#     invocation target; `{{args}}` is a JSON-encoded args blob.
+#
+# Implements: DR-4, DR-5 (claude branch)
+name: claude
+capabilities:
+  hasSubagents: true
+  hasSlashCommands: true
+  hasHooks: true
+  hasSkillChaining: true
+  mcpPrefix: "mcp__plugin_exarchos_exarchos__"
+skillsInstallPath: "~/.claude/skills"
+detection:
+  binaries:
+    - claude
+  envVars:
+    - CLAUDECODE
+    - CLAUDE_CODE_ENTRYPOINT
+placeholders:
+  MCP_PREFIX: "mcp__plugin_exarchos_exarchos__"
+  COMMAND_PREFIX: "/exarchos:"
+  TASK_TOOL: "Task"
+  CHAIN: 'Skill({ skill: "exarchos:{{next}}", args: "{{args}}" })'
+  SPAWN_AGENT_CALL: |
+    Task({
+      subagent_type: "exarchos-implementer",
+      run_in_background: true,
+      description: "{{description}}",
+      prompt: "{{prompt}}"
+    })

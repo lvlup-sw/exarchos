@@ -52,6 +52,27 @@ npx @lvlup-sw/exarchos mcp
 npx create-exarchos
 ```
 
+### Installing skills for your agent
+
+Exarchos ships its skills as platform-agnostic source. To materialize the
+rendered bundle for a specific agent runtime, use `install-skills`:
+
+```bash
+exarchos install-skills --agent claude
+exarchos install-skills --agent codex
+exarchos install-skills --agent opencode
+exarchos install-skills --agent copilot
+exarchos install-skills --agent cursor
+exarchos install-skills --agent generic
+exarchos install-skills             # auto-detect from PATH + env vars
+```
+
+Auto-detection checks for known agent binaries on your `PATH` and for
+runtime-specific environment variables. If nothing is found, the generic
+bundle is installed and a message explains the fallback. If multiple
+agents are detected, an interactive prompt asks which one to target (or
+you can pass `--agent` explicitly).
+
 <details>
 <summary>Development setup</summary>
 

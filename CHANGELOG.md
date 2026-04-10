@@ -8,6 +8,19 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - HSM topology introspection via `exarchos_workflow describe` with `topology` parameter (#979)
 - Event emission catalog via `exarchos_event describe` with `emissionGuide` parameter (#979)
 - CLI `topology [type]` and `emissions` commands for plugin-free introspection (#979)
+- Cross-runtime skill rendering pipeline: single-source `skills-src/` → 6 runtime variants under `skills/<runtime>/` (Claude Code, Codex, Copilot CLI, Cursor, OpenCode, generic LCD fallback) (#1071)
+- `exarchos install-skills [--agent <runtime>]` CLI with runtime auto-detection from PATH and environment variables (#1071)
+- Cursor sequential-fallback mode for runtimes without an in-session subagent primitive (#1071)
+- Build pipeline: `npm run build:skills` orchestrator with placeholder substitution, reference copying, override detection, and stale-source cleanup (#1071)
+
+### Documentation
+- Placeholder vocabulary reference (`docs/references/placeholder-vocabulary.md`) and runtime notes (`docs/references/runtime-notes.md`) (#1071)
+- Skill authoring guide (`docs/skills-authoring.md`) covering edit workflow, vocabulary, adding runtimes, and CI checks (#1071)
+
+### Tooling
+- `npm run skills:guard` CI check — rebuilds skills in-place and fails on `git diff` to catch drift from forgotten rebuilds or direct edits to generated files (#1071)
+- Per-runtime snapshot tests at `test/migration/snapshots.test.ts` — 78 baselines pinning every generated SKILL.md (#1071)
+- Tier-1 runtime smoke harness at `test/smoke/runtime-smoke.test.ts` — validates per-runtime substitution correctness (Claude unconditional, others gated behind `SMOKE=1`) (#1071)
 
 ## [2.5.0] - 2026-03-09
 
