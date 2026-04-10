@@ -1,3 +1,5 @@
+import { getRequiredReviewsPrerequisite } from './review-contract.js';
+
 // ─── Phase Playbook Types ──────────────────────────────────────────────────
 
 export interface ToolInstruction {
@@ -262,8 +264,7 @@ register({
   ],
   transitionCriteria:
     'All reviews passed → synthesize | Any review failed → delegate',
-  guardPrerequisites:
-    'reviews.spec-review.passed AND reviews.quality-review.passed',
+  guardPrerequisites: getRequiredReviewsPrerequisite('feature'),
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:

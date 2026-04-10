@@ -34,6 +34,7 @@ import { applyPhaseSkips } from './phase-skip.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { getPlaybook } from './playbooks.js';
+import { getRequiredReviews } from './review-contract.js';
 import { formatResult, type ToolResult } from '../format.js';
 import * as fs from 'node:fs/promises';
 import type { EventStore } from '../event-store/store.js';
@@ -467,19 +468,19 @@ export async function handleSet(
     // The allReviewsPassed guard reads _requiredReviews to enforce that
     // specific review dimensions exist (not just that present reviews pass).
     // Explicit config overrides workflow-type defaults.
+    //
+    // Dimension names are owned by `review-contract.ts`, which is the
+    // single source of truth shared with `playbooks.ts`. Do NOT hardcode
+    // names here — changing the contract requires a one-line edit in
+    // `review-contract.ts` so every consumer stays aligned (see #1073).
     if (input.phase) {
       if (options?.requiredReviews?.length) {
         // Explicit config: use as-is
         mutableState._requiredReviews = options.requiredReviews;
       } else {
-        // Workflow-type-aware defaults: feature workflows require both
-        // review stages per the documented two-stage review process
         const workflowType = state.workflowType as string;
-        const defaults: Record<string, readonly string[]> = {
-          feature: ['spec-compliance', 'code-quality'],
-        };
-        const typeDefaults = defaults[workflowType];
-        if (typeDefaults?.length) {
+        const typeDefaults = getRequiredReviews(workflowType);
+        if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;
         }
       }

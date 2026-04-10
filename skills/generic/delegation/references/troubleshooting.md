@@ -60,8 +60,8 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 ```json
 {
   "reviews": {
-    "spec-compliance": { "status": "pass", "issues": [] },
-    "code-quality": { "status": "pass", "issues": [] }
+    "spec-review": { "status": "pass", "issues": [] },
+    "quality-review": { "status": "pass", "issues": [] }
   }
 }
 ```

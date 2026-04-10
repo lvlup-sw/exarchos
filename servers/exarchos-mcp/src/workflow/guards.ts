@@ -80,11 +80,15 @@ const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
 
 /**
  * Extract the review status string from an entry, checking `status` first,
- * then `verdict` as a synonym (see GitHub #1004).
+ * then `verdict` as a synonym (see GitHub #1004). Values are normalized to
+ * lowercase so that uppercase verdicts like `"PASS"` / `"APPROVED"` —
+ * commonly produced by agents copying `check_review_verdict`'s uppercase
+ * discriminated-union return values into state — match the lowercase
+ * PASSED_STATUSES / FAILED_STATUSES sets (see GitHub #1075).
  */
 function extractStatus(entry: Record<string, unknown>): string | undefined {
-  if (typeof entry.status === 'string') return entry.status;
-  if (typeof entry.verdict === 'string') return entry.verdict;
+  if (typeof entry.status === 'string') return entry.status.toLowerCase();
+  if (typeof entry.verdict === 'string') return entry.verdict.toLowerCase();
   return undefined;
 }
 
@@ -214,54 +218,80 @@ export const guards = {
         };
       }
 
-      // Enforce required review dimensions if configured
+      // Accumulate ALL failures rather than short-circuiting on the first
+      // one (see GitHub #1074). An agent hitting multiple contract violations
+      // should see everything wrong in one error message so it can fix
+      // everything in a single retry.
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
+      const reasons: string[] = [];
+      const expectedReviews: Record<string, unknown> = {};
+      const suggestedUpdates: Record<string, unknown> = {};
+
+      // Check 1: required review dimensions present?
       const requiredReviews = state._requiredReviews as readonly string[] | undefined;
+      const missing: string[] = [];
       if (requiredReviews && requiredReviews.length > 0) {
-        const missing = requiredReviews.filter((key) => !reviews[key]);
+        for (const key of requiredReviews) {
+          if (!reviews[key]) missing.push(key);
+        }
         if (missing.length > 0) {
-          const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
-          const expectedUpdates: Record<string, unknown> = {};
+          reasons.push(
+            `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
+          );
           for (const key of missing) {
-            expectedUpdates[`reviews.${key}.status`] = 'pass';
+            expectedReviews[key] = { status: 'pass' };
+            suggestedUpdates[`reviews.${key}.status`] = 'pass';
           }
+        }
+      }
+
+      // Check 2: at least one recognizable review entry exists.
+      const statuses = collectReviewStatuses(reviews);
+      if (statuses.length === 0) {
+        // If no entries AND required dimensions were missing, the "missing
+        // dimensions" message is more actionable. Only surface the
+        // no-entries message when it adds information.
+        if (missing.length === 0) {
           return {
             passed: false,
-            reason: `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
-            expectedShape: {
-              reviews: Object.fromEntries(
-                missing.map((key) => [key, { status: 'pass' }]),
-              ),
-            },
-            suggestedFix: {
-              tool: 'exarchos_workflow',
-              params: {
-                action: 'set',
-                featureId,
-                updates: expectedUpdates,
-              },
-            },
+            reason:
+              'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
+            expectedShape: REVIEW_EXPECTED_SHAPE,
           };
         }
       }
 
-      const statuses = collectReviewStatuses(reviews);
-      if (statuses.length === 0) {
-        return {
-          passed: false,
-          reason:
-            'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
-          expectedShape: REVIEW_EXPECTED_SHAPE,
-        };
-      }
+      // Check 3: every present review entry passes.
       const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
       if (notPassed.length > 0) {
-        return {
-          passed: false,
-          reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
-          expectedShape: buildFailedReviewsExpectedShape(notPassed),
-        };
+        reasons.push(
+          `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+        );
+        const failedShape = buildFailedReviewsExpectedShape(notPassed).reviews as
+          | Record<string, unknown>
+          | undefined;
+        if (failedShape) {
+          for (const [k, v] of Object.entries(failedShape)) {
+            expectedReviews[k] = v;
+          }
+        }
       }
-      return true;
+
+      if (reasons.length === 0) return true;
+
+      return {
+        passed: false,
+        reason: reasons.join(' | '),
+        expectedShape: { reviews: expectedReviews },
+        ...(Object.keys(suggestedUpdates).length > 0
+          ? {
+              suggestedFix: {
+                tool: 'exarchos_workflow',
+                params: { action: 'set', featureId, updates: suggestedUpdates },
+              },
+            }
+          : {}),
+      };
     },
   },
 

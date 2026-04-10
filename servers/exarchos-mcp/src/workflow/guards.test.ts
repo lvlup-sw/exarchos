@@ -487,9 +487,9 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
+        'spec-review': { status: 'pass' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -498,7 +498,7 @@ describe('allReviewsPassed (synthesis ready)', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('Missing required review dimensions');
-    expect(failure.reason).toContain('code-quality');
+    expect(failure.reason).toContain('quality-review');
     expect(failure.expectedShape).toBeDefined();
     expect(failure.suggestedFix).toBeDefined();
   });
@@ -508,10 +508,10 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
-        'code-quality': { status: 'approved' },
+        'spec-review': { status: 'pass' },
+        'quality-review': { status: 'approved' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -523,10 +523,10 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
-        'code-quality': { status: 'fail' },
+        'spec-review': { status: 'pass' },
+        'quality-review': { status: 'fail' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -535,7 +535,7 @@ describe('allReviewsPassed (synthesis ready)', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('Reviews not passed');
-    expect(failure.reason).toContain('code-quality');
+    expect(failure.reason).toContain('quality-review');
   });
 
   it('SynthesisReadyGuard_NoRequiredReviewsConfigured_FallsBackToExistingBehavior', () => {
@@ -550,5 +550,69 @@ describe('allReviewsPassed (synthesis ready)', () => {
 
     const result = guards.allReviewsPassed.evaluate(state);
     expect(result).toBe(true);
+  });
+
+  // ─── Regression: #1075 case-insensitive verdict handling ───────────────
+  // Reviewer agents copy check_review_verdict's uppercase return values
+  // ('APPROVED' | 'NEEDS_FIXES' | 'BLOCKED') directly into state. The guard
+  // must normalize case before set-membership check so uppercase verdicts
+  // don't silently fail.
+  it('SynthesisReadyGuard_UppercaseVerdictPass_Accepts', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { verdict: 'PASS', reviewer: 'exarchos-reviewer' },
+        'quality-review': { verdict: 'APPROVED', reviewer: 'exarchos-reviewer' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_UppercaseStatusApproved_Accepts', () => {
+    // Even when the field is `status` (not `verdict`), uppercase must be accepted.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { status: 'APPROVED' },
+        'quality-review': { status: 'Pass' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
+
+  // ─── Regression: #1074 aggregated failure reporting ────────────────────
+  // When multiple contract violations exist, the guard must report all of
+  // them in a single error message so agents can fix everything in one
+  // retry instead of peeling failures one layer at a time.
+  it('SynthesisReadyGuard_MissingDimensionsAndFailedStatus_AggregatesIntoSingleError', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        // Stray entry from earlier round — legitimately failing
+        'stray-review': { status: 'fail' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    // Both failure modes must appear in the same reason string
+    expect(failure.reason).toContain('Missing required review dimensions');
+    expect(failure.reason).toContain('spec-review');
+    expect(failure.reason).toContain('quality-review');
+    expect(failure.reason).toContain('Reviews not passed');
+    expect(failure.reason).toContain('stray-review');
   });
 });
