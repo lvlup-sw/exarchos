@@ -487,9 +487,9 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
+        'spec-review': { status: 'pass' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -498,7 +498,7 @@ describe('allReviewsPassed (synthesis ready)', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('Missing required review dimensions');
-    expect(failure.reason).toContain('code-quality');
+    expect(failure.reason).toContain('quality-review');
     expect(failure.expectedShape).toBeDefined();
     expect(failure.suggestedFix).toBeDefined();
   });
@@ -508,10 +508,10 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
-        'code-quality': { status: 'approved' },
+        'spec-review': { status: 'pass' },
+        'quality-review': { status: 'approved' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -523,10 +523,10 @@ describe('allReviewsPassed (synthesis ready)', () => {
       featureId: 'test-feature',
       phase: 'review',
       reviews: {
-        'spec-compliance': { status: 'pass' },
-        'code-quality': { status: 'fail' },
+        'spec-review': { status: 'pass' },
+        'quality-review': { status: 'fail' },
       },
-      _requiredReviews: ['spec-compliance', 'code-quality'],
+      _requiredReviews: ['spec-review', 'quality-review'],
     };
 
     const result = guards.allReviewsPassed.evaluate(state);
@@ -535,7 +535,7 @@ describe('allReviewsPassed (synthesis ready)', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('Reviews not passed');
-    expect(failure.reason).toContain('code-quality');
+    expect(failure.reason).toContain('quality-review');
   });
 
   it('SynthesisReadyGuard_NoRequiredReviewsConfigured_FallsBackToExistingBehavior', () => {
@@ -550,5 +550,164 @@ describe('allReviewsPassed (synthesis ready)', () => {
 
     const result = guards.allReviewsPassed.evaluate(state);
     expect(result).toBe(true);
+  });
+
+  // ─── Regression: #1075 case-insensitive verdict handling ───────────────
+  // Reviewer agents copy check_review_verdict's uppercase return values
+  // ('APPROVED' | 'NEEDS_FIXES' | 'BLOCKED') directly into state. The guard
+  // must normalize case before set-membership check so uppercase verdicts
+  // don't silently fail.
+  it('SynthesisReadyGuard_UppercaseVerdictPass_Accepts', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { verdict: 'PASS', reviewer: 'exarchos-reviewer' },
+        'quality-review': { verdict: 'APPROVED', reviewer: 'exarchos-reviewer' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
+
+  it('SynthesisReadyGuard_UppercaseStatusApproved_Accepts', () => {
+    // Even when the field is `status` (not `verdict`), uppercase must be accepted.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { status: 'APPROVED' },
+        'quality-review': { status: 'Pass' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+    expect(result).toBe(true);
+  });
+
+  // ─── Regression: #1074 aggregated failure reporting ────────────────────
+  // When multiple contract violations exist, the guard must report all of
+  // them in a single error message so agents can fix everything in one
+  // retry instead of peeling failures one layer at a time.
+  it('SynthesisReadyGuard_MissingDimensionsAndFailedStatus_AggregatesIntoSingleError', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        // Stray entry from earlier round — legitimately failing
+        'stray-review': { status: 'fail' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    // Both failure modes must appear in the same reason string
+    expect(failure.reason).toContain('Missing required review dimensions');
+    expect(failure.reason).toContain('spec-review');
+    expect(failure.reason).toContain('quality-review');
+    expect(failure.reason).toContain('Reviews not passed');
+    expect(failure.reason).toContain('stray-review');
+  });
+
+  // ─── Regression: empty review object must be treated as missing.
+  // Before the hardening, `!reviews[key]` treated `{}` as present (truthy),
+  // silently satisfying the missing-dimensions check. The guard then
+  // skipped the empty entry in collectReviewStatuses and returned true.
+  // CodeRabbit finding on PR #1076.
+  it('SynthesisReadyGuard_RequiredDimensionPresentButEmptyObject_TreatedAsMissing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': {}, // present key but no status / verdict / passed
+        'quality-review': { status: 'pass' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.reason).toContain('Missing required review dimensions');
+    expect(failure.reason).toContain('spec-review');
+  });
+
+  // ─── Regression: prototype-pollution keys must not satisfy the check.
+  // If a caller passes `_requiredReviews: ['__proto__']` and no actual
+  // reviews are set, the `__proto__` key is inherited on every object
+  // and would previously have tricked `reviews[key]` into returning a
+  // truthy value. Guard must skip UNSAFE_KEYS and treat them as missing.
+  it('SynthesisReadyGuard_RequiredDimensionIsProtoPollution_TreatedAsMissing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { status: 'pass' },
+      },
+      _requiredReviews: ['spec-review', '__proto__'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.reason).toContain('Missing required review dimensions');
+    // __proto__ is an unsafe key — guard must treat it as missing
+    expect(failure.reason).toContain('__proto__');
+
+    // ALSO: the emitted expectedShape and suggestedFix must NOT contain
+    // `__proto__` (or any UNSAFE_KEY) as an own property. Even though
+    // the reason reports the missing dim, an agent blindly applying
+    // suggestedFix.params.updates must not be tricked into assigning
+    // `reviews.__proto__.status = 'pass'` — that's prototype pollution.
+    const reviewsShape = (failure.expectedShape?.reviews ?? {}) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(reviewsShape, '__proto__')).toBe(false);
+
+    const updates = (failure.suggestedFix?.params.updates ?? {}) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(updates, 'reviews.__proto__.status')).toBe(false);
+    for (const key of Object.keys(updates)) {
+      expect(key).not.toContain('__proto__');
+      expect(key).not.toContain('constructor');
+      expect(key).not.toContain('prototype');
+    }
+  });
+
+  // ─── Regression: suggestedFix must cover BOTH missing and failing reviews.
+  // An agent applying the fix should be able to resolve the guard in ONE
+  // retry for mixed states (some missing, some present-but-failing).
+  // CodeRabbit finding on PR #1076.
+  it('SynthesisReadyGuard_MixedFailures_SuggestedFixCoversMissingAndFailing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        // One required dim present but failing
+        'spec-review': { status: 'fail' },
+        // One stray that's also failing (not required, but guard sees it)
+        'stray-review': { status: 'needs_fixes' },
+        // quality-review is missing
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.suggestedFix).toBeDefined();
+    const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
+    // Missing dimension patch
+    expect(updates['reviews.quality-review.status']).toBe('pass');
+    // Failing dimension patches (both required and stray)
+    expect(updates['reviews.spec-review.status']).toBe('pass');
+    expect(updates['reviews.stray-review.status']).toBe('pass');
   });
 });

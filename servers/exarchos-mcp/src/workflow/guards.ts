@@ -80,11 +80,15 @@ const REVIEW_EXPECTED_SHAPE: Record<string, unknown> = {
 
 /**
  * Extract the review status string from an entry, checking `status` first,
- * then `verdict` as a synonym (see GitHub #1004).
+ * then `verdict` as a synonym (see GitHub #1004). Values are normalized to
+ * lowercase so that uppercase verdicts like `"PASS"` / `"APPROVED"` —
+ * commonly produced by agents copying `check_review_verdict`'s uppercase
+ * discriminated-union return values into state — match the lowercase
+ * PASSED_STATUSES / FAILED_STATUSES sets (see GitHub #1075).
  */
 function extractStatus(entry: Record<string, unknown>): string | undefined {
-  if (typeof entry.status === 'string') return entry.status;
-  if (typeof entry.verdict === 'string') return entry.verdict;
+  if (typeof entry.status === 'string') return entry.status.toLowerCase();
+  if (typeof entry.verdict === 'string') return entry.verdict.toLowerCase();
   return undefined;
 }
 
@@ -214,54 +218,126 @@ export const guards = {
         };
       }
 
-      // Enforce required review dimensions if configured
+      // Accumulate ALL failures rather than short-circuiting on the first
+      // one (see GitHub #1074). An agent hitting multiple contract violations
+      // should see everything wrong in one error message so it can fix
+      // everything in a single retry.
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
+      const reasons: string[] = [];
+      const expectedReviews: Record<string, unknown> = {};
+      const suggestedUpdates: Record<string, unknown> = {};
+
+      // Check 1: required review dimensions present AND have a
+      // recognizable status? `!reviews[key]` is not enough — it accepts
+      // `{}` (truthy but no status field) and prototype-inherited keys
+      // like `__proto__`. A present-but-empty entry would then be
+      // skipped by `collectReviewStatuses` and the guard would return
+      // true with nothing actually verified. CodeRabbit finding on #1076.
       const requiredReviews = state._requiredReviews as readonly string[] | undefined;
+      const missing: string[] = [];
       if (requiredReviews && requiredReviews.length > 0) {
-        const missing = requiredReviews.filter((key) => !reviews[key]);
-        if (missing.length > 0) {
-          const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
-          const expectedUpdates: Record<string, unknown> = {};
-          for (const key of missing) {
-            expectedUpdates[`reviews.${key}.status`] = 'pass';
+        for (const key of requiredReviews) {
+          if (UNSAFE_KEYS.has(key)) {
+            // Never trust proto-pollution keys as "present" — they're
+            // inherited on every object.
+            missing.push(key);
+            continue;
           }
+          if (!Object.prototype.hasOwnProperty.call(reviews, key)) {
+            missing.push(key);
+            continue;
+          }
+          const entry = reviews[key];
+          if (typeof entry !== 'object' || entry === null) {
+            missing.push(key);
+            continue;
+          }
+          const entryObj = entry as Record<string, unknown>;
+          // Must carry at least one recognizable shape: status, verdict,
+          // or legacy `passed: boolean`. An empty `{}` is not present.
+          const hasStatus = extractStatus(entryObj) !== undefined;
+          const hasLegacyPassed = typeof entryObj.passed === 'boolean';
+          if (!hasStatus && !hasLegacyPassed) {
+            missing.push(key);
+          }
+        }
+        if (missing.length > 0) {
+          reasons.push(
+            `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
+          );
+          // Populate expectedShape and suggestedFix payloads, but filter
+          // UNSAFE_KEYS out — an agent blindly applying the suggestedFix
+          // must not be tricked into writing `reviews.__proto__.status`
+          // (prototype pollution). The reason string still names the
+          // unsafe key so the caller understands what was rejected.
+          for (const key of missing) {
+            if (UNSAFE_KEYS.has(key)) continue;
+            expectedReviews[key] = { status: 'pass' };
+            suggestedUpdates[`reviews.${key}.status`] = 'pass';
+          }
+        }
+      }
+
+      // Check 2: at least one recognizable review entry exists.
+      const statuses = collectReviewStatuses(reviews);
+      if (statuses.length === 0) {
+        // If no entries AND required dimensions were missing, the "missing
+        // dimensions" message is more actionable. Only surface the
+        // no-entries message when it adds information.
+        if (missing.length === 0) {
           return {
             passed: false,
-            reason: `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
-            expectedShape: {
-              reviews: Object.fromEntries(
-                missing.map((key) => [key, { status: 'pass' }]),
-              ),
-            },
-            suggestedFix: {
-              tool: 'exarchos_workflow',
-              params: {
-                action: 'set',
-                featureId,
-                updates: expectedUpdates,
-              },
-            },
+            reason:
+              'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
+            expectedShape: REVIEW_EXPECTED_SHAPE,
           };
         }
       }
 
-      const statuses = collectReviewStatuses(reviews);
-      if (statuses.length === 0) {
-        return {
-          passed: false,
-          reason:
-            'state.reviews has no recognizable review entries — each review needs a status field ("pass", "approved", "fail", "needs_fixes")',
-          expectedShape: REVIEW_EXPECTED_SHAPE,
-        };
-      }
+      // Check 3: every present review entry passes.
       const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
       if (notPassed.length > 0) {
-        return {
-          passed: false,
-          reason: `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
-          expectedShape: buildFailedReviewsExpectedShape(notPassed),
-        };
+        reasons.push(
+          `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
+        );
+        const failedShape = buildFailedReviewsExpectedShape(notPassed).reviews as
+          | Record<string, unknown>
+          | undefined;
+        if (failedShape) {
+          for (const [k, v] of Object.entries(failedShape)) {
+            expectedReviews[k] = v;
+          }
+        }
+        // Include failing entries in the suggestedFix dot-path patch so
+        // an agent applying the fix can resolve BOTH missing dimensions
+        // AND present-but-failing entries in a single retry (CodeRabbit
+        // finding on PR #1076). `s.path` may be dotted for nested
+        // reviews (e.g., "A1.specReview"), which dot-path assignment
+        // handles correctly downstream. Skip any path whose segments
+        // contain an UNSAFE_KEY for the same prototype-pollution reason
+        // as the missing-dimensions loop above.
+        for (const s of notPassed) {
+          const segments = s.path.split('.');
+          if (segments.some((seg) => UNSAFE_KEYS.has(seg))) continue;
+          suggestedUpdates[`reviews.${s.path}.status`] = 'pass';
+        }
       }
-      return true;
+
+      if (reasons.length === 0) return true;
+
+      return {
+        passed: false,
+        reason: reasons.join(' | '),
+        expectedShape: { reviews: expectedReviews },
+        ...(Object.keys(suggestedUpdates).length > 0
+          ? {
+              suggestedFix: {
+                tool: 'exarchos_workflow',
+                params: { action: 'set', featureId, updates: suggestedUpdates },
+              },
+            }
+          : {}),
+      };
     },
   },
 

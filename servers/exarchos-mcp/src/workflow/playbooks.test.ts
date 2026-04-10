@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getPlaybook, renderPlaybook, serializePlaybooks, listPlaybookWorkflowTypes } from './playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from './playbooks.js';
+import { getRequiredReviews, REQUIRED_REVIEWS_BY_WORKFLOW_TYPE } from './review-contract.js';
 
 // ─── Task 1: Core getPlaybook / renderPlaybook ──────────────────────────────
 
@@ -330,6 +331,50 @@ describe('compactGuidance describe hint', () => {
         `Expected compactGuidance to reference describe or exarchos_event for phase with events`,
       ).toBe(true);
     }
+  });
+});
+
+// ─── Review contract consistency (prevents #1073 drift) ───────────────────
+//
+// The review-state contract is shared between three places that must agree:
+//   1. `review-contract.ts`   → REQUIRED_REVIEWS_BY_WORKFLOW_TYPE (source of truth)
+//   2. `tools.ts`             → _requiredReviews injection (calls getRequiredReviews)
+//   3. `playbooks.ts`         → review-phase guardPrerequisites string
+//
+// PR #1045 drifted these apart by updating (2) without updating (3) or the
+// skill documentation. This suite asserts that every dimension declared in
+// the source of truth appears in the corresponding phase playbook's
+// guardPrerequisites, so any future rename forces a coordinated update.
+
+describe('Review contract consistency across playbooks and tools.ts', () => {
+  it('ReviewContract_EveryWorkflowType_HasMatchingReviewPlaybook', () => {
+    for (const workflowType of Object.keys(REQUIRED_REVIEWS_BY_WORKFLOW_TYPE)) {
+      const playbook = getPlaybook(workflowType, 'review');
+      expect(
+        playbook,
+        `Workflow type "${workflowType}" declares required reviews but has no "review" phase playbook`,
+      ).not.toBeNull();
+    }
+  });
+
+  it('ReviewContract_GuardPrerequisites_MentionsEveryRequiredDimension', () => {
+    for (const workflowType of Object.keys(REQUIRED_REVIEWS_BY_WORKFLOW_TYPE)) {
+      const playbook = getPlaybook(workflowType, 'review')!;
+      const dimensions = getRequiredReviews(workflowType);
+      for (const dim of dimensions) {
+        expect(
+          playbook.guardPrerequisites,
+          `${workflowType}:review guardPrerequisites does not mention required dimension "${dim}" — tools.ts and playbooks.ts have drifted`,
+        ).toContain(dim);
+      }
+    }
+  });
+
+  it('ReviewContract_FeatureWorkflow_UsesSkillFolderNames', () => {
+    // The dimension names MUST match skill folder names under skills-src/
+    // so the skill an agent runs and the state key it writes are identical.
+    // Changing this assertion requires renaming skill folders too.
+    expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
   });
 });
 

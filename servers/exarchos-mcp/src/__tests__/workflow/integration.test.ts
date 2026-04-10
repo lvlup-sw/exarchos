@@ -207,8 +207,8 @@ describe('Integration', () => {
         {
           featureId: 'full-saga',
           updates: {
-            'reviews.spec-compliance': { status: 'pass', reviewer: 'bot' },
-            'reviews.code-quality': { status: 'pass', reviewer: 'bot' },
+            'reviews.spec-review': { status: 'pass', reviewer: 'bot' },
+            'reviews.quality-review': { status: 'pass', reviewer: 'bot' },
           },
         },
         stateDir,
