@@ -23,7 +23,7 @@ Group B:  task-003, task-004  (orchestrate/)
 Group C:  task-005            (cli-commands/gates.ts)
 Group D:  task-006            (skills-src/)
                               ↓
-                         task-004 creates detectTestCommand() used by task-005
+                         task-004 creates detectTestCommands() used by task-005
                          task-005 depends on task-004 for shared utility
 ```
 

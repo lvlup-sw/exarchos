@@ -56,16 +56,28 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
   // ── Fall back to event store materialization ──────────────────────────────
 
   if (opts.featureId && opts.eventStore) {
-    const events = await opts.eventStore.query(opts.featureId);
+    try {
+      const events = await opts.eventStore.query(opts.featureId);
 
-    const projection = workflowStateProjection;
-    let view = projection.init();
+      const projection = workflowStateProjection;
+      let view = projection.init();
 
-    for (const event of events) {
-      view = projection.apply(view, event);
+      for (const event of events) {
+        view = projection.apply(view, event);
+      }
+
+      return { state: view as unknown as Record<string, unknown> };
+    } catch (err) {
+      return {
+        error: {
+          success: false,
+          error: {
+            code: 'EVENT_STORE_ERROR',
+            message: `Failed to materialize state from event store: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        },
+      };
     }
-
-    return { state: view as unknown as Record<string, unknown> };
   }
 
   // ── No source available ───────────────────────────────────────────────────

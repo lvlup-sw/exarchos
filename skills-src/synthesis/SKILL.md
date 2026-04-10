@@ -133,7 +133,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 After PRs are created and auto-merge is enabled, emit the `stack.submitted` event:
 
 ```
-exarchos_event({ action: "append", stream: "<featureId>", event: {
+{{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "stack.submitted",
   data: {
     prUrls: ["https://github.com/org/repo/pull/1", "..."],
@@ -146,7 +146,7 @@ exarchos_event({ action: "append", stream: "<featureId>", event: {
 During shepherd iterations (CI monitoring loop), emit after each assessment:
 
 ```
-exarchos_event({ action: "append", stream: "<featureId>", event: {
+{{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "shepherd.iteration",
   data: {
     prNumber: 42,
