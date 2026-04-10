@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { buildAllSkills } from './build-skills.js';
+import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 
 /**
  * Outcome of a guard run. `ok === true` means the generated tree was
@@ -188,18 +189,11 @@ function getExecErrorStderr(err: unknown): string {
 // -----------------------------------------------------------------------------
 
 /**
- * Injectable side-effecting collaborators for `main()`. Tests override
- * these to capture output and suppress process exit; production wires
- * them to real `process` globals. Mirrors the `MainDeps` shape used by
- * `src/build-skills.ts` so future refactors can extract a shared
- * CLI helper.
+ * Re-export of the shared `MainDeps` shape so a future refactor of
+ * this file's callers does not need to chase a second import line.
+ * Canonical definition lives in `cli-helpers.ts`.
  */
-export interface MainDeps {
-  cwd?: () => string;
-  exit?: (code: number) => never;
-  log?: (msg: string) => void;
-  errLog?: (msg: string) => void;
-}
+export type { MainDeps } from './cli-helpers.js';
 
 /**
  * `npm run skills:guard` entry point. Invokes `runSkillsGuard` against
@@ -207,10 +201,7 @@ export interface MainDeps {
  * result message. Success prints to stdout; failure to stderr.
  */
 export function main(_argv: string[], deps: MainDeps = {}): void {
-  const cwd = deps.cwd ?? (() => process.cwd());
-  const exit = deps.exit ?? ((code: number) => process.exit(code));
-  const log = deps.log ?? ((msg: string) => console.log(msg));
-  const errLog = deps.errLog ?? ((msg: string) => console.error(msg));
+  const { cwd, exit, log, errLog } = resolveMainDeps(deps);
 
   const result = runSkillsGuard({ cwd: cwd() });
 

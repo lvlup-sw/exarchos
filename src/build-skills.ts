@@ -28,6 +28,7 @@ import {
 import { join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import type { RuntimeMap } from './runtimes/types.js';
+import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
@@ -517,16 +518,11 @@ function walkSkillSourceDirs(srcDir: string): string[] {
 // -----------------------------------------------------------------------------
 
 /**
- * Injectable side-effecting collaborators for `main()`. Tests override
- * these to capture output and suppress process exit; production wires
- * them to real `process` globals.
+ * Re-export of the shared `MainDeps` shape so existing callers that
+ * imported it from this module continue to work. The canonical
+ * definition lives in `cli-helpers.ts`.
  */
-export interface MainDeps {
-  cwd?: () => string;
-  exit?: (code: number) => never;
-  log?: (msg: string) => void;
-  errLog?: (msg: string) => void;
-}
+export type { MainDeps } from './cli-helpers.js';
 
 /**
  * `npm run build:skills` entry point. Resolves default paths relative
@@ -543,10 +539,7 @@ export interface MainDeps {
  * @param deps - Optional injected side-effecting collaborators.
  */
 export function main(_argv: string[], deps: MainDeps = {}): void {
-  const cwd = deps.cwd ?? (() => process.cwd());
-  const exit = deps.exit ?? ((code: number) => process.exit(code));
-  const log = deps.log ?? ((msg: string) => console.log(msg));
-  const errLog = deps.errLog ?? ((msg: string) => console.error(msg));
+  const { cwd, exit, log, errLog } = resolveMainDeps(deps);
 
   const root = cwd();
   const srcDir = join(root, 'skills-src');
