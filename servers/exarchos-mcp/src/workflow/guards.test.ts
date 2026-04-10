@@ -662,6 +662,22 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('Missing required review dimensions');
     // __proto__ is an unsafe key — guard must treat it as missing
     expect(failure.reason).toContain('__proto__');
+
+    // ALSO: the emitted expectedShape and suggestedFix must NOT contain
+    // `__proto__` (or any UNSAFE_KEY) as an own property. Even though
+    // the reason reports the missing dim, an agent blindly applying
+    // suggestedFix.params.updates must not be tricked into assigning
+    // `reviews.__proto__.status = 'pass'` — that's prototype pollution.
+    const reviewsShape = (failure.expectedShape?.reviews ?? {}) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(reviewsShape, '__proto__')).toBe(false);
+
+    const updates = (failure.suggestedFix?.params.updates ?? {}) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(updates, 'reviews.__proto__.status')).toBe(false);
+    for (const key of Object.keys(updates)) {
+      expect(key).not.toContain('__proto__');
+      expect(key).not.toContain('constructor');
+      expect(key).not.toContain('prototype');
+    }
   });
 
   // ─── Regression: suggestedFix must cover BOTH missing and failing reviews.

@@ -159,7 +159,7 @@ Converge on **one** canonical contract across engine, playbook, and skills; make
 
 ### Risks
 
-- **Skill renames are visible to agents running mid-workflow.** Any in-flight workflow that wrote `reviews["spec-review"]` state based on old skill guidance will have stale-named entries after the change. Mitigation: guard remains permissive (reads any entry name, but `_requiredReviews` is enforced), so stale entries don't block; they're just inert. Fresh workflows will use the new names. Document the transition in CHANGELOG.
+- **Stale review entries from in-flight workflows.** Any workflow that was mid-review before this PR may have `reviews.spec` / `reviews.quality` (or other off-name) entries from the old contract. `allReviewsPassed` still scans *every* entry in `state.reviews` via `collectReviewStatuses`, so a **stale entry with a passing status is inert** (no effect on the guard), but a **stale entry with a failing status (`fail`/`needs_fixes`) will block the transition** even though it is not one of the `_requiredReviews` dimensions. Cleanup for any in-flight workflow hitting this: use `exarchos_workflow set` to patch the stale entry to `status: "pass"` or remove it from state. Fresh workflows started after this PR will use the new names and are not affected.
 - **Case-insensitive normalization has a theoretical attack surface** — if a downstream consumer reads status and distinguishes `"pass"` from `"PASS"`. Grep confirms no such consumer exists (the guard is the only place reading `reviews.*.status`). Safe.
 - **Skills renderer drift** — after editing `skills-src/*`, must run `npm run build:skills` and commit the regenerated `skills/<runtime>/**`. `skills:guard` CI will fail the PR otherwise.
 

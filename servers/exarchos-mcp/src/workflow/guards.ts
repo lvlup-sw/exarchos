@@ -265,7 +265,13 @@ export const guards = {
           reasons.push(
             `Missing required review dimensions: ${missing.join(', ')}. Run the review skills for these dimensions before transitioning.`,
           );
+          // Populate expectedShape and suggestedFix payloads, but filter
+          // UNSAFE_KEYS out — an agent blindly applying the suggestedFix
+          // must not be tricked into writing `reviews.__proto__.status`
+          // (prototype pollution). The reason string still names the
+          // unsafe key so the caller understands what was rejected.
           for (const key of missing) {
+            if (UNSAFE_KEYS.has(key)) continue;
             expectedReviews[key] = { status: 'pass' };
             suggestedUpdates[`reviews.${key}.status`] = 'pass';
           }
@@ -307,8 +313,12 @@ export const guards = {
         // AND present-but-failing entries in a single retry (CodeRabbit
         // finding on PR #1076). `s.path` may be dotted for nested
         // reviews (e.g., "A1.specReview"), which dot-path assignment
-        // handles correctly downstream.
+        // handles correctly downstream. Skip any path whose segments
+        // contain an UNSAFE_KEY for the same prototype-pollution reason
+        // as the missing-dimensions loop above.
         for (const s of notPassed) {
+          const segments = s.path.split('.');
+          if (segments.some((seg) => UNSAFE_KEYS.has(seg))) continue;
           suggestedUpdates[`reviews.${s.path}.status`] = 'pass';
         }
       }
