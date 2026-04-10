@@ -399,7 +399,13 @@ function checkTestsPass(
     return;
   }
 
-  const cmds = detectTestCommands(repoRoot, testCommand);
+  let cmds: import('./detect-test-commands.js').TestCommands;
+  try {
+    cmds = detectTestCommands(repoRoot, testCommand);
+  } catch (err) {
+    checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
+    return;
+  }
 
   if (cmds.test === null) {
     checkSkip(ctx, 'Tests pass (no test runner detected)');

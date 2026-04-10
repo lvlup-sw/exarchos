@@ -14,8 +14,8 @@ export interface TestCommands {
   typecheck: string | null;
 }
 
-/** Allowlist pattern for test command overrides: alphanumeric, dashes, underscores, colons, dots, spaces only. */
-const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\-\s:.]+$/;
+/** Allowlist pattern for test command overrides. Rejects shell metacharacters (;|&$`(){}!<>). */
+const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\-\s:.=\/+,@"'\\]+$/;
 
 export function detectTestCommands(repoRoot: string, override?: string): TestCommands {
   if (override) {
