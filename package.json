@@ -28,6 +28,7 @@
     "build": "tsc && bun run build:bundle && npm run build:skills",
     "build:bundle": "bun run scripts/build-bundle.ts",
     "build:skills": "node dist/build-skills.js",
+    "skills:guard": "node dist/skills-guard.js",
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",

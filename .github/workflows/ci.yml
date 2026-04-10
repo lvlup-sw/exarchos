@@ -28,6 +28,9 @@ jobs:
           filters: |
             root:
               - 'src/**'
+              - 'skills-src/**'
+              - 'skills/**'
+              - 'runtimes/**'
               - 'package.json'
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
@@ -60,6 +63,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:run
+      # skills:guard — rebuild the generated skills tree in-place and
+      # fail if `git diff skills/` is non-empty. Prevents drift from
+      # direct edits to generated files and from forgotten rebuilds
+      # after a skills-src/ change. Depends on `dist/skills-guard.js`
+      # produced by the earlier `npm ci` (`prepare` → `tsc`).
+      - run: npm run skills:guard
 
   test-mcp:
     name: Exarchos MCP Server
