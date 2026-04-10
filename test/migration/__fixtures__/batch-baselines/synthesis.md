@@ -132,7 +132,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 
 After PRs are created and auto-merge is enabled, emit the `stack.submitted` event:
 
-```
+```typescript
 mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "stack.submitted",
   data: {
@@ -144,7 +144,7 @@ mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<feat
 
 During shepherd iterations (CI monitoring loop), emit after each assessment:
 
-```
+```typescript
 mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "shepherd.iteration",
   data: {
