@@ -750,6 +750,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -862,6 +878,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -1920,6 +1959,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -2729,6 +2770,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -2903,6 +2946,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`/exarchos:cleanup\`
 - **'feedback'** -- Route to \`/exarchos:delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`/exarchos:rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
@@ -3924,6 +3999,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -4034,6 +4125,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -5092,6 +5206,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -5901,6 +6017,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -6075,6 +6193,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`cleanup\`
 - **'feedback'** -- Route to \`delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
@@ -7092,6 +7242,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -7198,6 +7364,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -8256,6 +8445,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -9065,6 +9256,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -9239,6 +9432,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`/cleanup\`
 - **'feedback'** -- Route to \`/delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`/rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
@@ -10259,6 +10484,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -10368,6 +10609,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -11426,6 +11690,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -12235,6 +12501,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -12409,6 +12677,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`cleanup\`
 - **'feedback'** -- Route to \`delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
@@ -13426,6 +13726,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -13532,6 +13848,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -14590,6 +14929,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -15399,6 +15740,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -15573,6 +15916,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`cleanup\`
 - **'feedback'** -- Route to \`delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
@@ -16594,6 +16969,22 @@ When using \`--mode agent-team\`, follow the 6-step saga in \`references/agent-t
 
 Event emission contract for agent teams: see \`references/agent-teams-saga.md\` for full payload shapes and compensation protocol.
 
+### Event Emission Contract (REQUIRED)
+
+The delegate phase requires these events (checked by \`check-event-emissions\`):
+
+| Event | When | Emitted By |
+|-------|------|------------|
+| \`team.spawned\` | After team creation, before dispatch | Orchestrator |
+| \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
+| \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
+| \`task.progressed\` | After each TDD phase (red/green/refactor) | Subagent |
+| \`team.disbanded\` | After all subagents complete | Orchestrator |
+
+See \`references/agent-teams-saga.md\` for full event schemas and emission order.
+
+> **Note:** \`task.progressed\` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+
 ---
 
 ## Step 3: Monitor and Collect
@@ -16704,6 +17095,29 @@ If context compaction occurs during delegation:
 2. Check active worktrees: \`ls .worktrees/\` and verify branch state
 3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
 4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+
+### Worktree State Schema
+
+Worktree entries are stored as \`worktrees["<wt-id>"]\` in workflow state. Each entry requires:
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| \`branch\` | string | Yes | Git branch name |
+| \`taskId\` | string | Conditional | Single task ID (use for 1-task worktrees) |
+| \`tasks\` | string[] | Conditional | Multiple task IDs (use for multi-task worktrees) |
+| \`status\` | \`"active"\` \\| \`"merged"\` \\| \`"removed"\` | Yes | Worktree lifecycle status |
+
+Either \`taskId\` or \`tasks\` (non-empty array) is required — at least one must be present.
+
+**Single-task example:**
+\`\`\`json
+{ "branch": "feat/task-001", "taskId": "task-001", "status": "active" }
+\`\`\`
+
+**Multi-task example:**
+\`\`\`json
+{ "branch": "feat/integration", "tasks": ["task-001", "task-002"], "status": "active" }
+\`\`\`
 
 ---
 
@@ -17762,6 +18176,8 @@ If an issue spans multiple tasks:
 
 ## State Management
 
+> **Key format:** The review key MUST be kebab-case \`reviews["quality-review"]\`, not camelCase \`reviews.qualityReview\`. The guard matches on the exact key string.
+
 **On review complete:**
 \`\`\`text
 action: "set", featureId: "<id>", updates: {
@@ -18571,6 +18987,8 @@ Before invoking quality-review:
 1. Verify \`reviews["spec-review"].status === "pass"\` in workflow state (all tasks passed)
 2. If not: "Spec review did not pass, cannot proceed to quality review"
 
+> **Guard shape:** The \`all-reviews-passed\` guard requires \`reviews["spec-review"]\` to be an object with a \`status\` field set to a passing value (\`pass\`, \`passed\`, \`approved\`, \`fixes-applied\`). Flat strings like \`reviews: { "spec-review": "pass" }\` are silently ignored and will block the \`review → synthesize\` transition.
+
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
@@ -18745,6 +19163,38 @@ For merge ordering strategy, see \`references/merge-ordering.md\`.
 - **'yes'** -- PRs merge; transition to completed via \`/cleanup\`
 - **'feedback'** -- Route to \`/delegate --pr-fixes [PR_URL]\` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with \`/rehydrate\`
+
+### Event Emissions (REQUIRED)
+
+After PRs are created and auto-merge is enabled, emit the \`stack.submitted\` event:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "stack.submitted",
+  data: {
+    prUrls: ["https://github.com/org/repo/pull/1", "..."],
+    mergeOrder: ["task-001-branch", "task-002-branch"],
+    baseBranch: "main"
+  }
+}})
+\`\`\`
+
+During shepherd iterations (CI monitoring loop), emit after each assessment:
+
+\`\`\`
+mcp__exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
+  type: "shepherd.iteration",
+  data: {
+    prNumber: 42,
+    ciStatus: "passing",
+    reviewState: "approved",
+    iterationNumber: 1,
+    action: "none"
+  }
+}})
+\`\`\`
+
+These events are checked by \`check-event-emissions\` during workflow validation. Missing emissions will trigger warnings.
 
 ### Post-Merge Cleanup
 
