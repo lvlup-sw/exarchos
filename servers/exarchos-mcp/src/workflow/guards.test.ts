@@ -615,4 +615,35 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('Reviews not passed');
     expect(failure.reason).toContain('stray-review');
   });
+
+  // ─── Regression: suggestedFix must cover BOTH missing and failing reviews.
+  // An agent applying the fix should be able to resolve the guard in ONE
+  // retry for mixed states (some missing, some present-but-failing).
+  // CodeRabbit finding on PR #1076.
+  it('SynthesisReadyGuard_MixedFailures_SuggestedFixCoversMissingAndFailing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        // One required dim present but failing
+        'spec-review': { status: 'fail' },
+        // One stray that's also failing (not required, but guard sees it)
+        'stray-review': { status: 'needs_fixes' },
+        // quality-review is missing
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.suggestedFix).toBeDefined();
+    const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
+    // Missing dimension patch
+    expect(updates['reviews.quality-review.status']).toBe('pass');
+    // Failing dimension patches (both required and stray)
+    expect(updates['reviews.spec-review.status']).toBe('pass');
+    expect(updates['reviews.stray-review.status']).toBe('pass');
+  });
 });

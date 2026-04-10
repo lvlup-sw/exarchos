@@ -8,6 +8,7 @@ import {
   handleSet,
   configureWorkflowMaterializer,
 } from './tools.js';
+import { getRequiredReviews } from './review-contract.js';
 
 describe('handleGet playbook field', () => {
   let tmpDir: string;
@@ -122,5 +123,102 @@ describe('handleGet playbook field', () => {
     expect(playbook).not.toBeNull();
     expect((playbook as Record<string, unknown>).phase).toBe('triage');
     expect((playbook as Record<string, unknown>).skill).toBe('debug');
+  });
+});
+
+// ─── Review contract wiring (behavioral — exercises tools.ts path) ─────────
+//
+// These tests exercise the full handleSet → guard path rather than reading
+// the review-contract module directly. `_requiredReviews` is a transient
+// guard-evaluation field and is deleted from state after the guard runs
+// (tools.ts, `delete mutableState._requiredReviews`), so the only
+// observable effect of the contract wiring is whether the guard accepts or
+// rejects the review → synthesize transition.
+//
+// If a future regression replaces the `getRequiredReviews(workflowType)`
+// call in tools.ts with an inline hardcoded list — say, the old
+// `spec-compliance`/`code-quality` — these tests fail because the guard
+// will reject a state that contains `spec-review`/`quality-review`.
+// Addresses CodeRabbit nitpick on PR #1076.
+
+describe('review-contract wiring through handleSet', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'review-contract-wiring-'));
+  });
+
+  afterEach(async () => {
+    configureWorkflowMaterializer(null);
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Seed a feature workflow directly at the `review` phase with the
+   * given reviews map. Bypasses the full state machine walk (ideate →
+   * plan → … → review) which isn't what these tests care about — we're
+   * testing the `review → synthesize` injection of `_requiredReviews`
+   * from `review-contract.ts`. Keeps `tasks: []` so `all-tasks-complete`
+   * (if ever composed into this transition) is trivially satisfied.
+   */
+  async function seedFeatureAtReview(
+    featureId: string,
+    reviews: Record<string, unknown>,
+  ): Promise<void> {
+    // Init through handleInit so schema bootstrap (version, timestamps,
+    // _events arrays, etc.) is handled correctly.
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, null);
+
+    // Patch phase + reviews directly on disk. Preserves the init-written
+    // schema-compliant shape for every other field.
+    const stateFile = path.join(tmpDir, `${featureId}.state.json`);
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf8')) as Record<string, unknown>;
+    raw.phase = 'review';
+    raw.reviews = reviews;
+    raw.updatedAt = new Date().toISOString();
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2));
+  }
+
+  it('HandleSet_FeatureReviewToSynthesize_CanonicalDimensions_AdvancesPastGuard', async () => {
+    // Arrange: seed review phase with canonical contract dimension names.
+    await seedFeatureAtReview('contract-wiring-canonical', {
+      'spec-review': { status: 'pass' },
+      'quality-review': { status: 'pass' },
+    });
+
+    // Act: attempt review → synthesize. tools.ts MUST inject
+    // _requiredReviews from getRequiredReviews('feature') for the guard
+    // to pass. If a future regression hardcodes a different list the
+    // guard will reject with "Missing required review dimensions".
+    const result = await handleSet(
+      { featureId: 'contract-wiring-canonical', phase: 'synthesize' },
+      tmpDir, null,
+    );
+
+    expect(result.success).toBe(true);
+    // Sanity check that the contract still returns the names this test
+    // wrote — any rename forces a rename here too.
+    expect(getRequiredReviews('feature')).toEqual(['spec-review', 'quality-review']);
+  });
+
+  it('HandleSet_FeatureReviewToSynthesize_ExplicitEmptyRequiredReviews_OverridesDefaults', async () => {
+    // Arrange: seed review phase with ONLY an arbitrary review entry —
+    // no canonical contract dimensions. Under default config the guard
+    // rejects (spec-review + quality-review missing), but with the
+    // explicit empty override no dimensions are required.
+    await seedFeatureAtReview('contract-wiring-empty-override', {
+      arbitrary: { status: 'pass' },
+    });
+
+    // Act: transition with explicit empty override. Prior to the fix,
+    // `options.requiredReviews?.length` treated `[]` as "not provided"
+    // and fell back to workflow defaults, silently ignoring the caller.
+    const result = await handleSet(
+      { featureId: 'contract-wiring-empty-override', phase: 'synthesize' },
+      tmpDir, null,
+      { requiredReviews: [] },
+    );
+
+    expect(result.success).toBe(true);
   });
 });

@@ -187,14 +187,14 @@ Converge on **one** canonical contract across engine, playbook, and skills; make
 | Issues filed | 2026-04-10 05:28-05:29Z | #1073, #1074, #1075 |
 | Triage (this debug workflow) | 2026-04-10 | Thorough track, bundled all three |
 | Investigated | 2026-04-10 | RCA written (this doc) |
-| Fixed | TBD | PR link pending |
-| Verified | TBD | Re-run review→synthesize transition against test workflow |
+| Fixed | 2026-04-10 | PR [#1076](https://github.com/lvlup-sw/exarchos/pull/1076) — initial commit `f50389aa` (engine + playbook + guard + tests + skill doc cleanup); CodeRabbit-addressed follow-up adds behavioral tests, explicit-empty `requiredReviews` override, and extends `suggestedFix` to cover present-but-failing reviews. |
+| Verified | 2026-04-10 | Regression tests added in `guards.test.ts` (uppercase verdict accepted, mixed missing+failing aggregation asserts full `suggestedFix`), `tools.playbook.test.ts` (tools-facing contract wiring through `handleSet`, explicit empty override honored), and `playbooks.test.ts` (cross-file consistency between `review-contract.ts`, `tools.ts`, and `playbooks.ts`). All 4822 MCP server tests green. |
 
 ## Related
 
 - Issues: [#1073](https://github.com/lvlup-sw/exarchos/issues/1073), [#1074](https://github.com/lvlup-sw/exarchos/issues/1074), [#1075](https://github.com/lvlup-sw/exarchos/issues/1075)
 - Originating commit: `5f4f726b` (PR #1045)
 - Earlier related hardening: #1004 (added `verdict` as `status` synonym — the case-insensitivity miss here is the sister bug that #1004 should have fixed)
-- Design note on intended contract (not matched by current engine): `docs/designs/2026-04-09-stabilization-sweep.md:78` — claims the engine accepts `reviews.spec-review` / `reviews.quality-review`; reality in `tools.ts:479` is `spec-compliance` / `code-quality`
+- Design note on intended contract: `docs/designs/2026-04-09-stabilization-sweep.md:78` — stated the engine should accept `reviews.spec-review` / `reviews.quality-review`. This PR restores that intent after PR #1045's unilateral rename broke it.
 - Repro state (read-only): `~/.claude/workflow-state/strategos-2-4-0-migration.{state.json,events.jsonl}`
 - Workflow ID for this debug: `debug-review-guard-contract`

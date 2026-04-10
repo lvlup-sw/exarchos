@@ -469,13 +469,18 @@ export async function handleSet(
     // specific review dimensions exist (not just that present reviews pass).
     // Explicit config overrides workflow-type defaults.
     //
+    // Presence check — NOT length — so an explicit empty array disables
+    // required reviews for this transition. Treating `[]` as "not
+    // provided" would silently fall back to defaults, contradicting the
+    // caller's intent (CodeRabbit finding on PR #1076).
+    //
     // Dimension names are owned by `review-contract.ts`, which is the
     // single source of truth shared with `playbooks.ts`. Do NOT hardcode
     // names here — changing the contract requires a one-line edit in
     // `review-contract.ts` so every consumer stays aligned (see #1073).
     if (input.phase) {
-      if (options?.requiredReviews?.length) {
-        // Explicit config: use as-is
+      if (options?.requiredReviews !== undefined) {
+        // Explicit config (including explicit empty): use as-is
         mutableState._requiredReviews = options.requiredReviews;
       } else {
         const workflowType = state.workflowType as string;

@@ -275,6 +275,15 @@ export const guards = {
             expectedReviews[k] = v;
           }
         }
+        // Include failing entries in the suggestedFix dot-path patch so
+        // an agent applying the fix can resolve BOTH missing dimensions
+        // AND present-but-failing entries in a single retry (CodeRabbit
+        // finding on PR #1076). `s.path` may be dotted for nested
+        // reviews (e.g., "A1.specReview"), which dot-path assignment
+        // handles correctly downstream.
+        for (const s of notPassed) {
+          suggestedUpdates[`reviews.${s.path}.status`] = 'pass';
+        }
       }
 
       if (reasons.length === 0) return true;
