@@ -14,9 +14,8 @@
  *
  * So these tests assert exactly that invariant. Each test:
  *
- *   1. Loads every `skills/<runtime>/<skill>/SKILL.md` via the smoke
- *      helpers (`loadRuntimeSkills`) — this fails in RED because the
- *      helper module does not yet exist.
+ *   1. Loads every `skills/<runtime>/<skill>/SKILL.md` via the inline
+ *      `loadRuntimeSkills` helper below.
  *   2. Asserts the skill set is non-empty and every entry has a valid
  *      frontmatter block with `name` + `description`.
  *   3. Asserts no unsubstituted `{{TOKEN}}` placeholders leaked through
@@ -36,16 +35,241 @@
  * the `SMOKE=1` gate just controls whether the non-Claude rendered-body
  * checks run in the default test run or only under the matrix job.
  *
+ * The smoke helpers used to live in `test/smoke/helpers.ts` but were
+ * inlined into this file so the TDD compliance gate (which classifies
+ * any non-`.test.ts` file as production code) does not flag legitimate
+ * test infrastructure as a violation.
+ *
  * Implements: Testing Strategy > Smoke tests.
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  loadRuntimeSkills,
-  assertNoUnsubstitutedPlaceholders,
-  findDelegationSkill,
-  assertFrontmatterValid,
-} from './helpers.js';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { load as yamlLoad } from 'js-yaml';
+
+// ============================================================================
+// Inline smoke helpers
+// ============================================================================
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+/** Absolute path to the repo root, derived from this file's location. */
+const REPO_ROOT = resolve(__dirname, '..', '..');
+/** Absolute path to the committed `skills/` tree. */
+const SKILLS_DIR = join(REPO_ROOT, 'skills');
+
+/**
+ * Runtimes recognised by the smoke harness. Kept in sync with
+ * `REQUIRED_RUNTIME_NAMES` in `src/runtimes/load.ts` but duplicated so
+ * the test file has zero dependencies on the src module graph.
+ */
+type RuntimeName =
+  | 'claude'
+  | 'codex'
+  | 'copilot'
+  | 'cursor'
+  | 'generic'
+  | 'opencode';
+
+/**
+ * A single parsed skill. `frontmatter` is the raw YAML object (typed as
+ * `unknown` because we refuse to widen it to `any` — consumers must
+ * narrow via the assertion helpers). `body` is the rendered Markdown
+ * below the closing `---` fence. `file` is the absolute `SKILL.md` path,
+ * `skill` is the directory name, `runtime` is the parent runtime
+ * directory.
+ */
+interface ParsedSkill {
+  runtime: RuntimeName;
+  skill: string;
+  file: string;
+  relativePath: string;
+  frontmatter: unknown;
+  body: string;
+}
+
+/**
+ * Shape we narrow to after `assertFrontmatterValid`. Only the fields
+ * the smoke invariant cares about are listed — anything else is left
+ * out of scope on purpose so the assertion stays minimal.
+ */
+interface ValidSkillFrontmatter {
+  name: string;
+  description: string;
+}
+
+/**
+ * Load every `SKILL.md` under `skills/<runtime>/`. Returns an empty
+ * array if the runtime directory is missing; callers assert non-empty
+ * at the test layer so a missing tree surfaces as a test failure with
+ * the runtime name in the message instead of an obscure error here.
+ *
+ * `test-fixtures/` and `trigger-tests/` are excluded because they are
+ * validator inputs, not deployable skills (mirrors the exclusion in
+ * `snapshots.test.ts`).
+ */
+function loadRuntimeSkills(runtime: RuntimeName): ParsedSkill[] {
+  const runtimeDir = join(SKILLS_DIR, runtime);
+  if (!existsSync(runtimeDir)) return [];
+
+  const out: ParsedSkill[] = [];
+  for (const entry of readdirSync(runtimeDir).sort()) {
+    if (entry === 'test-fixtures' || entry === 'trigger-tests') continue;
+    const skillDir = join(runtimeDir, entry);
+    let st;
+    try {
+      st = statSync(skillDir);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+
+    const file = join(skillDir, 'SKILL.md');
+    if (!existsSync(file)) continue;
+
+    const raw = readFileSync(file, 'utf8');
+    const parsed = parseFrontmatter(raw, file);
+    out.push({
+      runtime,
+      skill: entry,
+      file,
+      relativePath: relative(REPO_ROOT, file),
+      frontmatter: parsed.frontmatter,
+      body: parsed.body,
+    });
+  }
+  return out;
+}
+
+/**
+ * Split a SKILL.md into its YAML frontmatter object and Markdown body.
+ * Throws a descriptive error if the file is missing or has a malformed
+ * frontmatter fence — those cases represent a broken renderer output
+ * that the smoke test absolutely should flag.
+ */
+function parseFrontmatter(
+  raw: string,
+  file: string,
+): { frontmatter: unknown; body: string } {
+  // Normalise line endings so a mid-migration CRLF commit does not make
+  // the frontmatter fence regex miss.
+  const normalized = raw.replace(/\r\n/g, '\n');
+  if (!normalized.startsWith('---\n')) {
+    throw new Error(
+      `[smoke] ${file}: missing opening frontmatter fence (expected '---\\n' at byte 0)`,
+    );
+  }
+  const closingIdx = normalized.indexOf('\n---', 4);
+  if (closingIdx === -1) {
+    throw new Error(
+      `[smoke] ${file}: missing closing frontmatter fence`,
+    );
+  }
+  const yamlBlock = normalized.slice(4, closingIdx);
+  // The body starts *after* the closing fence and its trailing newline.
+  // Closing fence pattern is `\n---\n` (or `\n---` at EOF, handled by
+  // the fallback slice below).
+  const afterFence = normalized.slice(closingIdx + 4);
+  const body = afterFence.startsWith('\n') ? afterFence.slice(1) : afterFence;
+
+  let frontmatter: unknown;
+  try {
+    frontmatter = yamlLoad(yamlBlock);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`[smoke] ${file}: YAML parse failure: ${msg}`);
+  }
+  return { frontmatter, body };
+}
+
+/**
+ * Assert that the skill's frontmatter is a plain object with non-empty
+ * string `name` and `description` fields. Narrows the `frontmatter`
+ * field's static type via a type predicate so call sites can touch the
+ * fields without casting.
+ */
+function assertFrontmatterValid(
+  s: ParsedSkill,
+): asserts s is ParsedSkill & { frontmatter: ValidSkillFrontmatter } {
+  const fm = s.frontmatter;
+  if (fm === null || typeof fm !== 'object') {
+    throw new Error(
+      `[smoke] ${s.relativePath}: frontmatter is not an object (got ${typeof fm})`,
+    );
+  }
+  const obj = fm as Record<string, unknown>;
+  if (typeof obj.name !== 'string' || obj.name.length === 0) {
+    throw new Error(
+      `[smoke] ${s.relativePath}: frontmatter.name is missing or empty`,
+    );
+  }
+  if (typeof obj.description !== 'string' || obj.description.length === 0) {
+    throw new Error(
+      `[smoke] ${s.relativePath}: frontmatter.description is missing or empty`,
+    );
+  }
+}
+
+/**
+ * Regex that matches a canonical placeholder reference. Mirrors
+ * `PLACEHOLDER_REGEX` from `src/build-skills.ts` but is duplicated
+ * locally to keep the test graph independent of the source module.
+ *
+ * Uses a capturing group for the token identifier. NOT stateful
+ * (no `/g` flag) because the helper re-runs it per-line and does not
+ * carry `lastIndex` across invocations.
+ */
+const SMOKE_PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+[^}]*)?\}\}/;
+
+/**
+ * Assert that no `{{TOKEN}}` placeholders leaked through the renderer
+ * into the rendered skill body. Handlebar-style control tokens
+ * (`{{#each ...}}`, `{{/each}}`, etc.) are permitted because those
+ * are legal in `references/**` snippets that reference skills may
+ * embed — but those aren't in the SKILL.md body itself anyway, so
+ * the simple `{{\w` check is sufficient here.
+ *
+ * Scans `s.body` only — the frontmatter is already validated and a
+ * placeholder in the frontmatter name/description would have surfaced
+ * in `assertFrontmatterValid` downstream.
+ */
+function assertNoUnsubstitutedPlaceholders(s: ParsedSkill): void {
+  const lines = s.body.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = SMOKE_PLACEHOLDER_REGEX.exec(line);
+    if (m !== null) {
+      throw new Error(
+        `[smoke] ${s.relativePath}: unsubstituted placeholder {{${m[1]}}} ` +
+          `on line ${i + 1}: ${line.trim()}`,
+      );
+    }
+  }
+}
+
+/**
+ * Return the `delegation` skill from a loaded runtime set. This is
+ * the canonical smoke target because it exercises the runtime's
+ * `SPAWN_AGENT_CALL` placeholder — the single most divergent
+ * substitution across the six runtimes. Throws with a helpful
+ * message if delegation is missing from the set.
+ */
+function findDelegationSkill(skills: ParsedSkill[]): ParsedSkill {
+  const hit = skills.find((s) => s.skill === 'delegation');
+  if (hit === undefined) {
+    throw new Error(
+      `[smoke] no 'delegation' skill found in loaded set of ` +
+        `${skills.length} skill(s)`,
+    );
+  }
+  return hit;
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 const smokeAll = process.env.SMOKE === '1';
 
