@@ -616,6 +616,54 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(failure.reason).toContain('stray-review');
   });
 
+  // ─── Regression: empty review object must be treated as missing.
+  // Before the hardening, `!reviews[key]` treated `{}` as present (truthy),
+  // silently satisfying the missing-dimensions check. The guard then
+  // skipped the empty entry in collectReviewStatuses and returned true.
+  // CodeRabbit finding on PR #1076.
+  it('SynthesisReadyGuard_RequiredDimensionPresentButEmptyObject_TreatedAsMissing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': {}, // present key but no status / verdict / passed
+        'quality-review': { status: 'pass' },
+      },
+      _requiredReviews: ['spec-review', 'quality-review'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.reason).toContain('Missing required review dimensions');
+    expect(failure.reason).toContain('spec-review');
+  });
+
+  // ─── Regression: prototype-pollution keys must not satisfy the check.
+  // If a caller passes `_requiredReviews: ['__proto__']` and no actual
+  // reviews are set, the `__proto__` key is inherited on every object
+  // and would previously have tricked `reviews[key]` into returning a
+  // truthy value. Guard must skip UNSAFE_KEYS and treat them as missing.
+  it('SynthesisReadyGuard_RequiredDimensionIsProtoPollution_TreatedAsMissing', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      phase: 'review',
+      reviews: {
+        'spec-review': { status: 'pass' },
+      },
+      _requiredReviews: ['spec-review', '__proto__'],
+    };
+
+    const result = guards.allReviewsPassed.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.reason).toContain('Missing required review dimensions');
+    // __proto__ is an unsafe key — guard must treat it as missing
+    expect(failure.reason).toContain('__proto__');
+  });
+
   // ─── Regression: suggestedFix must cover BOTH missing and failing reviews.
   // An agent applying the fix should be able to resolve the guard in ONE
   // retry for mixed states (some missing, some present-but-failing).

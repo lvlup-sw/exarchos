@@ -147,7 +147,7 @@ Converge on **one** canonical contract across engine, playbook, and skills; make
 | `servers/exarchos-mcp/src/workflow/tools.ts:479` | Change `feature: ['spec-compliance', 'code-quality']` → `feature: ['spec-review', 'quality-review']`. Revert PR #1045's unilateral rename. | #1073 (engine side) |
 | `servers/exarchos-mcp/src/workflow/guards.ts:85-89` | In `extractStatus`, normalize to lowercase before returning (single point; both `status` and `verdict` paths). | #1075 mechanism |
 | `servers/exarchos-mcp/src/workflow/guards.ts:203-266` | Refactor `allReviewsPassed.evaluate` to accumulate all failures (missing dimensions + failing statuses) into a single `GuardFailure.reason` and `expectedShape`. Do not early-return on the first mismatch. | #1074 |
-| `servers/exarchos-mcp/src/workflow/playbooks.ts:265-266` | Update `guardPrerequisites` to describe the real contract: `reviews.spec-review.status AND reviews.quality-review.status (pass|approved|passed|fixes-applied)`. | #1073 (playbook side) |
+| `servers/exarchos-mcp/src/workflow/playbooks.ts:265-266` | Update `guardPrerequisites` to describe the real contract: `reviews.spec-review.status` AND `reviews.quality-review.status` must be one of `pass`, `approved`, `passed`, `fixes-applied`. | #1073 (playbook side) |
 | `servers/exarchos-mcp/src/workflow/guards.test.ts:490+` | Update fixtures from `spec-compliance`/`code-quality` → `spec-review`/`quality-review` to match new engine contract. | contract alignment |
 | `servers/exarchos-mcp/src/workflow/guards.test.ts` (new) | Add test: reviewer writes `verdict: "PASS"` (uppercase) → guard accepts. | #1075 regression |
 | `servers/exarchos-mcp/src/workflow/guards.test.ts` (new) | Add test: guard reports missing-dimensions AND not-passed failures in the same error when both are present. | #1074 regression |
@@ -165,18 +165,18 @@ Converge on **one** canonical contract across engine, playbook, and skills; make
 
 ## Prevention
 
-### Immediate Actions
+### Shipped in this PR (#1076)
 
-- [ ] Add the cross-file consistency test described above so any future change to `_requiredReviews` in `tools.ts` forces a corresponding update in `playbooks.ts`.
-- [ ] Update the PR template or PR review checklist: any change to review-phase dimension names must touch engine + playbook + skills in one PR.
-- [ ] Add to `skills-src/_shared/references/coding-standards.md` (or equivalent): the review-state contract is defined by `guards.ts` canonical values; skill docs must match verbatim.
+- [x] **Single source of truth for review contract.** `servers/exarchos-mcp/src/workflow/review-contract.ts` now owns `REQUIRED_REVIEWS_BY_WORKFLOW_TYPE`. Consumed by `tools.ts` (runtime injection) and `playbooks.ts` (doc generation). Skill folder names under `skills-src/` are the authoritative identifiers — `tools.ts` would drift from the contract only if a regression reintroduced hardcoded dimension names.
+- [x] **Playbook docs generated from code, not hand-written strings.** `playbooks.ts:267` now calls `getRequiredReviewsPrerequisite('feature')` instead of a hand-written string. Any future rename propagates automatically.
+- [x] **Cross-file consistency test.** `playbooks.test.ts` asserts every dimension declared in `REQUIRED_REVIEWS_BY_WORKFLOW_TYPE` appears in the corresponding `review` phase's `guardPrerequisites` string, and that feature-workflow names match skill folder names. `tools.playbook.test.ts` adds behavioral tests that exercise `handleSet` → guard so a regression hardcoding names inside `tools.ts` (bypassing `review-contract.ts`) is caught end-to-end.
+- [x] **Guard hardening.** `extractStatus` normalizes case (uppercase verdicts from `check_review_verdict` now pass); `allReviewsPassed.evaluate` aggregates failures into one error with a merged `suggestedFix` covering both missing and present-but-failing reviews; required-review membership check uses `hasOwnProperty` + status-extractability + `UNSAFE_KEYS` filter so empty `{}` and proto-pollution keys are treated as missing.
 
-### Long-term Improvements
+### Follow-up (deferred)
 
-- [ ] **Single source of truth for review contract.** Extract dimension names into a shared constant module (e.g., `servers/exarchos-mcp/src/workflow/review-contract.ts`) consumed by `guards.ts`, `tools.ts`, `playbooks.ts`, and exported for documentation generation. Skill docs become generated from the same source.
-- [ ] **Playbook docs generated from code, not hand-written strings.** `guardPrerequisites` in `playbooks.ts` is a free-form string that can silently drift from the guard it describes. Generate it from guard metadata at build time.
-- [ ] **Guard diagnostic mode** — when a guard fails, emit a `workflow.guard-failed` event that *includes the rejection reason and expectedShape*, not just the guard name. The current event (see repro: 4 rejections with no reason field) is too thin to debug.
-- [ ] **`check_review_verdict` should either return lowercase values or provide a state-translator helper** so agents don't paste uppercase literals into state writes.
+- [ ] **Guard diagnostic events.** When a guard fails, the `workflow.guard-failed` event should include the rejection reason and `expectedShape`, not just the guard name. The strategos repro shows 4 rejections with no reason field, which made debugging harder than necessary.
+- [ ] **PR template checklist nudge.** Add to the PR template: "Any change to review-phase dimension names must update `review-contract.ts` (not `tools.ts` directly)." Structural enforcement via the consistency tests is primary; the nudge is defense-in-depth.
+- [ ] **Lowercase values for `check_review_verdict`?** Decided **no** in this PR — the guard-side normalization is the correct boundary and `check_review_verdict`'s uppercase discriminated union is idiomatic TypeScript. Revisit only if a new call site reveals a need.
 
 ## Timeline
 

@@ -227,12 +227,39 @@ export const guards = {
       const expectedReviews: Record<string, unknown> = {};
       const suggestedUpdates: Record<string, unknown> = {};
 
-      // Check 1: required review dimensions present?
+      // Check 1: required review dimensions present AND have a
+      // recognizable status? `!reviews[key]` is not enough — it accepts
+      // `{}` (truthy but no status field) and prototype-inherited keys
+      // like `__proto__`. A present-but-empty entry would then be
+      // skipped by `collectReviewStatuses` and the guard would return
+      // true with nothing actually verified. CodeRabbit finding on #1076.
       const requiredReviews = state._requiredReviews as readonly string[] | undefined;
       const missing: string[] = [];
       if (requiredReviews && requiredReviews.length > 0) {
         for (const key of requiredReviews) {
-          if (!reviews[key]) missing.push(key);
+          if (UNSAFE_KEYS.has(key)) {
+            // Never trust proto-pollution keys as "present" — they're
+            // inherited on every object.
+            missing.push(key);
+            continue;
+          }
+          if (!Object.prototype.hasOwnProperty.call(reviews, key)) {
+            missing.push(key);
+            continue;
+          }
+          const entry = reviews[key];
+          if (typeof entry !== 'object' || entry === null) {
+            missing.push(key);
+            continue;
+          }
+          const entryObj = entry as Record<string, unknown>;
+          // Must carry at least one recognizable shape: status, verdict,
+          // or legacy `passed: boolean`. An empty `{}` is not present.
+          const hasStatus = extractStatus(entryObj) !== undefined;
+          const hasLegacyPassed = typeof entryObj.passed === 'boolean';
+          if (!hasStatus && !hasLegacyPassed) {
+            missing.push(key);
+          }
         }
         if (missing.length > 0) {
           reasons.push(
