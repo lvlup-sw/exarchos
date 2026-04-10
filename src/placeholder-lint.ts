@@ -30,17 +30,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-
-/**
- * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
- * tokens. Capture group 1 is the token identifier.
- *
- * Intentionally mirrors the regex used by `src/build-skills.ts`'s
- * renderer so the lint sees exactly the same tokens the renderer
- * would substitute. Task 024 REFACTOR will consolidate these into a
- * single exported constant to remove the duplication.
- */
-const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
+import { PLACEHOLDER_REGEX } from './build-skills.js';
 
 /**
  * Canonical vocabulary of placeholder tokens that `skills-src/` sources

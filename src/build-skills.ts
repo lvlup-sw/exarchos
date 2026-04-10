@@ -40,8 +40,18 @@ import { lintPlaceholders } from './placeholder-lint.js';
  * The token identifier is `\w+` so `{{FOO_BAR}}`, `{{CHAIN}}`, `{{abc123}}`
  * all match. The arg body is `[^}]*` — it intentionally forbids `}` so that
  * a stray `}}` cannot land inside an arg string and confuse the matcher.
+ *
+ * Exported so `src/placeholder-lint.ts` can use the exact same pattern
+ * the renderer uses — the lint must see precisely the tokens the
+ * renderer would otherwise substitute, and duplicating the regex in
+ * two files would let them drift.
+ *
+ * WARNING: this is a stateful `/g` instance. Callers MUST either use a
+ * local `.matchAll()` iterator or reset `lastIndex = 0` before and
+ * after an `.exec()` loop so state does not leak into later call
+ * sites.
  */
-const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
+export const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
 
 /**
  * Diagnostic context for `render()` / `assertNoUnresolvedPlaceholders()`.
