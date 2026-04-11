@@ -196,6 +196,11 @@ export async function handleList(
     phase: entry.state.phase,
     stateFile: entry.stateFile,
     stale: isStale(entry.state._checkpoint),
+    // Expose `_checkpoint` so downstream consumers (e.g. prune-stale-workflows
+    // `extractListEntries`) can read `lastActivityTimestamp` directly. Before
+    // this field was added the prune handler saw every non-terminal workflow
+    // as maximally stale because the fallback was `new Date(0)`.
+    _checkpoint: entry.state._checkpoint,
   }));
 
   return {

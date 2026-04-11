@@ -243,7 +243,16 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
   };
 }
 
-/** Narrow `handleList`'s opaque payload to the entry shape this module needs. */
+/**
+ * Narrow `handleList`'s opaque payload to the entry shape this module needs.
+ *
+ * `handleList` in `workflow/tools.ts` exposes `_checkpoint` on each entry so
+ * we can read `lastActivityTimestamp` directly. Earlier revisions omitted
+ * `_checkpoint`, which made every non-terminal workflow fall through to the
+ * epoch fallback and appear maximally stale — the freshness filter became a
+ * no-op. The fallback below is now only a last-resort guard for legacy or
+ * malformed entries; see the T15 integration test for an end-to-end gate.
+ */
 function extractListEntries(result: ToolResult): WorkflowListEntry[] {
   if (!result.success || !Array.isArray(result.data)) return [];
   const entries: WorkflowListEntry[] = [];

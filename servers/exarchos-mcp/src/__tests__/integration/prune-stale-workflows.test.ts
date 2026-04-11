@@ -109,26 +109,21 @@ function daysAgoIso(days: number): string {
 }
 
 /**
- * NOTE — handler bug surfaced by this integration test:
+ * NOTE — handler bug fixed by this integration test:
  *
- * `handleList` (in `workflow/tools.ts`) does NOT return the `_checkpoint`
- * field in its output payload — only `featureId`, `workflowType`, `phase`,
- * `stateFile`, `stale`. The `prune-stale-workflows` handler then passes
- * that payload to `extractListEntries`, which tries to read
- * `obj._checkpoint.lastActivityTimestamp` and falls back to `new Date(0)`
- * (the epoch) on miss. Net effect: in production, the handler treats
- * EVERY non-terminal workflow as maximally stale. The freshness filter
- * is effectively disabled.
+ * `handleList` in `workflow/tools.ts` now includes `_checkpoint` on each
+ * entry so that `extractListEntries` in the prune handler can read
+ * `lastActivityTimestamp` directly. Before the fix, `_checkpoint` was
+ * stripped and `extractListEntries` fell back to `new Date(0)` (the
+ * epoch), which made every non-terminal workflow look maximally stale and
+ * silently disabled the freshness filter in production.
  *
- * This test therefore exercises the *terminal-phase* exclusion as the
- * true "exclude a non-candidate" path, rather than the freshness path,
- * until the bug is fixed. The unit tests in
- * `orchestrate/prune-stale-workflows.test.ts` cover the pure selector's
- * freshness logic with synthetic entry arrays, so the algorithm is still
- * tested — just not the full `handleList → extract → select` wiring
- * for freshness.
- *
- * Reported in the T15 return message; fix is out of scope for this task.
+ * The `pruneIntegration_respectsThresholdInProduction` test below pins
+ * that wiring: it uses real `handleInit` + real `handleList` (no stubs)
+ * and backdates only one workflow, then asserts only the backdated
+ * workflow is pruned. If `handleList` ever stops returning `_checkpoint`
+ * the fresh workflows would re-collapse to the epoch and this test would
+ * start pruning them too — regression protection for T15.
  */
 
 beforeEach(async () => {
@@ -316,4 +311,73 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
     });
     expect(skippedEvents).toEqual([]);
   });
+});
+
+// ─── Test 3: Production threshold filter — the regression the bug note warned
+// about. Uses real `handleList` with NO stubs of its own; backdates ONE of
+// three initialized workflows and asserts only that one is pruned. If
+// `handleList` regresses to dropping `_checkpoint`, the two "fresh" workflows
+// would fall through to the epoch and get pruned, making this test fail
+// loudly. That's the exact bug this ticket fixes.
+describe('pruneIntegration_respectsThresholdInProduction', () => {
+  it(
+    'handlePruneStaleWorkflows_respectsThresholdInProduction_readingRealStateFiles',
+    async () => {
+      // Arrange: three newly-initialized workflows. Only the third is
+      // backdated past the 7-day default threshold.
+      for (const featureId of ['fresh-a', 'fresh-b', 'stale-c']) {
+        const initResult = await handleInit(
+          { featureId, workflowType: 'feature' },
+          tmpDir,
+          eventStore,
+        );
+        expect(initResult.success).toBe(true);
+      }
+      await backdateCheckpoint(tmpDir, 'stale-c', daysAgoIso(30));
+
+      // Stubbed safeguards — we want the selection filter to be the only gate.
+      const safeguards: PruneSafeguards = {
+        hasOpenPR: async () => false,
+        hasRecentCommits: async () => false,
+      };
+      const deps = makeRealDeps(tmpDir, eventStore, safeguards);
+
+      // Act: apply mode with default threshold (10080 min = 7 days).
+      const applyResult = await handlePruneStaleWorkflows(
+        { dryRun: false, force: true },
+        tmpDir,
+        ctx,
+        deps,
+      );
+
+      // Assert: only stale-c was pruned. fresh-a/fresh-b must remain
+      // non-terminal on disk. This assertion fails against the pre-fix
+      // code because `handleList` dropped `_checkpoint`, making ALL three
+      // workflows appear stale (epoch fallback) and thus all three would
+      // be pruned.
+      expect(applyResult.success).toBe(true);
+      const applyData = applyResult.data as PruneHandlerResult;
+      const prunedIds = applyData.pruned.map((p) => p.featureId).sort();
+      expect(prunedIds).toEqual(['stale-c']);
+
+      expect(await readPhase(tmpDir, 'stale-c')).toBe('cancelled');
+      for (const featureId of ['fresh-a', 'fresh-b']) {
+        const phase = await readPhase(tmpDir, featureId);
+        expect(phase).not.toBe('cancelled');
+        expect(phase).not.toBe('completed');
+      }
+
+      // And only stale-c's stream has a workflow.pruned event.
+      const staleEvents = await eventStore.query('stale-c', {
+        type: 'workflow.pruned',
+      });
+      expect(staleEvents.length).toBe(1);
+      for (const featureId of ['fresh-a', 'fresh-b']) {
+        const events = await eventStore.query(featureId, {
+          type: 'workflow.pruned',
+        });
+        expect(events).toEqual([]);
+      }
+    },
+  );
 });
