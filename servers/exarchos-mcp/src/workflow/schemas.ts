@@ -196,7 +196,7 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
 // ─── Workflow Type ──────────────────────────────────────────────────────────
 
-const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
+const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor', 'oneshot'] as const;
 const customWorkflowTypes = new Set<string>();
 
 export const WorkflowTypeSchema = z.string().refine(
@@ -283,6 +283,15 @@ export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   phase: RefactorPhaseSchema,
 });
 
+export const OneshotWorkflowStateSchema = BaseWorkflowStateSchema.extend({
+  workflowType: z.literal('oneshot'),
+  phase: z.string(),
+  oneshot: z.object({
+    synthesisPolicy: z.enum(['always', 'never', 'on-request']).default('on-request'),
+    planSummary: z.string().optional(),
+  }).optional(),
+});
+
 // ─── Custom Workflow State Schema ───────────────────────────────────────────
 
 export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
@@ -299,6 +308,7 @@ export const WorkflowStateSchema = z.union([
   FeatureWorkflowStateSchema,
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
+  OneshotWorkflowStateSchema,
   CustomWorkflowStateSchema,
 ]);
 
