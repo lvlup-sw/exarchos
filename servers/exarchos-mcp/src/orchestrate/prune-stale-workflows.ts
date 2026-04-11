@@ -1,12 +1,29 @@
 /**
- * Pure selection logic for stale-workflow pruning (T7).
+ * Stale-workflow pruning.
  *
- * This file intentionally contains no IO: no FS reads, no event store,
- * no `git`/`gh` shell-outs, no `Date.now()` at module scope. Tests inject
- * a `now` Date for deterministic staleness computation. The orchestrate
- * handler (`handlePruneStaleWorkflows`, added later in T3) will live in
- * the same file and compose this function with real IO.
+ * Two layers in this module:
+ *
+ * 1. `selectPruneCandidates` (T7) — a pure function. No IO, no clock,
+ *    no shell-outs. Takes an entry list and returns candidates + exclusions.
+ *    Tests inject a deterministic `now`.
+ *
+ * 2. `handlePruneStaleWorkflows` (T3) — the orchestrate handler that
+ *    composes the pure selector with real IO: `handleList`, `handleCancel`,
+ *    a `ctx.eventStore` for emitting `workflow.pruned`, and the safeguard
+ *    backends in `prune-safeguards.ts`. All IO seams are wrapped in a
+ *    `PruneHandlerDeps` bundle that defaults to production implementations,
+ *    so tests can pass stubs instead of shelling out to `gh`/`git`.
  */
+
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import type { EventType } from '../event-store/schemas.js';
+import { handleList } from '../workflow/tools.js';
+import { handleCancel } from '../workflow/cancel.js';
+import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
+export type { PruneSafeguards } from './prune-safeguards.js';
 
 // Terminal phases are redeclared locally (rather than imported from
 // views/tools.ts where they live inside a handler scope). Values must
@@ -132,4 +149,249 @@ export function selectPruneCandidates(
   }
 
   return { candidates, excluded };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Handler (T3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Window used when asking `hasRecentCommits`. The design locks this at 24h
+// for v1; expose it as a constant so tests can see the contract even though
+// the value isn't configurable through the public handler args yet.
+const RECENT_COMMITS_WINDOW_HOURS = 24;
+
+/**
+ * Input args accepted by the handler. All fields optional with safe defaults:
+ *   thresholdMinutes → 10080 (7 days)
+ *   dryRun           → true   (refuses to mutate unless explicitly disabled)
+ *   force            → false  (bypass safeguards)
+ *   includeOneShot   → true
+ *   now              → current time (injectable as ISO string for tests)
+ */
+export interface PruneHandlerArgs {
+  thresholdMinutes?: number;
+  dryRun?: boolean;
+  force?: boolean;
+  includeOneShot?: boolean;
+  /** Test-only override for the selection clock. */
+  now?: string;
+}
+
+/**
+ * Injectable IO seams. Production wiring is `productionDeps(stateDir, ctx)`.
+ * Tests construct their own instance and pass it as the 4th handler arg.
+ */
+export interface PruneHandlerDeps {
+  handleList: (stateDir: string) => Promise<ToolResult>;
+  handleCancel: (
+    args: { featureId: string; reason?: string },
+    stateDir: string,
+  ) => Promise<ToolResult>;
+  /** Reads the top-level branchName from a workflow state file. */
+  readBranchName: (featureId: string, stateDir: string) => Promise<string | undefined>;
+  safeguards: PruneSafeguards;
+}
+
+export interface PruneSkipped {
+  featureId: string;
+  reason: 'open-pr' | 'recent-commits' | 'cancel-failed';
+  message?: string;
+}
+
+export interface PrunePruned {
+  featureId: string;
+  stalenessMinutes: number;
+  skippedSafeguards?: string[];
+}
+
+export interface PruneHandlerResult {
+  candidates: PruneCandidate[];
+  skipped: PruneSkipped[];
+  pruned: PrunePruned[];
+}
+
+/** Default branch-name reader: reads the state JSON and returns a top-level
+ *  `branchName` field if present. Workflows without one get `undefined`,
+ *  which short-circuits both safeguards in the handler. */
+async function defaultReadBranchName(
+  featureId: string,
+  stateDir: string,
+): Promise<string | undefined> {
+  try {
+    const stateFile = path.join(stateDir, `${featureId}.state.json`);
+    const raw = await fs.readFile(stateFile, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const branchName = parsed.branchName;
+    return typeof branchName === 'string' && branchName.length > 0 ? branchName : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Production dep bundle — real `handleList`/`handleCancel` + default safeguards. */
+function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
+  return {
+    handleList: (stateDir) => handleList({}, stateDir),
+    handleCancel: (args, stateDir) =>
+      handleCancel(
+        { featureId: args.featureId, reason: args.reason ?? 'stale-prune' },
+        stateDir,
+        _ctx?.eventStore ?? null,
+      ),
+    readBranchName: defaultReadBranchName,
+    safeguards: defaultSafeguards(),
+  };
+}
+
+/** Narrow `handleList`'s opaque payload to the entry shape this module needs. */
+function extractListEntries(result: ToolResult): WorkflowListEntry[] {
+  if (!result.success || !Array.isArray(result.data)) return [];
+  const entries: WorkflowListEntry[] = [];
+  for (const raw of result.data) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const obj = raw as Record<string, unknown>;
+    const checkpoint = obj._checkpoint as { lastActivityTimestamp?: unknown } | undefined;
+    const lastActivityTimestamp =
+      typeof checkpoint?.lastActivityTimestamp === 'string'
+        ? checkpoint.lastActivityTimestamp
+        : new Date(0).toISOString();
+    entries.push({
+      featureId: String(obj.featureId ?? ''),
+      workflowType: String(obj.workflowType ?? 'feature'),
+      phase: String(obj.phase ?? 'unknown'),
+      stateFile: String(obj.stateFile ?? ''),
+      _checkpoint: { lastActivityTimestamp },
+    });
+  }
+  return entries;
+}
+
+/**
+ * Orchestrate-action handler for `prune_stale_workflows`.
+ *
+ * Pipeline:
+ *   1. `handleList` → flatten entries
+ *   2. `selectPruneCandidates` (pure) → candidates
+ *   3. If dryRun → return candidates + empty pruned
+ *   4. Otherwise, for each candidate:
+ *      a. Read branchName from state (undefined skips safeguards)
+ *      b. Unless `force`, evaluate `hasOpenPR` → `hasRecentCommits` in order
+ *      c. On approval, invoke `handleCancel`
+ *      d. On successful cancel, emit `workflow.pruned` via `ctx.eventStore`
+ *   5. Return `{ candidates, skipped, pruned }`
+ *
+ * Deps are injected (4th arg) for testability; production callers omit it
+ * and get `productionDeps(ctx)` with real `handleList`, `handleCancel`, and
+ * `gh`/`git`-backed safeguards.
+ */
+export async function handlePruneStaleWorkflows(
+  args: PruneHandlerArgs,
+  stateDir: string,
+  ctx?: DispatchContext,
+  deps: PruneHandlerDeps = productionDeps(ctx),
+): Promise<ToolResult> {
+  const thresholdMinutes = args.thresholdMinutes;
+  const includeOneShot = args.includeOneShot;
+  const dryRun = args.dryRun ?? true;
+  const force = args.force ?? false;
+  const now = args.now ? new Date(args.now) : new Date();
+
+  // 1. Fetch the full workflow list.
+  const listResult = await deps.handleList(stateDir);
+  if (!listResult.success) {
+    return {
+      success: false,
+      error: {
+        code: 'PRUNE_LIST_FAILED',
+        message: listResult.error?.message ?? 'handleList failed',
+      },
+    };
+  }
+  const entries = extractListEntries(listResult);
+
+  // 2. Pure selection.
+  const { candidates } = selectPruneCandidates(
+    entries,
+    {
+      ...(thresholdMinutes !== undefined ? { thresholdMinutes } : {}),
+      ...(includeOneShot !== undefined ? { includeOneShot } : {}),
+    },
+    now,
+  );
+
+  // 3. Dry run short-circuit.
+  if (dryRun) {
+    const result: PruneHandlerResult = { candidates, skipped: [], pruned: [] };
+    return { success: true, data: result };
+  }
+
+  // 4. Apply mode: safeguard loop → cancel loop → event emission.
+  const skipped: PruneSkipped[] = [];
+  const pruned: PrunePruned[] = [];
+  const allSkippedSafeguards = ['open-pr', 'recent-commits'] as const;
+
+  for (const candidate of candidates) {
+    const branchName = await deps.readBranchName(candidate.featureId, stateDir);
+
+    // Safeguard evaluation. `force` bypasses them entirely but records the
+    // marker list on the emitted event for audit. A missing branchName also
+    // short-circuits both checks (nothing to look up).
+    if (!force && branchName !== undefined) {
+      if (await deps.safeguards.hasOpenPR(candidate.featureId, branchName)) {
+        skipped.push({ featureId: candidate.featureId, reason: 'open-pr' });
+        continue;
+      }
+      if (await deps.safeguards.hasRecentCommits(branchName, RECENT_COMMITS_WINDOW_HOURS)) {
+        skipped.push({ featureId: candidate.featureId, reason: 'recent-commits' });
+        continue;
+      }
+    }
+
+    // Cancel. On failure, record in `skipped` and move on — partial batches
+    // are acceptable per design (risk #4 in the plan).
+    const cancelResult = await deps.handleCancel(
+      { featureId: candidate.featureId, reason: 'stale-prune' },
+      stateDir,
+    );
+    if (!cancelResult.success) {
+      skipped.push({
+        featureId: candidate.featureId,
+        reason: 'cancel-failed',
+        ...(cancelResult.error?.message ? { message: cancelResult.error.message } : {}),
+      });
+      continue;
+    }
+
+    // Emit workflow.pruned audit event.
+    const eventPayload: PrunePruned = {
+      featureId: candidate.featureId,
+      stalenessMinutes: candidate.stalenessMinutes,
+      ...(force ? { skippedSafeguards: [...allSkippedSafeguards] } : {}),
+    };
+    try {
+      await ctx?.eventStore.append(candidate.featureId, {
+        type: 'workflow.pruned' as EventType,
+        data: {
+          featureId: candidate.featureId,
+          stalenessMinutes: candidate.stalenessMinutes,
+          triggeredBy: 'manual',
+          ...(force ? { skippedSafeguards: [...allSkippedSafeguards] } : {}),
+        },
+      });
+    } catch (err) {
+      // Event append failure is non-fatal: the cancel already happened.
+      // Record the feature in `pruned` anyway so the caller sees it, and
+      // annotate the event emission failure in an adjacent `skipped` entry
+      // so auditing is not silent.
+      skipped.push({
+        featureId: candidate.featureId,
+        reason: 'cancel-failed',
+        message: `Pruned but event append failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    pruned.push(eventPayload);
+  }
+
+  const result: PruneHandlerResult = { candidates, skipped, pruned };
+  return { success: true, data: result };
 }
