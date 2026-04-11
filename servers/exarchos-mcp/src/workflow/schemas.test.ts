@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { ArtifactsSchema, SynthesisSchema, TaskStatusSchema } from './schemas.js';
+import {
+  ArtifactsSchema,
+  SynthesisSchema,
+  TaskStatusSchema,
+  OneshotPhaseSchema,
+} from './schemas.js';
 import { z } from 'zod';
 
 // ─── TaskStatusSchema alias tests ─────────────────────────────────────────
@@ -453,6 +458,32 @@ describe('Oneshot workflow type and schema', () => {
     const { WorkflowStateSchema } = await import('./schemas.js');
     const result = WorkflowStateSchema.safeParse(baseOneshotFixture);
     expect(result.success).toBe(true);
+  });
+
+  it('oneshotPhaseSchema_acceptsAllKnownPhases', () => {
+    for (const phase of ['plan', 'implementing', 'synthesize', 'completed', 'cancelled']) {
+      const result = OneshotPhaseSchema.safeParse(phase);
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('oneshotPhaseSchema_rejectsUnknownPhase', () => {
+    expect(OneshotPhaseSchema.safeParse('bogus').success).toBe(false);
+    expect(OneshotPhaseSchema.safeParse('').success).toBe(false);
+    expect(OneshotPhaseSchema.safeParse('ideate').success).toBe(false);
+  });
+
+  it('oneshotStateSchema_rejectsUnknownPhaseValue', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseOneshotFixture,
+      phase: 'bogus-phase',
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    // Even with union fallback to CustomWorkflowStateSchema, `oneshot` is a
+    // built-in type so CustomWorkflowStateSchema explicitly rejects it, and
+    // OneshotWorkflowStateSchema rejects unknown phase values.
+    expect(result.success).toBe(false);
   });
 });
 

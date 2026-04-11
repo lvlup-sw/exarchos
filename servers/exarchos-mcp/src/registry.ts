@@ -308,16 +308,20 @@ function makeEventDescribeAction(): ToolAction {
 const workflowActions: readonly ToolAction[] = [
   {
     name: 'init',
-    description: 'Initialize a new workflow. Auto-emits workflow.started event',
+    description: 'Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.',
     schema: z.object({
       featureId: featureIdSchema,
       workflowType: WorkflowTypeSchema,
+      synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
     }),
     phases: new Set<string>(),
     roles: ROLE_LEAD,
     cli: {
       flags: { featureId: { alias: 'f' }, workflowType: { alias: 't' } },
-      examples: ['exarchos wf init -f my-feature -t feature'],
+      examples: [
+        'exarchos wf init -f my-feature -t feature',
+        'exarchos wf init -f my-oneshot -t oneshot --synthesisPolicy always',
+      ],
     },
     autoEmits: [
       { event: 'workflow.started', condition: 'always' },

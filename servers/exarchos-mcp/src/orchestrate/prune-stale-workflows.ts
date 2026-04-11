@@ -22,13 +22,9 @@ import type { DispatchContext } from '../core/dispatch.js';
 import type { EventType } from '../event-store/schemas.js';
 import { handleList } from '../workflow/tools.js';
 import { handleCancel } from '../workflow/cancel.js';
+import { isTerminalPhase as baseIsTerminalPhase } from '../workflow/terminal-phases.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
-
-// Terminal phases are redeclared locally (rather than imported from
-// views/tools.ts where they live inside a handler scope). Values must
-// match `views/tools.ts:322`; change both in lockstep.
-const TERMINAL_PHASES = ['completed', 'cancelled'] as const;
 
 // 7 days in minutes — matches the plan's v1 default threshold.
 const DEFAULT_THRESHOLD_MINUTES = 10_080;
@@ -97,7 +93,7 @@ function isBeyondThreshold(
 }
 
 function isTerminalPhase(phase: string): boolean {
-  return (TERMINAL_PHASES as readonly string[]).includes(phase);
+  return baseIsTerminalPhase(phase);
 }
 
 /**
@@ -194,7 +190,17 @@ export interface PruneHandlerDeps {
 
 export interface PruneSkipped {
   featureId: string;
-  reason: 'open-pr' | 'recent-commits' | 'cancel-failed';
+  /**
+   * Why this candidate was skipped rather than pruned.
+   * - `open-pr`              — safeguard: an open PR exists for the branch
+   * - `recent-commits`       — safeguard: commits landed within the recency window
+   * - `cancel-failed`        — `handleCancel` returned `success: false`
+   * - `event-append-failed`  — cancel succeeded but appending `workflow.pruned`
+   *                            to the event store threw; the workflow is
+   *                            cancelled on disk but NOT counted as pruned,
+   *                            because the audit trail is incomplete
+   */
+  reason: 'open-pr' | 'recent-commits' | 'cancel-failed' | 'event-append-failed';
   message?: string;
 }
 
@@ -293,6 +299,103 @@ function extractListEntries(result: ToolResult): WorkflowListEntry[] {
  * and get `productionDeps(ctx)` with real `handleList`, `handleCancel`, and
  * `gh`/`git`-backed safeguards.
  */
+// All safeguards, in evaluation order, echoed on the audit event when
+// `force` bypasses them.
+const ALL_SKIPPED_SAFEGUARDS = ['open-pr', 'recent-commits'] as const;
+
+/**
+ * Per-candidate classification returned by {@link prunePruneCandidate}. The
+ * main loop consumes this into `skipped` / `pruned` result arrays; the shape
+ * mirrors the union so double-accounting is structurally impossible.
+ */
+type CandidateOutcome =
+  | { kind: 'skipped'; entry: PruneSkipped }
+  | { kind: 'pruned'; entry: PrunePruned };
+
+/**
+ * Apply-mode body for a single prune candidate. Evaluates safeguards, calls
+ * cancel, and emits the `workflow.pruned` audit event. Returns exactly one
+ * `CandidateOutcome` — either `skipped` (with a reason) or `pruned`. HIGH-2
+ * fix: event-append failure records a distinct `event-append-failed` reason
+ * and does NOT also push onto `pruned`.
+ */
+async function prunePruneCandidate(
+  candidate: PruneCandidate,
+  deps: PruneHandlerDeps,
+  eventStore: NonNullable<DispatchContext['eventStore']>,
+  force: boolean,
+  stateDir: string,
+): Promise<CandidateOutcome> {
+  const branchName = await deps.readBranchName(candidate.featureId, stateDir);
+
+  // Safeguard evaluation. `force` bypasses them entirely but records the
+  // marker list on the emitted event for audit. A missing branchName also
+  // short-circuits both checks (nothing to look up).
+  if (!force && branchName !== undefined) {
+    if (await deps.safeguards.hasOpenPR(candidate.featureId, branchName)) {
+      return { kind: 'skipped', entry: { featureId: candidate.featureId, reason: 'open-pr' } };
+    }
+    if (await deps.safeguards.hasRecentCommits(branchName, RECENT_COMMITS_WINDOW_HOURS)) {
+      return {
+        kind: 'skipped',
+        entry: { featureId: candidate.featureId, reason: 'recent-commits' },
+      };
+    }
+  }
+
+  // Cancel. On failure, record in `skipped` and move on — partial batches
+  // are acceptable per design (risk #4 in the plan).
+  const cancelResult = await deps.handleCancel(
+    { featureId: candidate.featureId, reason: 'stale-prune' },
+    stateDir,
+  );
+  if (!cancelResult.success) {
+    return {
+      kind: 'skipped',
+      entry: {
+        featureId: candidate.featureId,
+        reason: 'cancel-failed',
+        ...(cancelResult.error?.message ? { message: cancelResult.error.message } : {}),
+      },
+    };
+  }
+
+  // Emit workflow.pruned audit event. If this throws, the cancel already
+  // landed on disk but the audit trail is incomplete — we classify the
+  // feature as `event-append-failed` and do NOT record it in `pruned`.
+  // Previously we did both, which meant a single feature could appear in
+  // two result arrays with contradictory semantics (HIGH-2).
+  try {
+    await eventStore.append(candidate.featureId, {
+      type: 'workflow.pruned' as EventType,
+      data: {
+        featureId: candidate.featureId,
+        stalenessMinutes: candidate.stalenessMinutes,
+        triggeredBy: 'manual',
+        ...(force ? { skippedSafeguards: [...ALL_SKIPPED_SAFEGUARDS] } : {}),
+      },
+    });
+  } catch (err) {
+    return {
+      kind: 'skipped',
+      entry: {
+        featureId: candidate.featureId,
+        reason: 'event-append-failed',
+        message: `Pruned but event append failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+
+  return {
+    kind: 'pruned',
+    entry: {
+      featureId: candidate.featureId,
+      stalenessMinutes: candidate.stalenessMinutes,
+      ...(force ? { skippedSafeguards: [...ALL_SKIPPED_SAFEGUARDS] } : {}),
+    },
+  };
+}
+
 export async function handlePruneStaleWorkflows(
   args: PruneHandlerArgs,
   stateDir: string,
@@ -304,6 +407,22 @@ export async function handlePruneStaleWorkflows(
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
   const now = args.now ? new Date(args.now) : new Date();
+
+  // Apply-mode precondition: we MUST have an eventStore to emit the
+  // `workflow.pruned` audit event. Silently no-opping on the append (the
+  // previous behavior via `ctx?.eventStore.append(...)`) would let the
+  // cancel land on disk while the audit trail stayed blank — a contract
+  // break. Return a structured error instead. (MEDIUM-1)
+  if (!dryRun && !ctx?.eventStore) {
+    return {
+      success: false,
+      error: {
+        code: 'MISSING_CONTEXT',
+        message:
+          'prune-stale-workflows: ctx.eventStore is required in apply mode; refusing to cancel workflows without an audit trail',
+      },
+    };
+  }
 
   // 1. Fetch the full workflow list.
   const listResult = await deps.handleList(stateDir);
@@ -334,71 +453,19 @@ export async function handlePruneStaleWorkflows(
     return { success: true, data: result };
   }
 
-  // 4. Apply mode: safeguard loop → cancel loop → event emission.
+  // 4. Apply mode: classify each candidate via the per-candidate helper.
   const skipped: PruneSkipped[] = [];
   const pruned: PrunePruned[] = [];
-  const allSkippedSafeguards = ['open-pr', 'recent-commits'] as const;
+  // Narrowed above — the early return guarantees `ctx.eventStore` exists.
+  const eventStore = ctx!.eventStore!;
 
   for (const candidate of candidates) {
-    const branchName = await deps.readBranchName(candidate.featureId, stateDir);
-
-    // Safeguard evaluation. `force` bypasses them entirely but records the
-    // marker list on the emitted event for audit. A missing branchName also
-    // short-circuits both checks (nothing to look up).
-    if (!force && branchName !== undefined) {
-      if (await deps.safeguards.hasOpenPR(candidate.featureId, branchName)) {
-        skipped.push({ featureId: candidate.featureId, reason: 'open-pr' });
-        continue;
-      }
-      if (await deps.safeguards.hasRecentCommits(branchName, RECENT_COMMITS_WINDOW_HOURS)) {
-        skipped.push({ featureId: candidate.featureId, reason: 'recent-commits' });
-        continue;
-      }
+    const outcome = await prunePruneCandidate(candidate, deps, eventStore, force, stateDir);
+    if (outcome.kind === 'skipped') {
+      skipped.push(outcome.entry);
+    } else {
+      pruned.push(outcome.entry);
     }
-
-    // Cancel. On failure, record in `skipped` and move on — partial batches
-    // are acceptable per design (risk #4 in the plan).
-    const cancelResult = await deps.handleCancel(
-      { featureId: candidate.featureId, reason: 'stale-prune' },
-      stateDir,
-    );
-    if (!cancelResult.success) {
-      skipped.push({
-        featureId: candidate.featureId,
-        reason: 'cancel-failed',
-        ...(cancelResult.error?.message ? { message: cancelResult.error.message } : {}),
-      });
-      continue;
-    }
-
-    // Emit workflow.pruned audit event.
-    const eventPayload: PrunePruned = {
-      featureId: candidate.featureId,
-      stalenessMinutes: candidate.stalenessMinutes,
-      ...(force ? { skippedSafeguards: [...allSkippedSafeguards] } : {}),
-    };
-    try {
-      await ctx?.eventStore.append(candidate.featureId, {
-        type: 'workflow.pruned' as EventType,
-        data: {
-          featureId: candidate.featureId,
-          stalenessMinutes: candidate.stalenessMinutes,
-          triggeredBy: 'manual',
-          ...(force ? { skippedSafeguards: [...allSkippedSafeguards] } : {}),
-        },
-      });
-    } catch (err) {
-      // Event append failure is non-fatal: the cancel already happened.
-      // Record the feature in `pruned` anyway so the caller sees it, and
-      // annotate the event emission failure in an adjacent `skipped` entry
-      // so auditing is not silent.
-      skipped.push({
-        featureId: candidate.featureId,
-        reason: 'cancel-failed',
-        message: `Pruned but event append failed: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-    pruned.push(eventPayload);
   }
 
   const result: PruneHandlerResult = { candidates, skipped, pruned };

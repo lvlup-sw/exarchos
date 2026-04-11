@@ -45,19 +45,22 @@ afterEach(async () => {
 /**
  * Initialize a oneshot workflow and drive it through plan → implementing.
  *
- * synthesisPolicy is applied via the dot-path `oneshot.synthesisPolicy` on
- * a `handleSet` field-update call — the init schema defaults to
- * `on-request` when the `oneshot` object is absent, and the workflow-init
- * API does not accept synthesisPolicy directly. Writing it via `handleSet`
- * after init populates `state.oneshot.synthesisPolicy` in exactly the same
- * shape the guards expect.
+ * `synthesisPolicy` is passed directly to `handleInit` — the init schema
+ * accepts it for oneshot workflows and seeds `state.oneshot.synthesisPolicy`
+ * before the workflow exits `plan`. The `handleSet` mid-workflow override
+ * path is still supported for runtime policy changes; these tests use the
+ * init-time path because that is the primary documented API.
  */
 async function setupOneshotInImplementing(
   featureId: string,
   synthesisPolicy?: 'always' | 'never' | 'on-request',
 ): Promise<void> {
   const initResult = await handleInit(
-    { featureId, workflowType: 'oneshot' },
+    {
+      featureId,
+      workflowType: 'oneshot',
+      ...(synthesisPolicy !== undefined ? { synthesisPolicy } : {}),
+    },
     tmpDir,
     eventStore,
   );
@@ -65,22 +68,6 @@ async function setupOneshotInImplementing(
     throw new Error(
       `init failed: ${initResult.error?.message ?? 'unknown error'}`,
     );
-  }
-
-  if (synthesisPolicy !== undefined) {
-    const policyResult = await handleSet(
-      {
-        featureId,
-        updates: { 'oneshot.synthesisPolicy': synthesisPolicy },
-      },
-      tmpDir,
-      eventStore,
-    );
-    if (!policyResult.success) {
-      throw new Error(
-        `set synthesisPolicy failed: ${policyResult.error?.message ?? 'unknown error'}`,
-      );
-    }
   }
 
   // Satisfy the `oneshotPlanSet` guard on plan → implementing

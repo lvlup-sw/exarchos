@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
+import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -319,7 +320,6 @@ export async function handleViewPipeline(
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
-  const TERMINAL_PHASES = ['completed', 'cancelled'];
   try {
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
@@ -341,7 +341,7 @@ export async function handleViewPipeline(
     // Filter out terminal-state workflows unless explicitly requested
     const filtered = args.includeCompleted
       ? allWorkflows
-      : allWorkflows.filter((w) => !TERMINAL_PHASES.includes(w.phase));
+      : allWorkflows.filter((w) => !(TERMINAL_PHASES as readonly string[]).includes(w.phase));
 
     // Paginate the filtered results
     const total = filtered.length;

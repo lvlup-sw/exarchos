@@ -428,6 +428,89 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId)).toEqual(['nobrn']);
   });
 
+  it('handlePruneStaleWorkflows_eventAppendThrows_recordsInSkippedNotPruned', async () => {
+    // HIGH-2 regression: when eventStore.append throws after a successful
+    // cancel, the feature must appear in `skipped` with reason
+    // `event-append-failed` and MUST NOT appear in `pruned`.
+    const append = vi.fn().mockRejectedValue(new Error('append boom'));
+    const ctx = { eventStore: { append } };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'ea-fail', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    // The cancel MUST still have been invoked — the append failure happens
+    // AFTER the cancel succeeds.
+    expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
+
+    const data = result.data as {
+      pruned: Array<{ featureId: string }>;
+      skipped: Array<{ featureId: string; reason: string; message?: string }>;
+    };
+    // NOT in pruned (this is the core HIGH-2 assertion)
+    expect(data.pruned).toEqual([]);
+    // IS in skipped with the new distinct reason
+    expect(data.skipped).toHaveLength(1);
+    expect(data.skipped[0]?.featureId).toBe('ea-fail');
+    expect(data.skipped[0]?.reason).toBe('event-append-failed');
+    expect(data.skipped[0]?.message).toContain('append boom');
+  });
+
+  it('handlePruneStaleWorkflows_applyModeWithoutEventStore_returnsStructuredError', async () => {
+    // MEDIUM-1 regression: apply mode without ctx must not silently no-op
+    // on the append — it must refuse upfront with a structured error.
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'missing-ctx', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      undefined, // no ctx
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MISSING_CONTEXT');
+    expect(result.error?.message).toContain('eventStore');
+    // Must refuse BEFORE touching handleCancel (no partial mutations).
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it('handlePruneStaleWorkflows_dryRunWithoutEventStore_stillAllowed', async () => {
+    // Dry-run is read-only — no event emission needed, so the precondition
+    // does not apply. This guards against overly-broad refusals.
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'dry', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      undefined,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
   it('reports partial failure when one of several cancels fails', async () => {
     const { append, ctx } = makeEventStoreStub();
     const deps = makeDeps();

@@ -152,11 +152,23 @@ export async function handleInit(
       }
     }
 
+    // Oneshot-only: thread `synthesisPolicy` into the initial state under
+    // `state.oneshot`. For non-oneshot workflow types the field is silently
+    // dropped — the `InitInputSchema` accepts it for uniformity but only the
+    // oneshot state shape has a `.oneshot.synthesisPolicy` slot.
+    const extraFields: Record<string, unknown> = {
+      _eventSequence: eventSequence,
+      _esVersion: CURRENT_ES_VERSION,
+    };
+    if (input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined) {
+      extraFields.oneshot = { synthesisPolicy: input.synthesisPolicy };
+    }
+
     const { state } = await initStateFile(
       stateDir,
       input.featureId,
       input.workflowType,
-      { _eventSequence: eventSequence, _esVersion: CURRENT_ES_VERSION },
+      extraFields,
     );
 
     return {

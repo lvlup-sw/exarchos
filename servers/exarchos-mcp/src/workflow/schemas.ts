@@ -109,6 +109,16 @@ export const RefactorPhaseSchema = z.enum([
   'blocked',
 ]);
 
+export const OneshotPhaseSchema = z.enum([
+  'plan',
+  'implementing',
+  'synthesize',
+  'completed',
+  'cancelled',
+]);
+
+export const SynthesisPolicySchema = z.enum(['always', 'never', 'on-request']);
+
 // ─── Performance SLA Schema ────────────────────────────────────────────────
 
 export const PerformanceSLASchema = z.object({
@@ -285,9 +295,9 @@ export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
 
 export const OneshotWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('oneshot'),
-  phase: z.string(),
+  phase: OneshotPhaseSchema,
   oneshot: z.object({
-    synthesisPolicy: z.enum(['always', 'never', 'on-request']).default('on-request'),
+    synthesisPolicy: SynthesisPolicySchema.default('on-request'),
     planSummary: z.string().optional(),
   }).optional(),
 });
@@ -317,6 +327,12 @@ export const WorkflowStateSchema = z.union([
 export const InitInputSchema = z.object({
   featureId: FeatureIdSchema,
   workflowType: WorkflowTypeSchema,
+  /**
+   * Initial synthesis policy for oneshot workflows. Silently ignored for
+   * non-oneshot workflow types. Defaults (when omitted) to `on-request`
+   * via {@link OneshotWorkflowStateSchema}.
+   */
+  synthesisPolicy: SynthesisPolicySchema.optional(),
 });
 
 export const ListInputSchema = z.object({});
