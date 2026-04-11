@@ -265,6 +265,8 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
       case 'team.spawned':
       case 'team.disbanded':
+      case 'synthesize.requested':
+      case 'workflow.pruned':
         return {
           ...view,
           _events: [...(view._events ?? []), { type: event.type, timestamp: event.timestamp, data: event.data }],

@@ -507,6 +507,150 @@ describe('WorkflowStateProjection team events', () => {
   });
 });
 
+// ─── Oneshot / Pruning Events (_events projection) ────────────────────────
+
+describe('WorkflowStateProjection oneshot/pruning events', () => {
+  describe('workflowStateProjection_synthesizeRequested_appendsToEvents', () => {
+    it('should append synthesize.requested to view._events', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-04-11T10:00:00.000Z';
+
+      const event = makeEvent(
+        'synthesize.requested',
+        { featureId: 'oneshot-feature', reason: 'all-tasks-complete' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({
+        type: 'synthesize.requested',
+        timestamp: ts,
+      });
+      expect((next._events[0].data as Record<string, unknown>).featureId).toBe(
+        'oneshot-feature',
+      );
+    });
+  });
+
+  describe('workflowStateProjection_synthesizeRequested_doesNotMutateOtherFields', () => {
+    it('should leave phase, featureId, tasks, and other fields unchanged', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.started',
+          { featureId: 'f-synth', workflowType: 'feature' },
+          { timestamp: '2026-04-11T09:00:00.000Z' },
+        ),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-A', title: 'A', branch: 'feat/a' }),
+      );
+
+      const before = {
+        featureId: state.featureId,
+        workflowType: state.workflowType,
+        phase: state.phase,
+        createdAt: state.createdAt,
+        tasks: state.tasks,
+        artifacts: state.artifacts,
+        synthesis: state.synthesis,
+        reviews: state.reviews,
+        integration: state.integration,
+      };
+
+      const next = workflowStateProjection.apply(
+        state,
+        makeEvent('synthesize.requested', { featureId: 'f-synth' }),
+      );
+
+      expect(next.featureId).toBe(before.featureId);
+      expect(next.workflowType).toBe(before.workflowType);
+      expect(next.phase).toBe(before.phase);
+      expect(next.createdAt).toBe(before.createdAt);
+      expect(next.tasks).toEqual(before.tasks);
+      expect(next.artifacts).toEqual(before.artifacts);
+      expect(next.synthesis).toEqual(before.synthesis);
+      expect(next.reviews).toEqual(before.reviews);
+      expect(next.integration).toEqual(before.integration);
+    });
+  });
+
+  describe('workflowStateProjection_workflowPruned_appendsToEvents', () => {
+    it('should append workflow.pruned to view._events for audit trail', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-04-11T11:00:00.000Z';
+
+      const event = makeEvent(
+        'workflow.pruned',
+        { featureId: 'stale-feature', reason: 'stale-timeout', prunedAt: ts },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({
+        type: 'workflow.pruned',
+        timestamp: ts,
+      });
+      expect((next._events[0].data as Record<string, unknown>).reason).toBe(
+        'stale-timeout',
+      );
+    });
+  });
+
+  describe('workflowStateProjection_workflowPruned_doesNotMutateOtherFields', () => {
+    it('should leave phase, featureId, tasks, and other fields unchanged', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.started',
+          { featureId: 'f-prune', workflowType: 'feature' },
+          { timestamp: '2026-04-11T09:00:00.000Z' },
+        ),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-B', title: 'B', branch: 'feat/b' }),
+      );
+
+      const before = {
+        featureId: state.featureId,
+        workflowType: state.workflowType,
+        phase: state.phase,
+        createdAt: state.createdAt,
+        tasks: state.tasks,
+        artifacts: state.artifacts,
+        synthesis: state.synthesis,
+        reviews: state.reviews,
+        integration: state.integration,
+      };
+
+      const next = workflowStateProjection.apply(
+        state,
+        makeEvent('workflow.pruned', { featureId: 'f-prune', reason: 'stale' }),
+      );
+
+      expect(next.featureId).toBe(before.featureId);
+      expect(next.workflowType).toBe(before.workflowType);
+      expect(next.phase).toBe(before.phase);
+      expect(next.createdAt).toBe(before.createdAt);
+      expect(next.tasks).toEqual(before.tasks);
+      expect(next.artifacts).toEqual(before.artifacts);
+      expect(next.synthesis).toEqual(before.synthesis);
+      expect(next.reviews).toEqual(before.reviews);
+      expect(next.integration).toEqual(before.integration);
+    });
+  });
+});
+
 // ─── Observability and Unknown Events ──────────────────────────────────────
 
 describe('WorkflowStateProjection passthrough events', () => {
