@@ -1117,7 +1117,12 @@ const orchestrateActions: readonly ToolAction[] = [
       featureId: featureIdSchema,
       reason: z.string().optional(),
     }),
-    phases: new Set<string>(['implementing']),
+    // Allowed from `plan` as well as `implementing`: the synthesisOptedIn
+    // guard only fires at the `implementing → ?` choice-state boundary, so
+    // emitting the event earlier is idempotent — it sits in the event stream
+    // until finalize_oneshot reads it. Restricting to `implementing` broke
+    // the "I know I'll want a PR" signal during planning.
+    phases: new Set<string>(['plan', 'implementing']),
     roles: ROLE_LEAD,
     autoEmits: [
       { event: 'synthesize.requested', condition: 'always' },

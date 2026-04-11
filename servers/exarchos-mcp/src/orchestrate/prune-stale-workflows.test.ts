@@ -240,10 +240,13 @@ describe('handlePruneStaleWorkflows', () => {
     const data = result.data as {
       candidates: Array<{ featureId: string }>;
       skipped: unknown[];
-      pruned: unknown[];
+      pruned?: unknown[];
     };
     expect(data.candidates.map((c) => c.featureId)).toEqual(['stale1']);
-    expect(data.pruned).toEqual([]);
+    // Dry-run must omit `pruned` entirely — surfacing an empty array would
+    // blur the distinction between "preview" and "nothing was pruned in
+    // apply mode". The design spec shape has `pruned?` for this reason.
+    expect(data).not.toHaveProperty('pruned');
     expect(deps.cancelSpy).not.toHaveBeenCalled();
     expect(ctx.eventStore.append).not.toHaveBeenCalled();
   });

@@ -22,12 +22,22 @@ Submit stacked PRs after review phase completes. The `prepare_synthesis` composi
 
 Do NOT proceed if either review is incomplete or failed -- return to `{{COMMAND_PREFIX}}review` first.
 
+**Entry points:** Synthesis is normally reached from the `review` phase of
+feature / debug / refactor workflows. It is also reachable from `oneshot`
+workflows via the opt-in path — when a user signals "let's open a PR for
+this" during `plan` or `implementing`, the `request_synthesize` event is
+appended, and `finalize_oneshot` then resolves the choice state and
+transitions the workflow to `synthesize`. See
+`@skills/oneshot-workflow/SKILL.md` for the opt-in mechanics and
+`synthesisPolicy` semantics.
+
 ## Triggers
 
 Activate this skill when:
 - User runs `{{COMMAND_PREFIX}}synthesize` command
 - All reviews have passed successfully
 - Ready to submit PRs
+- Oneshot workflow resolved to `synthesize` via `finalize_oneshot`
 
 ## Process
 

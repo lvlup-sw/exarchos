@@ -165,6 +165,18 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // ActionHandler `(args, stateDir, ctx?)` shape, so it is registered directly
   // without an adapter. The other two need their dependencies injected from
   // DispatchContext into a single args bag.
+  //
+  // The `as ActionHandler` cast is safe because:
+  //   1. The handler's signature is `(args, stateDir, ctx?, deps?)` where
+  //      `deps` has a default (`productionDeps(ctx)`) — meaning at runtime
+  //      the router's 3-arg call `(args, stateDir, ctx)` produces a fully
+  //      wired handler that matches `ActionHandler`'s `(args, stateDir, ctx)`.
+  //   2. The 4th param is a testability seam only; production code never
+  //      passes it, and no ActionHandler caller has reason to.
+  // TypeScript's structural typing sees the extra optional parameter as a
+  // mismatch with the strict `ActionHandler` signature, so the cast is the
+  // minimal bridge. An adapter wrapper would just re-spread the same three
+  // args with no narrowing benefit.
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),

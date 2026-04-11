@@ -38,7 +38,10 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 Use `exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
-for phase transitions, guards, and playbook guidance. Use
+for phase transitions, guards, and playbook guidance. For the lightweight
+oneshot variant (with its `implementing → synthesize|completed` choice state
+driven by `synthesisPolicy`), call `exarchos_workflow({ action: "describe", playbook: "oneshot" })`
+— oneshot is a first-class playbook alongside feature/debug/refactor. Use
 `exarchos_event({ action: "describe", eventTypes: ["workflow.transition", "task.completed"] })`
 for event data schemas.
 
@@ -126,6 +129,23 @@ exarchos_orchestrate({
 | Review complete | Update `reviews` object |
 | PR created | Set `artifacts.pr`, `synthesis.prUrl` |
 | PR feedback | Append to `synthesis.prFeedback` |
+
+#### Oneshot-specific state updates
+
+Oneshot is a first-class workflow type with a compressed lifecycle and an
+opt-in PR path. The rows below mirror the feature-workflow table above.
+
+| Phase | State updates | Events emitted |
+|-------|---------------|----------------|
+| `plan` (oneshot) | `oneshot.planSummary`, `artifacts.plan`, optional `oneshot.synthesisPolicy` | `workflow.transition` |
+| `implementing` (oneshot) | `tasks[].status`, `artifacts.tests` | `task.*`, optional `synthesize.requested` (via `request_synthesize`) |
+| `synthesize` (oneshot) | `synthesis.prUrl`, `artifacts.pr` | `workflow.transition`, `stack.submitted` |
+| `completed` (oneshot) | — | `workflow.transition` (to `completed`) |
+
+The `implementing → synthesize | completed` fork is a choice state resolved
+by `finalize_oneshot`, which reads the `synthesisOptedIn` guard
+(`synthesisPolicy` + `synthesize.requested` events). See
+`@skills/oneshot-workflow/SKILL.md` for the full opt-in mechanics.
 
 ### Automatic State Updates
 

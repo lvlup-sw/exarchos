@@ -19,13 +19,13 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
 
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { handleSet } from '../workflow/tools.js';
 import { guards } from '../workflow/guards.js';
 import { hydrateEventsFromStore } from '../workflow/state-store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -60,13 +60,25 @@ export async function handleFinalizeOneshot(
   }
 
   // ─── Read current workflow state ──────────────────────────────────────────
+  // Delegate to the shared resolver used by sibling handlers (notably
+  // request-synthesize). The resolver tries the state file first and falls
+  // back to materializing from the event store, which means finalize_oneshot
+  // now works identically whether the workflow is file-backed or purely
+  // event-sourced. Previously this used raw `fs.readFile`, duplicating the
+  // state-read pattern.
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
-  let state: Record<string, unknown>;
-  try {
-    const raw = await fs.readFile(stateFile, 'utf-8');
-    state = JSON.parse(raw) as Record<string, unknown>;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+  const resolved = await resolveWorkflowState({
+    stateFile,
+    featureId,
+    eventStore,
+  });
+
+  if ('error' in resolved) {
+    // Translate the resolver's NO_STATE_SOURCE / EVENT_STORE_ERROR codes
+    // into the STATE_NOT_FOUND taxonomy the rest of this handler (and its
+    // callers) expects, matching what request-synthesize.ts does.
+    const code = resolved.error.error?.code;
+    if (code === 'NO_STATE_SOURCE' || code === 'EVENT_STORE_ERROR') {
       return {
         success: false,
         error: {
@@ -75,11 +87,30 @@ export async function handleFinalizeOneshot(
         },
       };
     }
+    return resolved.error;
+  }
+
+  const state: Record<string, unknown> = resolved.state;
+
+  // The resolver falls back to the event store when the state file is
+  // missing, returning a projection-initialized view seeded with default
+  // values (featureId: '', workflowType: 'feature', createdAt: '').
+  // For finalize_oneshot, an empty projection — no `workflow.started`
+  // event ever applied — is indistinguishable from "workflow does not
+  // exist". Use `createdAt === ''` / `featureId === ''` as a sentinel
+  // that no events populated the view, and translate to STATE_NOT_FOUND
+  // so callers cannot silently finalize a workflow that was never created.
+  if (
+    state.workflowType === undefined ||
+    state.workflowType === null ||
+    state.createdAt === '' ||
+    state.featureId === ''
+  ) {
     return {
       success: false,
       error: {
-        code: 'STATE_READ_FAILED',
-        message: `Failed to read workflow state: ${err instanceof Error ? err.message : String(err)}`,
+        code: 'STATE_NOT_FOUND',
+        message: `State not found for feature: ${featureId}`,
       },
     };
   }

@@ -213,7 +213,13 @@ export interface PrunePruned {
 export interface PruneHandlerResult {
   candidates: PruneCandidate[];
   skipped: PruneSkipped[];
-  pruned: PrunePruned[];
+  /**
+   * Only present in apply mode. Dry-run returns omit this field entirely
+   * rather than surfacing an empty array — it would misleadingly suggest
+   * "nothing was pruned" instead of "nothing could have been pruned because
+   * this was a preview". Matches the shape in the 2026-04-11 design.
+   */
+  pruned?: PrunePruned[];
 }
 
 /** Default branch-name reader: reads the state JSON and returns a top-level
@@ -287,7 +293,7 @@ function extractListEntries(result: ToolResult): WorkflowListEntry[] {
  * Pipeline:
  *   1. `handleList` → flatten entries
  *   2. `selectPruneCandidates` (pure) → candidates
- *   3. If dryRun → return candidates + empty pruned
+ *   3. If dryRun → return candidates only (pruned field omitted)
  *   4. Otherwise, for each candidate:
  *      a. Read branchName from state (undefined skips safeguards)
  *      b. Unless `force`, evaluate `hasOpenPR` → `hasRecentCommits` in order
@@ -447,9 +453,11 @@ export async function handlePruneStaleWorkflows(
     now,
   );
 
-  // 3. Dry run short-circuit.
+  // 3. Dry run short-circuit. Intentionally omit `pruned` — see type
+  // comment on PruneHandlerResult. Callers can distinguish dry-run from
+  // apply mode by the presence/absence of the field.
   if (dryRun) {
-    const result: PruneHandlerResult = { candidates, skipped: [], pruned: [] };
+    const result: PruneHandlerResult = { candidates, skipped: [] };
     return { success: true, data: result };
   }
 

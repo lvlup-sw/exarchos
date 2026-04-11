@@ -201,7 +201,9 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     const dryIds = dryData.candidates.map((c) => c.featureId).sort();
     expect(dryIds).toEqual(['stale-wf-2', 'stale-wf-3']);
     expect(dryIds).not.toContain('terminal-wf-1');
-    expect(dryData.pruned).toEqual([]);
+    // Dry-run must omit `pruned` entirely — surfacing `[]` would blur the
+    // distinction between "preview" and "nothing was pruned in apply mode".
+    expect(dryData.pruned).toBeUndefined();
     expect(dryData.skipped).toEqual([]);
 
     // Disk state must be untouched after dry-run.

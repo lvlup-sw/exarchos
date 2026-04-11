@@ -1178,4 +1178,17 @@ describe('Plugin Integration Registry Wiring', () => {
     });
     expect(resultWithout.success).toBe(true);
   });
+
+  it('RegistryActions_RequestSynthesize_AllowsPlanAndImplementingPhases', () => {
+    // request_synthesize must be callable from both `plan` and `implementing`
+    // phases. The synthesisOptedIn guard only fires at the implementing →
+    // choice-state boundary, so appending the event earlier (during planning)
+    // is idempotent — the event sits in the stream until finalize_oneshot
+    // reads it. Restricting to `implementing` only broke the "I know I'll
+    // want a PR" signal during planning.
+    const action = findAction('exarchos_orchestrate', 'request_synthesize');
+    expect(action, 'exarchos_orchestrate should have a request_synthesize action').toBeDefined();
+    expect(action!.phases.has('plan')).toBe(true);
+    expect(action!.phases.has('implementing')).toBe(true);
+  });
 });
