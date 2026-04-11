@@ -1847,23 +1847,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -1995,7 +1998,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -3852,7 +3862,13 @@ At the start of \`/exarchos:ideate\`, use \`mcp__plugin_exarchos_exarchos__exarc
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 
@@ -5884,23 +5900,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -6032,7 +6051,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -7889,7 +7915,13 @@ At the start of \`ideate\`, use \`mcp__exarchos__exarchos_workflow\` with \`acti
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 
@@ -9913,23 +9945,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -10061,7 +10096,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -11918,7 +11960,13 @@ At the start of \`/ideate\`, use \`mcp__exarchos__exarchos_workflow\` with \`act
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 
@@ -13948,23 +13996,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -14096,7 +14147,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -15953,7 +16011,13 @@ At the start of \`ideate\`, use \`mcp__exarchos__exarchos_workflow\` with \`acti
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 
@@ -17977,23 +18041,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -18125,7 +18192,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -19982,7 +20056,13 @@ At the start of \`ideate\`, use \`mcp__exarchos__exarchos_workflow\` with \`acti
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 
@@ -22014,23 +22094,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to \`implementing\` in a single set call:
+Persist the plan and transition to \`implementing\` in a single set call.
+\`phase\` is a top-level argument of \`set\`, not a field inside \`updates\`:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 \`\`\`
 
 The plan goes on \`artifacts.plan\` for parity with the \`feature\` workflow;
 the human-readable one-liner goes on \`oneshot.planSummary\` for the
-pipeline view.
+pipeline view. Only \`artifacts.plan\` is enforced by the
+\`oneshot-plan-set\` guard — \`planSummary\` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -22162,7 +22245,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo
@@ -24019,7 +24109,13 @@ At the start of \`/ideate\`, use \`mcp__exarchos__exarchos_workflow\` with \`act
 - \`workflowType\`: one of \`"feature"\`, \`"debug"\`, \`"refactor"\`, \`"oneshot"\`
 - \`synthesisPolicy\` *(optional, oneshot only)*: one of \`"always"\`, \`"never"\`, \`"on-request"\` (default \`"on-request"\`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+\`workflowType\`:
+
+- \`feature\` → starts in \`ideate\`
+- \`debug\` → starts in \`triage\`
+- \`refactor\` → starts in \`explore\`
+- \`oneshot\` → starts in \`plan\` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 

@@ -743,26 +743,32 @@ export const guards = {
   oneshotPlanSet: {
     id: 'oneshot-plan-set',
     description:
-      'Oneshot workflow plan is captured: state.oneshot.planSummary OR state.artifacts.plan is set',
+      'Oneshot workflow plan artifact is captured in state.artifacts.plan. `oneshot.planSummary` is a pipeline-view hint, not a plan, and is not sufficient alone to transition plan → implementing.',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const oneshot = state.oneshot as Record<string, unknown> | undefined;
-      if (oneshot != null && typeof oneshot.planSummary === 'string' && oneshot.planSummary.length > 0) {
-        return true;
-      }
+      // Tightened: require `artifacts.plan` as the primary (and only
+      // sufficient) condition. Previously either `oneshot.planSummary`
+      // OR `artifacts.plan` satisfied the guard, but `planSummary` is a
+      // one-line pipeline-view hint — not a real plan — and accepting it
+      // as a substitute meant oneshot workflows could enter `implementing`
+      // with no persisted plan artifact at all. `planSummary` is still
+      // recommended as a human-readable label, but it is not the artifact
+      // the guard enforces.
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts != null && artifacts.plan != null) return true;
+      const plan = artifacts?.plan;
+      if (typeof plan === 'string' && plan.length > 0) return true;
+      if (plan != null && typeof plan !== 'string') return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
         passed: false,
         reason:
-          'oneshot-plan-set not satisfied: set state.oneshot.planSummary or state.artifacts.plan before transitioning to implementing',
-        expectedShape: { oneshot: { planSummary: '<one-page plan>' } },
+          'oneshot-plan-set not satisfied: state.artifacts.plan is required (a non-empty plan artifact) before transitioning plan → implementing. `oneshot.planSummary` alone does not satisfy this guard.',
+        expectedShape: { artifacts: { plan: '<one-page plan contents or path>' } },
         suggestedFix: {
           tool: 'exarchos_workflow',
           params: {
             action: 'set',
             featureId,
-            updates: { oneshot: { planSummary: '<one-page plan>' } },
+            updates: { 'artifacts.plan': '<one-page plan contents or path>' },
           },
         },
       };

@@ -338,7 +338,7 @@ describe('handlePruneStaleWorkflows', () => {
     };
     expect(data.pruned.map((p) => p.featureId)).toEqual(['a']);
     expect(data.skipped.map((s) => s.featureId)).toEqual(['b']);
-    expect(data.skipped[0]?.reason).toBe('recent-commits');
+    expect(data.skipped[0]?.reason).toBe('active-branch');
   });
 
   it('force=true bypasses safeguards and emits skippedSafeguards in event payload', async () => {
@@ -374,7 +374,7 @@ describe('handlePruneStaleWorkflows', () => {
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.type).toBe('workflow.pruned');
     expect(envelope.data.featureId).toBe('a');
-    expect(envelope.data.skippedSafeguards).toEqual(['open-pr', 'recent-commits']);
+    expect(envelope.data.skippedSafeguards).toEqual(['open-pr', 'active-branch']);
   });
 
   it('emits workflow.pruned event per successful cancel', async () => {

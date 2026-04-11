@@ -144,23 +144,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to `implementing` in a single set call:
+Persist the plan and transition to `implementing` in a single set call.
+`phase` is a top-level argument of `set`, not a field inside `updates`:
 
 ```typescript
 {{MCP_PREFIX}}exarchos_workflow({
   action: "set",
   featureId: "fix-readme-typo",
+  phase: "implementing",
   updates: {
-    "artifacts": { "plan": "<plan text>" },
-    "oneshot": { "planSummary": "<one-line summary>" },
-    "phase": "implementing"
+    "artifacts.plan": "<plan text>",
+    "oneshot.planSummary": "<one-line summary>"
   }
 })
 ```
 
 The plan goes on `artifacts.plan` for parity with the `feature` workflow;
 the human-readable one-liner goes on `oneshot.planSummary` for the
-pipeline view.
+pipeline view. Only `artifacts.plan` is enforced by the
+`oneshot-plan-set` guard — `planSummary` is an optional pipeline-view
+label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
@@ -292,7 +295,14 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set { artifacts.plan, oneshot.planSummary, phase: 'implementing' }
+  3. exarchos_workflow set {
+       featureId: "fix-readme-typo",
+       phase: "implementing",                   // top-level
+       updates: {
+         "artifacts.plan": "...",
+         "oneshot.planSummary": "..."
+       }
+     }
   4. [RED] writes test that greps README for 'recieve' and expects 0 matches
         — fails (1 match exists)
   5. [GREEN] edits README, fixes typo

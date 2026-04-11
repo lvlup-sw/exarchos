@@ -901,14 +901,22 @@ describe('synthesisOptedOut', () => {
 });
 
 // ─── oneshotPlanSet Guard Tests (T9) ────────────────────────────────────────
+// Tightened (post CodeRabbit review on PR #1078): the guard now requires
+// `state.artifacts.plan` as the primary condition. `oneshot.planSummary`
+// remains useful as a pipeline-view label but is no longer accepted as a
+// plan substitute on its own. These tests are flipped accordingly.
 
 describe('oneshotPlanSet', () => {
-  it('oneshotPlanSet_planSummarySet_returnsTrue', () => {
+  it('oneshotPlanSet_planSummaryAloneIsInsufficient', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       oneshot: { synthesisPolicy: 'on-request', planSummary: 'A one-page plan' },
     };
-    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('artifacts.plan');
   });
 
   it('oneshotPlanSet_artifactsPlanSet_returnsTrue', () => {
@@ -920,6 +928,9 @@ describe('oneshotPlanSet', () => {
   });
 
   it('oneshotPlanSet_bothPlanSummaryAndArtifactsPlan_returnsTrue', () => {
+    // artifacts.plan is sufficient; planSummary is allowed alongside as
+    // a pipeline-view label but is not required. The guard passes because
+    // artifacts.plan is set, not because planSummary is.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
       oneshot: { synthesisPolicy: 'always', planSummary: 'summary' },
@@ -928,13 +939,12 @@ describe('oneshotPlanSet', () => {
     expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
   });
 
-  it('oneshotPlanSet_emptyPlanSummary_fallsThrough', () => {
-    // An empty planSummary must NOT count as set — require a non-empty string.
-    // If artifacts.plan is absent, the guard fails.
+  it('oneshotPlanSet_emptyArtifactsPlan_fallsThrough', () => {
+    // An empty artifacts.plan string must NOT count as set.
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
-      oneshot: { synthesisPolicy: 'on-request', planSummary: '' },
-      artifacts: {},
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
+      artifacts: { plan: '' },
     };
     const result = guards.oneshotPlanSet.evaluate(state);
     expect(result).not.toBe(true);
@@ -942,10 +952,10 @@ describe('oneshotPlanSet', () => {
     expect(failure.passed).toBe(false);
   });
 
-  it('oneshotPlanSet_neitherSet_returnsFailureWithSuggestedFix', () => {
+  it('oneshotPlanSet_planSummaryWithoutArtifacts_returnsFailureWithSuggestedFix', () => {
     const state: Record<string, unknown> = {
       featureId: 'fix-readme',
-      oneshot: { synthesisPolicy: 'on-request' },
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'one-liner' },
       artifacts: {},
     };
     const result = guards.oneshotPlanSet.evaluate(state);
@@ -956,6 +966,9 @@ describe('oneshotPlanSet', () => {
     expect(failure.suggestedFix).toBeDefined();
     expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
     expect(failure.suggestedFix!.params.featureId).toBe('fix-readme');
+    // The suggested fix now points at artifacts.plan, not oneshot.planSummary.
+    const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
+    expect(updates).toHaveProperty('artifacts.plan');
   });
 
   it('oneshotPlanSet_missingOneshotAndArtifacts_returnsFailure', () => {

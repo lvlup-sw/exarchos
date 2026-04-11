@@ -193,14 +193,19 @@ export interface PruneSkipped {
   /**
    * Why this candidate was skipped rather than pruned.
    * - `open-pr`              — safeguard: an open PR exists for the branch
-   * - `recent-commits`       — safeguard: commits landed within the recency window
+   * - `active-branch`        — safeguard: commits landed on the branch
+   *                            within the recency window
+   *                            (user-facing name from the prune-workflows
+   *                            skill and design doc; the implementation
+   *                            detail — a `git log --since` window — is
+   *                            on the `hasRecentCommits` backend)
    * - `cancel-failed`        — `handleCancel` returned `success: false`
    * - `event-append-failed`  — cancel succeeded but appending `workflow.pruned`
    *                            to the event store threw; the workflow is
    *                            cancelled on disk but NOT counted as pruned,
    *                            because the audit trail is incomplete
    */
-  reason: 'open-pr' | 'recent-commits' | 'cancel-failed' | 'event-append-failed';
+  reason: 'open-pr' | 'active-branch' | 'cancel-failed' | 'event-append-failed';
   message?: string;
 }
 
@@ -306,8 +311,11 @@ function extractListEntries(result: ToolResult): WorkflowListEntry[] {
  * `gh`/`git`-backed safeguards.
  */
 // All safeguards, in evaluation order, echoed on the audit event when
-// `force` bypasses them.
-const ALL_SKIPPED_SAFEGUARDS = ['open-pr', 'recent-commits'] as const;
+// `force` bypasses them. The names here are the user-facing reason keys
+// (matching the `prune-workflows` skill and design doc); internal backends
+// may use different names (e.g. `hasRecentCommits` is the git-backed
+// implementation for `active-branch`).
+const ALL_SKIPPED_SAFEGUARDS = ['open-pr', 'active-branch'] as const;
 
 /**
  * Per-candidate classification returned by {@link prunePruneCandidate}. The
@@ -344,7 +352,7 @@ async function prunePruneCandidate(
     if (await deps.safeguards.hasRecentCommits(branchName, RECENT_COMMITS_WINDOW_HOURS)) {
       return {
         kind: 'skipped',
-        entry: { featureId: candidate.featureId, reason: 'recent-commits' },
+        entry: { featureId: candidate.featureId, reason: 'active-branch' },
       };
     }
   }

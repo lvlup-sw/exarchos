@@ -60,7 +60,13 @@ At the start of `/exarchos:ideate`, use `mcp__plugin_exarchos_exarchos__exarchos
 - `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`, `"oneshot"`
 - `synthesisPolicy` *(optional, oneshot only)*: one of `"always"`, `"never"`, `"on-request"` (default `"on-request"`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+`workflowType`:
+
+- `feature` → starts in `ideate`
+- `debug` → starts in `triage`
+- `refactor` → starts in `explore`
+- `oneshot` → starts in `plan` (skips ideate entirely)
 
 ### Workflow Types at a Glance
 

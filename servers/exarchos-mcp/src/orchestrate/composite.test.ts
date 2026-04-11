@@ -462,13 +462,17 @@ describe('handleOrchestrate', () => {
       // Act
       const result = await handleOrchestrate(args, CTX);
 
-      // Assert — adapter injects eventStore from ctx into args
+      // Assert — adapter injects both stateDir and eventStore from ctx
+      // into args, matching the finalize_oneshot pattern. The stateDir
+      // injection replaces the old hardcoded `.exarchos/state/...`
+      // fallback inside the handler.
       expect(result).toBe(expected);
       expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
       expect(call.featureId).toBe('feat-oneshot-1');
       expect(call.reason).toBe('user requested PR review');
       expect(call.eventStore).toBe(CTX.eventStore);
+      expect(call.stateDir).toBe(STATE_DIR);
     });
 
     it('compositeHandler_finalizeOneshotAction_dispatches', async () => {

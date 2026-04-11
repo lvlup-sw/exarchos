@@ -178,7 +178,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // minimal bridge. An adapter wrapper would just re-spread the same three
   // args with no narrowing benefit.
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
-  request_synthesize: adaptArgsWithEventStore(handleRequestSynthesize),
+  request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
 };
 

@@ -196,6 +196,12 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',
+  // Oneshot workflow (compressed lifecycle: plan → implementing →
+  // synthesize|completed). `plan` is already present above from the
+  // feature workflow; `implementing` is oneshot-exclusive and MUST be in
+  // this set so generic actions gated by ALL_PHASES (get / set / cancel /
+  // event append / etc.) remain callable while a oneshot is mid-flight.
+  'implementing',
   // Shared
   'blocked',
 ]);

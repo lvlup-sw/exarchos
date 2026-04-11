@@ -252,6 +252,12 @@ export const WorkflowStartedData = z.object({
   featureId: z.string(),
   workflowType: WorkflowTypeSchema,
   designPath: z.string().optional(),
+  // Oneshot-only: the synthesisPolicy chosen at init time. Must be persisted
+  // in the event stream so ES v2 rematerialization reconstructs the policy
+  // — otherwise the workflow silently reverts to the schema default
+  // (`on-request`) after `handleInit` → rehydrate round-trips. Silently
+  // accepted for non-oneshot workflow types but never populated by them.
+  synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
 });
 
 export const TaskAssignedData = z.object({

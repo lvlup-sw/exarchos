@@ -976,17 +976,17 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
       {
         tool: 'exarchos_workflow',
         action: 'set',
-        purpose: 'Record the one-page plan summary in state.oneshot.planSummary',
+        purpose: 'Persist the one-page plan to state.artifacts.plan (required by the oneshot-plan-set guard); oneshot.planSummary is an optional pipeline-view label',
       },
     ],
     events: [],
     transitionCriteria: 'Plan ready → implementing',
     guardPrerequisites:
-      "state.oneshot.planSummary set (or artifacts.plan set) — a one-page plan captured before implementation",
+      "state.artifacts.plan set — a one-page plan captured before implementation. oneshot.planSummary is a pipeline-view hint, not a substitute.",
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance:
-      'Lightweight in-session planning for a oneshot workflow. Capture a one-page plan (goal, approach, files to touch, tests to add) via exarchos_workflow set using updates: { oneshot: { planSummary: "..." } }. No design doc required; no subagent dispatch. Transition to implementing once the plan summary is recorded. Follow the oneshot-workflow skill for the full procedure.',
+      'Lightweight in-session planning for a oneshot workflow. Capture a one-page plan (goal, approach, files to touch, tests to add) via exarchos_workflow set using updates: { "artifacts.plan": "..." }. Optionally also set oneshot.planSummary for a one-line pipeline-view label, but artifacts.plan is the guard-required artifact. No design doc required; no subagent dispatch. Transition to implementing once the plan artifact is recorded. Follow the oneshot-workflow skill for the full procedure.',
   },
   {
     phase: 'implementing',

@@ -33,7 +33,11 @@ function makeOneshotState(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     featureId: 'feat-oneshot-1',
     workflowType: 'oneshot',
-    phase: 'delegate',
+    // `implementing` is the primary request-synthesize phase per the
+    // registry gating + runtime guard. `plan` is also accepted for the
+    // "I already know I'll want a PR" early-signal path.
+    phase: 'implementing',
+    createdAt: '2026-04-11T00:00:00.000Z',
     oneshot: { synthesisPolicy: 'on-request' },
     ...overrides,
   });
@@ -44,6 +48,7 @@ function makeFeatureState(overrides: Record<string, unknown> = {}): string {
     featureId: 'feat-full-1',
     workflowType: 'feature',
     phase: 'delegate',
+    createdAt: '2026-04-11T00:00:00.000Z',
     ...overrides,
   });
 }
@@ -56,7 +61,13 @@ interface AppendCall {
   };
 }
 
-/** Minimal EventStore stub exposing append() as a spy that records each call. */
+/**
+ * Minimal EventStore stub exposing `append()` and `query()`. The resolver
+ * falls back to the event-store path when the on-disk state file is
+ * missing, so we also stub `query()` to return an empty event list —
+ * the resulting zero-initialized projection then trips the STATE_NOT_FOUND
+ * sentinel in `handleRequestSynthesize`.
+ */
 function makeMockEventStore(): {
   store: EventStore;
   calls: AppendCall[];
@@ -73,7 +84,8 @@ function makeMockEventStore(): {
       data: event.data ?? {},
     };
   });
-  const store = { append: appendSpy } as unknown as EventStore;
+  const querySpy = vi.fn(async () => []);
+  const store = { append: appendSpy, query: querySpy } as unknown as EventStore;
   return { store, calls, appendSpy };
 }
 
@@ -205,5 +217,94 @@ describe('handleRequestSynthesize', () => {
     expect(Number.isNaN(parsed.getTime())).toBe(false);
     // Confirm it's a full ISO-8601 string (Zod datetime() accepts only this form).
     expect(ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  // ─── Runtime phase guard (mirrors the registry gating) ────────────────────
+
+  it('handleRequestSynthesize_acceptsPlanPhase', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(makeOneshotState({ phase: 'plan' }));
+    const { store, calls } = makeMockEventStore();
+
+    const result = await handleRequestSynthesize({
+      featureId: 'feat-oneshot-1',
+      stateFile: '/tmp/feat-oneshot-1.state.json',
+      eventStore: store,
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('handleRequestSynthesize_rejectsTerminalPhases_completed', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(makeOneshotState({ phase: 'completed' }));
+    const { store, calls } = makeMockEventStore();
+
+    const result = await handleRequestSynthesize({
+      featureId: 'feat-oneshot-1',
+      stateFile: '/tmp/feat-oneshot-1.state.json',
+      eventStore: store,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_PHASE');
+    expect(result.error?.message).toMatch(/completed/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('handleRequestSynthesize_rejectsTerminalPhases_cancelled', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(makeOneshotState({ phase: 'cancelled' }));
+    const { store, calls } = makeMockEventStore();
+
+    const result = await handleRequestSynthesize({
+      featureId: 'feat-oneshot-1',
+      stateFile: '/tmp/feat-oneshot-1.state.json',
+      eventStore: store,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_PHASE');
+    expect(result.error?.message).toMatch(/cancelled/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('handleRequestSynthesize_rejectsTerminalPhases_synthesize', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(makeOneshotState({ phase: 'synthesize' }));
+    const { store, calls } = makeMockEventStore();
+
+    const result = await handleRequestSynthesize({
+      featureId: 'feat-oneshot-1',
+      stateFile: '/tmp/feat-oneshot-1.state.json',
+      eventStore: store,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_PHASE');
+    expect(calls).toHaveLength(0);
+  });
+
+  // ─── stateDir fallback (replaces hardcoded .exarchos/state path) ──────────
+
+  it('handleRequestSynthesize_derivesStateFileFromStateDir', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(makeOneshotState());
+    const { store, calls } = makeMockEventStore();
+
+    // No `stateFile` provided; the handler should derive one from
+    // `stateDir + featureId` rather than the old hardcoded
+    // `.exarchos/state/...` path.
+    const result = await handleRequestSynthesize({
+      featureId: 'feat-oneshot-1',
+      stateDir: '/custom/state/dir',
+      eventStore: store,
+    });
+
+    expect(result.success).toBe(true);
+    expect(calls).toHaveLength(1);
+    // Resolver should have been asked to read from the derived path.
+    expect(mockExistsSync).toHaveBeenCalledWith('/custom/state/dir/feat-oneshot-1.state.json');
   });
 });

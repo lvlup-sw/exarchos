@@ -126,7 +126,14 @@ export async function handleInit(
       // File doesn't exist — proceed with init
     }
 
-    // Event-first: append workflow.started event BEFORE creating state file
+    // Event-first: append workflow.started event BEFORE creating state file.
+    // For oneshot workflows with an explicit `synthesisPolicy`, include it on
+    // the event data so ES v2 rematerialization reconstructs the policy —
+    // without this, rehydrating a state from events alone silently reverts
+    // the workflow to the schema default (`on-request`), losing an
+    // init-time decision that drives the choice-state guard at finalize.
+    const isOneshotWithPolicy =
+      input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined;
     let eventSequence = 0;
     if (eventStore) {
       try {
@@ -137,6 +144,7 @@ export async function handleInit(
           data: {
             featureId: input.featureId,
             workflowType: input.workflowType,
+            ...(isOneshotWithPolicy ? { synthesisPolicy: input.synthesisPolicy } : {}),
           },
         }, { idempotencyKey: `${input.featureId}:workflow.started` });
         eventSequence = event.sequence;
