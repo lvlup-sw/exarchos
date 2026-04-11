@@ -978,4 +978,30 @@ describe('oneshotPlanSet', () => {
     const result = guards.oneshotPlanSet.evaluate(state);
     expect(result).not.toBe(true);
   });
+
+  it('oneshotPlanSet_rejectsWhitespaceOnlyPlan', () => {
+    // Shepherd iter 2 (CodeRabbit F3): whitespace-only plan strings are
+    // not real plan artifacts. `'   '` satisfies `.length > 0` but carries
+    // no content — the guard must reject it on `.trim().length > 0`.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
+      artifacts: { plan: '   ' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('artifacts.plan');
+  });
+
+  it('oneshotPlanSet_rejectsPlanWithOnlyNewlinesAndTabs', () => {
+    // Defensive: "\n\t\n " is whitespace-only too. Same rejection.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      artifacts: { plan: '\n\t\n ' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+  });
 });

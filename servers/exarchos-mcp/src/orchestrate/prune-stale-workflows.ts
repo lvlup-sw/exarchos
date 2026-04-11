@@ -23,6 +23,7 @@ import type { EventType } from '../event-store/schemas.js';
 import { handleList } from '../workflow/tools.js';
 import { handleCancel } from '../workflow/cancel.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../workflow/terminal-phases.js';
+import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
@@ -68,6 +69,20 @@ export interface PruneExclusion {
 export interface PruneSelection {
   candidates: PruneCandidate[];
   excluded: PruneExclusion[];
+}
+
+/**
+ * Describes a `handleList` entry that failed structural validation. These
+ * entries are excluded from prune selection entirely — the handler will
+ * never consider them candidates, so a regressed `handleList` shape cannot
+ * silently cause bulk-cancellation of active work (see T15 integration bug).
+ *
+ * `featureId` is optional because the entry may be missing that field —
+ * it's the first thing we'd want to look up, so we include it when we have it.
+ */
+export interface PruneMalformedEntry {
+  featureId?: string;
+  reason: string;
 }
 
 /**
@@ -225,6 +240,17 @@ export interface PruneHandlerResult {
    * this was a preview". Matches the shape in the 2026-04-11 design.
    */
   pruned?: PrunePruned[];
+  /**
+   * `handleList` entries that failed structural validation (missing
+   * `featureId`, `workflowType`, `phase`, or a parsable
+   * `_checkpoint.lastActivityTimestamp`). Present when at least one entry
+   * was rejected. Malformed entries are NEVER considered candidates or
+   * pruned — this is fail-closed behavior: if `handleList` regresses, we
+   * refuse to guess at identity/staleness rather than silently cancelling
+   * active workflows. Operators should see this field and fix the upstream
+   * shape.
+   */
+  malformed?: PruneMalformedEntry[];
 }
 
 /** Default branch-name reader: reads the state JSON and returns a top-level
@@ -263,33 +289,108 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
 /**
  * Narrow `handleList`'s opaque payload to the entry shape this module needs.
  *
- * `handleList` in `workflow/tools.ts` exposes `_checkpoint` on each entry so
- * we can read `lastActivityTimestamp` directly. Earlier revisions omitted
- * `_checkpoint`, which made every non-terminal workflow fall through to the
- * epoch fallback and appear maximally stale — the freshness filter became a
- * no-op. The fallback below is now only a last-resort guard for legacy or
- * malformed entries; see the T15 integration test for an end-to-end gate.
+ * Fail-closed validation (F1, shepherd iter 2): every entry must supply a
+ * non-empty `featureId`, non-empty `workflowType`, string `phase`, and a
+ * parsable `_checkpoint.lastActivityTimestamp`. Entries missing any of
+ * those fields are moved to a separate `malformed` bucket and excluded
+ * from selection entirely.
+ *
+ * Earlier revisions coerced missing fields with defaults (`new Date(0)`,
+ * `'feature'`, `'unknown'`). That meant a single upstream regression in
+ * `handleList` — which already happened once, see the T15 integration
+ * test — could silently classify every active workflow as "maximally
+ * stale" and bulk-cancel them in apply mode. We now refuse to guess.
  */
-function extractListEntries(result: ToolResult): WorkflowListEntry[] {
-  if (!result.success || !Array.isArray(result.data)) return [];
+function extractListEntries(result: ToolResult): {
+  entries: WorkflowListEntry[];
+  malformed: PruneMalformedEntry[];
+} {
+  if (!result.success || !Array.isArray(result.data)) {
+    return { entries: [], malformed: [] };
+  }
+
   const entries: WorkflowListEntry[] = [];
+  const malformed: PruneMalformedEntry[] = [];
+
   for (const raw of result.data) {
-    if (typeof raw !== 'object' || raw === null) continue;
+    if (typeof raw !== 'object' || raw === null) {
+      malformed.push({ reason: 'entry is not an object' });
+      continue;
+    }
     const obj = raw as Record<string, unknown>;
-    const checkpoint = obj._checkpoint as { lastActivityTimestamp?: unknown } | undefined;
-    const lastActivityTimestamp =
-      typeof checkpoint?.lastActivityTimestamp === 'string'
-        ? checkpoint.lastActivityTimestamp
-        : new Date(0).toISOString();
+
+    // Capture featureId eagerly (even if invalid) so malformed reports can
+    // reference *which* entry failed — critical for operators debugging
+    // handleList regressions.
+    const featureIdRaw = obj.featureId;
+    const featureIdForReport =
+      typeof featureIdRaw === 'string' && featureIdRaw.length > 0 ? featureIdRaw : undefined;
+
+    if (typeof featureIdRaw !== 'string' || featureIdRaw.length === 0) {
+      malformed.push({ reason: 'missing or empty featureId' });
+      continue;
+    }
+
+    const workflowTypeRaw = obj.workflowType;
+    if (typeof workflowTypeRaw !== 'string' || workflowTypeRaw.length === 0) {
+      malformed.push({
+        featureId: featureIdForReport,
+        reason: 'missing or empty workflowType',
+      });
+      continue;
+    }
+
+    const phaseRaw = obj.phase;
+    if (typeof phaseRaw !== 'string') {
+      malformed.push({
+        featureId: featureIdForReport,
+        reason: 'missing or non-string phase',
+      });
+      continue;
+    }
+
+    const checkpointRaw = obj._checkpoint;
+    if (typeof checkpointRaw !== 'object' || checkpointRaw === null) {
+      malformed.push({
+        featureId: featureIdForReport,
+        reason: 'missing _checkpoint',
+      });
+      continue;
+    }
+    const checkpoint = checkpointRaw as Record<string, unknown>;
+
+    const lastActivityTimestampRaw = checkpoint.lastActivityTimestamp;
+    if (typeof lastActivityTimestampRaw !== 'string') {
+      malformed.push({
+        featureId: featureIdForReport,
+        reason: 'missing _checkpoint.lastActivityTimestamp',
+      });
+      continue;
+    }
+    // Reject unparsable ISO strings — `new Date("not-a-date").valueOf()`
+    // is NaN. If we accepted these, `minutesSince()` would return 0 via
+    // its own NaN guard and the entry would be classified as fresh, which
+    // is silent misclassification, not fail-closed.
+    if (Number.isNaN(new Date(lastActivityTimestampRaw).valueOf())) {
+      malformed.push({
+        featureId: featureIdForReport,
+        reason: 'unparsable _checkpoint.lastActivityTimestamp',
+      });
+      continue;
+    }
+
+    const stateFile = typeof obj.stateFile === 'string' ? obj.stateFile : '';
+
     entries.push({
-      featureId: String(obj.featureId ?? ''),
-      workflowType: String(obj.workflowType ?? 'feature'),
-      phase: String(obj.phase ?? 'unknown'),
-      stateFile: String(obj.stateFile ?? ''),
-      _checkpoint: { lastActivityTimestamp },
+      featureId: featureIdRaw,
+      workflowType: workflowTypeRaw,
+      phase: phaseRaw,
+      stateFile,
+      _checkpoint: { lastActivityTimestamp: lastActivityTimestampRaw },
     });
   }
-  return entries;
+
+  return { entries, malformed };
 }
 
 /**
@@ -416,7 +517,44 @@ export async function handlePruneStaleWorkflows(
   ctx?: DispatchContext,
   deps: PruneHandlerDeps = productionDeps(ctx),
 ): Promise<ToolResult> {
-  const thresholdMinutes = args.thresholdMinutes;
+  // ─── F2: up-front input validation ──────────────────────────────────────
+  // We reject invalid inputs BEFORE touching `handleList`, cancel, or the
+  // event store. A negative/NaN/Infinity `thresholdMinutes` or unparsable
+  // `now` would otherwise skew selection semantics — in apply mode, a
+  // `thresholdMinutes: -1` would classify every workflow as stale and
+  // bulk-cancel them. Fail closed with a structured error instead.
+  if (args.thresholdMinutes !== undefined) {
+    const t = args.thresholdMinutes;
+    if (
+      typeof t !== 'number' ||
+      !Number.isFinite(t) ||
+      !Number.isInteger(t) ||
+      t <= 0
+    ) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `thresholdMinutes must be a positive integer (got: ${String(t)})`,
+        },
+      };
+    }
+  }
+  if (args.now !== undefined) {
+    if (typeof args.now !== 'string' || Number.isNaN(new Date(args.now).valueOf())) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `now must be a valid ISO datetime string (got: ${String(args.now)})`,
+        },
+      };
+    }
+  }
+
+  // Apply validated/defaulted values. `thresholdMinutes` defaults to the
+  // v1 spec default (7 days) when absent; `now` defaults to `new Date()`.
+  const thresholdMinutes = args.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = args.includeOneShot;
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
@@ -449,13 +587,29 @@ export async function handlePruneStaleWorkflows(
       },
     };
   }
-  const entries = extractListEntries(listResult);
+  const { entries, malformed } = extractListEntries(listResult);
+
+  // Loud warning when malformed entries are present: operators need to
+  // see this in logs, not just in the return shape. Failing closed means
+  // these entries won't be pruned — but if it's a systemic regression in
+  // `handleList`, *every* entry may be malformed and nothing will be
+  // pruned, which looks the same as "nothing to prune" unless we log.
+  if (malformed.length > 0) {
+    orchestrateLogger.warn(
+      {
+        action: 'prune_stale_workflows',
+        malformedCount: malformed.length,
+        firstMalformed: malformed[0],
+      },
+      'malformed handleList entries excluded from prune consideration',
+    );
+  }
 
   // 2. Pure selection.
   const { candidates } = selectPruneCandidates(
     entries,
     {
-      ...(thresholdMinutes !== undefined ? { thresholdMinutes } : {}),
+      thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
     },
     now,
@@ -465,7 +619,11 @@ export async function handlePruneStaleWorkflows(
   // comment on PruneHandlerResult. Callers can distinguish dry-run from
   // apply mode by the presence/absence of the field.
   if (dryRun) {
-    const result: PruneHandlerResult = { candidates, skipped: [] };
+    const result: PruneHandlerResult = {
+      candidates,
+      skipped: [],
+      ...(malformed.length > 0 ? { malformed } : {}),
+    };
     return { success: true, data: result };
   }
 
@@ -484,6 +642,11 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  const result: PruneHandlerResult = { candidates, skipped, pruned };
+  const result: PruneHandlerResult = {
+    candidates,
+    skipped,
+    pruned,
+    ...(malformed.length > 0 ? { malformed } : {}),
+  };
   return { success: true, data: result };
 }

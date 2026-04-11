@@ -12,8 +12,8 @@ metadata:
 # Oneshot Workflow Skill
 
 A lean, four-phase workflow type for changes that are too small to justify the
-full `feature` flow (`ideate → plan → delegate → review → synthesize`) but
-still deserve event-sourced auditability and a planning step. The workflow is
+full `feature` flow (`ideate → plan → plan-review → delegate → review → synthesize → completed`)
+but still deserve event-sourced auditability and a planning step. The workflow is
 **direct-commit by default** with an opt-in PR path; the choice between the
 two is resolved at the end of `implementing` via a pure event-sourced guard,
 not a heuristic.
@@ -88,7 +88,7 @@ and overrides runtime signal.
 
 ## Lifecycle
 
-```
+```text
      plan ──────► implementing ──┬── [synthesisOptedOut] ──► completed
                                  │
                                  └── [synthesisOptedIn]  ──► synthesize ──► completed
@@ -286,7 +286,7 @@ do not exist in the oneshot playbook. The PR review is the only review.
 
 ### Example A — Direct-commit (default `on-request` policy, no opt-in)
 
-```
+```text
 User: "Quick fix — there's a typo in the README, 'recieve' should be 'receive'.
        Use oneshot."
 
@@ -317,7 +317,7 @@ Agent:
 
 ### Example B — Mid-implementing opt-in (`on-request` → user changes mind)
 
-```
+```text
 User: "Add input validation to the parseConfig helper. Oneshot."
 
 Agent:
@@ -347,7 +347,7 @@ Agent:
 
 ### Example C — `synthesisPolicy: 'always'` (PR mandatory)
 
-```
+```text
 User: "I want a PR for any change to the auth module, even small ones.
        Use oneshot but always make a PR."
 

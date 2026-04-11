@@ -755,7 +755,11 @@ export const guards = {
       // the guard enforces.
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
       const plan = artifacts?.plan;
-      if (typeof plan === 'string' && plan.length > 0) return true;
+      // Whitespace-only plan strings are not a real plan artifact — they
+      // satisfy `.length > 0` but carry no content, which would let a
+      // oneshot transition `plan → implementing` with a blank document.
+      // Require at least one non-whitespace character.
+      if (typeof plan === 'string' && plan.trim().length > 0) return true;
       if (plan != null && typeof plan !== 'string') return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {

@@ -6,6 +6,7 @@ import {
   type PruneHandlerDeps,
   type PruneSafeguards,
 } from './prune-stale-workflows.js';
+import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
 
 /**
@@ -548,5 +549,252 @@ describe('handlePruneStaleWorkflows', () => {
     expect(failed?.reason).toBe('cancel-failed');
     // Only successful cancels emit events.
     expect(append).toHaveBeenCalledTimes(2);
+  });
+
+  // ─── F1: fail-closed malformed-entry validation ───────────────────────────
+  // Shepherd iter 2 (CodeRabbit finding): the handler must refuse to prune
+  // handleList entries that are missing required fields. Previously, missing
+  // `_checkpoint` was coerced to `new Date(0)` which made them look
+  // maximally stale — if handleList ever regressed (as it did in T15), every
+  // workflow would be bulk-cancelled in apply mode. The handler now moves
+  // malformed entries to a separate `malformed` bucket and excludes them
+  // from candidates/pruned entirely.
+  it('handlePruneStaleWorkflows_malformedEntries_excludedFromCandidates', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // Bypass makeListResult() — it always produces valid entries — and
+    // construct a raw mixed payload directly so we can inject malformed
+    // shapes.
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        // Valid, stale → should land in candidates + pruned
+        {
+          featureId: 'valid-stale',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-stale.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+        // Missing _checkpoint → malformed
+        {
+          featureId: 'no-checkpoint',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/no-checkpoint.state.json',
+        },
+        // Missing featureId → malformed (and featureId omitted in report)
+        {
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/anon.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+        // Invalid timestamp string → malformed
+        {
+          featureId: 'bad-timestamp',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-timestamp.state.json',
+          _checkpoint: { lastActivityTimestamp: 'not-a-date' },
+        },
+        // Missing workflowType → malformed
+        {
+          featureId: 'no-type',
+          phase: 'implementing',
+          stateFile: '/tmp/no-type.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+      ],
+    });
+
+    // Silence the malformed-entries warning for the duration of the test —
+    // we assert on the return shape, not stderr. Also asserts the warning
+    // path fires: handler must call orchestrateLogger.warn when malformed
+    // entries are present so operators see the upstream regression.
+    const warnSpy = vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      candidates: Array<{ featureId: string }>;
+      pruned: Array<{ featureId: string }>;
+      skipped: unknown[];
+      malformed: Array<{ featureId?: string; reason: string }>;
+    };
+
+    // Only the valid entry made it to candidates + pruned.
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-stale']);
+    expect(data.pruned.map((p) => p.featureId)).toEqual(['valid-stale']);
+
+    // The 4 malformed entries are reported separately.
+    expect(data.malformed).toHaveLength(4);
+    const malformedIds = data.malformed
+      .map((m) => m.featureId)
+      .filter((id): id is string => id !== undefined)
+      .sort();
+    // `no-checkpoint`, `bad-timestamp`, `no-type` all have featureId; the
+    // missing-featureId entry reports undefined.
+    expect(malformedIds).toEqual(['bad-timestamp', 'no-checkpoint', 'no-type']);
+    // One malformed entry has no featureId (it's the first field checked,
+    // so the missing-featureId case omits it from the report).
+    expect(
+      data.malformed.filter((m) => m.featureId === undefined),
+    ).toHaveLength(1);
+    // Every malformed entry has a human-readable reason string.
+    for (const m of data.malformed) {
+      expect(typeof m.reason).toBe('string');
+      expect(m.reason.length).toBeGreaterThan(0);
+    }
+
+    // Critical: malformed entries must NOT appear in candidates or pruned,
+    // and must NOT have been cancelled.
+    const allMalformedIds = new Set(['no-checkpoint', 'bad-timestamp', 'no-type']);
+    expect(
+      data.candidates.some((c) => allMalformedIds.has(c.featureId)),
+    ).toBe(false);
+    expect(data.pruned.some((p) => allMalformedIds.has(p.featureId))).toBe(false);
+    // handleCancel called exactly once — for the valid-stale entry only.
+    expect(deps.cancelSpy).toHaveBeenCalledTimes(1);
+    expect(
+      (deps.cancelSpy.mock.calls[0]?.[0] as { featureId: string }).featureId,
+    ).toBe('valid-stale');
+  });
+
+  // ─── F2: thresholdMinutes + now input validation ──────────────────────────
+  // Shepherd iter 2 (CodeRabbit finding): invalid `thresholdMinutes` or
+  // `now` must be rejected up front with a structured INVALID_INPUT error,
+  // BEFORE touching handleList, cancel, or the event store. A negative or
+  // NaN threshold would otherwise cause bulk-cancel in apply mode.
+  it('handlePruneStaleWorkflows_rejectsNegativeThreshold', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: -1, dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('thresholdMinutes');
+    // Refuses BEFORE touching handleList — no partial state changes.
+    expect(deps.listSpy).not.toHaveBeenCalled();
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+  });
+
+  it('handlePruneStaleWorkflows_rejectsZeroThreshold', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: 0, dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+  });
+
+  it('handlePruneStaleWorkflows_rejectsNaNThreshold', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: Number.NaN, dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+  });
+
+  it('handlePruneStaleWorkflows_rejectsInfiniteThreshold', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: Number.POSITIVE_INFINITY, dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('handlePruneStaleWorkflows_rejectsNonIntegerThreshold', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { thresholdMinutes: 1.5, dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+  });
+
+  it('handlePruneStaleWorkflows_rejectsInvalidNow', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: 'not-a-date' },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('now');
+    expect(deps.listSpy).not.toHaveBeenCalled();
+  });
+
+  it('handlePruneStaleWorkflows_defaultThreshold_appliedWhenOmitted', async () => {
+    // When `thresholdMinutes` is omitted, the handler should default to
+    // 10080 (7 days). Verify by constructing an entry that is just barely
+    // stale vs the default (10081 min) — it should be a candidate.
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'just-stale', lastActivityTimestamp: staleIso(10_081) },
+        { featureId: 'just-fresh', lastActivityTimestamp: staleIso(10_079) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO }, // thresholdMinutes intentionally omitted
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { candidates: Array<{ featureId: string }> };
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['just-stale']);
   });
 });
