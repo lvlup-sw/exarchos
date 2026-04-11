@@ -1093,6 +1093,43 @@ const orchestrateActions: readonly ToolAction[] = [
     gate: { blocking: false },
   },
   {
+    name: 'prune_stale_workflows',
+    description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
+    schema: z.object({
+      thresholdMinutes: z.number().int().positive().optional(),
+      dryRun: z.boolean().optional(),
+      force: z.boolean().optional(),
+      includeOneShot: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
+    ],
+  },
+  {
+    name: 'request_synthesize',
+    description: 'Opt-in event for oneshot workflows with synthesisPolicy:on-request. Appending a synthesize.requested event flips the choice-state guard so finalize_oneshot routes to the synthesize phase. Auto-emits synthesize.requested.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      reason: z.string().optional(),
+    }),
+    phases: new Set<string>(['implementing']),
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'synthesize.requested', condition: 'always' },
+    ],
+  },
+  {
+    name: 'finalize_oneshot',
+    description: 'Resolve the oneshot choice-state at the end of implementing: transitions to synthesize (PR path) or completed (direct-commit path) based on the synthesisOptedIn / synthesisOptedOut guards. The transition itself is emitted by the workflow set handler.',
+    schema: z.object({
+      featureId: featureIdSchema,
+    }),
+    phases: new Set<string>(['implementing']),
+    roles: ROLE_LEAD,
+  },
+  {
     name: 'runbook',
     description: 'List available runbooks or get a resolved runbook with schemas',
     schema: z.object({

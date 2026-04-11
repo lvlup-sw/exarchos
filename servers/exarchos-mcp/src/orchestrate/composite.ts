@@ -65,6 +65,9 @@ import { handleNeedsSchemaSync } from './needs-schema-sync.js';
 import { handleVerifyDocLinks } from './verify-doc-links.js';
 import { handleVerifyReviewTriage } from './verify-review-triage.js';
 import { handlePrepareReview } from './prepare-review.js';
+import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
+import { handleRequestSynthesize } from './request-synthesize.js';
+import { handleFinalizeOneshot } from './finalize-oneshot.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -84,6 +87,26 @@ function adaptArgs<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): A
 function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
   return async (args, _stateDir, ctx) => {
     const enriched = ctx?.eventStore ? { ...args, eventStore: ctx.eventStore } : args;
+    return handler(enriched as unknown as T);
+  };
+}
+
+/**
+ * Wraps a typed handler that needs BOTH `stateDir` and `eventStore` from
+ * DispatchContext injected into a single args object. Use this when the
+ * underlying handler accepts a single bag of args containing all dependencies
+ * (rather than the conventional `(args, stateDir)` positional shape) — e.g.,
+ * `handleFinalizeOneshot` whose `FinalizeOneshotArgs` includes both fields.
+ */
+function adaptArgsWithStateDirAndEventStore<T>(
+  handler: (args: T) => ToolResult | Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    const enriched = {
+      ...args,
+      stateDir,
+      ...(ctx?.eventStore ? { eventStore: ctx.eventStore } : {}),
+    };
     return handler(enriched as unknown as T);
   };
 }
@@ -138,6 +161,13 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
   verify_review_triage: adaptArgs(handleVerifyReviewTriage),
   prepare_review: adapt(handlePrepareReview),
+  // Oneshot + pruning (T4): handlePruneStaleWorkflows already matches the
+  // ActionHandler `(args, stateDir, ctx?)` shape, so it is registered directly
+  // without an adapter. The other two need their dependencies injected from
+  // DispatchContext into a single args bag.
+  prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
+  request_synthesize: adaptArgsWithEventStore(handleRequestSynthesize),
+  finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

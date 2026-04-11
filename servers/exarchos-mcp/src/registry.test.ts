@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 51 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
+    it('should have 54 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(51);
+      expect(composite!.actions).toHaveLength(54);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -373,6 +373,9 @@ describe('TOOL_REGISTRY', () => {
           'verify_doc_links',
           'verify_review_triage',
           'prepare_review',
+          'prune_stale_workflows',
+          'request_synthesize',
+          'finalize_oneshot',
         ]),
       );
     });
