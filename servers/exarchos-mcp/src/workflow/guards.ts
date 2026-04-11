@@ -740,6 +740,35 @@ export const guards = {
     },
   },
 
+  oneshotPlanSet: {
+    id: 'oneshot-plan-set',
+    description:
+      'Oneshot workflow plan is captured: state.oneshot.planSummary OR state.artifacts.plan is set',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const oneshot = state.oneshot as Record<string, unknown> | undefined;
+      if (oneshot != null && typeof oneshot.planSummary === 'string' && oneshot.planSummary.length > 0) {
+        return true;
+      }
+      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      if (artifacts != null && artifacts.plan != null) return true;
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
+      return {
+        passed: false,
+        reason:
+          'oneshot-plan-set not satisfied: set state.oneshot.planSummary or state.artifacts.plan before transitioning to implementing',
+        expectedShape: { oneshot: { planSummary: '<one-page plan>' } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: {
+            action: 'set',
+            featureId,
+            updates: { oneshot: { planSummary: '<one-page plan>' } },
+          },
+        },
+      };
+    },
+  },
+
   synthesisOptedIn: {
     id: 'synthesis-opted-in',
     description:

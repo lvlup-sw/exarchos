@@ -899,3 +899,70 @@ describe('synthesisOptedOut', () => {
     expect(failure.reason).toContain('synthesize.requested');
   });
 });
+
+// ─── oneshotPlanSet Guard Tests (T9) ────────────────────────────────────────
+
+describe('oneshotPlanSet', () => {
+  it('oneshotPlanSet_planSummarySet_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'A one-page plan' },
+    };
+    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+  });
+
+  it('oneshotPlanSet_artifactsPlanSet_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      artifacts: { plan: 'Plan contents or path' },
+    };
+    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+  });
+
+  it('oneshotPlanSet_bothPlanSummaryAndArtifactsPlan_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'always', planSummary: 'summary' },
+      artifacts: { plan: 'path/to/plan.md' },
+    };
+    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+  });
+
+  it('oneshotPlanSet_emptyPlanSummary_fallsThrough', () => {
+    // An empty planSummary must NOT count as set — require a non-empty string.
+    // If artifacts.plan is absent, the guard fails.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: '' },
+      artifacts: {},
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+
+  it('oneshotPlanSet_neitherSet_returnsFailureWithSuggestedFix', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'fix-readme',
+      oneshot: { synthesisPolicy: 'on-request' },
+      artifacts: {},
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('oneshot-plan-set');
+    expect(failure.suggestedFix).toBeDefined();
+    expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix!.params.featureId).toBe('fix-readme');
+  });
+
+  it('oneshotPlanSet_missingOneshotAndArtifacts_returnsFailure', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+  });
+});
