@@ -101,15 +101,16 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
 }
 
 describe('task 018 — post-migration structural invariants', () => {
-  it('PostMigration_SkillsTree_Contains78SkillMdFiles', () => {
-    // 13 skills × 6 runtimes = 78 SKILL.md files under `skills/`.
-    // `test-fixtures/` is excluded because those are validator test
-    // fixtures, not deployable skills.
+  it('PostMigration_SkillsTree_ContainsExpectedSkillMdFiles', () => {
+    // 15 skills × 6 runtimes = 90 SKILL.md files under `skills/`.
+    // Updated in 2026-04-11 to add prune-workflows and oneshot-workflow
+    // per #1010. `test-fixtures/` is excluded because those are
+    // validator test fixtures, not deployable skills.
     const files = findAllSkillMdFiles(SKILLS_DIR, ['/test-fixtures/']);
     expect(
       files.length,
-      `expected 78 SKILL.md files under skills/ (13 skills × 6 runtimes), found ${files.length}`,
-    ).toBe(78);
+      `expected 90 SKILL.md files under skills/ (15 skills × 6 runtimes), found ${files.length}`,
+    ).toBe(90);
   });
 
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {
