@@ -711,3 +711,191 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(updates['reviews.stray-review.status']).toBe('pass');
   });
 });
+
+// ─── synthesisOptedIn / synthesisOptedOut Guard Tests ───────────────────────
+
+describe('synthesisOptedIn', () => {
+  it('synthesisOptedIn_policyAlways_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'always' },
+      _events: [],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesisOptedIn_policyNever_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'never' },
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('never');
+  });
+
+  it('synthesisOptedIn_policyOnRequestWithEvent_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [
+        { type: 'phase.changed' },
+        { type: 'synthesize.requested', data: { reason: 'reviewer asked for PR' } },
+      ],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesisOptedIn_policyOnRequestNoEvent_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'phase.changed' }],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize.requested');
+  });
+
+  it('synthesisOptedIn_policyDefaultsToOnRequest_whenFieldMissing', () => {
+    // No `oneshot` field at all — must default to 'on-request' semantics
+    const stateWithoutEvent: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      _events: [],
+    };
+
+    const resultNoEvent = guards.synthesisOptedIn.evaluate(stateWithoutEvent);
+    expect(resultNoEvent).not.toBe(true);
+    expect((resultNoEvent as GuardFailure).passed).toBe(false);
+
+    const stateWithEvent: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const resultWithEvent = guards.synthesisOptedIn.evaluate(stateWithEvent);
+    expect(resultWithEvent).toBe(true);
+  });
+});
+
+describe('synthesisOptedOut', () => {
+  it('synthesisOptedOut_isInverseOfSynthesisOptedIn', () => {
+    // Table-driven: 8 combinations of (policy ∈ {always, never, on-request}) ×
+    // (event present ∈ {true, false}), plus the default (no oneshot field) case.
+    // For every row, exactly one of the two guards must return true.
+    type Row = {
+      label: string;
+      oneshot: Record<string, unknown> | undefined;
+      eventPresent: boolean;
+    };
+
+    const rows: Row[] = [
+      { label: 'always + event',          oneshot: { synthesisPolicy: 'always' },     eventPresent: true  },
+      { label: 'always + no event',       oneshot: { synthesisPolicy: 'always' },     eventPresent: false },
+      { label: 'never + event',           oneshot: { synthesisPolicy: 'never' },      eventPresent: true  },
+      { label: 'never + no event',        oneshot: { synthesisPolicy: 'never' },      eventPresent: false },
+      { label: 'on-request + event',      oneshot: { synthesisPolicy: 'on-request' }, eventPresent: true  },
+      { label: 'on-request + no event',   oneshot: { synthesisPolicy: 'on-request' }, eventPresent: false },
+      { label: 'default (no oneshot) + event',    oneshot: undefined, eventPresent: true  },
+      { label: 'default (no oneshot) + no event', oneshot: undefined, eventPresent: false },
+    ];
+
+    for (const row of rows) {
+      const state: Record<string, unknown> = {
+        featureId: 'test-feature',
+        workflowType: 'oneshot',
+        _events: row.eventPresent ? [{ type: 'synthesize.requested' }] : [],
+      };
+      if (row.oneshot !== undefined) {
+        state.oneshot = row.oneshot;
+      }
+
+      const inResult = guards.synthesisOptedIn.evaluate(state);
+      const outResult = guards.synthesisOptedOut.evaluate(state);
+
+      const inPassed = inResult === true;
+      const outPassed = outResult === true;
+
+      // Mutual exclusivity: exactly one is true
+      expect(
+        inPassed !== outPassed,
+        `row "${row.label}": expected exactly one guard to pass (in=${inPassed}, out=${outPassed})`,
+      ).toBe(true);
+    }
+  });
+
+  it('synthesisOptedOut_policyNever_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'never' },
+      _events: [],
+    };
+
+    expect(guards.synthesisOptedOut.evaluate(state)).toBe(true);
+  });
+
+  it('synthesisOptedOut_policyAlways_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'always' },
+      _events: [],
+    };
+
+    const result = guards.synthesisOptedOut.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('always');
+  });
+
+  it('synthesisOptedOut_policyOnRequestNoEvent_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'phase.changed' }],
+    };
+
+    expect(guards.synthesisOptedOut.evaluate(state)).toBe(true);
+  });
+
+  it('synthesisOptedOut_policyOnRequestWithEvent_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const result = guards.synthesisOptedOut.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize.requested');
+  });
+});
