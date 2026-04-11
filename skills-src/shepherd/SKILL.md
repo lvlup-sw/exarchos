@@ -21,6 +21,10 @@ Iterative loop that shepherds published PRs through CI checks and code reviews t
               ^^^^^^^^^ runs within synthesize phase
 ```
 
+## Pipeline Hygiene
+
+When `{{MCP_PREFIX}}exarchos_view pipeline` accumulates stale workflows (inactive > 7 days), run `@skills/prune-workflows/SKILL.md` to bulk-cancel abandoned workflows before starting a new shepherd cycle. Safeguards skip workflows with open PRs or recent commits, so active shepherd targets are never touched. A clean pipeline makes shepherd iteration reporting easier to read and reduces noise in the stale-count view.
+
 ## Triggers
 
 Activate when:

@@ -20,6 +20,8 @@ Activate this skill when:
 - Implementation plan is ready with extractable tasks
 - User wants to parallelize work across subagents
 
+**Exception — oneshot workflows skip delegation entirely.** The oneshot playbook runs an in-session TDD loop in the main agent's context, with no subagent dispatch or review phase. If `workflowType === "oneshot"`, do not call this skill — see `@skills/oneshot-workflow/SKILL.md` for the lightweight path.
+
 ## Core Principles
 
 ### Fresh Context Per Task (MANDATORY)

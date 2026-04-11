@@ -118,6 +118,28 @@ explore → brief → [polish-track | overhaul-track] → completed
 
 **Compound state:** `overhaul-track` contains `overhaul-plan`, `overhaul-plan-review`, `overhaul-delegate`, `overhaul-review`, and `overhaul-update-docs`. Max 3 fix cycles.
 
+## Oneshot Workflow
+
+```
+plan → implementing ─┬→ completed              (direct-commit path)
+                     └→ synthesize → completed (PR path, opt-in)
+```
+
+| From | To | Guard | Prerequisite |
+|------|----|-------|-------------|
+| `plan` | `implementing` | `oneshot-plan-set` | Set `artifacts.plan` OR `oneshot.planSummary` |
+| `implementing` | `synthesize` | `synthesis-opted-in` | Policy `always` OR (`on-request` + `synthesize.requested` event) |
+| `implementing` | `completed` | `synthesis-opted-out` | Policy `never` OR (`on-request` + no event) |
+| `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
+
+**Choice state (end of `implementing`).** The fork after `implementing` is a UML choice state, implemented as two mutually-exclusive HSM transitions whose guards are pure functions of `state.oneshot.synthesisPolicy` and the `synthesize.requested` event count on the stream. At init, the user declares intent via `synthesisPolicy` (`always`, `never`, or `on-request` — default). During implementing, the user can opt in at any time by calling `exarchos_orchestrate request_synthesize`, which appends a `synthesize.requested` event without changing the phase. The decision is only evaluated when `finalize_oneshot` is called: the handler hydrates events, runs the guards, and calls `handleSet` with the resolved target. **Policy wins over event** — if policy is `never`, any `synthesize.requested` event is ignored and the guard routes to `completed`. Policy `always` short-circuits the event check and always routes to `synthesize`.
+
+**How to trigger:** `exarchos_orchestrate finalize_oneshot { featureId }` — this is the only way to exit `implementing`. The handler evaluates the choice state and calls `handleSet` with the correct target phase. The HSM re-evaluates the guard at the transition boundary, so any race between read and transition is caught safely.
+
+**No compound state.** Oneshot has no multi-agent loop, no review-fix cycle, and therefore no circuit breaker. If the in-session TDD loop gets stuck, cancel via `exarchos_workflow cancel` and restart with a different approach (or escalate to the full `feature` workflow).
+
+See `@skills/oneshot-workflow/SKILL.md` for the full prose walkthrough including worked examples.
+
 ## Circuit Breaker
 
 Compound states enforce a maximum number of fix cycles to prevent infinite review-fix loops. When the limit is exceeded, the HSM rejects the transition with a `CIRCUIT_OPEN` error and emits a `workflow.circuit-open` event.

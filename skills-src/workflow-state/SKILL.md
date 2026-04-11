@@ -54,9 +54,19 @@ For full MCP tool signatures, error handling, and anti-patterns, see `references
 
 At the start of `{{COMMAND_PREFIX}}ideate`, use `{{MCP_PREFIX}}exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
-- `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
+- `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`, `"oneshot"`
+- `synthesisPolicy` *(optional, oneshot only)*: one of `"always"`, `"never"`, `"on-request"` (default `"on-request"`) — silently ignored for non-oneshot types
 
 This creates a new state file with phase "ideate".
+
+### Workflow Types at a Glance
+
+- `feature` — full `ideate → plan → delegate → review → synthesize` for real features with subagent dispatch and two-stage review
+- `debug` — `triage → investigate → (thorough | hotfix)` for bug workflows with track selection
+- `refactor` — `explore → brief → (polish | overhaul)` for code improvements, polish for small and overhaul for multi-task
+- `oneshot` — `plan → implementing → (completed | synthesize)` for trivial changes; direct-commit by default with an opt-in PR path resolved via a choice-state guard driven by `synthesisPolicy` and the `synthesize.requested` event
+
+See `@skills/oneshot-workflow/SKILL.md` for the lightweight variant's full prose, including the choice-state mechanics and `finalize_oneshot` trigger.
 
 ### Read State
 
@@ -154,7 +164,7 @@ See `docs/schemas/workflow-state.schema.json` for full schema.
 Key sections:
 - `version`: Schema version (currently "1.1")
 - `featureId`: Unique workflow identifier
-- `workflowType`: Required. One of "feature", "debug", or "refactor"
+- `workflowType`: Required. One of "feature", "debug", "refactor", or "oneshot"
 - `phase`: Current workflow phase
 - `artifacts`: Paths to design, plan, PR
 - `tasks`: Task list with status
