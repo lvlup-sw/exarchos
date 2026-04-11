@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { getPlaybook, renderPlaybook, serializePlaybooks, listPlaybookWorkflowTypes } from './playbooks.js';
+import {
+  getPlaybook,
+  renderPlaybook,
+  serializePlaybooks,
+  listPlaybookWorkflowTypes,
+  oneshotPlaybook,
+  workflowPlaybooks,
+} from './playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from './playbooks.js';
 import { getRequiredReviews, REQUIRED_REVIEWS_BY_WORKFLOW_TYPE } from './review-contract.js';
 
@@ -483,5 +490,95 @@ describe('compactGuidance drift tests', () => {
         `${p.workflowType}:${p.phase} compactGuidance does not mention any tool or action keyword`,
       ).toBe(true);
     }
+  });
+});
+
+// ─── T10: Oneshot workflow playbook entries ────────────────────────────────
+
+describe('Oneshot workflow playbooks', () => {
+  it('oneshotPlaybook_declaresAllFourPhases', () => {
+    expect(Array.isArray(oneshotPlaybook)).toBe(true);
+    const phases = oneshotPlaybook.map((p) => p.phase);
+    expect(phases).toContain('plan');
+    expect(phases).toContain('implementing');
+    expect(phases).toContain('synthesize');
+    expect(phases).toContain('completed');
+  });
+
+  it('oneshotPlaybook_allEntriesDeclareWorkflowTypeOneshot', () => {
+    expect(oneshotPlaybook.length).toBeGreaterThan(0);
+    for (const entry of oneshotPlaybook) {
+      expect(entry.workflowType).toBe('oneshot');
+    }
+  });
+
+  it('oneshotPlaybook_implementingTransitionCriteria_mentionsChoiceState', () => {
+    const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
+    expect(implementing).toBeDefined();
+    // The choice-state transition criteria must mention both branches:
+    // opted-in → synthesize AND opted-out → completed.
+    expect(implementing!.transitionCriteria).toMatch(/synthesize/i);
+    expect(implementing!.transitionCriteria).toMatch(/completed/i);
+  });
+
+  it('oneshotPlaybook_implementingGuardPrerequisites_mentionsSynthesisChoice', () => {
+    const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
+    expect(implementing).toBeDefined();
+    const guard = implementing!.guardPrerequisites.toLowerCase();
+    // Design: "Tests pass + synthesis choice made (policy or event)".
+    expect(guard).toMatch(/synthesi/);
+  });
+
+  it('oneshotPlaybook_planTransitionCriteria_reachesImplementing', () => {
+    const plan = oneshotPlaybook.find((p) => p.phase === 'plan');
+    expect(plan).toBeDefined();
+    expect(plan!.transitionCriteria).toMatch(/implementing/);
+  });
+
+  it('oneshotPlaybook_synthesizeTransitionCriteria_reachesCompleted', () => {
+    const synthesize = oneshotPlaybook.find((p) => p.phase === 'synthesize');
+    expect(synthesize).toBeDefined();
+    expect(synthesize!.transitionCriteria).toMatch(/completed/);
+  });
+
+  it('oneshotPlaybook_completedIsTerminal', () => {
+    const completed = oneshotPlaybook.find((p) => p.phase === 'completed');
+    expect(completed).toBeDefined();
+    expect(completed!.tools).toHaveLength(0);
+    expect(completed!.events).toHaveLength(0);
+  });
+
+  it('oneshotPlaybook_registeredInWorkflowPlaybooksMap', () => {
+    const entries = workflowPlaybooks.get('oneshot');
+    expect(entries).toBeDefined();
+    expect(entries!.length).toBeGreaterThan(0);
+    // Same reference as the exported array (single source of truth)
+    expect(entries).toBe(oneshotPlaybook);
+  });
+
+  it('oneshotPlaybook_lookupsViaGetPlaybook_ReturnSameEntries', () => {
+    for (const entry of oneshotPlaybook) {
+      const looked = getPlaybook('oneshot', entry.phase);
+      expect(looked).not.toBeNull();
+      expect(looked!.phase).toBe(entry.phase);
+      expect(looked!.workflowType).toBe('oneshot');
+    }
+  });
+
+  it('oneshotPlaybook_RegisteredWorkflowType_ListedByHelper', () => {
+    const types = listPlaybookWorkflowTypes();
+    expect(types).toContain('oneshot');
+  });
+
+  it('oneshotPlaybook_Serialization_IncludesAllPhases', () => {
+    const serialized: SerializedPlaybooks = serializePlaybooks('oneshot');
+    expect(serialized.workflowType).toBe('oneshot');
+    expect(serialized.phases).toHaveProperty('plan');
+    expect(serialized.phases).toHaveProperty('implementing');
+    expect(serialized.phases).toHaveProperty('synthesize');
+    expect(serialized.phases).toHaveProperty('completed');
+    const planPhase: SerializedPhasePlaybook = serialized.phases['plan'];
+    expect(typeof planPhase.transitionCriteria).toBe('string');
+    expect(planPhase.transitionCriteria.length).toBeGreaterThan(0);
   });
 });
