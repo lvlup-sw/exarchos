@@ -29,6 +29,8 @@ import {
   TaskProgressedData,
   TaskCompletedData,
   TaskFailedData,
+  WorkflowPrunedData,
+  SynthesizeRequestedData,
   SessionTaggedData,
   StackRestackedData,
   WorktreeCreatedData,
@@ -447,7 +449,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(59);
+    expect(EventTypes).toHaveLength(61);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -1971,5 +1973,121 @@ describe('TaskCompletedData acceptanceTestRef', () => {
     if (result.success) {
       expect(result.data.acceptanceTestRef).toBeUndefined();
     }
+  });
+});
+
+// ─── T1: workflow.pruned event type ─────────────────────────────────────────
+
+describe('WorkflowPrunedData', () => {
+  it('eventSchema_workflowPruned_acceptsValidPayload', () => {
+    const result = WorkflowPrunedData.safeParse({
+      featureId: 'stale-feature',
+      stalenessMinutes: 10080,
+      triggeredBy: 'manual',
+      skippedSafeguards: ['open-pr'],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.featureId).toBe('stale-feature');
+      expect(result.data.stalenessMinutes).toBe(10080);
+      expect(result.data.triggeredBy).toBe('manual');
+      expect(result.data.skippedSafeguards).toEqual(['open-pr']);
+    }
+  });
+
+  it('eventSchema_workflowPruned_acceptsPayloadWithoutSkippedSafeguards', () => {
+    const result = WorkflowPrunedData.safeParse({
+      featureId: 'stale-feature',
+      stalenessMinutes: 60,
+      triggeredBy: 'scheduled',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skippedSafeguards).toBeUndefined();
+    }
+  });
+
+  it('eventSchema_workflowPruned_rejectsMissingFeatureId', () => {
+    const result = WorkflowPrunedData.safeParse({
+      stalenessMinutes: 60,
+      triggeredBy: 'manual',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('eventSchema_workflowPruned_rejectsInvalidTriggeredBy', () => {
+    const result = WorkflowPrunedData.safeParse({
+      featureId: 'stale-feature',
+      stalenessMinutes: 60,
+      triggeredBy: 'automatic',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('eventSchema_workflowPruned_isRegisteredInEventTypeUnion', () => {
+    expect(EventTypes).toContain('workflow.pruned');
+  });
+
+  it('eventSchema_workflowPruned_hasEmissionSourceClassification', () => {
+    expect(EVENT_EMISSION_REGISTRY).toHaveProperty('workflow.pruned');
+  });
+
+  it('eventSchema_workflowPruned_isListedInEventDataSchemas', () => {
+    expect(EVENT_DATA_SCHEMAS['workflow.pruned']).toBeDefined();
+  });
+});
+
+// ─── T2: synthesize.requested event type ────────────────────────────────────
+
+describe('SynthesizeRequestedData', () => {
+  it('eventSchema_synthesizeRequested_acceptsValidPayload', () => {
+    const result = SynthesizeRequestedData.safeParse({
+      featureId: 'feat-1',
+      reason: 'user requested PR instead of direct commit',
+      timestamp: '2026-04-11T12:00:00Z',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.featureId).toBe('feat-1');
+      expect(result.data.reason).toBe('user requested PR instead of direct commit');
+      expect(result.data.timestamp).toBe('2026-04-11T12:00:00Z');
+    }
+  });
+
+  it('eventSchema_synthesizeRequested_acceptsPayloadWithoutReason', () => {
+    const result = SynthesizeRequestedData.safeParse({
+      featureId: 'feat-1',
+      timestamp: '2026-04-11T12:00:00Z',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reason).toBeUndefined();
+    }
+  });
+
+  it('eventSchema_synthesizeRequested_rejectsMissingFeatureId', () => {
+    const result = SynthesizeRequestedData.safeParse({
+      timestamp: '2026-04-11T12:00:00Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('eventSchema_synthesizeRequested_rejectsMissingTimestamp', () => {
+    const result = SynthesizeRequestedData.safeParse({
+      featureId: 'feat-1',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('eventSchema_synthesizeRequested_isRegisteredInEventTypeUnion', () => {
+    expect(EventTypes).toContain('synthesize.requested');
+  });
+
+  it('eventSchema_synthesizeRequested_hasEmissionSourceClassification', () => {
+    expect(EVENT_EMISSION_REGISTRY).toHaveProperty('synthesize.requested');
+  });
+
+  it('eventSchema_synthesizeRequested_isListedInEventDataSchemas', () => {
+    expect(EVENT_DATA_SCHEMAS['synthesize.requested']).toBeDefined();
   });
 });
