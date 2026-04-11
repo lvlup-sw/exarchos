@@ -19,9 +19,9 @@ Pruning is a maintenance operation -- not a workflow phase. It produces `workflo
 ## Triggers
 
 Activate this skill when:
-- User runs `{{COMMAND_PREFIX}}prune` command
+- User runs `prune` command
 - User says "prune workflows", "clean stale workflows", "pipeline cleanup"
-- `{{MCP_PREFIX}}exarchos_view({ action: "pipeline" })` shows many inactive workflows the user wants to clear in bulk
+- `mcp__exarchos__exarchos_view({ action: "pipeline" })` shows many inactive workflows the user wants to clear in bulk
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ Activate this skill when:
 Always start with `dryRun: true`. This call performs candidate selection and safeguard evaluation but does not mutate any workflow state.
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+mcp__exarchos__exarchos_orchestrate({
   action: "prune_stale_workflows",
   args: {
     dryRun: true
@@ -104,7 +104,7 @@ Wait for explicit user input. Do **not** auto-proceed.
 On `proceed`, invoke the same action with `dryRun: false`. Pass through `thresholdMinutes` and `includeOneShot` if the user set them in Step 1.
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+mcp__exarchos__exarchos_orchestrate({
   action: "prune_stale_workflows",
   args: {
     dryRun: false
@@ -131,7 +131,7 @@ Each entry in `pruned` corresponds to a workflow that transitioned to `cancelled
 On `force`, set `force: true`. Safeguards are bypassed but the bypass is recorded in the `workflow.pruned` event payload as `skippedSafeguards: [...]` so the audit trail is intact.
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+mcp__exarchos__exarchos_orchestrate({
   action: "prune_stale_workflows",
   args: {
     dryRun: false,
@@ -199,7 +199,7 @@ A workflow without a `branchName` in state (e.g., abandoned at ideate/plan befor
 ### Example 1: Clean dry-run, user proceeds
 
 ```
-> {{COMMAND_PREFIX}}prune
+> prune
 
 ## Prune Candidates (2)
 
@@ -230,7 +230,7 @@ Proceed? (proceed/abort/force)
 ### Example 2: Safeguard skip, user forces
 
 ```
-> {{COMMAND_PREFIX}}prune
+> prune
 
 ## Prune Candidates (1)
 
@@ -265,7 +265,7 @@ Proceed? (proceed/abort/force)
 ### Example 3: Empty pipeline
 
 ```
-> {{COMMAND_PREFIX}}prune
+> prune
 
 No stale workflows to prune. Pipeline is clean.
 ```
@@ -275,7 +275,7 @@ No stale workflows to prune. Pipeline is clean.
 For the canonical argument schema and any future fields, use:
 
 ```typescript
-{{MCP_PREFIX}}exarchos_orchestrate({
+mcp__exarchos__exarchos_orchestrate({
   action: "describe",
   actions: ["prune_stale_workflows"]
 })
