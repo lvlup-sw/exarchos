@@ -17,7 +17,6 @@ interface ReviewTriageInput {
   prs: PRDiffMetadata[];
   activeWorkflows?: Array<{ phase: string }>;
   pendingCodeRabbitReviews?: number;
-  basileusConnected?: boolean;
 }
 
 function parseInput(args: Record<string, unknown>): ReviewTriageInput | ToolResult {
@@ -42,7 +41,6 @@ function parseInput(args: Record<string, unknown>): ReviewTriageInput | ToolResu
     prs,
     activeWorkflows: (args.activeWorkflows as Array<{ phase: string }>) ?? [],
     pendingCodeRabbitReviews: (args.pendingCodeRabbitReviews as number) ?? 0,
-    basileusConnected: (args.basileusConnected as boolean) ?? false,
   };
 }
 
@@ -105,7 +103,7 @@ export async function handleReviewTriage(
   };
 
   const velocity = detectVelocity(context);
-  const dispatches = dispatchReviews(input.prs, velocity, input.basileusConnected ?? false);
+  const dispatches = dispatchReviews(input.prs, velocity);
 
   // Emit review.routed events (skip if no dispatches)
   if (dispatches.length > 0) {

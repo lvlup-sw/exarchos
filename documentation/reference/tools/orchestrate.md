@@ -112,7 +112,6 @@ Score PRs by risk and dispatch to review. Uses velocity metrics to decide routin
 | `prs[].newFiles` | yes | integer | Number of new files |
 | `activeWorkflows` | no | object[] | Active workflows for load balancing |
 | `pendingCodeRabbitReviews` | no | integer | Current CodeRabbit review queue depth |
-| `basileusConnected` | no | boolean | Whether the Basileus review service is available |
 
 Phases: review, overhaul-review, debug-review. Role: `lead`.
 

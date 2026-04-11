@@ -522,7 +522,6 @@ const orchestrateActions: readonly ToolAction[] = [
       })),
       activeWorkflows: z.array(z.object({ phase: z.string() })).optional(),
       pendingCodeRabbitReviews: z.number().int().nonnegative().optional(),
-      basileusConnected: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
