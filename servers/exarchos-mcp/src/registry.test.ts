@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 51 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, and composite actions', () => {
+    it('should have 54 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(51);
+      expect(composite!.actions).toHaveLength(54);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -373,6 +373,9 @@ describe('TOOL_REGISTRY', () => {
           'verify_doc_links',
           'verify_review_triage',
           'prepare_review',
+          'prune_stale_workflows',
+          'request_synthesize',
+          'finalize_oneshot',
         ]),
       );
     });
@@ -1174,5 +1177,18 @@ describe('Plugin Integration Registry Wiring', () => {
       low: 0,
     });
     expect(resultWithout.success).toBe(true);
+  });
+
+  it('RegistryActions_RequestSynthesize_AllowsPlanAndImplementingPhases', () => {
+    // request_synthesize must be callable from both `plan` and `implementing`
+    // phases. The synthesisOptedIn guard only fires at the implementing →
+    // choice-state boundary, so appending the event earlier (during planning)
+    // is idempotent — the event sits in the stream until finalize_oneshot
+    // reads it. Restricting to `implementing` only broke the "I know I'll
+    // want a PR" signal during planning.
+    const action = findAction('exarchos_orchestrate', 'request_synthesize');
+    expect(action, 'exarchos_orchestrate should have a request_synthesize action').toBeDefined();
+    expect(action!.phases.has('plan')).toBe(true);
+    expect(action!.phases.has('implementing')).toBe(true);
   });
 });

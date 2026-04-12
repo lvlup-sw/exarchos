@@ -3007,6 +3007,9 @@ describe('HSM Registry Extension', () => {
     expect(() => registerWorkflowType('refactor', definition)).toThrow(
       'Cannot override built-in workflow type: refactor',
     );
+    expect(() => registerWorkflowType('oneshot', definition)).toThrow(
+      'Cannot override built-in workflow type: oneshot',
+    );
   });
 });
 
@@ -3047,5 +3050,241 @@ describe('findTransition', () => {
     } finally {
       unregisterWorkflowType('find-test');
     }
+  });
+});
+
+// ─── Task T9: Oneshot Workflow HSM Tests ────────────────────────────────────
+//
+// The oneshot workflow uses a choice-state pattern at `implementing`:
+// exactly one of `synthesisOptedIn` / `synthesisOptedOut` must pass for any
+// (synthesisPolicy, synthesize.requested event) combination. The decision
+// is fully event-sourced — no live IO in guards.
+
+describe('Oneshot Workflow HSM', () => {
+  it('oneshot_hsmHasFourTransitions', () => {
+    const hsm = getHSMDefinition('oneshot');
+    expect(hsm).toBeDefined();
+    expect(hsm.id).toBe('oneshot');
+
+    // plan → implementing
+    const planToImpl = hsm.transitions.find(
+      (t) => t.from === 'plan' && t.to === 'implementing',
+    );
+    expect(planToImpl).toBeDefined();
+    expect(planToImpl!.guard).toBeDefined();
+
+    // implementing → synthesize (guarded by synthesisOptedIn)
+    const implToSynth = hsm.transitions.find(
+      (t) => t.from === 'implementing' && t.to === 'synthesize',
+    );
+    expect(implToSynth).toBeDefined();
+    expect(implToSynth!.guard).toBeDefined();
+    expect(implToSynth!.guard!.id).toBe('synthesis-opted-in');
+
+    // implementing → completed (guarded by synthesisOptedOut)
+    const implToCompleted = hsm.transitions.find(
+      (t) => t.from === 'implementing' && t.to === 'completed',
+    );
+    expect(implToCompleted).toBeDefined();
+    expect(implToCompleted!.guard).toBeDefined();
+    expect(implToCompleted!.guard!.id).toBe('synthesis-opted-out');
+
+    // synthesize → completed (guarded by mergeVerified)
+    const synthToCompleted = hsm.transitions.find(
+      (t) => t.from === 'synthesize' && t.to === 'completed',
+    );
+    expect(synthToCompleted).toBeDefined();
+    expect(synthToCompleted!.guard).toBeDefined();
+    expect(synthToCompleted!.guard!.id).toBe('merge-verified');
+  });
+
+  it('oneshot_initialPhaseIsPlan', () => {
+    const hsm = getHSMDefinition('oneshot');
+    expect(hsm.states['plan']).toBeDefined();
+    expect(hsm.states['plan'].type).toBe('atomic');
+    expect(hsm.states['implementing']).toBeDefined();
+    expect(hsm.states['synthesize']).toBeDefined();
+    expect(hsm.states['completed']).toBeDefined();
+    expect(hsm.states['completed'].type).toBe('final');
+    expect(hsm.states['cancelled']).toBeDefined();
+    expect(hsm.states['cancelled'].type).toBe('final');
+  });
+
+  it('oneshot_planToImplementing_requiresPlanArtifact', () => {
+    const hsm = getHSMDefinition('oneshot');
+
+    // No plan set → guard fails
+    const noPlan: Record<string, unknown> = {
+      phase: 'plan',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      artifacts: {},
+      _events: [],
+      _history: {},
+    };
+    const failResult = executeTransition(hsm, noPlan, 'implementing');
+    expect(failResult.success).toBe(false);
+    expect(failResult.errorCode).toBe('GUARD_FAILED');
+
+    // Plan set → transitions successfully
+    const withPlan: Record<string, unknown> = {
+      phase: 'plan',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'One-page plan' },
+      artifacts: { plan: 'One-page plan' },
+      _events: [],
+      _history: {},
+    };
+    const okResult = executeTransition(hsm, withPlan, 'implementing');
+    expect(okResult.success).toBe(true);
+    expect(okResult.newPhase).toBe('implementing');
+  });
+
+  it('oneshot_implementingChoiceStateMutuallyExclusive', () => {
+    // Parameterized over (synthesisPolicy × synthesize.requested event present).
+    // For each of the 8 combinations (including the "policy field missing"
+    // default case), assert that executeTransition from `implementing` to
+    // exactly one of {synthesize, completed} succeeds.
+    const hsm = getHSMDefinition('oneshot');
+
+    const policies: Array<{
+      label: string;
+      oneshot: Record<string, unknown> | undefined;
+    }> = [
+      { label: 'always', oneshot: { synthesisPolicy: 'always' } },
+      { label: 'never', oneshot: { synthesisPolicy: 'never' } },
+      { label: 'on-request', oneshot: { synthesisPolicy: 'on-request' } },
+      { label: 'default (undefined)', oneshot: undefined },
+    ];
+    const eventStreams: Array<{
+      label: string;
+      events: Array<Record<string, unknown>>;
+    }> = [
+      { label: 'no events', events: [] },
+      {
+        label: 'synthesize.requested present',
+        events: [{ type: 'synthesize.requested' }],
+      },
+    ];
+
+    for (const policy of policies) {
+      for (const stream of eventStreams) {
+        const state: Record<string, unknown> = {
+          phase: 'implementing',
+          workflowType: 'oneshot',
+          artifacts: { plan: 'captured' },
+          _events: stream.events,
+          _history: {},
+        };
+        if (policy.oneshot !== undefined) {
+          state.oneshot = policy.oneshot;
+        }
+
+        const toSynth = executeTransition(hsm, state, 'synthesize');
+        const toCompleted = executeTransition(hsm, state, 'completed');
+
+        const synthOk = toSynth.success === true;
+        const completedOk = toCompleted.success === true;
+
+        // Exactly one branch must succeed.
+        const caseLabel = `policy=${policy.label}, events=${stream.label}`;
+        expect(
+          synthOk !== completedOk,
+          `Expected exactly one reachable target from implementing for ${caseLabel}, got synth=${synthOk}, completed=${completedOk}`,
+        ).toBe(true);
+
+        // Cross-check expected target per the choice-state semantics:
+        // - policy=always → synthesize (regardless of events)
+        // - policy=never → completed (regardless of events)
+        // - policy=on-request + event → synthesize
+        // - policy=on-request + no event → completed
+        // - policy missing → defaults to on-request semantics
+        const effectivePolicy =
+          policy.oneshot === undefined
+            ? 'on-request'
+            : (policy.oneshot.synthesisPolicy as string);
+        const hasEvent = stream.events.some(
+          (e) => e.type === 'synthesize.requested',
+        );
+
+        let expectedTarget: 'synthesize' | 'completed';
+        if (effectivePolicy === 'always') expectedTarget = 'synthesize';
+        else if (effectivePolicy === 'never') expectedTarget = 'completed';
+        else expectedTarget = hasEvent ? 'synthesize' : 'completed';
+
+        expect(
+          expectedTarget === 'synthesize' ? synthOk : completedOk,
+          `Expected ${expectedTarget} to be reachable for ${caseLabel}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('oneshot_synthesizeToCompleted_requiresMergeVerified', () => {
+    const hsm = getHSMDefinition('oneshot');
+
+    // Without merge verification → guard fails
+    const pending: Record<string, unknown> = {
+      phase: 'synthesize',
+      workflowType: 'oneshot',
+      artifacts: { plan: 'captured' },
+      _events: [],
+      _history: {},
+    };
+    const pendingResult = executeTransition(hsm, pending, 'completed');
+    expect(pendingResult.success).toBe(false);
+
+    // With merge verification → guard passes
+    const verified: Record<string, unknown> = {
+      phase: 'synthesize',
+      workflowType: 'oneshot',
+      artifacts: { plan: 'captured' },
+      _cleanup: { mergeVerified: true },
+      _events: [],
+      _history: {},
+    };
+    const verifiedResult = executeTransition(hsm, verified, 'completed');
+    expect(verifiedResult.success).toBe(true);
+    expect(verifiedResult.newPhase).toBe('completed');
+  });
+
+  it('oneshot_inheritsUniversalCancelTransition', () => {
+    const hsm = getHSMDefinition('oneshot');
+
+    // Cancel must be reachable from every non-terminal phase.
+    const nonFinalPhases = ['plan', 'implementing', 'synthesize'];
+    for (const phase of nonFinalPhases) {
+      const state: Record<string, unknown> = {
+        phase,
+        workflowType: 'oneshot',
+        artifacts: { plan: 'captured' },
+        _events: [],
+        _history: {},
+      };
+
+      const result = executeTransition(hsm, state, 'cancelled');
+
+      expect(result.success, `Cancel should succeed from ${phase}`).toBe(true);
+      expect(result.newPhase).toBe('cancelled');
+    }
+
+    // getValidTransitions must also advertise cancelled as universal.
+    const targets = getValidTransitions(hsm, 'plan');
+    const cancelTarget = targets.find((t) => t.phase === 'cancelled');
+    expect(cancelTarget).toBeDefined();
+    expect(cancelTarget!.universal).toBe(true);
+  });
+
+  it('oneshot_cannotTransitionFromFinalCompleted', () => {
+    const hsm = getHSMDefinition('oneshot');
+    const state: Record<string, unknown> = {
+      phase: 'completed',
+      workflowType: 'oneshot',
+      _events: [],
+      _history: {},
+    };
+    const result = executeTransition(hsm, state, 'implementing');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('INVALID_TRANSITION');
   });
 });

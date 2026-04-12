@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { FeaturePhaseSchema, DebugPhaseSchema, RefactorPhaseSchema } from './schemas.js';
-import { getPlaybook, renderPlaybook } from './playbooks.js';
+import { getPlaybook, renderPlaybook, oneshotPlaybook } from './playbooks.js';
 
 describe('HSM-Playbook Coverage', () => {
   const workflowPhases: Record<string, readonly string[]> = {
@@ -160,5 +160,98 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(playbook).not.toBeNull();
     const guidance = playbook!.compactGuidance.toLowerCase();
     expect(guidance.includes('review-strategy')).toBe(true);
+  });
+});
+
+// ─── T10: Oneshot playbook property assertions ─────────────────────────────
+//
+// The main HSM-Playbook Coverage suite above enumerates phases via the
+// three enum schemas (Feature/Debug/Refactor). Oneshot uses `z.string()`
+// for its phase field (choice-state semantics mean the set of reachable
+// phases depends on synthesisPolicy + events), so we assert the playbook
+// invariants directly against the exported `oneshotPlaybook` array.
+
+describe('Oneshot playbook invariants', () => {
+  const terminalPhases = ['completed', 'cancelled'];
+
+  it('oneshotPlaybook_nonTerminalPhases_HaveNonEmptyTransitionCriteria', () => {
+    const nonTerminal = oneshotPlaybook.filter(
+      (p) => !terminalPhases.includes(p.phase),
+    );
+    expect(nonTerminal.length).toBeGreaterThan(0);
+    for (const pb of nonTerminal) {
+      expect(
+        pb.transitionCriteria.length,
+        `oneshot:${pb.phase} has empty transitionCriteria`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('oneshotPlaybook_nonTerminalPhases_HaveGuardPrerequisites', () => {
+    const nonTerminal = oneshotPlaybook.filter(
+      (p) => !terminalPhases.includes(p.phase),
+    );
+    for (const pb of nonTerminal) {
+      expect(
+        pb.guardPrerequisites.length,
+        `oneshot:${pb.phase} has empty guardPrerequisites`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('oneshotPlaybook_AllPhasesReachableFromPlan', () => {
+    // Build transition graph from the declared transitionCriteria strings.
+    // plan → implementing, implementing → {synthesize, completed}, synthesize → completed.
+    const phases = new Set(oneshotPlaybook.map((p) => p.phase));
+    expect(phases.has('plan')).toBe(true);
+
+    const edges: Record<string, string[]> = {};
+    for (const pb of oneshotPlaybook) {
+      const next: string[] = [];
+      for (const candidate of phases) {
+        if (candidate === pb.phase) continue;
+        // Match phase name as whole word in transitionCriteria
+        const rx = new RegExp(`\\b${candidate}\\b`, 'i');
+        if (rx.test(pb.transitionCriteria)) next.push(candidate);
+      }
+      edges[pb.phase] = next;
+    }
+
+    const visited = new Set<string>();
+    const stack = ['plan'];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      for (const n of edges[cur] ?? []) stack.push(n);
+    }
+
+    for (const phase of phases) {
+      expect(
+        visited.has(phase),
+        `oneshot:${phase} is not reachable from plan via transitionCriteria graph`,
+      ).toBe(true);
+    }
+  });
+
+  it('oneshotPlaybook_CompletedReachableFromBothImplementingBranches', () => {
+    const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
+    expect(implementing).toBeDefined();
+    // Direct branch: implementing → completed (opted out)
+    expect(implementing!.transitionCriteria).toMatch(/completed/i);
+    // Indirect branch: implementing → synthesize → completed
+    expect(implementing!.transitionCriteria).toMatch(/synthesize/i);
+    const synthesize = oneshotPlaybook.find((p) => p.phase === 'synthesize');
+    expect(synthesize).toBeDefined();
+    expect(synthesize!.transitionCriteria).toMatch(/completed/i);
+  });
+
+  it('oneshotPlaybook_RendersWithoutErrorForEveryPhase', () => {
+    for (const pb of oneshotPlaybook) {
+      expect(() => renderPlaybook(pb)).not.toThrow();
+      const rendered = renderPlaybook(pb);
+      expect(typeof rendered).toBe('string');
+      expect(rendered.length).toBeGreaterThan(0);
+    }
   });
 });

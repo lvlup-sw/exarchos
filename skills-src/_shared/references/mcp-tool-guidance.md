@@ -26,6 +26,8 @@ The four Exarchos composite tools (`exarchos_workflow`, `exarchos_event`, `exarc
 
 This eliminates trial-and-error discovery. One `describe` call costs fewer tokens than a failed call + retry.
 
+> **Note on `describe playbook="oneshot"`:** The MCP server is data-driven, so `describe` works automatically for all workflow types including `oneshot`. For oneshot specifically, the output shows the 4-phase choice-state lifecycle: `plan → implementing → (completed | synthesize → completed)` with the `synthesis-opted-in` / `synthesis-opted-out` guards on the fork.
+
 ## Quick Reference — `exarchos_workflow`
 
 Before calling, consult `@skills/workflow-state/references/mcp-tool-reference.md` for full action signatures, error handling, and anti-patterns.
@@ -34,6 +36,6 @@ Before calling, consult `@skills/workflow-state/references/mcp-tool-reference.md
 |--------|---------------|
 | `get` | `featureId`, optional `query` (dot-path) or `fields` (string array for projection) |
 | `set` | `featureId`, `updates` (object), `phase` (string) — send both in one call for guarded transitions |
-| `init` | `featureId`, `workflowType` (`"feature"` / `"debug"` / `"refactor"`) |
+| `init` | `featureId`, `workflowType` (`"feature"` / `"debug"` / `"refactor"` / `"oneshot"`); for `oneshot`, optional `synthesisPolicy` (`"always"` / `"never"` / `"on-request"`, default `"on-request"`) |
 | `cleanup` | `featureId`, `mergeVerified: true`, `prUrl`, `mergedBranches` |
 | `cancel` | `featureId`, optional `dryRun: true` |

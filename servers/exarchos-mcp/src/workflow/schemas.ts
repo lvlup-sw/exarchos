@@ -109,6 +109,16 @@ export const RefactorPhaseSchema = z.enum([
   'blocked',
 ]);
 
+export const OneshotPhaseSchema = z.enum([
+  'plan',
+  'implementing',
+  'synthesize',
+  'completed',
+  'cancelled',
+]);
+
+export const SynthesisPolicySchema = z.enum(['always', 'never', 'on-request']);
+
 // ─── Performance SLA Schema ────────────────────────────────────────────────
 
 export const PerformanceSLASchema = z.object({
@@ -196,7 +206,7 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
 // ─── Workflow Type ──────────────────────────────────────────────────────────
 
-const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
+const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor', 'oneshot'] as const;
 const customWorkflowTypes = new Set<string>();
 
 export const WorkflowTypeSchema = z.string().refine(
@@ -283,6 +293,15 @@ export const RefactorWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   phase: RefactorPhaseSchema,
 });
 
+export const OneshotWorkflowStateSchema = BaseWorkflowStateSchema.extend({
+  workflowType: z.literal('oneshot'),
+  phase: OneshotPhaseSchema,
+  oneshot: z.object({
+    synthesisPolicy: SynthesisPolicySchema.default('on-request'),
+    planSummary: z.string().optional(),
+  }).optional(),
+});
+
 // ─── Custom Workflow State Schema ───────────────────────────────────────────
 
 export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
@@ -299,6 +318,7 @@ export const WorkflowStateSchema = z.union([
   FeatureWorkflowStateSchema,
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
+  OneshotWorkflowStateSchema,
   CustomWorkflowStateSchema,
 ]);
 
@@ -307,6 +327,12 @@ export const WorkflowStateSchema = z.union([
 export const InitInputSchema = z.object({
   featureId: FeatureIdSchema,
   workflowType: WorkflowTypeSchema,
+  /**
+   * Initial synthesis policy for oneshot workflows. Silently ignored for
+   * non-oneshot workflow types. Defaults (when omitted) to `on-request`
+   * via {@link OneshotWorkflowStateSchema}.
+   */
+  synthesisPolicy: SynthesisPolicySchema.optional(),
 });
 
 export const ListInputSchema = z.object({});

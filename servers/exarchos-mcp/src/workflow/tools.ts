@@ -126,7 +126,14 @@ export async function handleInit(
       // File doesn't exist — proceed with init
     }
 
-    // Event-first: append workflow.started event BEFORE creating state file
+    // Event-first: append workflow.started event BEFORE creating state file.
+    // For oneshot workflows with an explicit `synthesisPolicy`, include it on
+    // the event data so ES v2 rematerialization reconstructs the policy —
+    // without this, rehydrating a state from events alone silently reverts
+    // the workflow to the schema default (`on-request`), losing an
+    // init-time decision that drives the choice-state guard at finalize.
+    const isOneshotWithPolicy =
+      input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined;
     let eventSequence = 0;
     if (eventStore) {
       try {
@@ -137,6 +144,7 @@ export async function handleInit(
           data: {
             featureId: input.featureId,
             workflowType: input.workflowType,
+            ...(isOneshotWithPolicy ? { synthesisPolicy: input.synthesisPolicy } : {}),
           },
         }, { idempotencyKey: `${input.featureId}:workflow.started` });
         eventSequence = event.sequence;
@@ -152,11 +160,23 @@ export async function handleInit(
       }
     }
 
+    // Oneshot-only: thread `synthesisPolicy` into the initial state under
+    // `state.oneshot`. For non-oneshot workflow types the field is silently
+    // dropped — the `InitInputSchema` accepts it for uniformity but only the
+    // oneshot state shape has a `.oneshot.synthesisPolicy` slot.
+    const extraFields: Record<string, unknown> = {
+      _eventSequence: eventSequence,
+      _esVersion: CURRENT_ES_VERSION,
+    };
+    if (input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined) {
+      extraFields.oneshot = { synthesisPolicy: input.synthesisPolicy };
+    }
+
     const { state } = await initStateFile(
       stateDir,
       input.featureId,
       input.workflowType,
-      { _eventSequence: eventSequence, _esVersion: CURRENT_ES_VERSION },
+      extraFields,
     );
 
     return {
@@ -196,6 +216,11 @@ export async function handleList(
     phase: entry.state.phase,
     stateFile: entry.stateFile,
     stale: isStale(entry.state._checkpoint),
+    // Expose `_checkpoint` so downstream consumers (e.g. prune-stale-workflows
+    // `extractListEntries`) can read `lastActivityTimestamp` directly. Before
+    // this field was added the prune handler saw every non-terminal workflow
+    // as maximally stale because the fallback was `new Date(0)`.
+    _checkpoint: entry.state._checkpoint,
   }));
 
   return {

@@ -196,6 +196,12 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'overhaul-delegate',
   'overhaul-review',
   'overhaul-update-docs',
+  // Oneshot workflow (compressed lifecycle: plan → implementing →
+  // synthesize|completed). `plan` is already present above from the
+  // feature workflow; `implementing` is oneshot-exclusive and MUST be in
+  // this set so generic actions gated by ALL_PHASES (get / set / cancel /
+  // event append / etc.) remain callable while a oneshot is mid-flight.
+  'implementing',
   // Shared
   'blocked',
 ]);
@@ -308,16 +314,20 @@ function makeEventDescribeAction(): ToolAction {
 const workflowActions: readonly ToolAction[] = [
   {
     name: 'init',
-    description: 'Initialize a new workflow. Auto-emits workflow.started event',
+    description: 'Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.',
     schema: z.object({
       featureId: featureIdSchema,
       workflowType: WorkflowTypeSchema,
+      synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
     }),
     phases: new Set<string>(),
     roles: ROLE_LEAD,
     cli: {
       flags: { featureId: { alias: 'f' }, workflowType: { alias: 't' } },
-      examples: ['exarchos wf init -f my-feature -t feature'],
+      examples: [
+        'exarchos wf init -f my-feature -t feature',
+        'exarchos wf init -f my-oneshot -t oneshot --synthesisPolicy always',
+      ],
     },
     autoEmits: [
       { event: 'workflow.started', condition: 'always' },
@@ -522,7 +532,6 @@ const orchestrateActions: readonly ToolAction[] = [
       })),
       activeWorkflows: z.array(z.object({ phase: z.string() })).optional(),
       pendingCodeRabbitReviews: z.number().int().nonnegative().optional(),
-      basileusConnected: z.boolean().optional(),
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
@@ -1091,6 +1100,48 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+  },
+  {
+    name: 'prune_stale_workflows',
+    description: 'Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.',
+    schema: z.object({
+      thresholdMinutes: z.number().int().positive().optional(),
+      dryRun: z.boolean().optional(),
+      force: z.boolean().optional(),
+      includeOneShot: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
+    ],
+  },
+  {
+    name: 'request_synthesize',
+    description: 'Opt-in event for oneshot workflows with synthesisPolicy:on-request. Appending a synthesize.requested event flips the choice-state guard so finalize_oneshot routes to the synthesize phase. Auto-emits synthesize.requested.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      reason: z.string().optional(),
+    }),
+    // Allowed from `plan` as well as `implementing`: the synthesisOptedIn
+    // guard only fires at the `implementing → ?` choice-state boundary, so
+    // emitting the event earlier is idempotent — it sits in the event stream
+    // until finalize_oneshot reads it. Restricting to `implementing` broke
+    // the "I know I'll want a PR" signal during planning.
+    phases: new Set<string>(['plan', 'implementing']),
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'synthesize.requested', condition: 'always' },
+    ],
+  },
+  {
+    name: 'finalize_oneshot',
+    description: 'Resolve the oneshot choice-state at the end of implementing: transitions to synthesize (PR path) or completed (direct-commit path) based on the synthesisOptedIn / synthesisOptedOut guards. The transition itself is emitted by the workflow set handler.',
+    schema: z.object({
+      featureId: featureIdSchema,
+    }),
+    phases: new Set<string>(['implementing']),
+    roles: ROLE_LEAD,
   },
   {
     name: 'runbook',

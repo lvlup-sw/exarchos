@@ -711,3 +711,297 @@ describe('allReviewsPassed (synthesis ready)', () => {
     expect(updates['reviews.stray-review.status']).toBe('pass');
   });
 });
+
+// ─── synthesisOptedIn / synthesisOptedOut Guard Tests ───────────────────────
+
+describe('synthesisOptedIn', () => {
+  it('synthesisOptedIn_policyAlways_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'always' },
+      _events: [],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesisOptedIn_policyNever_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'never' },
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('never');
+  });
+
+  it('synthesisOptedIn_policyOnRequestWithEvent_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [
+        { type: 'phase.changed' },
+        { type: 'synthesize.requested', data: { reason: 'reviewer asked for PR' } },
+      ],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).toBe(true);
+  });
+
+  it('synthesisOptedIn_policyOnRequestNoEvent_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'phase.changed' }],
+    };
+
+    const result = guards.synthesisOptedIn.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize.requested');
+  });
+
+  it('synthesisOptedIn_policyDefaultsToOnRequest_whenFieldMissing', () => {
+    // No `oneshot` field at all — must default to 'on-request' semantics
+    const stateWithoutEvent: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      _events: [],
+    };
+
+    const resultNoEvent = guards.synthesisOptedIn.evaluate(stateWithoutEvent);
+    expect(resultNoEvent).not.toBe(true);
+    expect((resultNoEvent as GuardFailure).passed).toBe(false);
+
+    const stateWithEvent: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const resultWithEvent = guards.synthesisOptedIn.evaluate(stateWithEvent);
+    expect(resultWithEvent).toBe(true);
+  });
+});
+
+describe('synthesisOptedOut', () => {
+  it('synthesisOptedOut_isInverseOfSynthesisOptedIn', () => {
+    // Table-driven: 8 combinations of (policy ∈ {always, never, on-request}) ×
+    // (event present ∈ {true, false}), plus the default (no oneshot field) case.
+    // For every row, exactly one of the two guards must return true.
+    type Row = {
+      label: string;
+      oneshot: Record<string, unknown> | undefined;
+      eventPresent: boolean;
+    };
+
+    const rows: Row[] = [
+      { label: 'always + event',          oneshot: { synthesisPolicy: 'always' },     eventPresent: true  },
+      { label: 'always + no event',       oneshot: { synthesisPolicy: 'always' },     eventPresent: false },
+      { label: 'never + event',           oneshot: { synthesisPolicy: 'never' },      eventPresent: true  },
+      { label: 'never + no event',        oneshot: { synthesisPolicy: 'never' },      eventPresent: false },
+      { label: 'on-request + event',      oneshot: { synthesisPolicy: 'on-request' }, eventPresent: true  },
+      { label: 'on-request + no event',   oneshot: { synthesisPolicy: 'on-request' }, eventPresent: false },
+      { label: 'default (no oneshot) + event',    oneshot: undefined, eventPresent: true  },
+      { label: 'default (no oneshot) + no event', oneshot: undefined, eventPresent: false },
+    ];
+
+    for (const row of rows) {
+      const state: Record<string, unknown> = {
+        featureId: 'test-feature',
+        workflowType: 'oneshot',
+        _events: row.eventPresent ? [{ type: 'synthesize.requested' }] : [],
+      };
+      if (row.oneshot !== undefined) {
+        state.oneshot = row.oneshot;
+      }
+
+      const inResult = guards.synthesisOptedIn.evaluate(state);
+      const outResult = guards.synthesisOptedOut.evaluate(state);
+
+      const inPassed = inResult === true;
+      const outPassed = outResult === true;
+
+      // Mutual exclusivity: exactly one is true
+      expect(
+        inPassed !== outPassed,
+        `row "${row.label}": expected exactly one guard to pass (in=${inPassed}, out=${outPassed})`,
+      ).toBe(true);
+    }
+  });
+
+  it('synthesisOptedOut_policyNever_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'never' },
+      _events: [],
+    };
+
+    expect(guards.synthesisOptedOut.evaluate(state)).toBe(true);
+  });
+
+  it('synthesisOptedOut_policyAlways_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'always' },
+      _events: [],
+    };
+
+    const result = guards.synthesisOptedOut.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('always');
+  });
+
+  it('synthesisOptedOut_policyOnRequestNoEvent_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'phase.changed' }],
+    };
+
+    expect(guards.synthesisOptedOut.evaluate(state)).toBe(true);
+  });
+
+  it('synthesisOptedOut_policyOnRequestWithEvent_returnsFalseWithReason', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      workflowType: 'oneshot',
+      oneshot: { synthesisPolicy: 'on-request' },
+      _events: [{ type: 'synthesize.requested' }],
+    };
+
+    const result = guards.synthesisOptedOut.evaluate(state);
+
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('synthesize.requested');
+  });
+});
+
+// ─── oneshotPlanSet Guard Tests (T9) ────────────────────────────────────────
+// Tightened (post CodeRabbit review on PR #1078): the guard now requires
+// `state.artifacts.plan` as the primary condition. `oneshot.planSummary`
+// remains useful as a pipeline-view label but is no longer accepted as a
+// plan substitute on its own. These tests are flipped accordingly.
+
+describe('oneshotPlanSet', () => {
+  it('oneshotPlanSet_planSummaryAloneIsInsufficient', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'A one-page plan' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('artifacts.plan');
+  });
+
+  it('oneshotPlanSet_artifactsPlanSet_returnsTrue', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      artifacts: { plan: 'Plan contents or path' },
+    };
+    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+  });
+
+  it('oneshotPlanSet_bothPlanSummaryAndArtifactsPlan_returnsTrue', () => {
+    // artifacts.plan is sufficient; planSummary is allowed alongside as
+    // a pipeline-view label but is not required. The guard passes because
+    // artifacts.plan is set, not because planSummary is.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'always', planSummary: 'summary' },
+      artifacts: { plan: 'path/to/plan.md' },
+    };
+    expect(guards.oneshotPlanSet.evaluate(state)).toBe(true);
+  });
+
+  it('oneshotPlanSet_emptyArtifactsPlan_fallsThrough', () => {
+    // An empty artifacts.plan string must NOT count as set.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
+      artifacts: { plan: '' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+  });
+
+  it('oneshotPlanSet_planSummaryWithoutArtifacts_returnsFailureWithSuggestedFix', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'fix-readme',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'one-liner' },
+      artifacts: {},
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('oneshot-plan-set');
+    expect(failure.suggestedFix).toBeDefined();
+    expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
+    expect(failure.suggestedFix!.params.featureId).toBe('fix-readme');
+    // The suggested fix now points at artifacts.plan, not oneshot.planSummary.
+    const updates = failure.suggestedFix!.params.updates as Record<string, unknown>;
+    expect(updates).toHaveProperty('artifacts.plan');
+  });
+
+  it('oneshotPlanSet_missingOneshotAndArtifacts_returnsFailure', () => {
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+  });
+
+  it('oneshotPlanSet_rejectsWhitespaceOnlyPlan', () => {
+    // Shepherd iter 2 (CodeRabbit F3): whitespace-only plan strings are
+    // not real plan artifacts. `'   '` satisfies `.length > 0` but carries
+    // no content — the guard must reject it on `.trim().length > 0`.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      oneshot: { synthesisPolicy: 'on-request', planSummary: 'summary' },
+      artifacts: { plan: '   ' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+    const failure = result as GuardFailure;
+    expect(failure.passed).toBe(false);
+    expect(failure.reason).toContain('artifacts.plan');
+  });
+
+  it('oneshotPlanSet_rejectsPlanWithOnlyNewlinesAndTabs', () => {
+    // Defensive: "\n\t\n " is whitespace-only too. Same rejection.
+    const state: Record<string, unknown> = {
+      featureId: 'test-feature',
+      artifacts: { plan: '\n\t\n ' },
+    };
+    const result = guards.oneshotPlanSet.evaluate(state);
+    expect(result).not.toBe(true);
+  });
+});

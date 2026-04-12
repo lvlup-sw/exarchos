@@ -7,11 +7,16 @@ import { deepMerge, isPlainObject } from '../workflow/state-store.js';
 export const WORKFLOW_STATE_VIEW = 'workflow-state';
 
 // ─── Initial Phase by Workflow Type ────────────────────────────────────────
+// Kept in sync with `getInitialPhase` in `workflow/state-machine.ts`. If a
+// new built-in workflow type is added there, mirror it here so the
+// event-sourced projection agrees with the file-based state store on the
+// initial phase seeded by `workflow.started`.
 
 const INITIAL_PHASE: Record<string, string> = {
   feature: 'ideate',
   debug: 'triage',
   refactor: 'explore',
+  oneshot: 'plan',
 };
 
 // ─── WorkflowState View Shape ──────────────────────────────────────────────
@@ -122,11 +127,28 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         const data = event.data as {
           featureId?: string;
           workflowType?: string;
+          synthesisPolicy?: 'always' | 'never' | 'on-request';
         } | undefined;
         if (!data) return view;
 
         const workflowType = data.workflowType ?? view.workflowType;
         const phase = INITIAL_PHASE[workflowType] ?? view.phase;
+
+        // Oneshot-only: surface the init-time `synthesisPolicy` on the
+        // projected view under `state.oneshot.synthesisPolicy` so the
+        // `synthesisOptedIn` / `synthesisOptedOut` guards see the same
+        // value after rematerialization that they would on a fresh state
+        // file. The guards read `state.oneshot.synthesisPolicy` directly
+        // via `readSynthesisPolicy` in `workflow/guards.ts`.
+        const nextOneshot =
+          workflowType === 'oneshot' && data.synthesisPolicy !== undefined
+            ? {
+                ...((view as unknown as Record<string, unknown>).oneshot as
+                  | Record<string, unknown>
+                  | undefined),
+                synthesisPolicy: data.synthesisPolicy,
+              }
+            : undefined;
 
         return {
           ...view,
@@ -135,6 +157,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           phase,
           createdAt: event.timestamp,
           updatedAt: event.timestamp,
+          ...(nextOneshot !== undefined ? { oneshot: nextOneshot } : {}),
         };
       }
 
@@ -265,6 +288,8 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
 
       case 'team.spawned':
       case 'team.disbanded':
+      case 'synthesize.requested':
+      case 'workflow.pruned':
         return {
           ...view,
           _events: [...(view._events ?? []), { type: event.type, timestamp: event.timestamp, data: event.data }],

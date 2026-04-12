@@ -57,7 +57,6 @@ describe('handleReviewTriage', () => {
       prs: [lowRiskPR(1), medRiskPR(2), highRiskPR(3)],
       activeWorkflows: [],
       pendingCodeRabbitReviews: 0,
-      basileusConnected: false,
     };
 
     const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
@@ -83,7 +82,6 @@ describe('handleReviewTriage', () => {
       prs: [lowRiskPR(10), highRiskPR(20)],
       activeWorkflows: [],
       pendingCodeRabbitReviews: 0,
-      basileusConnected: false,
     };
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir);
@@ -109,7 +107,6 @@ describe('handleReviewTriage', () => {
       prs: [highRiskPR(42)],
       activeWorkflows: [],
       pendingCodeRabbitReviews: 0,
-      basileusConnected: false,
     };
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir);
@@ -145,7 +142,6 @@ describe('handleReviewTriage', () => {
       prs: [lowRiskPR(1), highRiskPR(2)],
       activeWorkflows: [],
       pendingCodeRabbitReviews: 8, // >6 triggers 'high' velocity
-      basileusConnected: false,
     };
 
     const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
@@ -206,27 +202,6 @@ describe('handleReviewTriage', () => {
     await expect(fs.access(eventsPath)).rejects.toThrow();
   });
 
-  it('should default basileusConnected to false when omitted', async () => {
-    const handleReviewTriage = await importHandler();
-    const args = {
-      featureId: 'test-default-basileus',
-      prs: [lowRiskPR()],
-      activeWorkflows: [],
-      pendingCodeRabbitReviews: 0,
-      // basileusConnected deliberately omitted
-    };
-
-    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
-
-    // Should succeed — basileusConnected defaults to false
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      dispatches: Array<{ pr: number; coderabbit: boolean; selfHosted: boolean }>;
-    };
-    expect(data.dispatches).toHaveLength(1);
-    // The dispatch should work correctly with default basileusConnected=false
-    expect(data.dispatches[0].selfHosted).toBe(true);
-  });
 });
 
 // ─── Orchestrate Composite Integration ──────────────────────────────────────
@@ -246,7 +221,6 @@ describe('orchestrate review_triage action', () => {
       prs: [lowRiskPR()],
       activeWorkflows: [],
       pendingCodeRabbitReviews: 0,
-      basileusConnected: false,
     };
 
     const { EventStore } = await import('../event-store/store.js');

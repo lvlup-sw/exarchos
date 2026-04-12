@@ -323,13 +323,13 @@ describe('dispatchReviews', () => {
   };
 
   it('should send all PRs to CodeRabbit at normal velocity', () => {
-    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'normal', false);
+    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'normal');
     expect(dispatches).toHaveLength(2);
     expect(dispatches.every(d => d.coderabbit)).toBe(true);
   });
 
   it('should filter by threshold at elevated velocity', () => {
-    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'elevated', false);
+    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'elevated');
     const lowRiskDispatch = dispatches.find(d => d.pr === 100);
     const highRiskDispatch = dispatches.find(d => d.pr === 200);
     // lowRiskPR score = 0.0 < 0.3 threshold → no CodeRabbit
@@ -339,7 +339,7 @@ describe('dispatchReviews', () => {
   });
 
   it('should only send high-risk PRs to CodeRabbit at high velocity', () => {
-    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'high', false);
+    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'high');
     const lowRiskDispatch = dispatches.find(d => d.pr === 100);
     const highRiskDispatch = dispatches.find(d => d.pr === 200);
     expect(lowRiskDispatch?.coderabbit).toBe(false);
@@ -347,21 +347,14 @@ describe('dispatchReviews', () => {
   });
 
   it('should always set selfHosted to true for all PRs', () => {
-    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'high', false);
+    const dispatches = dispatchReviews([lowRiskPR, highRiskPR], 'high');
     expect(dispatches.every(d => d.selfHosted === true)).toBe(true);
   });
 
   it('should include score and threshold in reason', () => {
-    const dispatches = dispatchReviews([highRiskPR], 'elevated', false);
+    const dispatches = dispatchReviews([highRiskPR], 'elevated');
     const dispatch = dispatches[0];
     expect(dispatch.reason).toContain(dispatch.riskScore.score.toFixed(2));
     expect(dispatch.reason).toContain(String(THRESHOLDS.elevated));
-  });
-
-  it('should work normally when basileusConnected is false', () => {
-    const dispatches = dispatchReviews([lowRiskPR], 'normal', false);
-    expect(dispatches).toHaveLength(1);
-    expect(dispatches[0].coderabbit).toBe(true);
-    expect(dispatches[0].selfHosted).toBe(true);
   });
 });

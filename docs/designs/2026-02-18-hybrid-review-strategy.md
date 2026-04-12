@@ -427,12 +427,22 @@ Verifies:
 
 ## Implementation Phases
 
+> **⚠️ PHASE 4 SUPERSEDED (2026-04-11):** The architectural pivot in
+> `lvlup-sw/basileus#146` moved semantic review scoring into basileus as the
+> Phronesis Code Review agent. The `augmentWithSemanticScore()` stub and the
+> `basileusConnected` guard documented in the Dispatch Logic section above
+> are removed as of this commit (#1077). The semantic augmentation flow is
+> no longer the responsibility of exarchos; see `lvlup-sw/basileus#147` for
+> the replacement. Phases 1–3 remain valid — only Phase 4 is retired. The
+> `basileusConnected` parameter on `review_triage` and the `_basileusConnected`
+> argument on `dispatchReviews()` were dead scaffolding and have been deleted.
+
 | Phase | Scope | Dependency |
 |---|---|---|
 | **Phase 1: Deterministic Router** | Scoring function, velocity detection, dispatch logic, `ReviewRouted` events, label-based CodeRabbit gating | None — implementable now |
 | **Phase 2: Self-Hosted Review Agent** | Review agent prompts, finding emission, review merge gate | Phase 1 |
 | **Phase 3: Merge Gate Extension** | `coderabbit-review-gate.sh` updates, escalation path, `ReviewEscalated` events | Phase 2 |
-| **Phase 4: Semantic Augmentation** | Basileus vector search integration, Cohere rerank, `review-findings` collection | Basileus Phase 4 (ADR timeline) |
+| **~~Phase 4: Semantic Augmentation~~** | ~~Basileus vector search integration, Cohere rerank, `review-findings` collection~~ — **superseded, see note above** | ~~Basileus Phase 4 (ADR timeline)~~ |
 
 ## Open Questions
 

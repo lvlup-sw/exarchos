@@ -945,6 +945,154 @@ register({
     'Workflow is blocked waiting for human intervention. Wait for user to provide unblock decision. Use exarchos_workflow set to record the decision.',
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Oneshot Workflow Playbooks (T10)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The oneshot workflow is a lightweight in-session flow for one-line fixes,
+// config tweaks, and exploratory changes that do not warrant the ceremony of
+// the feature workflow. Lifecycle:
+//
+//   plan ──► implementing ──┬── [synthesisOptedOut] ──► completed
+//                           └── [synthesisOptedIn]  ──► synthesize ──► completed
+//
+// The `implementing → ?` branch is a choice state resolved by pure guards
+// over (synthesisPolicy, synthesize.requested events). See T8 / T11 for the
+// guard implementations and HSM transitions.
+//
+// The `plan` and `implementing` playbooks reference the `oneshot-workflow`
+// skill which is authored in T17 — the skillRef is declared here so that
+// the skill-ref check in compactGuidance drift tests skips min-length /
+// tool-keyword assertions for these in-session phases whose guidance is
+// delegated to the skill.
+
+export const oneshotPlaybook: readonly PhasePlaybook[] = [
+  {
+    phase: 'plan',
+    workflowType: 'oneshot',
+    skill: 'oneshot-workflow',
+    skillRef: '@skills/oneshot-workflow/SKILL.md',
+    tools: [
+      {
+        tool: 'exarchos_workflow',
+        action: 'set',
+        purpose: 'Persist the one-page plan to state.artifacts.plan (required by the oneshot-plan-set guard); oneshot.planSummary is an optional pipeline-view label',
+      },
+    ],
+    events: [],
+    transitionCriteria: 'Plan ready → implementing',
+    guardPrerequisites:
+      "state.artifacts.plan set — a one-page plan captured before implementation. oneshot.planSummary is a pipeline-view hint, not a substitute.",
+    validationScripts: [],
+    humanCheckpoint: false,
+    compactGuidance:
+      'Lightweight in-session planning for a oneshot workflow. Capture a one-page plan (goal, approach, files to touch, tests to add) via exarchos_workflow set using updates: { "artifacts.plan": "..." }. Optionally also set oneshot.planSummary for a one-line pipeline-view label, but artifacts.plan is the guard-required artifact. No design doc required; no subagent dispatch. Transition to implementing once the plan artifact is recorded. Follow the oneshot-workflow skill for the full procedure.',
+  },
+  {
+    phase: 'implementing',
+    workflowType: 'oneshot',
+    skill: 'oneshot-workflow',
+    skillRef: '@skills/oneshot-workflow/SKILL.md',
+    tools: [
+      {
+        tool: 'exarchos_workflow',
+        action: 'set',
+        purpose: 'Record implementation progress and synthesis choice',
+      },
+      {
+        tool: 'exarchos_event',
+        action: 'append',
+        purpose:
+          'Optionally append synthesize.requested to opt into PR-based synthesis at runtime',
+      },
+    ],
+    events: [
+      {
+        type: 'synthesize.requested',
+        when: 'On opt-in to the synthesize path at the end of implementation',
+      },
+    ],
+    transitionCriteria:
+      'synthesize opted in → synthesize | opted out → completed',
+    guardPrerequisites:
+      'Tests pass + synthesis choice made (policy or event): synthesisPolicy=always|on-request+synthesize.requested → synthesize; synthesisPolicy=never or on-request without event → completed',
+    validationScripts: [],
+    humanCheckpoint: false,
+    compactGuidance:
+      'In-session TDD implementation for a oneshot workflow. Write failing test first, then implement, then refactor — TDD rules remain mandatory. After tests pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot-workflow skill for the full procedure.',
+  },
+  {
+    phase: 'synthesize',
+    workflowType: 'oneshot',
+    skill: 'synthesis',
+    skillRef: '@skills/synthesis/SKILL.md',
+    tools: [
+      {
+        tool: 'exarchos_workflow',
+        action: 'get',
+        purpose: 'Read synthesis state',
+      },
+      {
+        tool: 'exarchos_workflow',
+        action: 'set',
+        purpose: 'Record PR URLs and synthesis metadata',
+      },
+      {
+        tool: 'exarchos_event',
+        action: 'append',
+        purpose: 'Emit gate.executed for pre-synthesis checks',
+      },
+    ],
+    events: [
+      {
+        type: 'gate.executed',
+        when: 'After pre-synthesis-check.sh runs',
+        fields: ['gateName', 'layer', 'passed'],
+      },
+    ],
+    transitionCriteria: 'PR merged → completed',
+    guardPrerequisites:
+      'artifacts.pr exists AND PR merge verified (merge.verified or shepherd.completed event)',
+    validationScripts: ['pre_synthesis_check'],
+    humanCheckpoint: true,
+    compactGuidance:
+      'Oneshot synthesis reuses the existing synthesize pipeline. Create the PR via GitHub CLI (gh pr create), run pre-synthesis-check.sh, emit gate.executed via exarchos_event. Wait for merge verification before transitioning to completed. This is a human checkpoint — pause and confirm before merge. Anti-pattern: merging without CI green.',
+  },
+  terminalPlaybook(
+    'oneshot',
+    'completed',
+    'Workflow is complete. No further actions needed.',
+  ),
+];
+
+for (const pb of oneshotPlaybook) {
+  register(pb);
+}
+
+// ─── Aggregate Export: workflowPlaybooks ─────────────────────────────────────
+//
+// Map of workflow type → the declared playbook entries for that type, for
+// consumers that want to iterate phase-by-phase without touching the private
+// registry. The oneshot entry is the canonical example used by T10 tests; the
+// built-in feature/debug/refactor entries are derived from the registry on
+// first access so they stay in sync with the individual register() calls.
+
+function collectRegisteredForType(workflowType: string): readonly PhasePlaybook[] {
+  const out: PhasePlaybook[] = [];
+  for (const pb of registry.values()) {
+    if (pb.workflowType === workflowType) out.push(pb);
+  }
+  return out;
+}
+
+export const workflowPlaybooks: ReadonlyMap<string, readonly PhasePlaybook[]> =
+  new Map<string, readonly PhasePlaybook[]>([
+    ['feature', collectRegisteredForType('feature')],
+    ['debug', collectRegisteredForType('debug')],
+    ['refactor', collectRegisteredForType('refactor')],
+    ['oneshot', oneshotPlaybook],
+  ]);
+
 // ─── Serialization Types ─────────────────────────────────────────────────────
 
 export interface SerializedPlaybooks {

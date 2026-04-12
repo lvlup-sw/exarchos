@@ -38,7 +38,10 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 Use `exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
-for phase transitions, guards, and playbook guidance. Use
+for phase transitions, guards, and playbook guidance. For the lightweight
+oneshot variant (with its `implementing → synthesize|completed` choice state
+driven by `synthesisPolicy`), call `exarchos_workflow({ action: "describe", playbook: "oneshot" })`
+— oneshot is a first-class playbook alongside feature/debug/refactor. Use
 `exarchos_event({ action: "describe", eventTypes: ["workflow.transition", "task.completed"] })`
 for event data schemas.
 
@@ -54,9 +57,25 @@ For full MCP tool signatures, error handling, and anti-patterns, see `references
 
 At the start of `/ideate`, use `mcp__exarchos__exarchos_workflow` with `action: "init"` with:
 - `featureId`: the workflow identifier (e.g., `"user-authentication"`)
-- `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`
+- `workflowType`: one of `"feature"`, `"debug"`, `"refactor"`, `"oneshot"`
+- `synthesisPolicy` *(optional, oneshot only)*: one of `"always"`, `"never"`, `"on-request"` (default `"on-request"`) — silently ignored for non-oneshot types
 
-This creates a new state file with phase "ideate".
+This creates a new workflow state entry. The initial phase depends on
+`workflowType`:
+
+- `feature` → starts in `ideate`
+- `debug` → starts in `triage`
+- `refactor` → starts in `explore`
+- `oneshot` → starts in `plan` (skips ideate entirely)
+
+### Workflow Types at a Glance
+
+- `feature` — full `ideate → plan → delegate → review → synthesize` for real features with subagent dispatch and two-stage review
+- `debug` — `triage → investigate → (thorough | hotfix)` for bug workflows with track selection
+- `refactor` — `explore → brief → (polish | overhaul)` for code improvements, polish for small and overhaul for multi-task
+- `oneshot` — `plan → implementing → (completed | synthesize)` for trivial changes; direct-commit by default with an opt-in PR path resolved via a choice-state guard driven by `synthesisPolicy` and the `synthesize.requested` event
+
+See `@skills/oneshot-workflow/SKILL.md` for the lightweight variant's full prose, including the choice-state mechanics and `finalize_oneshot` trigger.
 
 ### Read State
 
@@ -117,6 +136,23 @@ exarchos_orchestrate({
 | PR created | Set `artifacts.pr`, `synthesis.prUrl` |
 | PR feedback | Append to `synthesis.prFeedback` |
 
+#### Oneshot-specific state updates
+
+Oneshot is a first-class workflow type with a compressed lifecycle and an
+opt-in PR path. The rows below mirror the feature-workflow table above.
+
+| Phase | State updates | Events emitted |
+|-------|---------------|----------------|
+| `plan` (oneshot) | `oneshot.planSummary`, `artifacts.plan`, optional `oneshot.synthesisPolicy` | `workflow.transition` |
+| `implementing` (oneshot) | `tasks[].status`, `artifacts.tests` | `task.*`, optional `synthesize.requested` (via `request_synthesize`) |
+| `synthesize` (oneshot) | `synthesis.prUrl`, `artifacts.pr` | `workflow.transition`, `stack.submitted` |
+| `completed` (oneshot) | — | `workflow.transition` (to `completed`) |
+
+The `implementing → synthesize | completed` fork is a choice state resolved
+by `finalize_oneshot`, which reads the `synthesisOptedIn` guard
+(`synthesisPolicy` + `synthesize.requested` events). See
+`@skills/oneshot-workflow/SKILL.md` for the full opt-in mechanics.
+
 ### Automatic State Updates
 
 Skills should update state at key moments:
@@ -154,7 +190,7 @@ See `docs/schemas/workflow-state.schema.json` for full schema.
 Key sections:
 - `version`: Schema version (currently "1.1")
 - `featureId`: Unique workflow identifier
-- `workflowType`: Required. One of "feature", "debug", or "refactor"
+- `workflowType`: Required. One of "feature", "debug", "refactor", or "oneshot"
 - `phase`: Current workflow phase
 - `artifacts`: Paths to design, plan, PR
 - `tasks`: Task list with status

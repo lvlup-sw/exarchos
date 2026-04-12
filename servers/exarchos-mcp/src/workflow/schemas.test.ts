@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { ArtifactsSchema, SynthesisSchema, TaskStatusSchema } from './schemas.js';
+import {
+  ArtifactsSchema,
+  SynthesisSchema,
+  TaskStatusSchema,
+  OneshotPhaseSchema,
+} from './schemas.js';
 import { z } from 'zod';
 
 // ─── TaskStatusSchema alias tests ─────────────────────────────────────────
@@ -362,6 +367,123 @@ describe('TaskSchema agent tracking fields', () => {
       expect(result.data.agentResumed).toBeUndefined();
       expect(result.data.lastExitReason).toBeUndefined();
     }
+  });
+});
+
+// T6: oneshot workflow type + schema
+describe('Oneshot workflow type and schema', () => {
+  const baseOneshotFixture = {
+    version: '1.1',
+    workflowType: 'oneshot' as const,
+    featureId: 'oneshot-test',
+    phase: 'plan',
+    createdAt: '2026-04-11T00:00:00Z',
+    updatedAt: '2026-04-11T00:00:00Z',
+    artifacts: { design: null, plan: null, pr: null },
+    tasks: [],
+    worktrees: {},
+    reviews: {},
+    integration: null,
+    synthesis: {
+      integrationBranch: null,
+      mergeOrder: [],
+      mergedBranches: [],
+      prUrl: null,
+      prFeedback: [],
+    },
+  };
+
+  it('workflowTypeSchema_acceptsOneshot', async () => {
+    const { WorkflowTypeSchema } = await import('./schemas.js');
+    const result = WorkflowTypeSchema.safeParse('oneshot');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe('oneshot');
+    }
+  });
+
+  it('workflowTypeSchema_getValidWorkflowTypesIncludesOneshot', async () => {
+    const { getValidWorkflowTypes } = await import('./schemas.js');
+    expect(getValidWorkflowTypes()).toContain('oneshot');
+  });
+
+  it('oneshotStateSchema_acceptsValidState', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseOneshotFixture,
+      oneshot: {
+        synthesisPolicy: 'always',
+        planSummary: 'Add a config flag',
+      },
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as Record<string, unknown>;
+      expect(data.workflowType).toBe('oneshot');
+      const oneshot = data.oneshot as Record<string, unknown> | undefined;
+      expect(oneshot?.synthesisPolicy).toBe('always');
+      expect(oneshot?.planSummary).toBe('Add a config flag');
+    }
+  });
+
+  it('oneshotStateSchema_rejectsInvalidSynthesisPolicy', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseOneshotFixture,
+      oneshot: {
+        synthesisPolicy: 'maybe',
+      },
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('oneshotStateSchema_defaultsSynthesisPolicyToOnRequest', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseOneshotFixture,
+      oneshot: {},
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as Record<string, unknown>;
+      const oneshot = data.oneshot as Record<string, unknown> | undefined;
+      expect(oneshot?.synthesisPolicy).toBe('on-request');
+    }
+  });
+
+  it('oneshotStateSchema_oneshotFieldIsOptional', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const result = WorkflowStateSchema.safeParse(baseOneshotFixture);
+    expect(result.success).toBe(true);
+  });
+
+  it('oneshotPhaseSchema_acceptsAllKnownPhases', () => {
+    for (const phase of ['plan', 'implementing', 'synthesize', 'completed', 'cancelled']) {
+      const result = OneshotPhaseSchema.safeParse(phase);
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('oneshotPhaseSchema_rejectsUnknownPhase', () => {
+    expect(OneshotPhaseSchema.safeParse('bogus').success).toBe(false);
+    expect(OneshotPhaseSchema.safeParse('').success).toBe(false);
+    expect(OneshotPhaseSchema.safeParse('ideate').success).toBe(false);
+  });
+
+  it('oneshotStateSchema_rejectsUnknownPhaseValue', async () => {
+    const { WorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseOneshotFixture,
+      phase: 'bogus-phase',
+    };
+    const result = WorkflowStateSchema.safeParse(input);
+    // Even with union fallback to CustomWorkflowStateSchema, `oneshot` is a
+    // built-in type so CustomWorkflowStateSchema explicitly rejects it, and
+    // OneshotWorkflowStateSchema rejects unknown phase values.
+    expect(result.success).toBe(false);
   });
 });
 

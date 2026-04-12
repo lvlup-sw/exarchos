@@ -38,6 +38,8 @@ export const EventTypes = [
   'team.teammate.dispatched',
   'quality.regression',
   'workflow.cas-failed',
+  'workflow.pruned',
+  'synthesize.requested',
   'review.completed',
   'review.routed',
   'review.finding',
@@ -163,6 +165,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.compensation': 'auto',
   'workflow.circuit-open': 'auto',
   'workflow.cas-failed': 'auto',
+  'workflow.pruned': 'auto',
+  'synthesize.requested': 'auto',
   'task.claimed': 'auto',
   'task.completed': 'auto',
   'task.failed': 'auto',
@@ -248,6 +252,12 @@ export const WorkflowStartedData = z.object({
   featureId: z.string(),
   workflowType: WorkflowTypeSchema,
   designPath: z.string().optional(),
+  // Oneshot-only: the synthesisPolicy chosen at init time. Must be persisted
+  // in the event stream so ES v2 rematerialization reconstructs the policy
+  // — otherwise the workflow silently reverts to the schema default
+  // (`on-request`) after `handleInit` → rehydrate round-trips. Silently
+  // accepted for non-oneshot workflow types but never populated by them.
+  synthesisPolicy: z.enum(['always', 'never', 'on-request']).optional(),
 });
 
 export const TaskAssignedData = z.object({
@@ -409,6 +419,19 @@ export const WorkflowCasFailedData = z.object({
   featureId: z.string(),
   phase: z.string(),
   retries: z.number().int(),
+});
+
+export const WorkflowPrunedData = z.object({
+  featureId: z.string(),
+  stalenessMinutes: z.number().nonnegative(),
+  triggeredBy: z.enum(['manual', 'scheduled']),
+  skippedSafeguards: z.array(z.string()).optional(),
+});
+
+export const SynthesizeRequestedData = z.object({
+  featureId: z.string(),
+  reason: z.string().optional(),
+  timestamp: z.string().datetime(),
 });
 
 // ─── Review Event Data ─────────────────────────────────────────────────────
@@ -741,6 +764,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.compensation': WorkflowCompensationData,
   'workflow.circuit-open': WorkflowCircuitOpenData,
   'workflow.cas-failed': WorkflowCasFailedData,
+  'workflow.pruned': WorkflowPrunedData,
+  'synthesize.requested': SynthesizeRequestedData,
 
   // Task-level
   'task.assigned': TaskAssignedData,
@@ -840,6 +865,8 @@ export type WorkflowCancel = z.infer<typeof WorkflowCancelData>;
 export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type WorkflowCasFailed = z.infer<typeof WorkflowCasFailedData>;
+export type WorkflowPruned = z.infer<typeof WorkflowPrunedData>;
+export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
@@ -915,6 +942,8 @@ export type EventDataMap = {
   'team.teammate.dispatched': TeamTeammateDispatched;
   'quality.regression': QualityRegression;
   'workflow.cas-failed': WorkflowCasFailed;
+  'workflow.pruned': WorkflowPruned;
+  'synthesize.requested': SynthesizeRequested;
   'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;
   'review.finding': ReviewFinding;

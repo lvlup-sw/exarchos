@@ -182,6 +182,153 @@ describe('Core Tools', () => {
     });
   });
 
+  // ─── handleInit synthesisPolicy threading (HIGH-1) ──────────────────────────
+
+  describe('handleInit_oneshotWorkflow_persistsSynthesisPolicyFromInput', () => {
+    it('should persist state.oneshot.synthesisPolicy when passed at init for oneshot workflow', async () => {
+      const result = await handleInit(
+        { featureId: 'os-policy', workflowType: 'oneshot', synthesisPolicy: 'always' },
+        tmpDir,
+        null,
+      );
+      expect(result.success).toBe(true);
+
+      const state = await readStateFile(path.join(tmpDir, 'os-policy.state.json'));
+      const oneshot = (state as unknown as { oneshot?: { synthesisPolicy?: string } }).oneshot;
+      expect(oneshot?.synthesisPolicy).toBe('always');
+    });
+  });
+
+  describe('handleInit_oneshotWithPolicy_persistsInEventStream', () => {
+    it('should include synthesisPolicy in the workflow.started event data', async () => {
+      const eventStore = new EventStore(tmpDir);
+
+      const result = await handleInit(
+        {
+          featureId: 'os-policy-event',
+          workflowType: 'oneshot',
+          synthesisPolicy: 'always',
+        },
+        tmpDir,
+        eventStore,
+      );
+      expect(result.success).toBe(true);
+
+      const events = await eventStore.query('os-policy-event');
+      expect(events).toHaveLength(1);
+      expect(events[0].type).toBe('workflow.started');
+      const data = events[0].data as {
+        workflowType?: string;
+        synthesisPolicy?: string;
+      };
+      expect(data.workflowType).toBe('oneshot');
+      expect(data.synthesisPolicy).toBe('always');
+    });
+
+    it('should omit synthesisPolicy from the event when workflowType is not oneshot', async () => {
+      const eventStore = new EventStore(tmpDir);
+
+      await handleInit(
+        {
+          featureId: 'feat-policy-ignored',
+          workflowType: 'feature',
+          // Accepted by the input schema but MUST NOT leak into the event
+          // payload for non-oneshot workflows — the projection only reads
+          // synthesisPolicy for oneshot, and other consumers shouldn't see
+          // it either.
+          synthesisPolicy: 'always',
+        },
+        tmpDir,
+        eventStore,
+      );
+
+      const events = await eventStore.query('feat-policy-ignored');
+      expect(events).toHaveLength(1);
+      const data = events[0].data as Record<string, unknown>;
+      expect(data.synthesisPolicy).toBeUndefined();
+    });
+
+    it('should omit synthesisPolicy from the event when oneshot init omits it', async () => {
+      const eventStore = new EventStore(tmpDir);
+
+      await handleInit(
+        { featureId: 'os-default-event', workflowType: 'oneshot' },
+        tmpDir,
+        eventStore,
+      );
+
+      const events = await eventStore.query('os-default-event');
+      expect(events).toHaveLength(1);
+      const data = events[0].data as Record<string, unknown>;
+      expect(data.synthesisPolicy).toBeUndefined();
+    });
+  });
+
+  describe('workflowMaterialization_oneshotPolicy_roundTripsViaEvents', () => {
+    it('should surface synthesisPolicy on the projected view after rematerialization', async () => {
+      const eventStore = new EventStore(tmpDir);
+
+      await handleInit(
+        {
+          featureId: 'os-roundtrip',
+          workflowType: 'oneshot',
+          synthesisPolicy: 'always',
+        },
+        tmpDir,
+        eventStore,
+      );
+
+      // Rematerialize the state from events alone, mimicking the ES v2
+      // rehydrate path used by handleGet.
+      const events = await eventStore.query('os-roundtrip');
+      let view = workflowStateProjection.init();
+      for (const event of events) {
+        view = workflowStateProjection.apply(view, event);
+      }
+
+      const oneshot = (view as unknown as {
+        oneshot?: { synthesisPolicy?: string };
+      }).oneshot;
+      expect(view.workflowType).toBe('oneshot');
+      expect(view.phase).toBe('plan');
+      expect(oneshot?.synthesisPolicy).toBe('always');
+    });
+  });
+
+  describe('handleInit_oneshotWorkflow_defaultsSynthesisPolicyWhenOmitted', () => {
+    it('should leave state.oneshot unset when synthesisPolicy omitted (schema default is on-request when read)', async () => {
+      const result = await handleInit(
+        { featureId: 'os-default', workflowType: 'oneshot' },
+        tmpDir,
+        null,
+      );
+      expect(result.success).toBe(true);
+
+      const state = await readStateFile(path.join(tmpDir, 'os-default.state.json'));
+      const oneshot = (state as unknown as { oneshot?: { synthesisPolicy?: string } }).oneshot;
+      // When unset, the schema's default `on-request` applies at finalize-time
+      // via the guard. The persisted state may omit the `oneshot` key entirely
+      // or carry no `synthesisPolicy` field — both are valid.
+      expect(oneshot?.synthesisPolicy === undefined || oneshot?.synthesisPolicy === 'on-request').toBe(true);
+    });
+  });
+
+  describe('handleInit_featureWorkflow_ignoresSynthesisPolicyArg', () => {
+    it('should silently drop synthesisPolicy arg when workflowType is not oneshot', async () => {
+      const result = await handleInit(
+        // `synthesisPolicy` is accepted by the input schema for uniformity but
+        // has no effect on non-oneshot workflow types.
+        { featureId: 'feat-ignore', workflowType: 'feature', synthesisPolicy: 'always' },
+        tmpDir,
+        null,
+      );
+      expect(result.success).toBe(true);
+
+      const state = await readStateFile(path.join(tmpDir, 'feat-ignore.state.json'));
+      expect((state as unknown as { oneshot?: unknown }).oneshot).toBeUndefined();
+    });
+  });
+
   // ─── ToolList ───────────────────────────────────────────────────────────────
 
   describe('ToolList_ActiveWorkflows_ReturnsWithStaleness', () => {

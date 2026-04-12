@@ -45,6 +45,18 @@ vi.mock('./post-merge.js', () => ({
   handlePostMerge: vi.fn(),
 }));
 
+vi.mock('./prune-stale-workflows.js', () => ({
+  handlePruneStaleWorkflows: vi.fn(),
+}));
+
+vi.mock('./request-synthesize.js', () => ({
+  handleRequestSynthesize: vi.fn(),
+}));
+
+vi.mock('./finalize-oneshot.js', () => ({
+  handleFinalizeOneshot: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -68,6 +80,9 @@ import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleAgentSpec } from '../agents/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
+import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
+import { handleRequestSynthesize } from './request-synthesize.js';
+import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -401,6 +416,88 @@ describe('handleOrchestrate', () => {
       // Assert
       expect(result).toBe(expected);
       expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
+    });
+  });
+
+  // ─── Oneshot + Pruning Actions ───────────────────────────────────────────
+
+  describe('oneshot and pruning actions', () => {
+    it('compositeHandler_pruneStaleWorkflowsAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({ candidates: [], skipped: [], pruned: [] });
+      vi.mocked(handlePruneStaleWorkflows).mockResolvedValue(expected);
+      const args = {
+        action: 'prune_stale_workflows',
+        thresholdMinutes: 10080,
+        dryRun: true,
+        includeOneShot: false,
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — handler is registered directly so it receives (args, stateDir, ctx)
+      expect(result).toBe(expected);
+      expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
+      expect(call[0]).toEqual({
+        thresholdMinutes: 10080,
+        dryRun: true,
+        includeOneShot: false,
+      });
+      expect(call[1]).toBe(STATE_DIR);
+      expect(call[2]).toBe(CTX);
+    });
+
+    it('compositeHandler_requestSynthesizeAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({ eventAppended: true });
+      vi.mocked(handleRequestSynthesize).mockResolvedValue(expected);
+      const args = {
+        action: 'request_synthesize',
+        featureId: 'feat-oneshot-1',
+        reason: 'user requested PR review',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — adapter injects both stateDir and eventStore from ctx
+      // into args, matching the finalize_oneshot pattern. The stateDir
+      // injection replaces the old hardcoded `.exarchos/state/...`
+      // fallback inside the handler.
+      expect(result).toBe(expected);
+      expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
+      expect(call.featureId).toBe('feat-oneshot-1');
+      expect(call.reason).toBe('user requested PR review');
+      expect(call.eventStore).toBe(CTX.eventStore);
+      expect(call.stateDir).toBe(STATE_DIR);
+    });
+
+    it('compositeHandler_finalizeOneshotAction_dispatches', async () => {
+      // Arrange
+      const expected = successResult({
+        featureId: 'feat-oneshot-2',
+        previousPhase: 'implementing',
+        newPhase: 'completed',
+      });
+      vi.mocked(handleFinalizeOneshot).mockResolvedValue(expected);
+      const args = {
+        action: 'finalize_oneshot',
+        featureId: 'feat-oneshot-2',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — adapter injects BOTH stateDir and eventStore from ctx into args
+      expect(result).toBe(expected);
+      expect(handleFinalizeOneshot).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleFinalizeOneshot).mock.calls[0][0];
+      expect(call.featureId).toBe('feat-oneshot-2');
+      expect(call.stateDir).toBe(STATE_DIR);
+      expect(call.eventStore).toBe(CTX.eventStore);
     });
   });
 

@@ -1,6 +1,11 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
-import { createFeatureHSM, createDebugHSM, createRefactorHSM } from './hsm-definitions.js';
+import {
+  createFeatureHSM,
+  createDebugHSM,
+  createRefactorHSM,
+  createOneshotHSM,
+} from './hsm-definitions.js';
 
 // Re-export guard types for consumers
 export type { Guard, GuardResult };
@@ -102,18 +107,20 @@ export interface WorkflowTypeSummary {
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
 
-const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor']);
+const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor', 'oneshot']);
 
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
   debug: createDebugHSM(),
   refactor: createRefactorHSM(),
+  oneshot: createOneshotHSM(),
 };
 
 const initialPhaseRegistry: Record<string, string> = {
   feature: 'ideate',
   debug: 'triage',
   refactor: 'explore',
+  oneshot: 'plan',
 };
 
 export function isBuiltInWorkflowType(workflowType: string): boolean {

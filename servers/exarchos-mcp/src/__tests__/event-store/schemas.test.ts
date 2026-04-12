@@ -405,8 +405,12 @@ describe('StackEnqueuedData', () => {
 // ─── EventTypes Discriminated Union (A03) ───────────────────────────────────
 
 describe('EventTypes', () => {
-  it('EventTypes_AllEventTypes_CountIs59', () => {
-    expect(EventTypes).toHaveLength(59);
+  it('EventTypes_CountMatchesRegisteredTypes', () => {
+    // Locked to the current registered-type count (61 as of T1+T2 which
+    // added `workflow.pruned` and `synthesize.requested` to the existing
+    // 59). When new event types are added, bump this number alongside
+    // their registration in `event-store/schemas.ts`.
+    expect(EventTypes).toHaveLength(61);
   });
 
   it('should include workflow-level types', () => {

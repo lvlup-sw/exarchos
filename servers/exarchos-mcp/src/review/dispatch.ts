@@ -10,7 +10,6 @@ export const THRESHOLDS: Record<VelocityTier, number> = {
 export function dispatchReviews(
   prs: PRDiffMetadata[],
   velocity: VelocityTier,
-  _basileusConnected: boolean
 ): ReviewDispatch[] {
   const threshold = THRESHOLDS[velocity];
   return prs.map(pr => {

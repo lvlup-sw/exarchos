@@ -167,6 +167,32 @@ function buildFailedReviewsExpectedShape(
 export const MAX_PLAN_REVISIONS = 3;
 const MAX_SYNTHESIZE_RETRIES = 3;
 
+// ─── Synthesis Guard Helpers ────────────────────────────────────────────────
+
+/**
+ * Returns true if `state._events` contains at least one `synthesize.requested` event.
+ * Pure: reads only the provided events array. Used by both synthesisOptedIn and
+ * synthesisOptedOut; do NOT use it to compose one guard from the other — each
+ * guard must inline its own branch logic to avoid the "missing inverse guard"
+ * anti-pattern seen in hotfixTrackSelected/thoroughTrackSelected.
+ */
+function hasSynthesizeRequestEvent(state: Record<string, unknown>): boolean {
+  const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+  return events.some((e) => e.type === 'synthesize.requested');
+}
+
+/**
+ * Reads `state.oneshot?.synthesisPolicy`, defaulting to `'on-request'` when the
+ * oneshot object or its policy field is missing. Returns one of the three
+ * policy literals; unrecognized values collapse to the default.
+ */
+function readSynthesisPolicy(state: Record<string, unknown>): 'always' | 'never' | 'on-request' {
+  const oneshot = state.oneshot as Record<string, unknown> | undefined;
+  const raw = oneshot?.synthesisPolicy;
+  if (raw === 'always' || raw === 'never' || raw === 'on-request') return raw;
+  return 'on-request';
+}
+
 // ─── Guards ─────────────────────────────────────────────────────────────────
 
 export const guards = {
@@ -710,6 +736,102 @@ export const guards = {
             },
           },
         },
+      };
+    },
+  },
+
+  oneshotPlanSet: {
+    id: 'oneshot-plan-set',
+    description:
+      'Oneshot workflow plan artifact is captured in state.artifacts.plan. `oneshot.planSummary` is a pipeline-view hint, not a plan, and is not sufficient alone to transition plan → implementing.',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      // Tightened: require `artifacts.plan` as the primary (and only
+      // sufficient) condition. Previously either `oneshot.planSummary`
+      // OR `artifacts.plan` satisfied the guard, but `planSummary` is a
+      // one-line pipeline-view hint — not a real plan — and accepting it
+      // as a substitute meant oneshot workflows could enter `implementing`
+      // with no persisted plan artifact at all. `planSummary` is still
+      // recommended as a human-readable label, but it is not the artifact
+      // the guard enforces.
+      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const plan = artifacts?.plan;
+      // Whitespace-only plan strings are not a real plan artifact — they
+      // satisfy `.length > 0` but carry no content, which would let a
+      // oneshot transition `plan → implementing` with a blank document.
+      // Require at least one non-whitespace character.
+      if (typeof plan === 'string' && plan.trim().length > 0) return true;
+      if (plan != null && typeof plan !== 'string') return true;
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
+      return {
+        passed: false,
+        reason:
+          'oneshot-plan-set not satisfied: state.artifacts.plan is required (a non-empty plan artifact) before transitioning plan → implementing. `oneshot.planSummary` alone does not satisfy this guard.',
+        expectedShape: { artifacts: { plan: '<one-page plan contents or path>' } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: {
+            action: 'set',
+            featureId,
+            updates: { 'artifacts.plan': '<one-page plan contents or path>' },
+          },
+        },
+      };
+    },
+  },
+
+  synthesisOptedIn: {
+    id: 'synthesis-opted-in',
+    description:
+      'Oneshot workflow opted into synthesis: synthesisPolicy=always OR a synthesize.requested event has been emitted on an on-request policy',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const policy = readSynthesisPolicy(state);
+      if (policy === 'always') return true;
+      if (policy === 'never') {
+        return {
+          passed: false,
+          reason: 'synthesis-opted-in not satisfied: synthesisPolicy=never (direct-commit path)',
+        };
+      }
+      // policy === 'on-request'
+      if (hasSynthesizeRequestEvent(state)) return true;
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
+      return {
+        passed: false,
+        reason:
+          'synthesis-opted-in not satisfied: synthesisPolicy=on-request but no synthesize.requested event in _events',
+        expectedShape: {
+          type: 'synthesize.requested',
+          data: { featureId: '<featureId>', timestamp: '<ISO-8601>' },
+        },
+        suggestedFix: {
+          tool: 'exarchos_orchestrate',
+          params: { action: 'request_synthesize', featureId },
+        },
+      };
+    },
+  },
+
+  synthesisOptedOut: {
+    id: 'synthesis-opted-out',
+    description:
+      'Oneshot workflow opted out of synthesis: synthesisPolicy=never OR an on-request policy with no synthesize.requested event (direct-commit path)',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      // Inlined inverse of synthesisOptedIn — NOT composed via `!synthesisOptedIn.evaluate`
+      // so that refactoring one guard cannot silently skew the other.
+      const policy = readSynthesisPolicy(state);
+      if (policy === 'never') return true;
+      if (policy === 'always') {
+        return {
+          passed: false,
+          reason: 'synthesis-opted-out not satisfied: synthesisPolicy=always (synthesize path)',
+        };
+      }
+      // policy === 'on-request'
+      if (!hasSynthesizeRequestEvent(state)) return true;
+      return {
+        passed: false,
+        reason:
+          'synthesis-opted-out not satisfied: synthesisPolicy=on-request with a synthesize.requested event present — opted into synthesis',
       };
     },
   },

@@ -173,6 +173,39 @@ export function createDebugHSM(): HSMDefinition {
   return { id: 'debug', states, transitions };
 }
 
+// ─── Oneshot Workflow HSM ───────────────────────────────────────────────────
+//
+// Lightweight lifecycle for small changes: plan → implementing → (choice state).
+// The `implementing` phase evaluates two mutually exclusive guards
+// (synthesisOptedIn / synthesisOptedOut) which are pure functions of
+// (synthesisPolicy, synthesize.requested events) per the design doc.
+//
+// Declaration order matters: the state machine tries transitions in array
+// order. We keep both branches listed so getValidTransitions advertises
+// both to callers; exactly one will pass its guard for any given state
+// (enforced by the choice-state mutual-exclusivity property test in
+// state-machine.test.ts and the inverse-guard property test in
+// guards.test.ts).
+
+export const oneshotTransitions: readonly Transition[] = [
+  { from: 'plan', to: 'implementing', guard: guards.oneshotPlanSet },
+  { from: 'implementing', to: 'synthesize', guard: guards.synthesisOptedIn },
+  { from: 'implementing', to: 'completed', guard: guards.synthesisOptedOut },
+  { from: 'synthesize', to: 'completed', guard: guards.mergeVerified },
+];
+
+export function createOneshotHSM(): HSMDefinition {
+  const states: Record<string, State> = {
+    plan: { id: 'plan', type: 'atomic' },
+    implementing: { id: 'implementing', type: 'atomic' },
+    synthesize: { id: 'synthesize', type: 'atomic' },
+    completed: { id: 'completed', type: 'final' },
+    cancelled: { id: 'cancelled', type: 'final' },
+  };
+
+  return { id: 'oneshot', states, transitions: [...oneshotTransitions] };
+}
+
 // ─── Refactor Workflow HSM ──────────────────────────────────────────────────
 
 export function createRefactorHSM(): HSMDefinition {
