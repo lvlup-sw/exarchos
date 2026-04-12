@@ -35,13 +35,13 @@ Each event type has a designated emission source:
 
 Events marked `auto` should not be duplicated via manual `exarchos_event` calls. The MCP server emits them as side effects of workflow operations.
 
-## Event types (58 total)
+## Event types (60 total)
 
-### Workflow (12)
+### Workflow (13)
 
 | Type | Source | Description |
 |------|--------|-------------|
-| `workflow.started` | auto | Workflow initialized |
+| `workflow.started` | auto | Workflow initialized. For `oneshot` workflows, the event data includes `synthesisPolicy` so it survives ES v2 rematerialization |
 | `workflow.transition` | auto | Phase transition |
 | `workflow.fix-cycle` | auto | Fix cycle incremented |
 | `workflow.guard-failed` | auto | Transition guard rejected |
@@ -53,6 +53,7 @@ Events marked `auto` should not be duplicated via manual `exarchos_event` calls.
 | `workflow.compensation` | auto | Saga compensation action |
 | `workflow.circuit-open` | auto | Circuit breaker tripped |
 | `workflow.cas-failed` | auto | Compare-and-swap retry exhausted |
+| `workflow.pruned` | auto | Batch-cancelled by `prune_stale_workflows`. Payload: `{ featureId, stalenessMinutes, triggeredBy: "manual" \| "scheduled", skippedSafeguards? }`. Introduced in v2.6.0 |
 
 ### Task (5)
 
@@ -153,6 +154,12 @@ Events marked `auto` should not be duplicated via manual `exarchos_event` calls.
 | `ci.status` | model | CI status for a PR |
 | `comment.posted` | model | PR comment posted |
 | `comment.resolved` | model | PR comment thread resolved |
+
+### Oneshot choice state (1)
+
+| Type | Source | Description |
+|------|--------|-------------|
+| `synthesize.requested` | auto | Appended by `request_synthesize`. Consumed by the `synthesisOptedIn` guard at `finalize_oneshot` time. Payload: `{ featureId, reason?, timestamp }`. Duplicate appends are benign (any count ≥ 1 → opted in). Introduced in v2.6.0 |
 
 ### Other (1)
 

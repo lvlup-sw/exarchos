@@ -29,7 +29,7 @@ If the state file gets corrupted or deleted, `reconcile` rebuilds it by replayin
 
 ## State machine enforcing phase transitions
 
-The workflow state machine defines valid transitions for each workflow type. Feature workflows can move from `ideate` to `plan`, but not from `ideate` to `review`. Debug workflows branch into hotfix and thorough tracks. Refactor workflows branch into polish and overhaul tracks.
+The workflow state machine defines valid transitions for each workflow type. Feature workflows can move from `ideate` to `plan`, but not from `ideate` to `review`. Debug workflows branch into hotfix and thorough tracks. Refactor workflows branch into polish and overhaul tracks. Oneshot workflows (v2.6.0+) have a four-phase lightweight lifecycle with a choice state at the end of `implementing` that forks to either `completed` (direct-commit) or `synthesize → completed` (PR), evaluated against a pure event-sourced guard at finalize time.
 
 Guards check preconditions before each transition: does a plan document exist? Have all tasks completed? Did convergence gates pass? If a guard fails, the transition is rejected with a message explaining what's missing.
 

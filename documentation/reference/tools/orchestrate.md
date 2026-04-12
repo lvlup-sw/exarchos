@@ -170,6 +170,107 @@ Phases: synthesize, review, overhaul-review, debug-review. Role: `lead`.
 
 ---
 
+## Oneshot choice state
+
+Actions specific to the oneshot workflow type. Both introduced in v2.6.0.
+
+### request_synthesize
+
+Opt-in event for the oneshot choice state. Appends a `synthesize.requested` event to the workflow's event stream so that when `finalize_oneshot` is later called, the `synthesisOptedIn` guard routes to the `synthesize` phase instead of directly `completed`.
+
+```json
+{
+  "action": "request_synthesize",
+  "featureId": "fix-readme-typo",
+  "reason": "user requested review after parser changes"
+}
+```
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `featureId` | yes | string | Workflow identifier (must be a oneshot workflow) |
+| `reason` | no | string | Human-readable rationale (captured in event payload for audit) |
+
+**Idempotency.** Each call appends a separate `synthesize.requested` event (the stream is not deduplicated), but the guard treats any count ≥ 1 as "opted in". Duplicate calls therefore produce the same routing decision with additional audit breadcrumbs.
+
+**Phase acceptance.** The handler accepts `request_synthesize` from `plan` or `implementing`. Terminal phases (`synthesize`, `completed`, `cancelled`) are rejected with `INVALID_PHASE` — the event has no effect on an already-terminated workflow.
+
+Auto-emits: `synthesize.requested`. Phases: plan, implementing. Role: `lead`.
+
+### finalize_oneshot
+
+Resolve the oneshot `implementing → ?` choice state. Evaluates `synthesisOptedIn` / `synthesisOptedOut` against the hydrated event stream and calls `handleSet` with the resolved target phase.
+
+```json
+{
+  "action": "finalize_oneshot",
+  "featureId": "fix-readme-typo"
+}
+```
+
+| Parameter | Required | Type | Description |
+|-----------|----------|------|-------------|
+| `featureId` | yes | string | Workflow identifier (must be a oneshot workflow in `implementing`) |
+
+The handler:
+1. Reads current state and verifies `workflowType === 'oneshot'` and `phase === 'implementing'`
+2. Hydrates `_events` from the event store
+3. Evaluates the choice-state guards (pure functions of `state.oneshot.synthesisPolicy` and the `synthesize.requested` count)
+4. Calls `handleSet` with the resolved target (`synthesize` or `completed`)
+5. The HSM re-evaluates the guard at the transition boundary as a safety net
+
+**Policy precedence.** `synthesisPolicy = "always"` short-circuits to `synthesize` regardless of events. `synthesisPolicy = "never"` short-circuits to `completed` — any emitted `synthesize.requested` events are ignored. Only `"on-request"` (default) consults the event stream.
+
+Phases: implementing. Role: `lead`.
+
+---
+
+## Maintenance
+
+### prune_stale_workflows
+
+Bulk-maintenance action that finds non-terminal workflows beyond a staleness threshold, applies safeguards, and batch-cancels the approved candidates. Each pruned workflow emits a `workflow.pruned` event. Introduced in v2.6.0.
+
+```json
+{
+  "action": "prune_stale_workflows",
+  "thresholdMinutes": 10080,
+  "dryRun": true
+}
+```
+
+| Parameter | Required | Type | Default | Description |
+|-----------|----------|------|---------|-------------|
+| `thresholdMinutes` | no | integer (positive) | `10080` (7 days) | Staleness cutoff — workflows with `_checkpoint.lastActivityTimestamp` older than this are candidates. Rejected if negative/zero/NaN/Infinity/non-integer |
+| `dryRun` | no | boolean | `true` | Preview mode: compute candidates + safeguard filtering without mutating state |
+| `force` | no | boolean | `false` | Bypass safeguards but record bypass in the audit event via `skippedSafeguards` |
+| `includeOneShot` | no | boolean | `true` | Whether to include `workflowType: "oneshot"` workflows in the candidate set |
+
+**Safeguards (default behavior, bypassed only by `force: true`):**
+
+- `hasOpenPR(featureId, branchName)` — skips candidates whose inferred branch has an open PR on GitHub
+- `hasRecentCommits(branchName, windowHours)` — skips candidates with commits pushed to the branch within the last 24 hours
+- Workflows without a `branchName` in state (e.g., abandoned pre-delegation) automatically skip both safeguards (nothing to check) and are eligible for pruning
+
+**Fail-closed validation.** Entries from `handleList` with missing or invalid fields (missing `featureId`, unparsable timestamp, etc.) are routed to a `malformed` bucket and never reach `candidates` or `pruned`. A warning is emitted via the orchestrate logger.
+
+**Return shape (dry-run):**
+```json
+{
+  "candidates": [{ "featureId": "...", "workflowType": "...", "phase": "...", "stalenessMinutes": 14430 }],
+  "skipped":    [{ "featureId": "...", "reason": "open-pr" | "active-branch" | "terminal" | "fresh" | "oneshot-excluded" }],
+  "malformed":  [{ "featureId": "...", "reason": "..." }]
+}
+```
+
+**Return shape (apply mode):** same as dry-run plus a `pruned` array with `{ featureId, previousPhase }` per successfully cancelled workflow. The `pruned` field is omitted entirely in dry-run.
+
+**Apply-mode preconditions.** The handler requires `ctx.eventStore` to be present when `dryRun: false`. Invoking apply mode without an event store returns a structured `MISSING_CONTEXT` error rather than silently swallowing the audit event.
+
+Auto-emits: `workflow.pruned` (per cancelled workflow). Phases: all. Role: `lead`.
+
+---
+
 ## Quality gates
 
 Gates check specific quality dimensions. Each gate emits a `gate.executed` event. Gates are classified as **blocking** (must pass to proceed) or **informational** (findings reported but do not block progress).

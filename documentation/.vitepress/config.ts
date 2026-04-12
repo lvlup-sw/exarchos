@@ -51,6 +51,7 @@ export default defineConfig({
             { text: 'Feature Development', link: '/guide/feature-workflow' },
             { text: 'Debugging', link: '/guide/debug-workflow' },
             { text: 'Refactoring', link: '/guide/refactor-workflow' },
+            { text: 'Oneshot', link: '/guide/oneshot-workflow' },
           ],
         },
         {

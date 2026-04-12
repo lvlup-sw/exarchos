@@ -55,6 +55,30 @@ graph LR
 
 Refactoring also branches by scope. Polish track is for small, focused changes done directly by the orchestrator. Overhaul track mirrors the feature workflow with planning, delegation, and review phases.
 
+### Oneshot workflow
+
+```mermaid
+graph LR
+    plan --> implementing
+    implementing -->|synthesisOptedOut| completed
+    implementing -->|synthesisOptedIn| synthesize --> completed
+```
+
+Introduced in v2.6.0. The oneshot workflow is a lightweight four-phase path for trivial changes that don't warrant the ceremony of the feature pipeline. Everything runs in-session — no subagent dispatch, no two-stage review, no compound state, no fix-cycle circuit breaker.
+
+The fork after `implementing` is a **choice state** (UML terminology) implemented as two mutually-exclusive HSM transitions. The guards are pure functions of `state.oneshot.synthesisPolicy` (declared at init) and the count of `synthesize.requested` events on the stream. The `finalize_oneshot` orchestrate action evaluates the guards and calls `handleSet` with the resolved target phase. The HSM re-evaluates the guard at the transition boundary as a safety net.
+
+| From | To | Guard | Prerequisite |
+|------|----|-------|--------------|
+| `plan` | `implementing` | `oneshot-plan-set` | Set non-empty `artifacts.plan` (`oneshot.planSummary` is optional metadata but does not satisfy the guard on its own) |
+| `implementing` | `synthesize` | `synthesis-opted-in` | Policy `always` OR (`on-request` + at least one `synthesize.requested` event) |
+| `implementing` | `completed` | `synthesis-opted-out` | Policy `never` OR (`on-request` + no `synthesize.requested` event) |
+| `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
+
+**Policy precedence.** `synthesisPolicy = "never"` causes `synthesis-opted-out` to short-circuit regardless of events — any `synthesize.requested` events on the stream are ignored. `synthesisPolicy = "always"` causes `synthesis-opted-in` to short-circuit to `synthesize` regardless of events. Only `"on-request"` (default) consults the event stream.
+
+The policy value is embedded in the `workflow.started` event payload so it survives ES v2 rematerialization — rehydrating a oneshot workflow from events alone preserves the init-time routing intent.
+
 ## Guards
 
 Guards are preconditions checked before a transition is allowed. Each guard is a pure function that inspects the current state and returns either `true` or a structured failure with an explanation, the expected state shape, and a suggested fix.
