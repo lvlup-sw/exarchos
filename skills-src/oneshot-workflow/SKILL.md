@@ -189,11 +189,11 @@ work directly. There is **no separate review phase**. Quality is
 maintained by the TDD loop and (if the user opts in) the synthesize PR
 review.
 
-#### Mid-implementing: opting in to a PR
+#### Mid-workflow: opting in to a PR
 
-If at any point during implementing the user decides they want a PR
-after all (policy is `on-request`, default), they can opt in by calling
-the `request_synthesize` orchestrate action:
+If at any point during `plan` or `implementing` the user decides they
+want a PR after all (policy is `on-request`, default), they can opt in
+by calling the `request_synthesize` orchestrate action:
 
 ```typescript
 {{MCP_PREFIX}}exarchos_orchestrate({
@@ -397,6 +397,12 @@ explicitly is recommended when the user has stated a preference.
 
 For the full transition table for oneshot, consult
 `@skills/workflow-state/references/phase-transitions.md`.
+
+> **Note:** The engine's `exarchos_workflow describe playbook="oneshot"`
+> output and the HSM definitions in `hsm-definitions.ts` are the
+> canonical sources for transition behavior. `phase-transitions.md` is
+> a prose reference that can drift — when discrepancies arise, prefer
+> engine `describe` output.
 
 **Quick reference for oneshot:**
 
