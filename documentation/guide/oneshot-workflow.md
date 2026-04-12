@@ -144,7 +144,7 @@ You do **not** run `/exarchos:delegate` or `/exarchos:review` on an opt-in onesh
 
 | Aspect | `feature` | `oneshot` |
 |---|---|---|
-| Phases | ideate → plan → plan-review → delegate → review → synthesize → completed | plan → implementing → {completed \| synthesize → completed} |
+| Phases | ideate → plan → plan-review → delegate → review → synthesize → completed | plan → implementing → `{completed \| synthesize → completed}` |
 | Initial phase | `ideate` | `plan` |
 | Design doc | required (`artifacts.design`) | not required |
 | Plan-review | yes (human checkpoint) | no |

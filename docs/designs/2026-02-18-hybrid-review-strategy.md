@@ -1,5 +1,19 @@
 # Design: Hybrid Review Strategy
 
+> ## ⚠️ Phase 4 superseded (2026-04-10)
+>
+> The **Semantic Scoring Layer (Basileus Augmentation)** section and **Phase 4** of the Implementation Phases table below have been superseded by an architectural decision to move review triage with semantic scoring into basileus as a dedicated Phronesis Code Review agent, rather than as a cross-repo split with exarchos calling basileus via HTTP.
+>
+> **Rationale:** Review triage with semantic scoring is agent-shaped work (LLM reasoning, tool use, finding emission, reflective loops). Agent-shaped work belongs in the agent host (basileus), not the dev workflow harness (exarchos). The cross-repo `basileusConnected` guard + `augmentWithSemanticScore()` stub was a coordination tax that vanishes once the agent lives in basileus.
+>
+> **Tracking:**
+> - [`lvlup-sw/basileus#146`](https://github.com/lvlup-sw/basileus/issues/146) — architectural decision
+> - [`lvlup-sw/basileus#147`](https://github.com/lvlup-sw/basileus/issues/147) — Phronesis Code Review agent (the replacement)
+> - [`lvlup-sw/basileus#148`](https://github.com/lvlup-sw/basileus/issues/148) — review-findings data fabric foundation (prerequisite)
+> - [`lvlup-sw/exarchos#1077`](https://github.com/lvlup-sw/exarchos/issues/1077) — removes the orphaned `augmentWithSemanticScore()` stub and `basileusConnected` guard from this repo
+>
+> **What's NOT superseded:** Phases 1-3 (the deterministic triage router, velocity detection, label-based CodeRabbit gating, and the review merge gate) remain in effect pending the broader retention discussion in [`lvlup-sw/basileus#146`](https://github.com/lvlup-sw/basileus/issues/146). Those are useful even in a basileus-disconnected mode. This supersession applies only to Phase 4 (semantic augmentation) and the `augmentWithSemanticScore()` / `basileusConnected` / HTTP client machinery.
+
 ## Problem Statement
 
 CodeRabbit provides high-value review capabilities — security/static analysis, cross-file semantic analysis, severity classification, and accumulated learnings — that are difficult to replicate with self-hosted agents. However, CodeRabbit enforces a per-PR rate limit (~5 min cooldown), which creates a bottleneck during high-velocity development. An 8-PR Graphite stack takes ~40 minutes for a single CodeRabbit review pass, with each fix cycle doubling that. Multiple features in flight compound the problem.
