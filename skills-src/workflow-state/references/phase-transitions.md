@@ -127,7 +127,7 @@ plan → implementing ─┬→ completed              (direct-commit path)
 
 | From | To | Guard | Prerequisite |
 |------|----|-------|-------------|
-| `plan` | `implementing` | `oneshot-plan-set` | Set `artifacts.plan` OR `oneshot.planSummary` |
+| `plan` | `implementing` | `oneshot-plan-set` | Set `artifacts.plan` (non-empty string; `oneshot.planSummary` is optional metadata but does **not** satisfy the guard) |
 | `implementing` | `synthesize` | `synthesis-opted-in` | Policy `always` OR (`on-request` + `synthesize.requested` event) |
 | `implementing` | `completed` | `synthesis-opted-out` | Policy `never` OR (`on-request` + no event) |
 | `synthesize` | `completed` | `pr-url-exists` | Set `synthesis.prUrl` or `artifacts.pr` |
