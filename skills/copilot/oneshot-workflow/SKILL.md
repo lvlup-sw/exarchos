@@ -214,13 +214,22 @@ for phrases like:
 When you hear any of those, call `request_synthesize` immediately. The
 handler appends a `synthesize.requested` event to the workflow's event
 stream; the `synthesisOptedIn` guard reads the stream at finalize and
-routes accordingly. This is **idempotent** — calling
-`request_synthesize` twice appends two events but the guard treats any
-count >= 1 as "opted in", so duplicate calls are benign.
+routes accordingly.
+
+`request_synthesize` is accepted from both `plan` and `implementing`
+phases — call it whenever you know you want the PR path, even before
+`implementing` starts. Terminal phases (`synthesize`, `completed`,
+`cancelled`) are rejected.
+
+Duplicate calls are **routing-idempotent** but not event-idempotent:
+each call appends a new `synthesize.requested` event, but the guard
+treats any count >= 1 as "opted in", so the routing decision is the
+same whether you call once or five times. The event stream will
+contain each duplicate for audit purposes.
 
 Calling `request_synthesize` does **not** transition the phase. The
-workflow stays in `implementing`. The decision is only acted on when
-you call `finalize_oneshot` in step 4.
+workflow stays in its current phase. The decision is only acted on
+when you call `finalize_oneshot` in step 4.
 
 ### Step 4 — Finalize (the choice point)
 
@@ -393,7 +402,7 @@ For the full transition table for oneshot, consult
 
 | From | To | Guard |
 |---|---|---|
-| `plan` | `implementing` | `planApproved` (or `oneshotPlanSet`, checks `artifacts.plan` presence) |
+| `plan` | `implementing` | `oneshotPlanSet` (requires non-empty `artifacts.plan`) |
 | `implementing` | `synthesize` | `synthesisOptedIn` |
 | `implementing` | `completed` | `synthesisOptedOut` |
 | `synthesize` | `completed` | `mergeVerified` |
@@ -401,9 +410,10 @@ For the full transition table for oneshot, consult
 
 `synthesisOptedIn` and `synthesisOptedOut` are pure functions of
 `state.oneshot.synthesisPolicy` and `state._events`. They are mutually
-exclusive across all 8 (3 policies × event-present/absent, with `always`
-and `never` ignoring the event flag) combinations — exactly one returns
-true at any given time.
+exclusive across all 4 meaningful combinations — `always` and `never`
+each map to one outcome (ignoring the event flag), and `on-request`
+branches on whether a `synthesize.requested` event is present or
+absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
