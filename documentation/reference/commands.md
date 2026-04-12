@@ -1,6 +1,6 @@
 # Commands
 
-Exarchos provides 15 slash commands. As a Claude Code plugin, they are namespaced under `/exarchos:`.
+Exarchos provides 17 slash commands. As a Claude Code plugin, they are namespaced under `/exarchos:`.
 
 ## Workflow start commands
 
@@ -48,6 +48,23 @@ Code improvement. Assess scope, write brief, implement, validate.
 | `--polish` | Direct implementation, 5 files or fewer, single concern |
 | `--explore` | Assess scope before selecting a track |
 | `--switch-overhaul` | Switch from polish to overhaul mid-workflow |
+
+### `/exarchos:oneshot`
+
+Lightweight in-session workflow for trivial changes. Plans, implements, and either direct-commits or opens a PR — all within a single TDD loop with no subagent dispatch. Introduced in v2.6.0.
+
+```bash
+/exarchos:oneshot "Fix typo in README install section"
+/exarchos:oneshot --pr "Add missing null-check to formatDate"
+```
+
+| Flag | Effect |
+|------|--------|
+| (none) | Policy `on-request` (default) — direct-commit unless `request_synthesize` is called mid-stream |
+| `--pr` | Policy `always` — always transition through `synthesize` to create a PR |
+| `--no-pr` | Policy `never` — always direct-commit, ignore `synthesize.requested` events |
+
+The fork after `implementing` is a pure event-sourced choice state. Call `exarchos_orchestrate { action: "request_synthesize" }` at any time during `plan` or `implementing` to opt into the PR path. Terminal `finalize_oneshot` resolves the decision. See [Oneshot Workflow](/guide/oneshot-workflow) for the full flow.
 
 ## Lifecycle commands
 
@@ -151,6 +168,20 @@ Toggle autocompact on/off or set a threshold percentage. Manages the `CLAUDE_AUT
 /exarchos:autocompact off       # Disable
 /exarchos:autocompact 80        # Set to 80%
 ```
+
+## Maintenance commands
+
+### `/exarchos:prune`
+
+Bulk-cancel stale non-terminal workflows from the pipeline view. Interactive dry-run → confirm → apply UX. Introduced in v2.6.0.
+
+```bash
+/exarchos:prune                        # dry-run, default 7-day threshold
+/exarchos:prune --threshold 1440       # 1-day threshold (minutes)
+/exarchos:prune --force                # bypass safeguards (still audited)
+```
+
+Invokes `exarchos_orchestrate { action: "prune_stale_workflows" }`. Safeguards skip workflows with open PRs or recent commits unless `--force` is passed. Each pruned workflow emits a `workflow.pruned` event carrying `stalenessMinutes`, `triggeredBy`, and optional `skippedSafeguards` for audit. See [prune_stale_workflows](/reference/tools/orchestrate#prune_stale_workflows) for the underlying action.
 
 ## Attribution
 

@@ -87,7 +87,7 @@ Requires Node.js >= 20.
 
 ## What you get
 
-Three workflow types (feature, debug, refactor) with enforced phase transitions. You approve the design and you approve the merge. Everything between auto-continues.
+Four workflow types (feature, debug, refactor, oneshot) with enforced phase transitions. You approve the design and you approve the merge. Everything between auto-continues. For trivial changes, `oneshot` skips straight to plan → implement with an opt-in PR path.
 
 **Checkpoint and resume.** `/checkpoint` saves mid-task. `/rehydrate` restores it in ~2-3k tokens.
 
@@ -138,6 +138,7 @@ Structured input over natural language. Strict schema validation over loose pars
 | Build a feature | `/ideate` | Design exploration, TDD plan, parallel implementation |
 | Fix a bug | `/debug` | Triage, investigate, fix, validate (hotfix or thorough) |
 | Improve code | `/refactor` | Assess scope, brief, implement (polish or full overhaul) |
+| Make a trivial change | `/oneshot` | Lightweight in-session plan → implementing → direct-commit (or opt-in PR) |
 
 **Lifecycle commands:**
 
@@ -149,6 +150,7 @@ Structured input over natural language. Strict schema validation over loose pars
 | `/synthesize` | Create PR from feature branch |
 | `/shepherd` | Push PRs through CI and reviews to merge readiness |
 | `/cleanup` | Resolve merged workflow to completed state |
+| `/prune` | Interactively bulk-cancel stale non-terminal workflows |
 | `/checkpoint` | Save workflow state for later resumption |
 | `/rehydrate` | Restore workflow state after compaction or session break |
 | `/reload` | Re-inject context after degradation |

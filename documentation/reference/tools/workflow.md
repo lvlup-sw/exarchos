@@ -6,7 +6,7 @@ Workflow lifecycle management -- init, read, update, cancel, cleanup, and reconc
 
 ### init
 
-Initialize a new workflow. Auto-emits a `workflow.started` event.
+Initialize a new workflow. Auto-emits a `workflow.started` event. For `oneshot` workflows, the optional `synthesisPolicy` is embedded in the event payload so it survives ES v2 rematerialization.
 
 ```json
 {
@@ -16,12 +16,22 @@ Initialize a new workflow. Auto-emits a `workflow.started` event.
 }
 ```
 
+```json
+{
+  "action": "init",
+  "featureId": "fix-readme-typo",
+  "workflowType": "oneshot",
+  "synthesisPolicy": "on-request"
+}
+```
+
 | Parameter | Required | Type | Description |
 |-----------|----------|------|-------------|
 | `featureId` | yes | string | Kebab-case identifier (`^[a-z0-9-]+$`) |
-| `workflowType` | yes | `"feature"` \| `"debug"` \| `"refactor"` | Determines phase graph and initial phase |
+| `workflowType` | yes | `"feature"` \| `"debug"` \| `"refactor"` \| `"oneshot"` | Determines phase graph and initial phase |
+| `synthesisPolicy` | no | `"always"` \| `"never"` \| `"on-request"` | **oneshot only.** Default `"on-request"`. Determines whether the `implementing → ?` choice state routes to `synthesize` or `completed`. Silently ignored for non-oneshot workflow types |
 
-Returns: `{ featureId, workflowType, phase }` where `phase` is the initial phase for the workflow type (`ideate` for feature, `triage` for debug, `explore` for refactor).
+Returns: `{ featureId, workflowType, phase }` where `phase` is the initial phase for the workflow type (`ideate` for feature, `triage` for debug, `explore` for refactor, `plan` for oneshot).
 
 Phases: none (creates the workflow). Role: `lead`.
 

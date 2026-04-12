@@ -44,6 +44,8 @@ Skills that invoke Exarchos MCP tools must include `metadata.mcp-server: exarcho
 | `delegation` | Task dispatch to agent teammates in worktrees | delegate |
 | `git-worktrees` | Worktree management for parallel work | delegate |
 | `implementation-planning` | TDD-based task planning from design docs | plan |
+| `oneshot-workflow` | Lightweight in-session workflow for trivial changes with opt-in PR path (v2.6.0) | plan, implementing |
+| `prune-workflows` | Bulk-cancel stale non-terminal workflows from the pipeline view (v2.6.0) | maintenance |
 | `quality-review` | Stage 2 code quality review (+ axiom/impeccable if installed) | review |
 | `refactor` | Code improvement (polish/overhaul tracks) | explore, synthesize |
 | `shepherd` | PR shepherding through CI and reviews | synthesize |

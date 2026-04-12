@@ -6,13 +6,15 @@ outline: deep
 
 ## Workflows
 
-A workflow is a structured sequence of phases that takes a unit of work from idea to shipped code. Exarchos supports three workflow types:
+A workflow is a structured sequence of phases that takes a unit of work from idea to shipped code. Exarchos supports four workflow types:
 
 Feature workflows move through: ideate, plan, plan-review, delegate, review, synthesize, completed. This is the full path from design exploration through a merged PR.
 
 Debug workflows move through: triage, investigate, root cause analysis, design, then branch into either a hotfix track (implement, validate) or a thorough track (implement, validate, review). Use this when something is broken and you need to fix it.
 
 Refactor workflows move through: explore, brief, then branch into either a polish track (implement, validate, update docs) or an overhaul track (plan, plan-review, delegate, review, update docs). The branch depends on scope.
+
+Oneshot workflows (introduced in v2.6.0) move through: plan, implementing, and then a runtime choice state that forks to either `completed` (direct-commit) or `synthesize → completed` (PR). No subagent dispatch, no two-stage review — everything runs in-session within a single TDD loop. Use oneshot for trivial changes like typo fixes, config tweaks, or exploratory spikes where the ceremony of the feature workflow would be wasteful. The choice between direct-commit and PR is resolved at the end of `implementing` by evaluating a pure event-sourced guard against the `synthesisPolicy` declared at init (`always`, `never`, or `on-request` default) plus any `synthesize.requested` events emitted at runtime.
 
 Each type has its own phase sequence and transition rules. You pick the type when you start a workflow, and the state machine handles the rest.
 

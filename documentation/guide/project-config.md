@@ -163,7 +163,7 @@ Each hook command receives the event data as JSON on stdin. Four environment var
 | `EXARCHOS_FEATURE_ID` | Current workflow feature ID |
 | `EXARCHOS_PHASE` | Current workflow phase |
 | `EXARCHOS_EVENT_TYPE` | Event type that triggered the hook |
-| `EXARCHOS_WORKFLOW_TYPE` | Workflow type (feature, debug, refactor) |
+| `EXARCHOS_WORKFLOW_TYPE` | Workflow type (feature, debug, refactor, oneshot) |
 
 A failing notification script will not break your workflow. Errors are logged, but hooks never block the event pipeline.
 

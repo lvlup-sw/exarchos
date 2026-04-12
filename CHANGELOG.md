@@ -4,7 +4,17 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-04-12
+
 ### Features
+- `oneshot` workflow type with pure event-derived choice state (plan → implementing → {completed | synthesize}) (#1010)
+- `prune_stale_workflows` orchestrate action for bulk pipeline hygiene (dry-run default, DI-testable safeguards, `workflow.pruned` audit event) (#1010)
+- `request_synthesize` + `finalize_oneshot` orchestrate actions for oneshot choice state (#1010)
+- `synthesize.requested` + `workflow.pruned` event types (#1010)
+- `synthesisPolicy` optional init arg (`always` / `never` / `on-request`) for oneshot workflows, persisted in `workflow.started` event (#1010)
+- `/exarchos:oneshot` and `/exarchos:prune` slash command skills with `references/` subdirectories (#1010)
+- `OneshotPhaseSchema` enum for type-safe phase validation (#1010)
+- Skill layer extensions threading oneshot through workflow-state, cleanup, shepherd, delegation skills (#1010)
 - HSM topology introspection via `exarchos_workflow describe` with `topology` parameter (#979)
 - Event emission catalog via `exarchos_event describe` with `emissionGuide` parameter (#979)
 - CLI `topology [type]` and `emissions` commands for plugin-free introspection (#979)
@@ -13,7 +23,25 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - Cursor sequential-fallback mode for runtimes without an in-session subagent primitive (#1071)
 - Build pipeline: `npm run build:skills` orchestrator with placeholder substitution, reference copying, override detection, and stale-source cleanup (#1071)
 
+### Bug Fixes
+- `handleList` now returns `_checkpoint` so `prune_stale_workflows` threshold filter works in production (caught by integration test; unit tests missed it due to stubbing) (#1010)
+- `INITIAL_PHASE` now includes `oneshot → plan` so ES v2 rematerialized oneshot workflows start in the correct phase (#1010)
+- `handlePruneStaleWorkflows` no longer double-accounts on event-append failure (caught by CodeRabbit review) (#1010)
+- Removed `augmentWithSemanticScore` Phase 4 deprecation stubs and `basileusConnected` parameter plumbing from review triage (#1077)
+
+### Hardening
+- Fail-closed validation on malformed `handleList` entries (malformed entries bucketed separately, never reach `candidates` or `pruned`) (#1010)
+- Input validation on `thresholdMinutes` (positive integer) and `now` (valid ISO) before batch runs (#1010)
+- `oneshotPlanSet` guard tightened to require non-empty `artifacts.plan` (`planSummary` alone is insufficient, whitespace trimmed) (#1010)
+- `request_synthesize` runtime phase guard rejects terminal phases (#1010)
+
+### Internal
+- `TERMINAL_PHASES` extracted to shared `workflow/terminal-phases.ts` (was duplicated) (#1010)
+- `handlePruneStaleWorkflows` decomposed via `prunePruneCandidate` helper (~110 → ~60 lines) (#1010)
+- New `adaptArgsWithStateDirAndEventStore` adapter in composite router for handlers needing both `stateDir` and `eventStore` (#1010)
+
 ### Documentation
+- Comprehensive documentation coverage pass for v2.6.0: new oneshot-workflow guide, updated reference/learn/architecture pages
 - Placeholder vocabulary reference (`docs/references/placeholder-vocabulary.md`) and runtime notes (`docs/references/runtime-notes.md`) (#1071)
 - Skill authoring guide (`docs/skills-authoring.md`) covering edit workflow, vocabulary, adding runtimes, and CI checks (#1071)
 
