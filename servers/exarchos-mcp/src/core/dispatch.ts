@@ -44,18 +44,69 @@ export interface DispatchContext {
 /**
  * Public, mutable map of composite handlers keyed by tool name.
  *
- * Historically this was populated at module-init via static imports of every
- * composite (workflow, event, orchestrate, view, sync). That static graph
- * costs ~70ms to load and is almost entirely wasted on CLI cold-starts that
- * only need one composite.
+ * ## Primary vs override source (F-021-4)
  *
- * The map is now populated lazily: `dispatch()` calls `loadCompositeHandler()`
- * which dynamic-imports the matching module on first use and caches the
- * handler here. The map remains publicly exported for tests that stub
- * individual handlers — once a handler has been stubbed or loaded it
- * behaves identically to the eager version.
+ * - **Primary source: `COMPOSITE_HANDLER_LOADERS`** — the lazy dynamic-import
+ *   factories below are the canonical production source. Dispatch calls
+ *   `loadCompositeHandler()` which imports the matching module on first use
+ *   and caches the resolved handler in `COMPOSITE_HANDLERS`.
+ *
+ * - **Override source: `COMPOSITE_HANDLERS`** — this map is consulted **first**
+ *   by `loadCompositeHandler()`. Writing a value here takes precedence over
+ *   the loader and bypasses the dynamic import entirely. That makes it the
+ *   designated test-stubbing surface: tests inject a spy/fake under a tool
+ *   key, run `dispatch()`, and restore the prior value in a `finally` block.
+ *
+ * **Save/restore is the caller's responsibility.** Production code must NOT
+ * mutate this map directly; use the `stubCompositeHandler()` helper instead,
+ * which returns a scoped restore function.
+ *
+ * ### Historical context
+ * Originally this map was populated at module-init via static imports of
+ * every composite (workflow, event, orchestrate, view, sync). That static
+ * graph cost ~70ms to load and was almost entirely wasted on CLI cold-starts
+ * that only dispatch one composite per invocation (DR-5 / task 021).
+ *
+ * ### Example stub pattern
+ * See `dispatch.test.ts:221` — `dispatch_compositeHandler_receivesDispatchContext`
+ * demonstrates the save → override → restore-in-finally idiom manually. New
+ * tests should prefer `stubCompositeHandler()` below.
  */
 export const COMPOSITE_HANDLERS: Record<string, CompositeHandler> = {};
+
+/**
+ * Install a composite handler override for the duration of a test, returning
+ * a disposer that restores the previous state. Consolidates the
+ * save → override → restore-in-finally idiom so tests cannot leak stubs into
+ * neighbouring cases when they forget to clean up.
+ *
+ * ```ts
+ * const restore = stubCompositeHandler('exarchos_workflow', spy);
+ * try {
+ *   await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+ * } finally {
+ *   restore();
+ * }
+ * ```
+ *
+ * Restores whatever was previously there (including `undefined`, i.e. the
+ * absent-key case where the real lazy loader would take over).
+ */
+export function stubCompositeHandler(
+  tool: string,
+  handler: CompositeHandler,
+): () => void {
+  const hadPrev = tool in COMPOSITE_HANDLERS;
+  const prev = COMPOSITE_HANDLERS[tool];
+  COMPOSITE_HANDLERS[tool] = handler;
+  return () => {
+    if (hadPrev) {
+      COMPOSITE_HANDLERS[tool] = prev as CompositeHandler;
+    } else {
+      delete COMPOSITE_HANDLERS[tool];
+    }
+  };
+}
 
 /**
  * Dynamic-import factories for each built-in composite.

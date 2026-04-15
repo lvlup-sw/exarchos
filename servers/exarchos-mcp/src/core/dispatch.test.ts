@@ -245,16 +245,15 @@ describe('dispatch', () => {
     });
 
     it('dispatch_compositeHandler_receivesDispatchContext', async () => {
-      // Arrange — register a spy as a composite handler to capture what dispatch passes
-      const { COMPOSITE_HANDLERS, dispatch } = await import('./dispatch.js');
+      // Arrange — register a spy as a composite handler to capture what dispatch passes.
+      // Uses stubCompositeHandler() (F-021-4) which owns the save/restore dance.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
       let receivedCtx: unknown;
       const spy = async (_args: Record<string, unknown>, ctx: DispatchContext) => {
         receivedCtx = ctx;
         return { success: true as const, data: { spied: true } };
       };
-      // Temporarily inject spy as a composite handler
-      const original = (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'];
-      (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = spy;
+      const restore = stubCompositeHandler('exarchos_workflow', spy);
 
       try {
         const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
@@ -269,7 +268,7 @@ describe('dispatch', () => {
         expect(receivedCtx).toHaveProperty('eventStore', eventStore);
         expect(receivedCtx).toHaveProperty('enableTelemetry', false);
       } finally {
-        (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = original;
+        restore();
       }
     });
 
