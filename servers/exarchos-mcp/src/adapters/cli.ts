@@ -1,14 +1,69 @@
 import { Command } from 'commander';
+import { z } from 'zod';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getFullRegistry } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import type { ToolResult } from '../format.js';
 import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
 import { prettyPrint, printError } from './cli-format.js';
 import { listSchemas, resolveSchemaRef, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
 import { createMcpServer } from './mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+// ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
+
+/**
+ * Canonical exit-code mapping for the CLI adapter. Downstream parity tests
+ * (tasks 014-017) import this table directly to assert that CLI exit codes
+ * align with the MCP ToolResult success/error discriminator.
+ *
+ * - SUCCESS (0): ToolResult.success === true.
+ * - INVALID_INPUT (1): Zod validation or required-flag check failed at the
+ *   CLI layer, before dispatch was invoked.
+ * - HANDLER_ERROR (2): dispatch returned ToolResult.success === false.
+ * - UNCAUGHT_EXCEPTION (3): dispatch threw; error was normalized into a
+ *   ToolResult shape for output parity.
+ */
+export const CLI_EXIT_CODES = {
+  SUCCESS: 0,
+  INVALID_INPUT: 1,
+  HANDLER_ERROR: 2,
+  UNCAUGHT_EXCEPTION: 3,
+} as const;
+
+export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
+
+// ─── Error-Shape Helpers ────────────────────────────────────────────────────
+
+/** Build a ToolResult-shaped error payload matching the MCP contract. */
+function toErrorResult(code: string, message: string): ToolResult {
+  return { success: false, error: { code, message } };
+}
+
+/**
+ * Emit a ToolResult using the adapter's output convention:
+ * - `--json`: raw single-line JSON to stdout (no pretty-printing, no wrapping).
+ * - otherwise: prettyPrint (handles errors via printError).
+ */
+function emitResult(result: ToolResult, json: boolean, format?: 'table' | 'json' | 'tree'): void {
+  if (json) {
+    process.stdout.write(JSON.stringify(result) + '\n');
+  } else {
+    prettyPrint(result, format);
+  }
+}
+
+/** Format a ZodError into a single human-readable message. */
+function formatZodError(err: z.ZodError): string {
+  return err.errors
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+      return `${path}: ${issue.message}`;
+    })
+    .join('; ');
+}
 
 // ─── CLI Command Tree Generator ─────────────────────────────────────────────
 
@@ -42,26 +97,58 @@ export function buildCli(ctx: DispatchContext): Command {
 
       actionCmd.action(async (opts: Record<string, unknown>) => {
         const { json, ...flagOpts } = opts;
+        const isJson = Boolean(json);
+        const format = action.cli?.format;
 
-        // Validate required booleans (Commander can't enforce --flag vs --no-flag)
+        // ─── INVALID_INPUT (exit 1): required-flag check ──────────────────
+        // Commander can't enforce --flag vs --no-flag for required booleans.
         const missingBools = validateRequiredBooleans(flagOpts, action.schema);
         if (missingBools.length > 0) {
-          printError({
-            code: 'MISSING_REQUIRED',
-            message: `Required option(s) not specified: ${missingBools.join(', ')}`,
-          });
-          process.exitCode = 1;
+          const errResult = toErrorResult(
+            'INVALID_INPUT',
+            `Required option(s) not specified: ${missingBools.join(', ')}`,
+          );
+          emitResult(errResult, isJson, format);
+          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
           return;
         }
 
-        const args = { action: action.name, ...coerceFlags(flagOpts, action.schema) };
-        const result = await dispatch(tool.name, args, ctx);
-
-        if (json) {
-          process.stdout.write(JSON.stringify(result) + '\n');
-        } else {
-          prettyPrint(result, action.cli?.format);
+        // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ──────────
+        // Parse coerced args through the action schema so bad inputs are
+        // surfaced before dispatch runs. This mirrors how the MCP adapter
+        // rejects invalid tool arguments.
+        const coerced = coerceFlags(flagOpts, action.schema);
+        const parseResult = action.schema.safeParse(coerced);
+        if (!parseResult.success) {
+          const errResult = toErrorResult('INVALID_INPUT', formatZodError(parseResult.error));
+          emitResult(errResult, isJson, format);
+          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+          return;
         }
+
+        // ─── Dispatch ─────────────────────────────────────────────────────
+        // Dispatch may return a handler-reported error (exit 2) or throw
+        // an unexpected exception (exit 3). Normalize both into ToolResult.
+        let result: ToolResult;
+        try {
+          result = await dispatch(
+            tool.name,
+            { action: action.name, ...parseResult.data },
+            ctx,
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const errResult = toErrorResult('UNCAUGHT_EXCEPTION', message);
+          emitResult(errResult, isJson, format);
+          process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+          return;
+        }
+
+        // ─── Emit + map to exit code ──────────────────────────────────────
+        emitResult(result, isJson, format);
+        process.exitCode = result.success
+          ? CLI_EXIT_CODES.SUCCESS
+          : CLI_EXIT_CODES.HANDLER_ERROR;
       });
     }
   }
