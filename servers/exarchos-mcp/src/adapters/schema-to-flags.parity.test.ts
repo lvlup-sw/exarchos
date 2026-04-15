@@ -1,13 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { CommanderError } from 'commander';
 
-import { buildCli, commanderErrorToResult, applyExitOverrideRecursively } from './cli.js';
-import { dispatch, type DispatchContext } from '../core/dispatch.js';
+import { type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
+import { callCli, callMcp } from '../__tests__/parity-harness.js';
 
 // ─── Task 024: CLI-vs-MCP Argument Coercion Failure Parity (DR-5) ────────────
 // These tests prove that when users provide malformed arguments — missing a
@@ -33,102 +32,6 @@ function makeCtx(stateDir: string): DispatchContext {
     eventStore: new EventStore(stateDir),
     enableTelemetry: false,
   };
-}
-
-/**
- * Invoke a CLI action via Commander in-process, capturing the single JSON
- * line written to stdout in --json mode and parsing it back into a
- * ToolResult. Installs `exitOverride` on the root program so Commander's
- * own validation errors (missing mandatory option, missing argument,
- * unknown command) surface as exceptions — this test harness then
- * converts those into a synthetic ToolResult so we can compare codes
- * against the MCP facade.
- *
- * Production CLI path still uses the real buildCli — this helper only
- * wraps parseAsync to normalize the failure contract for assertion.
- */
-async function callCli(
-  ctx: DispatchContext,
-  toolAlias: string,
-  actionFlag: string,
-  flags: Record<string, string>,
-): Promise<{ result: ToolResult; exitCode: number }> {
-  const program = buildCli(ctx);
-  // F-024 #3: share the recursive helper with the production runCli so both
-  // paths install exitOverride the same way (no 3-level hand-rolling).
-  applyExitOverrideRecursively(program);
-
-  const capturedStdout: string[] = [];
-  const capturedStderr: string[] = [];
-  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
-    capturedStdout.push(typeof chunk === 'string' ? chunk : String(chunk));
-    return true;
-  });
-  const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
-    capturedStderr.push(typeof chunk === 'string' ? chunk : String(chunk));
-    return true;
-  });
-
-  const savedExitCode = process.exitCode;
-  process.exitCode = undefined;
-
-  const argv: string[] = ['node', 'exarchos', toolAlias, actionFlag];
-  for (const [key, value] of Object.entries(flags)) {
-    const kebab = key.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-    argv.push(`--${kebab}`, value);
-  }
-  argv.push('--json');
-
-  let commanderError: CommanderError | undefined;
-  try {
-    await program.parseAsync(argv);
-  } catch (err) {
-    if (err instanceof CommanderError) {
-      commanderError = err;
-    } else {
-      stdoutSpy.mockRestore();
-      stderrSpy.mockRestore();
-      throw err;
-    }
-  } finally {
-    stdoutSpy.mockRestore();
-    stderrSpy.mockRestore();
-  }
-
-  const exitCode = typeof process.exitCode === 'number' ? process.exitCode : (commanderError?.exitCode ?? 0);
-  process.exitCode = savedExitCode;
-
-  // If commander threw before our action handler ran (e.g. missing mandatory
-  // option), the CLI emitted nothing on stdout. For parity assertion purposes
-  // we treat that as divergence: a Commander-thrown error should have been
-  // caught by the adapter and emitted as INVALID_INPUT.
-  const stdoutText = capturedStdout.join('').trim();
-  if (stdoutText) {
-    const parsed = JSON.parse(stdoutText) as ToolResult;
-    return { result: parsed, exitCode };
-  }
-
-  if (commanderError) {
-    // Funnel Commander errors through the shared converter — this is the
-    // same mapping the production `runCli` entry point applies, so the
-    // test's assertion reflects the real CLI contract rather than a
-    // synthetic placeholder.
-    const { result, exitCode: mappedExit } = commanderErrorToResult(commanderError);
-    return { result, exitCode: mappedExit };
-  }
-
-  throw new Error(
-    `CLI emitted no stdout and no Commander error for ${toolAlias} ${actionFlag} ${JSON.stringify(flags)}`,
-  );
-}
-
-/** Invoke a composite tool action via the MCP adapter's dispatch entry point. */
-async function callMcp(
-  ctx: DispatchContext,
-  tool: string,
-  args: Record<string, unknown>,
-): Promise<ToolResult> {
-  return dispatch(tool, args, ctx);
 }
 
 /** Extract just the error code (success payloads flagged as 'OK' sentinel). */
@@ -177,6 +80,7 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
       'wf',
       'init',
       { workflowType: 'feature' }, // featureId deliberately omitted
+      { captureCommanderErrors: true },
     );
 
     const mcpResult = await callMcp(fixture.mcpCtx, 'exarchos_workflow', {
@@ -223,6 +127,7 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
       'wf',
       'init',
       { featureId: 'BAD_ID_WITH_UPPERCASE', workflowType: 'feature' },
+      { captureCommanderErrors: true },
     );
 
     // MCP: pass featureId as a number — wrong type at the schema level.
@@ -263,6 +168,7 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
       'wf',
       'nonexistent_action_xyz',
       {},
+      { captureCommanderErrors: true },
     );
 
     const mcpResult = await callMcp(fixture.mcpCtx, 'exarchos_workflow', {
