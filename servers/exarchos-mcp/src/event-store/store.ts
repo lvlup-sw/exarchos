@@ -75,6 +75,39 @@ export interface EventStoreOptions {
   backend?: StorageBackend;
 }
 
+// ─── Initialize Options ─────────────────────────────────────────────────────
+
+/**
+ * Options passed to `EventStore.initialize()`.
+ *
+ * `waitForLock` controls behaviour when another live process already holds
+ * the PID lock. When `false` (default), the instance enters sidecar mode —
+ * writes are diverted to `{streamId}.hook-events.jsonl` and merged later by
+ * the primary process. When `true`, `initialize()` waits for the lock to be
+ * released (bounded by `waitForLockTimeoutMs`), retrying until it can
+ * reclaim the lock. This is the right mode for short-lived CLI processes
+ * that need their writes to land on the main JSONL immediately so the
+ * outcome is equivalent to a sequential invocation (DR-5).
+ *
+ * Leave at the default in long-running MCP server / hook-subprocess paths,
+ * where sidecar mode is the desired behaviour.
+ */
+export interface InitializeOptions {
+  /** Block until the PID lock can be acquired, rather than entering sidecar mode. */
+  readonly waitForLock?: boolean;
+  /** Maximum time to wait for the PID lock when `waitForLock` is true. Defaults to 30s. */
+  readonly waitForLockTimeoutMs?: number;
+  /** Initial backoff between acquisition attempts when waiting. Defaults to 10ms. */
+  readonly waitForLockInitialDelayMs?: number;
+  /** Maximum backoff between acquisition attempts when waiting. Defaults to 100ms. */
+  readonly waitForLockMaxDelayMs?: number;
+}
+
+/** Default bounds for the `waitForLock` branch of `initialize()`. */
+const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+const DEFAULT_WAIT_INITIAL_DELAY_MS = 10;
+const DEFAULT_WAIT_MAX_DELAY_MS = 100;
+
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -155,11 +188,26 @@ export class EventStore {
    * Must be called before first use. When the PID lock is held by another
    * process, enters sidecar mode where writes are routed to sidecar files
    * and reads still work from JSONL/backend.
+   *
+   * Pass `{ waitForLock: true }` to block until the lock can be acquired
+   * instead of entering sidecar mode — this is the correct mode for CLI
+   * processes where concurrent invocations must serialize onto the main
+   * JSONL (DR-5 cross-process concurrency safety).
    */
-  async initialize(): Promise<void> {
+  async initialize(options?: InitializeOptions): Promise<void> {
     if (this.initialized) return;
+
+    const waitForLock = options?.waitForLock === true;
     try {
-      await this.acquirePidLock();
+      if (waitForLock) {
+        await this.acquirePidLockWithWait(
+          options?.waitForLockTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
+          options?.waitForLockInitialDelayMs ?? DEFAULT_WAIT_INITIAL_DELAY_MS,
+          options?.waitForLockMaxDelayMs ?? DEFAULT_WAIT_MAX_DELAY_MS,
+        );
+      } else {
+        await this.acquirePidLock();
+      }
     } catch (err) {
       if (err instanceof PidLockError) {
         this.sidecarMode = true;
@@ -175,40 +223,130 @@ export class EventStore {
     this.initialized = true;
   }
 
+  /**
+   * Acquire the PID lock, blocking until success or until `timeoutMs` elapses.
+   * Uses exponential backoff with jitter, capped at `maxDelayMs`. On timeout,
+   * rethrows the last `PidLockError` so the caller can fall back to sidecar
+   * mode if desired.
+   */
+  private async acquirePidLockWithWait(
+    timeoutMs: number,
+    initialDelayMs: number,
+    maxDelayMs: number,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let delay = initialDelayMs;
+    let lastErr: PidLockError | undefined;
+
+    // First attempt without backoff — fast path when the lock is free.
+    try {
+      await this.acquirePidLock();
+      return;
+    } catch (err) {
+      if (!(err instanceof PidLockError)) throw err;
+      lastErr = err;
+    }
+
+    while (Date.now() < deadline) {
+      // Jittered sleep, capped by maxDelayMs and remaining budget.
+      const remaining = Math.max(0, deadline - Date.now());
+      const jittered = Math.min(delay, maxDelayMs) * (0.5 + Math.random());
+      const waitMs = Math.max(1, Math.min(jittered, remaining));
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+
+      try {
+        await this.acquirePidLock();
+        return;
+      } catch (err) {
+        if (!(err instanceof PidLockError)) throw err;
+        lastErr = err;
+        delay = Math.min(delay * 2, maxDelayMs);
+      }
+    }
+
+    throw lastErr ?? new PidLockError(-1);
+  }
+
   private async acquirePidLock(): Promise<void> {
     await fs.mkdir(this.stateDir, { recursive: true });
 
-    try {
-      // Attempt atomic creation
-      const fd = openSync(this.lockFilePath, 'wx');
-      writeSync(fd, String(process.pid));
-      closeSync(fd);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-
-      // Lock file exists — check if holding PID is alive
-      const content = await fs.readFile(this.lockFilePath, 'utf-8');
-      const existingPid = parseInt(content.trim(), 10);
-
-      if (!isNaN(existingPid) && isPidAlive(existingPid)) {
-        throw new PidLockError(existingPid);
-      }
-
-      // Stale lock — atomic reclaim: unlink then exclusive create
+    // Acquisition is a TOCTOU dance between three filesystem operations:
+    //   1. open('wx')        — atomic create-if-not-exists
+    //   2. readFile          — peek at the holder's PID
+    //   3. unlink + open('wx') — reclaim a stale lock
+    //
+    // Any of (2) or (3) can race with a concurrent process that is releasing
+    // (ENOENT) or re-acquiring (EEXIST) the same file. Rather than fail on
+    // these transients, retry the full sequence a bounded number of times;
+    // if we exhaust retries while a live holder remains, surface PidLockError
+    // so the caller (sidecar fallback or `waitForLock` retry) can decide.
+    const MAX_RETRIES = 32;
+    let acquired = false;
+    for (let attempt = 0; attempt < MAX_RETRIES && !acquired; attempt++) {
       try {
-        await fs.unlink(this.lockFilePath);
         const fd = openSync(this.lockFilePath, 'wx');
         writeSync(fd, String(process.pid));
         closeSync(fd);
-      } catch (reclaimErr) {
-        if ((reclaimErr as NodeJS.ErrnoException).code === 'EEXIST') {
-          // Another process reclaimed between unlink and open — re-read to report
-          const newContent = await fs.readFile(this.lockFilePath, 'utf-8');
-          const winnerPid = parseInt(newContent.trim(), 10);
+        acquired = true;
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+
+        // Lock file exists — peek at the holder's PID.
+        let existingPid: number;
+        try {
+          const content = await fs.readFile(this.lockFilePath, 'utf-8');
+          existingPid = parseInt(content.trim(), 10);
+        } catch (readErr) {
+          if ((readErr as NodeJS.ErrnoException).code === 'ENOENT') {
+            // Holder released between open() and readFile(); try again.
+            continue;
+          }
+          throw readErr;
+        }
+
+        if (!isNaN(existingPid) && isPidAlive(existingPid)) {
+          throw new PidLockError(existingPid);
+        }
+
+        // Stale lock — atomic reclaim: unlink then exclusive create.
+        try {
+          await fs.unlink(this.lockFilePath);
+        } catch (unlinkErr) {
+          if ((unlinkErr as NodeJS.ErrnoException).code === 'ENOENT') {
+            // Lock vanished first — retry from the top.
+            continue;
+          }
+          throw unlinkErr;
+        }
+        try {
+          const fd = openSync(this.lockFilePath, 'wx');
+          writeSync(fd, String(process.pid));
+          closeSync(fd);
+          acquired = true;
+          break;
+        } catch (reclaimErr) {
+          if ((reclaimErr as NodeJS.ErrnoException).code !== 'EEXIST') throw reclaimErr;
+          // Another process reclaimed between unlink and open — re-read the
+          // winner PID to report, but tolerate ENOENT (another quick release).
+          let winnerPid = -1;
+          try {
+            const newContent = await fs.readFile(this.lockFilePath, 'utf-8');
+            winnerPid = parseInt(newContent.trim(), 10);
+          } catch (newReadErr) {
+            if ((newReadErr as NodeJS.ErrnoException).code !== 'ENOENT') throw newReadErr;
+            continue; // retry whole acquisition
+          }
           throw new PidLockError(winnerPid);
         }
-        throw reclaimErr;
       }
+    }
+
+    if (!acquired) {
+      // Reached retry ceiling without seeing a live holder — surface a
+      // PidLockError so the caller can fall back or (under waitForLock) try
+      // again after backoff.
+      throw new PidLockError(-1);
     }
 
     // Register cleanup handler

@@ -53,7 +53,9 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   const store = new EventStore(args.stateDir);
-  await store.initialize();
+  // Wait for the PID lock (CLI semantics) rather than entering sidecar mode,
+  // so concurrent invocations serialize onto the main JSONL (DR-5).
+  await store.initialize({ waitForLock: true });
 
   const event = buildValidatedEvent(args.stream, 1, {
     type: 'task.completed',

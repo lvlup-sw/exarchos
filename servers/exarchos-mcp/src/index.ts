@@ -233,10 +233,16 @@ async function main() {
     registerBackendCleanup(backend);
   }
 
-  // Use new dispatch layer — initializes EventStore with PID lock
+  // DR-5: short-lived CLI invocations must block on the PID lock rather than
+  // enter sidecar mode, so two concurrent `exarchos event append` calls
+  // serialize onto the main JSONL. The long-running MCP server path still
+  // prefers first-wins + sidecar semantics because competing hook subprocesses
+  // cannot afford to wait.
+  const isMcpMode = process.argv.includes('mcp');
   const ctx = await initializeContext(stateDir, {
     backend,
     projectRoot: process.cwd(),
+    waitForLock: !isMcpMode,
   });
 
   // Merge sidecar event files written by hook subprocesses / sidecar-mode agents.
