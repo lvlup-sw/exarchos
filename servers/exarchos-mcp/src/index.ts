@@ -230,15 +230,6 @@ async function main() {
   // Ensure state directory exists
   fs.mkdirSync(stateDir, { recursive: true });
 
-  // ─── Execution-Mode Detection ──────────────────────────────────────────────
-  // One-shot CLI invocations (the overwhelming majority — `wf status`,
-  // `wf set`, `vw *`, `schema`, `topology`, etc.) pay subprocess startup for
-  // every call, so we skip server-side background work that is only sensible
-  // when the process stays alive: sidecar-event merge + lifecycle compaction.
-  // When the user runs `exarchos mcp`, the process lives indefinitely and we
-  // do perform that background work. See DR-5 / task 021 cold-start budget.
-  const isMcpServerMode = process.argv[2] === 'mcp';
-
   // Initialize SQLite backend with graceful fallback
   const backend = await initializeBackend(stateDir);
 
@@ -261,9 +252,25 @@ async function main() {
     projectRoot: process.cwd(),
   });
 
-  // Merge sidecar event files and run lifecycle compaction only in MCP server
-  // mode. One-shot CLI calls skip this to stay under the cold-start budget.
-  if (isMcpServerMode) {
+  // Unified entry point — all routing via Commander CLI.
+  // `exarchos mcp` starts the MCP server; other commands are CLI mode.
+  // No args shows help.
+  const program = buildCli(ctx);
+
+  // ─── Execution-Mode Detection (F-021-5) ────────────────────────────────────
+  // Server-mode-only work (sidecar-event merge + lifecycle compaction) runs
+  // via a commander `preAction` hook instead of a positional `argv[2]` check.
+  // The hook fires immediately before the `mcp` subcommand's `action()` and
+  // is a no-op for every other command, which keeps CLI cold-start (`wf
+  // status`, `vw *`, `schema`, etc.) free of the work that only makes sense
+  // when the process stays alive. See DR-5 / task 021 cold-start budget.
+  //
+  // Future global flags like `--verbose` in front of `mcp` would have broken
+  // the old `argv[2] === 'mcp'` check; the `actionCommand.name()` lookup is
+  // robust to flag positioning. Coordinates with F-022-2.
+  program.hook('preAction', async (_thisCommand, actionCommand) => {
+    if (actionCommand.name() !== 'mcp') return;
+
     if (!ctx.eventStore.inSidecarMode) {
       const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
       await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
@@ -284,12 +291,8 @@ async function main() {
       .catch((err) => {
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
       });
-  }
+  });
 
-  // Unified entry point — all routing via Commander CLI.
-  // `exarchos mcp` starts the MCP server; other commands are CLI mode.
-  // No args shows help.
-  const program = buildCli(ctx);
   await program.parseAsync(process.argv);
 }
 
