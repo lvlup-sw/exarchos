@@ -578,9 +578,73 @@ export class EventStore {
       return this.backend.queryEvents(streamId, filters);
     }
 
+    // Issue #1082: when a sibling process is in sidecar mode, its events land
+    // in `{streamId}.hook-events.jsonl` and are invisible to readers that look
+    // only at the main JSONL. Merge main + sidecar so every materializer sees
+    // a consistent stream. Fast path (no sidecar) keeps the original optimized
+    // loop with early termination on limit.
+    const sidecarPath = getSidecarPath(this.stateDir, streamId);
+    let sidecarExists = false;
+    try {
+      await fs.access(sidecarPath);
+      sidecarExists = true;
+    } catch {
+      // No sidecar file — fall through to fast path.
+    }
+
+    if (!sidecarExists) {
+      return this.queryMainJsonl(streamId, filters);
+    }
+
+    // Sidecar present: collect main events without offset/limit, merge with
+    // sidecar events (timestamp-ordered, synthetic sequences), then slice.
+    const mainEvents = await this.queryMainJsonl(streamId, {
+      type: filters?.type,
+      since: filters?.since,
+      until: filters?.until,
+      sinceSequence: filters?.sinceSequence,
+    });
+
+    // Synthetic sidecar sequences continue from the true stream max — not
+    // from mainEvents.length, which could be filtered. Skip
+    // initializeSequence when the main JSONL doesn't exist to avoid a
+    // spurious warning on sidecar-only streams.
+    let mainMax = this.sequenceCounters.get(streamId);
+    if (mainMax === undefined) {
+      const mainPath = this.getEventFilePath(streamId);
+      let mainExists = false;
+      try {
+        await fs.access(mainPath);
+        mainExists = true;
+      } catch {
+        // No main file — synthetic sequences start from 0.
+      }
+      if (mainExists) {
+        await this.initializeSequence(streamId);
+      }
+      mainMax = this.sequenceCounters.get(streamId) ?? 0;
+    }
+    const sidecarEvents = await this.readSidecarForQuery(streamId, mainMax, filters);
+
+    const merged = [...mainEvents, ...sidecarEvents];
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+    const sliced = offset > 0 ? merged.slice(offset) : merged;
+    return limit !== undefined ? sliced.slice(0, limit) : sliced;
+  }
+
+  /**
+   * Read events from the main `{streamId}.events.jsonl` file.
+   * Preserves the optimized fast-skip + early-termination loop used when no
+   * sidecar events exist. Extracted so the merge path (issue #1082) can reuse
+   * the same filter semantics without duplicating the loop.
+   */
+  private async queryMainJsonl(
+    streamId: string,
+    filters?: QueryFilters,
+  ): Promise<WorkflowEvent[]> {
     const filePath = this.getEventFilePath(streamId);
 
-    // Check if file exists
     try {
       await fs.access(filePath);
     } catch {
@@ -595,9 +659,8 @@ export class EventStore {
     const offset = filters?.offset ?? 0;
     const limit = filters?.limit;
 
-    // Fast path: when only sinceSequence is set (no type/date filtering),
-    // skip JSON.parse for lines where lineCount <= sinceSequence.
-    // This works because line N contains sequence N (monotonically increasing).
+    // Fast-skip relies on the invariant that line N contains sequence N
+    // (monotonically increasing); only safe when filtering solely by sequence.
     const canFastSkip = filters?.sinceSequence !== undefined
       && !filters.type && !filters.since && !filters.until;
     let lineCount = 0;
@@ -606,30 +669,25 @@ export class EventStore {
       if (!line.trim()) continue;
       lineCount++;
 
-      // Fast skip: line N = sequence N, skip without parsing
       if (canFastSkip && lineCount <= filters!.sinceSequence!) continue;
 
-      // Pre-filter by sequence via regex before JSON.parse (combined filter optimization)
       if (!canFastSkip && filters?.sinceSequence !== undefined) {
         const seqMatch = SEQUENCE_REGEX.exec(line);
         if (seqMatch) {
           const extractedSeq = parseInt(seqMatch[1], 10);
           if (!isNaN(extractedSeq) && extractedSeq <= filters.sinceSequence) continue;
         }
-        // If regex fails (NaN or no match), fall through to JSON.parse
       }
 
       const parsed = JSON.parse(line);
       const event = migrateEvent(parsed) as WorkflowEvent;
 
-      // Apply remaining filters for non-fast-path
       if (!canFastSkip) {
         if (filters?.type && event.type !== filters.type) continue;
         if (filters?.since && event.timestamp < filters.since) continue;
         if (filters?.until && event.timestamp > filters.until) continue;
       }
 
-      // Apply offset
       if (skipped < offset) {
         skipped++;
         continue;
@@ -637,12 +695,86 @@ export class EventStore {
 
       events.push(event);
 
-      // Early termination on limit
       if (limit !== undefined && events.length >= limit) {
         rl.close();
         input.destroy();
         break;
       }
+    }
+
+    return events;
+  }
+
+  /**
+   * Read the sidecar file for a stream, normalize each line into a
+   * `WorkflowEvent` with a synthetic sequence continuing from `baseSequence`,
+   * sort by timestamp, and apply query filters.
+   *
+   * Sidecar lines omit streamId/sequence/schemaVersion to keep hook writes
+   * minimal; this method populates them so downstream materializers do not
+   * need to special-case sidecar-sourced events.
+   */
+  private async readSidecarForQuery(
+    streamId: string,
+    baseSequence: number,
+    filters?: QueryFilters,
+  ): Promise<WorkflowEvent[]> {
+    const sidecarPath = getSidecarPath(this.stateDir, streamId);
+    let content: string;
+    try {
+      content = await fs.readFile(sidecarPath, 'utf-8');
+    } catch {
+      return [];
+    }
+
+    const lines = content.trim().split('\n').filter(Boolean);
+    if (lines.length === 0) return [];
+
+    type SidecarRaw = {
+      type: string;
+      data?: Record<string, unknown>;
+      timestamp?: string;
+      idempotencyKey?: string;
+    };
+    const raw: SidecarRaw[] = [];
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as SidecarRaw;
+        if (parsed && typeof parsed.type === 'string') {
+          raw.push(parsed);
+        }
+      } catch {
+        // Skip corrupt lines — the merger counts these as errors at merge time.
+      }
+    }
+
+    // Stable sort by timestamp so synthetic sequences reflect causal order.
+    raw.sort((a, b) => (a.timestamp ?? '').localeCompare(b.timestamp ?? ''));
+
+    const events: WorkflowEvent[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const line = raw[i];
+      const synthetic: WorkflowEvent = {
+        streamId,
+        sequence: baseSequence + i + 1,
+        type: line.type as WorkflowEvent['type'],
+        timestamp: line.timestamp ?? new Date(0).toISOString(),
+        data: line.data ?? {},
+        schemaVersion: '1.0',
+        ...(line.idempotencyKey && { idempotencyKey: line.idempotencyKey }),
+      };
+
+      if (filters?.type && synthetic.type !== filters.type) continue;
+      if (filters?.since && synthetic.timestamp < filters.since) continue;
+      if (filters?.until && synthetic.timestamp > filters.until) continue;
+      if (
+        filters?.sinceSequence !== undefined
+        && synthetic.sequence <= filters.sinceSequence
+      ) {
+        continue;
+      }
+
+      events.push(synthetic);
     }
 
     return events;

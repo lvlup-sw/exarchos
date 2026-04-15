@@ -1219,6 +1219,165 @@ describe('EventStore Sidecar Mode', () => {
     await store.initialize();
     expect(store.inSidecarMode).toBe(false);
   });
+
+  // ─── Sidecar Visibility (Issue #1082) ──────────────────────────────────────
+  // Regression tests: sidecar-mode writes MUST be visible to query() so
+  // downstream materializers and gates see events from non-primary MCP
+  // instances. Before the fix, EventStore.query() read only the main JSONL
+  // and sidecar-written events were stranded for the lifetime of the primary.
+
+  it('SidecarMode_QueryReturnsMainPlusSidecarEvents', async () => {
+    // Phase 1: write two events in normal (non-sidecar) mode.
+    const main = new EventStore(tempDir);
+    await main.append('wf-1082', { type: 'workflow.started', data: { featureId: 'x' } });
+    await main.append('wf-1082', {
+      type: 'workflow.transition',
+      data: { from: 'triage', to: 'investigate' },
+    });
+
+    // Phase 2: force sidecar mode via manual lock, write one more event.
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+    expect(sidecar.inSidecarMode).toBe(true);
+    await sidecar.append('wf-1082', {
+      type: 'state.patched',
+      data: { field: 'approved', value: true },
+    });
+
+    // Phase 3: query from either instance must return all three events.
+    const events = await sidecar.query('wf-1082');
+    expect(events).toHaveLength(3);
+    expect(events.map((e) => e.type)).toEqual([
+      'workflow.started',
+      'workflow.transition',
+      'state.patched',
+    ]);
+
+    // Sidecar event must have a synthetic sequence that continues the main
+    // stream so downstream ordering checks remain monotonic.
+    expect(events[0].sequence).toBe(1);
+    expect(events[1].sequence).toBe(2);
+    expect(events[2].sequence).toBe(3);
+
+    // streamId and schemaVersion are populated even though the sidecar file
+    // does not persist them (the writer strips them to keep hook lines minimal).
+    expect(events[2].streamId).toBe('wf-1082');
+    expect(events[2].schemaVersion).toBeDefined();
+  });
+
+  it('SidecarMode_QueryMergesByTimestampAcrossMultipleSidecarWrites', async () => {
+    const main = new EventStore(tempDir);
+    await main.append('wf-ts', {
+      type: 'workflow.started',
+      data: {},
+      timestamp: '2026-04-14T10:00:00.000Z',
+    });
+
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+
+    // Write sidecar events with explicit (monotonic) timestamps — simulating
+    // two concurrent sidecar sessions writing in rapid succession.
+    await sidecar.append('wf-ts', {
+      type: 'state.patched',
+      data: { k: 'a' },
+      timestamp: '2026-04-14T10:00:01.000Z',
+    });
+    await sidecar.append('wf-ts', {
+      type: 'workflow.transition',
+      data: { from: 'ideate', to: 'plan' },
+      timestamp: '2026-04-14T10:00:02.000Z',
+    });
+
+    const events = await sidecar.query('wf-ts');
+    expect(events.map((e) => e.type)).toEqual([
+      'workflow.started',
+      'state.patched',
+      'workflow.transition',
+    ]);
+    // Sidecar events receive monotonic synthetic sequences after the main max.
+    expect(events.map((e) => e.sequence)).toEqual([1, 2, 3]);
+  });
+
+  it('SidecarMode_QueryAppliesTypeFilterToMergedStream', async () => {
+    const main = new EventStore(tempDir);
+    await main.append('wf-type', { type: 'workflow.started', data: {} });
+    await main.append('wf-type', { type: 'gate.executed', data: { gate: 'd1' } });
+
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+    await sidecar.append('wf-type', { type: 'state.patched', data: {} });
+    await sidecar.append('wf-type', { type: 'gate.executed', data: { gate: 'd2' } });
+
+    const gates = await sidecar.query('wf-type', { type: 'gate.executed' });
+    expect(gates).toHaveLength(2);
+    expect(gates.every((e) => e.type === 'gate.executed')).toBe(true);
+    expect(gates.map((e) => (e.data as { gate: string }).gate)).toEqual(['d1', 'd2']);
+  });
+
+  it('SidecarMode_QueryPreservesIdempotencyKeyOnSidecarEvents', async () => {
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+
+    await sidecar.append(
+      'wf-idem',
+      { type: 'team.task.completed', data: { taskId: 'T-1' } },
+      { idempotencyKey: 'wf-idem:team.task.completed:T-1' },
+    );
+
+    const events = await sidecar.query('wf-idem');
+    expect(events).toHaveLength(1);
+    expect(events[0].idempotencyKey).toBe('wf-idem:team.task.completed:T-1');
+  });
+
+  it('SidecarMode_QueryWithSinceSequenceIncludesSidecarEventsAfterMainMax', async () => {
+    const main = new EventStore(tempDir);
+    await main.append('wf-seq', { type: 'workflow.started', data: {} }); // seq 1
+    await main.append('wf-seq', {
+      type: 'workflow.transition',
+      data: { from: 'a', to: 'b' },
+    }); // seq 2
+
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+    await sidecar.append('wf-seq', { type: 'state.patched', data: { k: 1 } }); // seq 3 (synthetic)
+    await sidecar.append('wf-seq', { type: 'state.patched', data: { k: 2 } }); // seq 4 (synthetic)
+
+    // Query everything after seq 2 — should return only the two sidecar events.
+    const newEvents = await sidecar.query('wf-seq', { sinceSequence: 2 });
+    expect(newEvents).toHaveLength(2);
+    expect(newEvents.every((e) => e.type === 'state.patched')).toBe(true);
+    expect(newEvents.map((e) => e.sequence)).toEqual([3, 4]);
+  });
+
+  it('SidecarMode_QueryWithNoMainJsonlOnlyReturnsSidecarEvents', async () => {
+    // Simulates a fresh stream where only sidecar-mode writes have happened.
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+    await sidecar.append('wf-fresh', { type: 'workflow.started', data: {} });
+    await sidecar.append('wf-fresh', {
+      type: 'workflow.transition',
+      data: { from: 'triage', to: 'investigate' },
+    });
+
+    const events = await sidecar.query('wf-fresh');
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.type)).toEqual(['workflow.started', 'workflow.transition']);
+    // With no main events, synthetic sequences start at 1.
+    expect(events.map((e) => e.sequence)).toEqual([1, 2]);
+  });
 });
 
 // ─── T24-T25: Sequence Invariant Validation ──────────────────────────────────
