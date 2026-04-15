@@ -15,6 +15,9 @@
 #
 # Implements: DR-4, DR-5, OQ-3
 name: opencode
+# preferredFacade: cli — OpenCode's MCP client surface is still thin, so
+# bash-style CLI invocations are the more reliable default.
+preferredFacade: cli
 capabilities:
   hasSubagents: true
   hasSlashCommands: true

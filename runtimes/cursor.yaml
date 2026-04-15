@@ -19,6 +19,9 @@
 #
 # Implements: DR-4, DR-5 (cursor), DR-6, OQ-4
 name: cursor
+# preferredFacade: mcp — Cursor has first-class MCP client support via
+# `~/.cursor/mcp.json`, so MCP tool calls are the native invocation path.
+preferredFacade: mcp
 capabilities:
   hasSubagents: false
   hasSlashCommands: false

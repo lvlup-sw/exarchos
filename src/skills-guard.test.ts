@@ -62,6 +62,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
       join(runtimesDir, `${name}.yaml`),
       [
         `name: ${name}`,
+        `preferredFacade: mcp`,
         `capabilities:`,
         `  hasSubagents: true`,
         `  hasSlashCommands: true`,

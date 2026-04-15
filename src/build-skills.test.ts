@@ -296,6 +296,7 @@ function makeRuntimeYaml(name: string, placeholders: Record<string, string>): st
           .join('\n');
   return [
     `name: ${name}`,
+    `preferredFacade: mcp`,
     `capabilities:`,
     `  hasSubagents: true`,
     `  hasSlashCommands: true`,
