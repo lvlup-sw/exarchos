@@ -28,7 +28,9 @@ import { initializeContext } from '../core/context.js';
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DRIVER_PATH = path.join(HERE, 'spawn-driver.ts');
+// F-022-3: spawn-driver moved to __tests__/ so it is excluded from the shipped
+// npm artifact (tsconfig excludes __tests__/ from compilation).
+const DRIVER_PATH = path.join(HERE, '__tests__', 'spawn-driver.ts');
 const PKG_ROOT = path.resolve(HERE, '..', '..');
 const TSX_BIN = path.join(PKG_ROOT, 'node_modules', '.bin', 'tsx');
 

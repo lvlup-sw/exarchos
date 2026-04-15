@@ -1,9 +1,10 @@
 // ─── CLI-Equivalent Append Driver (test support) ────────────────────────────
 //
 // Minimal Node entry point used by `cli-concurrency.test.ts` to exercise the
-// EventStore append path from a real child process. Excluded from the vitest
-// include glob (not a `.test.ts`) but shipped alongside the test so it moves
-// with the suite under refactors.
+// EventStore append path from a real child process. Lives under `__tests__/`
+// so it is excluded from the shipped npm artifact (tsconfig excludes the
+// `__tests__` tree from compilation) while still being co-located with the
+// suite that spawns it.
 //
 // Invocation:
 //   tsx spawn-driver.ts --state-dir <dir> --stream <id> --index <n>
@@ -13,8 +14,8 @@
 // and appends a single `task.completed` event whose idempotency key is
 // `concurrent-<index>`. Exits 0 on success, non-zero on error.
 
-import { EventStore } from './store.js';
-import { buildValidatedEvent } from './event-factory.js';
+import { EventStore } from '../store.js';
+import { buildValidatedEvent } from '../event-factory.js';
 
 interface DriverArgs {
   readonly stateDir: string;
