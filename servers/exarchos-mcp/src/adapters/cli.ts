@@ -44,11 +44,6 @@ export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
 
 // ─── Error-Shape Helpers ────────────────────────────────────────────────────
 
-/** Build a ToolResult-shaped error payload matching the MCP contract. */
-function toErrorResult(code: string, message: string): ToolResult {
-  return { success: false, error: { code, message } };
-}
-
 /**
  * Emit a ToolResult using the adapter's output convention:
  * - `--json`: raw single-line JSON to stdout (no pretty-printing, no wrapping).
@@ -142,7 +137,13 @@ export function buildCli(ctx: DispatchContext): Command {
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          const errResult = toErrorResult('UNCAUGHT_EXCEPTION', message);
+          // F-024 dead-code: inlined single-use ToolResult shape — was
+          // previously a `toErrorResult(code, message)` helper used only
+          // from this branch.
+          const errResult: ToolResult = {
+            success: false,
+            error: { code: 'UNCAUGHT_EXCEPTION', message },
+          };
           emitResult(errResult, isJson, format);
           process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
           return;
