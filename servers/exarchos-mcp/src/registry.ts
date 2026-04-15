@@ -42,6 +42,13 @@ export interface ToolAction {
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
   readonly autoEmits?: readonly AutoEmission[];
+  /**
+   * DR-5: When true, the action can take multiple seconds to complete and
+   * the CLI adapter should emit stderr heartbeats under `--json` so a long
+   * silence doesn't look like the process hung.  MCP hosts render progress
+   * natively and ignore this flag.
+   */
+  readonly longRunning?: boolean;
 }
 
 export interface CompositeTool {
@@ -558,6 +565,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
+    // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
+    longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -571,6 +581,9 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    // DR-5: shells out to `gh` across each PR in the stack; latency scales
+    // with stack depth + GitHub API round-trip time.
+    longRunning: true,
     autoEmits: [
       { event: 'shepherd.started', condition: 'conditional', description: 'First invocation (idempotent)' },
       { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed' },

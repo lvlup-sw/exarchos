@@ -65,6 +65,39 @@ function formatZodError(err: z.ZodError): string {
     .join('; ');
 }
 
+// ─── Long-running Progress Discipline (DR-5) ────────────────────────────────
+
+/**
+ * Interval between `[heartbeat]` stderr lines for long-running actions.
+ * Chosen to be short enough that a caller notices progress before they
+ * suspect the process hung (~5s is the typical human threshold), but long
+ * enough that fast actions never emit a heartbeat at all.
+ */
+const HEARTBEAT_INTERVAL_MS = 2000;
+
+/**
+ * Start emitting `[heartbeat] still running... Ns elapsed` lines to stderr
+ * every `HEARTBEAT_INTERVAL_MS` milliseconds.  Returns a disposer that
+ * clears the interval; callers must invoke it on both success and failure.
+ *
+ * Heartbeats go to stderr so `--json` stdout stays a single ToolResult
+ * line.  Only invoked for actions that are (a) flagged `longRunning` in
+ * the registry AND (b) running under `--json` — interactive pretty-print
+ * mode is left alone.
+ */
+function startHeartbeat(actionName: string): () => void {
+  const startedAt = Date.now();
+  const timer = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+    process.stderr.write(
+      `[heartbeat] ${actionName} still running... ${elapsedSec}s elapsed\n`,
+    );
+  }, HEARTBEAT_INTERVAL_MS);
+  // Don't let the heartbeat keep the event loop alive after dispatch returns.
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 // ─── CLI Command Tree Generator ─────────────────────────────────────────────
 
 /**
@@ -129,6 +162,15 @@ export function buildCli(ctx: DispatchContext): Command {
         // ─── Dispatch ─────────────────────────────────────────────────────
         // Dispatch may return a handler-reported error (exit 2) or throw
         // an unexpected exception (exit 3). Normalize both into ToolResult.
+        //
+        // DR-5: for actions flagged `longRunning` in the registry, emit
+        // stderr heartbeats under --json so a multi-second silence doesn't
+        // look like a hung process.  Interactive pretty-print mode stays
+        // untouched — a progress spinner belongs to a future UX layer.
+        const heartbeatEnabled = isJson && action.longRunning === true;
+        const stopHeartbeat = heartbeatEnabled
+          ? startHeartbeat(action.name)
+          : null;
         let result: ToolResult;
         try {
           result = await dispatch(
@@ -137,12 +179,14 @@ export function buildCli(ctx: DispatchContext): Command {
             ctx,
           );
         } catch (err) {
+          stopHeartbeat?.();
           const message = err instanceof Error ? err.message : String(err);
           const errResult = toErrorResult('UNCAUGHT_EXCEPTION', message);
           emitResult(errResult, isJson, format);
           process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
           return;
         }
+        stopHeartbeat?.();
 
         // ─── Emit + map to exit code ──────────────────────────────────────
         emitResult(result, isJson, format);
