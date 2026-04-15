@@ -38,7 +38,7 @@ describe('createServer Backend Wiring', () => {
     await backend.initialize();
 
     // Act
-    createServer('/tmp/test-state-dir', { backend });
+    await createServer('/tmp/test-state-dir', { backend });
 
     // Assert — configureStateStoreBackend should have been called with the backend
     expect(configureStateStoreBackend).toHaveBeenCalledWith(backend);
@@ -51,7 +51,7 @@ describe('createServer Backend Wiring', () => {
     await backend.initialize();
 
     // Act — should not throw
-    const server = createServer('/tmp/test-state-dir', { backend });
+    const server = await createServer('/tmp/test-state-dir', { backend });
 
     // Assert — server was created successfully with backend
     expect(server).toBeDefined();
@@ -63,7 +63,7 @@ describe('createServer Backend Wiring', () => {
     const { configureStateStoreBackend } = await import('./workflow/state-store.js');
 
     // Act — no backend provided
-    const server = createServer('/tmp/test-state-dir');
+    const server = await createServer('/tmp/test-state-dir');
 
     // Assert — configureStateStoreBackend should be called with undefined
     expect(configureStateStoreBackend).toHaveBeenCalledWith(undefined);

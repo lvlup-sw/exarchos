@@ -99,6 +99,7 @@ async function getProductionFiles(dir: string): Promise<string[]> {
       entry.name.endsWith('.ts') &&
       !entry.name.endsWith('.test.ts') &&
       !entry.name.endsWith('.property.test.ts') &&
+      !entry.name.endsWith('.bench.ts') &&
       entry.name !== 'logger.ts' &&
       !entry.name.includes('benchmark')
     ) {

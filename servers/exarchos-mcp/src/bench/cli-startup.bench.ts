@@ -68,8 +68,12 @@ function spawnOnce(stateDir: string): Promise<SpawnTiming> {
         env: {
           ...process.env,
           WORKFLOW_STATE_DIR: stateDir,
-          // Disable any opt-in telemetry that background-spawns work.
-          EXARCHOS_DISABLE_TELEMETRY: '1',
+          // Disable telemetry (EXARCHOS_TELEMETRY='false' short-circuits the
+          // telemetry middleware in dispatch()). The DR-5 budget is about
+          // adapter / dispatcher cold-start, not about telemetry emission
+          // latency — and CI should not be racing against a background
+          // TraceWriter for every cold invocation.
+          EXARCHOS_TELEMETRY: 'false',
         },
       },
     );

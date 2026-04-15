@@ -102,8 +102,8 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('createServer', () => {
-    it('should register only non-hidden composite tools', () => {
-      createServer('/tmp/test-state-dir');
+    it('should register only non-hidden composite tools', async () => {
+      await createServer('/tmp/test-state-dir');
 
       const expectedTools = [
         'exarchos_workflow',
@@ -122,8 +122,8 @@ describe('MCP Server Entry Point', () => {
       expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
 
-    it('should register one tool per non-hidden registry entry', () => {
-      createServer('/tmp/test-state-dir');
+    it('should register one tool per non-hidden registry entry', async () => {
+      await createServer('/tmp/test-state-dir');
 
       for (const tool of TOOL_REGISTRY) {
         if (tool.hidden) {
@@ -134,8 +134,8 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should register tools with non-empty descriptions', () => {
-      createServer('/tmp/test-state-dir');
+    it('should register tools with non-empty descriptions', async () => {
+      await createServer('/tmp/test-state-dir');
       for (const [, registration] of toolRegistrations) {
         expect(registration.description).toBeTruthy();
         expect(typeof registration.description).toBe('string');
@@ -143,8 +143,8 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should include action signatures in descriptions', () => {
-      createServer('/tmp/test-state-dir');
+    it('should include action signatures in descriptions', async () => {
+      await createServer('/tmp/test-state-dir');
 
       const workflow = toolRegistrations.get('exarchos_workflow')!;
       expect(workflow.description).toContain('Actions:');
@@ -154,8 +154,8 @@ describe('MCP Server Entry Point', () => {
       expect(workflow.description).toContain('cancel(');
     });
 
-    it('should register tools with schemas containing action field', () => {
-      createServer('/tmp/test-state-dir');
+    it('should register tools with schemas containing action field', async () => {
+      await createServer('/tmp/test-state-dir');
       for (const [, registration] of toolRegistrations) {
         expect(registration.schema).toBeDefined();
         // Schema is a strict ZodObject; check the shape for the action field
@@ -164,8 +164,8 @@ describe('MCP Server Entry Point', () => {
       }
     });
 
-    it('should include telemetry action in exarchos_view', () => {
-      createServer('/tmp/test-state-dir');
+    it('should include telemetry action in exarchos_view', async () => {
+      await createServer('/tmp/test-state-dir');
 
       const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
       expect(viewTool).toBeDefined();
@@ -174,8 +174,8 @@ describe('MCP Server Entry Point', () => {
       expect(actionNames).toContain('telemetry');
     });
 
-    it('should mention telemetry in exarchos_view description', () => {
-      createServer('/tmp/test-state-dir');
+    it('should mention telemetry in exarchos_view description', async () => {
+      await createServer('/tmp/test-state-dir');
 
       const viewReg = toolRegistrations.get('exarchos_view')!;
       expect(viewReg.description).toContain('telemetry');
@@ -184,7 +184,7 @@ describe('MCP Server Entry Point', () => {
 
   describe('composite handler routing', () => {
     it('should route exarchos_workflow to handleWorkflow', async () => {
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'test-feat', workflowType: 'feature',
       });
@@ -196,7 +196,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should route exarchos_event to handleEvent', async () => {
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       await toolRegistrations.get('exarchos_event')!.handler({
         action: 'append', stream: 'my-stream', event: { type: 'test' },
       });
@@ -208,7 +208,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should route exarchos_orchestrate to handleOrchestrate', async () => {
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       await toolRegistrations.get('exarchos_orchestrate')!.handler({
         action: 'task_claim', taskId: 'T1', agentId: 'agent-1', streamId: 'feat-1',
       });
@@ -220,7 +220,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should route exarchos_view to handleView', async () => {
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       await toolRegistrations.get('exarchos_view')!.handler({
         action: 'pipeline',
       });
@@ -232,7 +232,7 @@ describe('MCP Server Entry Point', () => {
     });
 
     it('should wrap results with formatResult', async () => {
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       const result = await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'test-feat', workflowType: 'feature',
       });
@@ -250,7 +250,7 @@ describe('MCP Server Entry Point', () => {
         error: { code: 'STATE_ALREADY_EXISTS', message: 'Already exists' },
       });
 
-      createServer('/tmp/test-state-dir');
+      await createServer('/tmp/test-state-dir');
       const result = await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'dup', workflowType: 'feature',
       });
@@ -264,8 +264,8 @@ describe('MCP Server Entry Point', () => {
   });
 
   describe('sync tools', () => {
-    it('should not register exarchos_sync (hidden tool)', () => {
-      createServer('/tmp/test-state-dir');
+    it('should not register exarchos_sync (hidden tool)', async () => {
+      await createServer('/tmp/test-state-dir');
       expect(toolRegistrations.has('exarchos_sync')).toBe(false);
     });
   });
@@ -276,7 +276,7 @@ describe('MCP Server Entry Point', () => {
       const originalEnv = process.env.EXARCHOS_TELEMETRY;
       try {
         delete process.env.EXARCHOS_TELEMETRY;
-        createServer('/tmp/test-state-dir');
+        await createServer('/tmp/test-state-dir');
         // Telemetry wrapping now happens during dispatch (tool invocation),
         // not during registration. Invoke a handler to trigger withTelemetry.
         await toolRegistrations.get('exarchos_workflow')!.handler({
