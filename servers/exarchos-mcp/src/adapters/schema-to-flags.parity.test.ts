@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { CommanderError } from 'commander';
 
-import { buildCli, commanderErrorToResult } from './cli.js';
+import { buildCli, commanderErrorToResult, applyExitOverrideRecursively } from './cli.js';
 import { dispatch, type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
@@ -54,13 +54,9 @@ async function callCli(
   flags: Record<string, string>,
 ): Promise<{ result: ToolResult; exitCode: number }> {
   const program = buildCli(ctx);
-  program.exitOverride();
-  for (const sub of program.commands) {
-    sub.exitOverride();
-    for (const action of sub.commands) {
-      action.exitOverride();
-    }
-  }
+  // F-024 #3: share the recursive helper with the production runCli so both
+  // paths install exitOverride the same way (no 3-level hand-rolling).
+  applyExitOverrideRecursively(program);
 
   const capturedStdout: string[] = [];
   const capturedStderr: string[] = [];

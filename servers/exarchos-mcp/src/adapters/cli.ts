@@ -334,6 +334,26 @@ export function commanderErrorToResult(err: CommanderError): {
 }
 
 /**
+ * Apply `exitOverride()` to a Commander command and every nested
+ * subcommand so malformed input surfaces as a thrown `CommanderError`
+ * instead of a silent `process.exit()`.
+ *
+ * F-024 #3: earlier code iterated exactly 3 levels (program, sub, action)
+ * because the current tool tree maxes out there. The recursive form is
+ * DRY across production and test harnesses and is safe for arbitrary
+ * future depth (custom tools, sub-subcommands).
+ *
+ * Exported so parity test harnesses share one source of truth with
+ * `runCli` and don't redrift to the old hand-rolled pattern.
+ */
+export function applyExitOverrideRecursively(cmd: Command): void {
+  cmd.exitOverride();
+  for (const sub of cmd.commands) {
+    applyExitOverrideRecursively(sub);
+  }
+}
+
+/**
  * Parse-and-run entry point used by the production binary. Installs
  * `exitOverride` on the program so Commander errors surface as
  * exceptions, then converts them through {@link commanderErrorToResult}
@@ -342,13 +362,7 @@ export function commanderErrorToResult(err: CommanderError): {
  */
 export async function runCli(program: Command, argv: readonly string[]): Promise<void> {
   // Install exitOverride recursively so Commander doesn't call process.exit.
-  program.exitOverride();
-  for (const sub of program.commands) {
-    sub.exitOverride();
-    for (const action of sub.commands) {
-      action.exitOverride();
-    }
-  }
+  applyExitOverrideRecursively(program);
 
   try {
     await program.parseAsync([...argv]);
