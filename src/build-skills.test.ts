@@ -17,10 +17,17 @@ import {
   copyReferences,
   buildAllSkills,
 } from './build-skills.js';
+import { loadRuntime } from './runtimes/load.js';
+import type { RuntimeMap, PreferredFacade } from './runtimes/types.js';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_RUNTIMES_DIR = resolve(__dirname, '..', 'runtimes');
 
 const tempDirs: string[] = [];
 
@@ -459,5 +466,41 @@ describe('buildAllSkills — task 007', () => {
     expect(readFileSync(join(outDir, 'generic', 'foo', 'SKILL.md'), 'utf8')).toBe(
       'plain content no tokens',
     );
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 003 (DR-1): Renderer surfaces `preferredFacade` on RuntimeMap consumers
+//
+// Tasks 001/002 added `preferredFacade` to the schema and every runtime YAML.
+// This test pins the contract that downstream renderer consumers (the macro
+// work in tasks 005-008) can read `runtime.preferredFacade` directly off the
+// loaded `RuntimeMap` — i.e. the field is not dropped anywhere along the
+// load → render pipeline and is typed as the expected `'mcp' | 'cli'` union.
+// -----------------------------------------------------------------------------
+describe('renderer RuntimeMap — task 003 (DR-1)', () => {
+  it('Renderer_RuntimeMap_ExposesPreferredFacade', () => {
+    // Load a real runtime YAML via the same loader `buildAllSkills` uses.
+    const runtime: RuntimeMap = loadRuntime(join(REPO_RUNTIMES_DIR, 'claude.yaml'));
+
+    // Field is present on the RuntimeMap consumer surface.
+    expect(runtime.preferredFacade).toBe('mcp');
+
+    // TS-level narrowing: `preferredFacade` is typed as the `PreferredFacade`
+    // ('mcp' | 'cli') union. The assignment below must compile without a cast;
+    // if a future edit strips the field off the renderer-facing type, this
+    // line fails typecheck (the assertion in the task spec).
+    const facade: PreferredFacade = runtime.preferredFacade;
+    expect(facade === 'mcp' || facade === 'cli').toBe(true);
+  });
+
+  it('Renderer_RuntimeMap_PreferredFacade_CliVariant', () => {
+    // A runtime that prefers the CLI facade — confirms both enum values flow
+    // through the renderer-facing type without special-casing.
+    const runtime: RuntimeMap = loadRuntime(join(REPO_RUNTIMES_DIR, 'generic.yaml'));
+    expect(runtime.preferredFacade).toBe('cli');
+
+    const facade: PreferredFacade = runtime.preferredFacade;
+    expect(facade === 'mcp' || facade === 'cli').toBe(true);
   });
 });
