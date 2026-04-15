@@ -8,7 +8,7 @@
  *   - the install-skills CLI (Task 019)
  *   - the six runtime YAML files (Tasks 009-014)
  *
- * Implements: DR-4
+ * Implements: DR-1, DR-4
  */
 
 import { z } from 'zod';
