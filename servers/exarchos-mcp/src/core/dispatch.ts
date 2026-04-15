@@ -6,15 +6,18 @@ import type { VcsProvider } from '../vcs/provider.js';
 import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
-import { withTelemetry } from '../telemetry/middleware.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 
-// Composite handlers
-import { handleWorkflow } from '../workflow/composite.js';
-import { handleEvent } from '../event-store/composite.js';
-import { handleOrchestrate } from '../orchestrate/composite.js';
-import { handleView } from '../views/composite.js';
-import { handleSync } from '../sync/composite.js';
+// NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
+// top-level. The middleware instantiates a singleton TraceWriter at import,
+// which adds ~15ms to CLI cold-start. It is dynamic-imported inside
+// `dispatch()` only when `ctx.enableTelemetry === true`.
+
+// Composite handlers are intentionally loaded lazily. Each of the five
+// composite modules pulls a large transitive graph (~70ms aggregate on a
+// warm FS cache). Since CLI cold-start dispatches exactly one tool per
+// invocation, we load only the needed composite at dispatch time.
+// This keeps `dist/index.js` import under the DR-5 / task 021 budget.
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -38,13 +41,107 @@ export interface DispatchContext {
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────
 
-export const COMPOSITE_HANDLERS: Readonly<Record<string, CompositeHandler>> = {
-  exarchos_workflow: handleWorkflow,
-  exarchos_event: handleEvent,
-  exarchos_orchestrate: handleOrchestrate,
-  exarchos_view: handleView,
-  exarchos_sync: handleSync,
+/**
+ * Public, mutable map of composite handlers keyed by tool name.
+ *
+ * ## Primary vs override source (F-021-4)
+ *
+ * - **Primary source: `COMPOSITE_HANDLER_LOADERS`** — the lazy dynamic-import
+ *   factories below are the canonical production source. Dispatch calls
+ *   `loadCompositeHandler()` which imports the matching module on first use
+ *   and caches the resolved handler in `COMPOSITE_HANDLERS`.
+ *
+ * - **Override source: `COMPOSITE_HANDLERS`** — this map is consulted **first**
+ *   by `loadCompositeHandler()`. Writing a value here takes precedence over
+ *   the loader and bypasses the dynamic import entirely. That makes it the
+ *   designated test-stubbing surface: tests inject a spy/fake under a tool
+ *   key, run `dispatch()`, and restore the prior value in a `finally` block.
+ *
+ * **Save/restore is the caller's responsibility.** Production code must NOT
+ * mutate this map directly; use the `stubCompositeHandler()` helper instead,
+ * which returns a scoped restore function.
+ *
+ * ### Historical context
+ * Originally this map was populated at module-init via static imports of
+ * every composite (workflow, event, orchestrate, view, sync). That static
+ * graph cost ~70ms to load and was almost entirely wasted on CLI cold-starts
+ * that only dispatch one composite per invocation (DR-5 / task 021).
+ *
+ * ### Example stub pattern
+ * See `dispatch.test.ts:221` — `dispatch_compositeHandler_receivesDispatchContext`
+ * demonstrates the save → override → restore-in-finally idiom manually. New
+ * tests should prefer `stubCompositeHandler()` below.
+ */
+export const COMPOSITE_HANDLERS: Record<string, CompositeHandler> = {};
+
+/**
+ * Install a composite handler override for the duration of a test, returning
+ * a disposer that restores the previous state. Consolidates the
+ * save → override → restore-in-finally idiom so tests cannot leak stubs into
+ * neighbouring cases when they forget to clean up.
+ *
+ * ```ts
+ * const restore = stubCompositeHandler('exarchos_workflow', spy);
+ * try {
+ *   await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+ * } finally {
+ *   restore();
+ * }
+ * ```
+ *
+ * Restores whatever was previously there (including `undefined`, i.e. the
+ * absent-key case where the real lazy loader would take over).
+ */
+export function stubCompositeHandler(
+  tool: string,
+  handler: CompositeHandler,
+): () => void {
+  const hadPrev = tool in COMPOSITE_HANDLERS;
+  const prev = COMPOSITE_HANDLERS[tool];
+  COMPOSITE_HANDLERS[tool] = handler;
+  return () => {
+    if (hadPrev) {
+      COMPOSITE_HANDLERS[tool] = prev as CompositeHandler;
+    } else {
+      delete COMPOSITE_HANDLERS[tool];
+    }
+  };
+}
+
+/**
+ * Dynamic-import factories for each built-in composite.
+ *
+ * Exported as **mutable** so the F-021-3 test can inject a throwing loader to
+ * exercise the `COMPOSITE_LOAD_FAILED` error path. Production code should
+ * never mutate this map; the CI composite-coverage check treats non-built-in
+ * additions as a regression.
+ */
+export const COMPOSITE_HANDLER_LOADERS: Record<string, () => Promise<CompositeHandler>> = {
+  exarchos_workflow: () => import('../workflow/composite.js').then((m) => m.handleWorkflow),
+  exarchos_event: () => import('../event-store/composite.js').then((m) => m.handleEvent),
+  exarchos_orchestrate: () => import('../orchestrate/composite.js').then((m) => m.handleOrchestrate),
+  exarchos_view: () => import('../views/composite.js').then((m) => m.handleView),
+  exarchos_sync: () => import('../sync/composite.js').then((m) => m.handleSync),
 };
+
+/**
+ * Resolve a composite handler by tool name. Returns `undefined` for
+ * unknown tools (the caller is expected to fall through to custom-tool
+ * dispatch). Caches loaded handlers in `COMPOSITE_HANDLERS` so repeat
+ * lookups are synchronous-ish (still returns a Promise for uniformity).
+ */
+async function loadCompositeHandler(tool: string): Promise<CompositeHandler | undefined> {
+  const cached = COMPOSITE_HANDLERS[tool];
+  if (cached) return cached;
+
+  const loader = COMPOSITE_HANDLER_LOADERS[tool];
+  if (!loader) return undefined;
+
+  const handler = await loader();
+  // Cache so subsequent dispatches are a direct map lookup.
+  COMPOSITE_HANDLERS[tool] = handler;
+  return handler;
+}
 
 // ─── Dispatch Function ──────────────────────────────────────────────────────
 
@@ -123,7 +220,25 @@ export async function dispatch(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  const builtInHandler = COMPOSITE_HANDLERS[tool];
+  // Lazy-loaded composite handler. Falls back to `undefined` when the tool
+  // is not a built-in (e.g. custom tools registered via config).
+  //
+  // F-021-3: wrap in try/catch so a broken composite module graph (e.g.
+  // `ERR_MODULE_NOT_FOUND` after a partial install, or a top-level-await
+  // failure during dynamic import) surfaces as a structured ToolResult
+  // instead of leaking through both the MCP transport and the CLI adapter.
+  let builtInHandler: CompositeHandler | undefined;
+  try {
+    builtInHandler = await loadCompositeHandler(tool);
+  } catch (loadErr) {
+    return {
+      success: false,
+      error: {
+        code: 'COMPOSITE_LOAD_FAILED',
+        message: `Failed to load composite handler for tool "${tool}": ${loadErr instanceof Error ? loadErr.message : String(loadErr)}`,
+      },
+    };
+  }
 
   const registeredTool = !builtInHandler ? getFullRegistry().find((t) => t.name === tool) : undefined;
 
@@ -145,6 +260,8 @@ export async function dispatch(
 
   try {
     if (ctx.enableTelemetry) {
+      // Lazy-load to keep CLI cold-start under the DR-5 budget.
+      const { withTelemetry } = await import('../telemetry/middleware.js');
       const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
       return await wrappedHandler(args);
     }

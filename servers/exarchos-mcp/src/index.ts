@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
@@ -19,10 +18,17 @@ import { configureStateStoreBackend } from './workflow/state-store.js';
 
 // New dispatch layer
 import { initializeContext } from './core/context.js';
-import { createMcpServer } from './adapters/mcp.js';
 import { buildCli } from './adapters/cli.js';
 import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
 import type { DispatchContext } from './core/dispatch.js';
+
+// NOTE: `./adapters/mcp.js` and the MCP SDK are intentionally NOT imported at
+// the top level. They pull the MCP SDK (~60ms module-graph load) and the full
+// tool-registration closure. Since the CLI-cold-start path (DR-5 / task 021)
+// must stay under the p95=250ms budget, we load them only in two places:
+//   1. `createServer()` — explicitly async, used by tests + library callers.
+//   2. `adapters/cli.ts`'s `mcp` command — dynamic import inside the action.
+// The CLI path for `wf status`, `describe`, hooks etc. never pays that cost.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -131,15 +137,18 @@ export function registerBackendCleanup(backend: StorageBackend): void {
 /**
  * Creates an MCP server with the given state directory and options.
  *
- * Synchronous wrapper that initializes DispatchContext inline and delegates
- * to createMcpServer(). Kept for backward compatibility with existing tests.
+ * Async wrapper that initializes DispatchContext inline and delegates to
+ * `createMcpServer()`. The underlying MCP SDK + tool-registration graph is
+ * loaded lazily via dynamic import so that CLI cold-start paths
+ * (e.g. `exarchos wf status`) do not pay the ~60ms MCP-SDK module-load cost.
  *
- * For new code, prefer initializeContext() + createMcpServer() directly.
+ * For new code, prefer `initializeContext()` +
+ * `import('./adapters/mcp.js').createMcpServer()` directly.
  */
-export function createServer(
+export async function createServer(
   stateDir: string,
   options?: CreateServerOptions,
-): McpServer {
+): Promise<McpServer> {
   const backend = options?.backend;
 
   // Configure module-level stores (EventStore is threaded via DispatchContext)
@@ -153,6 +162,10 @@ export function createServer(
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
   const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry };
+
+  // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
+  // MCP-SDK import cost. See module-level note on top of file.
+  const { createMcpServer } = await import('./adapters/mcp.js');
   return createMcpServer(ctx);
 }
 
@@ -239,33 +252,47 @@ async function main() {
     projectRoot: process.cwd(),
   });
 
-  // Merge sidecar event files written by hook subprocesses / sidecar-mode agents.
-  // Must run AFTER initializeContext so we use the PID-locked EventStore.
-  if (!ctx.eventStore.inSidecarMode) {
-    const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
-    await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
-    });
-  }
-
-  // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
-  void import('./storage/lifecycle.js')
-    .then(({ checkCompaction, rotateTelemetry, DEFAULT_LIFECYCLE_POLICY }) => {
-      void checkCompaction(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
-        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Lifecycle compaction failed');
-      });
-      void rotateTelemetry(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
-        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Telemetry rotation failed');
-      });
-    })
-    .catch((err) => {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
-    });
-
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.
   // No args shows help.
   const program = buildCli(ctx);
+
+  // ─── Execution-Mode Detection (F-021-5) ────────────────────────────────────
+  // Server-mode-only work (sidecar-event merge + lifecycle compaction) runs
+  // via a commander `preAction` hook instead of a positional `argv[2]` check.
+  // The hook fires immediately before the `mcp` subcommand's `action()` and
+  // is a no-op for every other command, which keeps CLI cold-start (`wf
+  // status`, `vw *`, `schema`, etc.) free of the work that only makes sense
+  // when the process stays alive. See DR-5 / task 021 cold-start budget.
+  //
+  // Future global flags like `--verbose` in front of `mcp` would have broken
+  // the old `argv[2] === 'mcp'` check; the `actionCommand.name()` lookup is
+  // robust to flag positioning. Coordinates with F-022-2.
+  program.hook('preAction', async (_thisCommand, actionCommand) => {
+    if (actionCommand.name() !== 'mcp') return;
+
+    if (!ctx.eventStore.inSidecarMode) {
+      const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
+      await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
+      });
+    }
+
+    // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
+    void import('./storage/lifecycle.js')
+      .then(({ checkCompaction, rotateTelemetry, DEFAULT_LIFECYCLE_POLICY }) => {
+        void checkCompaction(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Lifecycle compaction failed');
+        });
+        void rotateTelemetry(backend, stateDir, DEFAULT_LIFECYCLE_POLICY).catch((err) => {
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Telemetry rotation failed');
+        });
+      })
+      .catch((err) => {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to load lifecycle module');
+      });
+  });
+
   await program.parseAsync(process.argv);
 }
 

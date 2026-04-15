@@ -8,9 +8,16 @@ import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
 import { prettyPrint, printError } from './cli-format.js';
-import { listSchemas, resolveSchemaRef, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
-import { createMcpServer } from './mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
+// level. It pulls `zod-to-json-schema`, the state-machine topology serializer,
+// and the playbook renderer — several MB of transitive graph that CLI
+// cold-start for `wf status` etc. never needs. We lazy-import inside the
+// `schema`, `topology`, and `emissions` sub-commands below.
+// NOTE: `./mcp.js` and `@modelcontextprotocol/sdk/server/stdio.js` are
+// intentionally NOT imported at module top-level. They are dynamically imported
+// inside the `mcp` sub-command action below so that cold-start for CLI mode
+// (e.g. `exarchos wf status`) does not pay the cost of loading the full MCP
+// SDK + tool-registration graph. See DR-5 / task 021 cold-start benchmark.
 
 // ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
 
@@ -215,6 +222,7 @@ export function buildCli(ctx: DispatchContext): Command {
     .command('schema [ref]')
     .description('Inspect action schemas. Without args, lists all. With "tool.action", shows JSON Schema.')
     .action(async (ref?: string) => {
+      const { listSchemas, resolveSchemaRef } = await import('./schema-introspection.js');
       if (!ref) {
         const schemas = listSchemas();
         for (const tool of schemas) {
@@ -244,6 +252,7 @@ export function buildCli(ctx: DispatchContext): Command {
     .description('Show HSM topology. Without type, lists all workflow types.')
     .action(async (type?: string) => {
       try {
+        const { resolveTopologyRef } = await import('./schema-introspection.js');
         const result = resolveTopologyRef(type || undefined);
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
       } catch (err) {
@@ -261,6 +270,7 @@ export function buildCli(ctx: DispatchContext): Command {
     .command('emissions')
     .description('Show event emission catalog grouped by source.')
     .action(async () => {
+      const { resolveEmissionCatalog } = await import('./schema-introspection.js');
       const result = resolveEmissionCatalog();
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
     });
@@ -271,6 +281,13 @@ export function buildCli(ctx: DispatchContext): Command {
     .command('mcp')
     .description('Start Exarchos as an MCP server (stdio)')
     .action(async () => {
+      // Dynamic imports: MCP SDK + registration graph are only needed when the
+      // user actually invokes `exarchos mcp`. Keeps cold-start for `wf status`
+      // and other CLI subcommands under the DR-5 latency budget.
+      const [{ createMcpServer }, { StdioServerTransport }] = await Promise.all([
+        import('./mcp.js'),
+        import('@modelcontextprotocol/sdk/server/stdio.js'),
+      ]);
       const server = createMcpServer(ctx);
       const transport = new StdioServerTransport();
       await server.connect(transport);
