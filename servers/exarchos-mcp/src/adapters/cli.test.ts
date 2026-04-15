@@ -52,10 +52,11 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 // ─── Test Imports ────────────────────────────────────────────────────────────
 
-import { buildCli } from './cli.js';
+import { buildCli, commanderErrorToResult, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { CommanderError } from 'commander';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -528,5 +529,64 @@ describe('CLI exit-code mapping (DR-3)', () => {
     expect(parsed.error?.message).toContain('boom');
 
     stdoutSpy.mockRestore();
+  });
+});
+
+// ─── F-024-CMDR: commanderErrorToResult mapping-table parity ────────────────
+//
+// Keep the Commander-error → INVALID_INPUT set explicit so future Commander
+// upgrades don't silently introduce a new validation-ish code that falls
+// through the default branch and gets mis-mapped as UNCAUGHT_EXCEPTION.
+// Every code listed in these fixtures MUST be recognized as a validation
+// failure.
+describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
+  const invalidInputCodes: ReadonlyArray<string> = [
+    // Originally covered (task 024 initial green):
+    'commander.missingMandatoryOptionValue',
+    'commander.missingArgument',
+    'commander.optionMissingArgument',
+    'commander.invalidArgument',
+    'commander.unknownCommand',
+    'commander.unknownOption',
+    'commander.excessArguments',
+    // F-024-CMDR additions — emitted by Commander's native option-conflict
+    // check and a legacy `<value>` type-mismatch code path preserved for
+    // backward-compatibility with older Commander releases / plugins.
+    'commander.invalidOptionArgument',
+    'commander.conflictingOption',
+  ];
+
+  for (const code of invalidInputCodes) {
+    it(`CommanderErrorMapping_${code}_MapsToInvalidInput`, () => {
+      const err = new CommanderError(1, code, `synthetic error for ${code}`);
+      const { result, exitCode } = commanderErrorToResult(err);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
+      // Message should be preserved verbatim so CLI users still see which
+      // option/command failed.
+      expect(result.error?.message).toContain('synthetic error');
+    });
+  }
+
+  it('CommanderErrorMapping_HelpAndVersion_MapsToSuccess', () => {
+    for (const code of ['commander.helpDisplayed', 'commander.version']) {
+      const err = new CommanderError(0, code, 'help or version');
+      const { result, exitCode } = commanderErrorToResult(err);
+      expect(result.success).toBe(true);
+      expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    }
+  });
+
+  it('CommanderErrorMapping_UnknownCode_MapsToUncaughtException', () => {
+    // Codes not in the whitelist fall through to UNCAUGHT_EXCEPTION so the
+    // exit-code table (task 013) remains correct and users see a distinct
+    // failure mode from plain validation errors.
+    const err = new CommanderError(1, 'commander.fabricatedCode', 'unknown signal');
+    const { result, exitCode } = commanderErrorToResult(err);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('UNCAUGHT_EXCEPTION');
+    expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
   });
 });

@@ -258,8 +258,10 @@ describe('dispatch', () => {
       try {
         const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
-        // Act
-        await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+        // Act — DR-5: dispatch now validates action names and per-action
+        // schemas before routing, so this smoke test uses the `describe`
+        // action whose schema accepts empty args.
+        await dispatch('exarchos_workflow', { action: 'describe' }, ctx);
 
         // Assert — handler should receive the full DispatchContext, not just stateDir string
         expect(receivedCtx).toBeDefined();

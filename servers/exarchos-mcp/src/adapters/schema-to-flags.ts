@@ -1,6 +1,64 @@
 import { z } from 'zod';
 import { Command } from 'commander';
 
+// ─── Shared Validation-Error Emission (DR-5) ───────────────────────────────
+//
+// Both the CLI and MCP adapters funnel malformed-argument rejections through
+// this helper so they produce byte-identical `error.code` values and
+// equivalent `error.message` strings. See
+// `schema-to-flags.parity.test.ts` for the parity contract.
+
+/** Canonical error code for any argument-coercion failure at the adapter boundary. */
+export const VALIDATION_ERROR_CODE = 'INVALID_INPUT' as const;
+
+/** Shape emitted by {@link formatValidationError} — matches `ToolResult.error`. */
+export interface ValidationError {
+  readonly code: typeof VALIDATION_ERROR_CODE;
+  readonly message: string;
+}
+
+/**
+ * Format a Zod validation error into a single human-readable string.
+ * Path segments are joined with dots (`featureId`, `nested.field`).
+ * Root-level failures report as `(root)`.
+ */
+export function formatZodError(err: z.ZodError): string {
+  return err.errors
+    .map((issue) => {
+      const p = issue.path.length > 0 ? issue.path.join('.') : '(root)';
+      return `${p}: ${issue.message}`;
+    })
+    .join('; ');
+}
+
+/**
+ * Build the canonical validation-error payload from a ZodError. Callers in
+ * the CLI and MCP dispatch paths must both use this helper so the two
+ * facades emit identical `error.code` and equivalent `error.message`
+ * values — a prerequisite for the DR-5 parity contract.
+ *
+ * Optional `context` is prepended to the message so humans reading the CLI
+ * output know which tool+action failed without having to correlate against
+ * the surrounding command invocation.
+ */
+export function formatValidationError(
+  err: z.ZodError,
+  context?: string,
+): ValidationError {
+  const zodMsg = formatZodError(err);
+  const message = context ? `${context}: ${zodMsg}` : zodMsg;
+  return { code: VALIDATION_ERROR_CODE, message };
+}
+
+/**
+ * Build an INVALID_INPUT payload for a plain (non-Zod) rejection — e.g.
+ * unknown action names, unknown subcommands. Keeps the code channel
+ * unified with {@link formatValidationError}.
+ */
+export function buildInvalidInput(message: string): ValidationError {
+  return { code: VALIDATION_ERROR_CODE, message };
+}
+
 // ─── Case Conversion Helpers ────────────────────────────────────────────────
 
 export function toKebab(camel: string): string {
@@ -132,7 +190,12 @@ export function addFlagsFromSchema(
 
     const kebab = toKebab(field.name);
     const override = overrides?.[field.name];
-    const desc = override?.description ?? field.description ?? field.name;
+    const baseDesc = override?.description ?? field.description ?? field.name;
+    // F-024-UX: prepend `[required] ` to the description for required fields
+    // so `--help` preserves the visual cue that was lost when DR-5 switched
+    // from Commander's `requiredOption` to plain `option` (required-field
+    // enforcement now happens via Zod at the action callback, not Commander).
+    const desc = field.required ? `[required] ${baseDesc}` : baseDesc;
     const alias = override?.alias;
 
     if (field.type === 'boolean') {
@@ -158,11 +221,13 @@ export function addFlagsFromSchema(
       flagStr = alias ? `-${alias}, --${kebab} <value>` : `--${kebab} <value>`;
     }
 
-    if (field.required) {
-      cmd.requiredOption(flagStr, desc);
-    } else {
-      cmd.option(flagStr, desc);
-    }
+    // DR-5: Required non-boolean fields are registered as plain options so
+    // Commander doesn't hard-exit on a missing value. Required-field
+    // enforcement happens via the per-action Zod schema at the action
+    // callback layer (cli.ts) and via the dispatch-level validation
+    // (core/dispatch.ts) — both funnel through formatValidationError so
+    // CLI and MCP produce identical INVALID_INPUT payloads.
+    cmd.option(flagStr, desc);
   }
 
   cmd.option('--json', 'Output raw JSON');

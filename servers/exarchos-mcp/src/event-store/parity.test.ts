@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventStore } from './store.js';
-import { dispatch } from '../core/dispatch.js';
-import { buildCli } from '../adapters/cli.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
+import {
+  callCli as harnessCallCli,
+  callMcp as harnessCallMcp,
+  normalize as harnessNormalize,
+} from '../__tests__/parity-harness.js';
 
 // ─── DR-3 Parity Tests: exarchos_event ──────────────────────────────────────
 // Asserts that invoking `exarchos_event` actions through the CLI adapter and
@@ -17,35 +20,24 @@ import type { ToolResult } from '../format.js';
 
 // ─── Normalization Helpers ──────────────────────────────────────────────────
 
-const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_ANY_RE } from '../__tests__/parity-harness.js';
 
 /**
- * Recursively strip fields that are inherently non-deterministic across two
- * independent handler invocations (timestamps, UUIDs). This lets the rest of
- * the payload be compared structurally via deep-equal.
+ * Event-store suite normalizer. Historical behaviour dropped ISO
+ * timestamps / UUIDs entirely (rather than replacing with placeholders)
+ * and stripped the `_perf` telemetry block. Replicate via the shared
+ * harness's `stripTimeSensitiveValues` + `dropKeys` options.
+ *
+ * Uses `UUID_ANY_RE` (not strictly v4) to match prior behaviour — the
+ * event store mints non-v4 IDs in some code paths and this suite relied
+ * on the broader regex.
  */
 function normalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalize);
-  }
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof v === 'string') {
-        if (ISO_TIMESTAMP_RE.test(v)) continue;
-        if (UUID_RE.test(v)) continue;
-        out[k] = v;
-        continue;
-      }
-      // _perf timings are telemetry-derived and non-deterministic — elide when
-      // the parity suite runs with telemetry disabled they'll be absent anyway.
-      if (k === '_perf') continue;
-      out[k] = normalize(v);
-    }
-    return out;
-  }
-  return value;
+  return harnessNormalize(value, {
+    stripTimeSensitiveValues: true,
+    dropKeys: new Set(['_perf']),
+    uuidRegex: UUID_ANY_RE,
+  });
 }
 
 // ─── Adapter Callers ────────────────────────────────────────────────────────
@@ -74,13 +66,15 @@ async function callMcp(
   args: Record<string, unknown>,
   harness: ParityHarness,
 ): Promise<ToolResult> {
-  return dispatch(tool, { action, ...args }, harness.ctx);
+  return harnessCallMcp(harness.ctx, tool, { action, ...args });
 }
 
 /**
- * Invoke a tool action through the CLI adapter. Builds the Commander program
- * with the given context, captures stdout under `--json` mode, parses the
- * emitted ToolResult, and restores process state.
+ * Invoke a tool action through the CLI adapter. This suite historically
+ * passed `ReadonlyArray<string>` flags (positional flag + value pairs) so
+ * we translate into the harness's structured flag map here. Each flag
+ * token that starts with `--` opens a new key; the following token is
+ * its value unless it too begins with `--`.
  */
 async function callCli(
   toolAlias: string,
@@ -88,32 +82,24 @@ async function callCli(
   flags: ReadonlyArray<string>,
   harness: ParityHarness,
 ): Promise<ToolResult> {
-  const program = buildCli(harness.ctx);
-  const chunks: string[] = [];
-  const stdoutSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation(((chunk: unknown) => {
-      chunks.push(typeof chunk === 'string' ? chunk : String(chunk));
-      return true;
-    }) as typeof process.stdout.write);
-
-  const prevExitCode = process.exitCode;
-  try {
-    await program.parseAsync(['node', 'exarchos', toolAlias, action, ...flags, '--json']);
-  } finally {
-    stdoutSpy.mockRestore();
-    process.exitCode = prevExitCode;
+  const structured: Record<string, unknown> = {};
+  for (let i = 0; i < flags.length; i++) {
+    const token = flags[i];
+    if (!token.startsWith('--')) continue;
+    // Drop the leading `--`, convert kebab-case back to camelCase so the
+    // harness's own camelCase→kebab mapping is a no-op.
+    const kebabKey = token.slice(2);
+    const camelKey = kebabKey.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    const next = flags[i + 1];
+    if (next !== undefined && !next.startsWith('--')) {
+      structured[camelKey] = next;
+      i++;
+    } else {
+      structured[camelKey] = true;
+    }
   }
-
-  const combined = chunks.join('');
-  const firstBrace = combined.indexOf('{');
-  if (firstBrace < 0) {
-    throw new Error(`CLI produced no JSON output for ${toolAlias} ${action}: ${combined}`);
-  }
-  // Take the JSON line (the adapter writes a single line followed by \n).
-  const newlineIdx = combined.indexOf('\n', firstBrace);
-  const jsonText = newlineIdx > 0 ? combined.slice(firstBrace, newlineIdx) : combined.slice(firstBrace);
-  return JSON.parse(jsonText) as ToolResult;
+  const { result } = await harnessCallCli(harness.ctx, toolAlias, action, structured);
+  return result;
 }
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────

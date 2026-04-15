@@ -1,11 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { buildCli, CLI_EXIT_CODES } from '../adapters/cli.js';
-import { dispatch, type DispatchContext } from '../core/dispatch.js';
+import { CLI_EXIT_CODES } from '../adapters/cli.js';
+import { type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
+import {
+  callCli as harnessCallCli,
+  callMcp as harnessCallMcp,
+  normalize as harnessNormalize,
+} from '../__tests__/parity-harness.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Task 014: CLI-vs-MCP Parity for exarchos_workflow (DR-3) ─────────────────
@@ -32,15 +37,9 @@ function makeCtx(stateDir: string): DispatchContext {
 }
 
 /**
- * Invoke a composite tool action via the CLI adapter. Captures the single
- * JSON line emitted by `--json` mode, parses it, and returns the parsed
- * ToolResult. Uses Commander's `parseAsync` (in-process, no subprocess).
- *
- * @param toolAlias CLI alias for the composite tool (e.g. 'wf' for exarchos_workflow)
- * @param actionFlag CLI action name — may differ from the action's registry
- *        name when the action declares `cli.alias` (e.g. 'get' is aliased to
- *        'status'; callers pass the alias they want on the command line).
- * @param flags Key/value pairs, converted to --kebab-case flags.
+ * Thin adapter over the shared `harnessCallCli`. Preserves this suite's
+ * existing call-site shape (flags: Record<string, string>) while the
+ * harness accepts `Record<string, unknown>`.
  */
 async function callCli(
   ctx: DispatchContext,
@@ -48,50 +47,13 @@ async function callCli(
   actionFlag: string,
   flags: Record<string, string>,
 ): Promise<{ result: ToolResult; exitCode: number }> {
-  const program = buildCli(ctx);
-
-  // Capture stdout — the CLI writes exactly one JSON line in --json mode.
-  const captured: string[] = [];
-  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
-    captured.push(typeof chunk === 'string' ? chunk : String(chunk));
-    return true;
-  });
-
-  const savedExitCode = process.exitCode;
-  process.exitCode = undefined;
-
-  const argv: string[] = ['node', 'exarchos', toolAlias, actionFlag];
-  for (const [key, value] of Object.entries(flags)) {
-    // Convert camelCase to kebab-case for the CLI flag name.
-    const kebab = key.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-    argv.push(`--${kebab}`, value);
-  }
-  argv.push('--json');
-
-  try {
-    await program.parseAsync(argv);
-  } finally {
-    stdoutSpy.mockRestore();
-  }
-
-  const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
-  process.exitCode = savedExitCode;
-
-  const stdoutText = captured.join('').trim();
-  if (!stdoutText) {
-    throw new Error(
-      `CLI emitted no stdout for ${toolAlias} ${actionFlag} ${JSON.stringify(flags)} — exit code ${exitCode}`,
-    );
-  }
-  const parsed = JSON.parse(stdoutText) as ToolResult;
-  return { result: parsed, exitCode };
+  return harnessCallCli(ctx, toolAlias, actionFlag, flags);
 }
 
 /**
- * Invoke a composite tool action via the MCP adapter's dispatch entry point.
- * This bypasses the stdio transport (which only matters for wire formatting)
- * and returns the raw ToolResult — exactly what dispatch.ts hands to the
- * MCP SDK `formatResult` wrapper before JSON-stringifying for the SDK.
+ * Thin adapter over the shared `harnessCallMcp`. Merges the `action`
+ * into the args object (the harness takes the raw `{ action, ...args }`
+ * shape the MCP dispatch entry expects).
  */
 async function callMcp(
   ctx: DispatchContext,
@@ -99,47 +61,18 @@ async function callMcp(
   action: string,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  return dispatch(tool, { action, ...args }, ctx);
+  return harnessCallMcp(ctx, tool, { action, ...args });
 }
 
-/** Regex for ISO 8601 timestamps — matches both with and without milliseconds. */
-const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:?\d{2})$/;
-
-/** Regex for RFC 4122 v4 UUIDs. */
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 /**
- * Recursively replace time-sensitive or random fields with stable placeholders
- * so two in-process invocations — spaced apart by a few milliseconds — produce
- * byte-equal trees. Volatile fields:
- *  - ISO 8601 timestamps (anywhere in the tree) → `<TS>`
- *  - UUID v4 strings → `<UUID>`
- *  - `minutesSinceActivity` (integer derived from wall-clock) → `<MINUTES>`
- *  - `lastCheckpointTimestamp` / `timestamp` / `lastActivityTimestamp` keys
- *    (redundant with ISO match, but explicit for readability).
+ * Workflow suite normalizer — default placeholders (`<TS>` / `<UUID>`)
+ * plus the bespoke `minutesSinceActivity` keyed transform this suite
+ * has always used.
  */
 function normalize(value: unknown): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string') {
-    if (ISO_TIMESTAMP_RE.test(value)) return '<TS>';
-    if (UUID_V4_RE.test(value)) return '<UUID>';
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(normalize);
-  }
-  if (typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === 'minutesSinceActivity') {
-        out[k] = '<MINUTES>';
-      } else {
-        out[k] = normalize(v);
-      }
-    }
-    return out;
-  }
-  return value;
+  return harnessNormalize(value, {
+    keyPlaceholders: { minutesSinceActivity: '<MINUTES>' },
+  });
 }
 
 // ─── Fixture Harness ─────────────────────────────────────────────────────────

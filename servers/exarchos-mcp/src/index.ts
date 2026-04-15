@@ -18,7 +18,10 @@ import { configureStateStoreBackend } from './workflow/state-store.js';
 
 // New dispatch layer
 import { initializeContext } from './core/context.js';
-import { buildCli } from './adapters/cli.js';
+// NOTE: `createMcpServer` is intentionally NOT imported at the top level —
+// task 021 made MCP SDK loading dynamic to keep CLI cold-start under the
+// 250ms p95 budget. See dynamic import at `createServer()` below.
+import { buildCli, runCli } from './adapters/cli.js';
 import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
 import type { DispatchContext } from './core/dispatch.js';
 
@@ -281,7 +284,10 @@ async function main() {
 
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.
-  // No args shows help.
+  // No args shows help. DR-5: runCli installs exitOverride and funnels
+  // Commander parse errors through the shared INVALID_INPUT contract so
+  // the CLI facade rejects malformed input with the same `error.code` as
+  // the MCP dispatch path.
   const program = buildCli(ctx);
 
   // ─── Execution-Mode Detection (F-021-5) ────────────────────────────────────
@@ -320,7 +326,9 @@ async function main() {
       });
   });
 
-  await program.parseAsync(process.argv);
+  // F-024: runCli installs exitOverride and funnels Commander parse errors
+  // through the shared INVALID_INPUT contract.
+  await runCli(program, process.argv);
 }
 
 // Only run main when executed directly (not when imported for testing)

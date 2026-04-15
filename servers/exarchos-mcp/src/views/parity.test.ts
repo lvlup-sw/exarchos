@@ -22,18 +22,23 @@
 //   check (see issue #1082 — this test only asserts shape equivalence,
 //   not non-emptiness).
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { EventStore } from '../event-store/store.js';
-import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
-import { buildCli, CLI_EXIT_CODES } from '../adapters/cli.js';
+import { CLI_EXIT_CODES } from '../adapters/cli.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { resetMaterializerCache } from './tools.js';
+import {
+  callCli as harnessCallCli,
+  callMcp as harnessCallMcp,
+  normalize as harnessNormalize,
+  UUID_ANY_RE,
+} from '../__tests__/parity-harness.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -68,7 +73,7 @@ async function callMcp(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  return dispatch(VIEW_TOOL, { action, ...args }, ctx);
+  return harnessCallMcp(ctx, VIEW_TOOL, { action, ...args });
 }
 
 /**
@@ -86,87 +91,32 @@ function resolveCliActionName(action: string): string {
 }
 
 /**
- * Build CLI command-line args for a view action.
- *
- * The CLI tree strips the `exarchos_` prefix and uses `cli.alias` when
- * present. For exarchos_view the tool alias is `vw`. Flags are kebab-cased.
+ * Run the CLI program in-process and parse the ToolResult from stdout.
+ * Delegates to the shared harness; this wrapper only resolves the
+ * `cli.alias` to the effective subcommand name Commander registered.
  */
-function buildCliArgv(action: string, args: Record<string, unknown>): string[] {
-  const cliAction = resolveCliActionName(action);
-  const argv: string[] = ['node', 'exarchos', 'vw', cliAction, '--json'];
-  for (const [k, v] of Object.entries(args)) {
-    if (v === undefined) continue;
-    const flag = '--' + k.replace(/[A-Z]/g, (ch) => '-' + ch.toLowerCase());
-    if (typeof v === 'boolean') {
-      argv.push(v ? flag : `--no-${flag.slice(2)}`);
-    } else {
-      argv.push(flag, String(v));
-    }
-  }
-  return argv;
-}
-
-/** Run the CLI program in-process and parse the ToolResult from stdout. */
 async function callCli(
   action: string,
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<{ result: ToolResult; exitCode: number }> {
-  const program = buildCli(ctx);
-
-  const previousExitCode = process.exitCode;
-  process.exitCode = undefined;
-
-  const chunks: string[] = [];
-  const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(
-    ((chunk: string | Uint8Array) => {
-      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
-      return true;
-    }) as typeof process.stdout.write,
-  );
-
-  try {
-    await program.parseAsync(buildCliArgv(action, args));
-  } finally {
-    stdoutSpy.mockRestore();
-  }
-
-  const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
-  process.exitCode = previousExitCode;
-
-  const stdoutText = chunks.join('').trim();
-  if (stdoutText.length === 0) {
-    throw new Error(`CLI produced no stdout for action=${action}`);
-  }
-  const parsed = JSON.parse(stdoutText) as ToolResult;
-  return { result: parsed, exitCode };
+  const cliAction = resolveCliActionName(action);
+  return harnessCallCli(ctx, 'vw', cliAction, args);
 }
 
 // ─── Normalization ─────────────────────────────────────────────────────────
 
-const ISO_TIMESTAMP_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Strip timing-dependent fields, ISO timestamps, and UUIDs recursively. */
+/**
+ * Views suite normalizer. Historical placeholders are `<ISO>` for
+ * timestamps and `<UUID>` (any version) for UUIDs, with `_perf` dropped.
+ */
 function normalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalize);
-  }
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === '_perf') continue; // timing-dependent, scrub
-      out[k] = normalize(v);
-    }
-    return out;
-  }
-  if (typeof value === 'string') {
-    if (ISO_TIMESTAMP_RE.test(value)) return '<ISO>';
-    if (UUID_RE.test(value)) return '<UUID>';
-  }
-  return value;
+  return harnessNormalize(value, {
+    timestampPlaceholder: '<ISO>',
+    uuidPlaceholder: '<UUID>',
+    uuidRegex: UUID_ANY_RE,
+    dropKeys: new Set(['_perf']),
+  });
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────

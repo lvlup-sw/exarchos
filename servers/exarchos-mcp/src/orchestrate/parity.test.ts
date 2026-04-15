@@ -16,11 +16,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
-import { buildCli } from '../adapters/cli.js';
 import { resetMaterializerCache } from '../views/tools.js';
+import {
+  callCli as harnessCallCli,
+  callMcp as harnessCallMcp,
+  normalize as harnessNormalize,
+} from '../__tests__/parity-harness.js';
 
 // ─── Shared Helpers ────────────────────────────────────────────────────────
 
@@ -46,56 +49,17 @@ async function createArm(prefix: string): Promise<ArmContext> {
 }
 
 /**
- * Invoke the orchestrate composite via the CLI adapter in-process.
- * Captures JSON stdout (emitted when `--json` is passed) and parses it into a ToolResult.
- *
- * `flags` are camelCase keys matching the action schema; they are converted to
- * kebab-case `--long-flags` here to match Commander's flag registration.
+ * Thin adapter over the shared harness `callCli`. This suite's call
+ * sites pass `(ctx, action, flags)` without a `toolAlias` (always
+ * `'orch'`), so fix the alias here and delegate the rest.
  */
 async function callCli(
   ctx: DispatchContext,
   action: string,
   flags: Record<string, unknown>,
 ): Promise<ToolResult> {
-  const program = buildCli(ctx);
-
-  const argv: string[] = ['node', 'exarchos', 'orch', action];
-  for (const [key, value] of Object.entries(flags)) {
-    const kebab = key.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-    if (typeof value === 'boolean') {
-      argv.push(value ? `--${kebab}` : `--no-${kebab}`);
-    } else if (typeof value === 'object' && value !== null) {
-      // Object/record/array flags are passed as JSON strings per coerceFlags().
-      argv.push(`--${kebab}`, JSON.stringify(value));
-    } else {
-      argv.push(`--${kebab}`, String(value));
-    }
-  }
-  argv.push('--json');
-
-  const writes: string[] = [];
-  const stdoutSpy = vi
-    .spyOn(process.stdout, 'write')
-    .mockImplementation((chunk: string | Uint8Array) => {
-      writes.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
-      return true;
-    });
-
-  try {
-    await program.parseAsync(argv);
-  } finally {
-    stdoutSpy.mockRestore();
-  }
-
-  const body = writes.join('');
-  // Extract the last complete JSON object in stdout (the CLI writes exactly
-  // one JSON payload + trailing newline when --json is set). Using `.trim()`
-  // then parsing is enough; tests fail loudly if something else leaked.
-  const json = body.trim();
-  if (!json) {
-    throw new Error(`CLI emitted no stdout for action '${action}'. argv=${argv.join(' ')}`);
-  }
-  return JSON.parse(json) as ToolResult;
+  const { result } = await harnessCallCli(ctx, 'orch', action, flags);
+  return result;
 }
 
 /** Invoke the orchestrate composite directly via the MCP dispatch entry point. */
@@ -104,66 +68,44 @@ async function callMcp(
   action: string,
   args: Record<string, unknown>,
 ): Promise<ToolResult> {
-  return dispatch('exarchos_orchestrate', { action, ...args }, ctx);
+  return harnessCallMcp(ctx, 'exarchos_orchestrate', { action, ...args });
 }
 
 // ─── Normalization ─────────────────────────────────────────────────────────
 
-const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/;
-const TIMESTAMP_KEYS = new Set(['timestamp', 'claimedAt', 'completedAt', 'createdAt', 'updatedAt']);
-const UUID_KEYS = new Set(['eventId', 'id']);
-
-// Scrub tmp paths embedded in error/finding strings (e.g. mkdtemp output like
-// "/tmp/parity-design-mcp-qZUrby/parity-feat.json"). The mkdtemp suffix is
-// non-deterministic; if two arms' state dirs leak into the payload, the
-// parity comparison would falsely diverge even though semantics match.
-const TMP_PATH_RE = /\/(?:tmp|var\/folders\/[^/\s"']+)\/[A-Za-z0-9_.\-/]*/g;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { UUID_ANY_RE } from '../__tests__/parity-harness.js';
 
 /**
- * Strip non-deterministic fields from a payload so two runs across different
- * tmp dirs can be deep-equal. Removes:
- *   • ISO-8601 timestamps (keyed or value-detected)
- *   • UUIDs (keyed or value-detected)
- *   • git commit SHAs (value-detected, len 7–40 hex)
- *   • `_perf` and `_meta` metadata
- *   • absolute tmp paths (they embed the random mkdtemp suffix)
+ * Orchestrate suite normalizer. Historical placeholders:
+ *   • ISO-8601 timestamps → `<TIMESTAMP>`
+ *   • UUIDs (any version) → `<UUID>`
+ *   • Commit SHAs → `<SHA>`
+ *   • Tmp paths → `<TMP_PATH>`
+ *   • `_perf` / `_meta` keys dropped
+ *   • Keyed transforms: timestamp/UUID keys replaced even when the value
+ *     isn't a matching ISO/UUID string (e.g. `claimedAt: Date` already
+ *     serialized to string but still keyed explicitly).
  */
+const TIMESTAMP_KEYS = new Set([
+  'timestamp',
+  'claimedAt',
+  'completedAt',
+  'createdAt',
+  'updatedAt',
+]);
+const UUID_KEYS = new Set(['eventId', 'id']);
+
 function normalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalize);
-  }
-  if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (k === '_perf' || k === '_meta') continue;
-      if (TIMESTAMP_KEYS.has(k)) {
-        out[k] = '<TIMESTAMP>';
-        continue;
-      }
-      if (UUID_KEYS.has(k)) {
-        out[k] = '<UUID>';
-        continue;
-      }
-      out[k] = normalize(v);
-    }
-    return out;
-  }
-  if (typeof value === 'string') {
-    if (ISO_TIMESTAMP_RE.test(value)) return '<TIMESTAMP>';
-    if (UUID_RE.test(value)) return '<UUID>';
-    if (COMMIT_SHA_RE.test(value) && value.length >= 7) return '<SHA>';
-    // Replace any embedded tmp path occurrences with a stable placeholder.
-    if (TMP_PATH_RE.test(value)) {
-      return value.replace(TMP_PATH_RE, '<TMP_PATH>');
-    }
-  }
-  return value;
+  return harnessNormalize(value, {
+    timestampPlaceholder: '<TIMESTAMP>',
+    uuidPlaceholder: '<UUID>',
+    shaPlaceholder: '<SHA>',
+    tmpPathPlaceholder: '<TMP_PATH>',
+    uuidRegex: UUID_ANY_RE,
+    timestampKeys: TIMESTAMP_KEYS,
+    uuidKeys: UUID_KEYS,
+    dropKeys: new Set(['_perf', '_meta']),
+  });
 }
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
