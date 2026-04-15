@@ -179,12 +179,19 @@ export async function handleInit(
       extraFields,
     );
 
+    // Issue #1082 Tier 3: surface sidecar-mode degradation so callers can
+    // detect that the workflow.started event was written to the sidecar
+    // file rather than the main stream (the ack mirrors `sequencePending`
+    // on `exarchos_event append`).
+    const sidecarPending = eventStore?.inSidecarMode === true;
+
     return {
       success: true,
       data: {
         featureId: state.featureId,
         workflowType: state.workflowType,
         phase: state.phase,
+        ...(sidecarPending && { sidecarPending: true }),
       },
       _meta: buildCheckpointMeta(state._checkpoint),
     };
@@ -827,11 +834,21 @@ export async function handleSet(
 
     // Event-first: events already appended before CAS write with idempotency keys.
     // State write is the follow-up materialization step.
+    //
+    // Issue #1082 Tier 3: when the event store is in sidecar mode AND this
+    // call emitted at least one event (transition or state.patched), surface
+    // `sidecarPending: true` so callers can detect degraded mode. Coarse-
+    // grained on purpose — the store's sidecar flag is the truth, and it
+    // does not change within a single handleSet invocation.
+    const emittedEvents = pendingTransitionEvents.length > 0 || updateKeys.length > 0;
+    const sidecarPending = emittedEvents && eventStore?.inSidecarMode === true;
+
     return {
       success: true,
       data: {
         phase: mutableState.phase as string,
         updatedAt: mutableState.updatedAt as string,
+        ...(sidecarPending && { sidecarPending: true }),
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     };
@@ -913,10 +930,14 @@ export async function handleCheckpoint(
   // Write back to disk
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
+  // Issue #1082 Tier 3: surface sidecar-mode degradation (see handleInit/handleSet).
+  const sidecarPending = eventStore?.inSidecarMode === true;
+
   return {
     success: true,
     data: {
       phase: (mutableState._checkpoint as Record<string, unknown>).phase as string,
+      ...(sidecarPending && { sidecarPending: true }),
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };

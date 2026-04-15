@@ -7,6 +7,9 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 ### Bug Fixes
 - `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
 
+### Observability
+- `exarchos_workflow init`, `set`, and `checkpoint` now surface `sidecarPending: true` in their response `data` when the underlying event append landed in the sidecar file (the event store is in sidecar mode). Mirrors the `sequencePending` ack on `exarchos_event append` so callers can detect degraded mode without inspecting storage internals (#1082)
+
 ## [2.6.0] - 2026-04-12
 
 ### Features

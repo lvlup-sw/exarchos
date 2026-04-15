@@ -1192,7 +1192,11 @@ describe('EventStore Sidecar Mode', () => {
     expect(JSON.parse(lines[1]).type).toBe('state.patched');
   });
 
-  it('SidecarMode_QueryStillWorksFromJsonl', async () => {
+  // Pre-#1082 this test pinned the bug: sidecar-mode query() reading only
+  // the main JSONL. Post-fix, the same scenario (no sidecar writes) still
+  // returns the expected main events — the test now documents that sidecar
+  // mode does not *alter* reads of pre-existing main-stream data.
+  it('SidecarMode_QueryReturnsMainEventsWhenNoSidecarWrites', async () => {
     // First create some events in normal mode
     const store1 = new EventStore(tempDir);
     await store1.append('my-workflow', { type: 'workflow.started', data: {} });
@@ -1207,7 +1211,8 @@ describe('EventStore Sidecar Mode', () => {
     await store2.initialize();
     expect(store2.inSidecarMode).toBe(true);
 
-    // Query should still work from JSONL
+    // No sidecar writes have happened on this stream, so query() returns
+    // exactly the two main-stream events.
     const events = await store2.query('my-workflow');
     expect(events).toHaveLength(2);
     expect(events[0].type).toBe('workflow.started');
