@@ -15,6 +15,7 @@ const validFixture: RuntimeMap = {
     hasSkillChaining: true,
     mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
   },
+  preferredFacade: 'mcp',
   skillsInstallPath: '~/.claude/skills',
   detection: {
     binaries: ['claude'],
@@ -125,10 +126,8 @@ describe('RuntimeMapSchema', () => {
   // required so the renderer always has an explicit answer per runtime.
 
   it('RuntimeMapSchema_MissingPreferredFacade_ThrowsValidationError', () => {
-    // `validFixture` currently has no `preferredFacade` — constructing the
-    // parse input from it directly exercises the "missing required field"
-    // case without needing to delete a key.
-    const result = RuntimeMapSchema.safeParse(validFixture);
+    const { preferredFacade: _preferredFacade, ...withoutFacade } = validFixture;
+    const result = RuntimeMapSchema.safeParse(withoutFacade);
     expect(result.success).toBe(false);
     if (!result.success) {
       const missingIssue = result.error.issues.find(
