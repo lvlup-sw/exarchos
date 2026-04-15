@@ -173,20 +173,24 @@ export function buildCli(ctx: DispatchContext): Command {
           : null;
         let result: ToolResult;
         try {
-          result = await dispatch(
-            tool.name,
-            { action: action.name, ...parseResult.data },
-            ctx,
-          );
-        } catch (err) {
+          try {
+            result = await dispatch(
+              tool.name,
+              { action: action.name, ...parseResult.data },
+              ctx,
+            );
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const errResult = toErrorResult('UNCAUGHT_EXCEPTION', message);
+            emitResult(errResult, isJson, format);
+            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+            return;
+          }
+        } finally {
+          // Cleanup runs on success, handler-reported errors, AND uncaught
+          // exceptions — a single site so future edits can't leak timers.
           stopHeartbeat?.();
-          const message = err instanceof Error ? err.message : String(err);
-          const errResult = toErrorResult('UNCAUGHT_EXCEPTION', message);
-          emitResult(errResult, isJson, format);
-          process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-          return;
         }
-        stopHeartbeat?.();
 
         // ─── Emit + map to exit code ──────────────────────────────────────
         emitResult(result, isJson, format);
