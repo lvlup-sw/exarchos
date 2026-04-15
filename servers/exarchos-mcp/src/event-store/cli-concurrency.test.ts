@@ -21,8 +21,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { EventStore } from './store.js';
+import { EventStore, PidLockError } from './store.js';
 import type { WorkflowEvent } from './schemas.js';
+import { initializeContext } from '../core/context.js';
 
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
@@ -150,4 +151,108 @@ describe('DR-5: concurrent CLI append safety', () => {
     const sidecarPath = path.join(stateDir, `${STREAM_ID}.hook-events.jsonl`);
     await expect(fs.access(sidecarPath)).rejects.toThrow();
   }, 60_000);
+});
+
+// ─── F-022-1: waitForLock timeout surfaces PidLockError ─────────────────────
+//
+// When a CLI caller passes `waitForLock: true` and the lock remains held for
+// longer than `waitForLockTimeoutMs`, `initialize()` MUST throw the underlying
+// `PidLockError` instead of silently flipping to sidecar mode. The CLI
+// adapter relies on this to return a non-zero exit code so the operator can
+// retry rather than have writes quietly diverge into a sidecar file.
+//
+// Conversely, long-running MCP server callers (no `waitForLock` flag) MUST
+// retain the existing sidecar-fallback behaviour.
+
+describe('F-022-1: waitForLock timeout contract', () => {
+  let seedDir: string;
+
+  beforeEach(async () => {
+    seedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-wait-timeout-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(seedDir, { recursive: true, force: true });
+  });
+
+  /** Seed the lock file with a PID that is guaranteed to be alive. */
+  async function seedLiveLock(stateDir: string): Promise<void> {
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(
+      path.join(stateDir, '.event-store.lock'),
+      String(process.pid),
+      'utf-8',
+    );
+  }
+
+  it('CliCallerWithWaitForLockTrue_LockHeldLongerThanTimeout_ThrowsPidLockError', async () => {
+    await seedLiveLock(seedDir);
+
+    const store = new EventStore(seedDir);
+    await expect(
+      store.initialize({
+        waitForLock: true,
+        waitForLockTimeoutMs: 50,
+        waitForLockInitialDelayMs: 5,
+        waitForLockMaxDelayMs: 10,
+      }),
+    ).rejects.toBeInstanceOf(PidLockError);
+
+    // Must NOT have silently fallen back to sidecar mode.
+    expect(store.inSidecarMode).toBe(false);
+  });
+
+  it('CliCallerWithWaitForLockFalse_LockHeldLongerThanTimeout_EntersSidecarMode', async () => {
+    await seedLiveLock(seedDir);
+
+    // Default (no waitForLock) preserves the MCP-server contract: do not
+    // block, fall back to sidecar so competing hook subprocesses aren't
+    // serialised on each other.
+    const store = new EventStore(seedDir);
+    await store.initialize();
+
+    expect(store.inSidecarMode).toBe(true);
+  });
+});
+
+// ─── F-022-7: MCP server mode sidecar fallback contract ────────────────────
+//
+// Regression guard for the long-running MCP server path. `exarchos mcp`
+// passes `waitForLock: false` (default), so when a lock is already held the
+// server MUST fall back to sidecar mode promptly (well under the 30s default
+// wait deadline) rather than blocking the server startup.
+
+describe('F-022-7: MCP server mode sidecar fallback', () => {
+  let seedDir: string;
+
+  beforeEach(async () => {
+    seedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-sidecar-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(seedDir, { recursive: true, force: true });
+  });
+
+  it('McpServerMode_LockHeldByOtherProcess_FallsBackToSidecarWithoutWaiting', async () => {
+    // Seed a live PID in the lock file — this process is guaranteed to be
+    // alive while the test runs, so the holder check returns true.
+    await fs.mkdir(seedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(seedDir, '.event-store.lock'),
+      String(process.pid),
+      'utf-8',
+    );
+
+    // MCP-server semantics: `waitForLock` omitted (server default).
+    const start = Date.now();
+    const ctx = await initializeContext(seedDir, {
+      // waitForLock intentionally undefined → server contract
+    });
+    const elapsed = Date.now() - start;
+
+    // Should have fallen back to sidecar mode...
+    expect(ctx.eventStore.inSidecarMode).toBe(true);
+    // ...and done so without waiting anywhere near the 30s default timeout.
+    expect(elapsed).toBeLessThan(500);
+  });
 });

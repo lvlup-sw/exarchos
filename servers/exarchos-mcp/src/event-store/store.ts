@@ -210,9 +210,18 @@ export class EventStore {
       }
     } catch (err) {
       if (err instanceof PidLockError) {
+        // F-022-1: When the caller explicitly opted into waiting for the lock
+        // (CLI mode, DR-5), do NOT silently fall back to sidecar mode after
+        // the deadline elapses. The CLI adapter surfaces a clear exit code
+        // ("lock held by PID N for >Ns — retry later") instead. Sidecar
+        // fallback is only the correct behaviour for the long-running MCP
+        // server / hook subprocess paths, which leave waitForLock unset.
+        if (waitForLock) {
+          throw err;
+        }
         this.sidecarMode = true;
         this.initialized = true;
-        storeLogger.info(
+        storeLogger.warn(
           { existingPid: err.existingPid },
           'PID lock held by another process — entering sidecar mode (writes routed to sidecar files)',
         );
