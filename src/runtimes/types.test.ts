@@ -118,4 +118,52 @@ describe('RuntimeMapSchema', () => {
       expect(typeIssue).toBeDefined();
     }
   });
+
+  // preferredFacade (DR-1): each runtime declares its preferred skill-authoring
+  // facade — `"mcp"` for runtimes where agents call Exarchos via MCP tools,
+  // `"cli"` for runtimes that prefer bash-style CLI invocations. The field is
+  // required so the renderer always has an explicit answer per runtime.
+
+  it('RuntimeMapSchema_MissingPreferredFacade_ThrowsValidationError', () => {
+    // `validFixture` currently has no `preferredFacade` — constructing the
+    // parse input from it directly exercises the "missing required field"
+    // case without needing to delete a key.
+    const result = RuntimeMapSchema.safeParse(validFixture);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const missingIssue = result.error.issues.find(
+        (issue) => issue.path.length === 1 && issue.path[0] === 'preferredFacade',
+      );
+      expect(missingIssue).toBeDefined();
+    }
+  });
+
+  it('RuntimeMapSchema_InvalidPreferredFacade_ThrowsValidationError', () => {
+    const invalid = {
+      ...validFixture,
+      preferredFacade: 'grpc',
+    };
+    const result = RuntimeMapSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const enumIssue = result.error.issues.find(
+        (issue) => issue.path.length === 1 && issue.path[0] === 'preferredFacade',
+      );
+      // Must be an enum-invalid-value error, not an unrecognized-keys error —
+      // otherwise the test would pass trivially against the pre-DR-1 schema.
+      expect(enumIssue).toBeDefined();
+      expect(String(enumIssue?.code ?? '')).toMatch(/invalid_enum_value|invalid_value/);
+    }
+  });
+
+  it('RuntimeMapSchema_ValidPreferredFacade_ParsesSuccessfully', () => {
+    const mcpFixture = { ...validFixture, preferredFacade: 'mcp' as const };
+    const cliFixture = { ...validFixture, preferredFacade: 'cli' as const };
+
+    const mcpParsed = RuntimeMapSchema.parse(mcpFixture);
+    const cliParsed = RuntimeMapSchema.parse(cliFixture);
+
+    expect(mcpParsed.preferredFacade).toBe('mcp');
+    expect(cliParsed.preferredFacade).toBe('cli');
+  });
 });
