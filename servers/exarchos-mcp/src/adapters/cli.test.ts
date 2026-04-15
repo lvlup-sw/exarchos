@@ -346,3 +346,187 @@ describe('init command', () => {
     stdoutSpy.mockRestore();
   });
 });
+
+// ─── Task 013: CLI Exit-Code Mapping + Error-Shape Alignment (DR-3) ──────────
+// These tests define the contract between the CLI adapter and the MCP
+// ToolResult shape. Exit codes are load-bearing for downstream parity tests
+// (tasks 014-017) which import CLI_EXIT_CODES directly.
+
+describe('CLI exit-code mapping (DR-3)', () => {
+  let ctx: DispatchContext;
+  let originalExitCode: number | string | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = createTestContext();
+    originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it('CLI_ExitCodesTable_IsExported', async () => {
+    // Arrange & Act — downstream tasks 014-017 import this table directly.
+    const { CLI_EXIT_CODES } = await import('./cli.js');
+
+    // Assert — canonical mapping for success / input / handler / uncaught.
+    expect(CLI_EXIT_CODES).toEqual({
+      SUCCESS: 0,
+      INVALID_INPUT: 1,
+      HANDLER_ERROR: 2,
+      UNCAUGHT_EXCEPTION: 3,
+    });
+  });
+
+  it('CliInvocation_SuccessCase_Returns0AndStructuredPayload', async () => {
+    // Arrange — dispatch returns a success ToolResult
+    vi.mocked(dispatch).mockResolvedValueOnce({
+      success: true,
+      data: { featureId: 'test-feature', phase: 'init' },
+    });
+
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'test-feature',
+      '--workflow-type',
+      'feature',
+      '--json',
+    ]);
+
+    // Assert — exit 0 (success) and raw ToolResult JSON on stdout
+    expect(process.exitCode ?? 0).toBe(0);
+
+    const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    const parsed = JSON.parse(stdoutText.trim());
+    expect(parsed).toEqual({
+      success: true,
+      data: { featureId: 'test-feature', phase: 'init' },
+    });
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('CliInvocation_InvalidInput_Returns1WithInvalidInputCode', async () => {
+    // Arrange — invalid workflowType should fail the action schema's Zod
+    // validation at the CLI layer, before dispatch is ever called.
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act — "BOGUS" is not a valid workflow type
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'valid-id',
+      '--workflow-type',
+      'BOGUS',
+      '--json',
+    ]);
+
+    // Assert — exit 1, dispatch never reached, ToolResult with INVALID_INPUT
+    expect(process.exitCode).toBe(1);
+    expect(dispatch).not.toHaveBeenCalled();
+
+    const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    const parsed = JSON.parse(stdoutText.trim()) as {
+      success: boolean;
+      error?: { code: string; message: string };
+    };
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.code).toBe('INVALID_INPUT');
+    expect(typeof parsed.error?.message).toBe('string');
+    expect(parsed.error?.message.length).toBeGreaterThan(0);
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('CliInvocation_HandlerReportedError_Returns2WithErrorCode', async () => {
+    // Arrange — dispatch returns a ToolResult with success=false
+    vi.mocked(dispatch).mockResolvedValueOnce({
+      success: false,
+      error: {
+        code: 'INVALID_TRANSITION',
+        message: 'cannot transition from init to done',
+      },
+    });
+
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'test-feature',
+      '--workflow-type',
+      'feature',
+      '--json',
+    ]);
+
+    // Assert — exit 2 (handler error), ToolResult echoed verbatim
+    expect(process.exitCode).toBe(2);
+
+    const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    const parsed = JSON.parse(stdoutText.trim()) as {
+      success: boolean;
+      error?: { code: string; message: string };
+    };
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.code).toBe('INVALID_TRANSITION');
+    expect(parsed.error?.message).toContain('init to done');
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('CliInvocation_UncaughtException_Returns3', async () => {
+    // Arrange — dispatch throws synchronously (bypasses its internal catch)
+    vi.mocked(dispatch).mockImplementationOnce(async () => {
+      throw new Error('boom: unexpected runtime failure');
+    });
+
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'test-feature',
+      '--workflow-type',
+      'feature',
+      '--json',
+    ]);
+
+    // Assert — exit 3 (uncaught exception), normalized error payload
+    expect(process.exitCode).toBe(3);
+
+    const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    const parsed = JSON.parse(stdoutText.trim()) as {
+      success: boolean;
+      error?: { code: string; message: string };
+    };
+    expect(parsed.success).toBe(false);
+    // The exception message should surface in the normalized ToolResult
+    expect(parsed.error?.message).toContain('boom');
+
+    stdoutSpy.mockRestore();
+  });
+});
