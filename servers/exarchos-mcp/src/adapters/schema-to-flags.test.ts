@@ -131,7 +131,12 @@ describe('extractSchemaFields', () => {
 // ─── Task 7: addFlagsFromSchema ─────────────────────────────────────────────
 
 describe('addFlagsFromSchema', () => {
-  it('AddFlags_RequiredString_CreatesRequiredOption', () => {
+  it('AddFlags_RequiredString_CreatesOptionValidatedByZod', () => {
+    // DR-5: required non-boolean fields are registered as plain options
+    // (not Commander `requiredOption`). Missing-required enforcement
+    // happens at the per-action Zod validation layer, which emits an
+    // INVALID_INPUT ToolResult — identical to what the MCP adapter
+    // produces for the same malformed input.
     const cmd = new Command();
     const schema = z.object({
       featureId: z.string(),
@@ -141,7 +146,7 @@ describe('addFlagsFromSchema', () => {
 
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
-    expect(opt!.mandatory).toBe(true);
+    expect(opt!.mandatory).toBe(false);
   });
 
   it('AddFlags_OptionalNumber_CreatesOptionalOption', () => {

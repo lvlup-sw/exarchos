@@ -1,12 +1,19 @@
-import { Command } from 'commander';
-import { z } from 'zod';
+import { Command, CommanderError } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getFullRegistry } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
-import { addFlagsFromSchema, coerceFlags, validateRequiredBooleans, toKebab } from './schema-to-flags.js';
+import {
+  addFlagsFromSchema,
+  coerceFlags,
+  validateRequiredBooleans,
+  toKebab,
+  formatValidationError,
+  buildInvalidInput,
+  VALIDATION_ERROR_CODE,
+} from './schema-to-flags.js';
 import { prettyPrint, printError } from './cli-format.js';
 import { listSchemas, resolveSchemaRef, resolveTopologyRef, resolveEmissionCatalog } from './schema-introspection.js';
 import { createMcpServer } from './mcp.js';
@@ -55,15 +62,9 @@ function emitResult(result: ToolResult, json: boolean, format?: 'table' | 'json'
   }
 }
 
-/** Format a ZodError into a single human-readable message. */
-function formatZodError(err: z.ZodError): string {
-  return err.errors
-    .map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
-      return `${path}: ${issue.message}`;
-    })
-    .join('; ');
-}
+// Note: Zod-error formatting lives in schema-to-flags.ts
+// (`formatValidationError`) so the CLI and MCP adapters share a single
+// source of truth for validation-error payloads (DR-5).
 
 // ─── CLI Command Tree Generator ─────────────────────────────────────────────
 
@@ -104,10 +105,10 @@ export function buildCli(ctx: DispatchContext): Command {
         // Commander can't enforce --flag vs --no-flag for required booleans.
         const missingBools = validateRequiredBooleans(flagOpts, action.schema);
         if (missingBools.length > 0) {
-          const errResult = toErrorResult(
-            'INVALID_INPUT',
-            `Required option(s) not specified: ${missingBools.join(', ')}`,
+          const err = buildInvalidInput(
+            `${tool.name}/${action.name}: required option(s) not specified: ${missingBools.join(', ')}`,
           );
+          const errResult: ToolResult = { success: false, error: err };
           emitResult(errResult, isJson, format);
           process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
           return;
@@ -115,12 +116,15 @@ export function buildCli(ctx: DispatchContext): Command {
 
         // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ──────────
         // Parse coerced args through the action schema so bad inputs are
-        // surfaced before dispatch runs. This mirrors how the MCP adapter
-        // rejects invalid tool arguments.
+        // surfaced before dispatch runs. DR-5: this funnels through the
+        // shared `formatValidationError` so the MCP adapter emits the same
+        // error.code and an equivalent error.message for the same input.
         const coerced = coerceFlags(flagOpts, action.schema);
         const parseResult = action.schema.safeParse(coerced);
         if (!parseResult.success) {
-          const errResult = toErrorResult('INVALID_INPUT', formatZodError(parseResult.error));
+          const context = `${tool.name}/${action.name}`;
+          const err = formatValidationError(parseResult.error, context);
+          const errResult: ToolResult = { success: false, error: err };
           emitResult(errResult, isJson, format);
           process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
           return;
@@ -261,4 +265,105 @@ export default defineConfig({
     });
 
   return program;
+}
+
+// ─── Commander-Error → INVALID_INPUT (DR-5) ────────────────────────────────
+
+/**
+ * Convert a Commander parsing error (e.g. unknown subcommand, unknown
+ * option) into a canonical INVALID_INPUT ToolResult. Other CommanderError
+ * codes pass through with their original code prefixed — these indicate
+ * conditions (e.g. `commander.helpDisplayed`, `commander.version`) that
+ * are not validation failures.
+ *
+ * Exported so the parity-test harness and the production entry point
+ * share one mapping table.
+ */
+export function commanderErrorToResult(err: CommanderError): {
+  result: ToolResult;
+  exitCode: CliExitCode;
+} {
+  // Success-ish Commander signals (help, version) — surface as success so
+  // `exarchos --help` from a script doesn't read as a failure.
+  if (err.code === 'commander.helpDisplayed' || err.code === 'commander.version') {
+    return {
+      result: { success: true },
+      exitCode: CLI_EXIT_CODES.SUCCESS,
+    };
+  }
+
+  // Validation-ish Commander signals — missing mandatory option, unknown
+  // subcommand, unknown option, bad option argument, missing argument.
+  // All become INVALID_INPUT so the CLI reports the same `error.code` as
+  // the MCP dispatch path for equivalent bad input.
+  const invalidCodes = new Set([
+    'commander.missingMandatoryOptionValue',
+    'commander.missingArgument',
+    'commander.optionMissingArgument',
+    'commander.invalidArgument',
+    'commander.unknownCommand',
+    'commander.unknownOption',
+    'commander.excessArguments',
+  ]);
+  if (invalidCodes.has(err.code)) {
+    return {
+      result: {
+        success: false,
+        error: { code: VALIDATION_ERROR_CODE, message: err.message },
+      },
+      exitCode: CLI_EXIT_CODES.INVALID_INPUT,
+    };
+  }
+
+  // Anything else — treat as an uncaught exception so exit-code table (task 013)
+  // remains correct.
+  return {
+    result: {
+      success: false,
+      error: { code: 'UNCAUGHT_EXCEPTION', message: err.message },
+    },
+    exitCode: CLI_EXIT_CODES.UNCAUGHT_EXCEPTION,
+  };
+}
+
+/**
+ * Parse-and-run entry point used by the production binary. Installs
+ * `exitOverride` on the program so Commander errors surface as
+ * exceptions, then converts them through {@link commanderErrorToResult}
+ * so malformed CLI input produces the same INVALID_INPUT contract that
+ * the MCP dispatch path emits for equivalent malformed args.
+ */
+export async function runCli(program: Command, argv: readonly string[]): Promise<void> {
+  // Install exitOverride recursively so Commander doesn't call process.exit.
+  program.exitOverride();
+  for (const sub of program.commands) {
+    sub.exitOverride();
+    for (const action of sub.commands) {
+      action.exitOverride();
+    }
+  }
+
+  try {
+    await program.parseAsync([...argv]);
+  } catch (err) {
+    if (err instanceof CommanderError) {
+      const { result, exitCode } = commanderErrorToResult(err);
+      // Detect --json in argv so we emit the raw JSON line (matches the
+      // adapter's normal output convention for programmatic callers).
+      const isJson = argv.includes('--json');
+      if (result.success && exitCode === CLI_EXIT_CODES.SUCCESS) {
+        // Help/version already wrote to stdout via Commander; nothing else to emit.
+        process.exitCode = exitCode;
+        return;
+      }
+      if (isJson) {
+        process.stdout.write(JSON.stringify(result) + '\n');
+      } else if (!result.success && result.error) {
+        printError(result.error);
+      }
+      process.exitCode = exitCode;
+      return;
+    }
+    throw err;
+  }
 }

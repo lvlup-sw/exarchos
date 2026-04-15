@@ -282,7 +282,12 @@ describe('initializeContext — projectConfig (YAML)', () => {
       (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = spy;
 
       try {
-        await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+        // DR-5: dispatch now validates the action name and per-action
+        // schema before routing to the composite handler. `describe` is
+        // one of the few workflow actions whose schema accepts an empty
+        // args payload — perfect for this wiring smoke test, which only
+        // cares that `ctx` reaches the (stubbed) handler.
+        await dispatch('exarchos_workflow', { action: 'describe' }, ctx);
         const capturedCtx = receivedCtx as typeof ctx;
         expect(capturedCtx.projectConfig).toBeDefined();
         expect(capturedCtx.projectConfig!.vcs.provider).toBe('azure-devops');

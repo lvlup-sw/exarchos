@@ -8,6 +8,10 @@ import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import { withTelemetry } from '../telemetry/middleware.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
+import {
+  formatValidationError,
+  buildInvalidInput,
+} from '../adapters/schema-to-flags.js';
 
 // Composite handlers
 import { handleWorkflow } from '../workflow/composite.js';
@@ -125,7 +129,7 @@ export async function dispatch(
 ): Promise<ToolResult> {
   const builtInHandler = COMPOSITE_HANDLERS[tool];
 
-  const registeredTool = !builtInHandler ? getFullRegistry().find((t) => t.name === tool) : undefined;
+  const registeredTool = getFullRegistry().find((t) => t.name === tool);
 
   // Fall back to custom tool dispatch if not a built-in handler
   // Require both registry presence AND handlers to prevent leaked handlers from bypassing registration
@@ -137,6 +141,60 @@ export async function dispatch(
         message: `Unknown tool: ${tool}. Available tools: ${getFullRegistry().map((t) => t.name).join(', ')}`,
       },
     };
+  }
+
+  // ─── DR-5: Per-Action Schema Validation ─────────────────────────────────
+  // Validate `args` against the matching action's Zod schema BEFORE routing
+  // to the composite handler. This gives the MCP adapter the same
+  // INVALID_INPUT rejection contract as the CLI adapter — any malformed
+  // input (missing required field, wrong type, unknown action name) is
+  // surfaced through a single `formatValidationError` code-path so both
+  // facades emit byte-identical `error.code` values.
+  //
+  // Custom-tool dispatch is excluded from this validation pass because
+  // custom-tool handlers may apply their own arg shaping before the
+  // per-action schema is relevant.
+  // Note: `builtInHandler` is typed non-nullable by the Record lookup, but
+  // the earlier `!builtInHandler && ...` branch returns UNKNOWN_TOOL if the
+  // tool is not built-in — so here we gate on whether the tool has a
+  // built-in composite handler (not a custom one) by checking the map
+  // directly against the composite-tool key set.
+  const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
+  if (isBuiltIn && registeredTool) {
+    const actionName = args.action;
+    if (typeof actionName !== 'string' || !actionName) {
+      return {
+        success: false,
+        error: buildInvalidInput(
+          `${tool}: required field "action" is missing or not a string`,
+        ),
+      };
+    }
+
+    const matchingAction = registeredTool.actions.find((a) => a.name === actionName);
+    if (!matchingAction) {
+      const valid = registeredTool.actions.map((a) => a.name).join(', ');
+      return {
+        success: false,
+        error: buildInvalidInput(
+          `${tool}: unknown action "${actionName}". Valid actions: ${valid}`,
+        ),
+      };
+    }
+
+    const { action: _action, ...rest } = args;
+    const parsed = matchingAction.schema.safeParse(rest);
+    if (!parsed.success) {
+      const context = `${tool}/${actionName}`;
+      return {
+        success: false,
+        error: formatValidationError(parsed.error, context),
+      };
+    }
+
+    // Thread the validated args forward so downstream handlers get the
+    // coerced shape (z.preprocess effects, defaults, etc.).
+    args = { action: actionName, ...parsed.data } as Record<string, unknown>;
   }
 
   const coreHandler = builtInHandler
@@ -160,3 +218,4 @@ export async function dispatch(
     };
   }
 }
+

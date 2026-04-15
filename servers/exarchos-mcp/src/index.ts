@@ -20,7 +20,7 @@ import { configureStateStoreBackend } from './workflow/state-store.js';
 // New dispatch layer
 import { initializeContext } from './core/context.js';
 import { createMcpServer } from './adapters/mcp.js';
-import { buildCli } from './adapters/cli.js';
+import { buildCli, runCli } from './adapters/cli.js';
 import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
 import type { DispatchContext } from './core/dispatch.js';
 
@@ -264,9 +264,12 @@ async function main() {
 
   // Unified entry point — all routing via Commander CLI.
   // `exarchos mcp` starts the MCP server; other commands are CLI mode.
-  // No args shows help.
+  // No args shows help. DR-5: runCli installs exitOverride and funnels
+  // Commander parse errors through the shared INVALID_INPUT contract so
+  // the CLI facade rejects malformed input with the same `error.code` as
+  // the MCP dispatch path.
   const program = buildCli(ctx);
-  await program.parseAsync(process.argv);
+  await runCli(program, process.argv);
 }
 
 // Only run main when executed directly (not when imported for testing)

@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { CommanderError } from 'commander';
 
-import { buildCli } from './cli.js';
+import { buildCli, commanderErrorToResult } from './cli.js';
 import { dispatch, type DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
@@ -113,20 +113,12 @@ async function callCli(
   }
 
   if (commanderError) {
-    // Synthesize what the ToolResult *should* look like if the CLI had
-    // funneled Commander's error through the INVALID_INPUT path. The test
-    // will then assert this matches MCP's code — forcing the production
-    // CLI to adopt this contract.
-    return {
-      result: {
-        success: false,
-        error: {
-          code: 'COMMANDER_ERROR',
-          message: commanderError.message,
-        },
-      },
-      exitCode,
-    };
+    // Funnel Commander errors through the shared converter — this is the
+    // same mapping the production `runCli` entry point applies, so the
+    // test's assertion reflects the real CLI contract rather than a
+    // synthetic placeholder.
+    const { result, exitCode: mappedExit } = commanderErrorToResult(commanderError);
+    return { result, exitCode: mappedExit };
   }
 
   throw new Error(
