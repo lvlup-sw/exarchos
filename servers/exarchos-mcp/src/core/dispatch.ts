@@ -58,11 +58,14 @@ export interface DispatchContext {
 export const COMPOSITE_HANDLERS: Record<string, CompositeHandler> = {};
 
 /**
- * Dynamic-import factories for each built-in composite. Kept private.
- * Tests that need to stub handlers should write directly into
- * `COMPOSITE_HANDLERS`; dispatch checks it before consulting the loaders.
+ * Dynamic-import factories for each built-in composite.
+ *
+ * Exported as **mutable** so the F-021-3 test can inject a throwing loader to
+ * exercise the `COMPOSITE_LOAD_FAILED` error path. Production code should
+ * never mutate this map; the CI composite-coverage check treats non-built-in
+ * additions as a regression.
  */
-const COMPOSITE_HANDLER_LOADERS: Readonly<Record<string, () => Promise<CompositeHandler>>> = {
+export const COMPOSITE_HANDLER_LOADERS: Record<string, () => Promise<CompositeHandler>> = {
   exarchos_workflow: () => import('../workflow/composite.js').then((m) => m.handleWorkflow),
   exarchos_event: () => import('../event-store/composite.js').then((m) => m.handleEvent),
   exarchos_orchestrate: () => import('../orchestrate/composite.js').then((m) => m.handleOrchestrate),
@@ -168,7 +171,23 @@ export async function dispatch(
 ): Promise<ToolResult> {
   // Lazy-loaded composite handler. Falls back to `undefined` when the tool
   // is not a built-in (e.g. custom tools registered via config).
-  const builtInHandler = await loadCompositeHandler(tool);
+  //
+  // F-021-3: wrap in try/catch so a broken composite module graph (e.g.
+  // `ERR_MODULE_NOT_FOUND` after a partial install, or a top-level-await
+  // failure during dynamic import) surfaces as a structured ToolResult
+  // instead of leaking through both the MCP transport and the CLI adapter.
+  let builtInHandler: CompositeHandler | undefined;
+  try {
+    builtInHandler = await loadCompositeHandler(tool);
+  } catch (loadErr) {
+    return {
+      success: false,
+      error: {
+        code: 'COMPOSITE_LOAD_FAILED',
+        message: `Failed to load composite handler for tool "${tool}": ${loadErr instanceof Error ? loadErr.message : String(loadErr)}`,
+      },
+    };
+  }
 
   const registeredTool = !builtInHandler ? getFullRegistry().find((t) => t.name === tool) : undefined;
 

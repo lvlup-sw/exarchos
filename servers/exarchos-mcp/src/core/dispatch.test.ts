@@ -61,6 +61,42 @@ describe('dispatch', () => {
     expect(result.error!.message).toContain('nonexistent_tool');
   });
 
+  it('Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed', async () => {
+    // Arrange — inject a loader that throws, simulating a broken module
+    // graph (e.g. ERR_MODULE_NOT_FOUND after a partial install). The real
+    // module is temporarily removed from both the loader map and the handler
+    // cache so dispatch is forced down the throwing loader path.
+    const { COMPOSITE_HANDLERS, COMPOSITE_HANDLER_LOADERS, dispatch } = await import('./dispatch.js');
+    const toolName = 'exarchos_workflow';
+    const origLoader = COMPOSITE_HANDLER_LOADERS[toolName];
+    const origCache = COMPOSITE_HANDLERS[toolName];
+    delete COMPOSITE_HANDLERS[toolName];
+    COMPOSITE_HANDLER_LOADERS[toolName] = () =>
+      Promise.reject(new Error("Cannot find module '../workflow/composite.js'"));
+
+    try {
+      // Act
+      const result = await dispatch(
+        toolName,
+        { action: 'get', featureId: 'test' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // Assert — dispatch wraps the load failure in a structured ToolResult
+      // rather than leaking ERR_MODULE_NOT_FOUND through the MCP transport.
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe('COMPOSITE_LOAD_FAILED');
+      expect(result.error!.message).toContain(toolName);
+      expect(result.error!.message).toContain('Cannot find module');
+    } finally {
+      if (origLoader) COMPOSITE_HANDLER_LOADERS[toolName] = origLoader;
+      else delete COMPOSITE_HANDLER_LOADERS[toolName];
+      if (origCache) COMPOSITE_HANDLERS[toolName] = origCache;
+      else delete COMPOSITE_HANDLERS[toolName];
+    }
+  });
+
   it('Dispatch_WithTelemetry_EnrichesResult', async () => {
     // Arrange
     const { dispatch } = await import('./dispatch.js');
