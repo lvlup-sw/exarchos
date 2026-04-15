@@ -8,7 +8,7 @@
  *   - the install-skills CLI (Task 019)
  *   - the six runtime YAML files (Tasks 009-014)
  *
- * Implements: DR-4
+ * Implements: DR-1, DR-4
  */
 
 import { z } from 'zod';
@@ -53,6 +53,8 @@ export const RuntimeMapSchema = z
   .object({
     name: z.string(),
     capabilities: CapabilitiesSchema,
+    // DR-1: preferred skill-authoring facade for this runtime.
+    preferredFacade: z.enum(['mcp', 'cli']),
     skillsInstallPath: z.string(),
     detection: DetectionSchema,
     placeholders: z.record(z.string(), z.string()),
@@ -64,3 +66,11 @@ export const RuntimeMapSchema = z
  * schema when consuming already-parsed data.
  */
 export type RuntimeMap = z.infer<typeof RuntimeMapSchema>;
+
+/**
+ * Preferred skill-authoring facade for a given runtime (DR-1).
+ *
+ * - `mcp` — runtimes whose agents invoke Exarchos via MCP tool calls.
+ * - `cli` — runtimes that prefer bash-style CLI invocations.
+ */
+export type PreferredFacade = z.infer<typeof RuntimeMapSchema>['preferredFacade'];
