@@ -29,6 +29,26 @@ import type { DispatchContext } from './core/dispatch.js';
 export const SERVER_NAME = 'exarchos-mcp';
 export const SERVER_VERSION = '2.4.0';
 
+// ─── Mode Detection ─────────────────────────────────────────────────────────
+
+/**
+ * Detect whether this process was invoked as the long-running MCP server
+ * (`exarchos mcp`) rather than a short-lived CLI command.
+ *
+ * F-022-2: Use a strict positional check — `mcp` is only an MCP-mode
+ * invocation when it is the first positional argument (argv[2]). A looser
+ * `argv.includes('mcp')` check is unsafe because feature IDs like
+ * `exarchos event append -f mcp ...` or view names like `--view mcp` would
+ * flip detection and push short-lived CLI callers onto server-mode
+ * (first-wins + sidecar) semantics, silently diverting their writes to a
+ * sidecar file instead of serialising onto the main JSONL (DR-5).
+ *
+ * Exported for unit testing; callers should pass `process.argv` directly.
+ */
+export function isMcpServerInvocation(argv: readonly string[]): boolean {
+  return argv[2] === 'mcp';
+}
+
 // ─── Server Options ─────────────────────────────────────────────────────────
 
 export interface CreateServerOptions {
@@ -237,8 +257,9 @@ async function main() {
   // enter sidecar mode, so two concurrent `exarchos event append` calls
   // serialize onto the main JSONL. The long-running MCP server path still
   // prefers first-wins + sidecar semantics because competing hook subprocesses
-  // cannot afford to wait.
-  const isMcpMode = process.argv.includes('mcp');
+  // cannot afford to wait. See `isMcpServerInvocation` for the rationale
+  // behind the strict positional check.
+  const isMcpMode = isMcpServerInvocation(process.argv);
   const ctx = await initializeContext(stateDir, {
     backend,
     projectRoot: process.cwd(),
