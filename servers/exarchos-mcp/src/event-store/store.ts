@@ -28,12 +28,29 @@ export class SequenceConflictError extends Error {
 
 // ─── PID Lock Error ──────────────────────────────────────────────────────────
 
+/**
+ * Distinguishes the two reasons `acquirePidLock` can fail:
+ *
+ *   - `live-holder`: the lock file is held by an observably-live process;
+ *     the holder's PID is reported via `existingPid`. This is the normal
+ *     contention case.
+ *   - `retry-exhausted`: the acquisition loop exhausted its retry budget
+ *     while racing a stream of fast lock churns (TOCTOU contention) without
+ *     ever observing a live holder long enough to complete steal + recreate.
+ *     `existingPid` reports the last observably-valid PID seen during the
+ *     retry window, or `-1` if none was ever read.
+ */
+export type PidLockReason = 'live-holder' | 'retry-exhausted';
+
 export class PidLockError extends Error {
   constructor(
     public readonly existingPid: number,
+    public readonly reason: PidLockReason = 'live-holder',
   ) {
     super(
-      `Event store is locked by live process PID ${existingPid}`,
+      reason === 'retry-exhausted'
+        ? `Event store lock acquisition exhausted retries under TOCTOU contention (last observed holder PID ${existingPid})`
+        : `Event store is locked by live process PID ${existingPid}`,
     );
     this.name = 'PidLockError';
   }
@@ -273,7 +290,10 @@ export class EventStore {
       }
     }
 
-    throw lastErr ?? new PidLockError(-1);
+    // Every attempt threw PidLockError, so `lastErr` is always set here.
+    // Fall back to a synthetic retry-exhausted error only to keep the type
+    // narrow if some future refactor makes `lastErr` unreachable.
+    throw lastErr ?? new PidLockError(-1, 'retry-exhausted');
   }
 
   private async acquirePidLock(): Promise<void> {
@@ -291,6 +311,10 @@ export class EventStore {
     // so the caller (sidecar fallback or `waitForLock` retry) can decide.
     const MAX_RETRIES = 32;
     let acquired = false;
+    // F-022-4: remember the most recent observably-valid holder PID so that
+    // when we exhaust retries we can attribute the exhaustion to the churn
+    // rather than report a synthetic `-1`.
+    let lastObservedPid = -1;
     for (let attempt = 0; attempt < MAX_RETRIES && !acquired; attempt++) {
       try {
         const fd = openSync(this.lockFilePath, 'wx');
@@ -314,8 +338,12 @@ export class EventStore {
           throw readErr;
         }
 
+        if (!isNaN(existingPid)) {
+          lastObservedPid = existingPid;
+        }
+
         if (!isNaN(existingPid) && isPidAlive(existingPid)) {
-          throw new PidLockError(existingPid);
+          throw new PidLockError(existingPid, 'live-holder');
         }
 
         // Stale lock — atomic reclaim: unlink then exclusive create.
@@ -346,16 +374,20 @@ export class EventStore {
             if ((newReadErr as NodeJS.ErrnoException).code !== 'ENOENT') throw newReadErr;
             continue; // retry whole acquisition
           }
-          throw new PidLockError(winnerPid);
+          if (!isNaN(winnerPid) && winnerPid > 0) {
+            lastObservedPid = winnerPid;
+          }
+          throw new PidLockError(winnerPid, 'live-holder');
         }
       }
     }
 
     if (!acquired) {
-      // Reached retry ceiling without seeing a live holder — surface a
-      // PidLockError so the caller can fall back or (under waitForLock) try
-      // again after backoff.
-      throw new PidLockError(-1);
+      // F-022-4: reached retry ceiling without ever observing a live holder
+      // long enough to commit — this is TOCTOU churn, not a stuck holder.
+      // Report the last observably-valid PID so operators can identify the
+      // contending process without seeing an opaque `-1`.
+      throw new PidLockError(lastObservedPid, 'retry-exhausted');
     }
 
     // Register cleanup handler
