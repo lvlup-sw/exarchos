@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRuntime, loadAllRuntimes } from './load.js';
 
@@ -11,6 +11,7 @@ const FIXTURES_DIR = join(__dirname, '__fixtures__');
 const VALID_FIXTURE = join(FIXTURES_DIR, 'valid.yaml');
 const INVALID_FIXTURE = join(FIXTURES_DIR, 'invalid.yaml');
 const MALFORMED_FIXTURE = join(FIXTURES_DIR, 'malformed.yaml');
+const REPO_RUNTIMES_DIR = resolve(__dirname, '..', '..', 'runtimes');
 
 const REQUIRED_RUNTIMES = [
   'generic',
@@ -137,5 +138,24 @@ describe('loadAllRuntimes', () => {
     const warnMessages = warn.mock.calls.map((call) => String(call[0]));
     const mentionsExperimental = warnMessages.some((msg) => /experimental/.test(msg));
     expect(mentionsExperimental).toBe(true);
+  });
+
+  it('LoadAllRuntimes_PreferredFacadeAssignments_MatchCapabilityMatrix', () => {
+    // Loads every YAML file shipped in `runtimes/` at the repo root and
+    // asserts that each runtime declares the `preferredFacade` value dictated
+    // by the DR-1 capability matrix. MCP-native hosts (Claude Code, Cursor,
+    // Codex) default to `mcp`; runtimes whose MCP support is thin or absent
+    // (OpenCode, Copilot, generic fallback) default to `cli`.
+    const runtimes = loadAllRuntimes(REPO_RUNTIMES_DIR, { warn: () => {} });
+    const byName = Object.fromEntries(
+      runtimes.map((runtime) => [runtime.name, runtime.preferredFacade] as const),
+    );
+
+    expect(byName.claude).toBe('mcp');
+    expect(byName.cursor).toBe('mcp');
+    expect(byName.codex).toBe('mcp');
+    expect(byName.opencode).toBe('cli');
+    expect(byName.copilot).toBe('cli');
+    expect(byName.generic).toBe('cli');
   });
 });
