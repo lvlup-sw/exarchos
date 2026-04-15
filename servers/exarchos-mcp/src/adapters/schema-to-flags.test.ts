@@ -137,6 +137,10 @@ describe('addFlagsFromSchema', () => {
     // happens at the per-action Zod validation layer, which emits an
     // INVALID_INPUT ToolResult — identical to what the MCP adapter
     // produces for the same malformed input.
+    //
+    // F-024-UX: the description must still carry the "[required]" visual
+    // cue so `--help` clearly flags mandatory fields even though Commander
+    // no longer enforces them itself.
     const cmd = new Command();
     const schema = z.object({
       featureId: z.string(),
@@ -147,6 +151,8 @@ describe('addFlagsFromSchema', () => {
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
     expect(opt!.mandatory).toBe(false);
+    // F-024-UX: description prefix preserves the required-field UX cue.
+    expect(opt!.description).toContain('[required]');
   });
 
   it('AddFlags_OptionalNumber_CreatesOptionalOption', () => {
@@ -206,7 +212,9 @@ describe('addFlagsFromSchema', () => {
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
     expect(opt!.short).toBe('-f');
-    expect(opt!.description).toBe('The feature identifier');
+    // F-024-UX: required fields prepend `[required] ` to the description,
+    // including when the description comes from an override.
+    expect(opt!.description).toBe('[required] The feature identifier');
   });
 
   it('AddFlags_AlwaysAddsJsonFlag', () => {

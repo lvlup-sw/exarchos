@@ -190,7 +190,12 @@ export function addFlagsFromSchema(
 
     const kebab = toKebab(field.name);
     const override = overrides?.[field.name];
-    const desc = override?.description ?? field.description ?? field.name;
+    const baseDesc = override?.description ?? field.description ?? field.name;
+    // F-024-UX: prepend `[required] ` to the description for required fields
+    // so `--help` preserves the visual cue that was lost when DR-5 switched
+    // from Commander's `requiredOption` to plain `option` (required-field
+    // enforcement now happens via Zod at the action callback, not Commander).
+    const desc = field.required ? `[required] ${baseDesc}` : baseDesc;
     const alias = override?.alias;
 
     if (field.type === 'boolean') {
