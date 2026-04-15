@@ -40,6 +40,9 @@
 #
 # Implements: DR-4, DR-5 (copilot branch)
 name: copilot
+# preferredFacade: cli — Copilot CLI's MCP integration is nascent, so
+# slash-command/CLI invocations remain the canonical user-facing path.
+preferredFacade: cli
 capabilities:
   hasSubagents: true
   hasSlashCommands: true

@@ -47,6 +47,9 @@
 #
 # Implements: DR-4, DR-5 (codex branch), OQ-1
 name: codex
+# preferredFacade: mcp — Codex CLI registers MCP servers via
+# `~/.codex/config.toml` and invokes their tools as OpenAI function calls.
+preferredFacade: mcp
 capabilities:
   hasSubagents: true
   hasSlashCommands: true

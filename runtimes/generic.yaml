@@ -20,6 +20,9 @@
 #
 # Implements: DR-4, DR-5 (generic branch)
 name: generic
+# preferredFacade: cli — unknown runtimes have no guaranteed MCP client, so
+# CLI is the safest lowest-common-denominator invocation surface.
+preferredFacade: cli
 capabilities:
   hasSubagents: false
   hasSlashCommands: false

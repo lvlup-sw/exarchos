@@ -22,6 +22,9 @@
 #
 # Implements: DR-4, DR-5 (claude branch)
 name: claude
+# preferredFacade: mcp — Claude Code natively dispatches MCP tool_use blocks,
+# so MCP is the lower-friction default for skill invocations.
+preferredFacade: mcp
 capabilities:
   hasSubagents: true
   hasSlashCommands: true
