@@ -70,16 +70,36 @@ const HEARTBEAT_PATTERN = /\[heartbeat\].*\n/;
 
 // ─── Registry flag test ─────────────────────────────────────────────────────
 
+// Canonical set of orchestrate actions that must carry longRunning: true.
+// Kept as a constant so additions require an explicit test update — no silent
+// drift.  See task 023 / F-023-4 for the audit that produced this list.
+const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
+  // Synthesis-path actions: shell out to `npm run test:run`, typecheck, build.
+  'prepare_synthesis',
+  'pre_synthesis_check',
+  // Gate actions that chain shell-invoked tooling across multiple targets.
+  'assess_stack',
+  'check_static_analysis',
+  'post_delegation_check',
+]);
+
 describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
   it('OrchestrateActionRegistry_LongRunningFlagPresent', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     expect(orchestrate, 'exarchos_orchestrate must exist').toBeDefined();
 
-    const flagged = orchestrate!.actions.filter((a) => a.longRunning === true);
+    const flaggedNames = new Set(
+      orchestrate!.actions
+        .filter((a) => a.longRunning === true)
+        .map((a) => a.name),
+    );
+
+    // Assert the exact canonical set — neither silent additions nor
+    // silent removals should pass.  Post F-023-4 audit.
     expect(
-      flagged.length,
-      'at least one orchestrate action must carry longRunning: true (e.g. prepare_synthesis or assess_stack)',
-    ).toBeGreaterThanOrEqual(1);
+      Array.from(flaggedNames).sort(),
+      'registry longRunning actions drifted from the canonical audit set',
+    ).toEqual(Array.from(EXPECTED_LONG_RUNNING_ACTIONS).sort());
   });
 });
 

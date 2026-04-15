@@ -603,6 +603,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D2' },
+    // DR-5: shells out to `npm run lint` and `npm run typecheck`; on
+    // non-trivial repos both exceed the 2s heartbeat threshold.
+    longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -1005,6 +1008,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    // DR-5: chains `npm run test:run` across every task worktree with a
+    // 120s per-worktree timeout; scales with the number of tasks.
+    longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -1033,6 +1039,9 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    // DR-5: runs the full project test suite + typecheck + build + stack
+    // assessment; routinely seconds-to-minutes on real repos.
+    longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
