@@ -293,7 +293,12 @@ export function commanderErrorToResult(err: CommanderError): {
   }
 
   // Validation-ish Commander signals — missing mandatory option, unknown
-  // subcommand, unknown option, bad option argument, missing argument.
+  // subcommand, unknown option, bad option argument, missing argument,
+  // conflicting options, and the legacy `invalidOptionArgument` code
+  // (emitted by older Commander paths for `<value>` type-mismatches;
+  // current Commander reuses `invalidArgument`, but the older code may
+  // still surface from custom Argument `argParser` throw sites and
+  // downstream plugins — keeping it in the set guards future drift).
   // All become INVALID_INPUT so the CLI reports the same `error.code` as
   // the MCP dispatch path for equivalent bad input.
   const invalidCodes = new Set([
@@ -301,9 +306,11 @@ export function commanderErrorToResult(err: CommanderError): {
     'commander.missingArgument',
     'commander.optionMissingArgument',
     'commander.invalidArgument',
+    'commander.invalidOptionArgument',
     'commander.unknownCommand',
     'commander.unknownOption',
     'commander.excessArguments',
+    'commander.conflictingOption',
   ]);
   if (invalidCodes.has(err.code)) {
     return {
