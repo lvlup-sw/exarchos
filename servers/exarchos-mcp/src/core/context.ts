@@ -45,6 +45,14 @@ export interface InitializeContextOptions {
   readonly backend?: StorageBackend;
   /** Optional project root directory to load exarchos.config.ts/.js from. */
   readonly projectRoot?: string;
+  /**
+   * When true, the EventStore's `initialize()` blocks until the PID lock can
+   * be acquired rather than entering sidecar mode. Intended for short-lived
+   * CLI invocations that must serialize writes with any concurrent invocation
+   * (DR-5). Leave unset for long-running MCP server paths, which prefer the
+   * existing "first-wins + sidecar" semantics.
+   */
+  readonly waitForLock?: boolean;
 }
 
 // ─── Context Initialization ─────────────────────────────────────────────────
@@ -66,7 +74,9 @@ export async function initializeContext(
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
-  await eventStore.initialize();
+  await eventStore.initialize(
+    options?.waitForLock ? { waitForLock: true } : undefined,
+  );
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
