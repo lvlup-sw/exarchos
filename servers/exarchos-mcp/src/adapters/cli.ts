@@ -76,14 +76,22 @@ function formatZodError(err: z.ZodError): string {
 const HEARTBEAT_INTERVAL_MS = 2000;
 
 /**
- * Start emitting `[heartbeat] still running... Ns elapsed` lines to stderr
- * every `HEARTBEAT_INTERVAL_MS` milliseconds.  Returns a disposer that
- * clears the interval; callers must invoke it on both success and failure.
+ * Emits a `[heartbeat]` prefix line to stderr every `HEARTBEAT_INTERVAL_MS`.
  *
- * Heartbeats go to stderr so `--json` stdout stays a single ToolResult
- * line.  Only invoked for actions that are (a) flagged `longRunning` in
- * the registry AND (b) running under `--json` — interactive pretty-print
- * mode is left alone.
+ * Contract (stable):
+ *   - The literal prefix `[heartbeat] ` MAY be pattern-matched by consumers
+ *     (hooks, CI log scrapers, parent processes) to detect a "process is
+ *     alive" signal.
+ *   - The suffix (action name, elapsed seconds, wording) is UNSTABLE and
+ *     may change between minor releases — do not parse it.
+ *   - Heartbeats go to stderr; `--json` stdout remains a single ToolResult
+ *     line so machine consumers can still do one-shot JSON.parse.
+ *   - Only invoked for actions that are (a) flagged `longRunning` in the
+ *     registry AND (b) running under `--json`. Interactive pretty-print
+ *     mode is left alone — a progress spinner belongs to a future UX layer.
+ *
+ * Returns a disposer that clears the interval; callers must invoke it on
+ * every exit path (success, handler error, thrown exception).
  */
 function startHeartbeat(actionName: string): () => void {
   const startedAt = Date.now();
