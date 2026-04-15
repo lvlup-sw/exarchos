@@ -4,6 +4,19 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ## [Unreleased]
 
+### Features
+- `preferredFacade` field on every runtime (`mcp` | `cli`) declaring the host's preferred invocation surface (cli-vs-mcp-facade-analysis, DR-1).
+- Dual-facade skill rendering foundation: runtime-level declaration wired through loader and renderer (DR-1).
+- CLI cold-start benchmark (`servers/exarchos-mcp/src/bench/cli-startup.bench.ts`) with separate telemetry-off (<250ms p95) and telemetry-on (<350ms p95) budgets (DR-5).
+- `RemoteMcpAdapter` interface skeleton at `servers/exarchos-mcp/src/adapters/remote-mcp.ts` (DR-6, skeleton only; tracking #1081).
+- Stderr `[heartbeat]` lines for `longRunning`-flagged orchestrate actions under `--json` so multi-second operations don't look like hung processes (DR-5). Flagged: `prepare_synthesis`, `assess_stack`, `check_static_analysis`, `pre_synthesis_check`, `post_delegation_check`.
+- Waiting PID-lock for concurrent CLI event-store appends — two concurrent `exarchos event append` invocations now serialize onto the main JSONL (DR-5). MCP-server mode preserves first-wins + sidecar semantics so hooks never block.
+- Shared parity-harness module (`servers/exarchos-mcp/src/__tests__/parity-harness.ts`) and parametrized CLI↔MCP parity tests across all five composite tools (DR-3).
+- Documentation stub `docs/designs/future/remote-mcp-deployment.md` + `CLAUDE.md` Architecture pointer (DR-6 placeholder).
+
+### Breaking (wire-protocol)
+- **Malformed arguments now uniformly emit `INVALID_INPUT`** from the dispatch layer (DR-5). Previously divergent across adapters: CLI hard-exited via Commander's `requiredOption`; MCP returned `UNKNOWN_ACTION` (unknown action) or surfaced downstream `EVENT_APPEND_FAILED` (wrong type, no schema validation in dispatch path). External consumers pattern-matching on the old codes for malformed-argument scenarios should switch to `INVALID_INPUT`. Handler-reported errors that pass schema validation (e.g. genuine event-append failures) continue to use their domain-specific codes.
+
 ## [2.6.0] - 2026-04-12
 
 ### Features
