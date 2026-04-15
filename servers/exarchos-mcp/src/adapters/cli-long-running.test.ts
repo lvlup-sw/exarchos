@@ -85,6 +85,14 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
 
 // ─── CLI heartbeat behavior ─────────────────────────────────────────────────
 
+// Extra CLI args per flagged action.  Each flagged action has its own
+// required-flag footprint; centralizing them here keeps the parametrized
+// test body action-agnostic.
+const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
+  prepare_synthesis: [],
+  assess_stack: ['--pr-numbers', '[1]'],
+};
+
 describe('CLI long-running heartbeat emission (DR-5)', () => {
   let ctx: DispatchContext;
   let stderrSpy: ReturnType<typeof vi.spyOn>;
@@ -109,65 +117,85 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
     process.exitCode = originalExitCode;
   });
 
-  it('LongRunningOrchestrateAction_CliInvocation_EmitsLineBufferedProgressOrExitsQuickly', async () => {
-    // Arrange — locate a flagged action to exercise.
-    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
-    expect(orchestrate).toBeDefined();
-    const flagged = orchestrate!.actions.find((a) => a.longRunning === true);
-    expect(flagged, 'need at least one longRunning action to test heartbeats').toBeDefined();
+  // Parametrize across every flagged longRunning action so both
+  // prepare_synthesis and assess_stack are exercised — not just whichever
+  // the registry happens to list first.
+  describe.each(['prepare_synthesis', 'assess_stack'] as const)(
+    'flagged action: %s',
+    (actionName) => {
+      it('LongRunningOrchestrateAction_CliInvocation_EmitsLineBufferedProgressOrExitsQuickly', async () => {
+        // Arrange — locate the flagged action by name and assert the flag.
+        const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+        expect(orchestrate).toBeDefined();
+        const flagged = orchestrate!.actions.find((a) => a.name === actionName);
+        expect(flagged, `${actionName} must exist in registry`).toBeDefined();
+        expect(
+          flagged!.longRunning,
+          `${actionName} must carry longRunning: true`,
+        ).toBe(true);
 
-    // Simulate a slow handler (longer than the 2s heartbeat interval) so we
-    // can observe at least one heartbeat on stderr.
-    dispatchDelayMs.current = 2600;
+        // Simulate a slow handler (longer than the 2s heartbeat interval)
+        // so we can observe at least one heartbeat on stderr.
+        dispatchDelayMs.current = 2600;
 
-    const program = buildCli(ctx);
+        const program = buildCli(ctx);
 
-    // Invoke the flagged action via --json so the adapter sees a "machine"
-    // caller — heartbeats must only emit in this mode (not in pretty-print).
-    const spawnStart = Date.now();
-    await program.parseAsync([
-      'node',
-      'exarchos',
-      orchestrate!.cli?.alias ?? 'orch',
-      flagged!.cli?.alias ?? flagged!.name,
-      '--feature-id',
-      'dr5-test',
-      ...(flagged!.name === 'assess_stack' ? ['--pr-numbers', '[1]'] : []),
-      '--json',
-    ]);
-    const totalMs = Date.now() - spawnStart;
+        // Invoke the flagged action via --json so the adapter sees a
+        // "machine" caller — heartbeats must only emit in this mode
+        // (not in interactive pretty-print mode).
+        const spawnStart = Date.now();
+        await program.parseAsync([
+          'node',
+          'exarchos',
+          orchestrate!.cli?.alias ?? 'orch',
+          flagged!.cli?.alias ?? flagged!.name,
+          '--feature-id',
+          'dr5-test',
+          ...(EXTRA_ARGS_PER_ACTION[actionName] ?? []),
+          '--json',
+        ]);
+        const totalMs = Date.now() - spawnStart;
 
-    // Collect everything written to stderr during the invocation.
-    const stderrText = stderrSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
+        // Collect everything written to stderr during the invocation.
+        const stderrText = stderrSpy.mock.calls
+          .map(([chunk]) => String(chunk))
+          .join('');
 
-    const heartbeatMatches = stderrText.match(new RegExp(HEARTBEAT_PATTERN, 'g')) ?? [];
+        const heartbeatMatches =
+          stderrText.match(new RegExp(HEARTBEAT_PATTERN, 'g')) ?? [];
 
-    // Either the process finished within ~2s (no heartbeat needed), OR we
-    // observed at least one heartbeat line within 2.5s of spawn.
-    const exitedQuickly = totalMs < 2000;
-    const emittedHeartbeatInTime = heartbeatMatches.length >= 1 && totalMs <= 3500;
+        // Either the process finished within ~2s (no heartbeat needed),
+        // OR we observed at least one heartbeat line within 2.5s of spawn.
+        const exitedQuickly = totalMs < 2000;
+        const emittedHeartbeatInTime =
+          heartbeatMatches.length >= 1 && totalMs <= 3500;
 
-    expect(
-      exitedQuickly || emittedHeartbeatInTime,
-      `expected either quick exit (<2s) or heartbeat on stderr within 2.5s; ` +
-        `totalMs=${totalMs}, heartbeatCount=${heartbeatMatches.length}, ` +
-        `stderr=${JSON.stringify(stderrText).slice(0, 200)}`,
-    ).toBe(true);
+        expect(
+          exitedQuickly || emittedHeartbeatInTime,
+          `expected either quick exit (<2s) or heartbeat on stderr within 2.5s; ` +
+            `action=${actionName}, totalMs=${totalMs}, ` +
+            `heartbeatCount=${heartbeatMatches.length}, ` +
+            `stderr=${JSON.stringify(stderrText).slice(0, 200)}`,
+        ).toBe(true);
 
-    // Heartbeat lines, if any, must each end with a newline (line-buffered).
-    for (const line of heartbeatMatches) {
-      expect(line.endsWith('\n')).toBe(true);
-    }
+        // Heartbeat lines, if any, must each end with a newline (line-buffered).
+        for (const line of heartbeatMatches) {
+          expect(line.endsWith('\n')).toBe(true);
+        }
 
-    // --json stdout contract: exactly one ToolResult line.  Heartbeats must
-    // not have leaked onto stdout.
-    const stdoutText = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
-    expect(stdoutText).not.toMatch(HEARTBEAT_PATTERN);
-    // When the mocked dispatch resolves, exactly one JSON line is written.
-    const stdoutLines = stdoutText.split('\n').filter((l) => l.length > 0);
-    expect(stdoutLines.length).toBe(1);
-    expect(() => JSON.parse(stdoutLines[0]!)).not.toThrow();
-  }, 10_000);
+        // --json stdout contract: exactly one ToolResult line. Heartbeats
+        // must not have leaked onto stdout.
+        const stdoutText = stdoutSpy.mock.calls
+          .map(([chunk]) => String(chunk))
+          .join('');
+        expect(stdoutText).not.toMatch(HEARTBEAT_PATTERN);
+        // When the mocked dispatch resolves, exactly one JSON line is written.
+        const stdoutLines = stdoutText.split('\n').filter((l) => l.length > 0);
+        expect(stdoutLines.length).toBe(1);
+        expect(() => JSON.parse(stdoutLines[0]!)).not.toThrow();
+      }, 10_000);
+    },
+  );
 
   it('NonLongRunningAction_CliInvocation_DoesNotEmitHeartbeats', async () => {
     // Arrange — prepare_delegation takes only featureId and is not flagged
