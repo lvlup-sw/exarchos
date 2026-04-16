@@ -33,6 +33,10 @@ const execFileAsync = promisify(execFile);
 export interface DoctorGit {
   which(cmd: string): Promise<string | null>;
   isRepo(cwd: string): Promise<boolean>;
+  /** Returns the `git --version` short string (e.g. "2.43.0") or null
+   * when the binary is unavailable or emits unrecognized output. Used by
+   * vcs-git-available for the Pass message. */
+  version(): Promise<string | null>;
 }
 
 export interface DoctorSqlite {
@@ -71,6 +75,18 @@ const DEFAULT_GIT: DoctorGit = {
       return true;
     } catch {
       return false;
+    }
+  },
+  version: async () => {
+    try {
+      const { stdout } = await execFileAsync('git', ['--version']);
+      // `git --version` prints "git version 2.43.0" (with optional
+      // trailing suffix). Extract the semver-ish token; null if the
+      // output shape is unrecognized.
+      const match = stdout.match(/\d+\.\d+(?:\.\d+)?/);
+      return match ? match[0] : null;
+    } catch {
+      return null;
     }
   },
 };
