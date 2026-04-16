@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { InMemoryBackend } from './storage/memory-backend.js';
 import type { StorageBackend } from './storage/backend.js';
-import { isMcpServerInvocation } from './index.js';
+import { isMcpServerInvocation, isDirectExecution } from './index.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -213,5 +213,64 @@ describe('isMcpServerInvocation (F-022-2)', () => {
     expect(isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos'])).toBe(false);
     expect(isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos', 'event'])).toBe(false);
     expect(isMcpServerInvocation([])).toBe(false);
+  });
+});
+
+// ─── isDirectExecution (#1085) ──────────────────────────────────────────────
+// Regression coverage for the Windows CLI no-op bug: import.meta.url is a
+// forward-slash file:// URL while process.argv[1] on Windows uses backslashes,
+// so the original `endsWith` guard never matched and main() never ran. Tests
+// pin the behavior on both POSIX and Windows path shapes.
+
+describe('isDirectExecution (#1085)', () => {
+  it('matches a POSIX direct invocation', () => {
+    expect(
+      isDirectExecution(
+        'file:///Users/foo/.npm/bin/exarchos.js',
+        '/Users/foo/.npm/bin/exarchos.js',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches a Windows direct invocation despite backslash separators', () => {
+    // This is the #1085 regression: before normalization, endsWith() compared
+    // forward-slash URL against a backslash path and never matched.
+    expect(
+      isDirectExecution(
+        'file:///C:/Users/foo/AppData/Roaming/npm/node_modules/@lvlup-sw/exarchos/dist/exarchos.js',
+        'C:\\Users\\foo\\AppData\\Roaming\\npm\\node_modules\\@lvlup-sw\\exarchos\\dist\\exarchos.js',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches when argv[1] is a .ts source path but the module loads as .js', () => {
+    expect(
+      isDirectExecution(
+        'file:///Users/foo/repo/dist/exarchos.js',
+        '/Users/foo/repo/src/exarchos.ts',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches a Windows .ts → .js invocation (normalize + extension swap)', () => {
+    expect(
+      isDirectExecution(
+        'file:///C:/Users/foo/repo/dist/exarchos.js',
+        'C:\\Users\\foo\\repo\\src\\exarchos.ts',
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false when the module is imported by an unrelated script', () => {
+    expect(
+      isDirectExecution(
+        'file:///Users/foo/repo/dist/exarchos.js',
+        '/Users/foo/repo/tests/run-tests.js',
+      ),
+    ).toBe(false);
+  });
+
+  it('returns false when argv[1] is missing', () => {
+    expect(isDirectExecution('file:///Users/foo/repo/dist/exarchos.js', undefined)).toBe(false);
   });
 });
