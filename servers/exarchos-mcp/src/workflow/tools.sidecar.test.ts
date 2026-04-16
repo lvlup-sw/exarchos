@@ -184,6 +184,39 @@ describe('handleSet sidecar-pending ack', () => {
     expect(data.sidecarPending).toBeUndefined();
   });
 
+  it('handleSet_SidecarMode_V1WorkflowFieldUpdateOmitsSidecarPending', async () => {
+    // v1 workflows (no _esVersion) skip the state.patched event path, so a
+    // field-only update must not claim sidecarPending even when the store is
+    // in sidecar mode — no event was actually written.
+    const seeder = new EventStore(tmpDir);
+    await handleInit(
+      { featureId: 'wf-set-v1', workflowType: 'feature' },
+      tmpDir,
+      seeder,
+    );
+    // Downgrade to v1 by stripping _esVersion from the state file.
+    const stateFile = path.join(tmpDir, 'wf-set-v1.state.json');
+    const state = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    delete state._esVersion;
+    await fs.writeFile(stateFile, JSON.stringify(state));
+
+    const sidecar = await makeSidecarStore(tmpDir);
+    expect(sidecar.inSidecarMode).toBe(true);
+
+    const result = await handleSet(
+      {
+        featureId: 'wf-set-v1',
+        updates: { 'artifacts.design': 'docs/design.md' },
+      },
+      tmpDir,
+      sidecar,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data.sidecarPending).toBeUndefined();
+  });
+
   it('handleSet_WithoutEventStore_OmitsSidecarPending', async () => {
     // When eventStore is null (test-mode or disabled), no events are emitted
     // and the sidecarPending signal is meaningless — must not be set.

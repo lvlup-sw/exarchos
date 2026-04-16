@@ -840,7 +840,9 @@ export async function handleSet(
     // `sidecarPending: true` so callers can detect degraded mode. Coarse-
     // grained on purpose — the store's sidecar flag is the truth, and it
     // does not change within a single handleSet invocation.
-    const emittedEvents = pendingTransitionEvents.length > 0 || updateKeys.length > 0;
+    const patchEmitted = isEventSourced(state as unknown as Record<string, unknown>)
+      && eventStore != null && updateKeys.length > 0;
+    const emittedEvents = pendingTransitionEvents.length > 0 || patchEmitted;
     const sidecarPending = emittedEvents && eventStore?.inSidecarMode === true;
 
     return {
