@@ -259,6 +259,69 @@ export function validateCallMacro(ast: CallMacroAst): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CALL macro rendering (task 007)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-process all `{{CALL tool action {json}}}` macros in `body`, replacing
+ * each with the facade-appropriate output determined by the runtime's
+ * `preferredFacade` setting.
+ *
+ * Currently supported facades:
+ *   - `mcp` — emits `{mcpPrefix}{tool}({ "action": "{action}", ...args })`
+ *   - `cli` — not yet implemented (task 008); macros are left as-is.
+ *
+ * This function is designed to run as a pre-processing pass *before*
+ * `render()` handles `{{TOKEN}}` placeholder substitution. The two regex
+ * patterns (`CALL_MACRO_REGEX` and `PLACEHOLDER_REGEX`) are disjoint, so
+ * ordering is safe.
+ *
+ * Uses a fresh RegExp instance to avoid stateful `/g` issues with the
+ * module-scoped `CALL_MACRO_REGEX`.
+ *
+ * @param body - Raw skill source body containing `{{CALL ...}}` macros.
+ * @param runtime - The target runtime whose facade preference determines
+ *   the output format.
+ * @returns The body with all CALL macros expanded (or left intact for
+ *   unsupported facades).
+ */
+export function renderCallMacros(body: string, runtime: RuntimeMap): string {
+  // Create a fresh regex instance to avoid stateful /g issues with the
+  // module-scoped CALL_MACRO_REGEX.
+  const localRegex = new RegExp(CALL_MACRO_REGEX.source, 'g');
+  return body.replace(localRegex, (match, content: string) => {
+    const ast = parseCallMacro(content);
+
+    if (runtime.preferredFacade === 'mcp') {
+      return renderMcpCall(ast, runtime);
+    }
+
+    // CLI branch will be added by task 008.
+    return match;
+  });
+}
+
+/**
+ * Render a single parsed CALL macro as an MCP tool_use invocation.
+ *
+ * Output format:
+ *   `{mcpPrefix}{toolName}({ "action": "{actionName}", ...args })`
+ *
+ * The `action` field is injected as the first key in the args object because
+ * MCP composite tools use an `action` discriminator to route to the correct
+ * handler.
+ *
+ * @param ast - Parsed CALL macro AST from `parseCallMacro()`.
+ * @param runtime - Runtime providing the MCP prefix.
+ * @returns The rendered MCP tool_use string.
+ */
+function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
+  const prefix = runtime.capabilities.mcpPrefix;
+  const fullArgs: Record<string, unknown> = { action: ast.action, ...ast.args };
+  return `${prefix}${ast.tool}(${JSON.stringify(fullArgs, null, 2)})`;
+}
+
 /**
  * Diagnostic context for `render()` / `assertNoUnresolvedPlaceholders()`.
  * Both are optional so callers that don't care about nice error messages
