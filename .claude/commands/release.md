@@ -35,7 +35,7 @@ Store this as `$VERSION`.
 ### 3. Commit and tag
 
 ```bash
-git add package.json package-lock.json .claude-plugin/plugin.json manifest.json servers/exarchos-mcp/package.json
+git add package.json package-lock.json .claude-plugin/plugin.json manifest.json servers/exarchos-mcp/package.json packages/create-exarchos/package.json
 git commit -m "chore: bump version to $VERSION"
 git tag -a v$VERSION -m "v$VERSION"
 git push origin main && git push origin v$VERSION
@@ -74,29 +74,47 @@ Read `~/.claude/plugins/installed_plugins.json` and update the `exarchos@lvlup-s
 - Set `version` to `$VERSION`
 - Set `lastUpdated` to the current ISO timestamp
 
-### 6. Update marketplace clone (CRITICAL)
+### 6. Sync marketplace and prune stale cache (CRITICAL)
 
-**Claude Code resolves the plugin version from the marketplace clone, not just `installed_plugins.json`.** If this falls behind, Claude Code loads the old version.
-
-The marketplace is at `lvlup-sw/.github` (not the exarchos repo itself):
+**This step prevents version drift across Claude Code sessions.** The marketplace clone determines which version Claude Code loads — if it falls behind, all other sessions load the old version.
 
 ```bash
-cd ~/.claude/plugins/marketplaces/lvlup-sw && git fetch origin main && git reset --hard origin/main
+bash scripts/sync-marketplace.sh
 ```
 
-**Verify the marketplace clone version matches:**
+This script:
+1. Updates `marketplace.json` in the lvlup-sw marketplace clone with the new version
+2. Commits and pushes the change to the remote repository
+3. Prunes old cache entries (keeps only the current version)
+4. Verifies `installed_plugins.json` is consistent
+
+**If the push fails** (e.g., branch protection), manually push the marketplace repo:
 
 ```bash
-jq '.plugins[] | select(.name=="exarchos") | .version' ~/.claude/plugins/marketplaces/lvlup-sw/claude-plugins/marketplace.json
-# Must show $VERSION
+cd ~/.claude/plugins/marketplaces/lvlup-sw
+git push origin main
 ```
 
-### 7. Report
+### 7. Validate (run every time)
+
+```bash
+bash scripts/sync-marketplace.sh --check
+```
+
+This verifies:
+- Marketplace version matches `package.json`
+- `installed_plugins.json` points to the correct cache path
+- Cache path exists on disk
+- No stale cache entries remain
+
+**Do not skip this step.** The validation catches drift that causes the bug where other sessions load stale plugin versions.
+
+### 8. Report
 
 Tell the user:
 - The version that was released (e.g., `v2.5.0`)
 - Git tag created and pushed
-- Plugin cache and marketplace clone updated
+- Plugin cache, marketplace, and installed_plugins.json all updated
 - Remind them to restart Claude Code to pick up the changes
 
 ## Why not `claude plugin update`?
