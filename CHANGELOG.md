@@ -14,6 +14,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - Shared parity-harness module (`servers/exarchos-mcp/src/__tests__/parity-harness.ts`) and parametrized CLI↔MCP parity tests across all five composite tools (DR-3).
 - Documentation stub `docs/designs/future/remote-mcp-deployment.md` + `CLAUDE.md` Architecture pointer (DR-6 placeholder).
 
+### Bug Fixes
+- `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
+
+### Observability
+- `exarchos_workflow init`, `set`, and `checkpoint` now surface `sidecarPending: true` in their response `data` when the underlying event append landed in the sidecar file (the event store is in sidecar mode). Mirrors the `sequencePending` ack on `exarchos_event append` so callers can detect degraded mode without inspecting storage internals (#1082)
+
 ### Breaking (wire-protocol)
 - **Malformed arguments now uniformly emit `INVALID_INPUT`** from the dispatch layer (DR-5). Previously divergent across adapters: CLI hard-exited via Commander's `requiredOption`; MCP returned `UNKNOWN_ACTION` (unknown action) or surfaced downstream `EVENT_APPEND_FAILED` (wrong type, no schema validation in dispatch path). External consumers pattern-matching on the old codes for malformed-argument scenarios should switch to `INVALID_INPUT`. Handler-reported errors that pass schema validation (e.g. genuine event-append failures) continue to use their domain-specific codes.
 
