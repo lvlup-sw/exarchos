@@ -23,7 +23,7 @@ import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { buildProbes as defaultBuildProbes } from './probes.js';
 import type { DoctorProbes } from './probes.js';
-import type { CheckResult } from './schema.js';
+import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
 
 import { runtimeNodeVersion } from './checks/runtime-node-version.js';
@@ -63,8 +63,10 @@ async function runCheckWithTimeout(
   timeoutMs: number,
 ): Promise<CheckResult> {
   // Extract a usable name for the timeout Warning result. Falls back to
-  // the function name when nothing better is available.
-  const fnName = (check as { name?: string }).name ?? 'unknown';
+  // a sentinel when the function has no binding name (e.g. arrow
+  // expressions returned by a factory). Schema requires name.length >= 1.
+  const fnBindingName = (check as { name?: string }).name;
+  const fnName = fnBindingName && fnBindingName.length > 0 ? fnBindingName : 'unknown-check';
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<CheckResult>((resolve) => {
@@ -152,10 +154,41 @@ export async function handleDoctorWithChecks(
     }),
   ]);
 
+  const summary = tallySummary(results);
+
+  // DIM-3: validate the output shape through Zod. A parse failure here
+  // is a programming error (check returned an invalid shape or tally
+  // disagrees with the refinement), not a user-facing condition —
+  // throw loud so the defect is caught in CI, not silently forwarded.
+  const output = DoctorOutputSchema.parse({ checks: results, summary });
+
   return {
     success: true,
-    data: { checks: results },
+    data: output,
   };
+}
+
+/** Group results by status and count them. Pure — takes the results
+ * array, returns a DoctorSummary whose totals equal the array length. */
+function tallySummary(results: ReadonlyArray<CheckResult>): DoctorSummary {
+  const summary: DoctorSummary = { passed: 0, warnings: 0, failed: 0, skipped: 0 };
+  for (const r of results) {
+    switch (r.status) {
+      case 'Pass':
+        summary.passed += 1;
+        break;
+      case 'Warning':
+        summary.warnings += 1;
+        break;
+      case 'Fail':
+        summary.failed += 1;
+        break;
+      case 'Skipped':
+        summary.skipped += 1;
+        break;
+    }
+  }
+  return summary;
 }
 
 /**
