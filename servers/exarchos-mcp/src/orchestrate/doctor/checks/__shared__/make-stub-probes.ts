@@ -17,12 +17,14 @@ const throwing = (field: string) => () => {
 
 export function makeStubProbes(overrides: Partial<DoctorProbes> = {}): DoctorProbes {
   const base: DoctorProbes = {
-    fs: { readFile: throwing('fs'), stat: throwing('fs') },
+    fs: { readFile: throwing('fs'), stat: throwing('fs'), access: throwing('fs') },
     env: {},
     git: { which: throwing('git'), isRepo: throwing('git') },
     sqlite: { handle: throwing('sqlite') },
     detector: throwing('detector') as DoctorProbes['detector'],
     eventStore: { append: throwing('eventStore') } as unknown as DoctorProbes['eventStore'],
+    runtime: { nodeVersion: '' },
+    stateDir: '',
   };
   return { ...base, ...overrides };
 }

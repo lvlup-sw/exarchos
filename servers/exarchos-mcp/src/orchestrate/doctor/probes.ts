@@ -8,16 +8,20 @@
  * them via `buildProbes(ctx)` at dispatch time, never at module init.
  *
  * Probe fields:
- *   - `fs`       — narrow filesystem surface (readFile / stat)
+ *   - `fs`       — narrow filesystem surface (readFile / stat / access)
  *   - `env`      — process env snapshot
  *   - `git`      — narrow git surface (which, isRepo)
  *   - `sqlite`   — lazy handle getter for sqlite integrity probing; may
  *                  be null when no backend is attached (jsonl-only mode)
  *   - `detector` — AgentEnvironmentDetector callable
  *   - `eventStore` — the context's EventStore, forwarded by reference
+ *   - `runtime`  — observable runtime metadata (node version), injected
+ *                  rather than read via `process.*` inside checks
+ *   - `stateDir` — resolved state directory path (forwarded from
+ *                  DispatchContext)
  */
 
-import { promises as nodeFs } from 'node:fs';
+import { promises as nodeFs, constants as fsConstants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DispatchContext } from '../../core/dispatch.js';
@@ -30,6 +34,13 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+/** Widened fs surface for doctor checks: readFile/stat from DetectorFs
+ * plus an `access` probe for writability checks. Optional so tests can
+ * omit it when irrelevant. */
+export interface DoctorFs extends DetectorFs {
+  access?(path: string, mode?: number): Promise<void>;
+}
+
 export interface DoctorGit {
   which(cmd: string): Promise<string | null>;
   isRepo(cwd: string): Promise<boolean>;
@@ -41,18 +52,27 @@ export interface DoctorSqlite {
   handle(): unknown | null;
 }
 
+export interface DoctorRuntime {
+  /** Node.js version string (e.g. "v20.11.0") — injected so checks
+   * don't read `process.version` directly (DIM-4). */
+  readonly nodeVersion: string;
+}
+
 export interface DoctorProbes {
-  readonly fs: DetectorFs;
+  readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly git: DoctorGit;
   readonly sqlite: DoctorSqlite;
   readonly detector: (signal?: AbortSignal) => Promise<AgentEnvironment[]>;
   readonly eventStore: EventStore;
+  readonly runtime: DoctorRuntime;
+  readonly stateDir: string;
 }
 
-const DEFAULT_FS: DetectorFs = {
+const DEFAULT_FS: DoctorFs = {
   readFile: (p) => nodeFs.readFile(p, 'utf8'),
   stat: (p) => nodeFs.stat(p),
+  access: (p, mode) => nodeFs.access(p, mode ?? fsConstants.F_OK),
 };
 
 const DEFAULT_GIT: DoctorGit = {
@@ -93,5 +113,7 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
     sqlite: { handle: () => null },
     detector: (signal) => detectAgentEnvironments(undefined, signal),
     eventStore: ctx.eventStore,
+    runtime: { nodeVersion: process.version },
+    stateDir: ctx.stateDir,
   };
 }
