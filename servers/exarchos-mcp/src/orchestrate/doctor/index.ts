@@ -105,6 +105,13 @@ export interface HandleDoctorArgs {
 export type BuildProbesFn = (ctx: DispatchContext) => DoctorProbes;
 
 /**
+ * Stream ID for diagnostic events. Doctor is phase-independent and
+ * not tied to any workflow, so a dedicated stream keeps diagnostic
+ * history separate from workflow streams.
+ */
+export const DOCTOR_STREAM_ID = 'exarchos-doctor';
+
+/**
  * Testable seam — accepts an explicit `checks` list and `buildProbes`
  * factory. Production callers use `handleDoctor` which binds these to
  * the real canonical sources.
@@ -118,6 +125,7 @@ export async function handleDoctorWithChecks(
   const timeoutMs = args.timeoutMs ?? 2000;
   const controller = new AbortController();
   const probes = buildProbes(ctx);
+  const startedAt = Date.now();
 
   // Wire the external signal so caller-initiated cancellation aborts
   // the per-check controller too. Do NOT abort the controller if the
@@ -155,6 +163,7 @@ export async function handleDoctorWithChecks(
   ]);
 
   const summary = tallySummary(results);
+  const durationMs = Date.now() - startedAt;
 
   // DIM-3: validate the output shape through Zod. A parse failure here
   // is a programming error (check returned an invalid shape or tally
@@ -162,10 +171,38 @@ export async function handleDoctorWithChecks(
   // throw loud so the defect is caught in CI, not silently forwarded.
   const output = DoctorOutputSchema.parse({ checks: results, summary });
 
+  // Emit diagnostic.executed after the successful run. If the caller
+  // aborted above, control never reaches here — the abort path rejects
+  // before any partial event is written (DIM-7).
+  await emitDiagnosticEvent(ctx, output.checks, summary, durationMs);
+
   return {
     success: true,
     data: output,
   };
+}
+
+/** Emit a `diagnostic.executed` event with summary, checkCount,
+ * failedCheckNames, and durationMs. Schema for the event payload lives
+ * in event-store/schemas.ts. */
+async function emitDiagnosticEvent(
+  ctx: DispatchContext,
+  results: ReadonlyArray<CheckResult>,
+  summary: DoctorSummary,
+  durationMs: number,
+): Promise<void> {
+  const failedCheckNames = results
+    .filter((r) => r.status === 'Fail')
+    .map((r) => r.name);
+  await ctx.eventStore.append(DOCTOR_STREAM_ID, {
+    type: 'diagnostic.executed' as const,
+    data: {
+      summary,
+      checkCount: results.length,
+      failedCheckNames,
+      durationMs,
+    },
+  });
 }
 
 /** Group results by status and count them. Pure — takes the results
