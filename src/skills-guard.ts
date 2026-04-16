@@ -65,6 +65,34 @@ const REMEDIATION =
  * and does not call `process.exit` — the CLI wrapper at the bottom
  * of this file is responsible for exit handling.
  *
+ * ### Determinism contract
+ *
+ * The guard's correctness relies on `buildAllSkills()` being a pure
+ * function of `(skills-src/, runtimes/*.yaml)`: running it twice on
+ * identical inputs must produce byte-identical output. Two specific
+ * rendering paths need to uphold this:
+ *
+ *   1. **Placeholder substitution** (`render()`): deterministic by
+ *      construction — `PLACEHOLDER_REGEX.replace()` visits tokens in
+ *      source order and looks up values from a static map.
+ *
+ *   2. **CALL macro expansion** (`renderCallMacros()`): emits either
+ *      `JSON.stringify(args, null, 2)` (MCP facade) or
+ *      `--{kebab-key} {value}` pairs in `Object.entries` order (CLI
+ *      facade). Both rely on V8 preserving object-key insertion order,
+ *      which is guaranteed by the ECMAScript spec for string keys. The
+ *      args object is assembled with a fixed key order (the `action`
+ *      discriminator first, then `...ast.args` from `JSON.parse`, which
+ *      itself preserves source-text key order).
+ *
+ * If either invariant is ever broken (e.g. a future refactor switches
+ * to `Object.keys().sort()` non-idempotently, or swaps
+ * `JSON.stringify` for a reflection-based pretty-printer), this guard
+ * will start false-positiving on rebuilds. The
+ * `SkillsGuard_AfterCallMacroRender_NoDrift` test in
+ * `skills-guard.test.ts` locks the CALL-macro determinism invariant in
+ * place.
+ *
  * @param opts.cwd - Absolute path to the project root. Must contain
  *   `skills-src/`, `runtimes/`, and a git repo whose HEAD tracks the
  *   current state of `skills/`.
