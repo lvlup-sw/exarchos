@@ -57,6 +57,10 @@ vi.mock('./finalize-oneshot.js', () => ({
   handleFinalizeOneshot: vi.fn(),
 }));
 
+vi.mock('./doctor/index.js', () => ({
+  handleDoctor: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -83,6 +87,8 @@ import { handleRunbook } from '../runbooks/handler.js';
 import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
+import { handleDoctor } from './doctor/index.js';
+import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -498,6 +504,42 @@ describe('handleOrchestrate', () => {
       expect(call.featureId).toBe('feat-oneshot-2');
       expect(call.stateDir).toBe(STATE_DIR);
       expect(call.eventStore).toBe(CTX.eventStore);
+    });
+  });
+
+  // ─── Doctor Routing ─────────────────────────────────────────────────────
+
+  describe('doctor routing', () => {
+    it('OrchestrateComposite_DispatchDoctorAction_InvokesHandleDoctor', async () => {
+      // Arrange
+      const expected = successResult({
+        checks: [],
+        summary: { passed: 0, warnings: 0, failed: 0, skipped: 0 },
+      });
+      vi.mocked(handleDoctor).mockResolvedValue(expected);
+      const args = { action: 'doctor', timeoutMs: 1500 };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — doctor handler called with args (minus the action) and ctx
+      expect(result).toBe(expected);
+      expect(handleDoctor).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleDoctor).mock.calls[0];
+      expect(call[0]).toEqual({ timeoutMs: 1500 });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesDoctor', () => {
+      // Arrange — the orchestrate action registry is the single source of
+      // truth consulted by dispatch-level validation; doctor must be in it
+      // for `exarchos_orchestrate { action: "doctor" }` to pass schema gate.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+
+      // Assert
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('doctor');
     });
   });
 
