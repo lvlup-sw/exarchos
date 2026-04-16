@@ -24,7 +24,7 @@ export function makeStubProbes(overrides: Partial<DoctorProbes> = {}): DoctorPro
       isRepo: throwing('git'),
       version: throwing('git'),
     },
-    sqlite: { handle: throwing('sqlite') },
+    sqlite: { runIntegrityCheck: throwing('sqlite') },
     detector: throwing('detector') as DoctorProbes['detector'],
     eventStore: { append: throwing('eventStore') } as unknown as DoctorProbes['eventStore'],
     runtime: { nodeVersion: '' },

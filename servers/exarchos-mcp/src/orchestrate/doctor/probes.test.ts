@@ -39,4 +39,23 @@ describe('buildProbes', () => {
     expect(typeof probes.git.isRepo).toBe('function');
     expect(typeof probes.git.version).toBe('function');
   });
+
+  it('BuildProbes_SqliteRunIntegrityCheck_DelegatesToEventStore', async () => {
+    const sentinel = { ok: 'skipped' as const, reason: 'test-marker' };
+    const recorded: Array<{ signal?: AbortSignal; timeoutMs?: number }> = [];
+    const fakeStore = {
+      append: () => {},
+      runIntegrityCheck: async (opts?: { signal?: AbortSignal; timeoutMs?: number }) => {
+        recorded.push(opts ?? {});
+        return sentinel;
+      },
+    };
+    const ctx = fakeContext({ eventStore: fakeStore as unknown as DispatchContext['eventStore'] });
+
+    const probes = buildProbes(ctx);
+    const result = await probes.sqlite.runIntegrityCheck({ timeoutMs: 777 });
+
+    expect(result).toBe(sentinel);
+    expect(recorded).toEqual([{ timeoutMs: 777 }]);
+  });
 });
