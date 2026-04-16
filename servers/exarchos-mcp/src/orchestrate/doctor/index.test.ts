@@ -120,6 +120,65 @@ describe('handleDoctor — parallel execution + timeout', () => {
     expect(c.fix).toContain('50ms timeout');
   });
 
+  it('HandleDoctor_MixedResults_ReturnsCorrectSummaryTally', async () => {
+    // Arrange: 2 Pass, 1 Warning, 1 Fail, 1 Skipped.
+    const { ctx } = fakeContextWithProbes();
+    const mkResult = (status: CheckResult['status'], name: string): CheckFn => async () => {
+      const base = { category: 'runtime' as const, name, durationMs: 0 };
+      if (status === 'Skipped') {
+        return { ...base, status, message: `${name} skipped`, reason: 'not applicable' };
+      }
+      return { ...base, status, message: `${name} ${status.toLowerCase()}` };
+    };
+    const checks: CheckFn[] = [
+      mkResult('Pass', 'p1'),
+      mkResult('Pass', 'p2'),
+      mkResult('Warning', 'w1'),
+      mkResult('Fail', 'f1'),
+      mkResult('Skipped', 's1'),
+    ];
+
+    // Act
+    const result = await handleDoctorWithChecks(
+      { timeoutMs: 5000 },
+      ctx,
+      checks,
+      () => makeStubProbes(),
+    );
+
+    // Assert: summary tally matches the input mix.
+    expect(result.success).toBe(true);
+    const data = result.data as { summary: { passed: number; warnings: number; failed: number; skipped: number } };
+    expect(data.summary).toEqual({ passed: 2, warnings: 1, failed: 1, skipped: 1 });
+  });
+
+  it('HandleDoctor_AllPass_SummaryEqualsChecksLength', async () => {
+    // Arrange: 3 passing checks.
+    const { ctx } = fakeContextWithProbes();
+    const mkPass = (name: string): CheckFn => async () => ({
+      category: 'runtime',
+      name,
+      status: 'Pass',
+      message: `${name} ok`,
+      durationMs: 0,
+    });
+    const checks: CheckFn[] = [mkPass('a'), mkPass('b'), mkPass('c')];
+
+    // Act
+    const result = await handleDoctorWithChecks(
+      { timeoutMs: 5000 },
+      ctx,
+      checks,
+      () => makeStubProbes(),
+    );
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as { checks: CheckResult[]; summary: { passed: number } };
+    expect(data.summary.passed).toBe(data.checks.length);
+    expect(data.summary.passed).toBe(3);
+  });
+
   it('HandleDoctor_AbortSignalFired_RejectsWithAbortError', async () => {
     // Arrange: a check that awaits the signal to abort. The composer
     // exposes an `externalSignal` so the caller can cancel in-flight.
