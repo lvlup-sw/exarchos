@@ -21,6 +21,7 @@
 name: cursor
 # preferredFacade: mcp — Cursor has first-class MCP client support via
 # `~/.cursor/mcp.json`, so MCP tool calls are the native invocation path.
+# See documentation/facade-and-deployment.md for facade selection rationale.
 preferredFacade: mcp
 capabilities:
   hasSubagents: false

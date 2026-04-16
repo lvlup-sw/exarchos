@@ -42,6 +42,7 @@
 name: copilot
 # preferredFacade: cli — Copilot CLI's MCP integration is nascent, so
 # slash-command/CLI invocations remain the canonical user-facing path.
+# See documentation/facade-and-deployment.md for facade selection rationale.
 preferredFacade: cli
 capabilities:
   hasSubagents: true
