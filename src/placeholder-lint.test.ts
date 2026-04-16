@@ -185,3 +185,100 @@ describe('placeholder-lint — task 024', () => {
     );
   });
 });
+
+describe('placeholder-lint — task 010 (DR-2/DR-8 mcp__ deprecation)', () => {
+  const originalStrict = process.env.EXARCHOS_LINT_STRICT;
+
+  afterEach(() => {
+    // Restore EXARCHOS_LINT_STRICT to whatever the surrounding process
+    // had — individual tests flip it to exercise strict mode.
+    if (originalStrict === undefined) {
+      delete process.env.EXARCHOS_LINT_STRICT;
+    } else {
+      process.env.EXARCHOS_LINT_STRICT = originalStrict;
+    }
+  });
+
+  it('LintSkillSource_RawMcpPrefix_EmitsDeprecationWarning', () => {
+    // A skill source containing a literal `mcp__...` reference should
+    // emit a deprecation warning (not an error) during the transition
+    // window. The warning must carry enough info for the author to
+    // find and fix the reference.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'foo', 'SKILL.md'),
+      [
+        'Some intro text.',
+        'Call mcp__plugin_exarchos_exarchos__exarchos_workflow like so.',
+        'More body.',
+        '',
+      ].join('\n'),
+    );
+
+    // Ensure strict mode is off for this test.
+    delete process.env.EXARCHOS_LINT_STRICT;
+
+    const result = lintPlaceholders({ sourcesDir });
+
+    // Non-strict: warning should NOT flip passed=false.
+    expect(result.passed).toBe(true);
+    expect(result.deprecationWarnings.length).toBe(1);
+    const warning = result.deprecationWarnings[0];
+    expect(warning.pattern).toBe(
+      'mcp__plugin_exarchos_exarchos__exarchos_workflow',
+    );
+    expect(warning.file).toMatch(/foo[\\/]SKILL\.md$/);
+    expect(warning.line).toBe(2);
+    // The message should mention the deprecation so callers that print
+    // it get the signal too.
+    expect(result.message).toContain(
+      'mcp__plugin_exarchos_exarchos__exarchos_workflow',
+    );
+  });
+
+  it('LintSkillSource_CallMacro_NoWarning', () => {
+    // A skill source using the new `{{CALL ...}}` macro with no literal
+    // `mcp__...` reference should emit no deprecation warnings.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'bar'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'bar', 'SKILL.md'),
+      [
+        'Use the CALL macro to invoke:',
+        '{{CALL exarchos_workflow set {"key": "value"}}}',
+        'Done.',
+        '',
+      ].join('\n'),
+    );
+
+    delete process.env.EXARCHOS_LINT_STRICT;
+
+    const result = lintPlaceholders({ sourcesDir });
+
+    expect(result.passed).toBe(true);
+    expect(result.deprecationWarnings).toEqual([]);
+  });
+
+  it('LintSkillSource_RawMcpWithStrictEnv_EmitsError', () => {
+    // When EXARCHOS_LINT_STRICT=1 is set, raw `mcp__...` references
+    // become hard errors so CI can enforce the migration once the
+    // transition window closes.
+    const sourcesDir = makeTempDir();
+    mkdirSync(join(sourcesDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(sourcesDir, 'foo', 'SKILL.md'),
+      'Still raw: mcp__plugin_exarchos_exarchos__exarchos_event here.\n',
+    );
+
+    process.env.EXARCHOS_LINT_STRICT = '1';
+
+    const result = lintPlaceholders({ sourcesDir });
+
+    expect(result.passed).toBe(false);
+    expect(result.deprecationWarnings.length).toBe(1);
+    expect(result.deprecationWarnings[0].pattern).toBe(
+      'mcp__plugin_exarchos_exarchos__exarchos_event',
+    );
+  });
+});
