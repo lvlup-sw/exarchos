@@ -833,6 +833,8 @@ export class EventStore {
       const synthetic: WorkflowEvent = {
         streamId,
         sequence: baseSequence + i + 1,
+        // Type assumed valid: sidecar writer validates at the workflow boundary
+        // (`writeToSidecar` only accepts events already parsed by workflow tools).
         type: line.type as WorkflowEvent['type'],
         timestamp: line.timestamp ?? new Date(0).toISOString(),
         data: line.data ?? {},
