@@ -614,13 +614,20 @@ describe('parseCallMacro', () => {
 // -----------------------------------------------------------------------------
 
 describe('validateCallMacro', () => {
-  // Lazy-import so the function is resolved from the same module as the rest.
-  // validateCallMacro is not yet exported — these tests must fail (RED).
-  let validateCallMacro: (ast: CallMacroAst) => void;
+  // Import the real registry lookup from the MCP server package. Test files
+  // are excluded from the root tsconfig (`exclude: ["**/*.test.ts"]`) so the
+  // cross-package import works fine under vitest even though src/build-skills.ts
+  // itself cannot import from the MCP server due to rootDir boundaries.
+  let validateCallMacro: typeof import('./build-skills.js').validateCallMacro;
+  let setRegistryLookup: typeof import('./build-skills.js').setRegistryLookup;
 
   beforeAll(async () => {
-    const mod = await import('./build-skills.js');
-    validateCallMacro = (mod as Record<string, unknown>).validateCallMacro as (ast: CallMacroAst) => void;
+    const buildSkills = await import('./build-skills.js');
+    const registry = await import('../servers/exarchos-mcp/src/registry.js');
+    validateCallMacro = buildSkills.validateCallMacro;
+    setRegistryLookup = buildSkills.setRegistryLookup;
+    // Wire the real registry lookup so validateCallMacro can resolve schemas.
+    setRegistryLookup(registry.findActionInRegistry);
   });
 
   it('ValidateCallMacro_UnknownAction_FailsAtBuildTime', () => {
@@ -649,5 +656,14 @@ describe('validateCallMacro', () => {
       args: { featureId: 'my-feature', phase: 'plan' },
     };
     expect(() => validateCallMacro(ast)).not.toThrow();
+  });
+
+  it('ValidateCallMacro_UnknownTool_FailsAtBuildTime', () => {
+    const ast: CallMacroAst = {
+      tool: 'exarchos_nonexistent',
+      action: 'get',
+      args: {},
+    };
+    expect(() => validateCallMacro(ast)).toThrow(/unknown action/i);
   });
 });

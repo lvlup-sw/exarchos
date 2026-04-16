@@ -165,6 +165,100 @@ export function parseCallMacro(raw: string): CallMacroAst {
   return { tool, action, args };
 }
 
+// ---------------------------------------------------------------------------
+// CALL macro registry validation (task 006)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal schema interface — matches the `.safeParse()` contract on a Zod
+ * schema without importing zod directly. This keeps the root package free of
+ * a hard dependency on zod at compile time (the MCP server owns the full
+ * schemas; we only need to call `safeParse` on them).
+ */
+interface SafeParseable {
+  safeParse(data: unknown): { success: true } | { success: false; error: { message: string } };
+}
+
+/**
+ * A registry action returned by the lookup function. Contains at minimum
+ * the action's Zod schema (which we use for arg validation).
+ */
+export interface RegistryAction {
+  readonly name: string;
+  readonly schema: SafeParseable;
+}
+
+/**
+ * Signature for the registry lookup function injected via
+ * `setRegistryLookup()`. Given a tool name and action name, returns the
+ * matching `RegistryAction` or `undefined` if the pair is unknown.
+ */
+export type RegistryLookup = (
+  toolName: string,
+  actionName: string,
+) => RegistryAction | undefined;
+
+/** Module-level registry lookup, configured via `setRegistryLookup()`. */
+let _registryLookup: RegistryLookup | undefined;
+
+/**
+ * Configure the registry lookup function used by `validateCallMacro()`.
+ *
+ * The root package (`src/`) cannot import directly from the MCP server
+ * package due to tsconfig `rootDir` boundaries. This setter allows the
+ * caller (CLI entry point, test harness, or future build pipeline) to
+ * wire the real `findActionInRegistry` from `servers/exarchos-mcp/` at
+ * runtime without a compile-time cross-package import.
+ *
+ * @param fn - The lookup function (typically `findActionInRegistry` from
+ *   the MCP server's `registry.ts`).
+ */
+export function setRegistryLookup(fn: RegistryLookup): void {
+  _registryLookup = fn;
+}
+
+/**
+ * Validate a parsed CALL macro AST against the live tool registry.
+ *
+ * Steps:
+ *   1. Look up the `(tool, action)` pair via the configured registry lookup.
+ *   2. If unknown, throw with a descriptive error naming the tool and action.
+ *   3. Validate `ast.args` against the action's Zod schema via `safeParse`.
+ *   4. If validation fails, throw with the Zod error details.
+ *
+ * Requires `setRegistryLookup()` to have been called first — throws if the
+ * registry is not configured.
+ *
+ * @param ast - The parsed CALL macro AST from `parseCallMacro()`.
+ * @throws If registry is not configured, action is unknown, or args fail
+ *   schema validation.
+ */
+export function validateCallMacro(ast: CallMacroAst): void {
+  if (!_registryLookup) {
+    throw new Error(
+      'validateCallMacro: registry not configured — call setRegistryLookup() first',
+    );
+  }
+
+  const action = _registryLookup(ast.tool, ast.action);
+  if (!action) {
+    throw new Error(
+      `validateCallMacro: unknown action "${ast.action}" on tool "${ast.tool}"`,
+    );
+  }
+
+  // Validate args against the action's schema. The per-action schemas in the
+  // registry do NOT include the `action` discriminator field — they contain
+  // only the action-specific parameters (e.g. featureId, phase, updates).
+  // `buildCompositeSchema` adds the discriminator later for MCP registration.
+  const result = action.schema.safeParse(ast.args);
+  if (!result.success) {
+    throw new Error(
+      `validateCallMacro: args for ${ast.tool}.${ast.action} failed schema validation: ${result.error.message}`,
+    );
+  }
+}
+
 /**
  * Diagnostic context for `render()` / `assertNoUnresolvedPlaceholders()`.
  * Both are optional so callers that don't care about nice error messages
