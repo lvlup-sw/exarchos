@@ -53,6 +53,92 @@ import { lintPlaceholders } from './placeholder-lint.js';
  */
 export const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
 
+// ---------------------------------------------------------------------------
+// CALL macro parser (task 005)
+// ---------------------------------------------------------------------------
+
+/**
+ * The four composite MCP tools known to Exarchos. Hardcoded here for now;
+ * task 006 will wire up the full registry validation.
+ */
+const KNOWN_TOOLS: ReadonlySet<string> = new Set([
+  'exarchos_workflow',
+  'exarchos_event',
+  'exarchos_orchestrate',
+  'exarchos_view',
+]);
+
+/**
+ * Typed representation of a parsed `{{CALL tool action {json}}}` macro.
+ */
+export interface CallMacroAst {
+  tool: string;
+  action: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Parse the raw content inside a `{{CALL ...}}` macro into a typed AST.
+ *
+ * Expected format: `tool_name action_name {json_args}`
+ *
+ * Steps:
+ *   1. Split into tool, action, and remaining JSON string
+ *   2. Parse the JSON args
+ *   3. Validate tool name against `KNOWN_TOOLS`
+ *   4. Return the typed AST
+ *
+ * @param raw - The raw content after stripping `{{CALL` and `}}` delimiters.
+ * @returns A typed `CallMacroAst` with tool, action, and parsed args.
+ * @throws On malformed input: missing parts, invalid JSON, or unknown tool.
+ */
+export function parseCallMacro(raw: string): CallMacroAst {
+  const trimmed = raw.trim();
+
+  // Find the first JSON object boundary — the first `{` character.
+  const jsonStart = trimmed.indexOf('{');
+  if (jsonStart === -1) {
+    throw new Error(
+      `parseCallMacro: expected JSON args object in "${trimmed}" — format is "tool action {json}"`,
+    );
+  }
+
+  // Everything before the `{` must be "tool action ".
+  const prefix = trimmed.slice(0, jsonStart).trim();
+  const parts = prefix.split(/\s+/);
+  if (parts.length < 2) {
+    throw new Error(
+      `parseCallMacro: expected "tool action {json}" but got "${trimmed}" — ` +
+        `found ${parts.length} token(s) before the JSON body`,
+    );
+  }
+
+  const tool = parts[0];
+  const action = parts[1];
+  const jsonStr = trimmed.slice(jsonStart);
+
+  // Validate the tool name against the known registry.
+  if (!KNOWN_TOOLS.has(tool)) {
+    throw new Error(
+      `parseCallMacro: "${tool}" is not a known tool. ` +
+        `Known tools: [${[...KNOWN_TOOLS].sort().join(', ')}]`,
+    );
+  }
+
+  // Parse JSON args.
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(jsonStr) as Record<string, unknown>;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `parseCallMacro: malformed JSON args in "${trimmed}" — ${detail}`,
+    );
+  }
+
+  return { tool, action, args };
+}
+
 /**
  * Diagnostic context for `render()` / `assertNoUnresolvedPlaceholders()`.
  * Both are optional so callers that don't care about nice error messages
