@@ -1,3 +1,9 @@
+---
+title: Windows CLI no-op due to path separator + URL encoding mismatch
+issue: 1085
+tags: [bug, windows, cli]
+---
+
 # Windows: CLI is a no-op — isDirectExecution check fails due to path separator mismatch
 
 ## Bug
@@ -15,22 +21,29 @@ const isDirectExecution =
     import.meta.url.endsWith(process.argv[1].replace(/\.ts$/, '.js')));
 ```
 
-On Windows:
-- `import.meta.url` = `file:///C:/Users/.../exarchos.js` (forward slashes)
-- `process.argv[1]` = `C:\Users\...\exarchos.js` (backslashes)
+Two encoding hazards break that comparison:
 
-`endsWith` never matches, so `main()` never runs.
+1. **Path separator mismatch (Windows).** `import.meta.url` is a forward-slash file:// URL (`file:///C:/Users/.../exarchos.js`) while `process.argv[1]` uses backslashes (`C:\Users\...\exarchos.js`). `endsWith` never matches.
+2. **Percent-encoded URL.** `import.meta.url` is in standard URL form, so path segments containing spaces or non-ASCII characters are percent-encoded (`%20` etc.) while `argv[1]` is a raw OS path. Even on POSIX, a user at `/Users/First Last/...` would hit this.
+
+Either hazard alone turns `main()` into a silent no-op.
 
 ## Fix
 
-Normalize backslashes before comparison:
+Route `import.meta.url` through `fileURLToPath()` (which decodes percent-encoded characters and returns a platform path) and normalize both sides to forward slashes before comparing:
 
 ```ts
-const isDirectExecution =
-  process.argv[1] &&
-  (import.meta.url.endsWith(process.argv[1]) ||
-    import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/')) ||
-    import.meta.url.endsWith(process.argv[1].replace(/\.ts$/, '.js')));
+import { fileURLToPath } from 'node:url';
+
+export function isDirectExecution(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  const modulePath = fileURLToPath(metaUrl).replace(/\\/g, '/');
+  const normalizedArgv = argv1.replace(/\\/g, '/');
+  return (
+    modulePath.endsWith(normalizedArgv) ||
+    modulePath.endsWith(normalizedArgv.replace(/\.ts$/, '.js'))
+  );
+}
 ```
 
 ## Environment
