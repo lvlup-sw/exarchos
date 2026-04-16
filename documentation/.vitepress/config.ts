@@ -101,6 +101,7 @@ export default defineConfig({
             { text: 'Agent Model', link: '/architecture/agent-model' },
             { text: 'Design Rationale', link: '/architecture/design-rationale' },
             { text: 'Platform Portability', link: '/architecture/platform-portability' },
+            { text: 'Facade and Deployment Choices', link: '/facade-and-deployment' },
           ],
         },
       ],
