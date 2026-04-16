@@ -29,6 +29,11 @@ export function makeStubProbes(overrides: Partial<DoctorProbes> = {}): DoctorPro
     eventStore: { append: throwing('eventStore') } as unknown as DoctorProbes['eventStore'],
     runtime: { nodeVersion: '' },
     stateDir: '',
+    skills: { guardStatus: throwing('skills') },
+    plugin: {
+      installedVersion: throwing('plugin'),
+      runningVersion: throwing('plugin'),
+    },
   };
   return { ...base, ...overrides };
 }
