@@ -7,6 +7,7 @@
  *   - Task 005: parseTokenArgs + argument-aware substitution
  *   - Task 006: copyReferences
  *   - Task 007: buildAllSkills orchestrator + escape hatch
+ *   - Task 009: buildAllSkills render-time CALL macro failure tests
  */
 
 import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';

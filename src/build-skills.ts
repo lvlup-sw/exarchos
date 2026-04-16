@@ -13,6 +13,8 @@
  *   - Task 006: `copyReferences`.
  *   - Task 007: `buildAllSkills` orchestrator.
  *   - Task 008: `main()` CLI entry.
+ *   - Task 009: Wire `renderCallMacros` into `buildAllSkills`, CLI facade
+ *     rendering (`renderCliCall`), render-time fail-fast validation.
  *
  * Implements: DR-2, DR-3.
  */
@@ -279,7 +281,7 @@ export function validateCallMacro(ast: CallMacroAst): void {
  *
  * Currently supported facades:
  *   - `mcp` — emits `{mcpPrefix}{tool}({ "action": "{action}", ...args })`
- *   - `cli` — not yet implemented (task 008); macros are left as-is.
+ *   - `cli` — emits `Bash(exarchos {suffix} {action} --{flag} {val} --json)`
  *
  * This function is designed to run as a pre-processing pass *before*
  * `render()` handles `{{TOKEN}}` placeholder substitution. The two regex
