@@ -4,11 +4,29 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ## [Unreleased]
 
+### Features
+- `preferredFacade` field on every runtime (`mcp` | `cli`) declaring the host's preferred invocation surface (cli-vs-mcp-facade-analysis, DR-1).
+- Dual-facade skill rendering foundation: runtime-level declaration wired through loader and renderer (DR-1).
+- CLI cold-start benchmark (`servers/exarchos-mcp/src/bench/cli-startup.bench.ts`) with separate telemetry-off (<250ms p95) and telemetry-on (<350ms p95) budgets (DR-5).
+- `RemoteMcpAdapter` interface skeleton at `servers/exarchos-mcp/src/adapters/remote-mcp.ts` (DR-6, skeleton only; tracking #1081).
+- Stderr `[heartbeat]` lines for `longRunning`-flagged orchestrate actions under `--json` so multi-second operations don't look like hung processes (DR-5). Flagged: `prepare_synthesis`, `assess_stack`, `check_static_analysis`, `pre_synthesis_check`, `post_delegation_check`.
+- Waiting PID-lock for concurrent CLI event-store appends — two concurrent `exarchos event append` invocations now serialize onto the main JSONL (DR-5). MCP-server mode preserves first-wins + sidecar semantics so hooks never block.
+- Shared parity-harness module (`servers/exarchos-mcp/src/__tests__/parity-harness.ts`) and parametrized CLI↔MCP parity tests across all five composite tools (DR-3).
+- Documentation stub `docs/designs/future/remote-mcp-deployment.md` + `CLAUDE.md` Architecture pointer (DR-6 placeholder).
+- `{{CALL tool action <json>}}` placeholder macro for facade-agnostic skill authoring — renders to MCP tool_use on MCP-preferred runtimes and `Bash(exarchos ...)` on CLI-preferred runtimes (cli-vs-mcp-facade-analysis, DR-2).
+- Placeholder-lint deprecation warning for raw `mcp__…` references in skill sources — authors see a warning during build, CI stays green. Set `EXARCHOS_LINT_STRICT=1` to flip warnings to errors after the transition window closes (DR-2, DR-8).
+- CLI rendering path with kebab-case flag mapping: `featureId: "X"` → `--feature-id X`, `dryRun: true` → `--dry-run`, trailing `--json` always appended (DR-2).
+- Render-time validation of CALL macros against the `TOOL_REGISTRY` — unknown actions and invalid args fail the build with the source file path and line number (DR-2).
+- Migration no-regression check (`src/build-skills.migration.test.ts`) — guards that existing Claude skill renders remain byte-identical after the dual-facade changes (DR-8).
+
 ### Bug Fixes
 - `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
 
 ### Observability
 - `exarchos_workflow init`, `set`, and `checkpoint` now surface `sidecarPending: true` in their response `data` when the underlying event append landed in the sidecar file (the event store is in sidecar mode). Mirrors the `sequencePending` ack on `exarchos_event append` so callers can detect degraded mode without inspecting storage internals (#1082)
+
+### Breaking (wire-protocol)
+- **Malformed arguments now uniformly emit `INVALID_INPUT`** from the dispatch layer (DR-5). Previously divergent across adapters: CLI hard-exited via Commander's `requiredOption`; MCP returned `UNKNOWN_ACTION` (unknown action) or surfaced downstream `EVENT_APPEND_FAILED` (wrong type, no schema validation in dispatch path). External consumers pattern-matching on the old codes for malformed-argument scenarios should switch to `INVALID_INPUT`. Handler-reported errors that pass schema validation (e.g. genuine event-append failures) continue to use their domain-specific codes.
 
 ## [2.6.0] - 2026-04-12
 

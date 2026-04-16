@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { InMemoryBackend } from './storage/memory-backend.js';
 import type { StorageBackend } from './storage/backend.js';
+import { isMcpServerInvocation } from './index.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ describe('createServer Backend Wiring', () => {
     await backend.initialize();
 
     // Act
-    createServer('/tmp/test-state-dir', { backend });
+    await createServer('/tmp/test-state-dir', { backend });
 
     // Assert — configureStateStoreBackend should have been called with the backend
     expect(configureStateStoreBackend).toHaveBeenCalledWith(backend);
@@ -51,7 +52,7 @@ describe('createServer Backend Wiring', () => {
     await backend.initialize();
 
     // Act — should not throw
-    const server = createServer('/tmp/test-state-dir', { backend });
+    const server = await createServer('/tmp/test-state-dir', { backend });
 
     // Assert — server was created successfully with backend
     expect(server).toBeDefined();
@@ -63,7 +64,7 @@ describe('createServer Backend Wiring', () => {
     const { configureStateStoreBackend } = await import('./workflow/state-store.js');
 
     // Act — no backend provided
-    const server = createServer('/tmp/test-state-dir');
+    const server = await createServer('/tmp/test-state-dir');
 
     // Assert — configureStateStoreBackend should be called with undefined
     expect(configureStateStoreBackend).toHaveBeenCalledWith(undefined);
@@ -158,5 +159,59 @@ describe('Process Cleanup', () => {
     expect(closeSpy).toHaveBeenCalled();
 
     onSpy.mockRestore();
+  });
+});
+
+// ─── F-022-2: MCP Mode Detection ────────────────────────────────────────────
+//
+// Regression: the previous `argv.includes('mcp')` check matched any occurrence
+// of the string `mcp` in argv, so CLI commands that mentioned `mcp` as a flag
+// value (e.g. `-f mcp`, `--view mcp`) silently flipped into server semantics
+// and had their writes diverted to sidecar files. A strict positional check
+// (argv[2] === 'mcp') is the source-of-truth signal for MCP server mode.
+
+describe('isMcpServerInvocation (F-022-2)', () => {
+  it('returns true when mcp is the first positional argument', () => {
+    // `node exarchos mcp`
+    expect(isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos', 'mcp'])).toBe(true);
+    // Extra flags after `mcp` must not matter.
+    expect(
+      isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos', 'mcp', '--debug']),
+    ).toBe(true);
+  });
+
+  it('returns false for CLI invocations that mention "mcp" as a flag value', () => {
+    // `exarchos event append -f mcp -t task.completed -d '{}'` — feature id
+    // named "mcp".
+    expect(
+      isMcpServerInvocation([
+        '/usr/bin/node',
+        '/path/to/exarchos',
+        'event',
+        'append',
+        '-f',
+        'mcp',
+        '-t',
+        'task.completed',
+        '-d',
+        '{}',
+      ]),
+    ).toBe(false);
+    // `exarchos view --view mcp` — view name "mcp".
+    expect(
+      isMcpServerInvocation([
+        '/usr/bin/node',
+        '/path/to/exarchos',
+        'view',
+        '--view',
+        'mcp',
+      ]),
+    ).toBe(false);
+  });
+
+  it('returns false for empty or non-mcp invocations', () => {
+    expect(isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos'])).toBe(false);
+    expect(isMcpServerInvocation(['/usr/bin/node', '/path/to/exarchos', 'event'])).toBe(false);
+    expect(isMcpServerInvocation([])).toBe(false);
   });
 });

@@ -118,6 +118,8 @@ Every tool input is a Zod-validated discriminated union keyed on `action`. The s
 
 Structured input over natural language. Strict schema validation over loose parsing. One binary, same behavior whether an agent or a human is driving it.
 
+Exarchos supports both MCP-native hosts (Claude Code, Cursor, Codex) and CLI-only hosts (OpenCode, Copilot, generic runtimes). Each runtime selects its preferred invocation facade automatically. Remote/hosted MCP deployment is planned as a future axis. See the [Facade and Deployment Choices](https://lvlup-sw.github.io/exarchos/facade-and-deployment) documentation for details.
+
 ### Integrations
 
 | Component | Source | Purpose |

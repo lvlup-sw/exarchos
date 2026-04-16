@@ -61,6 +61,42 @@ describe('dispatch', () => {
     expect(result.error!.message).toContain('nonexistent_tool');
   });
 
+  it('Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed', async () => {
+    // Arrange — inject a loader that throws, simulating a broken module
+    // graph (e.g. ERR_MODULE_NOT_FOUND after a partial install). The real
+    // module is temporarily removed from both the loader map and the handler
+    // cache so dispatch is forced down the throwing loader path.
+    const { COMPOSITE_HANDLERS, COMPOSITE_HANDLER_LOADERS, dispatch } = await import('./dispatch.js');
+    const toolName = 'exarchos_workflow';
+    const origLoader = COMPOSITE_HANDLER_LOADERS[toolName];
+    const origCache = COMPOSITE_HANDLERS[toolName];
+    delete COMPOSITE_HANDLERS[toolName];
+    COMPOSITE_HANDLER_LOADERS[toolName] = () =>
+      Promise.reject(new Error("Cannot find module '../workflow/composite.js'"));
+
+    try {
+      // Act
+      const result = await dispatch(
+        toolName,
+        { action: 'get', featureId: 'test' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // Assert — dispatch wraps the load failure in a structured ToolResult
+      // rather than leaking ERR_MODULE_NOT_FOUND through the MCP transport.
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe('COMPOSITE_LOAD_FAILED');
+      expect(result.error!.message).toContain(toolName);
+      expect(result.error!.message).toContain('Cannot find module');
+    } finally {
+      if (origLoader) COMPOSITE_HANDLER_LOADERS[toolName] = origLoader;
+      else delete COMPOSITE_HANDLER_LOADERS[toolName];
+      if (origCache) COMPOSITE_HANDLERS[toolName] = origCache;
+      else delete COMPOSITE_HANDLERS[toolName];
+    }
+  });
+
   it('Dispatch_WithTelemetry_EnrichesResult', async () => {
     // Arrange
     const { dispatch } = await import('./dispatch.js');
@@ -209,22 +245,23 @@ describe('dispatch', () => {
     });
 
     it('dispatch_compositeHandler_receivesDispatchContext', async () => {
-      // Arrange — register a spy as a composite handler to capture what dispatch passes
-      const { COMPOSITE_HANDLERS, dispatch } = await import('./dispatch.js');
+      // Arrange — register a spy as a composite handler to capture what dispatch passes.
+      // Uses stubCompositeHandler() (F-021-4) which owns the save/restore dance.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
       let receivedCtx: unknown;
       const spy = async (_args: Record<string, unknown>, ctx: DispatchContext) => {
         receivedCtx = ctx;
         return { success: true as const, data: { spied: true } };
       };
-      // Temporarily inject spy as a composite handler
-      const original = (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'];
-      (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = spy;
+      const restore = stubCompositeHandler('exarchos_workflow', spy);
 
       try {
         const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
-        // Act
-        await dispatch('exarchos_workflow', { action: 'test' }, ctx);
+        // Act — DR-5: dispatch now validates action names and per-action
+        // schemas before routing, so this smoke test uses the `describe`
+        // action whose schema accepts empty args.
+        await dispatch('exarchos_workflow', { action: 'describe' }, ctx);
 
         // Assert — handler should receive the full DispatchContext, not just stateDir string
         expect(receivedCtx).toBeDefined();
@@ -233,7 +270,7 @@ describe('dispatch', () => {
         expect(receivedCtx).toHaveProperty('eventStore', eventStore);
         expect(receivedCtx).toHaveProperty('enableTelemetry', false);
       } finally {
-        (COMPOSITE_HANDLERS as Record<string, unknown>)['exarchos_workflow'] = original;
+        restore();
       }
     });
 

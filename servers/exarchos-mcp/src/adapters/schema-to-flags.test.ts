@@ -8,6 +8,7 @@ import {
   validateRequiredBooleans,
   toKebab,
   toCamel,
+  formatZodError,
 } from './schema-to-flags.js';
 
 // ─── Task 6: extractSchemaFields ────────────────────────────────────────────
@@ -131,7 +132,16 @@ describe('extractSchemaFields', () => {
 // ─── Task 7: addFlagsFromSchema ─────────────────────────────────────────────
 
 describe('addFlagsFromSchema', () => {
-  it('AddFlags_RequiredString_CreatesRequiredOption', () => {
+  it('AddFlags_RequiredString_CreatesOptionValidatedByZod', () => {
+    // DR-5: required non-boolean fields are registered as plain options
+    // (not Commander `requiredOption`). Missing-required enforcement
+    // happens at the per-action Zod validation layer, which emits an
+    // INVALID_INPUT ToolResult — identical to what the MCP adapter
+    // produces for the same malformed input.
+    //
+    // F-024-UX: the description must still carry the "[required]" visual
+    // cue so `--help` clearly flags mandatory fields even though Commander
+    // no longer enforces them itself.
     const cmd = new Command();
     const schema = z.object({
       featureId: z.string(),
@@ -141,7 +151,9 @@ describe('addFlagsFromSchema', () => {
 
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
-    expect(opt!.mandatory).toBe(true);
+    expect(opt!.mandatory).toBe(false);
+    // F-024-UX: description prefix preserves the required-field UX cue.
+    expect(opt!.description).toContain('[required]');
   });
 
   it('AddFlags_OptionalNumber_CreatesOptionalOption', () => {
@@ -201,7 +213,9 @@ describe('addFlagsFromSchema', () => {
     const opt = cmd.options.find((o) => o.long === '--feature-id');
     expect(opt).toBeDefined();
     expect(opt!.short).toBe('-f');
-    expect(opt!.description).toBe('The feature identifier');
+    // F-024-UX: required fields prepend `[required] ` to the description,
+    // including when the description comes from an override.
+    expect(opt!.description).toBe('[required] The feature identifier');
   });
 
   it('AddFlags_AlwaysAddsJsonFlag', () => {
@@ -387,5 +401,76 @@ describe('toCamel', () => {
     expect(toCamel('workflow-type')).toBe('workflowType');
     expect(toCamel('dry-run')).toBe('dryRun');
     expect(toCamel('simple')).toBe('simple');
+  });
+});
+
+// ─── F-024 #7: Zod error-format snapshot pinning ────────────────────────────
+//
+// The parity tests only assert loose substring matches on the failure
+// message. If Zod's internal issue.message text changes between minor
+// versions, the parity tests could stay green while user-visible CLI
+// output silently drifts. These inline snapshots lock the canonical
+// format — `${path}: ${message}; ...` — so a Zod upgrade that changes
+// the text produces an explicit review signal.
+describe('formatZodError snapshot pinning (F-024 #7)', () => {
+  it('FormatZodError_MissingRequiredField_ProducesStableMessage', () => {
+    const schema = z.object({
+      featureId: z.string(),
+      workflowType: z.enum(['feature', 'debug']),
+    });
+    // Intentionally omit featureId to force the canonical
+    // "Required" issue path.
+    const result = schema.safeParse({ workflowType: 'feature' });
+    expect(result.success).toBe(false);
+    if (result.success) return; // narrow for TS; unreachable when assertion holds
+    const output = formatZodError(result.error);
+    expect(output).toMatchInlineSnapshot(`"featureId: Required"`);
+  });
+
+  it('FormatZodError_WrongType_ProducesStableMessage', () => {
+    const schema = z.object({
+      featureId: z.string(),
+      limit: z.number(),
+    });
+    // featureId: number is wrong type; limit: string is wrong type. Two
+    // issues exercise the `; ` joiner and path-rendering path.
+    const result = schema.safeParse({ featureId: 123, limit: 'ten' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const output = formatZodError(result.error);
+    expect(output).toMatchInlineSnapshot(
+      `"featureId: Expected string, received number; limit: Expected number, received string"`,
+    );
+  });
+
+  it('FormatZodError_NestedPath_RendersDottedPath', () => {
+    const schema = z.object({
+      evidence: z.object({
+        type: z.enum(['test', 'manual']),
+        passed: z.boolean(),
+      }),
+    });
+    const result = schema.safeParse({ evidence: { type: 'bogus', passed: 'yes' } });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const output = formatZodError(result.error);
+    // Nested paths must join with `.` — DR-5 contract.
+    expect(output).toMatchInlineSnapshot(
+      `"evidence.type: Invalid enum value. Expected 'test' | 'manual', received 'bogus'; evidence.passed: Expected boolean, received string"`,
+    );
+  });
+
+  it('FormatZodError_RootLevelFailure_RendersAsRootSentinel', () => {
+    // Passing a non-object to an object schema produces a root-level issue
+    // whose path is empty; the helper must surface it as `(root)` not as
+    // a bare empty string.
+    const schema = z.object({ featureId: z.string() });
+    const result = schema.safeParse('not-an-object');
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const output = formatZodError(result.error);
+    expect(output).toMatchInlineSnapshot(
+      `"(root): Expected object, received string"`,
+    );
   });
 });

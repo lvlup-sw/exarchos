@@ -1,4 +1,5 @@
 name: claude
+preferredFacade: mcp
 capabilities:
   hasSubagents: true
   hasSlashCommands: true

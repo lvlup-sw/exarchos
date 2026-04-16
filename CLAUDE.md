@@ -22,6 +22,7 @@ cd servers/exarchos-mcp && npm run test:run
 - **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` walks `skills-src/`, substitutes placeholders from `runtimes/<name>.yaml`, copies each skill's `references/` verbatim into every runtime variant, honors `SKILL.<runtime>.md` structural overrides, and prunes stale output. A vocabulary lint runs as a pre-flight; `npm run skills:guard` re-renders and fails CI on any `git diff skills/` drift.
 - **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) + 1 hidden sync tool (`exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
 - **Orchestrate handlers** (`servers/exarchos-mcp/src/orchestrate/`) — TypeScript handlers for all workflow actions. Each handler accepts typed args, returns structured `ToolResult`. No bash dependency for workflow operations.
+- **Remote MCP** — future deployment axis; see [`docs/designs/future/remote-mcp-deployment.md`](docs/designs/future/remote-mcp-deployment.md) (tracking: [#1081](https://github.com/lvlup-sw/exarchos/issues/1081)). Not implemented today.
 
 ## Safety
 

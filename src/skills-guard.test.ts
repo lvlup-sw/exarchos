@@ -15,9 +15,9 @@
  * never touch the repo's own `skills/` tree.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { runSkillsGuard } from './skills-guard.js';
-import { buildAllSkills } from './build-skills.js';
+import { buildAllSkills, clearRegistryLookup } from './build-skills.js';
 import {
   mkdtempSync,
   writeFileSync,
@@ -62,6 +62,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
       join(runtimesDir, `${name}.yaml`),
       [
         `name: ${name}`,
+        `preferredFacade: mcp`,
         `capabilities:`,
         `  hasSubagents: true`,
         `  hasSlashCommands: true`,
@@ -108,6 +109,64 @@ function provisionProject(): string {
   // Initialize git and commit everything so `git diff` starts clean.
   // Using `-c` flags rather than `git config` keeps the committer identity
   // scoped to this invocation and does not rely on the ambient git config.
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  };
+  execSync('git init -q -b main', { cwd: root, env: gitEnv });
+  execSync('git add -A', { cwd: root, env: gitEnv });
+  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+
+  return root;
+}
+
+/**
+ * Provision a temp project like `provisionProject`, but the source
+ * `SKILL.md` contains a `{{CALL exarchos_workflow set {...}}}` macro so
+ * the build exercises the CALL-macro rendering pathway (task 007/009).
+ *
+ * Used by the task 011 determinism test below to prove that
+ * `renderCallMacros` produces byte-identical output across repeated
+ * builds — which is what makes `skills:guard` safe to run on trees that
+ * include rendered CALL output.
+ *
+ * We intentionally:
+ *   - use a known tool name (`exarchos_workflow`) so `parseCallMacro`
+ *     passes its `KNOWN_TOOLS` check, and
+ *   - leave the registry lookup unset (see `beforeEach` below) so
+ *     `validateCallMacro` is skipped and the test does not depend on
+ *     the MCP server schemas.
+ */
+function provisionProjectWithCallMacro(): string {
+  const root = makeTempDir();
+
+  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  // Multi-key args stress-test JSON key-ordering determinism — the
+  // invariant we are locking in is that `JSON.stringify` on the parsed
+  // args object produces the same bytes every build, regardless of how
+  // many times we re-render.
+  writeFileSync(
+    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    [
+      'Hello {{AGENT_LABEL}}',
+      '',
+      'Invoke the workflow:',
+      '',
+      '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan","stage":"begin"}}}',
+      '',
+    ].join('\n'),
+  );
+  writeRuntimeFixtures(join(root, 'runtimes'));
+
+  buildAllSkills({
+    srcDir: join(root, 'skills-src'),
+    outDir: join(root, 'skills'),
+    runtimesDir: join(root, 'runtimes'),
+  });
+
   const gitEnv = {
     ...process.env,
     GIT_AUTHOR_NAME: 'test',
@@ -207,5 +266,65 @@ describe('skills-guard — task 023', () => {
     // The diff body returned by the guard should mention the generated
     // file path so developers can see *which* file drifted.
     expect(result.message).toMatch(/skills\/claude\/foo\/SKILL\.md/);
+  });
+});
+
+/**
+ * Task 011: skills:guard tolerance for rendered `{{CALL}}` macro output.
+ *
+ * This is an integration-level determinism test. `renderCallMacros` emits
+ * `JSON.stringify(args, null, 2)` output for the MCP facade (and
+ * `--flag value` pairs for the CLI facade); both are deterministic by
+ * design because the underlying args object is constructed with a fixed
+ * key ordering (parse order preserved by V8). If that invariant ever
+ * broke — e.g. a future refactor switched to `Object.keys().sort()` in a
+ * non-idempotent way, or `JSON.stringify` was replaced with a
+ * reflection-based pretty-printer — `skills:guard` would start
+ * false-positiving on rebuilds. This test locks the invariant in place.
+ */
+describe('skills-guard — task 011 CALL macro determinism', () => {
+  beforeEach(() => {
+    // Ensure no prior test's `setRegistryLookup` leaks into this one.
+    // The determinism invariant holds independently of registry validation,
+    // and we don't want to require the MCP server schemas to be loaded.
+    clearRegistryLookup();
+  });
+
+  it('SkillsGuard_AfterCallMacroRender_NoDrift', () => {
+    const root = provisionProjectWithCallMacro();
+
+    // First guard invocation: the seed build already committed the
+    // rendered output; the guard rebuilds in-process and diffs against
+    // HEAD. If rendering is deterministic, the diff is empty.
+    const firstResult = runSkillsGuard({ cwd: root });
+    expect(firstResult.ok).toBe(true);
+    expect(firstResult.exitCode).toBe(0);
+
+    // Sanity: the rendered output actually contains the expanded MCP
+    // call (proves we exercised the macro path, not just a no-op).
+    const rendered = readFileSync(
+      join(root, 'skills', 'claude', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    expect(rendered).toContain(
+      'mcp__claude__exarchos_workflow(',
+    );
+    expect(rendered).toContain('"action": "set"');
+
+    // Second build + guard: re-render from the same source and confirm
+    // the output is still byte-identical to what is committed. This is
+    // the core determinism assertion — any non-determinism in
+    // `renderCallMacros` (e.g. unstable key ordering in JSON.stringify)
+    // would cause this second guard to fail even though nothing
+    // changed in the source.
+    buildAllSkills({
+      srcDir: join(root, 'skills-src'),
+      outDir: join(root, 'skills'),
+      runtimesDir: join(root, 'runtimes'),
+    });
+
+    const secondResult = runSkillsGuard({ cwd: root });
+    expect(secondResult.ok).toBe(true);
+    expect(secondResult.exitCode).toBe(0);
   });
 });
