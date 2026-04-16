@@ -10,6 +10,7 @@ describe('makeStubProbes', () => {
     expect(() => probes.fs.stat('/x')).toThrow(/probe not overridden: fs/);
     expect(() => probes.git.which('git')).toThrow(/probe not overridden: git/);
     expect(() => probes.git.isRepo('/x')).toThrow(/probe not overridden: git/);
+    expect(() => probes.git.version()).toThrow(/probe not overridden: git/);
     expect(() => probes.sqlite.handle()).toThrow(/probe not overridden: sqlite/);
     expect(() => probes.detector()).toThrow(/probe not overridden: detector/);
     expect(() => probes.eventStore.append({} as never)).toThrow(
