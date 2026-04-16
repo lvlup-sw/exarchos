@@ -276,4 +276,25 @@ describe('isDirectExecution (#1085)', () => {
   it('returns false when argv[1] is missing', () => {
     expect(isDirectExecution('file:///Users/foo/repo/dist/exarchos.js', undefined)).toBe(false);
   });
+
+  it('matches a POSIX path containing a space (percent-encoded in import.meta.url)', () => {
+    // import.meta.url percent-encodes spaces and other non-URL-safe characters,
+    // but process.argv[1] is a raw OS path. A naive string endsWith would miss
+    // the match. fileURLToPath() must decode the URL before comparison.
+    expect(
+      isDirectExecution(
+        'file:///Users/Reed%20Salus/repo/dist/exarchos.js',
+        '/Users/Reed Salus/repo/dist/exarchos.js',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches a Windows path containing a space (percent-encoded + backslash separators)', () => {
+    expect(
+      isDirectExecution(
+        'file:///C:/Users/John%20Doe/repo/dist/exarchos.js',
+        'C:\\Users\\John Doe\\repo\\dist\\exarchos.js',
+      ),
+    ).toBe(true);
+  });
 });
