@@ -243,13 +243,17 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
   it('OrchestrateParity_TaskClaim_CliAndMcp_ReturnEqualPayload', async () => {
     // Arrange — seed task.assigned events in each arm so the claim is legal.
+    //
+    // Use the arm's existing `ctx.eventStore` rather than instantiating a second
+    // `EventStore(cliArm.stateDir)` — a second instance loses the PID lock held
+    // by the arm's store (task-022 hardening routes non-lock-holder writes to a
+    // sidecar file), which then fails to be seen by `handleTaskClaim`'s module-
+    // level store cache and triggers spurious `CLAIM_FAILED` retry exhaustion.
     const streamId = 'parity-claim-wf';
 
     const cliArm = await createArm('parity-claim-cli-');
     arms.push(cliArm);
-    const cliStore = new EventStore(cliArm.stateDir);
-    await cliStore.initialize();
-    await cliStore.append(streamId, {
+    await cliArm.ctx.eventStore.append(streamId, {
       type: 'task.assigned',
       data: { taskId: 't-parity-1', title: 'Parity claim', assignee: 'agent-parity' },
     });
@@ -264,9 +268,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
     const mcpArm = await createArm('parity-claim-mcp-');
     arms.push(mcpArm);
-    const mcpStore = new EventStore(mcpArm.stateDir);
-    await mcpStore.initialize();
-    await mcpStore.append(streamId, {
+    await mcpArm.ctx.eventStore.append(streamId, {
       type: 'task.assigned',
       data: { taskId: 't-parity-1', title: 'Parity claim', assignee: 'agent-parity' },
     });

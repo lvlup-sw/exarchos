@@ -86,14 +86,21 @@ export const CALL_MACRO_REGEX = /\{\{CALL\s+(.+)\}\}/g;
 // ---------------------------------------------------------------------------
 
 /**
- * The four composite MCP tools known to Exarchos. Hardcoded here for now;
- * task 006 will wire up the full registry validation.
+ * The five composite MCP tools known to Exarchos (4 visible + 1 hidden sync).
+ *
+ * Used for fail-fast validation in `parseCallMacro` when the registry
+ * lookup is not wired (e.g. test isolation). The authoritative source is
+ * the TOOL_REGISTRY consulted via `validateCallMacro`; this set is a
+ * coarse pre-check that only rejects obvious typos. When adding a new
+ * composite tool, update this set *and* register it in
+ * `servers/exarchos-mcp/src/registry.ts`.
  */
 const KNOWN_TOOLS: ReadonlySet<string> = new Set([
   'exarchos_workflow',
   'exarchos_event',
   'exarchos_orchestrate',
   'exarchos_view',
+  'exarchos_sync',
 ]);
 
 /**

@@ -110,6 +110,10 @@ export async function callCli(
     if (err instanceof CommanderError && options.captureCommanderErrors) {
       commanderError = err;
     } else {
+      // Restore process.exitCode before bubbling — the CLI parseAsync()
+      // may have set it to a non-zero value during validation, and leaking
+      // that into subsequent tests corrupts their exit-code assertions.
+      process.exitCode = savedExitCode;
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
       throw err;

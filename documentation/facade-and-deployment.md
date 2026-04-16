@@ -56,13 +56,14 @@ The table below maps host capability against invocation axis. Use it to determin
 | Host capability | Local CLI | Local MCP | Hosted MCP |
 |:----------------|:---------:|:---------:|:----------:|
 | **MCP-native runtime** (Claude Code, Cursor, Codex) | Available | **Preferred** | Future |
-| **CLI-only runtime** (OpenCode, Copilot, generic) | **Preferred** | Available | Future |
+| **CLI-only runtime** (OpenCode, Copilot, generic) | **Preferred** | Limited | Future |
 | **Unknown runtime** | **Preferred** | n/a | Future |
 
 **Reading the matrix:**
 
 - **Preferred** -- the default facade for this runtime class. Skills render invocations in this style automatically.
-- **Available** -- works but is not the default. You can override by changing `preferredFacade` in the runtime YAML.
+- **Available** -- fully supported; not the default. You can override by changing `preferredFacade` in the runtime YAML.
+- **Limited** -- the host has nascent or partial MCP support; flipping `preferredFacade` may require additional host configuration (install an MCP client, enable a flag). The CLI path is recommended until host MCP matures.
 - **Future** -- not implemented; tracked in [#1081](https://github.com/lvlup-sw/exarchos/issues/1081).
 - **n/a** -- the host lacks the capability to use this facade without additional tooling.
 
