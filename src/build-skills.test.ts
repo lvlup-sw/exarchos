@@ -16,6 +16,8 @@ import {
   parseTokenArgs,
   copyReferences,
   buildAllSkills,
+  parseCallMacro,
+  type CallMacroAst,
 } from './build-skills.js';
 import { loadRuntime } from './runtimes/load.js';
 import type { RuntimeMap, PreferredFacade } from './runtimes/types.js';
@@ -502,5 +504,78 @@ describe('renderer RuntimeMap — task 003 (DR-1)', () => {
 
     const facade: PreferredFacade = runtime.preferredFacade;
     expect(facade === 'mcp' || facade === 'cli').toBe(true);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 005 (dual-facade): parseCallMacro — CALL macro parser
+// -----------------------------------------------------------------------------
+
+describe('parseCallMacro', () => {
+  it('ParseCallMacro_ValidInput_ReturnsTypedAst', () => {
+    const result = parseCallMacro('exarchos_workflow set {"featureId":"X","phase":"plan"}');
+    expect(result).toEqual({
+      tool: 'exarchos_workflow',
+      action: 'set',
+      args: { featureId: 'X', phase: 'plan' },
+    });
+  });
+
+  it('ParseCallMacro_AllKnownTools_ParsesSuccessfully', () => {
+    const tools = ['exarchos_workflow', 'exarchos_event', 'exarchos_orchestrate', 'exarchos_view'];
+    for (const tool of tools) {
+      const result = parseCallMacro(`${tool} get {}`);
+      expect(result.tool).toBe(tool);
+      expect(result.action).toBe('get');
+      expect(result.args).toEqual({});
+    }
+  });
+
+  it('ParseCallMacro_ComplexJsonArgs_ParsesNestedObjects', () => {
+    const raw = 'exarchos_event emit {"type":"status","payload":{"level":3,"tags":["a","b"]}}';
+    const result = parseCallMacro(raw);
+    expect(result).toEqual({
+      tool: 'exarchos_event',
+      action: 'emit',
+      args: { type: 'status', payload: { level: 3, tags: ['a', 'b'] } },
+    });
+  });
+
+  it('ParseCallMacro_MalformedJson_ThrowsDescriptiveError', () => {
+    expect(() => parseCallMacro('exarchos_workflow set {bad json}')).toThrow(
+      /JSON|parse|malformed/i,
+    );
+  });
+
+  it('ParseCallMacro_UnknownTool_ThrowsReferencingRegistry', () => {
+    expect(() => parseCallMacro('unknown_tool get {}')).toThrow(
+      /unknown tool|not in registry|not a known tool/i,
+    );
+  });
+
+  it('ParseCallMacro_MissingAction_ThrowsDescriptiveError', () => {
+    // Only tool name and JSON, no action token
+    expect(() => parseCallMacro('exarchos_workflow {"featureId":"X"}')).toThrow(
+      /parse|format|expected/i,
+    );
+  });
+
+  it('ParseCallMacro_MissingJsonArgs_ThrowsDescriptiveError', () => {
+    // Tool + action but no JSON body
+    expect(() => parseCallMacro('exarchos_workflow set')).toThrow(
+      /parse|format|expected|JSON/i,
+    );
+  });
+
+  it('ParseCallMacro_Roundtrip_ParseSerializeIdentity', () => {
+    // Property test: parse(serialize(ast)) === ast for valid ASTs
+    const original: CallMacroAst = {
+      tool: 'exarchos_view',
+      action: 'summary',
+      args: { featureId: 'feat-123', verbose: true },
+    };
+    const serialized = `${original.tool} ${original.action} ${JSON.stringify(original.args)}`;
+    const parsed = parseCallMacro(serialized);
+    expect(parsed).toEqual(original);
   });
 });
