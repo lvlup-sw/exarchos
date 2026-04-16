@@ -7,7 +7,9 @@
  * Public surface grows task-by-task:
  *   - Task 003: `render(body, placeholders)` — placeholder substitution core.
  *   - Task 004: error handling + `assertNoUnresolvedPlaceholders`.
- *   - Task 005: `parseTokenArgs` + argument-aware substitution.
+ *   - Task 005 (original): `parseTokenArgs` + argument-aware substitution.
+ *   - Task 005 (dual-facade): `parseCallMacro` + `CALL_MACRO_REGEX` — CALL
+ *     macro parser for `{{CALL tool action {json}}}` tokens.
  *   - Task 006: `copyReferences`.
  *   - Task 007: `buildAllSkills` orchestrator.
  *   - Task 008: `main()` CLI entry.
@@ -52,6 +54,30 @@ import { lintPlaceholders } from './placeholder-lint.js';
  * sites.
  */
 export const PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+([^}]*))?\}\}/g;
+
+/**
+ * Matches `{{CALL tool action {json}}}` macro tokens in skill source bodies.
+ *
+ * Capture group 1: full content after `CALL ` — i.e. `tool action {json}`.
+ * The captured string is what `parseCallMacro()` expects as its `raw` input.
+ *
+ * The inner `.+` is greedy (not `.+?`) so that JSON args containing `}`
+ * are captured correctly. E.g. `{{CALL tool act {"k":"v"}}}` — with a
+ * non-greedy match the first `}}` inside the JSON would terminate the
+ * capture prematurely. The greedy variant backtracks to let `\}\}` anchor
+ * at the true closing delimiter. One CALL macro per line is the expected
+ * usage; multiple CALL macros on the same line should be placed on
+ * separate lines instead.
+ *
+ * Exported so:
+ *   - The placeholder lint (task 010) can detect CALL macros without
+ *     duplicating the pattern.
+ *   - The render pipeline (tasks 007/008) can locate macros for expansion.
+ *
+ * WARNING: this is a stateful `/g` instance — same caveats as
+ * `PLACEHOLDER_REGEX`. Use `.matchAll()` or reset `lastIndex` manually.
+ */
+export const CALL_MACRO_REGEX = /\{\{CALL\s+(.+)\}\}/g;
 
 // ---------------------------------------------------------------------------
 // CALL macro parser (task 005)

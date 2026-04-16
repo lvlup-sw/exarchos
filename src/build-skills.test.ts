@@ -17,6 +17,7 @@ import {
   copyReferences,
   buildAllSkills,
   parseCallMacro,
+  CALL_MACRO_REGEX,
   type CallMacroAst,
 } from './build-skills.js';
 import { loadRuntime } from './runtimes/load.js';
@@ -577,5 +578,33 @@ describe('parseCallMacro', () => {
     const serialized = `${original.tool} ${original.action} ${JSON.stringify(original.args)}`;
     const parsed = parseCallMacro(serialized);
     expect(parsed).toEqual(original);
+  });
+
+  it('CALL_MACRO_REGEX_ExtractsContent_ParseCallMacroConsumesIt', () => {
+    // End-to-end: CALL_MACRO_REGEX captures the raw string that
+    // parseCallMacro expects — the two compose cleanly.
+    const body = 'before {{CALL exarchos_workflow set {"phase":"plan"}}} after';
+    const matches = [...body.matchAll(CALL_MACRO_REGEX)];
+    expect(matches).toHaveLength(1);
+    const raw = matches[0][1];
+    expect(raw).toBe('exarchos_workflow set {"phase":"plan"}');
+    const ast = parseCallMacro(raw);
+    expect(ast).toEqual({
+      tool: 'exarchos_workflow',
+      action: 'set',
+      args: { phase: 'plan' },
+    });
+  });
+
+  it('CALL_MACRO_REGEX_MultipleCallsInBody_MatchesAll', () => {
+    const body = [
+      '{{CALL exarchos_workflow set {"phase":"plan"}}}',
+      'some text',
+      '{{CALL exarchos_event emit {"type":"done"}}}',
+    ].join('\n');
+    const matches = [...body.matchAll(CALL_MACRO_REGEX)];
+    expect(matches).toHaveLength(2);
+    expect(parseCallMacro(matches[0][1]).tool).toBe('exarchos_workflow');
+    expect(parseCallMacro(matches[1][1]).tool).toBe('exarchos_event');
   });
 });
