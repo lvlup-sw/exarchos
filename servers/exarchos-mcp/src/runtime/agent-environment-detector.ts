@@ -125,20 +125,68 @@ function throwIfAborted(signal?: AbortSignal): void {
 
 async function probeRuntime(
   name: AgentRuntimeName,
-  _fs: DetectorFs,
+  fs: DetectorFs,
   home: string,
-  _cwd: string,
+  cwd: string,
 ): Promise<AgentEnvironment> {
-  // Baseline (Task 003): runtime-specific probing lands in Tasks 004/005.
-  // Return a placeholder record so Tasks 004/005 can replace branches
-  // one at a time while the shape of the return value stays stable.
+  const configPath = configPathFor(name, home, cwd);
+
+  if (name === 'claude-code') {
+    const raw = await readOrNull(fs, configPath);
+    if (raw === null) {
+      return {
+        name,
+        configPath,
+        configPresent: false,
+        configValid: false,
+        mcpRegistered: false,
+        skillsDir: path.join(home, '.claude', 'skills'),
+      };
+    }
+    const parsed = parseClaudeConfig(raw);
+    return {
+      name,
+      configPath,
+      configPresent: true,
+      configValid: parsed.valid,
+      mcpRegistered: parsed.mcpRegistered,
+      skillsDir: path.join(home, '.claude', 'skills'),
+    };
+  }
+
+  // Tasks 005: cursor, codex, copilot, opencode branches land next.
   return {
     name,
-    configPath: configPathFor(name, home, _cwd),
+    configPath,
     configPresent: false,
     configValid: false,
     mcpRegistered: false,
   };
+}
+
+async function readOrNull(fs: DetectorFs, p: string): Promise<string | null> {
+  try {
+    return await fs.readFile(p);
+  } catch {
+    return null;
+  }
+}
+
+function parseClaudeConfig(raw: string): { valid: boolean; mcpRegistered: boolean } {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { valid: false, mcpRegistered: false };
+    }
+    const mcpServers = (parsed as { mcpServers?: unknown }).mcpServers;
+    const mcpRegistered =
+      typeof mcpServers === 'object' &&
+      mcpServers !== null &&
+      'exarchos' in (mcpServers as Record<string, unknown>);
+    return { valid: true, mcpRegistered };
+  } catch {
+    return { valid: false, mcpRegistered: false };
+  }
 }
 
 function configPathFor(name: AgentRuntimeName, home: string, cwd: string): string {
