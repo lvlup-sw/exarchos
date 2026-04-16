@@ -40,6 +40,16 @@ describe('buildProbes', () => {
     expect(typeof probes.git.version).toBe('function');
   });
 
+  it('BuildProbes_FromDispatchContext_ReturnsSkillsAndPluginProbesBound', () => {
+    const ctx = fakeContext();
+
+    const probes = buildProbes(ctx);
+
+    expect(typeof probes.skills.guardStatus).toBe('function');
+    expect(typeof probes.plugin.installedVersion).toBe('function');
+    expect(typeof probes.plugin.runningVersion).toBe('function');
+  });
+
   it('BuildProbes_SqliteRunIntegrityCheck_DelegatesToEventStore', async () => {
     const sentinel = { ok: 'skipped' as const, reason: 'test-marker' };
     const recorded: Array<{ signal?: AbortSignal; timeoutMs?: number }> = [];
