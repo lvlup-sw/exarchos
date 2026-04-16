@@ -38,11 +38,10 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     expect(claudeRuntime.preferredFacade).toBe('mcp');
 
     // Render the {{CALL}} macro source under the MCP-preferred runtime.
-    // Today this will throw (unknown placeholder "CALL") or leave the
-    // token unresolved — both are expected failures for the RED phase.
     const rendered = render(CALL_MACRO_SOURCE, claudeRuntime.placeholders, {
       sourcePath: 'skills-src/test-skill/SKILL.md',
       runtimeName: claudeRuntime.name,
+      runtime: claudeRuntime,
     });
 
     // The output must contain the fully-qualified MCP tool name with the
@@ -66,10 +65,10 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     expect(genericRuntime.preferredFacade).toBe('cli');
 
     // Render the {{CALL}} macro source under the CLI-preferred runtime.
-    // Same as above: will throw or leave unresolved — expected RED failure.
     const rendered = render(CALL_MACRO_SOURCE, genericRuntime.placeholders, {
       sourcePath: 'skills-src/test-skill/SKILL.md',
       runtimeName: genericRuntime.name,
+      runtime: genericRuntime,
     });
 
     // The output must contain a Bash-style CLI invocation with the tool

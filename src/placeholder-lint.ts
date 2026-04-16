@@ -30,7 +30,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { PLACEHOLDER_REGEX } from './build-skills.js';
+import { PLACEHOLDER_REGEX, CALL_MACRO_REGEX } from './build-skills.js';
 
 /**
  * Canonical vocabulary of placeholder tokens that `skills-src/` sources
@@ -127,12 +127,31 @@ export function lintPlaceholders(
     const skillFiles = collectSkillFiles(opts.sourcesDir);
     for (const file of skillFiles) {
       const body = readFileSync(file, 'utf8');
+
+      // Collect the byte-ranges occupied by CALL macros so we can skip
+      // placeholder hits that fall inside a macro. CALL macros are
+      // handled by `renderCallMacros()` before `render()`, so they
+      // are not vocabulary tokens.
+      const callRanges: Array<[number, number]> = [];
+      const callRegex = new RegExp(CALL_MACRO_REGEX.source, 'g');
+      let callMatch: RegExpExecArray | null;
+      while ((callMatch = callRegex.exec(body)) !== null) {
+        callRanges.push([callMatch.index, callMatch.index + callMatch[0].length]);
+      }
+
       // Reset the stateful /g regex before each file so prior scans
       // don't leak `lastIndex` into this one.
       PLACEHOLDER_REGEX.lastIndex = 0;
       let match: RegExpExecArray | null;
       while ((match = PLACEHOLDER_REGEX.exec(body)) !== null) {
         const token = match[1];
+        // Skip tokens that fall inside a CALL macro range.
+        const offset = match.index;
+        const insideCall = callRanges.some(
+          ([start, end]) => offset >= start && offset < end,
+        );
+        if (insideCall) continue;
+
         if (!vocabSet.has(token)) {
           findings.push({
             token,

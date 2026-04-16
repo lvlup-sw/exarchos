@@ -9,7 +9,7 @@
  *   - Task 007: buildAllSkills orchestrator + escape hatch
  */
 
-import { describe, it, expect, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import {
   render,
   assertNoUnresolvedPlaceholders,
@@ -18,6 +18,7 @@ import {
   buildAllSkills,
   parseCallMacro,
   renderCallMacros,
+  clearRegistryLookup,
   CALL_MACRO_REGEX,
   type CallMacroAst,
 } from './build-skills.js';
@@ -631,6 +632,13 @@ describe('validateCallMacro', () => {
     setRegistryLookup(registry.findActionInRegistry);
   });
 
+  // Clear the module-level registry lookup after this block so it does
+  // not leak into later describe blocks (e.g. renderCallMacros tests
+  // that use fixture data not matching real schemas).
+  afterAll(() => {
+    clearRegistryLookup();
+  });
+
   it('ValidateCallMacro_UnknownAction_FailsAtBuildTime', () => {
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
@@ -782,7 +790,7 @@ describe('renderCallMacros — MCP facade', () => {
     expect(parsed).toEqual({ action: 'summary' });
   });
 
-  it('RenderCallMacro_CliFacade_LeavesUnmodified', () => {
+  it('RenderCallMacro_CliFacade_EmitsBashCliInvocation', () => {
     const runtime = makeRuntime({
       preferredFacade: 'cli',
       mcpPrefix: 'mcp__test__',
@@ -790,8 +798,8 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // CLI branch not yet implemented (task 008) — macro left as-is
-    expect(output).toBe(input);
+    // CLI facade renders a Bash-style CLI invocation with kebab-case flags
+    expect(output).toBe('Bash(exarchos workflow set --feature-id X --phase plan --json)');
   });
 
   it('RenderCallMacro_NoCallMacros_ReturnsBodyUnchanged', () => {
