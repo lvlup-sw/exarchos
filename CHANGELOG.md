@@ -13,6 +13,11 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - Waiting PID-lock for concurrent CLI event-store appends — two concurrent `exarchos event append` invocations now serialize onto the main JSONL (DR-5). MCP-server mode preserves first-wins + sidecar semantics so hooks never block.
 - Shared parity-harness module (`servers/exarchos-mcp/src/__tests__/parity-harness.ts`) and parametrized CLI↔MCP parity tests across all five composite tools (DR-3).
 - Documentation stub `docs/designs/future/remote-mcp-deployment.md` + `CLAUDE.md` Architecture pointer (DR-6 placeholder).
+- `{{CALL tool action <json>}}` placeholder macro for facade-agnostic skill authoring — renders to MCP tool_use on MCP-preferred runtimes and `Bash(exarchos ...)` on CLI-preferred runtimes (cli-vs-mcp-facade-analysis, DR-2).
+- Placeholder-lint deprecation warning for raw `mcp__…` references in skill sources — authors see a warning during build, CI stays green. Set `EXARCHOS_LINT_STRICT=1` to flip warnings to errors after the transition window closes (DR-2, DR-8).
+- CLI rendering path with kebab-case flag mapping: `featureId: "X"` → `--feature-id X`, `dryRun: true` → `--dry-run`, trailing `--json` always appended (DR-2).
+- Render-time validation of CALL macros against the `TOOL_REGISTRY` — unknown actions and invalid args fail the build with the source file path and line number (DR-2).
+- Migration no-regression check (`src/build-skills.migration.test.ts`) — guards that existing Claude skill renders remain byte-identical after the dual-facade changes (DR-8).
 
 ### Bug Fixes
 - `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
