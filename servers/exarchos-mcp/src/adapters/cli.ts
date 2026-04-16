@@ -128,9 +128,18 @@ export function buildCli(ctx: DispatchContext): Command {
 
   for (const tool of getFullRegistry()) {
     const toolName = tool.name.replace(/^exarchos_/, '');
+    const cliName = tool.cli?.alias ?? toolName;
     const toolCmd = program
-      .command(tool.cli?.alias ?? toolName)
+      .command(cliName)
       .description(tool.description);
+
+    // Register the full tool name as an alias when the CLI uses a short alias
+    // (e.g. `wf` → add `workflow` as alias). This keeps both forms working so
+    // `{{CALL exarchos_workflow ...}}` renders to `Bash(exarchos workflow ...)`
+    // without needing the renderer to know about CLI aliases.
+    if (cliName !== toolName) {
+      toolCmd.alias(toolName);
+    }
 
     for (const action of tool.actions) {
       const actionCmd = toolCmd

@@ -399,9 +399,23 @@ function renderCliCall(ast: CallMacroAst, runtime: RuntimeMap): string {
 function renderCliPrimary(ast: CallMacroAst): string {
   // Convert tool name: exarchos_workflow → exarchos workflow
   const toolCmd = ast.tool.replace(/_/g, ' ');
-  const flags = Object.entries(ast.args)
-    .map(([key, value]) => `--${camelToKebab(key)} ${String(value)}`)
-    .join(' ');
+  const flagParts: string[] = [];
+  for (const [key, value] of Object.entries(ast.args)) {
+    const kebab = camelToKebab(key);
+    if (value === true) {
+      // Boolean true → bare flag (no value)
+      flagParts.push(`--${kebab}`);
+    } else if (value === false) {
+      // Boolean false → negated flag
+      flagParts.push(`--no-${kebab}`);
+    } else if (value !== null && typeof value === 'object') {
+      // Object / array → JSON-serialize so we don't emit `[object Object]`
+      flagParts.push(`--${kebab}`, JSON.stringify(value));
+    } else {
+      flagParts.push(`--${kebab}`, String(value));
+    }
+  }
+  const flags = flagParts.join(' ');
   const flagsPart = flags.length > 0 ? ` ${flags}` : '';
   return `Bash(${toolCmd} ${ast.action}${flagsPart} --json)`;
 }

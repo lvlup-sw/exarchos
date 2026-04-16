@@ -24,7 +24,7 @@ The CLI adapter (`adapters/cli.ts`) builds a Commander program from the tool reg
 
 ### Local MCP invocation
 
-```
+```text
 mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "set", featureId: "my-feature", phase: "plan" })
 ```
 

@@ -816,6 +816,44 @@ describe('renderCallMacros — MCP facade', () => {
     expect(output).toContain('<!-- If Bash is unavailable');
   });
 
+  it('RenderCallMacro_CliFacade_BooleanArgsEmitNoArgumentFlag', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'cli',
+      mcpPrefix: 'mcp__test__',
+    });
+
+    // Boolean true → bare --dry-run (no value)
+    const outputTrue = renderCallMacros(
+      '{{CALL exarchos_workflow cancel {"featureId":"X","dryRun":true}}}',
+      runtime,
+    );
+    expect(outputTrue).toContain('--dry-run');
+    expect(outputTrue).not.toMatch(/--dry-run\s+(true|false)/);
+
+    // Boolean false → negated --no-dry-run flag
+    const outputFalse = renderCallMacros(
+      '{{CALL exarchos_workflow cancel {"featureId":"X","dryRun":false}}}',
+      runtime,
+    );
+    expect(outputFalse).toContain('--no-dry-run');
+  });
+
+  it('RenderCallMacro_CliFacade_ObjectArgsSerializeAsJson', () => {
+    // Regression guard: `String(value)` on an object yields "[object Object]",
+    // which produces a broken CLI invocation. Object/array values must be
+    // JSON-serialized instead.
+    const runtime = makeRuntime({
+      preferredFacade: 'cli',
+      mcpPrefix: 'mcp__test__',
+    });
+    const output = renderCallMacros(
+      '{{CALL exarchos_workflow set {"featureId":"X","updates":{"phase":"plan"}}}}',
+      runtime,
+    );
+    expect(output).toContain('--updates {"phase":"plan"}');
+    expect(output).not.toContain('[object Object]');
+  });
+
   it('RenderCallMacro_NoCallMacros_ReturnsBodyUnchanged', () => {
     const runtime = makeRuntime({
       preferredFacade: 'mcp',
