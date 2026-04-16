@@ -21,7 +21,7 @@ import { promises as nodeFs } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DispatchContext } from '../../core/dispatch.js';
-import type { EventStore } from '../../event-store/store.js';
+import type { EventStore, IntegrityResult } from '../../event-store/store.js';
 import {
   detectAgentEnvironments,
   type AgentEnvironment,
@@ -36,9 +36,17 @@ export interface DoctorGit {
 }
 
 export interface DoctorSqlite {
-  /** Returns a backend handle suitable for PRAGMA integrity_check, or
-   * null when no backend is attached (jsonl-only mode). */
-  handle(): unknown | null;
+  /**
+   * Run a bounded backend integrity probe via the EventStore's narrow
+   * accessor. The EventStore itself enforces the timeout and abort
+   * contract (DIM-7); this probe is a thin forwarder. The returned
+   * IntegrityResult is a discriminated union — callers pattern-match
+   * on `ok` without type assertions (DIM-3).
+   */
+  runIntegrityCheck(opts?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<IntegrityResult>;
 }
 
 export interface DoctorProbes {
@@ -86,11 +94,13 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
     fs: DEFAULT_FS,
     env: process.env,
     git: DEFAULT_GIT,
-    // The EventStore does not expose a raw sqlite handle today; the
-    // storage-sqlite-health check reads through the backend interface
-    // when present. handle() returns null in jsonl-only mode so the
-    // check can emit Skipped with a reason.
-    sqlite: { handle: () => null },
+    // Thin forwarder to the EventStore's narrow integrity accessor.
+    // The EventStore enforces timeout + abort internally (DIM-7) and
+    // reports skipped when no applicable backend is attached, so this
+    // probe never needs to reach for a raw sqlite handle (DIM-6).
+    sqlite: {
+      runIntegrityCheck: (opts) => ctx.eventStore.runIntegrityCheck(opts),
+    },
     detector: (signal) => detectAgentEnvironments(undefined, signal),
     eventStore: ctx.eventStore,
   };
