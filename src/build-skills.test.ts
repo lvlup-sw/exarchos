@@ -829,6 +829,128 @@ describe('renderCallMacros — MCP facade', () => {
 });
 
 // -----------------------------------------------------------------------------
+// Task 020: renderCallMacros — missing-facade remediation (DR-5)
+// -----------------------------------------------------------------------------
+
+describe('renderCallMacros — missing-facade remediation', () => {
+  /**
+   * Helper: build a minimal RuntimeMap fixture with the given facade and prefix.
+   * Duplicated locally so this describe block is self-contained.
+   */
+  function makeRuntime(overrides: {
+    preferredFacade: 'mcp' | 'cli';
+    mcpPrefix: string;
+  }): RuntimeMap {
+    return {
+      name: 'test-runtime',
+      preferredFacade: overrides.preferredFacade,
+      capabilities: {
+        hasSubagents: true,
+        hasSlashCommands: true,
+        hasHooks: true,
+        hasSkillChaining: true,
+        mcpPrefix: overrides.mcpPrefix,
+      },
+      skillsInstallPath: '~/.test/skills',
+      detection: { binaries: ['test'], envVars: ['TEST'] },
+      placeholders: {},
+    };
+  }
+
+  it('McpMissingAtRuntime_RenderedSkillEmitsActionableError', () => {
+    // When the primary facade is MCP, the rendered output must include a
+    // fallback pointer to the CLI form so an agent can recover if MCP is
+    // unavailable at runtime (DR-5).
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // Primary form still rendered
+    expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
+
+    // Fallback remediation comment must be present as an HTML comment
+    expect(output).toContain('<!-- If MCP is unavailable');
+
+    // Fallback must point to the CLI form so the agent can use it directly
+    expect(output).toContain(
+      'Bash(exarchos workflow set --feature-id X --phase plan --json)',
+    );
+
+    // HTML comment must be closed (no dangling comment)
+    expect(output).toContain('-->');
+  });
+
+  it('BashMissingAtRuntime_RenderedSkillEmitsActionableError', () => {
+    // When the primary facade is CLI, the rendered output must include a
+    // fallback pointer to the MCP tool_use form so an agent can recover if
+    // Bash is unavailable at runtime (DR-5).
+    const runtime = makeRuntime({
+      preferredFacade: 'cli',
+      mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // Primary form still rendered
+    expect(output).toContain(
+      'Bash(exarchos workflow set --feature-id X --phase plan --json)',
+    );
+
+    // Fallback remediation comment must be present as an HTML comment
+    expect(output).toContain('<!-- If Bash is unavailable');
+
+    // Fallback must point to the MCP tool_use form so the agent can use it
+    expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
+
+    // Fallback MCP form must contain the action discriminator and args
+    expect(output).toMatch(/"action"\s*:\s*"set"/);
+    expect(output).toMatch(/"featureId"\s*:\s*"X"/);
+    expect(output).toMatch(/"phase"\s*:\s*"plan"/);
+
+    // HTML comment must be closed (no dangling comment)
+    expect(output).toContain('-->');
+  });
+
+  it('McpFallback_SingleLineCommentForScanability', () => {
+    // The fallback comment must be on a single line so it's easy to scan
+    // (spec requirement).
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    const commentLine = output
+      .split('\n')
+      .find((l) => l.includes('If MCP is unavailable'));
+    expect(commentLine).toBeDefined();
+    // The entire comment (open to close) must live on a single line
+    expect(commentLine!).toContain('<!--');
+    expect(commentLine!).toContain('-->');
+  });
+
+  it('CliFallback_SingleLineCommentForScanability', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'cli',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    const commentLine = output
+      .split('\n')
+      .find((l) => l.includes('If Bash is unavailable'));
+    expect(commentLine).toBeDefined();
+    expect(commentLine!).toContain('<!--');
+    expect(commentLine!).toContain('-->');
+  });
+});
+
+// -----------------------------------------------------------------------------
 // Task 009: Render-time CALL macro failure in buildAllSkills
 // -----------------------------------------------------------------------------
 
