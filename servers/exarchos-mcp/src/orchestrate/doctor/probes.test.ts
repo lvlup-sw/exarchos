@@ -29,4 +29,14 @@ describe('buildProbes', () => {
 
     expect(probes.eventStore).toBe(marker);
   });
+
+  it('BuildProbes_FromDispatchContext_ReturnsGitProbeWithWhichIsRepoAndVersion', () => {
+    const ctx = fakeContext();
+
+    const probes = buildProbes(ctx);
+
+    expect(typeof probes.git.which).toBe('function');
+    expect(typeof probes.git.isRepo).toBe('function');
+    expect(typeof probes.git.version).toBe('function');
+  });
 });
