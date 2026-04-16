@@ -244,9 +244,12 @@ describe('isDirectExecution (#1085)', () => {
   });
 
   it('matches when argv[1] is a .ts source path but the module loads as .js', () => {
+    // Handles tsx/ts-node style invocation where argv[1] reports the .ts
+    // source path while import.meta.url already reflects the .js module URL
+    // at the same location.
     expect(
       isDirectExecution(
-        'file:///Users/foo/repo/dist/exarchos.js',
+        'file:///Users/foo/repo/src/exarchos.js',
         '/Users/foo/repo/src/exarchos.ts',
       ),
     ).toBe(true);
@@ -255,7 +258,7 @@ describe('isDirectExecution (#1085)', () => {
   it('matches a Windows .ts → .js invocation (normalize + extension swap)', () => {
     expect(
       isDirectExecution(
-        'file:///C:/Users/foo/repo/dist/exarchos.js',
+        'file:///C:/Users/foo/repo/src/exarchos.js',
         'C:\\Users\\foo\\repo\\src\\exarchos.ts',
       ),
     ).toBe(true);

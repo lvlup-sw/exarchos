@@ -331,13 +331,30 @@ async function main() {
   await runCli(program, process.argv);
 }
 
-// Only run main when executed directly (not when imported for testing)
-const isDirectExecution =
-  process.argv[1] &&
-  (import.meta.url.endsWith(process.argv[1]) ||
-    import.meta.url.endsWith(process.argv[1].replace(/\.ts$/, '.js')));
+/**
+ * Decide whether this module is being executed directly (vs imported as a
+ * library) by comparing `import.meta.url` to `process.argv[1]`.
+ *
+ * Normalizes path separators before the comparison: on Windows,
+ * `import.meta.url` is a forward-slash file:// URL (`file:///C:/…/exarchos.js`)
+ * while `process.argv[1]` uses backslashes (`C:\…\exarchos.js`), so a naive
+ * `endsWith` never matches and `main()` never runs — which silently turned
+ * the entire CLI into a no-op on Windows. See #1085.
+ *
+ * Exported for unit testing; callers should pass `import.meta.url` and
+ * `process.argv[1]` directly.
+ */
+export function isDirectExecution(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  const normalized = argv1.replace(/\\/g, '/');
+  return (
+    metaUrl.endsWith(argv1) ||
+    metaUrl.endsWith(normalized) ||
+    metaUrl.endsWith(normalized.replace(/\.ts$/, '.js'))
+  );
+}
 
-if (isDirectExecution) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main().catch((err) => {
     logger.fatal({ err }, 'MCP server fatal error');
     process.exit(1);
