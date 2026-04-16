@@ -17,6 +17,7 @@ import {
   copyReferences,
   buildAllSkills,
   parseCallMacro,
+  renderCallMacros,
   CALL_MACRO_REGEX,
   type CallMacroAst,
 } from './build-skills.js';
@@ -665,5 +666,155 @@ describe('validateCallMacro', () => {
       args: {},
     };
     expect(() => validateCallMacro(ast)).toThrow(/unknown action/i);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 007 (dual-facade): renderCallMacros — MCP facade rendering
+// -----------------------------------------------------------------------------
+
+describe('renderCallMacros — MCP facade', () => {
+  /**
+   * Helper: build a minimal RuntimeMap fixture with the given facade and prefix.
+   * Only the fields that `renderCallMacros` needs are populated; the rest are
+   * set to sensible defaults so the type is satisfied.
+   */
+  function makeRuntime(overrides: {
+    preferredFacade: 'mcp' | 'cli';
+    mcpPrefix: string;
+  }): RuntimeMap {
+    return {
+      name: 'test-runtime',
+      preferredFacade: overrides.preferredFacade,
+      capabilities: {
+        hasSubagents: true,
+        hasSlashCommands: true,
+        hasHooks: true,
+        hasSkillChaining: true,
+        mcpPrefix: overrides.mcpPrefix,
+      },
+      skillsInstallPath: '~/.test/skills',
+      detection: { binaries: ['test'], envVars: ['TEST'] },
+      placeholders: {},
+    };
+  }
+
+  it('RenderCallMacro_McpFacade_EmitsToolUseBlockWithPrefix', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // The output should contain the full prefixed tool name
+    expect(output).toContain('mcp__plugin_exarchos_exarchos__exarchos_workflow');
+    // The action discriminator must be injected into the args
+    expect(output).toContain('"action": "set"');
+    // Original args must be present
+    expect(output).toContain('"featureId": "X"');
+    expect(output).toContain('"phase": "plan"');
+  });
+
+  it('RenderCallMacro_McpFacade_ActionFieldComesFirst', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // action field should appear before featureId in the serialized output
+    const actionIdx = output.indexOf('"action"');
+    const featureIdx = output.indexOf('"featureId"');
+    expect(actionIdx).toBeLessThan(featureIdx);
+  });
+
+  it('RenderCallMacro_McpFacade_OutputFormat', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = '{{CALL exarchos_event emit {"type":"done"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // Full format check: prefix + tool + parenthesized JSON
+    expect(output).toMatch(/^mcp__test__exarchos_event\(/);
+    expect(output).toMatch(/\)$/);
+    // Parse the JSON inside the parens to verify structure
+    const jsonMatch = output.match(/\((.+)\)$/s);
+    expect(jsonMatch).not.toBeNull();
+    const parsed = JSON.parse(jsonMatch![1]);
+    expect(parsed).toEqual({ action: 'emit', type: 'done' });
+  });
+
+  it('RenderCallMacro_McpFacade_MultipleCallsInBody', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = [
+      'Before: {{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}',
+      'Middle text',
+      'After: {{CALL exarchos_event emit {"type":"done"}}}',
+    ].join('\n');
+    const output = renderCallMacros(input, runtime);
+
+    expect(output).toContain('mcp__test__exarchos_workflow');
+    expect(output).toContain('mcp__test__exarchos_event');
+    // Surrounding text preserved
+    expect(output).toContain('Before:');
+    expect(output).toContain('Middle text');
+    expect(output).toContain('After:');
+  });
+
+  it('RenderCallMacro_McpFacade_EmptyArgs', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = '{{CALL exarchos_view summary {}}}';
+    const output = renderCallMacros(input, runtime);
+
+    const jsonMatch = output.match(/\((.+)\)$/s);
+    expect(jsonMatch).not.toBeNull();
+    const parsed = JSON.parse(jsonMatch![1]);
+    expect(parsed).toEqual({ action: 'summary' });
+  });
+
+  it('RenderCallMacro_CliFacade_LeavesUnmodified', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'cli',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    // CLI branch not yet implemented (task 008) — macro left as-is
+    expect(output).toBe(input);
+  });
+
+  it('RenderCallMacro_NoCallMacros_ReturnsBodyUnchanged', () => {
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__test__',
+    });
+    const input = 'plain text with {{PLACEHOLDER}} tokens but no CALL macros';
+    const output = renderCallMacros(input, runtime);
+
+    expect(output).toBe(input);
+  });
+
+  it('RenderCallMacro_McpFacade_UsesRuntimeMcpPrefix', () => {
+    // Different prefix => different output
+    const runtime = makeRuntime({
+      preferredFacade: 'mcp',
+      mcpPrefix: 'mcp__custom_prefix__',
+    });
+    const input = '{{CALL exarchos_workflow set {"featureId":"X"}}}';
+    const output = renderCallMacros(input, runtime);
+
+    expect(output).toContain('mcp__custom_prefix__exarchos_workflow');
+    expect(output).not.toContain('mcp__plugin_exarchos_exarchos__');
   });
 });
