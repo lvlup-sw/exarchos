@@ -48,7 +48,7 @@ Properties intentionally *not* addressed here (future tiers):
 
 ## Risk
 
-- Sidecar events surfaced by `query()` have synthetic sequences (main max + 1, +2, …). Once the primary restarts and the merger runs, the same events acquire real sequences. A view that caches "last seen sequence" across process restarts could observe a sequence number going backward or repeating for the same event. All current materializers re-materialize from scratch on each query, so this is not an issue in practice; documented as a caveat.
+- Sidecar events surfaced by `query()` have synthetic sequences (main max + 1, +2, …). Once the primary restarts and the merger runs, the same events acquire real sequences. This is a **live correctness risk** for the incremental materializer in `servers/exarchos-mcp/src/views/materializer.ts:155` — it filters events by `sequence > highWaterMark` and advances the HWM to the max synthetic sequence. After the primary drains the sidecar, the replayed events carry lower (real) sequences and are silently dropped as "already seen." Two mitigations (either is sufficient, neither is in scope for Tier 1): (a) the primary invalidates affected view-cache entries when draining, or (b) materializers reset HWM on sidecar-mode boundary transitions. Tier 2 (live drain) closes this surface by ensuring sidecar sequences become real within a bounded window.
 - No sidecar-mode-to-sidecar-mode dedupe at query time: two sidecar instances writing events with the same `idempotencyKey` will both be returned. The existing sidecar merger dedupes at merge time; query-time dedupe is out of scope for Tier 1.
 
 ## Related

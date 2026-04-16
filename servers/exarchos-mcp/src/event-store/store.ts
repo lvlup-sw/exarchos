@@ -60,6 +60,34 @@ export interface QueryFilters {
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
 const SEQUENCE_REGEX = /"sequence":(\d+)/;
 
+/**
+ * Merge two time-ordered event lists into a single timestamp-ordered stream.
+ *
+ * Both inputs are assumed to be individually sorted by timestamp (main events
+ * follow sequence order, which mirrors insertion order; sidecar events are
+ * explicitly sorted in `readSidecarForQuery`). Ties break deterministically
+ * by preferring main-stream events — sidecar entries were written while the
+ * primary held the lock, so their timestamps are at least as recent as any
+ * main event seen so far.
+ */
+function mergeByTimestamp(
+  main: WorkflowEvent[],
+  sidecar: WorkflowEvent[],
+): WorkflowEvent[] {
+  if (sidecar.length === 0) return main;
+  if (main.length === 0) return sidecar;
+  const out: WorkflowEvent[] = new Array(main.length + sidecar.length);
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < main.length && j < sidecar.length) {
+    out[k++] = main[i].timestamp <= sidecar[j].timestamp ? main[i++] : sidecar[j++];
+  }
+  while (i < main.length) out[k++] = main[i++];
+  while (j < sidecar.length) out[k++] = sidecar[j++];
+  return out;
+}
+
 /** Parse an integer from an environment variable with a fallback default. */
 function parseEnvInt(envVar: string, defaultValue: number): number {
   const raw = process.env[envVar];
@@ -573,16 +601,11 @@ export class EventStore {
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
-    // Delegate to backend if available
-    if (this.backend) {
-      return this.backend.queryEvents(streamId, filters);
-    }
-
     // Issue #1082: when a sibling process is in sidecar mode, its events land
     // in `{streamId}.hook-events.jsonl` and are invisible to readers that look
-    // only at the main JSONL. Merge main + sidecar so every materializer sees
-    // a consistent stream. Fast path (no sidecar) keeps the original optimized
-    // loop with early termination on limit.
+    // only at the main source (JSONL or backend). Merge main + sidecar so
+    // every materializer sees a consistent stream. Fast path (no sidecar)
+    // keeps the original optimized loop with early termination on limit.
     const sidecarPath = getSidecarPath(this.stateDir, streamId);
     let sidecarExists = false;
     try {
@@ -593,40 +616,46 @@ export class EventStore {
     }
 
     if (!sidecarExists) {
+      if (this.backend) {
+        return this.backend.queryEvents(streamId, filters);
+      }
       return this.queryMainJsonl(streamId, filters);
     }
 
-    // Sidecar present: collect main events without offset/limit, merge with
-    // sidecar events (timestamp-ordered, synthetic sequences), then slice.
-    const mainEvents = await this.queryMainJsonl(streamId, {
+    // Sidecar present: collect main events without offset/limit (we apply
+    // those after merging), merge with sidecar events by timestamp, then
+    // slice. Reading offset/limit from the backend/JSONL here would drop
+    // main events that should interleave with sidecar entries.
+    const mainFilters: QueryFilters = {
       type: filters?.type,
       since: filters?.since,
       until: filters?.until,
       sinceSequence: filters?.sinceSequence,
-    });
+    };
+    const mainEvents = this.backend
+      ? await this.backend.queryEvents(streamId, mainFilters)
+      : await this.queryMainJsonl(streamId, mainFilters);
 
-    // Synthetic sidecar sequences continue from the true stream max — not
-    // from mainEvents.length, which could be filtered. Skip
-    // initializeSequence when the main JSONL doesn't exist to avoid a
-    // spurious warning on sidecar-only streams.
-    let mainMax = this.sequenceCounters.get(streamId);
-    if (mainMax === undefined) {
-      const mainPath = this.getEventFilePath(streamId);
-      let mainExists = false;
-      try {
-        await fs.access(mainPath);
-        mainExists = true;
-      } catch {
-        // No main file — synthetic sequences start from 0.
-      }
-      if (mainExists) {
-        await this.initializeSequence(streamId);
-      }
-      mainMax = this.sequenceCounters.get(streamId) ?? 0;
+    // Re-read the on-disk sequence counter rather than trusting the cached
+    // value. The sibling primary may have appended to the main file since
+    // we last initialized, so the cached max could lag reality. Refreshing
+    // keeps synthetic sidecar sequences monotonically after the true max.
+    const mainPath = this.getEventFilePath(streamId);
+    let mainExists = false;
+    try {
+      await fs.access(mainPath);
+      mainExists = true;
+    } catch {
+      // No main file — synthetic sequences start from 0.
     }
+    if (mainExists) {
+      await this.initializeSequence(streamId);
+    }
+    const mainMax = this.sequenceCounters.get(streamId)
+      ?? (this.backend ? this.backend.getSequence(streamId) : 0);
     const sidecarEvents = await this.readSidecarForQuery(streamId, mainMax, filters);
 
-    const merged = [...mainEvents, ...sidecarEvents];
+    const merged = mergeByTimestamp(mainEvents, sidecarEvents);
     const offset = filters?.offset ?? 0;
     const limit = filters?.limit;
     const sliced = offset > 0 ? merged.slice(offset) : merged;

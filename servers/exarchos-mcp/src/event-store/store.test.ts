@@ -1365,6 +1365,43 @@ describe('EventStore Sidecar Mode', () => {
     expect(newEvents.map((e) => e.sequence)).toEqual([3, 4]);
   });
 
+  it('SidecarMode_QueryInterleavesMainAndSidecarByTimestamp', async () => {
+    // When sidecar events have timestamps *between* main events, the merged
+    // stream must be timestamp-ordered rather than "main-first, sidecar-
+    // appended." Materializers that depend on causal ordering (e.g. a
+    // `state.patched` applied before a later `workflow.transition`) rely on
+    // this interleave to reconstruct state correctly.
+    const main = new EventStore(tempDir);
+    await main.append('wf-interleave', {
+      type: 'workflow.started',
+      data: {},
+      timestamp: '2026-04-14T10:00:00.000Z',
+    });
+    await main.append('wf-interleave', {
+      type: 'workflow.transition',
+      data: { from: 'a', to: 'b' },
+      timestamp: '2026-04-14T10:00:10.000Z',
+    });
+
+    const lockPath = path.join(tempDir, '.event-store.lock');
+    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
+    const sidecar = new EventStore(tempDir);
+    await sidecar.initialize();
+    // Sidecar event with a timestamp *between* the two main events.
+    await sidecar.append('wf-interleave', {
+      type: 'state.patched',
+      data: { k: 1 },
+      timestamp: '2026-04-14T10:00:05.000Z',
+    });
+
+    const events = await sidecar.query('wf-interleave');
+    expect(events.map((e) => e.type)).toEqual([
+      'workflow.started',
+      'state.patched',
+      'workflow.transition',
+    ]);
+  });
+
   it('SidecarMode_QueryWithNoMainJsonlOnlyReturnsSidecarEvents', async () => {
     // Simulates a fresh stream where only sidecar-mode writes have happened.
     const lockPath = path.join(tempDir, '.event-store.lock');

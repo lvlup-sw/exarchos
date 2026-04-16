@@ -30,7 +30,12 @@ afterEach(async () => {
 });
 
 async function makeSidecarStore(dir: string): Promise<EventStore> {
-  // Simulate a sibling process holding the PID lock.
+  // Simulate another process holding the PID lock by writing our own PID —
+  // `acquirePidLock` checks `isPidAlive(existingPid)` and only enters sidecar
+  // mode when the lock holder is alive. `process.pid` is the one PID
+  // guaranteed to be alive for the duration of the test; a fabricated
+  // "sibling" offset could easily map to a non-existent PID, causing the
+  // lock to be reclaimed as stale and the store to skip sidecar fallback.
   const lockPath = path.join(dir, '.event-store.lock');
   await fs.writeFile(lockPath, String(process.pid), 'utf-8');
   const store = new EventStore(dir);
@@ -150,6 +155,32 @@ describe('handleSet sidecar-pending ack', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan');
+    expect(data.sidecarPending).toBeUndefined();
+  });
+
+  it('handleSet_SidecarMode_NoOpUpdateOmitsSidecarPending', async () => {
+    // Ack-precision: in sidecar mode, a call that emits no event (empty
+    // updates, no phase transition) must not return sidecarPending. The flag
+    // signals "a write landed in the sidecar" — absent a write, it would be
+    // a false alarm.
+    const seeder = new EventStore(tmpDir);
+    await handleInit(
+      { featureId: 'wf-set-noop', workflowType: 'feature' },
+      tmpDir,
+      seeder,
+    );
+
+    const sidecar = await makeSidecarStore(tmpDir);
+    expect(sidecar.inSidecarMode).toBe(true);
+
+    const result = await handleSet(
+      { featureId: 'wf-set-noop', updates: {} },
+      tmpDir,
+      sidecar,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
     expect(data.sidecarPending).toBeUndefined();
   });
 
