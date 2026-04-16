@@ -9,7 +9,7 @@
  *   - Task 007: buildAllSkills orchestrator + escape hatch
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import {
   render,
   assertNoUnresolvedPlaceholders,
@@ -606,5 +606,48 @@ describe('parseCallMacro', () => {
     expect(matches).toHaveLength(2);
     expect(parseCallMacro(matches[0][1]).tool).toBe('exarchos_workflow');
     expect(parseCallMacro(matches[1][1]).tool).toBe('exarchos_event');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Task 006 (dual-facade): validateCallMacro — registry validation
+// -----------------------------------------------------------------------------
+
+describe('validateCallMacro', () => {
+  // Lazy-import so the function is resolved from the same module as the rest.
+  // validateCallMacro is not yet exported — these tests must fail (RED).
+  let validateCallMacro: (ast: CallMacroAst) => void;
+
+  beforeAll(async () => {
+    const mod = await import('./build-skills.js');
+    validateCallMacro = (mod as Record<string, unknown>).validateCallMacro as (ast: CallMacroAst) => void;
+  });
+
+  it('ValidateCallMacro_UnknownAction_FailsAtBuildTime', () => {
+    const ast: CallMacroAst = {
+      tool: 'exarchos_workflow',
+      action: 'nonexistent',
+      args: {},
+    };
+    expect(() => validateCallMacro(ast)).toThrow(/unknown action/i);
+  });
+
+  it('ValidateCallMacro_InvalidArgs_FailsWithZodError', () => {
+    // exarchos_workflow set expects featureId as string, not number
+    const ast: CallMacroAst = {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      args: { featureId: 123 },
+    };
+    expect(() => validateCallMacro(ast)).toThrow(/validation|invalid|expected/i);
+  });
+
+  it('ValidateCallMacro_ValidCall_Passes', () => {
+    const ast: CallMacroAst = {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      args: { featureId: 'my-feature', phase: 'plan' },
+    };
+    expect(() => validateCallMacro(ast)).not.toThrow();
   });
 });
