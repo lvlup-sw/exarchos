@@ -1,6 +1,6 @@
 {
   "name": "create-exarchos",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "description": "Interactive installer for Exarchos and companion ecosystem",
   "type": "module",
   "bin": {
