@@ -104,6 +104,7 @@ export default defineConfig({
             { text: 'Design Rationale', link: '/architecture/design-rationale' },
             { text: 'Platform Portability', link: '/architecture/platform-portability' },
             { text: 'Facade and Deployment Choices', link: '/facade-and-deployment' },
+            { text: 'Migrating to {{CALL}} Macros', link: '/migrating-to-call-macro' },
           ],
         },
       ],
