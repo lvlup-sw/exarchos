@@ -179,6 +179,100 @@ describe('handleDoctor — parallel execution + timeout', () => {
     expect(data.summary.passed).toBe(3);
   });
 
+  it('HandleDoctor_OnCompletion_AppendsDiagnosticExecutedEventWithSummaryAndFailedNames', async () => {
+    // Arrange: 1 pass, 1 fail — captures the event append call via a
+    // spy on the in-memory eventStore double.
+    const appendSpy = vi.fn(async () => ({}));
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/doctor-test',
+      eventStore: { append: appendSpy } as unknown as DispatchContext['eventStore'],
+      enableTelemetry: false,
+    };
+    const passCheck: CheckFn = async () => ({
+      category: 'runtime',
+      name: 'ok',
+      status: 'Pass',
+      message: 'ok',
+      durationMs: 0,
+    });
+    const failCheck: CheckFn = async () => ({
+      category: 'runtime',
+      name: 'broken',
+      status: 'Fail',
+      message: 'broken',
+      fix: 'fix it',
+      durationMs: 0,
+    });
+
+    // Act
+    await handleDoctorWithChecks(
+      { timeoutMs: 5000 },
+      ctx,
+      [passCheck, failCheck],
+      () => makeStubProbes(),
+    );
+
+    // Assert: one diagnostic.executed event was appended with the
+    // expected data shape.
+    expect(appendSpy).toHaveBeenCalledTimes(1);
+    const [streamId, event] = appendSpy.mock.calls[0] as [string, { type: string; data: unknown }];
+    expect(typeof streamId).toBe('string');
+    expect(streamId.length).toBeGreaterThan(0);
+    expect(event.type).toBe('diagnostic.executed');
+    const data = event.data as {
+      summary: { passed: number; warnings: number; failed: number; skipped: number };
+      checkCount: number;
+      failedCheckNames: string[];
+      durationMs: number;
+    };
+    expect(data.summary).toEqual({ passed: 1, warnings: 0, failed: 1, skipped: 0 });
+    expect(data.checkCount).toBe(2);
+    expect(data.failedCheckNames).toEqual(['broken']);
+    expect(data.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('HandleDoctor_OnAbort_DoesNotAppendEvent', async () => {
+    // Arrange: a long-sleeping check; the external abort fires before
+    // any result is produced. No partial event should be written.
+    const appendSpy = vi.fn(async () => ({}));
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/doctor-test',
+      eventStore: { append: appendSpy } as unknown as DispatchContext['eventStore'],
+      enableTelemetry: false,
+    };
+    const controller = new AbortController();
+    const slow: CheckFn = async (_probes, signal) => {
+      await new Promise<void>((_, reject) => {
+        signal.addEventListener(
+          'abort',
+          () => reject(new DOMException('Aborted', 'AbortError')),
+          { once: true },
+        );
+      });
+      return {
+        category: 'runtime',
+        name: 'slow',
+        status: 'Pass',
+        message: 'unreachable',
+        durationMs: 0,
+      };
+    };
+
+    // Act
+    setTimeout(() => controller.abort(), 10);
+    await expect(
+      handleDoctorWithChecks(
+        { timeoutMs: 5000, externalSignal: controller.signal },
+        ctx,
+        [slow],
+        () => makeStubProbes(),
+      ),
+    ).rejects.toThrow(/abort/i);
+
+    // Assert: no event was written.
+    expect(appendSpy).not.toHaveBeenCalled();
+  });
+
   it('HandleDoctor_AbortSignalFired_RejectsWithAbortError', async () => {
     // Arrange: a check that awaits the signal to abort. The composer
     // exposes an `externalSignal` so the caller can cancel in-flight.
