@@ -315,7 +315,7 @@ export function renderCallMacros(body: string, runtime: RuntimeMap): string {
     }
 
     if (runtime.preferredFacade === 'cli') {
-      return renderCliCall(ast);
+      return renderCliCall(ast, runtime);
     }
 
     // Unknown facade — leave macro as-is.
@@ -326,21 +326,27 @@ export function renderCallMacros(body: string, runtime: RuntimeMap): string {
 /**
  * Render a single parsed CALL macro as an MCP tool_use invocation.
  *
- * Output format:
- *   `{mcpPrefix}{toolName}({ "action": "{actionName}", ...args })`
+ * Output format (primary + remediation):
+ *   `{mcpPrefix}{toolName}({ "action": "{actionName}", ...args })
+ *   <!-- If MCP is unavailable, fall back to: Bash(...) -->`
  *
  * The `action` field is injected as the first key in the args object because
  * MCP composite tools use an `action` discriminator to route to the correct
- * handler.
+ * handler. The trailing HTML comment is a DR-5 resilience hint: if the host's
+ * MCP transport is unavailable at runtime, the agent can read the fallback
+ * and execute the CLI form directly. HTML comments are invisible in rendered
+ * Markdown but available to an agent reading the source.
  *
  * @param ast - Parsed CALL macro AST from `parseCallMacro()`.
  * @param runtime - Runtime providing the MCP prefix.
- * @returns The rendered MCP tool_use string.
+ * @returns The rendered MCP tool_use string with remediation comment.
  */
 function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
   const prefix = runtime.capabilities.mcpPrefix;
   const fullArgs: Record<string, unknown> = { action: ast.action, ...ast.args };
-  return `${prefix}${ast.tool}(${JSON.stringify(fullArgs, null, 2)})`;
+  const primary = `${prefix}${ast.tool}(${JSON.stringify(fullArgs, null, 2)})`;
+  const fallback = renderFallbackComment('mcp', ast, runtime);
+  return `${primary}\n${fallback}`;
 }
 
 /**
@@ -355,18 +361,35 @@ function camelToKebab(s: string): string {
 /**
  * Render a single parsed CALL macro as a Bash CLI invocation.
  *
- * Output format:
- *   `Bash(exarchos {tool-suffix} {action} --{kebab-key} {value} ... --json)`
+ * Output format (primary + remediation):
+ *   `Bash(exarchos {tool-suffix} {action} --{kebab-key} {value} ... --json)
+ *   <!-- If Bash is unavailable, fall back to: mcp__...__tool({...}) -->`
  *
  * The tool name is mapped from its MCP `exarchos_{suffix}` form to the
  * CLI `exarchos {suffix}` subcommand. Args keys are camelCase-to-kebab
  * converted into `--flag value` pairs. A trailing `--json` flag is always
- * appended.
+ * appended. The trailing HTML comment is a DR-5 resilience hint: if the
+ * host's Bash transport is unavailable, the agent can read the fallback
+ * and execute the MCP tool_use form directly.
  *
  * @param ast - Parsed CALL macro AST from `parseCallMacro()`.
- * @returns The rendered Bash CLI string.
+ * @param runtime - Runtime providing the MCP prefix (used for the fallback
+ *   pointer, not the primary form).
+ * @returns The rendered Bash CLI string with remediation comment.
  */
-function renderCliCall(ast: CallMacroAst): string {
+function renderCliCall(ast: CallMacroAst, runtime: RuntimeMap): string {
+  const primary = renderCliPrimary(ast);
+  const fallback = renderFallbackComment('cli', ast, runtime);
+  return `${primary}\n${fallback}`;
+}
+
+/**
+ * Build the Bash CLI form of a CALL macro without any remediation comment.
+ * Extracted so `renderFallbackComment` can emit the same string when the
+ * primary facade is MCP, guaranteeing the primary and fallback forms stay
+ * byte-identical to each runtime's standalone rendering.
+ */
+function renderCliPrimary(ast: CallMacroAst): string {
   // Convert tool name: exarchos_workflow → exarchos workflow
   const toolCmd = ast.tool.replace(/_/g, ' ');
   const flags = Object.entries(ast.args)
@@ -374,6 +397,45 @@ function renderCliCall(ast: CallMacroAst): string {
     .join(' ');
   const flagsPart = flags.length > 0 ? ` ${flags}` : '';
   return `Bash(${toolCmd} ${ast.action}${flagsPart} --json)`;
+}
+
+/**
+ * Build the MCP tool_use form of a CALL macro without any remediation
+ * comment or pretty-printed indentation. Single-line JSON keeps the
+ * fallback pointer to a single scannable line per DR-5. The compact
+ * form omits whitespace inside the JSON body so the entire HTML
+ * comment fits on one line regardless of how many args the call carries.
+ */
+function renderMcpPrimaryCompact(ast: CallMacroAst, runtime: RuntimeMap): string {
+  const prefix = runtime.capabilities.mcpPrefix;
+  const fullArgs: Record<string, unknown> = { action: ast.action, ...ast.args };
+  return `${prefix}${ast.tool}(${JSON.stringify(fullArgs)})`;
+}
+
+/**
+ * Build the HTML-comment remediation line that points an agent at the
+ * opposite facade when the primary facade is unavailable at runtime
+ * (DR-5). The comment is always a single line so it's easy to scan in the
+ * rendered source.
+ *
+ * @param primary - Which facade was rendered as the primary invocation;
+ *   the fallback points to the opposite one.
+ * @param ast - Parsed CALL macro AST.
+ * @param runtime - Runtime providing the MCP prefix (needed whether or
+ *   not MCP is the primary form, because the fallback may point at MCP).
+ * @returns An HTML comment line (no trailing newline).
+ */
+function renderFallbackComment(
+  primary: 'mcp' | 'cli',
+  ast: CallMacroAst,
+  runtime: RuntimeMap,
+): string {
+  if (primary === 'mcp') {
+    // MCP is primary → fallback is the CLI form.
+    return `<!-- If MCP is unavailable, fall back to: ${renderCliPrimary(ast)} -->`;
+  }
+  // CLI is primary → fallback is the MCP tool_use form (single-line/compact).
+  return `<!-- If Bash is unavailable, fall back to: ${renderMcpPrimaryCompact(ast, runtime)} -->`;
 }
 
 /**

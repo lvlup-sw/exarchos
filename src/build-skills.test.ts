@@ -747,14 +747,19 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_event emit {"type":"done"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // Full format check: prefix + tool + parenthesized JSON
-    expect(output).toMatch(/^mcp__test__exarchos_event\(/);
-    expect(output).toMatch(/\)$/);
-    // Parse the JSON inside the parens to verify structure
-    const jsonMatch = output.match(/\((.+)\)$/s);
+    // Full format check: prefix + tool + parenthesized JSON on the primary
+    // line. Task 020 appends a fallback HTML comment on a following line,
+    // so we split and check only the primary form here.
+    const [primary] = output.split('\n<!--');
+    expect(primary).toMatch(/^mcp__test__exarchos_event\(/);
+    expect(primary).toMatch(/\)$/);
+    // Parse the JSON inside the parens to verify structure.
+    const jsonMatch = primary.match(/\((.+)\)$/s);
     expect(jsonMatch).not.toBeNull();
     const parsed = JSON.parse(jsonMatch![1]);
     expect(parsed).toEqual({ action: 'emit', type: 'done' });
+    // Task 020: the fallback remediation comment must also be present.
+    expect(output).toContain('<!-- If MCP is unavailable');
   });
 
   it('RenderCallMacro_McpFacade_MultipleCallsInBody', () => {
@@ -785,7 +790,10 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_view summary {}}}';
     const output = renderCallMacros(input, runtime);
 
-    const jsonMatch = output.match(/\((.+)\)$/s);
+    // Task 020 appends a fallback comment, so parse the JSON from the
+    // primary line only (before the trailing `<!-- ... -->`).
+    const [primary] = output.split('\n<!--');
+    const jsonMatch = primary.match(/\((.+)\)$/s);
     expect(jsonMatch).not.toBeNull();
     const parsed = JSON.parse(jsonMatch![1]);
     expect(parsed).toEqual({ action: 'summary' });
@@ -799,8 +807,13 @@ describe('renderCallMacros — MCP facade', () => {
     const input = '{{CALL exarchos_workflow set {"featureId":"X","phase":"plan"}}}';
     const output = renderCallMacros(input, runtime);
 
-    // CLI facade renders a Bash-style CLI invocation with kebab-case flags
-    expect(output).toBe('Bash(exarchos workflow set --feature-id X --phase plan --json)');
+    // CLI facade renders a Bash-style CLI invocation with kebab-case flags.
+    // Task 020 also appends a fallback remediation HTML comment on the next
+    // line; use targeted assertions instead of exact-match.
+    expect(output).toContain(
+      'Bash(exarchos workflow set --feature-id X --phase plan --json)',
+    );
+    expect(output).toContain('<!-- If Bash is unavailable');
   });
 
   it('RenderCallMacro_NoCallMacros_ReturnsBodyUnchanged', () => {
