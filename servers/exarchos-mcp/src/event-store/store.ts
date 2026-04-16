@@ -632,27 +632,29 @@ export class EventStore {
       until: filters?.until,
       sinceSequence: filters?.sinceSequence,
     };
-    const mainEvents = this.backend
+    const rawMainEvents = this.backend
       ? await this.backend.queryEvents(streamId, mainFilters)
       : await this.queryMainJsonl(streamId, mainFilters);
+    // `mergeByTimestamp` requires both inputs to be time-ordered. JSONL
+    // preserves stream (sequence) order and `StorageBackend.queryEvents()`
+    // offers no ordering guarantee; in both cases a caller-supplied
+    // backfilled timestamp (see `append()` at lines ~330 and ~364) can
+    // violate timestamp monotonicity. Sort defensively with a stable
+    // sequence tie-break so interleaved backfill doesn't shift the slice
+    // window after offset/limit.
+    const mainEvents = rawMainEvents.slice().sort((a, b) => {
+      const byTs = a.timestamp.localeCompare(b.timestamp);
+      return byTs !== 0 ? byTs : a.sequence - b.sequence;
+    });
 
-    // Re-read the on-disk sequence counter rather than trusting the cached
-    // value. The sibling primary may have appended to the main file since
-    // we last initialized, so the cached max could lag reality. Refreshing
-    // keeps synthetic sidecar sequences monotonically after the true max.
-    const mainPath = this.getEventFilePath(streamId);
-    let mainExists = false;
-    try {
-      await fs.access(mainPath);
-      mainExists = true;
-    } catch {
-      // No main file — synthetic sequences start from 0.
-    }
-    if (mainExists) {
-      await this.initializeSequence(streamId);
-    }
-    const mainMax = this.sequenceCounters.get(streamId)
-      ?? (this.backend ? this.backend.getSequence(streamId) : 0);
+    // Derive `mainMax` from the JSONL source-of-truth whenever it exists,
+    // even in backend mode. Backend dual-write is best-effort (see
+    // `persistAndReplicate`), so `backend.getSequence()` can lag the real
+    // JSONL high-water mark and cause synthetic sidecar sequences to
+    // collide with already-durable events. Only fall back to the backend
+    // counter when there is no local JSONL to read (e.g., remote-only
+    // deployment with no primary on this host).
+    const mainMax = await this.readJsonlMaxSequence(streamId);
     const sidecarEvents = await this.readSidecarForQuery(streamId, mainMax, filters);
 
     const merged = mergeByTimestamp(mainEvents, sidecarEvents);
@@ -660,6 +662,51 @@ export class EventStore {
     const limit = filters?.limit;
     const sliced = offset > 0 ? merged.slice(offset) : merged;
     return limit !== undefined ? sliced.slice(0, limit) : sliced;
+  }
+
+  /**
+   * Read the current max sequence for a stream directly from JSONL
+   * (bypassing any storage backend). Used by the sidecar merge path so
+   * synthetic sidecar sequences never collide with real JSONL-durable
+   * events when the backend is lagging — the JSONL append is the barrier
+   * for correctness (see `persistAndReplicate`: JSONL is source of truth,
+   * backend dual-write is best-effort). Prefers the O(1) `.seq` file and
+   * falls back to JSONL line-counting; returns the backend sequence only
+   * when no local JSONL exists.
+   */
+  private async readJsonlMaxSequence(streamId: string): Promise<number> {
+    const mainPath = this.getEventFilePath(streamId);
+    try {
+      await fs.access(mainPath);
+    } catch {
+      return this.backend ? this.backend.getSequence(streamId) : 0;
+    }
+
+    const seqPath = this.getSeqFilePath(streamId);
+    try {
+      const content = await fs.readFile(seqPath, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
+        // Cross-validate against JSONL so a stale .seq (e.g. interrupted
+        // write) doesn't feed the sidecar path a wrong baseline.
+        try {
+          const jsonl = await fs.readFile(mainPath, 'utf-8');
+          const lineCount = jsonl.trim().split('\n').filter(Boolean).length;
+          if (parsed.sequence === lineCount) return parsed.sequence;
+        } catch {
+          return parsed.sequence;
+        }
+      }
+    } catch {
+      // .seq unreadable — fall through to JSONL line count.
+    }
+
+    try {
+      const jsonl = await fs.readFile(mainPath, 'utf-8');
+      return jsonl.trim().split('\n').filter(Boolean).length;
+    } catch {
+      return 0;
+    }
   }
 
   /**
