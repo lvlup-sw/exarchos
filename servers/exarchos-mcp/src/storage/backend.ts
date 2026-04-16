@@ -87,4 +87,20 @@ export interface StorageBackend {
   // Lifecycle
   initialize(): void;
   close(): void;
+
+  /**
+   * Run a narrow backend-integrity probe. Optional — only implementations
+   * with a meaningful notion of on-disk integrity (e.g. sqlite) provide
+   * this method; others (in-memory, remote) omit it and the caller
+   * treats that as "integrity check not applicable".
+   *
+   * The returned string is the backend's verdict (e.g. "ok" for a healthy
+   * sqlite database). Any other value is treated as corruption by
+   * EventStore.runIntegrityCheck.
+   *
+   * Must honour `signal` for cooperative cancellation. Timeouts are
+   * enforced by the caller (EventStore.runIntegrityCheck) so backends
+   * only need to observe abort.
+   */
+  runIntegrityPragma?(signal?: AbortSignal): Promise<string>;
 }

@@ -120,6 +120,28 @@ export interface EventStoreOptions {
   backend?: StorageBackend;
 }
 
+// ─── Integrity Result ───────────────────────────────────────────────────────
+
+/**
+ * Discriminated result of `EventStore.runIntegrityCheck`.
+ *
+ * The three branches are mutually exclusive by the `ok` tag so callers
+ * (notably the doctor `storage-sqlite-health` check) can map to a
+ * `CheckResult` status without type assertions (DIM-3):
+ *   - `{ ok: true }`             → backend reports healthy
+ *   - `{ ok: 'skipped', reason }` → no applicable backend (jsonl-only or
+ *     a backend without `runIntegrityPragma`)
+ *   - `{ ok: false, details }`   → backend reported corruption, or the
+ *     probe exceeded its configured timeout
+ */
+export type IntegrityResult =
+  | { ok: true }
+  | { ok: false; details: string }
+  | { ok: 'skipped'; reason: string };
+
+/** Default upper bound on `runIntegrityCheck` wall time. */
+const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
+
 // ─── Initialize Options ─────────────────────────────────────────────────────
 
 /**
@@ -1047,6 +1069,120 @@ export class EventStore {
       return this.backend.listStreams();
     }
     return null;
+  }
+
+  /**
+   * Run a narrow backend integrity probe with bounded wall time.
+   *
+   * This is the only public entry point for the doctor
+   * `storage-sqlite-health` check — we intentionally do NOT expose the
+   * raw sqlite handle (DIM-6). The method enforces its own timeout and
+   * honours the caller's AbortSignal (DIM-7) so no check implementation
+   * has to duplicate that logic.
+   *
+   * Behaviour:
+   *   - No backend attached (JSONL-only install) → `{ok: 'skipped', ...}`
+   *   - Backend attached but does not implement `runIntegrityPragma`
+   *     (e.g. in-memory, remote) → `{ok: 'skipped', ...}`
+   *   - Backend verdict exactly `"ok"` → `{ok: true}`
+   *   - Any other verdict → `{ok: false, details}` (corruption)
+   *   - Probe exceeds `timeoutMs` → `{ok: false, details: 'integrity_check timed out after Nms'}`
+   *   - External abort → rejects with AbortError (caller-initiated
+   *     cancellation is an exception, not a result)
+   */
+  async runIntegrityCheck(opts?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<IntegrityResult> {
+    if (!this.backend) {
+      return {
+        ok: 'skipped',
+        reason: 'JSONL-only install; no sqlite backend attached',
+      };
+    }
+    if (typeof this.backend.runIntegrityPragma !== 'function') {
+      return {
+        ok: 'skipped',
+        reason: 'backend does not support integrity_check (non-sqlite)',
+      };
+    }
+
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_INTEGRITY_TIMEOUT_MS;
+    const externalSignal = opts?.signal;
+
+    if (externalSignal?.aborted) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    // Chain the caller's signal into an internal controller so we can
+    // also fire abort on timeout without mutating the caller's signal.
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<IntegrityResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({
+          ok: false,
+          details: `integrity_check timed out after ${timeoutMs}ms`,
+        });
+      }, timeoutMs);
+    });
+
+    const probePromise = (async (): Promise<IntegrityResult> => {
+      // Non-null by the typeof guard above; capture into a local for
+      // narrowing through the await boundary.
+      const probe = this.backend!.runIntegrityPragma!.bind(this.backend);
+      try {
+        const verdict = await probe(controller.signal);
+        if (verdict.trim().toLowerCase() === 'ok') {
+          return { ok: true };
+        }
+        return { ok: false, details: verdict };
+      } catch (err) {
+        // Rethrow AbortError so the outer race can distinguish
+        // external-abort (caller) from timeout (our controller).
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw err;
+        }
+        return {
+          ok: false,
+          details: err instanceof Error ? err.message : String(err),
+        };
+      }
+    })();
+
+    try {
+      // If the external signal aborted, the probe will reject with
+      // AbortError; Promise.race propagates that. Timeout arm resolves
+      // with an IntegrityResult.
+      if (externalSignal) {
+        const externalAbortPromise = new Promise<never>((_, reject) => {
+          externalSignal.addEventListener(
+            'abort',
+            () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            },
+            { once: true },
+          );
+        });
+        return await Promise.race([probePromise, timeoutPromise, externalAbortPromise]);
+      }
+      return await Promise.race([probePromise, timeoutPromise]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+    }
   }
 
   async refreshSequence(streamId: string): Promise<void> {

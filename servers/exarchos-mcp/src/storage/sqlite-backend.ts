@@ -478,6 +478,58 @@ export class SqliteBackend implements StorageBackend {
     return result.changes;
   }
 
+  // ─── Integrity Probe ────────────────────────────────────────────────────
+
+  /**
+   * Run `PRAGMA integrity_check` and return its first-row verdict.
+   *
+   * better-sqlite3 is synchronous; wrapping in a Promise lets the caller
+   * bound this probe with `Promise.race` (EventStore.runIntegrityCheck
+   * applies the timeout — this method is responsible only for honouring
+   * `signal` and producing the pragma result string).
+   *
+   * When `signal` is pre-aborted, rejects immediately with AbortError
+   * without opening a pragma; when aborted mid-probe the pragma will
+   * still complete (sqlite has no cancellation for synchronous work),
+   * but we discard the result and reject.
+   */
+  async runIntegrityPragma(signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const onAbort = () => {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        reject(err);
+      };
+      if (signal) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      try {
+        const rows = this.db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        const verdict = rows[0]?.integrity_check ?? '';
+        resolve(verdict);
+      } catch (err) {
+        if (signal) {
+          signal.removeEventListener('abort', onAbort);
+        }
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
   // ─── Private Helpers ────────────────────────────────────────────────────
 
   private rowToEvent(row: {
