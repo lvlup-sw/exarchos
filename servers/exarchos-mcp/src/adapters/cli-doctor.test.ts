@@ -121,6 +121,29 @@ describe('exarchos doctor CLI', () => {
     expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
   });
 
+  it('Cli_DoctorDispatchThrows_ExitsThreeWithNormalizedToolResult', async () => {
+    // Arrange: simulate an unexpected exception surfacing out of dispatch
+    // (e.g. a broken probe throws synchronously, or an unhandled reject
+    // escapes from a check).
+    vi.mocked(dispatch).mockRejectedValueOnce(new Error('catastrophic probe failure'));
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'doctor', '--json']);
+
+    // Assert — exit 3 and a normalized ToolResult on stdout carrying
+    // code: 'UNCAUGHT_EXCEPTION' with the original error message.
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
+
+    const writes = stdoutSpy.mock.calls.map(([s]) => s as string).join('');
+    stdoutSpy.mockRestore();
+    const parsed = JSON.parse(writes.trim()) as ToolResult;
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.code).toBe('UNCAUGHT_EXCEPTION');
+    expect(parsed.error?.message).toContain('catastrophic probe failure');
+  });
+
   it('Cli_DoctorFormatJson_EmitsSingleLineJsonToStdout', async () => {
     // Arrange: --json should produce a single parseable JSON line.
     vi.mocked(dispatch).mockResolvedValueOnce(makeDoctorResult({ passed: 10 }));
