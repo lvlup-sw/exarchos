@@ -881,6 +881,10 @@ export function buildAllSkills(opts: {
         variantsWritten++;
       } else {
         try {
+          // CALL macros are expanded explicitly here (not via `render`'s
+          // optional `runtime` context) so the two passes stay separated.
+          // Do NOT add `runtime: rt` to the `render()` call below — that
+          // would double-expand CALL macros.
           const macroExpanded = renderCallMacros(body, rt);
           const rendered = render(macroExpanded, rt.placeholders, {
             sourcePath,

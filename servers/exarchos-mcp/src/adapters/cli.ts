@@ -223,10 +223,19 @@ export function buildCli(ctx: DispatchContext): Command {
         }
 
         // ─── Emit + map to exit code ──────────────────────────────────────
+        // Preserve INVALID_INPUT when the handler reports a validation
+        // failure — collapsing every non-success into HANDLER_ERROR loses
+        // parity with the pre-dispatch INVALID_INPUT path (e.g. a bad arg
+        // that slips past Zod at the CLI layer but is caught by a handler
+        // guard should still report exit 1, not exit 2).
         emitResult(result, isJson, format);
-        process.exitCode = result.success
-          ? CLI_EXIT_CODES.SUCCESS
-          : CLI_EXIT_CODES.HANDLER_ERROR;
+        if (result.success) {
+          process.exitCode = CLI_EXIT_CODES.SUCCESS;
+        } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+          process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        } else {
+          process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+        }
       });
     }
   }

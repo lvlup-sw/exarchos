@@ -28,7 +28,7 @@ The CLI adapter (`adapters/cli.ts`) builds a Commander program from the tool reg
 mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "set", featureId: "my-feature", phase: "plan" })
 ```
 
-The MCP adapter (`adapters/mcp.ts`) runs a persistent stdio server using `@modelcontextprotocol/sdk`. Tool schemas are registered at session start and available for schema-guided invocation throughout the session. Four composite tools cover the full surface:
+The MCP adapter (`adapters/mcp.ts`) runs a persistent stdio server using `@modelcontextprotocol/sdk`. Tool schemas are registered at session start and available for schema-guided invocation throughout the session. Four user-facing composite tools cover the visible surface (the MCP server also exposes one hidden `exarchos_sync` tool for internal synchronization):
 
 | Tool | Purpose |
 |------|---------|

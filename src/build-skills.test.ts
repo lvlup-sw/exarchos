@@ -668,10 +668,14 @@ describe('validateCallMacro', () => {
     expect(() => validateCallMacro(ast)).not.toThrow();
   });
 
-  it('ValidateCallMacro_UnknownTool_FailsAtBuildTime', () => {
+  it('ValidateCallMacro_UnknownAction_FailsAtBuildTime', () => {
+    // Exercise validateCallMacro's unknown-action path with a valid tool
+    // name. (parseCallMacro guards against unknown tool names up-front,
+    // so validateCallMacro only sees well-formed ASTs whose tool is
+    // registered — the interesting failure mode here is unknown action.)
     const ast: CallMacroAst = {
-      tool: 'exarchos_nonexistent',
-      action: 'get',
+      tool: 'exarchos_workflow',
+      action: 'nonexistent_action',
       args: {},
     };
     expect(() => validateCallMacro(ast)).toThrow(/unknown action/i);
