@@ -53,6 +53,20 @@ export const DEFAULT_PLACEHOLDER_VOCABULARY: readonly string[] = [
 ];
 
 /**
+ * Matches a raw MCP tool reference in its canonical wire shape:
+ * `mcp__<plugin_server>__<tool>`, e.g.
+ * `mcp__plugin_exarchos_exarchos__exarchos_workflow`.
+ *
+ * Used to detect deprecated references that should be migrated to the
+ * `{{CALL ...}}` macro (DR-2 + DR-8 transition window). The `/g` flag
+ * lets callers iterate every occurrence in a file. The identifier parts
+ * are lowercase-only because that is how the MCP SDK emits tool names;
+ * any uppercase hit is intentionally ignored to avoid matching arbitrary
+ * prose like "MCP__Placeholder".
+ */
+export const RAW_MCP_PATTERN = /mcp__[a-z0-9_]+__[a-z_]+/g;
+
+/**
  * A single unknown-token finding: which identifier was referenced,
  * which source file referenced it, and on which 1-indexed line the
  * reference appeared.
@@ -64,15 +78,36 @@ export interface UnknownTokenFinding {
 }
 
 /**
- * Result of a lint run. `passed === true` iff `unknownTokens` is empty.
+ * A single deprecation finding: a literal `mcp__...` reference that
+ * should be migrated to the `{{CALL}}` macro. `pattern` is the exact
+ * matched text so the caller can echo it back verbatim in diagnostics.
+ *
+ * Implements DR-2 + DR-8 transition-window signal.
+ */
+export interface DeprecationWarning {
+  pattern: string;
+  file: string;
+  line: number;
+}
+
+/**
+ * Result of a lint run. `passed === true` iff `unknownTokens` is empty
+ * *and* (when `EXARCHOS_LINT_STRICT=1`) `deprecationWarnings` is empty.
  * `message` is always populated so callers can log a human-readable
  * summary regardless of outcome (a clean run reports "no unknown
  * placeholders found"; a dirty run aggregates every offender plus the
  * canonical vocabulary so the remediation is self-contained).
+ *
+ * `deprecationWarnings` carries informational findings about raw
+ * `mcp__...` references. Outside strict mode these never flip
+ * `passed` — the build must keep succeeding during the migration
+ * window. Once the window closes, setting `EXARCHOS_LINT_STRICT=1`
+ * promotes them to hard failures without a code change.
  */
 export interface PlaceholderLintResult {
   passed: boolean;
   unknownTokens: UnknownTokenFinding[];
+  deprecationWarnings: DeprecationWarning[];
   message: string;
 }
 
@@ -122,6 +157,7 @@ export function lintPlaceholders(
   const vocabSet = new Set(vocabulary);
 
   const findings: UnknownTokenFinding[] = [];
+  const deprecationWarnings: DeprecationWarning[] = [];
 
   if (existsSync(opts.sourcesDir)) {
     const skillFiles = collectSkillFiles(opts.sourcesDir);
@@ -161,15 +197,40 @@ export function lintPlaceholders(
         }
       }
       PLACEHOLDER_REGEX.lastIndex = 0;
+
+      // Second pass: detect deprecated raw `mcp__...` references
+      // anywhere in the file body. These are intentionally scanned
+      // across the full text (not gated by CALL ranges) because a CALL
+      // macro's payload names a tool like `exarchos_workflow`, not the
+      // wire shape `mcp__...__...`, so there is no legitimate overlap.
+      RAW_MCP_PATTERN.lastIndex = 0;
+      let mcpMatch: RegExpExecArray | null;
+      while ((mcpMatch = RAW_MCP_PATTERN.exec(body)) !== null) {
+        deprecationWarnings.push({
+          pattern: mcpMatch[0],
+          file,
+          line: lineOf(body, mcpMatch.index),
+        });
+      }
+      RAW_MCP_PATTERN.lastIndex = 0;
     }
   }
 
-  const passed = findings.length === 0;
-  const message = passed
-    ? '[placeholder-lint] no unknown placeholders found'
-    : formatFailureMessage(findings, vocabulary);
+  // Unknown placeholders are always hard failures. Deprecation warnings
+  // are informational by default; `EXARCHOS_LINT_STRICT=1` promotes
+  // them to failures once the migration transition window closes.
+  const strict = process.env.EXARCHOS_LINT_STRICT === '1';
+  const passed =
+    findings.length === 0 &&
+    (!strict || deprecationWarnings.length === 0);
+  const message = formatMessage(
+    findings,
+    deprecationWarnings,
+    vocabulary,
+    strict,
+  );
 
-  return { passed, unknownTokens: findings, message };
+  return { passed, unknownTokens: findings, deprecationWarnings, message };
 }
 
 /**
@@ -231,31 +292,74 @@ function lineOf(source: string, offset: number): number {
 }
 
 /**
- * Build a human-readable aggregated error message that:
- *   1. Names every offending `{{token}}` with its `file:line`.
- *   2. Lists the canonical vocabulary so developers can see what *is*
- *      allowed without digging through source.
- *   3. Points at the remediation: add the token to `runtimes/*.yaml`
- *      or remove it from the source.
+ * Build a human-readable aggregated message that combines two kinds of
+ * findings:
+ *
+ *   1. Unknown placeholder tokens — always hard failures, always
+ *      reported. The section names every offending `{{token}}` with its
+ *      `file:line`, lists the canonical vocabulary, and points at the
+ *      remediation (add the token to `runtimes/*.yaml` or remove it
+ *      from the source).
+ *
+ *   2. Deprecated `mcp__...` references — informational during the
+ *      DR-2/DR-8 transition window; hard failures under
+ *      `EXARCHOS_LINT_STRICT=1`. Each entry carries the exact matched
+ *      pattern and `file:line`, and points authors at the `{{CALL}}`
+ *      macro migration path.
+ *
+ * A clean run (no unknowns, no deprecations) yields a single "all
+ * clear" line so callers that always print `result.message` do
+ * something sensible on success.
  *
  * The vocabulary list is sorted so the message is deterministic even
  * if a future caller passes an unsorted array.
  */
-function formatFailureMessage(
+function formatMessage(
   findings: UnknownTokenFinding[],
+  deprecationWarnings: DeprecationWarning[],
   vocabulary: readonly string[],
+  strict: boolean,
 ): string {
-  const sortedVocab = [...vocabulary].sort().join(', ');
-  const lines: string[] = [
-    `[placeholder-lint] found ${findings.length} unknown placeholder token(s):`,
-  ];
-  for (const f of findings) {
-    lines.push(`  - {{${f.token}}} at ${f.file}:${f.line}`);
+  if (findings.length === 0 && deprecationWarnings.length === 0) {
+    return '[placeholder-lint] no unknown placeholders found';
   }
-  lines.push('');
-  lines.push(`Canonical vocabulary: [${sortedVocab}]`);
-  lines.push(
-    'To fix: add the token to every runtimes/*.yaml placeholders map, or remove it from the source.',
-  );
+
+  const lines: string[] = [];
+
+  if (findings.length > 0) {
+    lines.push(
+      `[placeholder-lint] found ${findings.length} unknown placeholder token(s):`,
+    );
+    for (const f of findings) {
+      lines.push(`  - {{${f.token}}} at ${f.file}:${f.line}`);
+    }
+    lines.push('');
+    const sortedVocab = [...vocabulary].sort().join(', ');
+    lines.push(`Canonical vocabulary: [${sortedVocab}]`);
+    lines.push(
+      'To fix: add the token to every runtimes/*.yaml placeholders map, or remove it from the source.',
+    );
+  }
+
+  if (deprecationWarnings.length > 0) {
+    if (lines.length > 0) lines.push('');
+    const label = strict ? 'error' : 'warning';
+    lines.push(
+      `[placeholder-lint] found ${deprecationWarnings.length} deprecated mcp__ reference(s) (${label}):`,
+    );
+    for (const w of deprecationWarnings) {
+      lines.push(`  - ${w.pattern} at ${w.file}:${w.line}`);
+    }
+    lines.push('');
+    lines.push(
+      'Migrate raw `mcp__...` references to the `{{CALL <tool> <action> <jsonArgs>}}` macro.',
+    );
+    if (!strict) {
+      lines.push(
+        'Set EXARCHOS_LINT_STRICT=1 to promote these warnings to errors once migration is complete.',
+      );
+    }
+  }
+
   return lines.join('\n');
 }
