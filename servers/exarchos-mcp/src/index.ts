@@ -3,6 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
 import { resolveStateDir as resolveStateDirFromPaths } from './utils/paths.js';
@@ -331,13 +332,36 @@ async function main() {
   await runCli(program, process.argv);
 }
 
-// Only run main when executed directly (not when imported for testing)
-const isDirectExecution =
-  process.argv[1] &&
-  (import.meta.url.endsWith(process.argv[1]) ||
-    import.meta.url.endsWith(process.argv[1].replace(/\.ts$/, '.js')));
+/**
+ * Decide whether this module is being executed directly (vs imported as a
+ * library) by comparing `import.meta.url` to `process.argv[1]`.
+ *
+ * Two encoding hazards have to be handled:
+ *   1. `import.meta.url` is a standard file:// URL, so path segments containing
+ *      spaces or non-ASCII characters are percent-encoded (`%20` etc.) while
+ *      `process.argv[1]` is a raw OS path. `fileURLToPath()` decodes and
+ *      converts the URL into a platform path string.
+ *   2. On Windows, decoded paths use backslashes but `argv[1]` may come
+ *      through either separator style depending on the launcher. We normalize
+ *      both sides to forward slashes before comparison.
+ *
+ * Without these, Windows users hit a silent CLI no-op — `main()` never ran
+ * because `endsWith` never matched. See #1085.
+ *
+ * Exported for unit testing; callers should pass `import.meta.url` and
+ * `process.argv[1]` directly.
+ */
+export function isDirectExecution(metaUrl: string, argv1: string | undefined): boolean {
+  if (!argv1) return false;
+  const modulePath = fileURLToPath(metaUrl).replace(/\\/g, '/');
+  const normalizedArgv = argv1.replace(/\\/g, '/');
+  return (
+    modulePath.endsWith(normalizedArgv) ||
+    modulePath.endsWith(normalizedArgv.replace(/\.ts$/, '.js'))
+  );
+}
 
-if (isDirectExecution) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main().catch((err) => {
     logger.fatal({ err }, 'MCP server fatal error');
     process.exit(1);
