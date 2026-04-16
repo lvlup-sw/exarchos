@@ -1,14 +1,13 @@
 /**
  * Acceptance test for the {{CALL}} macro — facade-appropriate rendering.
  *
- * This test is intentionally RED: the {{CALL}} macro parser does not exist
- * yet (tasks 005-011 will land it). The renderer currently either throws
- * on the unknown `CALL` token or leaves it unresolved. Both outcomes fail
- * the assertions below, which is the correct TDD state.
+ * Verifies that `render()` with a `runtime` parameter correctly expands
+ * CALL macros into facade-appropriate output for both MCP and CLI runtimes.
  *
  * Test: RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocations
  *
  * Implements: Task 004 (acceptance layer for the dual-facade skill rendering epic)
+ * GREEN as of: Task 009 (renderCallMacros wired into render + CLI branch)
  */
 
 import { describe, it, expect } from 'vitest';
@@ -38,11 +37,11 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     expect(claudeRuntime.preferredFacade).toBe('mcp');
 
     // Render the {{CALL}} macro source under the MCP-preferred runtime.
-    // Today this will throw (unknown placeholder "CALL") or leave the
-    // token unresolved — both are expected failures for the RED phase.
+    // render() with runtime pre-processes CALL macros via renderCallMacros().
     const rendered = render(CALL_MACRO_SOURCE, claudeRuntime.placeholders, {
       sourcePath: 'skills-src/test-skill/SKILL.md',
       runtimeName: claudeRuntime.name,
+      runtime: claudeRuntime,
     });
 
     // The output must contain the fully-qualified MCP tool name with the
@@ -51,9 +50,8 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
       'mcp__plugin_exarchos_exarchos__exarchos_workflow',
     );
 
-    // The output must include the action and JSON arguments in a valid
-    // MCP tool_use structure (the exact format will be defined by tasks
-    // 005-011, but the tool name and args must be present).
+    // The output must include the action and JSON arguments in the MCP
+    // tool_use structure.
     expect(rendered).toContain('"featureId"');
     expect(rendered).toContain('"phase"');
   });
@@ -66,10 +64,11 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     expect(genericRuntime.preferredFacade).toBe('cli');
 
     // Render the {{CALL}} macro source under the CLI-preferred runtime.
-    // Same as above: will throw or leave unresolved — expected RED failure.
+    // render() with runtime pre-processes CALL macros via renderCallMacros().
     const rendered = render(CALL_MACRO_SOURCE, genericRuntime.placeholders, {
       sourcePath: 'skills-src/test-skill/SKILL.md',
       runtimeName: genericRuntime.name,
+      runtime: genericRuntime,
     });
 
     // The output must contain a Bash-style CLI invocation with the tool

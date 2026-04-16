@@ -13,6 +13,8 @@
  *   - Task 006: `copyReferences`.
  *   - Task 007: `buildAllSkills` orchestrator.
  *   - Task 008: `main()` CLI entry.
+ *   - Task 009: Wire `renderCallMacros` into `buildAllSkills`, CLI facade
+ *     rendering (`renderCliCall`), render-time fail-fast validation.
  *
  * Implements: DR-2, DR-3.
  */
@@ -218,6 +220,15 @@ export function setRegistryLookup(fn: RegistryLookup): void {
 }
 
 /**
+ * Clear the registry lookup so `renderCallMacros` skips validation.
+ * Primarily for test isolation — prevents one test block's `beforeAll`
+ * from leaking state into later blocks.
+ */
+export function clearRegistryLookup(): void {
+  _registryLookup = undefined;
+}
+
+/**
  * Validate a parsed CALL macro AST against the live tool registry.
  *
  * Steps:
@@ -270,7 +281,7 @@ export function validateCallMacro(ast: CallMacroAst): void {
  *
  * Currently supported facades:
  *   - `mcp` — emits `{mcpPrefix}{tool}({ "action": "{action}", ...args })`
- *   - `cli` — not yet implemented (task 008); macros are left as-is.
+ *   - `cli` — emits `Bash(exarchos {suffix} {action} --{flag} {val} --json)`
  *
  * This function is designed to run as a pre-processing pass *before*
  * `render()` handles `{{TOKEN}}` placeholder substitution. The two regex
@@ -293,11 +304,21 @@ export function renderCallMacros(body: string, runtime: RuntimeMap): string {
   return body.replace(localRegex, (match, content: string) => {
     const ast = parseCallMacro(content);
 
+    // Validate against the live tool registry (if configured).
+    // This catches unknown actions and invalid args at build time.
+    if (_registryLookup) {
+      validateCallMacro(ast);
+    }
+
     if (runtime.preferredFacade === 'mcp') {
       return renderMcpCall(ast, runtime);
     }
 
-    // CLI branch will be added by task 008.
+    if (runtime.preferredFacade === 'cli') {
+      return renderCliCall(ast);
+    }
+
+    // Unknown facade — leave macro as-is.
     return match;
   });
 }
@@ -323,6 +344,39 @@ function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
 }
 
 /**
+ * Convert a camelCase string to kebab-case.
+ *
+ * Examples: `featureId` → `feature-id`, `myPropName` → `my-prop-name`.
+ */
+function camelToKebab(s: string): string {
+  return s.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`);
+}
+
+/**
+ * Render a single parsed CALL macro as a Bash CLI invocation.
+ *
+ * Output format:
+ *   `Bash(exarchos {tool-suffix} {action} --{kebab-key} {value} ... --json)`
+ *
+ * The tool name is mapped from its MCP `exarchos_{suffix}` form to the
+ * CLI `exarchos {suffix}` subcommand. Args keys are camelCase-to-kebab
+ * converted into `--flag value` pairs. A trailing `--json` flag is always
+ * appended.
+ *
+ * @param ast - Parsed CALL macro AST from `parseCallMacro()`.
+ * @returns The rendered Bash CLI string.
+ */
+function renderCliCall(ast: CallMacroAst): string {
+  // Convert tool name: exarchos_workflow → exarchos workflow
+  const toolCmd = ast.tool.replace(/_/g, ' ');
+  const flags = Object.entries(ast.args)
+    .map(([key, value]) => `--${camelToKebab(key)} ${String(value)}`)
+    .join(' ');
+  const flagsPart = flags.length > 0 ? ` ${flags}` : '';
+  return `Bash(${toolCmd} ${ast.action}${flagsPart} --json)`;
+}
+
+/**
  * Diagnostic context for `render()` / `assertNoUnresolvedPlaceholders()`.
  * Both are optional so callers that don't care about nice error messages
  * (e.g. unit tests exercising the happy path) don't need to plumb anything.
@@ -330,6 +384,9 @@ function renderMcpCall(ast: CallMacroAst, runtime: RuntimeMap): string {
 export interface RenderContext {
   sourcePath?: string;
   runtimeName?: string;
+  /** When provided, run `renderCallMacros(body, runtime)` as a
+   *  pre-processing step before placeholder substitution. */
+  runtime?: RuntimeMap;
 }
 
 /**
@@ -361,7 +418,14 @@ export function render(
   placeholders: Record<string, string>,
   context: RenderContext = {},
 ): string {
-  return substitute(body, placeholders, {
+  // When a runtime is provided, pre-process CALL macros before
+  // placeholder substitution so `{{CALL ...}}` tokens are expanded
+  // to facade-appropriate output first.
+  const preprocessed = context.runtime
+    ? renderCallMacros(body, context.runtime)
+    : body;
+
+  return substitute(preprocessed, placeholders, {
     sourcePath: context.sourcePath ?? '<unknown>',
     runtimeName: context.runtimeName ?? '<unknown>',
     throwOnUnknown: true,
@@ -733,14 +797,25 @@ export function buildAllSkills(opts: {
         overridesUsed.push(overridePath);
         variantsWritten++;
       } else {
-        const rendered = render(body, rt.placeholders, {
-          sourcePath,
-          runtimeName: rt.name,
-        });
-        assertNoUnresolvedPlaceholders(rendered, sourcePath, rt.name);
-        writeFileSync(outSkillFile, rendered);
-        written.add(resolve(outSkillFile));
-        variantsWritten++;
+        try {
+          const macroExpanded = renderCallMacros(body, rt);
+          const rendered = render(macroExpanded, rt.placeholders, {
+            sourcePath,
+            runtimeName: rt.name,
+          });
+          assertNoUnresolvedPlaceholders(rendered, sourcePath, rt.name);
+          writeFileSync(outSkillFile, rendered);
+          written.add(resolve(outSkillFile));
+          variantsWritten++;
+        } catch (err) {
+          // Re-throw macro validation errors with source file context
+          // so the developer knows which skill triggered the failure.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes(sourcePath)) {
+            throw err;
+          }
+          throw new Error(`CALL macro error in ${sourcePath}: ${msg}`);
+        }
       }
 
       // References: mirror next to the variant under each runtime.
