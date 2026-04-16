@@ -2091,3 +2091,38 @@ describe('SynthesizeRequestedData', () => {
     expect(EVENT_DATA_SCHEMAS['synthesize.requested']).toBeDefined();
   });
 });
+
+// ─── diagnostic.executed (exarchos doctor) ──────────────────────────────────
+
+describe('diagnostic.executed event', () => {
+  it('EventSchema_DiagnosticExecuted_ParsesSuccessfully', () => {
+    expect(EventTypes).toContain('diagnostic.executed');
+
+    const schema = EVENT_DATA_SCHEMAS['diagnostic.executed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const valid = {
+      summary: { passed: 3, warnings: 1, failed: 0, skipped: 1 },
+      checkCount: 5,
+      failedCheckNames: [],
+      durationMs: 42,
+    };
+
+    const result = schema!.safeParse(valid);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('EventSchema_DiagnosticExecuted_MissingSummary_ThrowsValidationError', () => {
+    const schema = EVENT_DATA_SCHEMAS['diagnostic.executed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const invalid = {
+      checkCount: 5,
+      failedCheckNames: [],
+      durationMs: 42,
+    };
+
+    const result = schema!.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+});
