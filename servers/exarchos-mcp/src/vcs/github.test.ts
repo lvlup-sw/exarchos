@@ -486,4 +486,74 @@ describe('GitHubProvider', () => {
       defaultBranch: 'main',
     });
   });
+
+  // ─── T9: getPrDiff + createIssue ──────────────────────────────────────────────
+
+  it('GitHubProvider_GetPrDiff_ReturnsDiffString', async () => {
+    const diffOutput = `diff --git a/src/main.ts b/src/main.ts
+index abc123..def456 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,3 +1,4 @@
++import { foo } from './foo.js';
+ const x = 1;
+ const y = 2;
+ const z = 3;`;
+
+    mockExec.mockResolvedValue(diffOutput);
+
+    const result = await provider.getPrDiff('42');
+
+    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '42']);
+    expect(result).toBe(diffOutput);
+  });
+
+  it('GitHubProvider_CreateIssue_ReturnsIssueResult', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify({
+        url: 'https://github.com/test/repo/issues/99',
+        number: 99,
+      })
+    );
+
+    const result = await provider.createIssue({
+      title: 'Bug: something broke',
+      body: 'Steps to reproduce...',
+      labels: ['bug', 'priority'],
+    });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'issue', 'create',
+        '--title', 'Bug: something broke',
+        '--body', 'Steps to reproduce...',
+        '--label', 'bug,priority',
+        '--json', 'url,number',
+      ])
+    );
+    expect(result).toEqual({
+      url: 'https://github.com/test/repo/issues/99',
+      number: 99,
+    });
+  });
+
+  it('GitHubProvider_CreateIssue_NoLabels', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify({
+        url: 'https://github.com/test/repo/issues/100',
+        number: 100,
+      })
+    );
+
+    const result = await provider.createIssue({
+      title: 'Feature request',
+      body: 'Description',
+    });
+
+    // Should NOT include --label flag
+    const callArgs = mockExec.mock.calls[0][1];
+    expect(callArgs).not.toContain('--label');
+    expect(result.number).toBe(100);
+  });
 });

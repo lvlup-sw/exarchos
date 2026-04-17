@@ -256,12 +256,29 @@ export class GitHubProvider implements VcsProvider {
     }));
   }
 
-  async getPrDiff(_prId: string): Promise<string> {
-    throw new Error('Not yet implemented');
+  async getPrDiff(prId: string): Promise<string> {
+    return exec('gh', ['pr', 'diff', prId]);
   }
 
-  async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
-    throw new Error('Not yet implemented');
+  async createIssue(opts: CreateIssueOpts): Promise<IssueResult> {
+    const args = [
+      'issue',
+      'create',
+      '--title',
+      opts.title,
+      '--body',
+      opts.body,
+      '--json',
+      'url,number',
+    ];
+
+    if (opts.labels && opts.labels.length > 0) {
+      args.push('--label', opts.labels.join(','));
+    }
+
+    const output = await exec('gh', args);
+    const parsed = JSON.parse(output) as { url: string; number: number };
+    return { url: parsed.url, number: parsed.number };
   }
 
   async getRepository(): Promise<RepoInfo> {
