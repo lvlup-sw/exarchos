@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 62 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, VCS, and composite actions', () => {
+    it('should have 63 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(62);
+      expect(composite!.actions).toHaveLength(63);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -383,6 +383,7 @@ describe('TOOL_REGISTRY', () => {
           'get_pr_comments',
           'add_pr_comment',
           'create_issue',
+          'init',
         ]),
       );
     });
@@ -396,7 +397,7 @@ describe('TOOL_REGISTRY', () => {
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
     // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
-    const SPECIAL_ACTIONS = new Set(['describe', 'runbook', 'doctor']);
+    const SPECIAL_ACTIONS = new Set(['describe', 'runbook', 'doctor', 'init']);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(

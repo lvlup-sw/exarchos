@@ -411,7 +411,7 @@ describe('EventTypes', () => {
     // issue.created) for VCS MCP actions.
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(66);
+    expect(EventTypes).toHaveLength(67);
   });
 
   it('should include workflow-level types', () => {

@@ -271,78 +271,54 @@ describe('mcp command', () => {
 
 describe('init command', () => {
   let ctx: DispatchContext;
-  let tmpDir: string;
-  let originalCwd: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
     ctx = createTestContext();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-cli-test-'));
-    originalCwd = process.cwd();
-    process.chdir(tmpDir);
   });
 
-  afterEach(() => {
-    process.chdir(originalCwd);
-    fs.rmSync(tmpDir, { recursive: true });
-  });
-
-  it('InitCommand_CreatesConfigFile', async () => {
-    // Arrange
+  it('InitCommand_DispatchesOrchestrate', async () => {
+    // The new init command routes through exarchos_orchestrate { action: 'init' }
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Assert — file created with template content
-    const configPath = path.join(tmpDir, 'exarchos.config.ts');
-    expect(fs.existsSync(configPath)).toBe(true);
-    const content = fs.readFileSync(configPath, 'utf-8');
-    expect(content).toContain('defineConfig');
-    expect(content).toContain('@lvlup-sw/exarchos');
-    expect(content).toContain('workflows');
+    // Assert — dispatch was called with the init action
+    const { dispatch } = await import('../core/dispatch.js');
+    expect(dispatch).toHaveBeenCalledWith(
+      'exarchos_orchestrate',
+      expect.objectContaining({ action: 'init' }),
+      expect.anything(),
+    );
 
     stdoutSpy.mockRestore();
   });
 
-  it('InitCommand_ConfigExists_DoesNotOverwrite', async () => {
-    // Arrange — create existing config
-    const configPath = path.join(tmpDir, 'exarchos.config.ts');
-    fs.writeFileSync(configPath, 'existing content');
+  it('InitCommand_WithRuntimeFlag_PassesToDispatch', async () => {
     const program = buildCli(ctx);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
-    await program.parseAsync(['node', 'exarchos', 'init']);
+    await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
-    // Assert — file not overwritten
-    const content = fs.readFileSync(configPath, 'utf-8');
-    expect(content).toBe('existing content');
+    const { dispatch } = await import('../core/dispatch.js');
+    expect(dispatch).toHaveBeenCalledWith(
+      'exarchos_orchestrate',
+      expect.objectContaining({ action: 'init', runtime: 'copilot' }),
+      expect.anything(),
+    );
 
-    // Assert — warning was printed
-    const output = [
-      ...stderrSpy.mock.calls.map(([s]) => s),
-      ...stdoutSpy.mock.calls.map(([s]) => s),
-    ].join('');
-    expect(output).toContain('already exists');
-
-    stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
   });
 
-  it('InitCommand_PrintsGettingStarted', async () => {
-    // Arrange
+  it('InitCommand_SuccessResult_ExitsZero', async () => {
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Assert — getting-started instructions printed
-    const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
-    expect(output).toContain('exarchos.config.ts');
+    // dispatch mock returns success, so exitCode should be 0 (or undefined)
+    expect(process.exitCode ?? 0).toBe(0);
 
     stdoutSpy.mockRestore();
   });

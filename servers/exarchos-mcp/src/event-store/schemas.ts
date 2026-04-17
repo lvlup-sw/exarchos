@@ -703,7 +703,7 @@ export const DiagnosticExecutedDataSchema = z.object({
 export const InitExecutedDataSchema = z.object({
   runtimes: z.array(z.object({
     runtime: z.string().min(1),
-    path: z.string(),
+    path: z.string().optional(),
     status: z.string(),
     componentsWritten: z.array(z.string()),
     warnings: z.array(z.string()).optional(),

@@ -269,3 +269,14 @@ export const claudeCodeWriter: RuntimeConfigWriter = {
   runtime: 'claude-code',
   write: writeClaudeCode,
 };
+
+/**
+ * Class wrapper used by init compositor — `new ClaudeCodeWriter()`.
+ * Delegates to the same `writeClaudeCode` implementation.
+ */
+export class ClaudeCodeWriter implements RuntimeConfigWriter {
+  readonly runtime = 'claude-code' as const;
+  write(deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
+    return writeClaudeCode(deps, options);
+  }
+}
