@@ -1,22 +1,42 @@
+// ─── Validate PR Stack Handler Tests ────────────────────────────────────────
+//
+// Tests use a mock VcsProvider instead of mocking execFileSync.
+
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import type { VcsProvider, PrSummary, PrFilter } from '../vcs/provider.js';
 import { handleValidatePrStack } from './validate-pr-stack.js';
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-}));
+// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
-const mockedExecFileSync = vi.mocked(execFileSync);
+function createMockProvider(overrides: {
+  listPrs?: PrSummary[];
+  listPrsError?: Error;
+} = {}): VcsProvider {
+  return {
+    name: 'github',
+    createPr: vi.fn(),
+    checkCi: vi.fn(),
+    mergePr: vi.fn(),
+    addComment: vi.fn(),
+    getReviewStatus: vi.fn(),
+    listPrs: overrides.listPrsError
+      ? vi.fn().mockRejectedValue(overrides.listPrsError)
+      : vi.fn<(filter?: PrFilter) => Promise<PrSummary[]>>().mockResolvedValue(overrides.listPrs ?? []),
+    getPrComments: vi.fn(),
+    getPrDiff: vi.fn(),
+    createIssue: vi.fn(),
+    getRepository: vi.fn(),
+  };
+}
 
 describe('handleValidatePrStack', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('NoPRs_ReturnsPassedTrue', () => {
-    mockedExecFileSync.mockReturnValue(JSON.stringify([]));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+  it('NoPRs_ReturnsPassedTrue', async () => {
+    const provider = createMockProvider({ listPrs: [] });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; prCount: number; errors: readonly string[] };
@@ -25,22 +45,20 @@ describe('handleValidatePrStack', () => {
     expect(data.errors).toEqual([]);
   });
 
-  it('ValidLinearChain_ReturnsPassedTrueWithVisualization', () => {
-    const prs = [
-      { number: 1, baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
-      { number: 2, baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
-      { number: 3, baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
+  it('ValidLinearChain_ReturnsPassedTrueWithVisualization', async () => {
+    const prs: PrSummary[] = [
+      { number: 1, url: '', title: '', baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
+      { number: 2, url: '', title: '', baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
+      { number: 3, url: '', title: '', baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
     ];
-    mockedExecFileSync.mockReturnValue(JSON.stringify(prs));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const provider = createMockProvider({ listPrs: prs });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; prCount: number; report: string; errors: readonly string[] };
     expect(data.passed).toBe(true);
     expect(data.prCount).toBe(3);
     expect(data.errors).toEqual([]);
-    // Report should contain chain visualization
     expect(data.report).toContain('#1');
     expect(data.report).toContain('#2');
     expect(data.report).toContain('#3');
@@ -50,14 +68,13 @@ describe('handleValidatePrStack', () => {
     expect(data.report).toContain('feat-c');
   });
 
-  it('PRBaseNotInStack_ReturnsPassedFalseWithError', () => {
-    const prs = [
-      { number: 1, baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
-      { number: 2, baseRefName: 'orphan-branch', headRefName: 'feat-b', state: 'OPEN' },
+  it('PRBaseNotInStack_ReturnsPassedFalseWithError', async () => {
+    const prs: PrSummary[] = [
+      { number: 1, url: '', title: '', baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
+      { number: 2, url: '', title: '', baseRefName: 'orphan-branch', headRefName: 'feat-b', state: 'OPEN' },
     ];
-    mockedExecFileSync.mockReturnValue(JSON.stringify(prs));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const provider = createMockProvider({ listPrs: prs });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -66,14 +83,13 @@ describe('handleValidatePrStack', () => {
     expect(data.errors.some((e: string) => e.includes('#2') && e.includes('orphan-branch'))).toBe(true);
   });
 
-  it('MultiplePRsTargetBase_ReturnsPassedFalse', () => {
-    const prs = [
-      { number: 1, baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
-      { number: 2, baseRefName: 'main', headRefName: 'feat-b', state: 'OPEN' },
+  it('MultiplePRsTargetBase_ReturnsPassedFalse', async () => {
+    const prs: PrSummary[] = [
+      { number: 1, url: '', title: '', baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
+      { number: 2, url: '', title: '', baseRefName: 'main', headRefName: 'feat-b', state: 'OPEN' },
     ];
-    mockedExecFileSync.mockReturnValue(JSON.stringify(prs));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const provider = createMockProvider({ listPrs: prs });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -81,14 +97,13 @@ describe('handleValidatePrStack', () => {
     expect(data.errors.some((e: string) => e.includes('Multiple PRs'))).toBe(true);
   });
 
-  it('NoPRTargetsBase_ReturnsPassedFalse', () => {
-    const prs = [
-      { number: 1, baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
-      { number: 2, baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
+  it('NoPRTargetsBase_ReturnsPassedFalse', async () => {
+    const prs: PrSummary[] = [
+      { number: 1, url: '', title: '', baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
+      { number: 2, url: '', title: '', baseRefName: 'feat-b', headRefName: 'feat-c', state: 'OPEN' },
     ];
-    mockedExecFileSync.mockReturnValue(JSON.stringify(prs));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const provider = createMockProvider({ listPrs: prs });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -96,27 +111,25 @@ describe('handleValidatePrStack', () => {
     expect(data.errors.some((e: string) => e.includes('No PR targets'))).toBe(true);
   });
 
-  it('GhCliFailure_ReturnsErrorResult', () => {
-    mockedExecFileSync.mockImplementation(() => {
-      throw new Error('gh: command not found');
+  it('ProviderFailure_ReturnsErrorResult', async () => {
+    const provider = createMockProvider({
+      listPrsError: new Error('gh: command not found'),
     });
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('GH_CLI_ERROR');
   });
 
-  it('ForkDetection_BranchUsedAsBaseByMultiplePRs', () => {
-    const prs = [
-      { number: 1, baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
-      { number: 2, baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
-      { number: 3, baseRefName: 'feat-a', headRefName: 'feat-c', state: 'OPEN' },
+  it('ForkDetection_BranchUsedAsBaseByMultiplePRs', async () => {
+    const prs: PrSummary[] = [
+      { number: 1, url: '', title: '', baseRefName: 'main', headRefName: 'feat-a', state: 'OPEN' },
+      { number: 2, url: '', title: '', baseRefName: 'feat-a', headRefName: 'feat-b', state: 'OPEN' },
+      { number: 3, url: '', title: '', baseRefName: 'feat-a', headRefName: 'feat-c', state: 'OPEN' },
     ];
-    mockedExecFileSync.mockReturnValue(JSON.stringify(prs));
-
-    const result = handleValidatePrStack({ baseBranch: 'main' });
+    const provider = createMockProvider({ listPrs: prs });
+    const result = await handleValidatePrStack({ baseBranch: 'main' }, provider);
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; errors: readonly string[] };
@@ -124,11 +137,18 @@ describe('handleValidatePrStack', () => {
     expect(data.errors.some((e: string) => e.includes('fork'))).toBe(true);
   });
 
-  it('MissingBaseBranch_ReturnsError', () => {
-    const result = handleValidatePrStack({ baseBranch: '' });
+  it('MissingBaseBranch_ReturnsError', async () => {
+    const result = await handleValidatePrStack({ baseBranch: '' });
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('INVALID_INPUT');
+  });
+
+  it('UsesProviderListPrs_WithStateOpenFilter', async () => {
+    const provider = createMockProvider({ listPrs: [] });
+    await handleValidatePrStack({ baseBranch: 'main' }, provider);
+
+    expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open' });
   });
 });
