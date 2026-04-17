@@ -13,6 +13,11 @@ describe('VcsProvider', () => {
       mergePr: async () => ({ merged: false }),
       addComment: async () => {},
       getReviewStatus: async () => ({ state: 'pending', reviewers: [] }),
+      listPrs: async () => [],
+      getPrComments: async () => [],
+      getPrDiff: async () => '',
+      createIssue: async () => ({ number: 0, url: '' }),
+      getRepository: async () => ({ nameWithOwner: '', defaultBranch: '' }),
     };
     expect(provider.name).toBe('github');
   });
@@ -47,6 +52,11 @@ describe('VcsProvider', () => {
     await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
   });
 
   it('AzureDevOpsProvider_AllMethods_ThrowNotImplemented', async () => {
@@ -55,5 +65,10 @@ describe('VcsProvider', () => {
     await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
   });
 });
