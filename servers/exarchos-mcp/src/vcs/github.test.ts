@@ -328,4 +328,89 @@ describe('GitHubProvider', () => {
       state: 'OPEN',
     });
   });
+
+  // ─── T7: listPrs additional filter coverage ──────────────────────────────────
+
+  it('GitHubProvider_ListPrs_FiltersOpenByHead', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 11,
+          url: 'https://github.com/test/repo/pull/11',
+          title: 'feat: head filter',
+          headRefName: 'feat/specific',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs({ state: 'open', head: 'feat/specific' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'pr', 'list',
+        '--state', 'open',
+        '--head', 'feat/specific',
+        '--json', 'number,url,title,headRefName,baseRefName,state',
+      ])
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].headRefName).toBe('feat/specific');
+  });
+
+  it('GitHubProvider_ListPrs_NoFilter_ReturnsAll', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 1,
+          url: 'https://github.com/test/repo/pull/1',
+          title: 'pr one',
+          headRefName: 'feat/one',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+        {
+          number: 2,
+          url: 'https://github.com/test/repo/pull/2',
+          title: 'pr two',
+          headRefName: 'feat/two',
+          baseRefName: 'develop',
+          state: 'MERGED',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs();
+
+    // No filter: should NOT include --state, --head, or --base flags
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'pr', 'list',
+      '--json', 'number,url,title,headRefName,baseRefName,state',
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('GitHubProvider_ListPrs_FilterByBase', async () => {
+    mockExec.mockResolvedValue(JSON.stringify([]));
+
+    await provider.listPrs({ base: 'develop' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['--base', 'develop'])
+    );
+  });
+
+  it('GitHubProvider_ListPrs_StateAll', async () => {
+    mockExec.mockResolvedValue(JSON.stringify([]));
+
+    await provider.listPrs({ state: 'all' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['--state', 'all'])
+    );
+  });
 });
