@@ -317,10 +317,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 54 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, and composite actions', () => {
+    it('should have 55 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(54);
+      expect(composite!.actions).toHaveLength(55);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -389,7 +389,7 @@ describe('TOOL_REGISTRY', () => {
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
     // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
-    const SPECIAL_ACTIONS = new Set(['describe', 'runbook']);
+    const SPECIAL_ACTIONS = new Set(['describe', 'runbook', 'doctor']);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
@@ -408,8 +408,13 @@ describe('TOOL_REGISTRY', () => {
 
   it('should have non-empty phases for every action except init', () => {
     // init has empty phases by design — it relies on the guard's null-check
-    // (no active workflow) rather than phase matching
-    const EMPTY_PHASE_ACTIONS = new Set(['exarchos_workflow.init']);
+    // (no active workflow) rather than phase matching.
+    // doctor has empty phases by design — it is phase-independent and runnable
+    // at any point in the SDLC.
+    const EMPTY_PHASE_ACTIONS = new Set([
+      'exarchos_workflow.init',
+      'exarchos_orchestrate.doctor',
+    ]);
 
     for (const composite of TOOL_REGISTRY) {
       for (const action of composite.actions) {
