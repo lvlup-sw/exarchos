@@ -406,11 +406,11 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count (61 as of T1+T2 which
-    // added `workflow.pruned` and `synthesize.requested` to the existing
-    // 59). When new event types are added, bump this number alongside
+    // Locked to the current registered-type count. Bumped to 62 with
+    // the addition of `diagnostic.executed` for `exarchos doctor`.
+    // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(61);
+    expect(EventTypes).toHaveLength(62);
   });
 
   it('should include workflow-level types', () => {

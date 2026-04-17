@@ -109,7 +109,8 @@ describe('subagent-context', () => {
       expect(deniedOrchestrate!.actions).toContain('prepare_synthesis');
       expect(deniedOrchestrate!.actions).toContain('assess_stack');
       // 4 original + 13 check_ actions + 20 new handler actions + 3 oneshot/prune actions
-      // (prune_stale_workflows, request_synthesize, finalize_oneshot) denied for delegate+teammate.
+      // (prune_stale_workflows, request_synthesize, finalize_oneshot) = 40.
+      // Doctor now has ALL_PHASES so it's allowed, not denied.
       // Bump this number when new lead-only actions are registered.
       expect(deniedOrchestrate!.actions).toHaveLength(40);
     });
@@ -162,6 +163,7 @@ describe('subagent-context', () => {
       // + 13 check_ actions (lead role only)
       // + 3 oneshot/prune actions: prune_stale_workflows, request_synthesize,
       //   finalize_oneshot (lead role only, added by T4)
+      // Doctor now has ALL_PHASES so it's allowed for review phase, not denied.
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );

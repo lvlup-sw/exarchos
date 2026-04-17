@@ -24,7 +24,7 @@ describe('dispatch', () => {
   });
 
   afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it('Dispatch_KnownTool_CallsHandler', async () => {
@@ -354,6 +354,37 @@ describe('dispatch', () => {
       expect(warningsResult.success).toBe(true);
       expect(warningsResult.warnings).toEqual(['Deprecated API usage']);
       expect(warningsResult.data).toBeUndefined();
+    });
+  });
+
+  describe('doctor action wiring', () => {
+    it('Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput', async () => {
+      // Arrange
+      const { dispatch } = await import('./dispatch.js');
+
+      // Act — no args beyond action. Doctor defaults timeoutMs to 2000
+      // and all probes are real runtime surfaces, so the call may
+      // produce a mix of pass/warning/fail/skipped — but the output
+      // shape must parse through DoctorOutputSchema.
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'doctor' },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // Assert — structural: composite handler reached, output has
+      // the canonical {checks, summary} shape with a matching tally.
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        checks: { status: string; name: string }[];
+        summary: { passed: number; warnings: number; failed: number; skipped: number };
+      };
+      expect(Array.isArray(data.checks)).toBe(true);
+      expect(data.checks.length).toBeGreaterThan(0);
+      expect(data.summary).toBeDefined();
+      const tallyTotal =
+        data.summary.passed + data.summary.warnings + data.summary.failed + data.summary.skipped;
+      expect(tallyTotal).toBe(data.checks.length);
     });
   });
 });

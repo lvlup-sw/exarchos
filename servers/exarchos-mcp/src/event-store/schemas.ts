@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
+import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
 
 // ─── Event Type Discriminated Union ─────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export const EventTypes = [
   'ci.status',
   'comment.posted',
   'comment.resolved',
+  'diagnostic.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -209,6 +211,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'quality.regression': 'model',
   'task.assigned': 'model',
   'task.progressed': 'model',
+
+  // auto — emitted by exarchos doctor composite
+  'diagnostic.executed': 'auto',
 
   // hook — emitted by Claude Code hooks
   'benchmark.completed': 'hook',
@@ -670,6 +675,15 @@ export const JudgeCalibratedDataSchema = z.object({
   rubricVersion: z.string(),
 });
 
+// ─── Diagnostic Event Data ──────────────────────────────────────────────────
+
+export const DiagnosticExecutedDataSchema = z.object({
+  summary: DoctorOutputSchema.innerType().shape.summary,
+  checkCount: z.number().int().nonnegative(),
+  failedCheckNames: z.array(z.string()),
+  durationMs: z.number().int().nonnegative(),
+});
+
 // ─── Remediation Event Data ─────────────────────────────────────────────────
 
 export const RemediationAttemptedDataSchema = z.object({
@@ -838,6 +852,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'eval.case.completed': EvalCaseCompletedData,
   'eval.run.completed': EvalRunCompletedData,
   'eval.judge.calibrated': JudgeCalibratedDataSchema,
+
+  // Diagnostic (exarchos doctor)
+  'diagnostic.executed': DiagnosticExecutedDataSchema,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -904,6 +921,7 @@ export type StackSubmitted = z.infer<typeof StackSubmittedData>;
 export type CiStatus = z.infer<typeof CiStatusData>;
 export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
+export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -969,6 +987,7 @@ export type EventDataMap = {
   'ci.status': CiStatus;
   'comment.posted': CommentPosted;
   'comment.resolved': CommentResolved;
+  'diagnostic.executed': DiagnosticExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

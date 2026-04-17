@@ -240,6 +240,82 @@ export function buildCli(ctx: DispatchContext): Command {
     }
   }
 
+  // ─── Top-level `exarchos doctor` command ─────────────────────────────────
+  //
+  // Doctor is promoted to a top-level verb so an operator types
+  // `exarchos doctor` instead of `exarchos orch doctor` — it is a
+  // diagnostic front door, not a mid-workflow orchestration action.
+  // Under the hood it still dispatches through exarchos_orchestrate so
+  // the CLI and MCP paths share one handler + one validation gate.
+  //
+  // Exit-code mapping (DR-3 contract):
+  //   - Any Fail in the summary → HANDLER_ERROR (exit 2)
+  //   - Warnings-only           → SUCCESS (exit 0) — warnings are advisory
+  //   - Dispatch failure        → HANDLER_ERROR (exit 2)
+  //   - Uncaught throw          → UNCAUGHT_EXCEPTION (exit 3)
+  const orchestrateTool = getFullRegistry().find((t) => t.name === 'exarchos_orchestrate');
+  const doctorAction = orchestrateTool?.actions.find((a) => a.name === 'doctor');
+  if (doctorAction) {
+    const doctorCmd = program
+      .command('doctor')
+      .description(doctorAction.description);
+    addFlagsFromSchema(doctorCmd, doctorAction.schema, doctorAction.cli?.flags);
+
+    doctorCmd.action(async (opts: Record<string, unknown>) => {
+      const { json, ...flagOpts } = opts;
+      const isJson = Boolean(json);
+      const defaultFormat = doctorAction.cli?.format;
+
+      // Parse coerced args through the schema so bad inputs surface as
+      // INVALID_INPUT before dispatch runs.
+      const coerced = coerceFlags(flagOpts, doctorAction.schema);
+      const parsed = doctorAction.schema.safeParse(coerced);
+      if (!parsed.success) {
+        const err = formatValidationError(parsed.error, 'exarchos_orchestrate/doctor');
+        emitResult({ success: false, error: err }, isJson, defaultFormat);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+        return;
+      }
+
+      const format =
+        (parsed.data as { format?: 'table' | 'json' }).format ?? defaultFormat;
+
+      let result: ToolResult;
+      try {
+        result = await dispatch(
+          'exarchos_orchestrate',
+          { action: 'doctor', ...parsed.data },
+          ctx,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const errResult: ToolResult = {
+          success: false,
+          error: { code: 'UNCAUGHT_EXCEPTION', message },
+        };
+        emitResult(errResult, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        return;
+      }
+
+      emitResult(result, isJson, format);
+
+      // Doctor-specific exit mapping: any Fail in the summary is a
+      // handler error; warnings alone are non-fatal.
+      if (!result.success) {
+        process.exitCode = result.error?.code === VALIDATION_ERROR_CODE
+          ? CLI_EXIT_CODES.INVALID_INPUT
+          : CLI_EXIT_CODES.HANDLER_ERROR;
+        return;
+      }
+      const data = result.data as { summary?: { failed?: number } } | undefined;
+      const failed = data?.summary?.failed ?? 0;
+      process.exitCode = failed > 0
+        ? CLI_EXIT_CODES.HANDLER_ERROR
+        : CLI_EXIT_CODES.SUCCESS;
+    });
+  }
+
   // ─── Schema introspection command ──────────────────────────────────────────
 
   program
