@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1384,5 +1384,44 @@ describe('exarchos CLI — install-skills subcommand (task 022)', () => {
     const parsed = parseArgs(['install-skills', '--agent', 'claude']);
     expect(parsed.action).toBe('install-skills');
     expect(parsed.agent).toBe('claude');
+  });
+});
+
+describe('Install Deprecation Warning', () => {
+  it('Install_ShowsDeprecationWarning', async () => {
+    // Arrange — spy on console.warn to capture deprecation message
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Act — import install and call it with minimal deps that will fail
+    // early (we only need to verify the deprecation warning is emitted
+    // at the start, before any real work happens)
+    const { install } = await import('./install.js');
+    try {
+      await install({
+        claudeHome: '/tmp/nonexistent-deprecation-test',
+        repoRoot: '/tmp/nonexistent-deprecation-test',
+        manifestPath: '/tmp/nonexistent-deprecation-test/manifest.json',
+        claudeConfigPath: '/tmp/nonexistent-deprecation-test/.claude.json',
+        prompts: {
+          confirm: async () => true,
+          select: async () => 'standard',
+          multiselect: async () => [],
+        },
+        args: { nonInteractive: true },
+      });
+    } catch {
+      // Expected — the function will fail because paths don't exist.
+      // We only care about the warning being emitted.
+    }
+
+    // Assert — deprecation warning was emitted
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('exarchos install is deprecated'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('exarchos init'),
+    );
+
+    warnSpy.mockRestore();
   });
 });
