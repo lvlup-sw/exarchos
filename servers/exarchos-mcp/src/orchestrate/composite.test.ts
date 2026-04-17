@@ -61,6 +61,10 @@ vi.mock('./doctor/index.js', () => ({
   handleDoctor: vi.fn(),
 }));
 
+vi.mock('./init/index.js', () => ({
+  handleInit: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -88,6 +92,7 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleInit } from './init/index.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -540,6 +545,43 @@ describe('handleOrchestrate', () => {
       // Assert
       const actionNames = orchestrate!.actions.map((a) => a.name);
       expect(actionNames).toContain('doctor');
+    });
+  });
+
+  // ─── Init Routing ──────────────────────────────────────────────────────
+
+  describe('init routing', () => {
+    it('OrchestrateComposite_DispatchInitAction_InvokesHandleInit', async () => {
+      // Arrange
+      const expected = successResult({
+        runtimes: [],
+        vcs: null,
+        durationMs: 42,
+      });
+      vi.mocked(handleInit).mockResolvedValue(expected);
+      const args = { action: 'init', runtime: 'copilot', nonInteractive: true };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — init handler called with args (minus the action) and ctx
+      expect(result).toBe(expected);
+      expect(handleInit).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleInit).mock.calls[0];
+      expect(call[0]).toEqual({ runtime: 'copilot', nonInteractive: true });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesInit', () => {
+      // Arrange — the orchestrate action registry is the single source of
+      // truth consulted by dispatch-level validation; init must be in it
+      // for `exarchos_orchestrate { action: "init" }` to pass schema gate.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+
+      // Assert
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('init');
     });
   });
 

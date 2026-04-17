@@ -69,6 +69,7 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleInit } from './init/index.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -222,6 +223,13 @@ export async function handleOrchestrate(
   // buildProbes.
   if (action === 'doctor') {
     return handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx);
+  }
+
+  // Handle init specially — like doctor, it needs the full
+  // DispatchContext because handleInit uses ctx.eventStore to emit
+  // init.executed and delegates deps/VCS detection internally.
+  if (action === 'init') {
+    return handleInit(rest as Parameters<typeof handleInit>[0], ctx);
   }
 
   // Handle runbook specially — it doesn't need stateDir
