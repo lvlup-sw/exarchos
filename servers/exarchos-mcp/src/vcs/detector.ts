@@ -57,6 +57,12 @@ function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
 
   if (hostname === 'github.com') return 'github';
 
+  // GitLab: gitlab.com or any host starting with "gitlab."
+  if (hostname === 'gitlab.com' || hostname.startsWith('gitlab.')) return 'gitlab';
+
+  // Azure DevOps: dev.azure.com or *.visualstudio.com
+  if (hostname === 'dev.azure.com' || hostname.endsWith('.visualstudio.com')) return 'azure-devops';
+
   return null;
 }
 
