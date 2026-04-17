@@ -10,6 +10,12 @@ import type {
   CiStatus,
   MergeResult,
   ReviewStatus,
+  PrFilter,
+  PrSummary,
+  PrComment,
+  CreateIssueOpts,
+  IssueResult,
+  RepoInfo,
 } from './provider.js';
 
 export class AzureDevOpsProvider implements VcsProvider {
@@ -44,6 +50,36 @@ export class AzureDevOpsProvider implements VcsProvider {
   }
 
   async getReviewStatus(_prId: string): Promise<ReviewStatus> {
+    throw new Error(
+      'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
+    );
+  }
+
+  async listPrs(_filter?: PrFilter): Promise<PrSummary[]> {
+    throw new Error(
+      'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
+    );
+  }
+
+  async getPrComments(_prId: string): Promise<PrComment[]> {
+    throw new Error(
+      'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
+    );
+  }
+
+  async getPrDiff(_prId: string): Promise<string> {
+    throw new Error(
+      'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
+    );
+  }
+
+  async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
+    throw new Error(
+      'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
+    );
+  }
+
+  async getRepository(): Promise<RepoInfo> {
     throw new Error(
       'Azure DevOps support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
     );

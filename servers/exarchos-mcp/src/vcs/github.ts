@@ -12,6 +12,12 @@ import type {
   MergeResult,
   ReviewerStatus,
   ReviewStatus,
+  PrFilter,
+  PrSummary,
+  PrComment,
+  CreateIssueOpts,
+  IssueResult,
+  RepoInfo,
 } from './provider.js';
 import { exec } from './shell.js';
 
@@ -189,5 +195,48 @@ export class GitHubProvider implements VcsProvider {
       state: mapReviewDecision(parsed.reviewDecision),
       reviewers,
     };
+  }
+
+  async listPrs(filter?: PrFilter): Promise<PrSummary[]> {
+    const args = [
+      'pr',
+      'list',
+      '--json',
+      'number,url,title,headRefName,baseRefName,state',
+    ];
+
+    if (filter?.state && filter.state !== 'all') {
+      args.push('--state', filter.state);
+    } else if (filter?.state === 'all') {
+      args.push('--state', 'all');
+    }
+
+    if (filter?.head) {
+      args.push('--head', filter.head);
+    }
+
+    if (filter?.base) {
+      args.push('--base', filter.base);
+    }
+
+    const output = await exec('gh', args);
+    const entries = JSON.parse(output) as PrSummary[];
+    return entries;
+  }
+
+  async getPrComments(_prId: string): Promise<PrComment[]> {
+    throw new Error('Not yet implemented');
+  }
+
+  async getPrDiff(_prId: string): Promise<string> {
+    throw new Error('Not yet implemented');
+  }
+
+  async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
+    throw new Error('Not yet implemented');
+  }
+
+  async getRepository(): Promise<RepoInfo> {
+    throw new Error('Not yet implemented');
   }
 }

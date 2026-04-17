@@ -288,4 +288,44 @@ describe('GitHubProvider', () => {
     expect(result.state).toBe('pending');
     expect(result.reviewers).toHaveLength(0);
   });
+
+  // ─── T6: listPrs with state filter ───────────────────────────────────────────
+
+  it('GitHubProvider_ListPrs_ReturnsFilteredResults', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 10,
+          url: 'https://github.com/test/repo/pull/10',
+          title: 'feat: open pr',
+          headRefName: 'feat/open',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs({ state: 'open' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'pr',
+        'list',
+        '--state',
+        'open',
+        '--json',
+        'number,url,title,headRefName,baseRefName,state',
+      ])
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      number: 10,
+      url: 'https://github.com/test/repo/pull/10',
+      title: 'feat: open pr',
+      headRefName: 'feat/open',
+      baseRefName: 'main',
+      state: 'OPEN',
+    });
+  });
 });
