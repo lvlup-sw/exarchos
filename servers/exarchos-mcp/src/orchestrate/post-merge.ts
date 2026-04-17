@@ -85,7 +85,7 @@ export async function handlePostMerge(
 
   // Run the pure TypeScript post-merge check
   const cwd = args.repoRoot;
-  const checkResult = checkPostMerge({
+  const checkResult = await checkPostMerge({
     prUrl: args.prUrl,
     mergeSha: args.mergeSha,
     runCommand: (cmd, cmdArgs) => execCommandRunner(cmd, cmdArgs, cwd),

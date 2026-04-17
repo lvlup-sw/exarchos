@@ -1,9 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { checkPostMerge, type PostMergeResult } from './post-merge.js';
+import { checkPostMerge } from './post-merge.js';
+import type { VcsProvider, CiStatus, CiCheck } from '../../vcs/provider.js';
+
+// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
+
+function createMockProvider(overrides: {
+  checkCi?: CiStatus;
+  checkCiError?: Error;
+} = {}): VcsProvider {
+  const defaultCi: CiStatus = { status: 'pass', checks: [] };
+
+  return {
+    name: 'github',
+    createPr: vi.fn(),
+    checkCi: overrides.checkCiError
+      ? vi.fn().mockRejectedValue(overrides.checkCiError)
+      : vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(overrides.checkCi ?? defaultCi),
+    mergePr: vi.fn(),
+    addComment: vi.fn(),
+    getReviewStatus: vi.fn(),
+    listPrs: vi.fn(),
+    getPrComments: vi.fn(),
+    getPrDiff: vi.fn(),
+    createIssue: vi.fn(),
+    getRepository: vi.fn(),
+  };
+}
 
 /**
- * Type for the command runner dependency injection.
- * Maps command descriptions to { exitCode, stdout, stderr } outcomes.
+ * Type for the command runner dependency injection (for test suite only).
  */
 type CommandResult = { exitCode: number; stdout: string; stderr: string };
 
@@ -13,13 +38,11 @@ function createCommandRunner(results: Record<string, CommandResult>): (
 ) => CommandResult {
   return (cmd: string, args: readonly string[]) => {
     const key = [cmd, ...args].join(' ');
-    // Match by checking if any registered key is a prefix of the actual command
     for (const [registeredKey, result] of Object.entries(results)) {
       if (key.includes(registeredKey)) {
         return result;
       }
     }
-    // Default: command not found
     return { exitCode: 1, stdout: '', stderr: 'command not found' };
   };
 }
@@ -29,87 +52,85 @@ describe('checkPostMerge', () => {
     vi.restoreAllMocks();
   });
 
-  it('clean merge (all checks pass) returns pass', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: JSON.stringify([
-          { name: 'build', state: 'SUCCESS' },
-          { name: 'test', state: 'SUCCESS' },
-          { name: 'lint', state: 'NEUTRAL' },
-        ]),
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'All tests passed',
-        stderr: '',
+  // ─── VcsProvider integration ──────────────────────────────────────────
+
+  it('clean merge (all checks pass via provider) returns pass', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'pass',
+        checks: [
+          { name: 'build', status: 'pass' },
+          { name: 'test', status: 'pass' },
+          { name: 'lint', status: 'skipped' },
+        ],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(2);
     expect(result.failCount).toBe(0);
+    expect(provider.checkCi).toHaveBeenCalledWith('https://github.com/org/repo/pull/42');
   });
 
-  it('CI failure after merge returns fail', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: JSON.stringify([
-          { name: 'build', state: 'SUCCESS' },
-          { name: 'test', state: 'FAILURE' },
-          { name: 'lint', state: 'SUCCESS' },
-        ]),
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'All tests passed',
-        stderr: '',
+  it('CI failure after merge via provider returns fail', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'fail',
+        checks: [
+          { name: 'build', status: 'pass' },
+          { name: 'test', status: 'fail' },
+          { name: 'lint', status: 'pass' },
+        ],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('fail');
     expect(result.failCount).toBeGreaterThanOrEqual(1);
-    // Should mention the failing check
     expect(result.report).toContain('test');
-    expect(result.report).toContain('FAILURE');
   });
 
-  it('test regression after merge returns fail', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: JSON.stringify([
-          { name: 'build', state: 'SUCCESS' },
-          { name: 'test', state: 'SUCCESS' },
-        ]),
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'FAIL: some test broke',
+  it('test regression after merge returns fail', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'pass',
+        checks: [
+          { name: 'build', status: 'pass' },
+          { name: 'test', status: 'pass' },
+        ],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 1, stdout: '', stderr: 'FAIL: some test broke' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('fail');
@@ -117,27 +138,26 @@ describe('checkPostMerge', () => {
     expect(result.report).toContain('FAIL');
   });
 
-  it('both CI and tests fail returns fail with two findings', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: JSON.stringify([
-          { name: 'build', state: 'FAILURE' },
-          { name: 'test', state: 'FAILURE' },
-        ]),
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'FAIL: regression',
+  it('both CI and tests fail returns fail with two findings', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'fail',
+        checks: [
+          { name: 'build', status: 'fail' },
+          { name: 'test', status: 'fail' },
+        ],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 1, stdout: '', stderr: 'FAIL: regression' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('fail');
@@ -145,50 +165,43 @@ describe('checkPostMerge', () => {
     expect(result.findings.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('gh CLI not available reports failure', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 127,
-        stdout: '',
-        stderr: 'command not found: gh',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'All tests passed',
-        stderr: '',
-      },
+  it('provider error reports failure', async () => {
+    const provider = createMockProvider({
+      checkCiError: new Error('command not found: gh'),
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('fail');
     expect(result.failCount).toBeGreaterThanOrEqual(1);
   });
 
-  it('report output is structured markdown', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: JSON.stringify([
-          { name: 'build', state: 'SUCCESS' },
-        ]),
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'All tests passed',
-        stderr: '',
+  it('report output is structured markdown', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'pass',
+        checks: [{ name: 'build', status: 'pass' }],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'All tests passed', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.report).toContain('## Post-Merge Regression Report');
@@ -197,51 +210,46 @@ describe('checkPostMerge', () => {
     expect(result.report).toContain('**Result: PASS**');
   });
 
-  it('gh pr checks command failure reports as finding', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 1,
-        stdout: '',
-        stderr: 'error: could not fetch checks',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'ok',
-        stderr: '',
+  it('pending CI checks are treated as non-passing', async () => {
+    const provider = createMockProvider({
+      checkCi: {
+        status: 'pending',
+        checks: [{ name: 'build', status: 'pending' }],
       },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'ok', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
     expect(result.status).toBe('fail');
     expect(result.failCount).toBe(1);
   });
 
-  it('invalid JSON from gh pr checks reports as finding', () => {
-    const runner = createCommandRunner({
-      'gh pr checks': {
-        exitCode: 0,
-        stdout: 'not valid json {{{',
-        stderr: '',
-      },
-      'npm run test:run': {
-        exitCode: 0,
-        stdout: 'ok',
-        stderr: '',
-      },
+  it('empty checks from provider returns pass for CI', async () => {
+    const provider = createMockProvider({
+      checkCi: { status: 'pass', checks: [] },
     });
 
-    const result = checkPostMerge({
+    const testRunner = createCommandRunner({
+      'npm run test:run': { exitCode: 0, stdout: 'ok', stderr: '' },
+    });
+
+    const result = await checkPostMerge({
       prUrl: 'https://github.com/org/repo/pull/42',
       mergeSha: 'abc1234',
-      runCommand: runner,
+      runCommand: testRunner,
+      provider,
     });
 
-    expect(result.status).toBe('fail');
-    expect(result.failCount).toBe(1);
+    expect(result.status).toBe('pass');
+    expect(result.passCount).toBe(2);
   });
 });

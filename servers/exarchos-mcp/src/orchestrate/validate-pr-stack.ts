@@ -1,10 +1,11 @@
 // ─── Validate PR Stack Handler ──────────────────────────────────────────────
 //
-// Validates that open GitHub PRs form a proper linear chain (stack).
-// Ported from scripts/validate-pr-stack.sh.
+// Validates that open PRs form a proper linear chain (stack).
+// Uses VcsProvider to query open PRs instead of direct gh CLI calls.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import type { VcsProvider, PrSummary } from '../vcs/provider.js';
+import { createVcsProvider } from '../vcs/factory.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -27,26 +28,12 @@ interface ValidatePrStackResult {
   readonly errors: readonly string[];
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function isPrEntryArray(value: unknown): value is PrEntry[] {
-  if (!Array.isArray(value)) return false;
-  return value.every(
-    (item: unknown) =>
-      typeof item === 'object' &&
-      item !== null &&
-      'number' in item &&
-      typeof (item as Record<string, unknown>).number === 'number' &&
-      'baseRefName' in item &&
-      typeof (item as Record<string, unknown>).baseRefName === 'string' &&
-      'headRefName' in item &&
-      typeof (item as Record<string, unknown>).headRefName === 'string',
-  );
-}
-
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleValidatePrStack(args: ValidatePrStackArgs): ToolResult {
+export async function handleValidatePrStack(
+  args: ValidatePrStackArgs,
+  provider?: VcsProvider,
+): Promise<ToolResult> {
   // 1. Validate args
   if (!args.baseBranch) {
     return {
@@ -56,42 +43,29 @@ export function handleValidatePrStack(args: ValidatePrStackArgs): ToolResult {
   }
 
   const { baseBranch } = args;
+  const vcs = provider ?? await createVcsProvider();
 
-  // 2. Call gh pr list
-  let rawJson: string;
+  // 2. Query open PRs via VcsProvider
+  let prSummaries: PrSummary[];
   try {
-    rawJson = execFileSync(
-      'gh',
-      ['pr', 'list', '--state', 'open', '--json', 'number,baseRefName,headRefName,state'],
-      { encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    prSummaries = await vcs.listPrs({ state: 'open' });
   } catch (err: unknown) {
     return {
       success: false,
       error: {
         code: 'GH_CLI_ERROR',
-        message: `gh pr list failed: ${err instanceof Error ? err.message : String(err)}`,
+        message: `PR list query failed: ${err instanceof Error ? err.message : String(err)}`,
       },
     };
   }
 
-  // 3. Parse JSON result
-  let prs: PrEntry[];
-  try {
-    const parsed: unknown = JSON.parse(rawJson);
-    if (!isPrEntryArray(parsed)) {
-      return {
-        success: false,
-        error: { code: 'PARSE_ERROR', message: 'Unexpected JSON shape from gh pr list' },
-      };
-    }
-    prs = parsed;
-  } catch {
-    return {
-      success: false,
-      error: { code: 'PARSE_ERROR', message: 'Failed to parse gh pr list JSON output' },
-    };
-  }
+  // 3. Map to PrEntry shape
+  const prs: PrEntry[] = prSummaries.map(pr => ({
+    number: pr.number,
+    baseRefName: pr.baseRefName,
+    headRefName: pr.headRefName,
+    state: pr.state,
+  }));
 
   // No open PRs
   if (prs.length === 0) {

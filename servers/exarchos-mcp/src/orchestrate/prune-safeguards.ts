@@ -1,9 +1,9 @@
 // ─── Prune Safeguards (DI-friendly) ─────────────────────────────────────────
 //
 // Production implementations for the open-PR and recent-commits safeguards
-// used by `handlePruneStaleWorkflows`. Both shell out to `gh`/`git` through
-// `execSync`; the handler takes these as injectable deps so unit tests can
-// swap stubs rather than shelling out.
+// used by `handlePruneStaleWorkflows`. The open-PR check uses VcsProvider;
+// recent-commits uses `git log` via `execSync`. The handler takes these as
+// injectable deps so unit tests can swap stubs rather than shelling out.
 //
 // Isolation rationale: keeping the IO helpers in a separate module lets
 // `prune-stale-workflows.ts` stay focused on orchestration + pure-selection
@@ -11,6 +11,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execSync } from 'node:child_process';
+import type { VcsProvider } from '../vcs/provider.js';
+import { createVcsProvider } from '../vcs/factory.js';
 
 /**
  * Pluggable safeguard backends. Both accept optional `branchName` so callers
@@ -31,26 +33,18 @@ function isSafeBranchName(branch: string): boolean {
 }
 
 async function defaultHasOpenPR(
+  provider: VcsProvider,
   _featureId: string,
   branchName: string | undefined,
 ): Promise<boolean> {
   if (!branchName || !isSafeBranchName(branchName)) return false;
   try {
-    const output = execSync(
-      `gh pr list --head ${branchName} --state open --json number`,
-      {
-        encoding: 'utf-8',
-        timeout: 10_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    ).trim();
-    if (!output) return false;
-    const parsed: unknown = JSON.parse(output);
-    return Array.isArray(parsed) && parsed.length > 0;
+    const prs = await provider.listPrs({ head: branchName, state: 'open' });
+    return prs.length > 0;
   } catch {
-    // When `gh` fails, be conservative: report "no open PR" rather than
+    // When the provider fails, be conservative: report "no open PR" rather than
     // blocking the prune. The handler's `force` flag is the escape hatch
-    // for environments where `gh` is unavailable.
+    // for environments where the VCS CLI is unavailable.
     return false;
   }
 }
@@ -81,10 +75,21 @@ async function defaultHasRecentCommits(
 /**
  * Build the default production safeguard bundle. Tests pass their own
  * `PruneSafeguards` object instead of calling this.
+ *
+ * @param provider - Optional VcsProvider for testability. Falls back to createVcsProvider().
  */
-export function defaultSafeguards(): PruneSafeguards {
+export function defaultSafeguards(provider?: VcsProvider): PruneSafeguards {
+  // Lazily resolve the provider so we don't block on async in the factory.
+  // The hasOpenPR function is async anyway.
+  let resolvedProvider: VcsProvider | undefined = provider;
+
   return {
-    hasOpenPR: defaultHasOpenPR,
+    hasOpenPR: async (featureId, branchName) => {
+      if (!resolvedProvider) {
+        resolvedProvider = await createVcsProvider();
+      }
+      return defaultHasOpenPR(resolvedProvider, featureId, branchName);
+    },
     hasRecentCommits: defaultHasRecentCommits,
   };
 }
