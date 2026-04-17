@@ -67,6 +67,7 @@ export const EventTypes = [
   'comment.posted',
   'comment.resolved',
   'diagnostic.executed',
+  'init.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -214,6 +215,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
 
   // auto — emitted by exarchos doctor composite
   'diagnostic.executed': 'auto',
+
+  // auto — emitted by exarchos init composite
+  'init.executed': 'auto',
 
   // hook — emitted by Claude Code hooks
   'benchmark.completed': 'hook',
@@ -684,6 +688,26 @@ export const DiagnosticExecutedDataSchema = z.object({
   durationMs: z.number().int().nonnegative(),
 });
 
+// ─── Init Event Data ────────────────────────────────────────────────────
+
+export const InitExecutedDataSchema = z.object({
+  runtimes: z.array(z.object({
+    runtime: z.string().min(1),
+    path: z.string(),
+    status: z.string(),
+    componentsWritten: z.array(z.string()),
+    warnings: z.array(z.string()).optional(),
+    error: z.string().optional(),
+  })),
+  vcs: z.object({
+    provider: z.string(),
+    remoteUrl: z.string(),
+    cliAvailable: z.boolean(),
+    cliVersion: z.string().optional(),
+  }).nullable(),
+  durationMs: z.number().int().nonnegative(),
+});
+
 // ─── Remediation Event Data ─────────────────────────────────────────────────
 
 export const RemediationAttemptedDataSchema = z.object({
@@ -855,6 +879,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Diagnostic (exarchos doctor)
   'diagnostic.executed': DiagnosticExecutedDataSchema,
+
+  // Init (exarchos init)
+  'init.executed': InitExecutedDataSchema,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -922,6 +949,7 @@ export type CiStatus = z.infer<typeof CiStatusData>;
 export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
+export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -988,6 +1016,7 @@ export type EventDataMap = {
   'comment.posted': CommentPosted;
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
+  'init.executed': InitExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
