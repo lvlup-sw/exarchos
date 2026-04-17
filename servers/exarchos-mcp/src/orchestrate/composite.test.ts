@@ -89,6 +89,10 @@ vi.mock('./vcs/create-issue.js', () => ({
   handleCreateIssue: vi.fn(),
 }));
 
+vi.mock('./init/index.js', () => ({
+  handleInit: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -123,6 +127,7 @@ import { handleListPrs } from './vcs/list-prs.js';
 import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
+import { handleInit } from './init/index.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -696,6 +701,38 @@ describe('handleOrchestrate', () => {
       expect(actionNames).toContain('get_pr_comments');
       expect(actionNames).toContain('add_pr_comment');
       expect(actionNames).toContain('create_issue');
+    });
+  });
+
+  // ─── Init Routing ──────────────────────────────────────────────────────
+
+  describe('init routing', () => {
+    it('OrchestrateComposite_DispatchInitAction_InvokesHandleInit', async () => {
+      // Arrange
+      const expected = successResult({
+        runtimes: [],
+        vcs: null,
+        durationMs: 42,
+      });
+      vi.mocked(handleInit).mockResolvedValue(expected);
+      const args = { action: 'init', runtime: 'copilot', nonInteractive: true };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — init handler called with args (minus the action) and ctx
+      expect(result).toBe(expected);
+      expect(handleInit).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleInit).mock.calls[0];
+      expect(call[0]).toEqual({ runtime: 'copilot', nonInteractive: true });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesInit', () => {
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('init');
     });
   });
 

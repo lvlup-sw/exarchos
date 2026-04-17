@@ -393,45 +393,80 @@ export function buildCli(ctx: DispatchContext): Command {
       await server.connect(transport);
     });
 
-  // ─── Init scaffolding command ─────────────────────────────────────────────
+  // ─── Top-level `exarchos init` command ──────────────────────────────────
+  //
+  // Init is promoted to a top-level verb (like doctor) so an operator
+  // types `exarchos init` instead of `exarchos orch init` — it is a
+  // first-run configuration command, not a mid-workflow action.
+  // Under the hood it dispatches through exarchos_orchestrate so the
+  // CLI and MCP paths share one handler + one validation gate.
+  //
+  // Exit-code mapping (DR-3 contract):
+  //   - All writes succeeded    → SUCCESS (exit 0)
+  //   - Any write failed        → HANDLER_ERROR (exit 2)
+  //   - Dispatch failure        → HANDLER_ERROR (exit 2)
+  //   - Uncaught throw          → UNCAUGHT_EXCEPTION (exit 3)
+  const initAction = orchestrateTool?.actions.find((a) => a.name === 'init');
+  if (initAction) {
+    const initCmd = program
+      .command('init')
+      .description(initAction.description);
+    addFlagsFromSchema(initCmd, initAction.schema, initAction.cli?.flags);
 
-  program
-    .command('init')
-    .description('Create an exarchos.config.ts scaffolding file')
-    .action(async () => {
-      const configPath = path.join(process.cwd(), 'exarchos.config.ts');
+    initCmd.action(async (opts: Record<string, unknown>) => {
+      const { json, ...flagOpts } = opts;
+      const isJson = Boolean(json);
+      const defaultFormat = initAction.cli?.format;
 
-      if (fs.existsSync(configPath)) {
-        process.stdout.write(`exarchos.config.ts already exists — not overwriting.\n`);
+      // Parse coerced args through the schema so bad inputs surface as
+      // INVALID_INPUT before dispatch runs.
+      const coerced = coerceFlags(flagOpts, initAction.schema);
+      const parsed = initAction.schema.safeParse(coerced);
+      if (!parsed.success) {
+        const err = formatValidationError(parsed.error, 'exarchos_orchestrate/init');
+        emitResult({ success: false, error: err }, isJson, defaultFormat);
+        process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
         return;
       }
 
-      const template = `import { defineConfig } from '@lvlup-sw/exarchos';
+      const format =
+        (parsed.data as { format?: 'table' | 'json' }).format ?? defaultFormat;
 
-export default defineConfig({
-  // Define custom workflows here
-  // workflows: {
-  //   'my-workflow': {
-  //     phases: ['start', 'implement', 'review', 'done'],
-  //     initialPhase: 'start',
-  //     transitions: [
-  //       { from: 'start', to: 'implement', event: 'begin' },
-  //       { from: 'implement', to: 'review', event: 'submit' },
-  //       { from: 'review', to: 'done', event: 'approve' },
-  //       { from: 'review', to: 'implement', event: 'request-changes' },
-  //     ],
-  //   },
-  // },
-});
-`;
+      let result: ToolResult;
+      try {
+        result = await dispatch(
+          'exarchos_orchestrate',
+          { action: 'init', ...parsed.data },
+          ctx,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const errResult: ToolResult = {
+          success: false,
+          error: { code: 'UNCAUGHT_EXCEPTION', message },
+        };
+        emitResult(errResult, isJson, format);
+        process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        return;
+      }
 
-      fs.writeFileSync(configPath, template);
-      process.stdout.write(`Created exarchos.config.ts\n`);
-      process.stdout.write(`\nGetting started:\n`);
-      process.stdout.write(`  1. Uncomment and customize the workflow definition\n`);
-      process.stdout.write(`  2. Run \`exarchos wf init -f my-feature -t feature\` to start a workflow\n`);
-      process.stdout.write(`  3. Run \`exarchos vw ls\` to see active workflows\n`);
+      emitResult(result, isJson, format);
+
+      // Init-specific exit mapping: any failed writer in the runtimes
+      // array is a handler error.
+      if (!result.success) {
+        process.exitCode = result.error?.code === VALIDATION_ERROR_CODE
+          ? CLI_EXIT_CODES.INVALID_INPUT
+          : CLI_EXIT_CODES.HANDLER_ERROR;
+        return;
+      }
+      const data = result.data as { runtimes?: Array<{ status?: string }> } | undefined;
+      const hasFailed = data?.runtimes?.some((r) => r.status === 'failed') ?? false;
+      process.exitCode = hasFailed
+        ? CLI_EXIT_CODES.HANDLER_ERROR
+        : CLI_EXIT_CODES.SUCCESS;
     });
+  }
 
   return program;
 }

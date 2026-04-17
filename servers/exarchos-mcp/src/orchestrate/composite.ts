@@ -76,6 +76,7 @@ import { handleListPrs } from './vcs/list-prs.js';
 import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
+import { handleInit } from './init/index.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -245,6 +246,13 @@ export async function handleOrchestrate(
   // buildProbes.
   if (action === 'doctor') {
     return handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx);
+  }
+
+  // Handle init specially — like doctor, it needs the full
+  // DispatchContext because handleInit uses ctx.eventStore to emit
+  // init.executed and delegates deps/VCS detection internally.
+  if (action === 'init') {
+    return handleInit(rest as Parameters<typeof handleInit>[0], ctx);
   }
 
   // Handle runbook specially — it doesn't need stateDir

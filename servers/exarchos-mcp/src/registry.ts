@@ -1282,6 +1282,23 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'issue.created', condition: 'always' },
     ],
   },
+  // ─── Init Action ──────────────────────────────────────────────────────────
+  {
+    name: 'init',
+    description: 'Initialize runtime configurations and detect VCS provider. Writes MCP server config for detected/specified runtimes. Emits init.executed on completion.',
+    schema: z.object({
+      runtime: z.string().optional(),
+      vcs: z.string().optional(),
+      nonInteractive: z.boolean().optional(),
+      forceOverwrite: z.boolean().optional(),
+      format: z.enum(['table', 'json']).optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'init.executed', condition: 'always' },
+    ],
+  },
   makeDescribeAction(),
 ];
 
