@@ -115,7 +115,7 @@ export async function initializeContext(
   ]);
 
   const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
-  const vcsProvider = createVcsProvider(projectConfig);
+  const vcsProvider = await createVcsProvider({ config: projectConfig });
   const hookRunner = createConfigHookRunner(projectConfig);
 
   if (!hasJsConfig) {
