@@ -36,10 +36,22 @@ export const CheckResultSchema = z
     reason: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative(),
   })
-  .refine(
-    (r) => r.status !== 'Skipped' || (r.reason !== undefined && r.reason.length > 0),
-    { message: 'reason is required when status is Skipped', path: ['reason'] },
-  );
+  .superRefine((r, ctx) => {
+    if (r.status === 'Skipped' && (!r.reason || r.reason.length === 0)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'reason is required when status is Skipped',
+        path: ['reason'],
+      });
+    }
+    if ((r.status === 'Warning' || r.status === 'Fail') && (!r.fix || r.fix.length === 0)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'fix is required when status is Warning or Fail',
+        path: ['fix'],
+      });
+    }
+  });
 
 export const DoctorSummarySchema = z.object({
   passed: z.number().int().nonnegative(),

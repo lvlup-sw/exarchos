@@ -237,7 +237,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     // Assert: a zero-failure run. Warnings (e.g. missing git repo) are
     // still acceptable — the guarantee is no Fails, and the two agent
     // checks flip to Pass now that a valid config is present.
-    expect([0, 2]).toContain(exitCode);
+    expect(exitCode).toBe(0);
     const result = parseToolResult(stdout);
     expect(result.success).toBe(true);
 

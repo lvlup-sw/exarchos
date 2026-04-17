@@ -264,7 +264,7 @@ export function buildCli(ctx: DispatchContext): Command {
     doctorCmd.action(async (opts: Record<string, unknown>) => {
       const { json, ...flagOpts } = opts;
       const isJson = Boolean(json);
-      const format = doctorAction.cli?.format;
+      const defaultFormat = doctorAction.cli?.format;
 
       // Parse coerced args through the schema so bad inputs surface as
       // INVALID_INPUT before dispatch runs.
@@ -272,10 +272,13 @@ export function buildCli(ctx: DispatchContext): Command {
       const parsed = doctorAction.schema.safeParse(coerced);
       if (!parsed.success) {
         const err = formatValidationError(parsed.error, 'exarchos_orchestrate/doctor');
-        emitResult({ success: false, error: err }, isJson, format);
+        emitResult({ success: false, error: err }, isJson, defaultFormat);
         process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
         return;
       }
+
+      const format =
+        (parsed.data as { format?: 'table' | 'json' }).format ?? defaultFormat;
 
       let result: ToolResult;
       try {

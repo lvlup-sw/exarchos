@@ -253,7 +253,7 @@ export async function handleOrchestrate(
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor`,
       },
     };
   }

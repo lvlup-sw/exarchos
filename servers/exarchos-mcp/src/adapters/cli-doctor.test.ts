@@ -52,12 +52,19 @@ function makeDoctorResult(overrides?: {
     failed: overrides?.failed ?? 0,
     skipped: overrides?.skipped ?? 0,
   };
-  const total = summary.passed + summary.warnings + summary.failed + summary.skipped;
-  const checks = Array.from({ length: total }, (_, i) => ({
+  const statuses = [
+    ...Array(summary.passed).fill('Pass' as const),
+    ...Array(summary.warnings).fill('Warning' as const),
+    ...Array(summary.failed).fill('Fail' as const),
+    ...Array(summary.skipped).fill('Skipped' as const),
+  ];
+  const checks = statuses.map((status, i) => ({
     category: 'runtime' as const,
     name: `check-${i}`,
-    status: 'Pass' as const,
+    status,
     message: 'ok',
+    ...(status === 'Warning' || status === 'Fail' ? { fix: 'fixture fix' } : {}),
+    ...(status === 'Skipped' ? { reason: 'fixture skip' } : {}),
     durationMs: 0,
   }));
   return { success: true, data: { checks, summary } };

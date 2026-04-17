@@ -68,14 +68,18 @@ async function runCheckWithTimeout(
   const fnBindingName = (check as { name?: string }).name;
   const fnName = fnBindingName && fnBindingName.length > 0 ? fnBindingName : 'unknown-check';
 
+  const meta = check as { meta?: { name?: string; category?: string } };
+  const checkCategory = meta.meta?.category ?? 'runtime';
+  const checkName = meta.meta?.name ?? fnName;
+
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<CheckResult>((resolve) => {
     timer = setTimeout(() => {
       resolve({
-        category: 'runtime',
-        name: fnName,
+        category: checkCategory as CheckResult['category'],
+        name: checkName,
         status: 'Warning',
-        message: `Check ${fnName} did not complete within ${timeoutMs}ms`,
+        message: `Check ${checkName} did not complete within ${timeoutMs}ms`,
         fix: `Check exceeded ${timeoutMs}ms timeout; investigate manually`,
         durationMs: timeoutMs,
       });
@@ -174,7 +178,9 @@ export async function handleDoctorWithChecks(
   // Emit diagnostic.executed after the successful run. If the caller
   // aborted above, control never reaches here — the abort path rejects
   // before any partial event is written (DIM-7).
-  await emitDiagnosticEvent(ctx, output.checks, summary, durationMs);
+  void emitDiagnosticEvent(ctx, output.checks, summary, durationMs).catch(() => {
+    // best-effort telemetry; do not fail doctor output
+  });
 
   return {
     success: true,

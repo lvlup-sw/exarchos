@@ -10,8 +10,9 @@ import type { DoctorProbes } from '../probes.js';
 import type { CheckResult } from '../schema.js';
 
 const INTEGRITY_TIMEOUT_MS = 2000;
-const CORRUPTION_FIX =
-  'Run exarchos export to bundle events, then investigate .exarchos/events.db';
+function corruptionFix(stateDir: string): string {
+  return `Run exarchos export to bundle events, then investigate ${stateDir}/events.db`;
+}
 
 export async function storageSqliteHealth(
   probes: DoctorProbes,
@@ -41,6 +42,6 @@ export async function storageSqliteHealth(
     ...base,
     status: 'Warning',
     message: `sqlite integrity_check reported: ${result.details}`,
-    fix: CORRUPTION_FIX,
+    fix: corruptionFix(probes.stateDir),
   };
 }

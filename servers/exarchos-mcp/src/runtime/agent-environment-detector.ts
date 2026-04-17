@@ -166,16 +166,39 @@ async function probeJsonMcpConfig(
   }
 }
 
+function isMissingPathError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null || !('code' in err)) return false;
+  const code = (err as { code?: string }).code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
 async function readOrNull(fs: DetectorFs, p: string): Promise<string | null> {
-  try { return await fs.readFile(p); } catch { return null; }
+  try {
+    return await fs.readFile(p);
+  } catch (err) {
+    if (isMissingPathError(err)) return null;
+    throw err;
+  }
 }
 
 async function fileExists(fs: DetectorFs, p: string): Promise<boolean> {
-  try { await fs.readFile(p); return true; } catch { return false; }
+  try {
+    await fs.readFile(p);
+    return true;
+  } catch (err) {
+    if (isMissingPathError(err)) return false;
+    throw err;
+  }
 }
 
 async function dirExists(fs: DetectorFs, p: string): Promise<boolean> {
-  try { const s = await fs.stat(p); return s.isDirectory(); } catch { return false; }
+  try {
+    const s = await fs.stat(p);
+    return s.isDirectory();
+  } catch (err) {
+    if (isMissingPathError(err)) return false;
+    throw err;
+  }
 }
 
 function configPathFor(name: AgentRuntimeName, home: string, cwd: string): string {

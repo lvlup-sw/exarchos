@@ -38,7 +38,7 @@ describe('storage-state-dir', () => {
 
     expect(result.status).toBe('Fail');
     expect(result.message).toContain('/tmp/missing');
-    expect(result.fix).toBe('Create .exarchos directory: mkdir -p .exarchos');
+    expect(result.fix).toBe('Create state directory: mkdir -p "/tmp/missing"');
   });
 
   it('StorageStateDir_ReadOnly_ReturnsWarning', async () => {
@@ -55,6 +55,6 @@ describe('storage-state-dir', () => {
 
     expect(result.status).toBe('Warning');
     expect(result.message).toContain('/tmp/readonly');
-    expect(result.fix).toBe('Ensure .exarchos is writable: chmod u+w .exarchos');
+    expect(result.fix).toBe('Ensure state directory is writable: chmod u+w "/tmp/readonly"');
   });
 });

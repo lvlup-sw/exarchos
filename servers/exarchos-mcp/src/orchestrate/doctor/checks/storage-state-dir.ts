@@ -13,22 +13,23 @@ export async function storageStateDir(
   probes: DoctorProbes,
   _signal: AbortSignal,
 ): Promise<CheckResult> {
+  const start = Date.now();
   const dir = probes.stateDir;
-  const base = { category: 'storage' as const, name: 'state-dir', durationMs: 0 };
+  const base = { category: 'storage' as const, name: 'state-dir' };
 
   try {
     const s = await probes.fs.stat(dir);
     if (!s.isDirectory()) {
-      return { ...base, status: 'Fail', message: `State dir ${dir} is not a directory. Exarchos requires a writable .exarchos directory.`, fix: 'Create .exarchos directory: mkdir -p .exarchos' };
+      return { ...base, status: 'Fail', message: `State dir ${dir} is not a directory. Exarchos requires a writable state directory.`, fix: `Create state directory: mkdir -p "${dir}"`, durationMs: Date.now() - start };
     }
   } catch {
-    return { ...base, status: 'Fail', message: `State dir ${dir} missing. Exarchos requires a writable .exarchos directory.`, fix: 'Create .exarchos directory: mkdir -p .exarchos' };
+    return { ...base, status: 'Fail', message: `State dir ${dir} missing. Exarchos requires a writable state directory.`, fix: `Create state directory: mkdir -p "${dir}"`, durationMs: Date.now() - start };
   }
 
   try {
     await probes.fs.access?.(dir, fsConstants.W_OK);
-    return { ...base, status: 'Pass', message: `State dir ${dir} present and writable` };
+    return { ...base, status: 'Pass', message: `State dir ${dir} present and writable`, durationMs: Date.now() - start };
   } catch {
-    return { ...base, status: 'Warning', message: `State dir ${dir} not writable by current user`, fix: 'Ensure .exarchos is writable: chmod u+w .exarchos' };
+    return { ...base, status: 'Warning', message: `State dir ${dir} not writable by current user`, fix: `Ensure state directory is writable: chmod u+w "${dir}"`, durationMs: Date.now() - start };
   }
 }

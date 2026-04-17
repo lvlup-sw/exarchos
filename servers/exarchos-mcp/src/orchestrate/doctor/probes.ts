@@ -112,9 +112,11 @@ const DEFAULT_FS: DoctorFs = {
 
 const DEFAULT_GIT: DoctorGit = {
   which: async (cmd) => {
+    // 'which' is POSIX-only; use 'where' on Windows
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which';
     try {
-      const { stdout } = await execFileAsync('which', [cmd]);
-      const trimmed = stdout.trim();
+      const { stdout } = await execFileAsync(whichCmd, [cmd]);
+      const trimmed = stdout.trim().split(/\r?\n/)[0] ?? '';
       return trimmed.length > 0 ? trimmed : null;
     } catch {
       return null;
@@ -145,11 +147,11 @@ const DEFAULT_GIT: DoctorGit = {
 /** Resolve the repo root by walking up from this module until a
  * `package.json` is found. Computed per call (DIM-1 forbids module-
  * global caching). */
-async function findRepoRoot(): Promise<string | null> {
+async function findRepoRoot(marker: string): Promise<string | null> {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 8; i++) {
     try {
-      await nodeFs.access(join(dir, 'skills-src'), fsConstants.F_OK);
+      await nodeFs.access(join(dir, marker), fsConstants.F_OK);
       return dir;
     } catch {
       // keep walking
@@ -169,7 +171,7 @@ async function findRepoRoot(): Promise<string | null> {
 async function defaultSkillsGuardStatus(
   signal?: AbortSignal,
 ): Promise<{ inSync: boolean; driftedPaths?: string[] }> {
-  const root = await findRepoRoot();
+  const root = await findRepoRoot('skills-src');
   if (root === null) return { inSync: true }; // nothing to check
   const srcRoot = join(root, 'skills-src');
   const outRoot = join(root, 'skills');
@@ -192,7 +194,11 @@ async function defaultSkillsGuardStatus(
 
   const drifted: string[] = [];
   for (const skill of srcSkills) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
     const srcPath = join(srcRoot, skill, 'SKILL.md');
     let srcMtime: number;
     try {
@@ -235,8 +241,9 @@ async function defaultInstalledPluginVersion(): Promise<string | null> {
     versions = (await nodeFs.readdir(cacheRoot, { withFileTypes: true }))
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .sort()
-      .reverse();
+      .sort((a, b) =>
+        b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }),
+      );
   } catch {
     return null;
   }
@@ -248,7 +255,7 @@ async function defaultInstalledPluginVersion(): Promise<string | null> {
 }
 
 async function defaultRunningVersion(): Promise<string | null> {
-  const root = await findRepoRoot();
+  const root = await findRepoRoot('package.json');
   if (root === null) return null;
   return readPackageVersion(join(root, 'package.json'));
 }

@@ -164,7 +164,7 @@ The event carries a summary projection, not the full checks array — full check
 
 ### CLI surface
 
-Top-level command `exarchos doctor` lands in `adapters/cli.ts` as a new sub-command. It accepts `--format <table|json>` (default table), `--timeout <ms>` (per-check override), and returns:
+Top-level command `exarchos doctor` lands in `adapters/cli.ts` as a new sub-command. It accepts `--format <table|json>` (default table), `--timeoutMs <ms>` (per-check override in milliseconds), and returns:
 
 - Exit code 0 when all checks pass or are warnings/skipped
 - Exit code 2 (`HANDLER_ERROR`) when any check fails
@@ -217,10 +217,10 @@ Mapped 1:1 from [#1089](https://github.com/lvlup-sw/exarchos/issues/1089):
 | MCP tool `exarchos_orchestrate({action: "doctor"})` | Action added to orchestrate registry |
 | ≥8 diagnostic checks across categories | 10 checks listed in layout |
 | Each check has category/name/message/status | Enforced by `CheckResultSchema` |
-| Failed/warning checks include `fix` field | Schema allows; convention enforces for non-Pass |
+| Failed/warning checks include `fix` field | Schema enforces via superRefine for Warning/Fail |
 | `diagnostic.executed` event emitted | New event type in `event-store/schemas.ts` |
 | `--format json` machine-readable; default table | `adapters/cli-format.ts` already supports both |
-| Exit 0 all pass / exit 1 any fail / warnings don't fail | Maps to `CLI_EXIT_CODES.HANDLER_ERROR` from ToolResult.success |
+| Exit 0 all pass / exit 2 any fail / warnings don't fail | Maps to `CLI_EXIT_CODES.HANDLER_ERROR` (exit 2) from ToolResult.success |
 | Co-located tests per check | `checks/<name>.test.ts` pattern |
 
 ## Out of scope

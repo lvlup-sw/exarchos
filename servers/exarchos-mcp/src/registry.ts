@@ -1189,10 +1189,7 @@ const orchestrateActions: readonly ToolAction[] = [
       timeoutMs: z.number().int().positive().optional(),
       format: z.enum(['table', 'json']).optional(),
     }),
-    // Doctor is phase-independent — an operator can run it at any point
-    // in the SDLC. An empty phase set signals that the gate machinery
-    // should not restrict this action by workflow phase.
-    phases: new Set<string>(),
+    phases: ALL_PHASES,
     roles: ROLE_ANY,
     autoEmits: [
       { event: 'diagnostic.executed', condition: 'always' },

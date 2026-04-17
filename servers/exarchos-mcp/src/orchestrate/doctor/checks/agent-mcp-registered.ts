@@ -11,17 +11,26 @@ import type { CheckFn } from './__shared__/make-stub-probes.js';
 
 export const agentMcpRegistered: CheckFn = async (probes, signal) => {
   const start = Date.now();
-  const envs = (await probes.detector(signal)).filter(
-    (e) => e.configPresent && e.configValid,
-  );
+  const detected = await probes.detector(signal);
+  const present = detected.filter((e) => e.configPresent);
+  const envs = present.filter((e) => e.configValid);
   const base = { category: 'agent' as const, name: 'agent-mcp-registered' };
 
-  if (envs.length === 0) {
+  if (present.length === 0) {
     return {
       ...base,
       status: 'Skipped',
       message: 'No agent runtime configs present in this project',
       reason: 'No agent runtime configs present in this project',
+      durationMs: Date.now() - start,
+    };
+  }
+  if (envs.length === 0) {
+    return {
+      ...base,
+      status: 'Skipped',
+      message: 'Agent runtime configs present but all are malformed',
+      reason: 'All detected runtime configs are malformed',
       durationMs: Date.now() - start,
     };
   }

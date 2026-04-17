@@ -409,11 +409,8 @@ describe('TOOL_REGISTRY', () => {
   it('should have non-empty phases for every action except init', () => {
     // init has empty phases by design — it relies on the guard's null-check
     // (no active workflow) rather than phase matching.
-    // doctor has empty phases by design — it is phase-independent and runnable
-    // at any point in the SDLC.
     const EMPTY_PHASE_ACTIONS = new Set([
       'exarchos_workflow.init',
-      'exarchos_orchestrate.doctor',
     ]);
 
     for (const composite of TOOL_REGISTRY) {

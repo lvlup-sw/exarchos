@@ -20,6 +20,15 @@ export const pluginVersionMatch: CheckFn = async (probes, _signal) => {
     const reason = 'Plugin not installed locally; running from source or dev mode';
     return { ...base, status: 'Skipped', message: reason, reason, durationMs: Date.now() - start };
   }
+  if (running === null) {
+    return {
+      ...base,
+      status: 'Warning',
+      message: `Installed plugin v${installed}; unable to determine running plugin version`,
+      fix: 'Ensure repository package.json is readable, then rerun exarchos doctor',
+      durationMs: Date.now() - start,
+    };
+  }
   if (installed === running) {
     return {
       ...base,

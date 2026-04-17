@@ -13,18 +13,20 @@ export async function runtimeNodeVersion(
   probes: DoctorProbes,
   _signal: AbortSignal,
 ): Promise<CheckResult> {
+  const start = Date.now();
   const version = probes.runtime.nodeVersion;
   const major = parseMajor(version);
-  const base = { category: 'runtime' as const, name: 'node-version', durationMs: 0 };
+  const base = { category: 'runtime' as const, name: 'node-version' };
 
   if (major !== null && major >= MIN_MAJOR) {
-    return { ...base, status: 'Pass', message: `Node.js ${version} detected` };
+    return { ...base, status: 'Pass', message: `Node.js ${version} detected`, durationMs: Date.now() - start };
   }
   return {
     ...base,
     status: 'Fail',
     message: `Node.js ${version} detected. Exarchos requires Node.js >= ${MIN_MAJOR}.`,
     fix: 'Upgrade Node via nvm install 20 or your package manager',
+    durationMs: Date.now() - start,
   };
 }
 

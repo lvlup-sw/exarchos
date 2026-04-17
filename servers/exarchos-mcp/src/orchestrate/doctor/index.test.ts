@@ -128,6 +128,9 @@ describe('handleDoctor — parallel execution + timeout', () => {
       if (status === 'Skipped') {
         return { ...base, status, message: `${name} skipped`, reason: 'not applicable' };
       }
+      if (status === 'Warning' || status === 'Fail') {
+        return { ...base, status, message: `${name} ${status.toLowerCase()}`, fix: `fix ${name}` };
+      }
       return { ...base, status, message: `${name} ${status.toLowerCase()}` };
     };
     const checks: CheckFn[] = [

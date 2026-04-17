@@ -1125,12 +1125,15 @@ export class EventStore {
     }
 
     let timer: NodeJS.Timeout | undefined;
+    let didTimeout = false;
+    const timeoutDetails = `integrity_check timed out after ${timeoutMs}ms`;
     const timeoutPromise = new Promise<IntegrityResult>((resolve) => {
       timer = setTimeout(() => {
+        didTimeout = true;
         controller.abort();
         resolve({
           ok: false,
-          details: `integrity_check timed out after ${timeoutMs}ms`,
+          details: timeoutDetails,
         });
       }, timeoutMs);
     });
@@ -1146,9 +1149,12 @@ export class EventStore {
         }
         return { ok: false, details: verdict };
       } catch (err) {
-        // Rethrow AbortError so the outer race can distinguish
-        // external-abort (caller) from timeout (our controller).
         if (err instanceof Error && err.name === 'AbortError') {
+          // If we timed out and it's not an external abort, return the
+          // timeout result instead of letting AbortError escape the race.
+          if (didTimeout && !externalSignal?.aborted) {
+            return { ok: false, details: timeoutDetails };
+          }
           throw err;
         }
         return {

@@ -38,9 +38,8 @@ describe('storage-sqlite-health', () => {
 
     expect(result.status).toBe('Warning');
     expect(result.message).toMatch(/row 3 missing/);
-    expect(result.fix).toBe(
-      'Run exarchos export to bundle events, then investigate .exarchos/events.db',
-    );
+    expect(result.fix).toContain('Run exarchos export to bundle events, then investigate');
+    expect(result.fix).toContain('events.db');
   });
 
   it('StorageSqliteHealth_Skipped_ReturnsSkippedWithReason', async () => {

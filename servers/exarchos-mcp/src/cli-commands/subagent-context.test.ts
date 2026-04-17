@@ -109,10 +109,10 @@ describe('subagent-context', () => {
       expect(deniedOrchestrate!.actions).toContain('prepare_synthesis');
       expect(deniedOrchestrate!.actions).toContain('assess_stack');
       // 4 original + 13 check_ actions + 20 new handler actions + 3 oneshot/prune actions
-      // (prune_stale_workflows, request_synthesize, finalize_oneshot) + 1 phase-independent
-      // (doctor — empty phases, so denied for every phase) = 41.
+      // (prune_stale_workflows, request_synthesize, finalize_oneshot) = 40.
+      // Doctor now has ALL_PHASES so it's allowed, not denied.
       // Bump this number when new lead-only actions are registered.
-      expect(deniedOrchestrate!.actions).toHaveLength(41);
+      expect(deniedOrchestrate!.actions).toHaveLength(40);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -163,12 +163,12 @@ describe('subagent-context', () => {
       // + 13 check_ actions (lead role only)
       // + 3 oneshot/prune actions: prune_stale_workflows, request_synthesize,
       //   finalize_oneshot (lead role only, added by T4)
-      // + 1 phase-independent action: doctor (empty phases → denied for every phase)
+      // Doctor now has ALL_PHASES so it's allowed for review phase, not denied.
       const deniedOrchestrate = result.denied.find(
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      expect(deniedOrchestrate!.actions.length).toBe(46);
+      expect(deniedOrchestrate!.actions.length).toBe(45);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {
