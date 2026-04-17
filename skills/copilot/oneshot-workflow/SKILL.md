@@ -11,6 +11,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge_pr`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full `feature` flow (`ideate → plan → plan-review → delegate → review → synthesize → completed`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -103,7 +109,7 @@ pure functions of `state.oneshot.synthesisPolicy` and the
 |---|---|---|
 | `plan` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | `artifacts.plan` set → transition to `implementing` |
 | `implementing` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesis/SKILL.md`. PR created via `gh pr create`, auto-merge enabled, CI gates apply. | PR merged → `completed` |
+| `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesis/SKILL.md`. PR created via `exarchos_orchestrate({ action: "create_pr" })`, auto-merge enabled, CI gates apply. | PR merged → `completed` |
 | `completed` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 `cancelled` is also reachable from any phase via the universal cancel
@@ -282,7 +288,7 @@ pipeline view.
 
 If finalize resolved to `synthesize`, hand off to the standard synthesis
 flow — see `@skills/synthesis/SKILL.md`. The same `prepare_synthesis` /
-`validate_pr_body` / `gh pr create` machinery used by the `feature`
+`validate_pr_body` / `create_pr` machinery used by the `feature`
 workflow applies. After the PR merges, the workflow transitions
 `synthesize → completed` via the existing `mergeVerified` guard, same as
 every other workflow type.
@@ -351,7 +357,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 ```
 
 ### Example C — `synthesisPolicy: 'always'` (PR mandatory)

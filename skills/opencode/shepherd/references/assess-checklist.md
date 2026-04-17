@@ -11,9 +11,9 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "get", featureId: "<i
 
 Extract PR numbers from URLs (e.g., `https://github.com/owner/repo/pull/123` → `123`).
 
-If no PRs in state, check GitHub:
-```bash
-gh pr list --json number,baseRefName,headRefName,url
+If no PRs in state, check VCS:
+```typescript
+exarchos_orchestrate({ action: "list_prs", state: "open" })
 ```
 
 ## 2. CI Check Status
@@ -105,8 +105,8 @@ coderabbit: 5 total, 5 replied
 ## 5. Stack Health
 
 Check the branch stack state:
-```bash
-gh pr list --json number,baseRefName,headRefName,state
+```typescript
+exarchos_orchestrate({ action: "list_prs", state: "open" })
 ```
 
 Verify:
@@ -136,8 +136,8 @@ mcp__plugin_github_github__pull_request_read({
 The response includes `autoMergeRequest` — if null, merge-when-ready is not set.
 
 If `autoMergeRequest` is null, merge-when-ready is not set. Re-enable:
-```bash
-gh pr merge <number> --auto --squash
+```typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 ```
 
 ## 7. Aggregate and Report

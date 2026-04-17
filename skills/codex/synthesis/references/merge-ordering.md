@@ -2,7 +2,7 @@
 
 ## Overview
 
-GitHub-native stacked PRs merge bottom-up: the base branch merges first, then each dependent branch in sequence. This ordering is enforced by creating PRs with correct base branches and enabling auto-merge (`gh pr merge --auto --squash`).
+GitHub-native stacked PRs merge bottom-up: the base branch merges first, then each dependent branch in sequence. This ordering is enforced by creating PRs with correct base branches and enabling auto-merge via `exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })`.
 
 ## Stack Ordering Rules
 

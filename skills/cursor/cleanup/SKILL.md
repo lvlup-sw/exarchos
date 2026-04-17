@@ -11,6 +11,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (`list_prs`, `get_pr_comments`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to `completed` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -52,12 +58,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-```bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+```typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 ```
 
-> Or use GitHub MCP `pull_request_read` if available.
+For individual PR details, use `exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })` or the VCS provider's native API.
 
 Collect from merged PRs:
 - `prUrl`: The PR URL (or array of URLs for stacked PRs)

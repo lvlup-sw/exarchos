@@ -10,22 +10,21 @@ The cleanup action trusts the `mergeVerified` flag — it does not query GitHub 
 
 ## Verification Methods
 
-### gh CLI (Primary)
+### VCS MCP Action (Primary)
 
-```bash
-gh pr view 123 --json state,mergedAt,headRefName
-# Check: .state == "MERGED" and .mergedAt is not null
+```typescript
+// List PRs to check merge state
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
+// Check: each PR's state is "MERGED" and mergedAt is not null
 ```
-
-> Or use GitHub MCP `pull_request_read` if available for structured data.
 
 ### For Stacked PRs
 
 When verifying a stacked PR set, check ALL PRs in the stack:
 
-```bash
-# List PRs for the branch stack
-gh pr list --head "feature/*" --json number,state,headRefName
+```typescript
+// List PRs for the branch stack
+exarchos_orchestrate({ action: "list_prs", head: "feature/*", state: "all" })
 ```
 
 Collect from each merged PR:
