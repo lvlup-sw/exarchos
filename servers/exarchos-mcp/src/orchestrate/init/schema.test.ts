@@ -74,6 +74,16 @@ describe('ConfigWriteResultSchema', () => {
     expect(() => ConfigWriteResultSchema.parse(input)).toThrow();
   });
 
+  it('ConfigWriteResultSchema_MissingPath_ParsesSuccessfully', () => {
+    const input = {
+      runtime: 'cursor',
+      status: 'written',
+      componentsWritten: ['mcp-config'],
+    };
+    const parsed = ConfigWriteResultSchema.parse(input);
+    expect(parsed.path).toBeUndefined();
+  });
+
   it('ConfigWriteResultSchema_WithWarnings_ParsesSuccessfully', () => {
     const input = {
       runtime: 'claude-code',

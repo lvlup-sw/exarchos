@@ -14,7 +14,7 @@ export const ConfigWriteStatusSchema = z.enum(['written', 'skipped', 'failed', '
 export const ConfigWriteResultSchema = z
   .object({
     runtime: z.string().min(1),
-    path: z.string().min(1),
+    path: z.string().min(1).optional(),
     status: ConfigWriteStatusSchema,
     componentsWritten: z.array(z.string()),
     warnings: z.array(z.string()).optional(),
@@ -51,3 +51,9 @@ export type ConfigWriteStatus = z.infer<typeof ConfigWriteStatusSchema>;
 export type ConfigWriteResult = z.infer<typeof ConfigWriteResultSchema>;
 export type InitInput = z.infer<typeof InitInputSchema>;
 export type InitOutput = z.infer<typeof InitOutputSchema>;
+
+/** Interface that all runtime config writers implement. */
+export interface ConfigWriter {
+  readonly runtime: string;
+  write(projectRoot: string): Promise<ConfigWriteResult>;
+}
