@@ -66,6 +66,42 @@ function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
   return null;
 }
 
+/** Map provider → CLI command and version args. */
+function cliCommandFor(provider: VcsProviderName): { cmd: string; args: string[] } {
+  switch (provider) {
+    case 'github':      return { cmd: 'gh',   args: ['--version'] };
+    case 'gitlab':      return { cmd: 'glab', args: ['--version'] };
+    case 'azure-devops': return { cmd: 'az',  args: ['--version'] };
+  }
+}
+
+/**
+ * Extract a semver-like version string from CLI output.
+ * Matches patterns like "2.45.0", "1.36.0", "2.58.0".
+ */
+function parseCliVersion(output: string): string | undefined {
+  const match = output.match(/(\d+\.\d+\.\d+)/);
+  return match?.[1];
+}
+
+/**
+ * Check if the CLI tool for the given provider is available on PATH.
+ * Returns `{ cliAvailable, cliVersion }`.
+ */
+async function checkCliAvailability(
+  exec: (cmd: string, args: string[]) => Promise<string>,
+  provider: VcsProviderName,
+): Promise<{ cliAvailable: boolean; cliVersion?: string }> {
+  const { cmd, args } = cliCommandFor(provider);
+  try {
+    const output = await exec(cmd, args);
+    const cliVersion = parseCliVersion(output);
+    return { cliAvailable: true, cliVersion };
+  } catch {
+    return { cliAvailable: false };
+  }
+}
+
 export async function detectVcsProvider(
   deps?: VcsDetectorDeps,
 ): Promise<VcsEnvironment | null> {
@@ -83,9 +119,13 @@ export async function detectVcsProvider(
   const provider = parseRemoteUrl(remoteUrl);
   if (!provider) return null;
 
+  // 3. Check CLI availability
+  const { cliAvailable, cliVersion } = await checkCliAvailability(exec, provider);
+
   return {
     provider,
     remoteUrl,
-    cliAvailable: false,
+    cliAvailable,
+    ...(cliVersion !== undefined ? { cliVersion } : {}),
   };
 }
