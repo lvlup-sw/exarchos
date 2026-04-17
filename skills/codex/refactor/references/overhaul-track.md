@@ -161,7 +161,7 @@ Invoke `/exarchos:synthesize` skill:
 Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
 ```
 
-Creates PR via `gh pr create`, updates description via `gh pr edit`. **Human checkpoint:** Confirm merge.
+Creates PR via `exarchos_orchestrate({ action: "create_pr" })`, updates description via `gh pr edit --body`. **Human checkpoint:** Confirm merge.
 
 > Or use GitHub MCP `update_pull_request` if available.
 

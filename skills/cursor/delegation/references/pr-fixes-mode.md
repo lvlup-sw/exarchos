@@ -15,15 +15,13 @@ When invoked with `--pr-fixes [PR_URL]`, delegation addresses human review feedb
 
 ### Step 1: Fetch All PR Feedback
 
-```bash
-# Get full PR details including reviews and comments
-gh pr view <number> --json title,body,state,files,reviewDecision,reviews,comments
+```typescript
+// Get PR comments including reviews
+exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })
 
-# Get issue-level comments (pre-merge check summaries)
-gh issue view <number> --json comments
+// For full PR details (title, body, state, files), use VCS provider's native API
+// or GitHub MCP pull_request_read if available
 ```
-
-> Or use GitHub MCP `pull_request_read` and `issue_read` if available.
 
 ### Step 2: Parse CodeRabbit Feedback
 

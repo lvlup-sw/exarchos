@@ -121,8 +121,11 @@ git commit -m "fix: <issue summary>"
 git push -u origin <branch-name>
 
 # Create PR and enable auto-merge
-gh pr create --base main --title "fix: <issue summary>" --body "<pr-body>"
-gh pr merge <number> --auto --squash
+```
+
+```typescript
+exarchos_orchestrate({ action: "create_pr", base: "main", head: "<branch-name>", title: "fix: <issue summary>", body: "<pr-body>" })
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 ```
 
 Then update the PR description:

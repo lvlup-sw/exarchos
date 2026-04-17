@@ -121,13 +121,13 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 Create PRs for each branch in the stack (bottom-up) and enable auto-merge:
 
-```bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body "<pr-body>"
-gh pr merge <number> --auto --squash
+```typescript
+// For each branch in the stack (bottom-up):
+exarchos_orchestrate({ action: "create_pr", base: "<parent-branch>", head: "<branch>", title: "<type>: <what>", body: "<pr-body>" })
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 ```
 
-After creation, use `gh pr list --json number,url,headRefName` to get the PR URLs for each stack entry.
+After creation, use `exarchos_orchestrate({ action: "list_prs", state: "open" })` to get the PR URLs for each stack entry.
 
 ## Step 7: Cleanup After Merge
 

@@ -10,6 +10,12 @@ metadata:
 
 # Prune Workflows Skill
 
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Bulk-cancel stale non-terminal workflows that have accumulated in the pipeline. Wraps the `prune_stale_workflows` orchestrate action with an interactive dry-run-then-confirm UX so the user always sees the candidate set before any state mutates.

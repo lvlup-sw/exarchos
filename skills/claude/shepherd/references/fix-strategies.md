@@ -105,7 +105,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 
 If a test passes locally but fails in CI:
 1. Check if it's a known flaky test
-2. Re-run CI: `gh pr checks <number> --watch` (or push an empty commit to retrigger)
+2. Re-run CI: `exarchos_orchestrate({ action: "check_ci", prId: "<number>" })` (or push an empty commit to retrigger)
 3. If consistently flaky, fix the test or mark it with a skip annotation and create a follow-up issue
 
 ## Addressing Inline Review Comments
@@ -268,7 +268,7 @@ When making fixes to stack branches:
    git push --force-with-lease
    ```
 
-**IMPORTANT:** After pushing, verify auto-merge is still enabled: `gh pr view <number> --json autoMergeRequest`.
+**IMPORTANT:** After pushing, verify auto-merge is still enabled: `gh pr view <number> --json autoMergeRequest` (no MCP equivalent yet — use VCS CLI directly).
 
 ## Responding on PRs
 
@@ -286,4 +286,4 @@ mcp__plugin_github_github__add_issue_comment({
   body: "Addressed review feedback:\n- Fixed Sentry bug: ...\n- Replied to DI concern...\n\nAll inline review threads have replies."
 })
 ```
-Fallback (if MCP token lacks write scope): `gh pr comment <number> --body "..."`
+Fallback (if MCP token lacks write scope): `exarchos_orchestrate({ action: "add_pr_comment", prId: "<number>", body: "..." })`
