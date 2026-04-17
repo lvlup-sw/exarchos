@@ -17,7 +17,7 @@ export async function handleAddPrComment(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     await provider.addComment(args.prId, args.body);
 
     await ctx.eventStore.append('vcs', {

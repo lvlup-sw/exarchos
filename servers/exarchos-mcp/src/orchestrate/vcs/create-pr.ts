@@ -21,7 +21,7 @@ export async function handleCreatePr(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const result = await provider.createPr({
       title: args.title,
       body: args.body,

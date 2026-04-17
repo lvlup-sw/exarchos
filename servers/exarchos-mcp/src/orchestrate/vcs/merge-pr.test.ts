@@ -44,7 +44,7 @@ describe('handleMergePr', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProvider = makeMockProvider();
-    vi.mocked(createVcsProvider).mockReturnValue(mockProvider);
+    vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
     ctx = makeMockCtx();
   });
 

@@ -18,7 +18,7 @@ export async function handleListPrs(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const result = await provider.listPrs({
       state: args.state,
       head: args.head,

@@ -16,7 +16,7 @@ export async function handleGetPrComments(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const result = await provider.getPrComments(args.prId);
 
     return { success: true, data: result };

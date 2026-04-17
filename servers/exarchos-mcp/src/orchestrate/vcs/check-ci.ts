@@ -16,7 +16,7 @@ export async function handleCheckCi(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const result = await provider.checkCi(args.prId);
 
     return { success: true, data: result };

@@ -17,7 +17,7 @@ export async function handleMergePr(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
-    const provider = createVcsProvider(ctx.projectConfig);
+    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const result = await provider.mergePr(args.prId, args.strategy);
 
     if (result.merged) {
