@@ -39,9 +39,12 @@ function makeMemFs(files: Record<string, string> = {}): WriterFs & {
       dirs.add(p);
     },
     stat: async (p: string) => {
-      if (p in store || dirs.has(p)) {
+      // Check if p is an implicit directory (any stored path has it as prefix)
+      const prefix = p.endsWith('/') ? p : p + '/';
+      const isImplicitDir = dirs.has(p) || Object.keys(store).some((k) => k.startsWith(prefix));
+      if (p in store || isImplicitDir) {
         return {
-          isDirectory: () => dirs.has(p),
+          isDirectory: () => isImplicitDir,
           isFile: () => p in store,
         };
       }
@@ -282,5 +285,151 @@ describe('claudeCodeWriter', () => {
     expect(entry.command).toBeDefined();
     expect(entry.args).toBeDefined();
     expect(Array.isArray(entry.args)).toBe(true);
+  });
+
+  it('ClaudeCodeWriter_WithCommandsInProject_CopiesCommandsToClaudeHome', async () => {
+    const fs = makeMemFs({
+      '/project/commands/workflow.md': '# Workflow command',
+      '/project/commands/review.md': '# Review command',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toContain('commands');
+    // Verify commands were copied
+    expect(fs.copies.some((c) => c.dest.includes('.claude/commands/'))).toBe(true);
+  });
+
+  it('ClaudeCodeWriter_WithSkillsInProject_CopiesSkillsToClaudeHome', async () => {
+    const fs = makeMemFs({
+      '/project/skills/claude-code/workflow/SKILL.md': '# Workflow skill',
+      '/project/skills/claude-code/review/SKILL.md': '# Review skill',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toContain('skills');
+    // Verify skills were copied
+    expect(fs.copies.some((c) => c.dest.includes('.claude/skills/'))).toBe(true);
+  });
+
+  it('ClaudeCodeWriter_FullDeploy_ReturnsAllThreeComponents', async () => {
+    const fs = makeMemFs({
+      '/project/commands/init.md': '# Init',
+      '/project/skills/claude-code/init/SKILL.md': '# Init skill',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toContain('mcp-config');
+    expect(result.componentsWritten).toContain('commands');
+    expect(result.componentsWritten).toContain('skills');
+  });
+
+  it('ClaudeCodeWriter_NoCommandsOrSkillsDirs_WritesMcpOnly', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toEqual(['mcp-config']);
+  });
+
+  it('ClaudeCodeWriter_CommandsCopied_CreatesTargetDirectory', async () => {
+    const fs = makeMemFs({
+      '/project/commands/help.md': '# Help',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(fs.mkdirs).toContain('/home/user/.claude/commands');
+  });
+
+  it('ClaudeCodeWriter_SkillsCopied_CreatesTargetDirectory', async () => {
+    const fs = makeMemFs({
+      '/project/skills/claude-code/test/SKILL.md': '# Test',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(fs.mkdirs).toContain('/home/user/.claude/skills');
+  });
+
+  it('ClaudeCodeWriter_SkippedMcpButHasContent_StillDeploysContent', async () => {
+    // Exarchos already registered but commands/skills should still deploy
+    const existingConfig = JSON.stringify({
+      mcpServers: { exarchos: { type: 'stdio', command: 'node', args: ['old.js'] } },
+    });
+    const fs = makeMemFs({
+      '/home/user/.claude.json': existingConfig,
+      '/project/commands/workflow.md': '# Workflow',
+      '/project/skills/claude-code/workflow/SKILL.md': '# Skill',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    // MCP was skipped but content was deployed
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).not.toContain('mcp-config');
+    expect(result.componentsWritten).toContain('commands');
+    expect(result.componentsWritten).toContain('skills');
+  });
+
+  it('ClaudeCodeWriter_NothingToDo_ReturnsSkipped', async () => {
+    // Exarchos already registered AND no commands/skills dirs
+    const existingConfig = JSON.stringify({
+      mcpServers: { exarchos: { type: 'stdio', command: 'node', args: ['old.js'] } },
+    });
+    const fs = makeMemFs({
+      '/home/user/.claude.json': existingConfig,
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('skipped');
+    expect(result.componentsWritten).toEqual([]);
   });
 });

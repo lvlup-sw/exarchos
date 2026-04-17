@@ -1,16 +1,18 @@
 /**
- * Claude Code RuntimeConfigWriter — deploys exarchos MCP server config
- * to ~/.claude.json.
+ * Claude Code RuntimeConfigWriter — deploys exarchos MCP server config,
+ * commands, and skills to ~/.claude/.
  *
- * Read-modify-write with merge semantics: existing servers and config
- * keys are preserved. Atomic writes via tmp+rename prevent partial
- * writes on crash. When an exarchos entry already exists and
- * `forceOverwrite` is false, the writer skips (no data loss from
- * accidental re-init).
+ * Three deployment phases:
+ *   1. MCP config — read-modify-write ~/.claude.json with merge semantics
+ *   2. Commands — copy project commands/ to ~/.claude/commands/
+ *   3. Skills — copy project skills/claude-code/ to ~/.claude/skills/
+ *
+ * Each phase is independent; a skipped MCP config does not block content
+ * deployment. Atomic writes via tmp+rename prevent partial writes on crash.
  */
 
 import { join, dirname } from 'node:path';
-import type { WriterDeps } from '../probes.js';
+import type { WriterDeps, WriterFs } from '../probes.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 
@@ -91,37 +93,73 @@ function buildExarchosEntry(home: string): McpServerEntry {
   };
 }
 
-// ─── Writer ───────────────────────────────────────────────────────────────
+/** Check if a directory exists at the given path. */
+async function dirExists(fs: WriterFs, p: string): Promise<boolean> {
+  try {
+    const s = await fs.stat(p);
+    return s.isDirectory();
+  } catch (err: unknown) {
+    if (isMissingPathError(err)) return false;
+    throw err;
+  }
+}
 
-async function writeMcpConfig(
+/**
+ * Copy all files from `srcDir` to `destDir`, creating `destDir` if
+ * needed. Non-recursive: copies only top-level files. For skills the
+ * layout is deeper, so we use `copyDirRecursive`.
+ */
+async function copyDirRecursive(
+  fs: WriterFs,
+  srcDir: string,
+  destDir: string,
+): Promise<void> {
+  await fs.mkdir(destDir, { recursive: true });
+  let entries: string[];
+  try {
+    entries = await fs.readdir(srcDir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const srcPath = join(srcDir, entry);
+    const destPath = join(destDir, entry);
+    let isDir = false;
+    try {
+      const s = await fs.stat(srcPath);
+      isDir = s.isDirectory();
+    } catch {
+      continue;
+    }
+    if (isDir) {
+      await copyDirRecursive(fs, srcPath, destPath);
+    } else {
+      // Ensure parent dir exists for nested structures
+      await fs.mkdir(dirname(destPath), { recursive: true });
+      await fs.copyFile(srcPath, destPath);
+    }
+  }
+}
+
+// ─── Phase: MCP config ───────────────────────────────────────────────────
+
+async function deployMcpConfig(
   deps: WriterDeps,
   options: WriteOptions,
-): Promise<ConfigWriteResult> {
+): Promise<{ wrote: boolean; error?: string }> {
   const home = deps.home();
   const configPath = join(home, '.claude.json');
 
   const { config, error } = await readExistingConfig(deps, configPath);
   if (config === null) {
-    return {
-      runtime: 'claude-code',
-      path: configPath,
-      status: 'failed',
-      componentsWritten: [],
-      error: error ?? 'Unknown error reading config',
-    };
+    return { wrote: false, error: error ?? 'Unknown error reading config' };
   }
 
   const existingServers = config.mcpServers ?? {};
   const alreadyRegistered = 'exarchos' in existingServers;
 
   if (alreadyRegistered && !options.forceOverwrite) {
-    return {
-      runtime: 'claude-code',
-      path: configPath,
-      status: 'skipped',
-      componentsWritten: [],
-      warnings: ['exarchos MCP server already registered; use forceOverwrite to update'],
-    };
+    return { wrote: false };
   }
 
   const mergedConfig: ClaudeConfig = {
@@ -132,20 +170,102 @@ async function writeMcpConfig(
     },
   };
 
-  // Ensure parent directory exists
   await deps.fs.mkdir(dirname(configPath), { recursive: true });
-
   await atomicWriteJson(deps, configPath, mergedConfig);
+
+  return { wrote: true };
+}
+
+// ─── Phase: Commands ─────────────────────────────────────────────────────
+
+async function deployCommands(
+  deps: WriterDeps,
+  options: WriteOptions,
+): Promise<boolean> {
+  const srcDir = join(options.projectRoot, 'commands');
+  if (!(await dirExists(deps.fs, srcDir))) return false;
+
+  const destDir = join(deps.home(), '.claude', 'commands');
+  await copyDirRecursive(deps.fs, srcDir, destDir);
+  return true;
+}
+
+// ─── Phase: Skills ───────────────────────────────────────────────────────
+
+async function deploySkills(
+  deps: WriterDeps,
+  options: WriteOptions,
+): Promise<boolean> {
+  // Claude Code skills live under skills/claude-code/ in the project
+  const srcDir = join(options.projectRoot, 'skills', 'claude-code');
+  if (!(await dirExists(deps.fs, srcDir))) return false;
+
+  const destDir = join(deps.home(), '.claude', 'skills');
+  await copyDirRecursive(deps.fs, srcDir, destDir);
+  return true;
+}
+
+// ─── Compositor ──────────────────────────────────────────────────────────
+
+async function writeClaudeCode(
+  deps: WriterDeps,
+  options: WriteOptions,
+): Promise<ConfigWriteResult> {
+  const home = deps.home();
+  const configPath = join(home, '.claude.json');
+  const componentsWritten: string[] = [];
+  const warnings: string[] = [];
+
+  // Phase 1: MCP config
+  const mcpResult = await deployMcpConfig(deps, options);
+  if (mcpResult.error) {
+    return {
+      runtime: 'claude-code',
+      path: configPath,
+      status: 'failed',
+      componentsWritten: [],
+      error: mcpResult.error,
+    };
+  }
+  if (mcpResult.wrote) {
+    componentsWritten.push('mcp-config');
+  } else {
+    warnings.push('exarchos MCP server already registered; use forceOverwrite to update');
+  }
+
+  // Phase 2: Commands
+  const commandsDeployed = await deployCommands(deps, options);
+  if (commandsDeployed) {
+    componentsWritten.push('commands');
+  }
+
+  // Phase 3: Skills
+  const skillsDeployed = await deploySkills(deps, options);
+  if (skillsDeployed) {
+    componentsWritten.push('skills');
+  }
+
+  // Determine overall status
+  if (componentsWritten.length === 0) {
+    return {
+      runtime: 'claude-code',
+      path: configPath,
+      status: 'skipped',
+      componentsWritten: [],
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  }
 
   return {
     runtime: 'claude-code',
     path: configPath,
     status: 'written',
-    componentsWritten: ['mcp-config'],
+    componentsWritten,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
 export const claudeCodeWriter: RuntimeConfigWriter = {
   runtime: 'claude-code',
-  write: writeMcpConfig,
+  write: writeClaudeCode,
 };
