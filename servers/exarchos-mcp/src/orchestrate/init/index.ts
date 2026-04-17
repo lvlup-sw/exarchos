@@ -82,7 +82,6 @@ export async function handleInitWithWriters(
     } catch (err) {
       return {
         runtime: writer.runtime,
-        path: '',
         status: 'failed' as const,
         componentsWritten: [],
         error: err instanceof Error ? err.message : String(err),
@@ -97,7 +96,6 @@ export async function handleInitWithWriters(
         if (s.status === 'fulfilled') return s.value;
         return {
           runtime: 'unknown',
-          path: '',
           status: 'failed' as const,
           componentsWritten: [],
           error: s.reason instanceof Error ? s.reason.message : String(s.reason),
