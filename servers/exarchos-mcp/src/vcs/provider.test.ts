@@ -22,20 +22,6 @@ describe('VcsProvider', () => {
     expect(provider.name).toBe('github');
   });
 
-  it('GitLabProvider_CreatePr_ThrowsNotImplemented', async () => {
-    const provider = new GitLabProvider({});
-    await expect(provider.createPr({
-      title: 'test', body: 'test', baseBranch: 'main', headBranch: 'feat'
-    })).rejects.toThrow(/not yet implemented/i);
-  });
-
-  it('AzureDevOpsProvider_CreatePr_ThrowsNotImplemented', async () => {
-    const provider = new AzureDevOpsProvider({});
-    await expect(provider.createPr({
-      title: 'test', body: 'test', baseBranch: 'main', headBranch: 'feat'
-    })).rejects.toThrow(/not yet implemented/i);
-  });
-
   it('GitLabProvider_Name_IsGitlab', () => {
     const provider = new GitLabProvider({});
     expect(provider.name).toBe('gitlab');
@@ -46,12 +32,15 @@ describe('VcsProvider', () => {
     expect(provider.name).toBe('azure-devops');
   });
 
-  it('GitLabProvider_AllMethods_ThrowNotImplemented', async () => {
+  it('GitLabProvider_ImplementsVcsProvider', async () => {
     const provider = new GitLabProvider({});
-    await expect(provider.checkCi('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    // Verify all VcsProvider methods exist on the implementation
+    expect(typeof provider.createPr).toBe('function');
+    expect(typeof provider.checkCi).toBe('function');
+    expect(typeof provider.mergePr).toBe('function');
+    expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.getReviewStatus).toBe('function');
+    // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
@@ -59,12 +48,15 @@ describe('VcsProvider', () => {
     await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
   });
 
-  it('AzureDevOpsProvider_AllMethods_ThrowNotImplemented', async () => {
+  it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
     const provider = new AzureDevOpsProvider({});
-    await expect(provider.checkCi('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    // Verify all VcsProvider methods exist on the implementation
+    expect(typeof provider.createPr).toBe('function');
+    expect(typeof provider.checkCi).toBe('function');
+    expect(typeof provider.mergePr).toBe('function');
+    expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.getReviewStatus).toBe('function');
+    // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
