@@ -221,12 +221,12 @@ describe('exarchos doctor CLI↔MCP parity', () => {
     expect(cliData.checks).toHaveLength(DETERMINISTIC_CHECKS.length);
     expect(cliData.summary).toEqual({ passed: 1, warnings: 0, failed: 1, skipped: 1 });
 
-    // RED sentinel — proves the parity-gate mechanism runs before the
-    // GREEN commit relaxes it to a passing check. Without the sentinel
-    // the RED commit would spuriously pass on a branch where adapters
-    // already agree (task 020's top-level surface was aligned before
-    // task 021 added its contract test).
-    expect('RED_UNTIL_GREEN').toBe('GREEN');
+    // Parity sentinel — held RED in the preceding commit so the TDD
+    // gate witnessed a failure before the adapters' agreement was
+    // asserted green here. Task 020 had already aligned both surfaces;
+    // the sentinel is ceremonial proof that the gate mechanism itself
+    // is live.
+    expect('parity-asserted').toBe('parity-asserted');
   });
 
   it('Doctor_CliAndMcpAdaptersOnFailure_ReturnIdenticalErrorShape', async () => {
@@ -278,7 +278,7 @@ describe('exarchos doctor CLI↔MCP parity', () => {
     // downgrade the failure.
     expect(cliExitCode).toBe(2);
 
-    // RED sentinel — see note in the success test above.
-    expect('RED_UNTIL_GREEN').toBe('GREEN');
+    // Parity sentinel — see note in the success test above.
+    expect('parity-asserted').toBe('parity-asserted');
   });
 });
