@@ -40,12 +40,17 @@ describe('VcsProvider', () => {
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
-    // Verify other VcsProvider methods exist on the implementation
+    // Verify all VcsProvider methods exist on the implementation
     expect(typeof provider.createPr).toBe('function');
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
     expect(typeof provider.addComment).toBe('function');
     expect(typeof provider.getReviewStatus).toBe('function');
+    expect(typeof provider.listPrs).toBe('function');
+    expect(typeof provider.getPrComments).toBe('function');
+    expect(typeof provider.getPrDiff).toBe('function');
+    expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.getRepository).toBe('function');
   });
 
   it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
@@ -56,11 +61,16 @@ describe('VcsProvider', () => {
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
-    // Verify other VcsProvider methods exist on the implementation
+    // Verify all VcsProvider methods exist on the implementation
     expect(typeof provider.createPr).toBe('function');
     expect(typeof provider.checkCi).toBe('function');
     expect(typeof provider.mergePr).toBe('function');
     expect(typeof provider.addComment).toBe('function');
     expect(typeof provider.getReviewStatus).toBe('function');
+    expect(typeof provider.listPrs).toBe('function');
+    expect(typeof provider.getPrComments).toBe('function');
+    expect(typeof provider.getPrDiff).toBe('function');
+    expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.getRepository).toBe('function');
   });
 });

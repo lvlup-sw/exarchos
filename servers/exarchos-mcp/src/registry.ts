@@ -1195,6 +1195,93 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'diagnostic.executed', condition: 'always' },
     ],
   },
+  // ─── VCS Actions ──────────────────────────────────────────────────────────
+  {
+    name: 'create_pr',
+    description: 'Create a pull/merge request via the VCS provider abstraction. Auto-emits pr.created event.',
+    schema: z.object({
+      title: z.string().min(1),
+      body: z.string().min(1),
+      base: z.string().min(1),
+      head: z.string().min(1),
+      draft: z.boolean().optional(),
+      labels: z.array(z.string()).optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'pr.created', condition: 'always' },
+    ],
+  },
+  {
+    name: 'merge_pr',
+    description: 'Merge a pull/merge request via the VCS provider abstraction. Auto-emits pr.merged event on success.',
+    schema: z.object({
+      prId: z.string().min(1),
+      strategy: z.enum(['squash', 'rebase', 'merge']),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'pr.merged', condition: 'conditional', description: 'When merge succeeds' },
+    ],
+  },
+  {
+    name: 'check_ci',
+    description: 'Check CI status for a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
+    schema: z.object({
+      prId: z.string().min(1),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'list_prs',
+    description: 'List pull/merge requests via the VCS provider abstraction. Read-only, no events emitted.',
+    schema: z.object({
+      state: z.enum(['open', 'closed', 'merged', 'all']).optional(),
+      head: z.string().optional(),
+      base: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'get_pr_comments',
+    description: 'Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.',
+    schema: z.object({
+      prId: z.string().min(1),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
+    name: 'add_pr_comment',
+    description: 'Add a comment to a pull/merge request via the VCS provider abstraction. Auto-emits pr.commented event.',
+    schema: z.object({
+      prId: z.string().min(1),
+      body: z.string().min(1),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'pr.commented', condition: 'always' },
+    ],
+  },
+  {
+    name: 'create_issue',
+    description: 'Create an issue via the VCS provider abstraction. Auto-emits issue.created event.',
+    schema: z.object({
+      title: z.string().min(1),
+      body: z.string().min(1),
+      labels: z.array(z.string()).optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'issue.created', condition: 'always' },
+    ],
+  },
   makeDescribeAction(),
 ];
 
@@ -1391,7 +1478,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, and validation actions. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue',
   },
   {
     name: 'exarchos_view',

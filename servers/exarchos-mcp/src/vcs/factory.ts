@@ -31,7 +31,7 @@ export async function createVcsProvider(
 
   // Otherwise, auto-detect from git remote.
   const detected = await detectVcsProvider(opts?.detectorDeps);
-  const provider = detected ?? 'github';
+  const provider = detected?.provider ?? 'github';
 
   return instantiate(provider, settings);
 }

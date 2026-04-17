@@ -7,9 +7,23 @@ import { AzureDevOpsProvider } from './azure-devops.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { VcsDetectorDeps } from './detector.js';
 
-/** Helper: builds detector deps that return a fixed remote URL. */
+/**
+ * Helper: builds detector deps that simulate a git remote URL.
+ * The comprehensive detector uses `exec` (for running `git remote get-url origin`
+ * and CLI version checks) and `env` (for env var overrides).
+ */
 function fakeDetectorDeps(remoteUrl: string | null): VcsDetectorDeps {
-  return { getRemoteUrl: async () => remoteUrl };
+  return {
+    exec: async (cmd: string, args: string[]) => {
+      if (cmd === 'git' && args.includes('get-url')) {
+        if (remoteUrl === null) throw new Error('no remote');
+        return remoteUrl;
+      }
+      // CLI version checks — simulate unavailable
+      throw new Error('not found');
+    },
+    env: {},
+  };
 }
 
 describe('createVcsProvider', () => {
@@ -62,7 +76,7 @@ describe('createVcsProvider', () => {
   // ── Auto-detection integration ──────────────────────────────────────────
 
   it('CreateVcsProvider_AutoDetect_UsesDetectedProvider', async () => {
-    // No explicit config → detector runs; remote is a gitlab URL → GitLabProvider
+    // No explicit config -> detector runs; remote is a gitlab URL -> GitLabProvider
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('git@gitlab.com:org/repo.git'),
     });
@@ -86,7 +100,7 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_NoRemote_DefaultsToGitHub', async () => {
-    // No config, no remote → detection returns null → fallback to GitHub
+    // No config, no remote -> detection returns null -> fallback to GitHub
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps(null),
     });
@@ -113,7 +127,7 @@ describe('createVcsProvider', () => {
   });
 
   it('CreateVcsProvider_AutoDetect_UnknownHost_DefaultsToGitHub', async () => {
-    // Unknown hosting provider → fallback to GitHub
+    // Unknown hosting provider -> fallback to GitHub
     const provider = await createVcsProvider({
       detectorDeps: fakeDetectorDeps('git@bitbucket.org:org/repo.git'),
     });

@@ -67,6 +67,10 @@ export const EventTypes = [
   'comment.posted',
   'comment.resolved',
   'diagnostic.executed',
+  'pr.created',
+  'pr.merged',
+  'pr.commented',
+  'issue.created',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -222,6 +226,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'shepherd.started': 'auto',
   'shepherd.approval_requested': 'auto',
   'shepherd.completed': 'auto',
+
+  // auto — emitted by VCS orchestration handlers
+  'pr.created': 'auto',
+  'pr.merged': 'auto',
+  'pr.commented': 'auto',
+  'issue.created': 'auto',
 
   // planned — schema exists, not yet emitted in production
   'eval.run.started': 'planned',
