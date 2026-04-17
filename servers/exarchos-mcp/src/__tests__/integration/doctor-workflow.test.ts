@@ -195,6 +195,20 @@ describe('doctor end-to-end acceptance (task 022)', () => {
         initRegex.test(c.fix),
     );
     expect(nonPassWithInitFix.length).toBeGreaterThan(0);
+
+    // DIM-8 prose-quality spot-check: every emitted `fix` string ends
+    // without a trailing space and does not collapse into an empty
+    // string (the Zod schema already rejects `""`, but a fix made of
+    // pure whitespace would sneak past the minimum-length constraint).
+    // This is the acceptance-level mirror of the convention check —
+    // the per-check unit tests own message/fix content; this test owns
+    // the cross-cutting quality gate.
+    for (const check of output.checks) {
+      if (check.fix !== undefined) {
+        expect(check.fix.trim().length).toBeGreaterThan(0);
+        expect(check.fix).toBe(check.fix.trimEnd());
+      }
+    }
   }, 30_000);
 
   it('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {
