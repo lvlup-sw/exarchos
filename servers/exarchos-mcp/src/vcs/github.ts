@@ -37,6 +37,20 @@ interface GhReviewResponse {
   readonly reviewDecision: string;
 }
 
+interface GhPrCommentEntry {
+  readonly id: number;
+  readonly user: { readonly login: string };
+  readonly body: string;
+  readonly created_at: string;
+  readonly path?: string;
+  readonly line?: number;
+}
+
+interface GhRepoViewResponse {
+  readonly nameWithOwner: string;
+  readonly defaultBranchRef: { readonly name: string };
+}
+
 function mapConclusion(conclusion: string | null): CiCheck['status'] {
   if (conclusion === null) return 'pending';
   switch (conclusion) {
@@ -224,8 +238,22 @@ export class GitHubProvider implements VcsProvider {
     return entries;
   }
 
-  async getPrComments(_prId: string): Promise<PrComment[]> {
-    throw new Error('Not yet implemented');
+  async getPrComments(prId: string): Promise<PrComment[]> {
+    const output = await exec('gh', [
+      'api',
+      `repos/{owner}/{repo}/pulls/${prId}/comments`,
+      '--paginate',
+    ]);
+
+    const entries = JSON.parse(output) as readonly GhPrCommentEntry[];
+    return entries.map((entry) => ({
+      id: entry.id,
+      author: entry.user.login,
+      body: entry.body,
+      createdAt: entry.created_at,
+      path: entry.path,
+      line: entry.line,
+    }));
   }
 
   async getPrDiff(_prId: string): Promise<string> {
@@ -237,6 +265,17 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getRepository(): Promise<RepoInfo> {
-    throw new Error('Not yet implemented');
+    const output = await exec('gh', [
+      'repo',
+      'view',
+      '--json',
+      'nameWithOwner,defaultBranchRef',
+    ]);
+
+    const parsed = JSON.parse(output) as GhRepoViewResponse;
+    return {
+      nameWithOwner: parsed.nameWithOwner,
+      defaultBranch: parsed.defaultBranchRef.name,
+    };
   }
 }

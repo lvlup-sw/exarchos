@@ -413,4 +413,77 @@ describe('GitHubProvider', () => {
       expect.arrayContaining(['--state', 'all'])
     );
   });
+
+  // ─── T8: getPrComments + getRepository ────────────────────────────────────────
+
+  it('GitHubProvider_GetPrComments_ReturnsParsedComments', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: 100,
+          user: { login: 'reviewer1' },
+          body: 'Looks good!',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/main.ts',
+          line: 42,
+        },
+        {
+          id: 101,
+          user: { login: 'reviewer2' },
+          body: 'Needs a fix here',
+          created_at: '2026-04-15T11:00:00Z',
+        },
+      ])
+    );
+
+    const result = await provider.getPrComments('42');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'api',
+        'repos/{owner}/{repo}/pulls/42/comments',
+        '--paginate',
+      ])
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({
+      id: 100,
+      author: 'reviewer1',
+      body: 'Looks good!',
+      createdAt: '2026-04-15T10:00:00Z',
+      path: 'src/main.ts',
+      line: 42,
+    });
+    expect(result[1]).toEqual({
+      id: 101,
+      author: 'reviewer2',
+      body: 'Needs a fix here',
+      createdAt: '2026-04-15T11:00:00Z',
+      path: undefined,
+      line: undefined,
+    });
+  });
+
+  it('GitHubProvider_GetRepository_ReturnsNameWithOwner', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify({
+        nameWithOwner: 'lvlup-sw/exarchos',
+        defaultBranchRef: { name: 'main' },
+      })
+    );
+
+    const result = await provider.getRepository();
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'repo', 'view', '--json', 'nameWithOwner,defaultBranchRef',
+      ])
+    );
+    expect(result).toEqual({
+      nameWithOwner: 'lvlup-sw/exarchos',
+      defaultBranch: 'main',
+    });
+  });
 });
