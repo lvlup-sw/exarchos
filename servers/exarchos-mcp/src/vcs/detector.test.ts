@@ -210,3 +210,76 @@ describe('detectVcsProvider — CLI availability', () => {
     expect(result!.cliVersion).toBe('2.58.0');
   });
 });
+
+// ─── T4: Environment variable override ───────────────────────────────────────
+
+describe('detectVcsProvider — env var override', () => {
+  it('detectVcsProvider_ExarchosVcsProviderEnv_OverridesDetection', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          // Remote URL points to GitHub...
+          return 'https://github.com/lvlup-sw/exarchos.git';
+        }
+        if (cmd === 'glab' && args.includes('--version')) {
+          return 'glab version 1.36.0 (2024-02-20)';
+        }
+        throw new Error('command not found');
+      },
+      // ...but env var overrides to gitlab
+      env: { EXARCHOS_VCS_PROVIDER: 'gitlab' },
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).not.toBeNull();
+    expect(result!.provider).toBe('gitlab');
+    // Remote URL is still reported from git
+    expect(result!.remoteUrl).toBe('https://github.com/lvlup-sw/exarchos.git');
+    // CLI check uses the overridden provider (glab, not gh)
+    expect(result!.cliAvailable).toBe(true);
+    expect(result!.cliVersion).toBe('1.36.0');
+  });
+
+  it('detectVcsProvider_ExarchosVcsProviderEnvInvalid_IgnoresOverride', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          return 'https://github.com/lvlup-sw/exarchos.git';
+        }
+        throw new Error('command not found');
+      },
+      // Invalid provider name — should be ignored
+      env: { EXARCHOS_VCS_PROVIDER: 'bitbucket' },
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).not.toBeNull();
+    // Falls back to URL detection
+    expect(result!.provider).toBe('github');
+  });
+
+  it('detectVcsProvider_ExarchosVcsProviderEnvNoRemote_StillDetectsProvider', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          throw new Error('fatal: No such remote');
+        }
+        if (cmd === 'gh' && args.includes('--version')) {
+          return 'gh version 2.45.0 (2024-03-15)';
+        }
+        throw new Error('command not found');
+      },
+      env: { EXARCHOS_VCS_PROVIDER: 'github' },
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    // Even with no remote, the env override provides a provider
+    expect(result).not.toBeNull();
+    expect(result!.provider).toBe('github');
+    expect(result!.remoteUrl).toBe('');
+    expect(result!.cliAvailable).toBe(true);
+  });
+});

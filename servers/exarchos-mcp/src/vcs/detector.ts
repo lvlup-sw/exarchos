@@ -66,6 +66,17 @@ function parseRemoteUrl(remoteUrl: string): VcsProviderName | null {
   return null;
 }
 
+const VALID_PROVIDERS: readonly VcsProviderName[] = ['github', 'gitlab', 'azure-devops'];
+
+/** Parse env var override, returning null if absent or invalid. */
+function parseEnvOverride(env: Record<string, string | undefined>): VcsProviderName | null {
+  const raw = env.EXARCHOS_VCS_PROVIDER;
+  if (!raw) return null;
+  return (VALID_PROVIDERS as readonly string[]).includes(raw)
+    ? (raw as VcsProviderName)
+    : null;
+}
+
 /** Map provider → CLI command and version args. */
 function cliCommandFor(provider: VcsProviderName): { cmd: string; args: string[] } {
   switch (provider) {
@@ -106,17 +117,26 @@ export async function detectVcsProvider(
   deps?: VcsDetectorDeps,
 ): Promise<VcsEnvironment | null> {
   const exec = deps?.exec ?? DEFAULT_EXEC;
+  const env = deps?.env ?? process.env;
 
-  // 1. Get remote URL
+  // 0. Check env var override
+  const envOverride = parseEnvOverride(env);
+
+  // 1. Get remote URL (may fail if no remote configured)
   let remoteUrl: string;
   try {
     remoteUrl = (await exec('git', ['remote', 'get-url', 'origin'])).trim();
   } catch {
-    return null;
+    // If env override is set, we can still proceed with empty URL
+    if (envOverride) {
+      remoteUrl = '';
+    } else {
+      return null;
+    }
   }
 
-  // 2. Parse provider from URL
-  const provider = parseRemoteUrl(remoteUrl);
+  // 2. Determine provider: env override takes precedence over URL detection
+  const provider = envOverride ?? parseRemoteUrl(remoteUrl);
   if (!provider) return null;
 
   // 3. Check CLI availability
