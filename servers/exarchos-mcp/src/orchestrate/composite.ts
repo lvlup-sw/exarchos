@@ -68,6 +68,7 @@ import { handlePrepareReview } from './prepare-review.js';
 import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
+import { handleDoctor } from './doctor/index.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -213,6 +214,14 @@ export async function handleOrchestrate(
       };
     }
     return handleDescribe(rest as { actions: string[] }, orchestrateActions);
+  }
+
+  // Handle doctor specially — it needs the full DispatchContext (not
+  // just stateDir) because handleDoctor reads ctx.eventStore to emit
+  // diagnostic.executed and delegates further context access to
+  // buildProbes.
+  if (action === 'doctor') {
+    return handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx);
   }
 
   // Handle runbook specially — it doesn't need stateDir
