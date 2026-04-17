@@ -283,3 +283,86 @@ describe('detectVcsProvider — env var override', () => {
     expect(result!.cliAvailable).toBe(true);
   });
 });
+
+// ─── T5: Edge cases ──────────────────────────────────────────────────────────
+
+describe('detectVcsProvider — edge cases', () => {
+  it('detectVcsProvider_NoRemote_ReturnsNull', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (_cmd: string, _args: string[]): Promise<string> => {
+        throw new Error('fatal: No such remote \'origin\'');
+      },
+      env: {},
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).toBeNull();
+  });
+
+  it('detectVcsProvider_UnknownHost_ReturnsNull', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          return 'https://bitbucket.org/myteam/myrepo.git';
+        }
+        throw new Error('command not found');
+      },
+      env: {},
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).toBeNull();
+  });
+
+  it('detectVcsProvider_MalformedUrl_ReturnsNull', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          return 'not-a-valid-url';
+        }
+        throw new Error('command not found');
+      },
+      env: {},
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).toBeNull();
+  });
+
+  it('detectVcsProvider_EmptyRemoteUrl_ReturnsNull', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          return '';
+        }
+        throw new Error('command not found');
+      },
+      env: {},
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).toBeNull();
+  });
+
+  it('detectVcsProvider_WhitespaceInUrl_TrimsAndParses', async () => {
+    const deps: VcsDetectorDeps = {
+      exec: async (cmd: string, args: string[]): Promise<string> => {
+        if (cmd === 'git' && args.includes('get-url')) {
+          return '  https://github.com/lvlup-sw/exarchos.git\n';
+        }
+        throw new Error('command not found');
+      },
+      env: {},
+    };
+
+    const result = await detectVcsProvider(deps);
+
+    expect(result).not.toBeNull();
+    expect(result!.provider).toBe('github');
+    expect(result!.remoteUrl).toBe('https://github.com/lvlup-sw/exarchos.git');
+  });
+});

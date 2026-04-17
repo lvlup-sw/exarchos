@@ -8,6 +8,9 @@
  * (DIM-1). No module-global state.
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 export type VcsProviderName = 'github' | 'gitlab' | 'azure-devops';
 
 export interface VcsDetectorDeps {
@@ -21,9 +24,6 @@ export interface VcsEnvironment {
   readonly cliAvailable: boolean;
   readonly cliVersion?: string;
 }
-
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
