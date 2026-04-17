@@ -1,13 +1,14 @@
 // ─── Check CodeRabbit Review State ──────────────────────────────────────────
 //
-// Queries CodeRabbit review state on GitHub PRs via `gh api`. For each PR,
-// fetches reviews, filters to CodeRabbit bot reviews, takes the latest by
-// submitted_at, and classifies: APPROVED → pass, NONE → pass, else → fail.
+// Queries CodeRabbit review state on PRs via VcsProvider. For each PR,
+// fetches review status, filters to CodeRabbit bot reviewers, and classifies:
+// approved -> pass, NONE -> pass, else -> fail.
 //
-// TypeScript port of scripts/check-coderabbit.sh — no jq/awk needed.
+// Migrated from direct `gh api` calls to VcsProvider.getReviewStatus().
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { execFileSync } from 'node:child_process';
+import type { VcsProvider } from '../vcs/provider.js';
+import { createVcsProvider } from '../vcs/factory.js';
 import type { ToolResult } from '../format.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -16,12 +17,6 @@ export interface CheckCoderabbitArgs {
   readonly owner: string;
   readonly repo: string;
   readonly prNumbers: number[];
-}
-
-interface GhReview {
-  readonly user: { readonly login: string };
-  readonly state: string;
-  readonly submitted_at?: string;
 }
 
 export interface PrReviewResult {
@@ -49,7 +44,10 @@ const CODERABBIT_LOGINS = new Set([
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
+export async function handleCheckCoderabbit(
+  args: CheckCoderabbitArgs,
+  provider?: VcsProvider,
+): Promise<ToolResult> {
   // Validate owner
   if (!args.owner || !OWNER_REPO_RE.test(args.owner)) {
     return {
@@ -74,6 +72,7 @@ export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
     };
   }
 
+  const vcs = provider ?? await createVcsProvider();
   const results: PrReviewResult[] = [];
 
   for (const pr of args.prNumbers) {
@@ -83,48 +82,30 @@ export function handleCheckCoderabbit(args: CheckCoderabbitArgs): ToolResult {
       continue;
     }
 
-    // Fetch reviews via gh api
-    // Use --jq '.[]' to emit newline-delimited JSON objects, avoiding the
-    // concatenated-array problem with --paginate on array endpoints (e.g.
-    // `[...][...]` instead of a single valid JSON array).
-    let reviews: GhReview[];
     try {
-      const raw = execFileSync(
-        'gh',
-        ['api', '--paginate', '--jq', '.[]', `repos/${args.owner}/${args.repo}/pulls/${pr}/reviews`],
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      const reviewStatus = await vcs.getReviewStatus(String(pr));
+
+      // Filter to CodeRabbit reviewers
+      const coderabbitReviewers = reviewStatus.reviewers.filter(
+        (r) => CODERABBIT_LOGINS.has(r.login),
       );
-      const trimmed = raw.trim();
-      if (trimmed.length === 0) {
-        reviews = [];
-      } else {
-        // Each line is a JSON object; wrap into an array and parse
-        reviews = JSON.parse(`[${trimmed.split('\n').join(',')}]`) as GhReview[];
+
+      if (coderabbitReviewers.length === 0) {
+        results.push({ pr, state: 'NONE', verdict: 'pass' });
+        continue;
       }
+
+      // Map reviewer state to review state string
+      const latest = coderabbitReviewers[0];
+      const stateStr = latest.state === 'approved' ? 'APPROVED' :
+                       latest.state === 'changes_requested' ? 'CHANGES_REQUESTED' :
+                       latest.state === 'commented' ? 'COMMENTED' : 'PENDING';
+
+      const verdict = latest.state === 'approved' ? 'pass' : 'fail';
+      results.push({ pr, state: stateStr, verdict });
     } catch {
       results.push({ pr, state: 'API_ERROR', verdict: 'fail' });
-      continue;
     }
-
-    // Filter to CodeRabbit reviews, excluding PENDING drafts (no submitted_at)
-    const coderabbitReviews = reviews.filter(
-      (r) => CODERABBIT_LOGINS.has(r.user.login) && r.submitted_at,
-    );
-
-    if (coderabbitReviews.length === 0) {
-      results.push({ pr, state: 'NONE', verdict: 'pass' });
-      continue;
-    }
-
-    // Sort by submitted_at descending, take latest
-    // All reviews here have submitted_at (PENDING filtered above)
-    coderabbitReviews.sort(
-      (a, b) => new Date(b.submitted_at!).getTime() - new Date(a.submitted_at!).getTime(),
-    );
-    const latest = coderabbitReviews[0];
-
-    const verdict = latest.state === 'APPROVED' ? 'pass' : 'fail';
-    results.push({ pr, state: latest.state, verdict });
   }
 
   // Compute overall pass (skip doesn't count as fail)

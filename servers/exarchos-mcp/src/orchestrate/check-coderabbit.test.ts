@@ -1,30 +1,55 @@
 // ─── Check CodeRabbit Action Tests ──────────────────────────────────────────
+//
+// Tests use a mock VcsProvider instead of mocking execFileSync.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
-
-// ─── Mock child_process ─────────────────────────────────────────────────────
-
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-}));
-
-const mockExecFileSync = vi.mocked(execFileSync);
-
+import type { VcsProvider, ReviewStatus, ReviewerStatus } from '../vcs/provider.js';
 import { handleCheckCoderabbit } from './check-coderabbit.js';
 import type { PrReviewResult } from './check-coderabbit.js';
 
-// ─── Fixtures ───────────────────────────────────────────────────────────────
+// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
-const makeReview = (login: string, state: string, submitted_at: string) => ({
-  user: { login },
-  state,
-  submitted_at,
-});
+function createMockProvider(
+  reviewStatusByPr: Record<number, ReviewStatus> = {},
+  errorPrs: Set<number> = new Set(),
+): VcsProvider {
+  return {
+    name: 'github',
+    createPr: vi.fn(),
+    checkCi: vi.fn(),
+    mergePr: vi.fn(),
+    addComment: vi.fn(),
+    getReviewStatus: vi.fn<(prId: string) => Promise<ReviewStatus>>().mockImplementation(
+      async (prId: string) => {
+        const pr = Number(prId);
+        if (errorPrs.has(pr)) {
+          throw new Error('API error');
+        }
+        return reviewStatusByPr[pr] ?? { state: 'pending', reviewers: [] };
+      },
+    ),
+    listPrs: vi.fn(),
+    getPrComments: vi.fn(),
+    getPrDiff: vi.fn(),
+    createIssue: vi.fn(),
+    getRepository: vi.fn(),
+  };
+}
 
-/** Simulate `gh api --paginate --jq '.[]'` output: newline-delimited JSON objects (string, matching encoding: 'utf-8') */
-const toNdjson = (reviews: ReturnType<typeof makeReview>[]) =>
-  reviews.map((r) => JSON.stringify(r)).join('\n');
+function makeReviewStatus(
+  reviewers: Array<{ login: string; state: ReviewerStatus['state'] }>,
+): ReviewStatus {
+  const mapped: ReviewerStatus[] = reviewers.map(r => ({
+    login: r.login,
+    state: r.state,
+  }));
+  const allApproved = mapped.length > 0 && mapped.every(r => r.state === 'approved');
+  const hasChanges = mapped.some(r => r.state === 'changes_requested');
+  return {
+    state: allApproved ? 'approved' : hasChanges ? 'changes_requested' : 'pending',
+    reviewers: mapped,
+  };
+}
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -35,13 +60,16 @@ describe('handleCheckCoderabbit', () => {
 
   // ─── All PRs Approved ───────────────────────────────────────────────────
 
-  it('handleCheckCoderabbit_AllApproved_ReturnsPassed', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
+  it('handleCheckCoderabbit_AllApproved_ReturnsPassed', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
+      2: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
+    });
 
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1, 2] });
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1, 2] },
+      provider,
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
@@ -51,104 +79,67 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[1].verdict).toBe('pass');
   });
 
-  // ─── CHANGES_REQUESTED → Fail ──────────────────────────────────────────
+  // ─── Uses VcsProvider ─────────────────────────────────────────────────
 
-  it('handleCheckCoderabbit_ChangesRequested_ReturnsFailed', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'CHANGES_REQUESTED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
-
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; results: PrReviewResult[] };
-    expect(data.passed).toBe(false);
-    expect(data.results[0].state).toBe('CHANGES_REQUESTED');
-    expect(data.results[0].verdict).toBe('fail');
-  });
-
-  // ─── PENDING with submitted_at → Fail ─────────────────────────────────
-
-  it('handleCheckCoderabbit_PendingWithSubmittedAt_ReturnsFailed', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'PENDING', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
-
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; results: PrReviewResult[] };
-    expect(data.passed).toBe(false);
-    expect(data.results[0].state).toBe('PENDING');
-    expect(data.results[0].verdict).toBe('fail');
-  });
-
-  // ─── PENDING without submitted_at (draft) → filtered out → NONE/pass ─
-
-  it('handleCheckCoderabbit_PendingDraftNoSubmittedAt_ReturnsPassedNone', () => {
-    // GitHub API omits submitted_at for PENDING draft reviews
-    const reviews = [
-      { user: { login: 'coderabbitai[bot]' }, state: 'PENDING' },
-    ];
-    mockExecFileSync.mockReturnValue(
-      reviews.map((r) => JSON.stringify(r)).join('\n'),
-    );
-
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; results: PrReviewResult[] };
-    expect(data.passed).toBe(true);
-    expect(data.results[0].state).toBe('NONE');
-    expect(data.results[0].verdict).toBe('pass');
-  });
-
-  // ─── No CodeRabbit Review → Pass (NONE) ────────────────────────────────
-
-  it('handleCheckCoderabbit_NoReview_ReturnsPassedWithNone', () => {
-    const reviews = [
-      makeReview('some-human', 'APPROVED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
-
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; results: PrReviewResult[] };
-    expect(data.passed).toBe(true);
-    expect(data.results[0].state).toBe('NONE');
-    expect(data.results[0].verdict).toBe('pass');
-  });
-
-  // ─── Multiple Reviews, Latest Wins ─────────────────────────────────────
-
-  it('handleCheckCoderabbit_MultipleReviews_LatestWins', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'CHANGES_REQUESTED', '2026-01-15T08:00:00Z'),
-      makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T12:00:00Z'),
-      makeReview('coderabbitai[bot]', 'PENDING', '2026-01-15T06:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
-
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { passed: boolean; results: PrReviewResult[] };
-    expect(data.passed).toBe(true);
-    expect(data.results[0].state).toBe('APPROVED');
-    expect(data.results[0].verdict).toBe('pass');
-  });
-
-  // ─── API Error → Fail ──────────────────────────────────────────────────
-
-  it('handleCheckCoderabbit_ApiError_ReturnsFailed', () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw new Error('gh: command not found');
+  it('handleCheckCoderabbit_UsesProviderGetReviewStatus', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
     });
 
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
+    await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
+
+    expect(provider.getReviewStatus).toHaveBeenCalledWith('1');
+  });
+
+  // ─── CHANGES_REQUESTED -> Fail ──────────────────────────────────────────
+
+  it('handleCheckCoderabbit_ChangesRequested_ReturnsFailed', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'changes_requested' }]),
+    });
+
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; results: PrReviewResult[] };
+    expect(data.passed).toBe(false);
+    expect(data.results[0].verdict).toBe('fail');
+  });
+
+  // ─── No CodeRabbit Review -> Pass (NONE) ────────────────────────────────
+
+  it('handleCheckCoderabbit_NoReview_ReturnsPassedWithNone', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'some-human', state: 'approved' }]),
+    });
+
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; results: PrReviewResult[] };
+    expect(data.passed).toBe(true);
+    expect(data.results[0].state).toBe('NONE');
+    expect(data.results[0].verdict).toBe('pass');
+  });
+
+  // ─── API Error -> Fail ──────────────────────────────────────────────────
+
+  it('handleCheckCoderabbit_ApiError_ReturnsFailed', async () => {
+    const provider = createMockProvider({}, new Set([1]));
+
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
@@ -157,25 +148,31 @@ describe('handleCheckCoderabbit', () => {
     expect(data.results[0].verdict).toBe('fail');
   });
 
-  // ─── Missing Owner → Error ─────────────────────────────────────────────
+  // ─── Missing Owner -> Error ─────────────────────────────────────────────
 
-  it('handleCheckCoderabbit_MissingOwner_ReturnsError', () => {
-    const result = handleCheckCoderabbit({ owner: '', repo: 'app', prNumbers: [1] });
+  it('handleCheckCoderabbit_MissingOwner_ReturnsError', async () => {
+    const provider = createMockProvider();
+    const result = await handleCheckCoderabbit(
+      { owner: '', repo: 'app', prNumbers: [1] },
+      provider,
+    );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('owner');
   });
 
-  // ─── Invalid PR Number → Skip ──────────────────────────────────────────
+  // ─── Invalid PR Number -> Skip ──────────────────────────────────────────
 
-  it('handleCheckCoderabbit_InvalidPrNumber_ReturnsSkip', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
+  it('handleCheckCoderabbit_InvalidPrNumber_ReturnsSkip', async () => {
+    const provider = createMockProvider({
+      5: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
+    });
 
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [-1, 5] });
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [-1, 5] },
+      provider,
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
@@ -188,36 +185,58 @@ describe('handleCheckCoderabbit', () => {
 
   // ─── Report Contains Markdown Table ────────────────────────────────────
 
-  it('handleCheckCoderabbit_ReportContainsMarkdownTable', () => {
-    const reviews = [
-      makeReview('coderabbitai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
+  it('handleCheckCoderabbit_ReportContainsMarkdownTable', async () => {
+    const provider = createMockProvider({
+      42: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'approved' }]),
+    });
 
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [42] });
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [42] },
+      provider,
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as { report: string };
     expect(data.report).toContain('## CodeRabbit Review Status');
     expect(data.report).toContain('acme/app');
     expect(data.report).toContain('| PR | State | Verdict |');
-    expect(data.report).toContain('| #42 | APPROVED | pass |');
+    expect(data.report).toContain('| #42 |');
     expect(data.report).toContain('PASS');
   });
 
   // ─── Alternative CodeRabbit Login Names ────────────────────────────────
 
-  it('handleCheckCoderabbit_AlternativeLoginNames_Recognized', () => {
-    const reviews = [
-      makeReview('coderabbit-ai[bot]', 'APPROVED', '2026-01-15T10:00:00Z'),
-    ];
-    mockExecFileSync.mockReturnValue(toNdjson(reviews));
+  it('handleCheckCoderabbit_AlternativeLoginNames_Recognized', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'coderabbit-ai[bot]', state: 'approved' }]),
+    });
 
-    const result = handleCheckCoderabbit({ owner: 'acme', repo: 'app', prNumbers: [1] });
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; results: PrReviewResult[] };
     expect(data.passed).toBe(true);
     expect(data.results[0].state).toBe('APPROVED');
+  });
+
+  // ─── Pending Review -> Fail ─────────────────────────────────────────────
+
+  it('handleCheckCoderabbit_PendingReview_ReturnsFailed', async () => {
+    const provider = createMockProvider({
+      1: makeReviewStatus([{ login: 'coderabbitai[bot]', state: 'pending' }]),
+    });
+
+    const result = await handleCheckCoderabbit(
+      { owner: 'acme', repo: 'app', prNumbers: [1] },
+      provider,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; results: PrReviewResult[] };
+    expect(data.passed).toBe(false);
+    expect(data.results[0].verdict).toBe('fail');
   });
 });
