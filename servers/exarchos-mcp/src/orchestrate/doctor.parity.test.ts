@@ -165,7 +165,7 @@ describe('exarchos doctor CLI↔MCP parity', () => {
     restoreStub?.();
     restoreStub = null;
     for (const arm of arms) {
-      await rm(arm.stateDir, { recursive: true, force: true });
+      await rm(arm.stateDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
     arms = [];
     vi.restoreAllMocks();

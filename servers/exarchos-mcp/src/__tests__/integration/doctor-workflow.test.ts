@@ -45,16 +45,10 @@ import type { ToolResult } from '../../format.js';
 // ─── Harness ────────────────────────────────────────────────────────────────
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// Repo root = .../servers/exarchos-mcp/src/__tests__/integration → up 5.
-const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..', '..');
-const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
-const CLI_ENTRY = path.join(
-  REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
-  'src',
-  'index.ts',
-);
+// MCP server root = .../servers/exarchos-mcp/src/__tests__/integration → up 3.
+const MCP_ROOT = path.resolve(HERE, '..', '..', '..');
+const TSX_BIN = path.join(MCP_ROOT, 'node_modules', '.bin', 'tsx');
+const CLI_ENTRY = path.join(MCP_ROOT, 'src', 'index.ts');
 
 interface SpawnResult {
   readonly exitCode: number;
