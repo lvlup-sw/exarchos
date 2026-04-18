@@ -27,8 +27,8 @@ import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
-// 7 days in minutes — matches the plan's v1 default threshold.
-const DEFAULT_THRESHOLD_MINUTES = 10_080;
+// 14 days in minutes — matches ResolvedProjectConfig.prune.staleAfterDays default.
+const DEFAULT_THRESHOLD_MINUTES = 20_160;
 
 /**
  * Minimal subset of a workflow list entry needed for prune selection.
@@ -47,10 +47,12 @@ export interface WorkflowListEntry {
 }
 
 export interface PruneConfig {
-  /** Minutes of inactivity before a workflow is considered stale. Default 10080 (7 days). */
+  /** Minutes of inactivity before a workflow is considered stale. Default 20160 (14 days). */
   thresholdMinutes?: number;
   /** When false, oneshot workflows are excluded from candidates. Default true. */
   includeOneShot?: boolean;
+  /** Phases to exclude from prune candidates. Entries in these phases are excluded with reason 'phase-excluded'. */
+  phaseExclusions?: readonly string[];
 }
 
 export interface PruneCandidate {
@@ -63,7 +65,7 @@ export interface PruneCandidate {
 
 export interface PruneExclusion {
   featureId: string;
-  reason: 'terminal' | 'fresh' | 'oneshot-excluded';
+  reason: 'terminal' | 'fresh' | 'oneshot-excluded' | 'phase-excluded';
 }
 
 export interface PruneSelection {
@@ -131,6 +133,9 @@ export function selectPruneCandidates(
 ): PruneSelection {
   const thresholdMinutes = config.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = config.includeOneShot ?? true;
+  const phaseExclusionSet = config.phaseExclusions
+    ? new Set(config.phaseExclusions)
+    : undefined;
 
   const candidates: PruneCandidate[] = [];
   const excluded: PruneExclusion[] = [];
@@ -138,6 +143,11 @@ export function selectPruneCandidates(
   for (const entry of entries) {
     if (isTerminalPhase(entry.phase)) {
       excluded.push({ featureId: entry.featureId, reason: 'terminal' });
+      continue;
+    }
+
+    if (phaseExclusionSet?.has(entry.phase)) {
+      excluded.push({ featureId: entry.featureId, reason: 'phase-excluded' });
       continue;
     }
 
@@ -230,6 +240,27 @@ export interface PrunePruned {
   skippedSafeguards?: string[];
 }
 
+/**
+ * Per-entry diagnostic for a malformed handleList entry. Groups all validation
+ * failures for a single entry into a `reasons` array so operators can fix
+ * upstream regressions without round-tripping through repeated prune runs.
+ */
+export interface PruneDiagnosticEntry {
+  featureId?: string;
+  reasons: string[];
+}
+
+/**
+ * Diagnostics payload attached to every prune response (DR-3, DR-10).
+ * Always present — `malformedCount === 0` when all entries are valid.
+ */
+export interface PruneDiagnostics {
+  malformedCount: number;
+  malformedEntries: PruneDiagnosticEntry[];
+  candidateCount: number;
+  advisory?: string;
+}
+
 export interface PruneHandlerResult {
   candidates: PruneCandidate[];
   skipped: PruneSkipped[];
@@ -251,6 +282,17 @@ export interface PruneHandlerResult {
    * shape.
    */
   malformed?: PruneMalformedEntry[];
+  /**
+   * Diagnostics payload (DR-3, DR-10). Present in 'report' (default) and
+   * 'include' modes. Omitted in 'skip' mode. When present,
+   * `malformedCount === 0` when all entries pass validation. Includes
+   * per-entry reasons and an advisory string when malformed entries exist.
+   */
+  diagnostics?: PruneDiagnostics;
+  /** Present when candidates were truncated by maxBatchSize. */
+  truncated?: boolean;
+  /** Total candidate count before truncation. Present when `truncated === true`. */
+  totalCandidates?: number;
 }
 
 /** Default branch-name reader: reads the state JSON and returns a top-level
@@ -552,9 +594,16 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  // Apply validated/defaulted values. `thresholdMinutes` defaults to the
-  // v1 spec default (7 days) when absent; `now` defaults to `new Date()`.
-  const thresholdMinutes = args.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
+  // Apply validated/defaulted values. `thresholdMinutes` priority:
+  //   1. Explicit args.thresholdMinutes (caller override)
+  //   2. ctx.projectConfig.prune.staleAfterDays (config-driven)
+  //   3. DEFAULT_THRESHOLD_MINUTES (14 days)
+  // Args always override config to preserve backward compatibility.
+  const pruneConfig = ctx?.projectConfig?.prune;
+  const configThreshold = pruneConfig?.staleAfterDays !== undefined
+    ? pruneConfig.staleAfterDays * 24 * 60
+    : undefined;
+  const thresholdMinutes = args.thresholdMinutes ?? configThreshold ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = args.includeOneShot;
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
@@ -574,6 +623,42 @@ export async function handlePruneStaleWorkflows(
           'prune-stale-workflows: ctx.eventStore is required in apply mode; refusing to cancel workflows without an audit trail',
       },
     };
+  }
+
+  // requireDryRun enforcement (DR-4): when config requires a prior dry-run
+  // before apply mode, check the event store for a recent prune.diagnostics
+  // event. If none found, reject with a structured error. Skip enforcement
+  // when eventStore is unavailable (already guarded above) or when the
+  // eventStore lacks a `query` method (e.g., minimal test stubs).
+  if (
+    !dryRun &&
+    pruneConfig?.requireDryRun === true &&
+    ctx?.eventStore &&
+    typeof (ctx.eventStore as unknown as Record<string, unknown>).query === 'function'
+  ) {
+    try {
+      const recentDiagnostics = await (
+        ctx.eventStore as unknown as {
+          query: (
+            streamId: string,
+            filters: { type: string; limit: number },
+          ) => Promise<unknown[]>;
+        }
+      ).query('_prune', { type: 'prune.diagnostics', limit: 1 });
+      if (!Array.isArray(recentDiagnostics) || recentDiagnostics.length === 0) {
+        return {
+          success: false,
+          error: {
+            code: 'DRY_RUN_REQUIRED',
+            message:
+              'Apply mode requires a prior dry-run. Run with dryRun: true first.',
+          },
+        };
+      }
+    } catch {
+      // If querying the event store fails, skip enforcement rather than
+      // blocking prune operations. The enforcement is best-effort.
+    }
   }
 
   // 1. Fetch the full workflow list.
@@ -605,24 +690,112 @@ export async function handlePruneStaleWorkflows(
     );
   }
 
+  // Build diagnostics from the malformed entries (DR-3, DR-10). Each
+  // PruneMalformedEntry maps 1:1 to a PruneDiagnosticEntry — the per-entry
+  // reason string becomes the single element in a `reasons` array so the
+  // shape supports future multi-reason grouping without a breaking change.
+  const diagnosticEntries: PruneDiagnosticEntry[] = malformed.map((m) => ({
+    ...(m.featureId !== undefined ? { featureId: m.featureId } : {}),
+    reasons: [m.reason],
+  }));
+
+  // malformedHandling mode (DR-4). Controls how malformed entries interact
+  // with the candidate pipeline and response shape:
+  //   - 'report' (default): diagnostics surfaced, malformed excluded from candidates
+  //   - 'include': malformed entries promoted to candidates with stalenessMinutes=Infinity
+  //   - 'skip': malformed silently excluded, diagnostics omitted from response
+  const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
+
   // 2. Pure selection.
-  const { candidates } = selectPruneCandidates(
+  const { candidates: selectedCandidates } = selectPruneCandidates(
     entries,
     {
       thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
+      ...(pruneConfig?.phaseExclusions ? { phaseExclusions: pruneConfig.phaseExclusions } : {}),
     },
     now,
   );
+
+  // 2a. malformedHandling='include': promote malformed entries to candidates
+  let rawCandidates = selectedCandidates;
+  if (malformedHandling === 'include' && malformed.length > 0) {
+    const malformedCandidates: PruneCandidate[] = malformed
+      .filter((m) => m.featureId !== undefined)
+      .map((m) => ({
+        featureId: m.featureId!,
+        workflowType: 'unknown',
+        phase: 'unknown',
+        stalenessMinutes: Infinity,
+      }));
+    rawCandidates = [...selectedCandidates, ...malformedCandidates];
+  }
+
+  // 2b. maxBatchSize cap — sort by staleness descending (oldest first)
+  // and truncate to the configured limit. When truncated, add markers
+  // to the response so callers know the full scope.
+  const maxBatchSize = pruneConfig?.maxBatchSize;
+  const totalCandidates = rawCandidates.length;
+  let candidates = rawCandidates;
+  let truncated = false;
+
+  if (maxBatchSize !== undefined && rawCandidates.length > maxBatchSize) {
+    truncated = true;
+    // Sort descending by stalenessMinutes (oldest/most stale first)
+    candidates = [...rawCandidates]
+      .sort((a, b) => b.stalenessMinutes - a.stalenessMinutes)
+      .slice(0, maxBatchSize);
+  }
+
+  // Build the diagnostics object — present in 'report' and 'include' modes,
+  // omitted in 'skip' mode.
+  const diagnostics: PruneDiagnostics | undefined =
+    malformedHandling === 'skip'
+      ? undefined
+      : {
+          malformedCount: malformed.length,
+          malformedEntries: diagnosticEntries,
+          candidateCount: candidates.length,
+          ...(malformed.length > 0
+            ? {
+                advisory: malformedHandling === 'include'
+                  ? `${malformed.length} handleList entries failed structural validation and were promoted into candidates. Inspect the malformedEntries for details.`
+                  : `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
+              }
+            : {}),
+        };
+
+  // Emit prune.diagnostics event (fire-and-forget). Always emitted when
+  // an eventStore is available and diagnostics are not suppressed — even
+  // when malformedCount is 0, so dashboards and audit queries can track
+  // that a prune evaluation ran.
+  if (ctx?.eventStore && diagnostics) {
+    ctx.eventStore
+      .append('_prune', {
+        type: 'prune.diagnostics' as EventType,
+        data: {
+          malformedCount: diagnostics.malformedCount,
+          candidateCount: diagnostics.candidateCount,
+          malformedEntries: diagnostics.malformedEntries,
+          ...(diagnostics.advisory ? { advisory: diagnostics.advisory } : {}),
+        },
+      })
+      .catch(() => {
+        // Fire-and-forget: diagnostics event emission failure must not
+        // affect the prune pipeline outcome.
+      });
+  }
 
   // 3. Dry run short-circuit. Intentionally omit `pruned` — see type
   // comment on PruneHandlerResult. Callers can distinguish dry-run from
   // apply mode by the presence/absence of the field.
   if (dryRun) {
-    const result: PruneHandlerResult = {
+    const result = {
       candidates,
       skipped: [],
-      ...(malformed.length > 0 ? { malformed } : {}),
+      ...(diagnostics ? { diagnostics } : {}),
+      ...(truncated ? { truncated: true, totalCandidates } : {}),
+      ...(malformed.length > 0 && malformedHandling !== 'skip' ? { malformed } : {}),
     };
     return { success: true, data: result };
   }
@@ -642,11 +815,13 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  const result: PruneHandlerResult = {
+  const result = {
     candidates,
     skipped,
     pruned,
-    ...(malformed.length > 0 ? { malformed } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
+    ...(truncated ? { truncated: true, totalCandidates } : {}),
+    ...(malformed.length > 0 && malformedHandling !== 'skip' ? { malformed } : {}),
   };
   return { success: true, data: result };
 }

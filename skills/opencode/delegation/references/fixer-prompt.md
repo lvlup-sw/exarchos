@@ -109,7 +109,6 @@ When done, report:
 ```typescript
 Task({
   subagent_type: "general-purpose",
-  model: "opus",
   description: "Fix: SQL injection vulnerability",
   prompt: `
 # Fix Task: SQL Injection in User Query

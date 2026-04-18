@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 66 with
-    // the addition of VCS events (pr.created, pr.merged, pr.commented,
-    // issue.created) for VCS MCP actions.
+    // Locked to the current registered-type count. Bumped to 69 with
+    // the addition of checkpoint enforcement events
+    // (checkpoint.enforced, checkpoint.state_missing).
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(67);
+    expect(EventTypes).toHaveLength(69);
   });
 
   it('should include workflow-level types', () => {

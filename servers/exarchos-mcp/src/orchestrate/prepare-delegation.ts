@@ -6,12 +6,18 @@
 // prompt assembly.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { DEFAULTS } from '../config/resolve.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
+import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import type { AncestryResult } from './dispatch-guard.js';
 import {
   WORKFLOW_STATE_VIEW,
 } from '../views/workflow-state-projection.js';
@@ -29,6 +35,11 @@ import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import {
+  shouldEnforceCheckpoint,
+  CHECKPOINT_OPERATION_THRESHOLD,
+} from '../workflow/checkpoint.js';
+import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -53,6 +64,7 @@ export interface TaskClassification {
   readonly taskId: string;
   readonly complexity: 'low' | 'medium' | 'high';
   readonly recommendedAgent: 'scaffolder' | 'implementer';
+  readonly recommendedModel: 'opus' | 'sonnet' | 'haiku';
   readonly effort: 'low' | 'medium' | 'high';
   readonly reason: string;
 }
@@ -72,6 +84,17 @@ export interface PrepareDelegationResult {
 const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 'scaffold'];
 
 /**
+ * Resolves the recommended model for a given agent type from the agent config.
+ * Falls back to `defaultModel` when no per-agent override exists.
+ */
+function resolveModel(
+  agent: 'scaffolder' | 'implementer',
+  agentConfig: ResolvedProjectConfig['agents'],
+): 'opus' | 'sonnet' | 'haiku' {
+  return agentConfig.models[agent] ?? agentConfig.defaultModel;
+}
+
+/**
  * Deterministic heuristic classification for a single task.
  * Advisory — agents can override these recommendations.
  *
@@ -82,23 +105,30 @@ const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 's
  *   3. files length >= 3 → high/implementer
  *   4. Default → medium/implementer
  */
-export function classifyTask(task: TaskInput): TaskClassification {
+export function classifyTask(
+  task: TaskInput,
+  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+): TaskClassification {
   // Check testLayer first (highest priority)
   if (task.testLayer === 'acceptance') {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: 'Acceptance test task — requires understanding feature intent holistically',
     };
   }
 
   if (task.testLayer === 'integration') {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'medium',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'medium',
       reason: 'Integration layer task — preserve implementer lane',
     };
@@ -109,10 +139,12 @@ export function classifyTask(task: TaskInput): TaskClassification {
   // Check scaffolding keywords
   const matchedKeyword = SCAFFOLDING_KEYWORDS.find(kw => titleLower.includes(kw));
   if (matchedKeyword) {
+    const recommendedAgent = 'scaffolder' as const;
     return {
       taskId: task.id,
       complexity: 'low',
-      recommendedAgent: 'scaffolder',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'low',
       reason: `Title contains scaffolding keyword "${matchedKeyword}"`,
     };
@@ -120,30 +152,36 @@ export function classifyTask(task: TaskInput): TaskClassification {
 
   // Check high-complexity signals
   if (task.blockedBy && task.blockedBy.length >= 2) {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: `Task has ${task.blockedBy.length} dependencies (>= 2 threshold)`,
     };
   }
 
   if (task.files && task.files.length >= 3) {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: `Task touches ${task.files.length} files (>= 3 threshold)`,
     };
   }
 
   // Default: medium complexity
+  const recommendedAgent = 'implementer' as const;
   return {
     taskId: task.id,
     complexity: 'medium',
-    recommendedAgent: 'implementer',
+    recommendedAgent,
+    recommendedModel: resolveModel(recommendedAgent, agentConfig),
     effort: 'medium',
     reason: 'Standard task — no scaffolding keywords or high-complexity signals',
   };
@@ -182,11 +220,23 @@ function assembleQualityHints(
   }));
 }
 
+// ─── Git Exec Helper ───────────────────────────────────────────────────────
+
+function createGitExec(): (args: readonly string[]) => string {
+  return (args: readonly string[]): string => {
+    return execFileSync('git', [...args], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  };
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handlePrepareDelegation(
   args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
+  ctx?: DispatchContext,
 ): Promise<ToolResult> {
   // Validate input
   if (!args.featureId) {
@@ -201,20 +251,133 @@ export async function handlePrepareDelegation(
     const store = getOrCreateEventStore(stateDir);
     const streamId = args.featureId;
 
+    // ─── DR-1: Branch Ancestry Preflight ────────────────────────────────
+    // Materialize workflow state early to get integrationBranch
+    const wsEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
+    const workflowState = materializer.materialize<WorkflowStateView>(
+      streamId,
+      WORKFLOW_STATE_VIEW,
+      wsEvents,
+    );
+
+    const integrationBranch = workflowState.synthesis?.integrationBranch ?? args.featureId;
+    const gitExec = createGitExec();
+    const ancestryResult = await validateBranchAncestry(
+      integrationBranch,
+      ['main'],
+      gitExec,
+    );
+
+    if (ancestryResult.blocked) {
+      // Fire-and-forget: emit preflight.blocked event for ancestry failure
+      store.append(streamId, {
+        type: 'preflight.blocked',
+        data: {
+          reason: ancestryResult.reason,
+          details: {
+            ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
+            ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
+          },
+        },
+      }).catch(() => { /* fire-and-forget */ });
+
+      return {
+        success: true,
+        data: {
+          blocked: true,
+          reason: ancestryResult.reason,
+          ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
+          ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
+        },
+      };
+    }
+
+    // ─── DR-2: Worktree Location Assertion ──────────────────────────────
+    // Skip worktree check when nativeIsolation is true (Claude Code manages isolation)
+    if (!args.nativeIsolation) {
+      const worktreeResult = assertMainWorktree();
+      if (!worktreeResult.isMain) {
+        // Fire-and-forget: emit preflight.blocked event for worktree violation
+        store.append(streamId, {
+          type: 'preflight.blocked',
+          data: {
+            reason: 'worktree-location',
+            details: {
+              actual: worktreeResult.actual,
+              expected: worktreeResult.expected,
+            },
+          },
+        }).catch(() => { /* fire-and-forget */ });
+
+        return {
+          success: true,
+          data: {
+            blocked: true,
+            reason: 'worktree-location',
+            actual: worktreeResult.actual,
+            expected: worktreeResult.expected,
+          },
+        };
+      }
+    }
+
+    const checksRun = args.nativeIsolation ? ['ancestry'] : ['ancestry', 'worktree'];
+    store.append(streamId, {
+      type: 'preflight.executed',
+      data: {
+        checks: checksRun,
+        passed: true,
+        integrationBranch,
+      },
+    }).catch(() => { /* fire-and-forget */ });
+
+    // ─── DR-5: Checkpoint Gate ──────────────────────────────────────────
+    const checkpointConfig: CheckpointEnforcementConfig = ctx?.projectConfig?.checkpoint ?? {
+      operationThreshold: CHECKPOINT_OPERATION_THRESHOLD,
+      enforceOnPhaseTransition: true,
+      enforceOnWaveDispatch: true,
+    };
+
+    const gateResult = shouldEnforceCheckpoint(
+      workflowState._checkpoint,
+      checkpointConfig,
+      'wave-dispatch',
+    );
+
+    const checkpointWarnings: string[] = [];
+
+    if (gateResult.gated) {
+      // Emit checkpoint.enforced event (best-effort)
+      store.append(streamId, {
+        type: 'checkpoint.enforced',
+        data: {
+          operationsSince: gateResult.operationsSince,
+          threshold: gateResult.threshold,
+          blockedAction: 'wave-dispatch',
+        },
+      }).catch(() => { /* fire-and-forget */ });
+
+      return {
+        success: true,
+        data: {
+          gated: true,
+          gate: gateResult.gate,
+          operationsSince: gateResult.operationsSince,
+          threshold: gateResult.threshold,
+        },
+      };
+    }
+
+    if (gateResult.warning) {
+      checkpointWarnings.push(`checkpoint: ${gateResult.warning}`);
+    }
+
     // Materialize delegation readiness from event stream
     const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
     const readiness = materializer.materialize<DelegationReadinessState>(
       streamId,
       DELEGATION_READINESS_VIEW,
       drEvents,
-    );
-
-    // Materialize workflow state (needed for plan artifact check and task count)
-    const wsEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
-    const workflowState = materializer.materialize<WorkflowStateView>(
-      streamId,
-      WORKFLOW_STATE_VIEW,
-      wsEvents,
     );
 
     // Supplementary check: plan artifact existence (not tracked by the readiness view)
@@ -249,7 +412,11 @@ export async function handlePrepareDelegation(
         blockers: effectiveBlockers,
         ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
-      return { success: true, data: result };
+      return {
+        success: true,
+        data: result,
+        ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+      };
     }
 
     // Query telemetry state for hint generation (graceful degradation)
@@ -285,8 +452,9 @@ export async function handlePrepareDelegation(
     } catch { /* fire-and-forget */ }
 
     // Compute task classifications when tasks are provided (advisory)
+    const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
     const taskClassifications = args.tasks
-      ? args.tasks.map(classifyTask)
+      ? args.tasks.map(t => classifyTask(t, agentConfig))
       : undefined;
 
     const result: PrepareDelegationResult = {
@@ -296,7 +464,11 @@ export async function handlePrepareDelegation(
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       ...(taskClassifications ? { taskClassifications } : {}),
     };
-    return { success: true, data: result };
+    return {
+      success: true,
+      data: result,
+      ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+    };
   } catch (err) {
     return {
       success: false,

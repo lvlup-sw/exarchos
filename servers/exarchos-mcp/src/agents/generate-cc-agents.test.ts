@@ -103,6 +103,21 @@ describe('GenerateAgentMarkdown', () => {
     // Assert: disallowedTools present in JSON array format
     expect(fm.disallowedTools).toBe('["Agent"]');
   });
+
+  it('GenerateAgentMarkdown_Implementer_ModelMatchesDefinition', () => {
+    const spec = ALL_AGENT_SPECS.find(s => s.id === 'implementer')!;
+    const md = generateAgentMarkdown(spec);
+    const fm = parseFrontmatter(md);
+    expect(fm.model).toBe(spec.model); // 'inherit', not 'opus'
+    expect(fm.model).toBe('inherit');
+  });
+
+  it('GenerateAgentMarkdown_Scaffolder_ModelMatchesDefinition', () => {
+    const spec = ALL_AGENT_SPECS.find(s => s.id === 'scaffolder')!;
+    const md = generateAgentMarkdown(spec);
+    const fm = parseFrontmatter(md);
+    expect(fm.model).toBe('sonnet');
+  });
 });
 
 describe('BuildHooksFromRules', () => {

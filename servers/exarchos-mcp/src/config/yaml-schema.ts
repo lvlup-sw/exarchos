@@ -70,6 +70,16 @@ const WorkflowConfig = z.object({
   phases: z.record(z.string(), PhaseConfig).optional(),
 }).strict();
 
+// ─── Agents Configuration ──────────────────────────────────────────────────
+
+const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
+const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);
+
+const AgentsConfig = z.object({
+  'default-model': AgentModelValue.optional(),
+  models: z.record(AgentSpecIdKey, AgentModelValue).optional(),
+}).strict();
+
 // ─── Tools Configuration ───────────────────────────────────────────────────
 
 const ToolsConfig = z.object({
@@ -102,15 +112,36 @@ const PluginsConfig = z.object({
   impeccable: PluginConfig.optional(),
 }).strict();
 
+// ─── Prune Configuration ──────────────────────────────────────────────────
+
+const PruneConfig = z.object({
+  'stale-after-days': z.number().int().min(1).default(14),
+  'max-batch-size': z.number().int().min(1).max(100).default(25),
+  'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
+  'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),
+  'require-dry-run': z.boolean().default(true),
+}).strict();
+
+// ─── Checkpoint Configuration ─────────────────────────────────────────────
+
+const CheckpointConfig = z.object({
+  'operation-threshold': z.number().int().min(1).default(20),
+  'enforce-on-phase-transition': z.boolean().default(true),
+  'enforce-on-wave-dispatch': z.boolean().default(true),
+}).strict();
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
+  agents: AgentsConfig.optional(),
   review: ReviewConfig.optional(),
   vcs: VcsConfig.optional(),
   workflow: WorkflowConfig.optional(),
   tools: ToolsConfig.optional(),
   hooks: HooksConfig.optional(),
   plugins: PluginsConfig.optional(),
+  prune: PruneConfig.optional(),
+  checkpoint: CheckpointConfig.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;

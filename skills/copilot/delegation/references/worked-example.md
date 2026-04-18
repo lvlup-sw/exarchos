@@ -41,13 +41,13 @@ Build two self-contained prompts from `implementer-prompt.md` and dispatch in a 
 
 ```typescript
 Task({
-  subagent_type: "general-purpose", model: "opus", run_in_background: true,
+  subagent_type: "general-purpose", run_in_background: true,
   description: "Implement task-001: Email format validator",
   prompt: `# Task: Email Format Validator\n\n## Working Directory\n/project/.worktrees/task-001\n\n[Full implementer prompt with TDD, file paths, acceptance criteria...]`
 })
 
 Task({
-  subagent_type: "general-purpose", model: "opus", run_in_background: true,
+  subagent_type: "general-purpose", run_in_background: true,
   description: "Implement task-002: Domain MX check",
   prompt: `# Task: Domain MX Check\n\n## Working Directory\n/project/.worktrees/task-002\n\n[Full implementer prompt with TDD, file paths, acceptance criteria...]`
 })
@@ -86,7 +86,7 @@ Re-dispatch with fixer prompt in the same worktree:
 
 ```typescript
 Task({
-  subagent_type: "general-purpose", model: "opus",
+  subagent_type: "general-purpose",
   description: "Fix task-002: DNS mock missing",
   prompt: `# Fix Task: DNS Mock Missing\n\n## Adversarial Verification Posture\nIndependently verify the failure...\n\n## Working Directory\n/project/.worktrees/task-002\n\n## Issue to Fix\n**File:** src/validators/domain.test.ts\n**Problem:** Missing vi.mock('dns') — test makes real network calls\n**Fix:** Add vi.mock('dns') with MX record stub\n\n## Verification\nRun: npm run test:run\nAll tests must pass without network access.`
 })

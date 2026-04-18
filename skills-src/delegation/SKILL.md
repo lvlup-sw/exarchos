@@ -43,7 +43,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `{{COMMAND_PREFIX}}delegate --mode subagent|agent-team`.
 
-**CRITICAL:** Always specify `model: "opus"` for coding tasks (when not using native agent definitions).
+Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
 
 ### Pre-Dispatch Schema Discovery
 

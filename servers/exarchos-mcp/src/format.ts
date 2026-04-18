@@ -30,6 +30,9 @@ export interface ToolResult {
     expectedShape?: Record<string, unknown>;
     suggestedFix?: { tool: string; params: Record<string, unknown> };
     unmetGates?: readonly string[];
+    gate?: string;
+    operationsSince?: number;
+    threshold?: number;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;

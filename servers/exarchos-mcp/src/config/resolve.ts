@@ -18,6 +18,10 @@ export interface ResolvedPluginConfig {
 }
 
 export interface ResolvedProjectConfig {
+  readonly agents: {
+    readonly defaultModel: 'opus' | 'sonnet' | 'haiku';
+    readonly models: Readonly<Record<string, 'opus' | 'sonnet' | 'haiku'>>;
+  };
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
     readonly gates: Readonly<Record<string, ResolvedGateConfig>>;
@@ -50,6 +54,18 @@ export interface ResolvedProjectConfig {
     readonly axiom: ResolvedPluginConfig;
     readonly impeccable: ResolvedPluginConfig;
   };
+  readonly prune: {
+    readonly staleAfterDays: number;
+    readonly maxBatchSize: number;
+    readonly phaseExclusions: readonly string[];
+    readonly malformedHandling: 'report' | 'include' | 'skip';
+    readonly requireDryRun: boolean;
+  };
+  readonly checkpoint: {
+    readonly operationThreshold: number;
+    readonly enforceOnPhaseTransition: boolean;
+    readonly enforceOnWaveDispatch: boolean;
+  };
 }
 
 // ─── Default Values ─────────────────────────────────────────────────────────
@@ -68,6 +84,13 @@ const DEFAULT_RISK_WEIGHTS: Readonly<Record<string, number>> = {
 const DEFAULT_HOOK_TIMEOUT = 30000;
 
 export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
+  agents: {
+    defaultModel: 'opus',
+    models: {
+      scaffolder: 'haiku',
+      reviewer: 'sonnet',
+    },
+  },
   review: {
     dimensions: {
       D1: { ...DEFAULT_DIMENSION },
@@ -105,6 +128,18 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   plugins: {
     axiom: { enabled: true },
     impeccable: { enabled: true },
+  },
+  prune: {
+    staleAfterDays: 14,
+    maxBatchSize: 25,
+    phaseExclusions: ['delegate', 'review', 'synthesize'],
+    malformedHandling: 'report' as const,
+    requireDryRun: true,
+  },
+  checkpoint: {
+    operationThreshold: 20,
+    enforceOnPhaseTransition: true,
+    enforceOnWaveDispatch: true,
   },
 });
 
@@ -180,6 +215,13 @@ const DIMENSION_KEYS: readonly DimensionKey[] = ['D1', 'D2', 'D3', 'D4', 'D5'];
  * producing a fully-populated, deeply-frozen `ResolvedProjectConfig`.
  */
 export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
+  // ── Agents ──
+  const agentDefaultModel = (project.agents?.['default-model'] as 'opus' | 'sonnet' | 'haiku') ?? DEFAULTS.agents.defaultModel;
+  const agentModels: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
+    ...DEFAULTS.agents.models,
+    ...(project.agents?.models as Record<string, 'opus' | 'sonnet' | 'haiku'> ?? {}),
+  };
+
   // ── Review ──
   const dimensions = {} as Record<DimensionKey, ResolvedDimensionConfig>;
   for (const key of DIMENSION_KEYS) {
@@ -241,7 +283,20 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const axiomEnabled = project.plugins?.axiom?.enabled ?? DEFAULTS.plugins.axiom.enabled;
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
+  // ── Prune ──
+  const staleAfterDays = project.prune?.['stale-after-days'] ?? DEFAULTS.prune.staleAfterDays;
+  const maxBatchSize = project.prune?.['max-batch-size'] ?? DEFAULTS.prune.maxBatchSize;
+  const phaseExclusions = [...(project.prune?.['phase-exclusions'] ?? DEFAULTS.prune.phaseExclusions)];
+  const malformedHandling = project.prune?.['malformed-handling'] ?? DEFAULTS.prune.malformedHandling;
+  const requireDryRun = project.prune?.['require-dry-run'] ?? DEFAULTS.prune.requireDryRun;
+
+  // ── Checkpoint ──
+  const operationThreshold = project.checkpoint?.['operation-threshold'] ?? DEFAULTS.checkpoint.operationThreshold;
+  const enforceOnPhaseTransition = project.checkpoint?.['enforce-on-phase-transition'] ?? DEFAULTS.checkpoint.enforceOnPhaseTransition;
+  const enforceOnWaveDispatch = project.checkpoint?.['enforce-on-wave-dispatch'] ?? DEFAULTS.checkpoint.enforceOnWaveDispatch;
+
   const resolved: ResolvedProjectConfig = {
+    agents: { defaultModel: agentDefaultModel, models: agentModels },
     review: {
       dimensions,
       gates,
@@ -252,6 +307,8 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
     plugins: { axiom: { enabled: axiomEnabled }, impeccable: { enabled: impeccableEnabled } },
+    prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
+    checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
   };
 
   return deepFreeze(resolved);

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { ProjectConfigSchema } from './yaml-schema.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('ProjectConfigSchema', () => {
   it('ProjectConfigSchema_EmptyObject_Passes', () => {
@@ -102,6 +108,99 @@ describe('ProjectConfigSchema', () => {
     expect(ProjectConfigSchema.safeParse({ tools: { 'pr-strategy': 'invalid' } }).success).toBe(false);
   });
 
+  describe('prune section', () => {
+    it('PruneConfigSchema_ValidFullConfig_Parses', () => {
+      const result = ProjectConfigSchema.safeParse({
+        prune: {
+          'stale-after-days': 30,
+          'max-batch-size': 50,
+          'phase-exclusions': ['delegate', 'review'],
+          'malformed-handling': 'include',
+          'require-dry-run': false,
+        },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prune?.['stale-after-days']).toBe(30);
+        expect(result.data.prune?.['max-batch-size']).toBe(50);
+        expect(result.data.prune?.['phase-exclusions']).toEqual(['delegate', 'review']);
+        expect(result.data.prune?.['malformed-handling']).toBe('include');
+        expect(result.data.prune?.['require-dry-run']).toBe(false);
+      }
+    });
+
+    it('PruneConfigSchema_EmptyObject_UsesDefaults', () => {
+      const result = ProjectConfigSchema.parse({ prune: {} });
+      expect(result.prune?.['stale-after-days']).toBe(14);
+      expect(result.prune?.['max-batch-size']).toBe(25);
+      expect(result.prune?.['phase-exclusions']).toEqual(['delegate', 'review', 'synthesize']);
+      expect(result.prune?.['malformed-handling']).toBe('report');
+      expect(result.prune?.['require-dry-run']).toBe(true);
+    });
+
+    it('PruneConfigSchema_InvalidStaleAfterDays_Rejects', () => {
+      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': -1 } }).success).toBe(false);
+      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 0 } }).success).toBe(false);
+    });
+
+    it('PruneConfigSchema_InvalidMalformedHandling_Rejects', () => {
+      const result = ProjectConfigSchema.safeParse({ prune: { 'malformed-handling': 'invalid' } });
+      expect(result.success).toBe(false);
+    });
+
+    it('PruneConfigSchema_PhaseExclusions_AcceptsStringArray', () => {
+      const result = ProjectConfigSchema.safeParse({
+        prune: { 'phase-exclusions': ['plan', 'implement', 'review'] },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prune?.['phase-exclusions']).toEqual(['plan', 'implement', 'review']);
+      }
+    });
+  });
+
+  describe('checkpoint section', () => {
+    it('CheckpointConfigSchema_ValidFullConfig_Parses', () => {
+      const result = ProjectConfigSchema.safeParse({
+        checkpoint: {
+          'operation-threshold': 10,
+          'enforce-on-phase-transition': false,
+          'enforce-on-wave-dispatch': false,
+        },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.checkpoint?.['operation-threshold']).toBe(10);
+        expect(result.data.checkpoint?.['enforce-on-phase-transition']).toBe(false);
+        expect(result.data.checkpoint?.['enforce-on-wave-dispatch']).toBe(false);
+      }
+    });
+
+    it('CheckpointConfigSchema_EmptyObject_UsesDefaults', () => {
+      const result = ProjectConfigSchema.parse({ checkpoint: {} });
+      expect(result.checkpoint?.['operation-threshold']).toBe(20);
+      expect(result.checkpoint?.['enforce-on-phase-transition']).toBe(true);
+      expect(result.checkpoint?.['enforce-on-wave-dispatch']).toBe(true);
+    });
+
+    it('CheckpointConfigSchema_InvalidThreshold_Rejects', () => {
+      expect(ProjectConfigSchema.safeParse({ checkpoint: { 'operation-threshold': 0 } }).success).toBe(false);
+      expect(ProjectConfigSchema.safeParse({ checkpoint: { 'operation-threshold': -5 } }).success).toBe(false);
+    });
+
+    it('CheckpointConfigSchema_BooleanFlags_AcceptsBothValues', () => {
+      const trueResult = ProjectConfigSchema.safeParse({
+        checkpoint: { 'enforce-on-phase-transition': true, 'enforce-on-wave-dispatch': true },
+      });
+      expect(trueResult.success).toBe(true);
+
+      const falseResult = ProjectConfigSchema.safeParse({
+        checkpoint: { 'enforce-on-phase-transition': false, 'enforce-on-wave-dispatch': false },
+      });
+      expect(falseResult.success).toBe(true);
+    });
+  });
+
   describe('plugins section', () => {
     it('ProjectConfigSchema_Plugins_AcceptsValidConfig', () => {
       const result = ProjectConfigSchema.safeParse({
@@ -154,6 +253,59 @@ describe('ProjectConfigSchema', () => {
     it('ProjectConfigSchema_Plugins_RejectsUnknownPropertiesInPlugin', () => {
       const result = ProjectConfigSchema.safeParse({
         plugins: { axiom: { enabled: true, extra: 'value' } },
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('default .exarchos.yml', () => {
+    it('ProjectConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
+      const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
+      const parsed = parseYaml(content);
+      expect(ProjectConfigSchema.safeParse(parsed).success).toBe(true);
+    });
+  });
+
+  describe('agents section', () => {
+    it('ProjectConfigSchema_AgentsSection_AcceptsValidConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: {
+          'default-model': 'opus',
+          models: { implementer: 'opus', reviewer: 'sonnet', scaffolder: 'haiku' },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_AcceptsPartialConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'sonnet' },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidModel', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'gpt4' },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidAgentKey', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { models: { orchestrator: 'opus' } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_OmittedIsValid', () => {
+      const result = ProjectConfigSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsUnknownKeys', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'opus', extra: true },
       });
       expect(result.success).toBe(false);
     });

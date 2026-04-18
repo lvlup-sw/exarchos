@@ -27,6 +27,16 @@ vi.mock('../telemetry/telemetry-queries.js', () => ({
   queryTelemetryState: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock('./dispatch-guard.js', () => ({
+  validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
+  assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
+}));
+
+vi.mock('../workflow/checkpoint.js', () => ({
+  shouldEnforceCheckpoint: vi.fn().mockReturnValue({ gated: false }),
+  CHECKPOINT_OPERATION_THRESHOLD: 20,
+}));
+
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -36,6 +46,9 @@ import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
+import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
+import { DEFAULTS } from '../config/resolve.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -144,7 +157,7 @@ function setupMaterializer(
 
   const mockStore = {
     query: vi.fn().mockResolvedValue([]),
-    append: vi.fn(),
+    append: vi.fn().mockResolvedValue(undefined),
     listStreams: vi.fn().mockReturnValue(null),
   };
   vi.mocked(getOrCreateEventStore).mockReturnValue(
@@ -160,6 +173,14 @@ function setupMaterializer(
 describe('handlePrepareDelegation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Re-set dispatch guard defaults after clearAllMocks
+    vi.mocked(validateBranchAncestry).mockResolvedValue({ passed: true, checks: ['ancestry'] });
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: true,
+      actual: '/repo',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({ gated: false });
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
@@ -620,6 +641,286 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.worktrees.failed).toHaveLength(0);
   });
 
+  // ─── DR-1: Ancestry Check Integration ───────────────────────────────────
+
+  it('handlePrepareDelegation_AncestryCheckFails_ReturnsBlocked', async () => {
+    // Arrange: ancestry check returns blocked
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: false,
+      blocked: true,
+      reason: 'ancestry',
+      missing: ['main'],
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      missing: string[];
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('ancestry');
+    expect(data.missing).toContain('main');
+  });
+
+  it('handlePrepareDelegation_AncestryCheckPasses_ProceedsToClassification', async () => {
+    // Arrange: ancestry check passes
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: true,
+      checks: ['ancestry'],
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'task-1', title: 'Implement widget' },
+      ],
+    };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — proceeds past ancestry check, returns readiness data
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      taskClassifications: TaskClassification[];
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+    expect(data.taskClassifications).toBeDefined();
+  });
+
+  // ─── DR-2: Worktree Assertion Integration ─────────────────────────────────
+
+  it('handlePrepareDelegation_InSubagentWorktree_ReturnsBlocked', async () => {
+    // Arrange: assertMainWorktree returns isMain=false (subagent worktree)
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: false,
+      actual: '/repo/.claude/worktrees/agent-abc123',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      actual: string;
+      expected: string;
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('worktree-location');
+    expect(data.actual).toBe('/repo/.claude/worktrees/agent-abc123');
+    expect(data.expected).toBeDefined();
+  });
+
+  it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
+    // Arrange: assertMainWorktree returns isMain=true
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: true,
+      actual: '/home/user/repo',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — proceeds normally, returns readiness
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+  });
+
+  // ─── DR-1/DR-2: Preflight Event Emissions ────────────────────────────────
+
+  it('handlePrepareDelegation_AncestryPasses_EmitsPreflightExecutedEvent', async () => {
+    // Arrange: ancestry and worktree checks pass, ready state
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: true,
+      checks: ['ancestry'],
+    });
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: true,
+      actual: '/home/user/repo',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: preflight.executed event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const preflightEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
+    );
+    expect(preflightEvent).toBeDefined();
+    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.checks).toContain('ancestry');
+    expect(eventData.checks).toContain('worktree');
+    expect(eventData.passed).toBe(true);
+    expect(eventData.integrationBranch).toBeDefined();
+  });
+
+  it('handlePrepareDelegation_AncestryBlocked_EmitsPreflightBlockedEvent', async () => {
+    // Arrange: ancestry check fails
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: false,
+      blocked: true,
+      reason: 'ancestry',
+      missing: ['main'],
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: preflight.blocked event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const preflightEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
+    );
+    expect(preflightEvent).toBeDefined();
+    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.reason).toBe('ancestry');
+    expect((eventData.details as { missing: string[] }).missing).toContain('main');
+  });
+
+  it('handlePrepareDelegation_WorktreeBlocked_EmitsPreflightBlockedEvent', async () => {
+    // Arrange: ancestry passes but worktree check fails
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: true,
+      checks: ['ancestry'],
+    });
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: false,
+      actual: '/repo/.claude/worktrees/agent-xyz',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: preflight.blocked event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const preflightEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
+    );
+    expect(preflightEvent).toBeDefined();
+    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.reason).toBe('worktree-location');
+    const details = eventData.details as { actual: string; expected: string };
+    expect(details.actual).toBe('/repo/.claude/worktrees/agent-xyz');
+    expect(details.expected).toBeDefined();
+  });
+
+  // ─── DR-5: Checkpoint Gate Integration ──────────────────────────────────
+
+  it('handlePrepareDelegation_AboveThreshold_ReturnsCheckpointRequired', async () => {
+    // Arrange: operationsSince above threshold — gate should block
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: true,
+      gate: 'checkpoint_required',
+      operationsSince: 25,
+      threshold: 20,
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: gated response
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      gated: boolean;
+      gate: string;
+      operationsSince: number;
+      threshold: number;
+    };
+    expect(data.gated).toBe(true);
+    expect(data.gate).toBe('checkpoint_required');
+    expect(data.operationsSince).toBe(25);
+    expect(data.threshold).toBe(20);
+
+    // Assert: checkpoint.enforced event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const enforcedEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'checkpoint.enforced',
+    );
+    expect(enforcedEvent).toBeDefined();
+    const eventData = (enforcedEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.operationsSince).toBe(25);
+    expect(eventData.threshold).toBe(20);
+    expect(eventData.blockedAction).toBe('wave-dispatch');
+  });
+
+  it('handlePrepareDelegation_BelowThreshold_ProceedsNormally', async () => {
+    // Arrange: operationsSince below threshold — gate should not block
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: false,
+    });
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'task-1', title: 'Implement widget' },
+      ],
+    };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: proceeds to task classification — not gated
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      taskClassifications: TaskClassification[];
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+    expect(data.taskClassifications).toBeDefined();
+    expect(data.taskClassifications).toHaveLength(1);
+  });
+
   // ─── Task Classification ─────────────────────────────────────────────────
 
   describe('Task classification', () => {
@@ -814,11 +1115,140 @@ describe('handlePrepareDelegation', () => {
       const task = { id: 'T-004', title: 'stub boilerplate' };
 
       // Act
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, DEFAULTS.agents);
 
       // Assert — existing scaffolding behavior preserved
       expect(classification.effort).toBe('low');
       expect(classification.recommendedAgent).toBe('scaffolder');
+    });
+  });
+
+  describe('handler config threading', () => {
+    it('PrepareDelegation_WithTasks_ClassificationsIncludeRecommendedModel', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Implement widget' },
+          { id: 'task-2', title: 'Stub boilerplate' },
+        ],
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      expect(data.taskClassifications).toBeDefined();
+      for (const tc of data.taskClassifications) {
+        expect(tc.recommendedModel).toBeDefined();
+        expect(['opus', 'sonnet', 'haiku']).toContain(tc.recommendedModel);
+      }
+    });
+
+    it('PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Scaffold the interface' },
+          { id: 'task-2', title: 'Implement handler' },
+        ],
+      };
+      const ctx = {
+        stateDir: STATE_DIR,
+        eventStore: {} as never,
+        enableTelemetry: false,
+        projectConfig: {
+          agents: {
+            defaultModel: 'sonnet' as const,
+            models: { scaffolder: 'haiku' as const },
+          },
+        } as never,
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, ctx as never);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
+      const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
+      expect(scaffolderTask?.recommendedModel).toBe('haiku');
+      expect(implementerTask?.recommendedModel).toBe('sonnet');
+    });
+
+    it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Scaffold boilerplate' },
+          { id: 'task-2', title: 'Implement handler' },
+        ],
+      };
+
+      // Act -- no ctx passed
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert -- uses DEFAULTS.agents
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
+      const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
+      expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
+      expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+    });
+  });
+
+  describe('classifyTask model resolution', () => {
+    it('classifyTask_WithAgentConfig_ScaffolderGetsConfiguredModel', () => {
+      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
+      const result = classifyTask({ id: '001', title: 'Stub out the API interface' }, config);
+      expect(result.recommendedModel).toBe('haiku');
+    });
+
+    it('classifyTask_WithAgentConfig_ImplementerGetsConfiguredModel', () => {
+      const config = { defaultModel: 'opus' as const, models: { implementer: 'opus' as const } };
+      const result = classifyTask({ id: '002', title: 'Implement auth handler' }, config);
+      expect(result.recommendedModel).toBe('opus');
+    });
+
+    it('classifyTask_WithAgentConfig_FallsBackToDefaultModel', () => {
+      const config = { defaultModel: 'sonnet' as const, models: {} };
+      const result = classifyTask({ id: '003', title: 'Implement feature X' }, config);
+      expect(result.recommendedModel).toBe('sonnet');
+    });
+
+    it('classifyTask_WithAgentConfig_PerAgentOverridesDefault', () => {
+      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
+      // scaffolder task -> 'haiku'
+      const scaffolderResult = classifyTask({ id: '004a', title: 'Scaffold the test harness' }, config);
+      expect(scaffolderResult.recommendedModel).toBe('haiku');
+      // implementer task -> 'opus' (from defaultModel)
+      const implementerResult = classifyTask({ id: '004b', title: 'Implement handler' }, config);
+      expect(implementerResult.recommendedModel).toBe('opus');
+    });
+
+    it('classifyTask_WithDefaultConfig_ScaffolderGetsHaiku', () => {
+      const result = classifyTask({ id: '005', title: 'Scaffold boilerplate' }, DEFAULTS.agents);
+      expect(result.recommendedModel).toBe('haiku');
+    });
+
+    it('classifyTask_WithDefaultConfig_ImplementerGetsOpus', () => {
+      const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
+      expect(result.recommendedModel).toBe('opus');
     });
   });
 });

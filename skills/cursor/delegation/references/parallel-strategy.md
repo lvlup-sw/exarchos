@@ -21,8 +21,8 @@ Group B (depends on Group A):
 
 ```typescript
 // CORRECT: Single message, parallel execution
-Task({ model: "opus", description: "Task 001", prompt: "..." })
-Task({ model: "opus", description: "Task 002", prompt: "..." })
+Task({ description: "Task 001", prompt: "..." })
+Task({ description: "Task 002", prompt: "..." })
 
 // WRONG: Separate messages = sequential
 ```
@@ -59,7 +59,7 @@ Agent Teams supports one team per session. If you need more parallel groups than
 | Parallel dispatch | Multiple `Task()` in one message | Named teammates in agent team |
 | Waiting | `TaskOutput({ block: true })` | `TeammateIdle` hook (fires when teammate idle) |
 | Visibility | None (background) | tmux split panes |
-| Model control | `model: "opus"` per task | Session model for all |
+| Model control | `recommendedModel` from config | Session model for all |
 | Max parallelism | Unlimited | One team, N teammates |
 | Resume on crash | Task results preserved | Teammates lost (worktrees survive) |
 
@@ -73,14 +73,9 @@ TaskOutput({ task_id: "task-002-id" })
 
 ## Model Selection Guide
 
-| Task Type | Model | Reason |
-|-----------|-------|--------|
-| Code implementation | `opus` | Best quality for coding |
-| Code review | `opus` | Thorough analysis |
-| File search/exploration | (default) | Speed over quality |
-| Simple queries | `haiku` | Fast, low cost |
+Model selection is config-driven via `.exarchos.yml`. The `prepare_delegation` action returns a `recommendedModel` in each task classification based on the config cascade: per-agent override, then default-model, then fallback. Override per-task via the Task tool's `model` parameter when needed.
 
-**Note:** When using Agent Teams, all teammates inherit the session's model. Use Task tool dispatch if you need per-task model selection (e.g., `haiku` for simple queries, `opus` for implementation).
+**Note:** When using Agent Teams, all teammates inherit the session's model. Model is resolved from `.exarchos.yml` config via `prepare_delegation`. Use Task tool dispatch if you need per-task model override.
 
 ## Agent Teams Dispatch Pattern
 
@@ -106,7 +101,7 @@ Each teammate receives the full implementer prompt including TDD requirements, f
 | Cross-task deps | Orchestrator manages phases | Shared task list + unblocked task detection |
 | Monitoring | `TaskOutput` polling | tmux panes + `TeammateIdle` hook |
 | State updates | Orchestrator updates state | Hook auto-updates via state bridge |
-| Model per task | Yes (`model: "opus"` per Task) | No (session model for all) |
+| Model per task | Yes (`recommendedModel` per Task) | No (session model for all) |
 | Quality gates | Manual via `post_delegation_check` action | Automatic via `TeammateIdle` hook |
 | Recovery | Task results preserved | Worktrees survive, teammates lost |
 

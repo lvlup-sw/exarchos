@@ -84,6 +84,60 @@ export function buildCheckpointMeta(checkpoint: CheckpointState): CheckpointMeta
   };
 }
 
+// ─── Checkpoint Gate (DR-5, DR-10) ────────────────────────────────────────
+
+export interface CheckpointGateResult {
+  gated: boolean;
+  gate?: 'checkpoint_required';
+  operationsSince?: number;
+  threshold?: number;
+  warning?: string;
+}
+
+export interface CheckpointEnforcementConfig {
+  operationThreshold: number;
+  enforceOnPhaseTransition: boolean;
+  enforceOnWaveDispatch: boolean;
+}
+
+/**
+ * Evaluate whether a checkpoint gate should block the current action.
+ *
+ * - Nullish checkpoint state: graceful degradation (DR-10) — returns not-gated with warning.
+ * - Action-type enforcement toggles: config can disable gate per action type.
+ * - Threshold comparison: operationsSince >= operationThreshold triggers the gate.
+ */
+export function shouldEnforceCheckpoint(
+  checkpoint: CheckpointState | undefined | null,
+  config: CheckpointEnforcementConfig,
+  actionType: 'phase-transition' | 'wave-dispatch',
+): CheckpointGateResult {
+  // DR-10: graceful degradation when checkpoint state is missing
+  if (checkpoint == null) {
+    return { gated: false, warning: 'checkpoint-state-missing' };
+  }
+
+  // Check action-type enforcement toggles
+  if (actionType === 'phase-transition' && !config.enforceOnPhaseTransition) {
+    return { gated: false };
+  }
+  if (actionType === 'wave-dispatch' && !config.enforceOnWaveDispatch) {
+    return { gated: false };
+  }
+
+  // Threshold comparison
+  if (checkpoint.operationsSince >= config.operationThreshold) {
+    return {
+      gated: true,
+      gate: 'checkpoint_required',
+      operationsSince: checkpoint.operationsSince,
+      threshold: config.operationThreshold,
+    };
+  }
+
+  return { gated: false };
+}
+
 /** Create initial checkpoint state for new workflows. */
 export function createInitialCheckpoint(phase: string): CheckpointState {
   const now = new Date().toISOString();

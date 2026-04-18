@@ -40,7 +40,6 @@ TodoWrite({
 // Launch multiple in single message for parallel execution
 Task({
   subagent_type: "general-purpose",
-  model: "opus",
   run_in_background: true,
   description: "Implement task 001",
   prompt: "[Full implementer prompt]"
@@ -48,7 +47,6 @@ Task({
 
 Task({
   subagent_type: "general-purpose",
-  model: "opus",
   run_in_background: true,
   description: "Implement task 002",
   prompt: "[Full implementer prompt]"
