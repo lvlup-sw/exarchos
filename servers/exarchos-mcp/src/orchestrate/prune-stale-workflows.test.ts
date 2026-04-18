@@ -797,4 +797,204 @@ describe('handlePruneStaleWorkflows', () => {
     const data = result.data as { candidates: Array<{ featureId: string }> };
     expect(data.candidates.map((c) => c.featureId)).toEqual(['just-stale']);
   });
+
+  // ─── Task 009: Diagnostics field ──────────────────────────────────────────
+
+  it('handlePrune_MalformedEntries_ReturnsDiagnosticsField', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        // Valid stale entry
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+        // Missing _checkpoint → malformed
+        {
+          featureId: 'bad-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-1.state.json',
+        },
+        // Missing featureId → malformed
+        {
+          workflowType: 'feature',
+          phase: 'implementing',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: {
+        malformedCount: number;
+        malformedEntries: Array<{ featureId?: string; reasons: string[] }>;
+        candidateCount: number;
+      };
+    };
+    expect(data.diagnostics).toBeDefined();
+    expect(data.diagnostics.malformedCount).toBe(2);
+    expect(data.diagnostics.candidateCount).toBe(1);
+    expect(data.diagnostics.malformedEntries).toHaveLength(2);
+  });
+
+  it('handlePrune_NoMalformed_ReturnsDiagnosticsWithZeroCount', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'valid-1', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: {
+        malformedCount: number;
+        malformedEntries: Array<unknown>;
+        candidateCount: number;
+      };
+    };
+    expect(data.diagnostics).toBeDefined();
+    expect(data.diagnostics.malformedCount).toBe(0);
+    expect(data.diagnostics.malformedEntries).toEqual([]);
+    expect(data.diagnostics.candidateCount).toBe(1);
+  });
+
+  it('handlePrune_MalformedEntries_IncludesPerEntryReasons', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        // Missing _checkpoint → malformed
+        {
+          featureId: 'bad-checkpoint',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-checkpoint.state.json',
+        },
+        // Unparsable timestamp → malformed
+        {
+          featureId: 'bad-timestamp',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-timestamp.state.json',
+          _checkpoint: { lastActivityTimestamp: 'not-a-date' },
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: {
+        malformedEntries: Array<{ featureId?: string; reasons: string[] }>;
+      };
+    };
+    for (const entry of data.diagnostics.malformedEntries) {
+      expect(entry.featureId).toBeDefined();
+      expect(Array.isArray(entry.reasons)).toBe(true);
+      expect(entry.reasons.length).toBeGreaterThan(0);
+      for (const reason of entry.reasons) {
+        expect(typeof reason).toBe('string');
+      }
+    }
+  });
+
+  it('handlePrune_DryRun_IncludesDiagnostics', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: { malformedCount: number; candidateCount: number };
+    };
+    expect(data.diagnostics).toBeDefined();
+    expect(typeof data.diagnostics.malformedCount).toBe('number');
+    expect(typeof data.diagnostics.candidateCount).toBe('number');
+  });
+
+  it('handlePrune_CorruptState_ReturnsDiagnosticsNotThrow', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        // Completely corrupt: not even an object
+        42,
+        null,
+        'garbage',
+        // Object but missing everything
+        {},
+        // Valid entry to confirm pipeline continues
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: {
+        malformedCount: number;
+        candidateCount: number;
+        malformedEntries: Array<{ featureId?: string; reasons: string[] }>;
+      };
+    };
+    expect(data.diagnostics.malformedCount).toBe(4);
+    expect(data.diagnostics.candidateCount).toBe(1);
+  });
 });

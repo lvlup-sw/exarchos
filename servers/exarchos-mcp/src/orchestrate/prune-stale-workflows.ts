@@ -230,6 +230,27 @@ export interface PrunePruned {
   skippedSafeguards?: string[];
 }
 
+/**
+ * Per-entry diagnostic for a malformed handleList entry. Groups all validation
+ * failures for a single entry into a `reasons` array so operators can fix
+ * upstream regressions without round-tripping through repeated prune runs.
+ */
+export interface PruneDiagnosticEntry {
+  featureId?: string;
+  reasons: string[];
+}
+
+/**
+ * Diagnostics payload attached to every prune response (DR-3, DR-10).
+ * Always present — `malformedCount === 0` when all entries are valid.
+ */
+export interface PruneDiagnostics {
+  malformedCount: number;
+  malformedEntries: PruneDiagnosticEntry[];
+  candidateCount: number;
+  advisory?: string;
+}
+
 export interface PruneHandlerResult {
   candidates: PruneCandidate[];
   skipped: PruneSkipped[];
@@ -251,6 +272,12 @@ export interface PruneHandlerResult {
    * shape.
    */
   malformed?: PruneMalformedEntry[];
+  /**
+   * Diagnostics payload (DR-3, DR-10). Always present in the response —
+   * `malformedCount === 0` when all entries pass validation. Includes
+   * per-entry reasons and an advisory string when malformed entries exist.
+   */
+  diagnostics: PruneDiagnostics;
 }
 
 /** Default branch-name reader: reads the state JSON and returns a top-level
@@ -605,6 +632,15 @@ export async function handlePruneStaleWorkflows(
     );
   }
 
+  // Build diagnostics from the malformed entries (DR-3, DR-10). Each
+  // PruneMalformedEntry maps 1:1 to a PruneDiagnosticEntry — the per-entry
+  // reason string becomes the single element in a `reasons` array so the
+  // shape supports future multi-reason grouping without a breaking change.
+  const diagnosticEntries: PruneDiagnosticEntry[] = malformed.map((m) => ({
+    ...(m.featureId !== undefined ? { featureId: m.featureId } : {}),
+    reasons: [m.reason],
+  }));
+
   // 2. Pure selection.
   const { candidates } = selectPruneCandidates(
     entries,
@@ -615,6 +651,18 @@ export async function handlePruneStaleWorkflows(
     now,
   );
 
+  // Build the diagnostics object — always present in the response.
+  const diagnostics: PruneDiagnostics = {
+    malformedCount: malformed.length,
+    malformedEntries: diagnosticEntries,
+    candidateCount: candidates.length,
+    ...(malformed.length > 0
+      ? {
+          advisory: `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
+        }
+      : {}),
+  };
+
   // 3. Dry run short-circuit. Intentionally omit `pruned` — see type
   // comment on PruneHandlerResult. Callers can distinguish dry-run from
   // apply mode by the presence/absence of the field.
@@ -622,6 +670,7 @@ export async function handlePruneStaleWorkflows(
     const result: PruneHandlerResult = {
       candidates,
       skipped: [],
+      diagnostics,
       ...(malformed.length > 0 ? { malformed } : {}),
     };
     return { success: true, data: result };
@@ -646,6 +695,7 @@ export async function handlePruneStaleWorkflows(
     candidates,
     skipped,
     pruned,
+    diagnostics,
     ...(malformed.length > 0 ? { malformed } : {}),
   };
   return { success: true, data: result };
