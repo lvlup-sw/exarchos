@@ -1,5 +1,4 @@
 ---
-name: tdd
 description: "Plan implementation following strict TDD (Red-Green-Refactor)."
 ---
 
