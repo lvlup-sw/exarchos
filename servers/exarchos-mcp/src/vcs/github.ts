@@ -276,9 +276,12 @@ export class GitHubProvider implements VcsProvider {
     }
 
     const output = await exec('gh', args);
-    const match = output.match(/\/issues\/(\d+)/);
-    const number = match ? parseInt(match[1], 10) : 0;
-    return { url: output.trim(), number };
+    const url = output.trim();
+    const match = url.match(/\/issues\/(\d+)/);
+    if (!match) {
+      throw new Error(`Failed to parse issue number from gh output: ${url}`);
+    }
+    return { url, number: parseInt(match[1], 10) };
   }
 
   async getRepository(): Promise<RepoInfo> {

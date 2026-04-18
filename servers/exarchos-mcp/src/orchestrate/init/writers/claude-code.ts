@@ -118,8 +118,9 @@ async function copyDirRecursive(
   let entries: string[];
   try {
     entries = await fs.readdir(srcDir);
-  } catch {
-    return;
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'ENOENT') return;
+    throw err;
   }
   for (const entry of entries) {
     const srcPath = join(srcDir, entry);
@@ -128,8 +129,9 @@ async function copyDirRecursive(
     try {
       const s = await fs.stat(srcPath);
       isDir = s.isDirectory();
-    } catch {
-      continue;
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'ENOENT') continue;
+      throw err;
     }
     if (isDir) {
       await copyDirRecursive(fs, srcPath, destPath);
@@ -155,7 +157,10 @@ async function deployMcpConfig(
     return { wrote: false, error: error ?? 'Unknown error reading config' };
   }
 
-  const existingServers = config.mcpServers ?? {};
+  const rawServers = config.mcpServers;
+  const existingServers = typeof rawServers === 'object' && rawServers !== null && !Array.isArray(rawServers)
+    ? rawServers as Record<string, unknown>
+    : {};
   const alreadyRegistered = 'exarchos' in existingServers;
 
   if (alreadyRegistered && !options.forceOverwrite) {
