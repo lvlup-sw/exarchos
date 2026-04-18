@@ -16,7 +16,7 @@ const AGENT_IDS = ALL_AGENT_SPECS.map(s => s.id) as [string, ...string[]];
 export const agentSpecSchema = z.object({
   agent: z.enum(AGENT_IDS),
   context: z.record(z.string(), z.string()).optional(),
-  format: z.enum(['full', 'prompt-only']).default('full'),
+  outputFormat: z.enum(['full', 'prompt-only']).default('full'),
 });
 
 type AgentSpecArgs = z.infer<typeof agentSpecSchema>;
@@ -52,7 +52,7 @@ function interpolatePrompt(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> {
-  const { agent, context = {}, format = 'full' } = args;
+  const { agent, context = {}, outputFormat = 'full' } = args;
 
   // Find spec by agent ID
   const spec: AgentSpec | undefined = ALL_AGENT_SPECS.find(s => s.id === agent);
@@ -72,7 +72,7 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
   const { systemPrompt, unresolvedVars } = interpolatePrompt(spec.systemPrompt, context);
 
   // Format: prompt-only
-  if (format === 'prompt-only') {
+  if (outputFormat === 'prompt-only') {
     return {
       success: true,
       data: {

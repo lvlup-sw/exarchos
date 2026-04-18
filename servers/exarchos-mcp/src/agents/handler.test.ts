@@ -6,7 +6,7 @@ import { handleAgentSpec, agentSpecSchema } from './handler.js';
 describe('handleAgentSpec', () => {
   it('AgentSpec_ValidAgent_ReturnsFullSpec', async () => {
     // Arrange
-    const args = { agent: 'implementer' as const, format: 'full' as const };
+    const args = { agent: 'implementer' as const, outputFormat: 'full' as const };
 
     // Act
     const result = await handleAgentSpec(args);
@@ -62,7 +62,7 @@ describe('handleAgentSpec', () => {
         requirements: 'Must validate email format',
         filePaths: 'src/login.ts, src/login.test.ts',
       },
-      format: 'full' as const,
+      outputFormat: 'full' as const,
     };
 
     // Act
@@ -87,7 +87,7 @@ describe('handleAgentSpec', () => {
       context: {
         taskDescription: 'Build it',
       },
-      format: 'full' as const,
+      outputFormat: 'full' as const,
     };
 
     // Act
@@ -112,7 +112,7 @@ describe('handleAgentSpec', () => {
         reviewScope: 'PR #42',
         designRequirements: 'DR-1: Must have tests',
       },
-      format: 'prompt-only' as const,
+      outputFormat: 'prompt-only' as const,
     };
 
     // Act
@@ -137,29 +137,29 @@ describe('handleAgentSpec', () => {
 });
 
 describe('agentSpecSchema', () => {
-  it('should accept valid full format', () => {
+  it('should accept valid full outputFormat', () => {
     const result = agentSpecSchema.safeParse({
       agent: 'implementer',
-      format: 'full',
+      outputFormat: 'full',
     });
     expect(result.success).toBe(true);
   });
 
-  it('should accept valid prompt-only format', () => {
+  it('should accept valid prompt-only outputFormat', () => {
     const result = agentSpecSchema.safeParse({
       agent: 'reviewer',
-      format: 'prompt-only',
+      outputFormat: 'prompt-only',
     });
     expect(result.success).toBe(true);
   });
 
-  it('should default format to full', () => {
+  it('should default outputFormat to full', () => {
     const result = agentSpecSchema.safeParse({
       agent: 'fixer',
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.format).toBe('full');
+      expect(result.data.outputFormat).toBe('full');
     }
   });
 

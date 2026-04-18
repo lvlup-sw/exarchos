@@ -419,7 +419,7 @@ describe('handleOrchestrate', () => {
       const args = {
         action: 'agent_spec',
         agent: 'implementer',
-        format: 'full',
+        outputFormat: 'full',
       };
 
       // Act
@@ -428,7 +428,7 @@ describe('handleOrchestrate', () => {
       // Assert
       expect(result).toBe(expected);
       expect(handleAgentSpec).toHaveBeenCalledWith(
-        { agent: 'implementer', format: 'full' },
+        { agent: 'implementer', outputFormat: 'full' },
         STATE_DIR,
       );
     });

@@ -138,20 +138,123 @@ export function buildRegistrationSchema(
   const shape: z.ZodRawShape = {
     action: z.enum(actionNames),
   };
+  // Track the first action to declare each field. A later action declaring the
+  // same field with an incompatible enum value set or differing default is a
+  // #1127-class collision — the composite's "first wins" merge silently
+  // shadowed the later declaration at the MCP-registration boundary.
+  // Constraint drift (min/max, pattern, optionality) is allowed: handler-level
+  // schemas re-validate via dispatch(), so "first wins" is harmless there.
+  const provenance = new Map<string, { action: string; contract: FieldContract }>();
 
   for (const action of actions) {
     const fields = action.schema.shape;
     for (const [key, zodType] of Object.entries(fields)) {
-      if (key in shape) continue; // already added from an earlier action
-      // Make all per-action fields optional at the composite level;
-      // individual handlers enforce required fields via their own schemas.
-      // Unwrap preprocess effects for clean JSON Schema generation.
       const field = unwrapPreprocess(zodType as z.ZodTypeAny);
+      const contract = fieldContract(field);
+
+      const prior = provenance.get(key);
+      if (prior) {
+        const conflict = describeContractConflict(prior.contract, contract);
+        if (conflict) {
+          throw new Error(
+            `buildRegistrationSchema: field '${key}' declared by action '${action.name}' collides with the declaration from action '${prior.action}'. ${conflict} ` +
+            `Rename the field in one action (see agent_spec.outputFormat, #1127) or align the declarations.`,
+          );
+        }
+        continue; // compatible — first wins preserved
+      }
+
       shape[key] = field.isOptional() ? field : field.optional();
+      provenance.set(key, { action: action.name, contract });
     }
   }
 
   return z.object(shape).strict();
+}
+
+/**
+ * Contract-level view of a Zod field, capturing only the properties whose
+ * divergence across actions causes MCP-registration-time hazards: the enum
+ * value set and the default value. Base type is tracked solely to distinguish
+ * enum-vs-non-enum collisions. Refinements and optionality are ignored.
+ */
+interface FieldContract {
+  readonly kind: 'enum' | 'string' | 'number' | 'boolean' | 'array' | 'object' | 'other';
+  readonly enumValues: readonly string[] | null; // present iff kind === 'enum'
+  readonly defaultValue: string | null; // JSON-stringified default, null if none
+}
+
+function fieldContract(zodType: z.ZodTypeAny): FieldContract {
+  const inner = unwrapOptional(zodType);
+  const enumValues = extractEnumValues(inner);
+  const defaultValue = extractDefault(inner);
+  return {
+    kind: enumValues ? 'enum' : baseKind(inner),
+    enumValues,
+    defaultValue: defaultValue === undefined ? null : JSON.stringify(defaultValue),
+  };
+}
+
+function baseKind(schema: z.ZodTypeAny): FieldContract['kind'] {
+  let current = schema;
+  if (current instanceof z.ZodDefault) current = current._def.innerType;
+  if (current instanceof z.ZodOptional) current = current._def.innerType;
+  if (current instanceof z.ZodString) return 'string';
+  // Number covers z.number() and z.number().int() — JSON Schema distinguishes
+  // them as number vs integer, but the per-handler schema re-validates
+  // refinements, so at the composite boundary they're the same contract.
+  if (current instanceof z.ZodNumber) return 'number';
+  if (current instanceof z.ZodBoolean) return 'boolean';
+  if (current instanceof z.ZodArray) return 'array';
+  if (current instanceof z.ZodObject || current instanceof z.ZodRecord) return 'object';
+  return 'other';
+}
+
+function unwrapOptional(schema: z.ZodTypeAny): z.ZodTypeAny {
+  let current = schema;
+  // Peel Optional and Nullable wrappers. Keep Default wrappers — the default
+  // is a contract-level attribute we explicitly want to inspect.
+  while (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+    current = current._def.innerType;
+  }
+  return current;
+}
+
+function extractEnumValues(schema: z.ZodTypeAny): readonly string[] | null {
+  let current = schema;
+  if (current instanceof z.ZodDefault) current = current._def.innerType;
+  if (current instanceof z.ZodOptional) current = current._def.innerType;
+  if (current instanceof z.ZodEnum) {
+    return [...(current._def.values as readonly string[])].sort();
+  }
+  return null;
+}
+
+function extractDefault(schema: z.ZodTypeAny): unknown {
+  if (schema instanceof z.ZodDefault) {
+    return schema._def.defaultValue();
+  }
+  return undefined;
+}
+
+function describeContractConflict(a: FieldContract, b: FieldContract): string | null {
+  if (a.kind !== b.kind) {
+    return `Base types differ: ${a.kind} vs ${b.kind}.`;
+  }
+  if (a.kind === 'enum') {
+    if (
+      !a.enumValues ||
+      !b.enumValues ||
+      a.enumValues.length !== b.enumValues.length ||
+      a.enumValues.some((v, i) => v !== b.enumValues![i])
+    ) {
+      return `Enum value sets differ: [${a.enumValues?.join(', ')}] vs [${b.enumValues?.join(', ')}].`;
+    }
+  }
+  if (a.defaultValue !== b.defaultValue) {
+    return `Default values differ: ${a.defaultValue ?? '(none)'} vs ${b.defaultValue ?? '(none)'}.`;
+  }
+  return null;
 }
 
 /**
