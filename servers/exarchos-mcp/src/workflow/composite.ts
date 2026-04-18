@@ -27,15 +27,17 @@ export async function handleWorkflow(
     case 'set': {
       const skipPhases = ctx.projectConfig?.workflow.skipPhases;
       const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
+      const checkpoint = ctx.projectConfig?.checkpoint;
       const setOptions: Record<string, unknown> = {};
       if (skipPhases?.length) setOptions.skipPhases = skipPhases;
       if (requiredReviews?.length) setOptions.requiredReviews = requiredReviews;
+      if (checkpoint) setOptions.checkpoint = checkpoint;
       return handleSet(
         rest as Parameters<typeof handleSet>[0],
         stateDir,
         eventStore,
         Object.keys(setOptions).length > 0
-          ? setOptions as { skipPhases?: readonly string[]; requiredReviews?: readonly string[] }
+          ? setOptions as Parameters<typeof handleSet>[3]
           : undefined,
       );
     }

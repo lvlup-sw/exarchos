@@ -26,6 +26,8 @@ import {
   incrementOperations,
   resetCounter,
   isStale,
+  shouldEnforceCheckpoint,
+  type CheckpointEnforcementConfig,
 } from './checkpoint.js';
 import { mapInternalToExternalType } from './events.js';
 import { workflowLogger } from '../logger.js';
@@ -449,7 +451,11 @@ export async function handleSet(
   input: SetInput,
   stateDir: string,
   eventStore: EventStore | null,
-  options?: { skipPhases?: readonly string[]; requiredReviews?: readonly string[] },
+  options?: {
+    skipPhases?: readonly string[];
+    requiredReviews?: readonly string[];
+    checkpoint?: CheckpointEnforcementConfig;
+  },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -468,6 +474,28 @@ export async function handleSet(
         };
       }
       throw err;
+    }
+
+    // ─── Checkpoint gate (DR-5): block phase transition when above threshold ──
+    if (input.phase && options?.checkpoint) {
+      const gateResult = shouldEnforceCheckpoint(
+        state._checkpoint,
+        options.checkpoint,
+        'phase-transition',
+      );
+
+      if (gateResult.gated) {
+        return {
+          success: false,
+          error: {
+            code: 'CHECKPOINT_REQUIRED' as typeof ErrorCode[keyof typeof ErrorCode],
+            message: `Checkpoint required before phase transition: ${gateResult.operationsSince} operations since last checkpoint (threshold: ${gateResult.threshold})`,
+            gate: gateResult.gate,
+            operationsSince: gateResult.operationsSince,
+            threshold: gateResult.threshold,
+          },
+        };
+      }
     }
 
     // Capture version for CAS
