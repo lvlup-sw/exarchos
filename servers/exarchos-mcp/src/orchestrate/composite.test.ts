@@ -240,6 +240,7 @@ describe('handleOrchestrate', () => {
       expect(handlePrepareDelegation).toHaveBeenCalledWith(
         { featureId: 'feat-123', tasks: [{ id: 't1', title: 'Task 1' }] },
         STATE_DIR,
+        expect.objectContaining({ enableTelemetry: false }),
       );
     });
 
