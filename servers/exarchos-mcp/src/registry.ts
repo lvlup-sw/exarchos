@@ -221,13 +221,54 @@ function unwrapOptional(schema: z.ZodTypeAny): z.ZodTypeAny {
 }
 
 function extractEnumValues(schema: z.ZodTypeAny): readonly string[] | null {
-  let current = schema;
-  if (current instanceof z.ZodDefault) current = current._def.innerType;
-  if (current instanceof z.ZodOptional) current = current._def.innerType;
+  const current = peelEnumWrappers(schema);
   if (current instanceof z.ZodEnum) {
     return [...(current._def.values as readonly string[])].sort();
   }
+  if (current instanceof z.ZodLiteral) {
+    // Treat a literal as a 1-member enum so two actions declaring the same
+    // field with different literal values collide instead of silently
+    // shadowing each other (#1127-class hazard).
+    return [JSON.stringify(current._def.value as unknown)];
+  }
+  if (current instanceof z.ZodNativeEnum) {
+    // TS `enum` objects round-trip both member names and values for numeric
+    // enums (reverse mapping). Stringify-dedupe the values so string and
+    // numeric native enums produce a stable, comparable set.
+    const raw = Object.values(current._def.values as Record<string, unknown>);
+    return [...new Set(raw.map((v) => JSON.stringify(v)))].sort();
+  }
+  if (current instanceof z.ZodUnion) {
+    // Union-of-literals is the hand-rolled form of z.enum(). Collect the
+    // literal values; fall back to null if any branch isn't a literal so
+    // heterogeneous unions (e.g. string | string[]) still classify via
+    // baseKind instead of being falsely flagged as enum-compatible.
+    const options = current._def.options as readonly z.ZodTypeAny[];
+    const literalValues: string[] = [];
+    for (const opt of options) {
+      const peeled = peelEnumWrappers(opt);
+      if (!(peeled instanceof z.ZodLiteral)) return null;
+      literalValues.push(JSON.stringify(peeled._def.value as unknown));
+    }
+    return [...new Set(literalValues)].sort();
+  }
   return null;
+}
+
+/** Peel ZodDefault / ZodOptional / ZodNullable wrappers so the caller can
+ *  match on the underlying enum-ish kind. Kept narrow on purpose: we don't
+ *  peel ZodEffects or ZodBranded because those change the wire-level
+ *  contract and deserve to be classified distinctly. */
+function peelEnumWrappers(schema: z.ZodTypeAny): z.ZodTypeAny {
+  let current = schema;
+  while (
+    current instanceof z.ZodDefault ||
+    current instanceof z.ZodOptional ||
+    current instanceof z.ZodNullable
+  ) {
+    current = current._def.innerType;
+  }
+  return current;
 }
 
 function extractDefault(schema: z.ZodTypeAny): unknown {

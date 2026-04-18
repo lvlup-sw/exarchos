@@ -159,6 +159,83 @@ describe('buildRegistrationSchema', () => {
     expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
   });
 
+  it('should throw when two actions share a field whose defaults differ', () => {
+    // Guards the "defaults diverge" arm of describeContractConflict: same
+    // base type (string), no enum, but mismatched defaults would otherwise
+    // let the first declaration silently shadow the second at the
+    // registration boundary.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First action',
+        schema: z.object({ mode: z.string().default('full') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second action',
+        schema: z.object({ mode: z.string().default('json') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/Default values differ/);
+  });
+
+  it('should throw when two actions share a literal-valued field with different values', () => {
+    // Regression: before this fix, z.literal was classified as 'other' and
+    // defaults=none on both sides silently passed — two actions could bind
+    // the same field to incompatible literal values without detection.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First',
+        schema: z.object({ tag: z.literal('alpha') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second',
+        schema: z.object({ tag: z.literal('beta') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+  });
+
+  it('should throw when a union-of-literals field diverges across actions', () => {
+    // Union-of-literals is the hand-rolled form of z.enum(). Same contract
+    // semantics must apply: mismatched value sets must collide.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First',
+        schema: z.object({
+          mode: z.union([z.literal('a'), z.literal('b')]),
+        }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second',
+        schema: z.object({
+          mode: z.union([z.literal('a'), z.literal('c')]),
+        }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+  });
+
   it('should allow two actions to share a field when their schemas are structurally identical', () => {
     const compatible: readonly ToolAction[] = [
       {
