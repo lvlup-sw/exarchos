@@ -1348,4 +1348,169 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.truncated).toBe(true);
     expect(data.totalCandidates).toBe(5);
   });
+
+  // ─── Task 014: malformedHandling modes ────────────────────────────────────
+
+  it('handlePrune_MalformedHandlingReport_SurfacesDiagnostics', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
+        },
+        // Malformed: missing _checkpoint
+        {
+          featureId: 'bad-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-1.state.json',
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      diagnostics: { malformedCount: number };
+      candidates: Array<{ featureId: string }>;
+    };
+    // Diagnostics visible
+    expect(data.diagnostics.malformedCount).toBe(1);
+    // Malformed entry excluded from candidates
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-1']);
+  });
+
+  it('handlePrune_MalformedHandlingInclude_TreatsAsCandidates', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'include' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
+        },
+        // Malformed: missing _checkpoint
+        {
+          featureId: 'bad-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-1.state.json',
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      candidates: Array<{ featureId: string; stalenessMinutes: number }>;
+    };
+    // Both valid and malformed entries should be candidates
+    const ids = data.candidates.map((c) => c.featureId).sort();
+    expect(ids).toEqual(['bad-1', 'valid-1']);
+    // Malformed entry treated with Infinity staleness
+    const malformedCandidate = data.candidates.find((c) => c.featureId === 'bad-1');
+    expect(malformedCandidate?.stalenessMinutes).toBe(Infinity);
+  });
+
+  it('handlePrune_MalformedHandlingSkip_SilentlyExcludes', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'skip' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
+        },
+        // Malformed: missing _checkpoint
+        {
+          featureId: 'bad-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-1.state.json',
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      candidates: Array<{ featureId: string }>;
+      diagnostics?: unknown;
+    };
+    // Malformed entry excluded
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['valid-1']);
+    // No diagnostics field in skip mode
+    expect(data.diagnostics).toBeUndefined();
+  });
 });

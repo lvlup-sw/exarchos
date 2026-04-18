@@ -283,11 +283,12 @@ export interface PruneHandlerResult {
    */
   malformed?: PruneMalformedEntry[];
   /**
-   * Diagnostics payload (DR-3, DR-10). Always present in the response —
+   * Diagnostics payload (DR-3, DR-10). Present in 'report' (default) and
+   * 'include' modes. Omitted in 'skip' mode. When present,
    * `malformedCount === 0` when all entries pass validation. Includes
    * per-entry reasons and an advisory string when malformed entries exist.
    */
-  diagnostics: PruneDiagnostics;
+  diagnostics?: PruneDiagnostics;
   /** Present when candidates were truncated by maxBatchSize. */
   truncated?: boolean;
   /** Total candidate count before truncation. Present when `truncated === true`. */
@@ -662,8 +663,15 @@ export async function handlePruneStaleWorkflows(
     reasons: [m.reason],
   }));
 
+  // malformedHandling mode (DR-4). Controls how malformed entries interact
+  // with the candidate pipeline and response shape:
+  //   - 'report' (default): diagnostics surfaced, malformed excluded from candidates
+  //   - 'include': malformed entries promoted to candidates with stalenessMinutes=Infinity
+  //   - 'skip': malformed silently excluded, diagnostics omitted from response
+  const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
+
   // 2. Pure selection.
-  const { candidates: rawCandidates } = selectPruneCandidates(
+  const { candidates: selectedCandidates } = selectPruneCandidates(
     entries,
     {
       thresholdMinutes,
@@ -672,6 +680,20 @@ export async function handlePruneStaleWorkflows(
     },
     now,
   );
+
+  // 2a. malformedHandling='include': promote malformed entries to candidates
+  let rawCandidates = selectedCandidates;
+  if (malformedHandling === 'include' && malformed.length > 0) {
+    const malformedCandidates: PruneCandidate[] = malformed
+      .filter((m) => m.featureId !== undefined)
+      .map((m) => ({
+        featureId: m.featureId!,
+        workflowType: 'unknown',
+        phase: 'unknown',
+        stalenessMinutes: Infinity,
+      }));
+    rawCandidates = [...selectedCandidates, ...malformedCandidates];
+  }
 
   // 2b. maxBatchSize cap — sort by staleness descending (oldest first)
   // and truncate to the configured limit. When truncated, add markers
@@ -689,22 +711,27 @@ export async function handlePruneStaleWorkflows(
       .slice(0, maxBatchSize);
   }
 
-  // Build the diagnostics object — always present in the response.
-  const diagnostics: PruneDiagnostics = {
-    malformedCount: malformed.length,
-    malformedEntries: diagnosticEntries,
-    candidateCount: candidates.length,
-    ...(malformed.length > 0
-      ? {
-          advisory: `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
-        }
-      : {}),
-  };
+  // Build the diagnostics object — present in 'report' and 'include' modes,
+  // omitted in 'skip' mode.
+  const diagnostics: PruneDiagnostics | undefined =
+    malformedHandling === 'skip'
+      ? undefined
+      : {
+          malformedCount: malformed.length,
+          malformedEntries: diagnosticEntries,
+          candidateCount: candidates.length,
+          ...(malformed.length > 0
+            ? {
+                advisory: `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
+              }
+            : {}),
+        };
 
   // Emit prune.diagnostics event (fire-and-forget). Always emitted when
-  // an eventStore is available — even when malformedCount is 0, so dashboards
-  // and audit queries can track that a prune evaluation ran.
-  if (ctx?.eventStore) {
+  // an eventStore is available and diagnostics are not suppressed — even
+  // when malformedCount is 0, so dashboards and audit queries can track
+  // that a prune evaluation ran.
+  if (ctx?.eventStore && diagnostics) {
     ctx.eventStore
       .append('_prune', {
         type: 'prune.diagnostics' as EventType,
@@ -725,12 +752,12 @@ export async function handlePruneStaleWorkflows(
   // comment on PruneHandlerResult. Callers can distinguish dry-run from
   // apply mode by the presence/absence of the field.
   if (dryRun) {
-    const result: PruneHandlerResult = {
+    const result = {
       candidates,
       skipped: [],
-      diagnostics,
+      ...(diagnostics ? { diagnostics } : {}),
       ...(truncated ? { truncated: true, totalCandidates } : {}),
-      ...(malformed.length > 0 ? { malformed } : {}),
+      ...(malformed.length > 0 && malformedHandling !== 'skip' ? { malformed } : {}),
     };
     return { success: true, data: result };
   }
@@ -750,13 +777,13 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  const result: PruneHandlerResult = {
+  const result = {
     candidates,
     skipped,
     pruned,
-    diagnostics,
+    ...(diagnostics ? { diagnostics } : {}),
     ...(truncated ? { truncated: true, totalCandidates } : {}),
-    ...(malformed.length > 0 ? { malformed } : {}),
+    ...(malformed.length > 0 && malformedHandling !== 'skip' ? { malformed } : {}),
   };
   return { success: true, data: result };
 }
