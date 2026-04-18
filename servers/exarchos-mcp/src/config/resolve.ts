@@ -18,6 +18,10 @@ export interface ResolvedPluginConfig {
 }
 
 export interface ResolvedProjectConfig {
+  readonly agents: {
+    readonly defaultModel: 'opus' | 'sonnet' | 'haiku';
+    readonly models: Readonly<Record<string, 'opus' | 'sonnet' | 'haiku'>>;
+  };
   readonly review: {
     readonly dimensions: Readonly<Record<'D1' | 'D2' | 'D3' | 'D4' | 'D5', ResolvedDimensionConfig>>;
     readonly gates: Readonly<Record<string, ResolvedGateConfig>>;
@@ -68,6 +72,13 @@ const DEFAULT_RISK_WEIGHTS: Readonly<Record<string, number>> = {
 const DEFAULT_HOOK_TIMEOUT = 30000;
 
 export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
+  agents: {
+    defaultModel: 'opus',
+    models: {
+      scaffolder: 'haiku',
+      reviewer: 'sonnet',
+    },
+  },
   review: {
     dimensions: {
       D1: { ...DEFAULT_DIMENSION },
@@ -180,6 +191,13 @@ const DIMENSION_KEYS: readonly DimensionKey[] = ['D1', 'D2', 'D3', 'D4', 'D5'];
  * producing a fully-populated, deeply-frozen `ResolvedProjectConfig`.
  */
 export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
+  // ── Agents ──
+  const agentDefaultModel = (project.agents?.['default-model'] as 'opus' | 'sonnet' | 'haiku') ?? DEFAULTS.agents.defaultModel;
+  const agentModels: Record<string, 'opus' | 'sonnet' | 'haiku'> = {
+    ...DEFAULTS.agents.models,
+    ...(project.agents?.models as Record<string, 'opus' | 'sonnet' | 'haiku'> ?? {}),
+  };
+
   // ── Review ──
   const dimensions = {} as Record<DimensionKey, ResolvedDimensionConfig>;
   for (const key of DIMENSION_KEYS) {
@@ -242,6 +260,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
   const resolved: ResolvedProjectConfig = {
+    agents: { defaultModel: agentDefaultModel, models: agentModels },
     review: {
       dimensions,
       gates,

@@ -239,4 +239,36 @@ describe('resolveConfig', () => {
     expect(resolved.plugins.axiom.enabled).toBe(true);
     expect(resolved.plugins.impeccable.enabled).toBe(true);
   });
+
+  describe('agents resolution', () => {
+    it('resolveConfig_EmptyProject_ReturnsAgentDefaults', () => {
+      const resolved = resolveConfig({});
+      expect(resolved.agents.defaultModel).toBe('opus');
+      expect(resolved.agents.models).toMatchObject({ scaffolder: 'haiku', reviewer: 'sonnet' });
+    });
+
+    it('resolveConfig_AgentsDefaultModel_OverridesDefault', () => {
+      const resolved = resolveConfig({ agents: { 'default-model': 'sonnet' } });
+      expect(resolved.agents.defaultModel).toBe('sonnet');
+    });
+
+    it('resolveConfig_AgentsModels_OverridesPerAgent', () => {
+      const resolved = resolveConfig({ agents: { models: { implementer: 'haiku' } } });
+      expect(resolved.agents.models.implementer).toBe('haiku');
+      // Other defaults preserved
+      expect(resolved.agents.models.scaffolder).toBe('haiku');
+      expect(resolved.agents.models.reviewer).toBe('sonnet');
+    });
+
+    it('resolveConfig_AgentsModels_PartialOverride_MergesWithDefaults', () => {
+      const resolved = resolveConfig({ agents: { models: { reviewer: 'haiku' } } });
+      expect(resolved.agents.models.reviewer).toBe('haiku');
+      expect(resolved.agents.models.scaffolder).toBe('haiku');
+    });
+
+    it('resolveConfig_AgentsFrozen_CannotMutate', () => {
+      const resolved = resolveConfig({});
+      expect(() => { (resolved.agents as Record<string, unknown>).defaultModel = 'haiku'; }).toThrow();
+    });
+  });
 });
