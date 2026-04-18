@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { handleInit, handleSet } from './tools.js';
+import { handleInit, handleSet, handleCheckpoint } from './tools.js';
 import { readStateFile, writeStateFile } from './state-store.js';
 import type { WorkflowState } from './types.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -255,5 +255,77 @@ describe('handleSet checkpoint gate', () => {
     const events = await eventStore.query(featureId, { type: 'checkpoint.state_missing' as never });
     expect(events.length).toBe(1);
     expect((events[0].data as Record<string, unknown>).action).toBe('set');
+  });
+
+  // ─── End-to-end checkpoint enforcement flow (Task 023, DR-5, DR-10) ─────
+
+  it('checkpointEnforcement_GateFires_ThenCheckpoint_ThenRetry_Succeeds', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    // Step 1: Init workflow and set design artifact for ideate->plan guard
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    await handleSet(
+      { featureId, updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+      eventStore,
+    );
+
+    // Step 2: Push operationsSince above threshold (25 > 20)
+    await setOperationsSince(25);
+
+    // Step 3: Attempt phase transition — should be gated
+    const gatedResult = await handleSet(
+      { featureId, phase: 'plan' },
+      tmpDir,
+      eventStore,
+      makeOptions(),
+    );
+
+    expect(gatedResult.success).toBe(false);
+    expect(gatedResult.error).toBeDefined();
+    expect(gatedResult.error!.code).toBe('CHECKPOINT_REQUIRED');
+    const gatedErrorData = gatedResult.error as Record<string, unknown>;
+    expect(gatedErrorData.gate).toBe('checkpoint_required');
+    expect(gatedErrorData.operationsSince).toBe(25);
+    expect(gatedErrorData.threshold).toBe(20);
+
+    // Step 4: Call checkpoint to reset counter
+    const checkpointResult = await handleCheckpoint(
+      { featureId, summary: 'Pre-transition checkpoint' },
+      tmpDir,
+      eventStore,
+    );
+
+    expect(checkpointResult.success).toBe(true);
+    // Verify checkpoint meta shows counter reset
+    expect(checkpointResult._meta).toBeDefined();
+    expect(checkpointResult._meta!.checkpointAdvised).toBe(false);
+
+    // Step 5: Verify state file has operationsSince reset to 0
+    const stateFile = path.join(tmpDir, `${featureId}.state.json`);
+    const stateAfterCheckpoint = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    // handleCheckpoint doesn't increment, so counter should be 0
+    expect(stateAfterCheckpoint._checkpoint.operationsSince).toBe(0);
+
+    // Step 6: Retry the same phase transition — should succeed now
+    const retryResult = await handleSet(
+      { featureId, phase: 'plan' },
+      tmpDir,
+      eventStore,
+      makeOptions(),
+    );
+
+    expect(retryResult.success).toBe(true);
+    const retryData = retryResult.data as Record<string, unknown>;
+    expect(retryData.phase).toBe('plan');
+
+    // Verify checkpoint.enforced and workflow.checkpoint events were emitted
+    const enforcedEvents = await eventStore.query(featureId, { type: 'checkpoint.enforced' as never });
+    expect(enforcedEvents.length).toBe(1);
+
+    const checkpointEvents = await eventStore.query(featureId, { type: 'workflow.checkpoint' as never });
+    expect(checkpointEvents.length).toBe(1);
+    expect((checkpointEvents[0].data as Record<string, unknown>).phase).toBe('ideate');
   });
 });
