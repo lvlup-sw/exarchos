@@ -32,6 +32,12 @@ import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import {
+  shouldEnforceCheckpoint,
+  CHECKPOINT_OPERATION_THRESHOLD,
+} from '../workflow/checkpoint.js';
+import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
+import type { DispatchContext } from '../core/dispatch.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -201,6 +207,7 @@ function createGitExec(): (args: readonly string[]) => string {
 export async function handlePrepareDelegation(
   args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
+  ctx?: DispatchContext,
 ): Promise<ToolResult> {
   // Validate input
   if (!args.featureId) {
@@ -294,6 +301,41 @@ export async function handlePrepareDelegation(
         integrationBranch,
       },
     }).catch(() => { /* fire-and-forget */ });
+
+    // ─── DR-5: Checkpoint Gate ──────────────────────────────────────────
+    const checkpointConfig: CheckpointEnforcementConfig = ctx?.projectConfig?.checkpoint ?? {
+      operationThreshold: CHECKPOINT_OPERATION_THRESHOLD,
+      enforceOnPhaseTransition: true,
+      enforceOnWaveDispatch: true,
+    };
+
+    const gateResult = shouldEnforceCheckpoint(
+      workflowState._checkpoint,
+      checkpointConfig,
+      'wave-dispatch',
+    );
+
+    if (gateResult.gated) {
+      // Emit checkpoint.enforced event (best-effort)
+      store.append(streamId, {
+        type: 'checkpoint.enforced',
+        data: {
+          operationsSince: gateResult.operationsSince,
+          threshold: gateResult.threshold,
+          blockedAction: 'wave-dispatch',
+        },
+      }).catch(() => { /* fire-and-forget */ });
+
+      return {
+        success: true,
+        data: {
+          gated: true,
+          gate: gateResult.gate,
+          operationsSince: gateResult.operationsSince,
+          threshold: gateResult.threshold,
+        },
+      };
+    }
 
     // Materialize delegation readiness from event stream
     const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);

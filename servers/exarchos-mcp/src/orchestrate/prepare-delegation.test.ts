@@ -32,6 +32,11 @@ vi.mock('./dispatch-guard.js', () => ({
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
 }));
 
+vi.mock('../workflow/checkpoint.js', () => ({
+  shouldEnforceCheckpoint: vi.fn().mockReturnValue({ gated: false }),
+  CHECKPOINT_OPERATION_THRESHOLD: 20,
+}));
+
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -42,6 +47,7 @@ import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
 import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -173,6 +179,7 @@ describe('handlePrepareDelegation', () => {
       actual: '/repo',
       expected: 'main worktree (no .claude/worktrees/ in path)',
     });
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({ gated: false });
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
@@ -837,6 +844,80 @@ describe('handlePrepareDelegation', () => {
     const details = eventData.details as { actual: string; expected: string };
     expect(details.actual).toBe('/repo/.claude/worktrees/agent-xyz');
     expect(details.expected).toBeDefined();
+  });
+
+  // ─── DR-5: Checkpoint Gate Integration ──────────────────────────────────
+
+  it('handlePrepareDelegation_AboveThreshold_ReturnsCheckpointRequired', async () => {
+    // Arrange: operationsSince above threshold — gate should block
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: true,
+      gate: 'checkpoint_required',
+      operationsSince: 25,
+      threshold: 20,
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: gated response
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      gated: boolean;
+      gate: string;
+      operationsSince: number;
+      threshold: number;
+    };
+    expect(data.gated).toBe(true);
+    expect(data.gate).toBe('checkpoint_required');
+    expect(data.operationsSince).toBe(25);
+    expect(data.threshold).toBe(20);
+
+    // Assert: checkpoint.enforced event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const enforcedEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'checkpoint.enforced',
+    );
+    expect(enforcedEvent).toBeDefined();
+    const eventData = (enforcedEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.operationsSince).toBe(25);
+    expect(eventData.threshold).toBe(20);
+    expect(eventData.blockedAction).toBe('wave-dispatch');
+  });
+
+  it('handlePrepareDelegation_BelowThreshold_ProceedsNormally', async () => {
+    // Arrange: operationsSince below threshold — gate should not block
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: false,
+    });
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'task-1', title: 'Implement widget' },
+      ],
+    };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: proceeds to task classification — not gated
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      taskClassifications: TaskClassification[];
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+    expect(data.taskClassifications).toBeDefined();
+    expect(data.taskClassifications).toHaveLength(1);
   });
 
   // ─── Task Classification ─────────────────────────────────────────────────
