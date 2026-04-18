@@ -30,6 +30,8 @@ vi.mock('../telemetry/telemetry-queries.js', () => ({
 vi.mock('./dispatch-guard.js', () => ({
   validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
+  getCurrentBranch: vi.fn().mockReturnValue('feature/test-branch'),
+  assertCurrentBranchNotProtected: vi.fn().mockReturnValue({ blocked: false }),
 }));
 
 vi.mock('../workflow/checkpoint.js', () => ({
@@ -46,7 +48,12 @@ import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
-import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import {
+  validateBranchAncestry,
+  assertMainWorktree,
+  getCurrentBranch,
+  assertCurrentBranchNotProtected,
+} from './dispatch-guard.js';
 import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 import { DEFAULTS } from '../config/resolve.js';
 
@@ -729,6 +736,71 @@ describe('handlePrepareDelegation', () => {
     expect(data.reason).toBe('worktree-location');
     expect(data.actual).toBe('/repo/.claude/worktrees/agent-abc123');
     expect(data.expected).toBeDefined();
+  });
+
+  // ─── #1129 C: Current-Branch Protection ────────────────────────────────
+  it('handlePrepareDelegation_OnProtectedBranch_ReturnsBlockedAndEmitsPreflightBlocked', async () => {
+    // Arrange: current branch is main (protected)
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(getCurrentBranch).mockReturnValueOnce('main');
+    vi.mocked(assertCurrentBranchNotProtected).mockReturnValueOnce({
+      blocked: true,
+      reason: 'current-branch-protected',
+      currentBranch: 'main',
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: blocked with the dedicated reason — ancestry never even runs
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      currentBranch: string;
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('current-branch-protected');
+    expect(data.currentBranch).toBe('main');
+    expect(vi.mocked(validateBranchAncestry)).not.toHaveBeenCalled();
+
+    const preflightEvent = mockStore.append.mock.calls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
+    );
+    expect(preflightEvent).toBeDefined();
+    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.reason).toBe('current-branch-protected');
+  });
+
+  // ─── #1129 D: integrationBranch fallback safety ─────────────────────────
+  it('handlePrepareDelegation_IntegrationBranchUnset_UsesCurrentBranchNotFeatureId', async () => {
+    // Arrange: synthesis.integrationBranch unset; current branch known
+    const state = readyWorkflowState() as ReturnType<typeof readyWorkflowState> & {
+      synthesis?: { integrationBranch?: string };
+    };
+    delete state.synthesis;
+    setupMaterializer(state);
+    vi.mocked(getCurrentBranch).mockReturnValueOnce('feature/real-branch');
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: true,
+      checks: ['ancestry'],
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = {
+      featureId: 'dogfood-v280',  // not a real branch name
+      tasks: [{ id: 'task-1', title: 'x' }],
+    };
+
+    // Act
+    await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert: ancestry ran against current branch, never against featureId
+    const call = vi.mocked(validateBranchAncestry).mock.calls[0];
+    expect(call).toBeDefined();
+    expect(call![0]).toBe('feature/real-branch');
+    expect(call![0]).not.toBe('dogfood-v280');
   });
 
   it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
