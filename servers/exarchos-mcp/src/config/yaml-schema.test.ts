@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { ProjectConfigSchema } from './yaml-schema.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('ProjectConfigSchema', () => {
   it('ProjectConfigSchema_EmptyObject_Passes', () => {
@@ -156,6 +162,14 @@ describe('ProjectConfigSchema', () => {
         plugins: { axiom: { enabled: true, extra: 'value' } },
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('default .exarchos.yml', () => {
+    it('ProjectConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
+      const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
+      const parsed = parseYaml(content);
+      expect(ProjectConfigSchema.safeParse(parsed).success).toBe(true);
     });
   });
 

@@ -1,0 +1,35 @@
+# Exarchos project configuration
+# See: docs/guide/configuration.md
+
+agents:
+  default-model: opus
+  models:
+    implementer: opus
+    fixer: opus
+    reviewer: sonnet
+    scaffolder: haiku
+
+review:
+  dimensions:
+    D1: blocking
+    D2: blocking
+    D3: blocking
+    D4: blocking
+    D5: blocking
+
+vcs:
+  provider: github
+
+workflow:
+  max-fix-cycles: 3
+
+tools:
+  commit-style: conventional
+  auto-merge: true
+  pr-strategy: github-native
+
+plugins:
+  axiom:
+    enabled: true
+  impeccable:
+    enabled: true
