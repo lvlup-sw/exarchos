@@ -40,7 +40,6 @@ import {
   CHECKPOINT_OPERATION_THRESHOLD,
 } from '../workflow/checkpoint.js';
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
-import type { DispatchContext } from '../core/dispatch.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 

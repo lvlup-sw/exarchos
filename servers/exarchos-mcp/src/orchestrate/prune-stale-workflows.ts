@@ -634,7 +634,7 @@ export async function handlePruneStaleWorkflows(
     !dryRun &&
     pruneConfig?.requireDryRun === true &&
     ctx?.eventStore &&
-    typeof (ctx.eventStore as Record<string, unknown>).query === 'function'
+    typeof (ctx.eventStore as unknown as Record<string, unknown>).query === 'function'
   ) {
     try {
       const recentDiagnostics = await (
