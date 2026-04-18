@@ -29,19 +29,13 @@ If the merge queue rejects a PR:
 
 If the user receives PR review comments:
 
-1. Offer to address feedback:
+1. Route to the shepherd skill:
    ```typescript
-   Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
+   Skill({ skill: "exarchos:shepherd", args: "[PR_URL]" })
    ```
 
-2. Delegate reads PR comments via MCP action:
-   ```typescript
-   exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })
-   ```
-
-3. Creates fix tasks from review comments
-4. After fixes, amend the commit with `git commit --amend -m "fix: <description>"` and push with `git push --force-with-lease`
-5. Return to merge confirmation
+2. Shepherd reads PR comments, assesses CI, and applies fixes directly
+3. After fixes, return to merge confirmation
 
 ## Final Report Template
 

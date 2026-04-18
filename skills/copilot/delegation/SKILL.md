@@ -250,7 +250,9 @@ Handles review failures instead of initial implementation. Uses `references/fixe
 
 **Arguments:** `--fixes <state-file-path>` — state JSON containing review results in `.reviews.<taskId>.specReview` or `.reviews.<taskId>.qualityReview`.
 
-For detailed fix-mode process, see `references/fix-mode.md`. For PR feedback workflows (`--pr-fixes`), see `references/pr-fixes-mode.md`.
+For detailed fix-mode process, see `references/fix-mode.md`.
+
+> **Deprecated:** `--pr-fixes` has been superseded by `/exarchos:shepherd`. Use the shepherd skill for PR feedback workflows.
 
 ---
 
@@ -337,7 +339,6 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 | `references/testing-patterns.md` | Arrange/Act/Assert, naming, mocking conventions |
 | `references/pbt-patterns.md` | Property-based testing patterns |
 | `references/fix-mode.md` | Detailed fix-mode process |
-| `references/pr-fixes-mode.md` | PR feedback fix workflows |
 | `references/state-management.md` | State patterns and benchmark labeling |
 | `references/troubleshooting.md` | Common failure modes and resolutions |
 | `references/adaptive-orchestration.md` | Adaptive team composition |
