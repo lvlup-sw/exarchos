@@ -1589,6 +1589,216 @@ describe('handlePruneStaleWorkflows', () => {
     expect(result.success).toBe(true);
   });
 
+  // ─── Task 022: E2E prune config integration test ──────────────────────────
+
+  it('handlePrune_FullConfigApplied_AllKnobsEffective', async () => {
+    // E2E test: provide a full config with non-default values and verify ALL
+    // config knobs take effect simultaneously in a single pipeline run.
+    //
+    // Config under test (all non-default):
+    //   staleAfterDays:    30   (default 14) → threshold = 43200 minutes
+    //   maxBatchSize:       5   (default 25)
+    //   phaseExclusions:  ['ideate']  (default ['delegate','review','synthesize'])
+    //   malformedHandling: 'include'  (default 'report')
+    //   requireDryRun:     false      (default true)
+
+    const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
+    const ctx = {
+      eventStore: { append },
+      projectConfig: {
+        prune: {
+          staleAfterDays: 30,
+          maxBatchSize: 5,
+          phaseExclusions: ['ideate'] as readonly string[],
+          malformedHandling: 'include' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+
+    // Construct a diverse entry set that exercises every knob:
+    //
+    // 1. 'stale-45d' — 45 days old, implementing → stale at 30d threshold → CANDIDATE
+    // 2. 'stale-35d' — 35 days old, implementing → stale at 30d threshold → CANDIDATE
+    // 3. 'stale-32d' — 32 days old, implementing → stale at 30d threshold → CANDIDATE
+    // 4. 'stale-31d' — 31 days old, implementing → stale at 30d threshold → CANDIDATE
+    // 5. 'stale-31d-b' — 31 days old, plan       → stale at 30d threshold → CANDIDATE
+    // 6. 'fresh-20d'  — 20 days old, implementing → fresh at 30d threshold → EXCLUDED (fresh)
+    // 7. 'ideate-40d' — 40 days old, ideate phase → EXCLUDED (phase-excluded by config)
+    // 8. 'delegate-40d' — 40 days old, delegate   → NOT excluded (delegate is NOT in our custom exclusions)
+    //                                              → stale at 30d → CANDIDATE
+    // 9. 'completed-50d' — 50 days old, completed → EXCLUDED (terminal phase, always)
+    // 10. malformed entry (missing _checkpoint)    → malformedHandling='include' → promoted to CANDIDATE
+    //
+    // Valid candidates: #1-5, #8 = 6 valid candidates + #10 malformed promoted = 7 total
+    // maxBatchSize = 5 → only 5 should survive (oldest-first = highest staleness)
+
+    const daysToMinutes = (d: number) => d * 24 * 60;
+
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          featureId: 'stale-45d',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/stale-45d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(45)) },
+        },
+        {
+          featureId: 'stale-35d',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/stale-35d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(35)) },
+        },
+        {
+          featureId: 'stale-32d',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/stale-32d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(32)) },
+        },
+        {
+          featureId: 'stale-31d',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/stale-31d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(31)) },
+        },
+        {
+          featureId: 'stale-31d-b',
+          workflowType: 'feature',
+          phase: 'plan',
+          stateFile: '/tmp/stale-31d-b.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(31)) },
+        },
+        {
+          featureId: 'fresh-20d',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/fresh-20d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(20)) },
+        },
+        {
+          featureId: 'ideate-40d',
+          workflowType: 'feature',
+          phase: 'ideate',
+          stateFile: '/tmp/ideate-40d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(40)) },
+        },
+        {
+          featureId: 'delegate-40d',
+          workflowType: 'feature',
+          phase: 'delegate',
+          stateFile: '/tmp/delegate-40d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(40)) },
+        },
+        {
+          featureId: 'completed-50d',
+          workflowType: 'feature',
+          phase: 'completed',
+          stateFile: '/tmp/completed-50d.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(daysToMinutes(50)) },
+        },
+        // Malformed entry: missing _checkpoint entirely
+        {
+          featureId: 'malformed-no-cp',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/malformed-no-cp.state.json',
+        },
+      ],
+    });
+
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    // Apply mode (dryRun=false) without a prior dry-run — requireDryRun=false
+    // means this should succeed.
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      candidates: Array<{ featureId: string; stalenessMinutes: number }>;
+      pruned: Array<{ featureId: string; stalenessMinutes: number }>;
+      skipped: Array<{ featureId: string; reason: string }>;
+      malformed: Array<{ featureId?: string; reason: string }>;
+      diagnostics: {
+        malformedCount: number;
+        malformedEntries: Array<{ featureId?: string; reasons: string[] }>;
+        candidateCount: number;
+      };
+      truncated?: boolean;
+      totalCandidates?: number;
+    };
+
+    // ── Knob 1: staleAfterDays=30 (threshold = 43200 minutes) ──
+    // 'fresh-20d' (20 days) must be excluded — it's under the 30-day threshold.
+    // All entries >= 31 days should be candidates (before batch cap).
+    const candidateIds = data.candidates.map((c) => c.featureId);
+    expect(candidateIds).not.toContain('fresh-20d');
+
+    // ── Knob 2: phaseExclusions=['ideate'] ──
+    // 'ideate-40d' must be excluded even though it's stale (custom exclusion).
+    // 'delegate-40d' must NOT be excluded — it would be excluded under default
+    // config (['delegate','review','synthesize']), but our custom config only
+    // excludes 'ideate'.
+    expect(candidateIds).not.toContain('ideate-40d');
+    // 'completed-50d' is terminal — always excluded regardless of config.
+    expect(candidateIds).not.toContain('completed-50d');
+
+    // ── Knob 3: malformedHandling='include' ──
+    // The malformed entry ('malformed-no-cp') should be promoted to a candidate
+    // with stalenessMinutes=Infinity.
+    // Diagnostics should still report the malformed entry.
+    expect(data.diagnostics).toBeDefined();
+    expect(data.diagnostics.malformedCount).toBe(1);
+    expect(data.diagnostics.malformedEntries).toHaveLength(1);
+    expect(data.diagnostics.malformedEntries[0]?.featureId).toBe('malformed-no-cp');
+
+    // ── Knob 4: maxBatchSize=5 ──
+    // Before truncation: valid stale candidates = stale-45d, stale-35d, stale-32d,
+    // stale-31d, stale-31d-b, delegate-40d = 6, plus malformed-no-cp promoted = 7 total.
+    // After maxBatchSize=5 truncation (oldest/most-stale first):
+    //   The 5 with highest stalenessMinutes should survive.
+    //   malformed-no-cp has Infinity staleness → always first.
+    //   Then: stale-45d (45d), delegate-40d (40d), stale-35d (35d), stale-32d (32d).
+    expect(data.truncated).toBe(true);
+    expect(data.totalCandidates).toBe(7);
+    expect(data.candidates).toHaveLength(5);
+
+    // Verify the top 5 by staleness descending: Infinity, 45d, 40d, 35d, 32d
+    expect(data.candidates[0]?.featureId).toBe('malformed-no-cp');
+    expect(data.candidates[0]?.stalenessMinutes).toBe(Infinity);
+    expect(data.candidates[1]?.featureId).toBe('stale-45d');
+    expect(data.candidates[2]?.featureId).toBe('delegate-40d');
+    expect(data.candidates[3]?.featureId).toBe('stale-35d');
+    expect(data.candidates[4]?.featureId).toBe('stale-32d');
+
+    // ── Knob 5: requireDryRun=false ──
+    // Apply mode succeeded — pruned array should be present with all 5 candidates.
+    expect(data.pruned).toHaveLength(5);
+    const prunedIds = data.pruned.map((p) => p.featureId).sort();
+    expect(prunedIds).toEqual(
+      ['delegate-40d', 'malformed-no-cp', 'stale-32d', 'stale-35d', 'stale-45d'].sort(),
+    );
+
+    // Cancel should have been called exactly 5 times (once per non-skipped candidate).
+    expect(deps.cancelSpy).toHaveBeenCalledTimes(5);
+
+    // workflow.pruned events emitted for each pruned candidate.
+    const prunedEvents = append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
+    );
+    expect(prunedEvents).toHaveLength(5);
+  });
+
   it('handlePrune_RequireDryRunFalse_SkipsEnforcement', async () => {
     const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
     const query = vi.fn().mockResolvedValue([]); // No prior dry-run events
