@@ -166,6 +166,9 @@ describe('resolveConfig', () => {
     expect(Object.isFrozen(result.workflow)).toBe(true);
     expect(Object.isFrozen(result.tools)).toBe(true);
     expect(Object.isFrozen(result.hooks)).toBe(true);
+    expect(Object.isFrozen(result.prune)).toBe(true);
+    expect(Object.isFrozen(result.prune.phaseExclusions)).toBe(true);
+    expect(Object.isFrozen(result.checkpoint)).toBe(true);
   });
 
   it('resolveConfig_DefaultBranch_UndefinedByDefault', () => {
@@ -180,6 +183,8 @@ describe('resolveConfig', () => {
     expect(DEFAULTS.workflow).toBeDefined();
     expect(DEFAULTS.tools).toBeDefined();
     expect(DEFAULTS.hooks).toBeDefined();
+    expect(DEFAULTS.prune).toBeDefined();
+    expect(DEFAULTS.checkpoint).toBeDefined();
   });
 
   it('resolveConfig_DoesNotFreezeCallerParams', () => {
@@ -238,5 +243,41 @@ describe('resolveConfig', () => {
     const resolved = resolveConfig({ plugins: {} });
     expect(resolved.plugins.axiom.enabled).toBe(true);
     expect(resolved.plugins.impeccable.enabled).toBe(true);
+  });
+
+  it('resolveConfig_EmptyInput_ReturnsPruneDefaults', () => {
+    const resolved = resolveConfig({});
+    expect(resolved.prune).toEqual({
+      staleAfterDays: 14,
+      maxBatchSize: 25,
+      phaseExclusions: ['delegate', 'review', 'synthesize'],
+      malformedHandling: 'report',
+      requireDryRun: true,
+    });
+  });
+
+  it('resolveConfig_EmptyInput_ReturnsCheckpointDefaults', () => {
+    const resolved = resolveConfig({});
+    expect(resolved.checkpoint).toEqual({
+      operationThreshold: 20,
+      enforceOnPhaseTransition: true,
+      enforceOnWaveDispatch: true,
+    });
+  });
+
+  it('resolveConfig_PartialPrune_MergesWithDefaults', () => {
+    const resolved = resolveConfig({ prune: { 'stale-after-days': 30 } });
+    expect(resolved.prune.staleAfterDays).toBe(30);
+    expect(resolved.prune.maxBatchSize).toBe(25);
+    expect(resolved.prune.phaseExclusions).toEqual(['delegate', 'review', 'synthesize']);
+    expect(resolved.prune.malformedHandling).toBe('report');
+    expect(resolved.prune.requireDryRun).toBe(true);
+  });
+
+  it('resolveConfig_PartialCheckpoint_MergesWithDefaults', () => {
+    const resolved = resolveConfig({ checkpoint: { 'operation-threshold': 50 } });
+    expect(resolved.checkpoint.operationThreshold).toBe(50);
+    expect(resolved.checkpoint.enforceOnPhaseTransition).toBe(true);
+    expect(resolved.checkpoint.enforceOnWaveDispatch).toBe(true);
   });
 });
