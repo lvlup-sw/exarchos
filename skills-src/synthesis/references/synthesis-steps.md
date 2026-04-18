@@ -74,7 +74,7 @@ The script queries GitHub's PR reviews API for each PR, filters for CodeRabbit r
 **On `passed: true`:** All PRs are APPROVED or have no CodeRabbit review -- proceed to Step 5.
 **On `passed: false`:** At least one PR has CHANGES_REQUESTED or PENDING. The output identifies which PRs need attention. Route to fix cycle:
 ```typescript
-Skill({ skill: "exarchos:delegate", args: "--pr-fixes [PR_URL]" })
+Skill({ skill: "exarchos:shepherd", args: "[PR_URL]" })
 ```
 After fixes are applied, return to Step 4 to re-check.
 

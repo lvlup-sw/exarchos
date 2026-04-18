@@ -154,7 +154,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 **Human checkpoint:** Output "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue." then **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
 - **'yes'** -- PRs merge; transition to completed via `cleanup`
-- **'feedback'** -- Route to `delegate --pr-fixes [PR_URL]` to address comments, then return here
+- **'feedback'** -- Route to `shepherd [PR_URL]` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with `rehydrate`
 
 ### Event Emissions (REQUIRED)

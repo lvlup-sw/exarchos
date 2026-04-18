@@ -916,6 +916,28 @@ export const guards = {
     },
   },
 
+  sourcesCollected: {
+    id: 'sources-collected',
+    description: 'Research sources must be collected',
+    evaluate: (state: Record<string, unknown>): GuardResult => {
+      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const sources = artifacts?.sources;
+      if (Array.isArray(sources) && sources.length > 0) return true;
+      const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      return {
+        passed: false,
+        reason: 'sources-collected not satisfied: artifacts.sources must be a non-empty array',
+        expectedShape: { artifacts: { sources: ['<source-path-or-url>'] } },
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: { action: 'set', featureId, updates: { 'artifacts.sources': ['<source>'] } },
+        },
+      };
+    },
+  },
+
+  reportArtifactExists: makeArtifactGuard('report', 'Report artifact must exist'),
+
   always: {
     id: 'always',
     description: 'Always passes',

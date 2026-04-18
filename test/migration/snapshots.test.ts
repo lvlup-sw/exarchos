@@ -197,12 +197,9 @@ describe('task 025 — per-runtime snapshot baselines', () => {
   it('Snapshots_AllSkillsAllRuntimes_SetCardinality', () => {
     // Guard against silent drift in the total count. The plan originally
     // assumed 16 × 6 = 96, the initial migration landed with 13 × 6 = 78,
-    // and the 2026-04-11 #1010 feature added prune-workflows and
-    // oneshot-workflow, bringing the count to 15 × 6 = 90.
-    // If this number ever changes, the implementer needs to make a
-    // conscious decision about seeding new snapshots — don't let a
-    // silent off-by-one sneak past the baseline comparison.
-    expect(allFiles.length).toBe(90);
+    // the 2026-04-11 #1010 feature added prune-workflows and
+    // oneshot-workflow (15 × 6 = 90), and v2.8.0 added discovery (16 × 6 = 96).
+    expect(allFiles.length).toBe(96);
   });
 
   for (const runtime of RUNTIME_NAMES) {

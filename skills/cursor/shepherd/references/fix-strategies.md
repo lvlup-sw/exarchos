@@ -8,7 +8,7 @@ How to address common issues found during shepherd assessment.
 |-----------|----------|
 | Single file, < 20 lines changed | Fix directly in the stack branch |
 | Multiple files, contained concern | Fix directly if < 5 files |
-| Cross-cutting or architectural | Delegate via `/exarchos:delegate --pr-fixes [PR_URL]` |
+| Cross-cutting or architectural | Route to `/exarchos:delegate --fixes` for subagent dispatch |
 | Test changes needed | Fix directly (keep TDD cycle tight) |
 
 **Default to fixing directly** — delegation adds overhead. Only delegate when the fix scope warrants it.

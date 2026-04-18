@@ -154,7 +154,7 @@ For merge ordering strategy, see `references/merge-ordering.md`.
 **Human checkpoint:** Output "Stacked PRs enqueued: [URLs]. Waiting for CI/merge queue." then **PAUSE for user input**: "Merge stack? (yes/no/feedback)"
 
 - **'yes'** -- PRs merge; transition to completed via `/exarchos:cleanup`
-- **'feedback'** -- Route to `/exarchos:delegate --pr-fixes [PR_URL]` to address comments, then return here
+- **'feedback'** -- Route to `/exarchos:shepherd [PR_URL]` to address comments, then return here
 - **'no'** -- Pause workflow; resume later with `/exarchos:rehydrate`
 
 ### Event Emissions (REQUIRED)
