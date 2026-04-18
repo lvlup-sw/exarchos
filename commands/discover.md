@@ -1,5 +1,4 @@
 ---
-name: discover
 description: Start a discovery workflow for research and document deliverables
 ---
 
