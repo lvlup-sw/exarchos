@@ -3,11 +3,13 @@
 // Orchestrates PR stack health assessment for the shepherd iteration loop.
 // Shepherd is NOT a separate HSM phase — it operates within the `synthesize`
 // phase. This action queries CI status, reviews, and comments per PR via
-// `gh` CLI, then emits dual events: `ci.status` for ShepherdStatusView and
+// `VcsProvider`, then emits dual events: `ci.status` for ShepherdStatusView and
 // `gate.executed` for CodeQualityView/flywheel pass rate tracking.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { execSync } from 'node:child_process';
+import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../vcs/provider.js';
+import { requiresGitHub } from '../vcs/require-github.js';
+import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import type { ToolResult } from '../format.js';
@@ -61,24 +63,6 @@ export interface AssessStackResult {
 
 const MAX_SHEPHERD_ITERATIONS = 5;
 
-// ─── GitHub Query Helpers ───────────────────────────────────────────────────
-
-interface GhCheckRaw {
-  readonly name: string;
-  readonly state: string;
-  readonly targetUrl?: string;
-}
-
-interface GhReviewRaw {
-  readonly state: string;
-  readonly author: string;
-}
-
-interface GhCommentRaw {
-  readonly body: string;
-  readonly isResolved: boolean;
-}
-
 // ─── Comment Truncation ─────────────────────────────────────────────────────
 
 const COMMENT_BODY_LIMIT = 200;
@@ -88,14 +72,26 @@ function truncateBody(body: string): string {
   return body.slice(0, COMMENT_BODY_LIMIT) + '...';
 }
 
-function queryPrChecks(prNumber: number): CiCheck[] {
+// ─── VcsProvider Query Helpers ──────────────────────────────────────────────
+
+function mapCiCheck(check: { name: string; status: string; url?: string }): CiCheck {
+  const statusMap: Record<string, 'pass' | 'fail' | 'pending'> = {
+    pass: 'pass',
+    fail: 'fail',
+    pending: 'pending',
+    skipped: 'pass', // treat skipped as pass for overall status
+  };
+  return {
+    name: check.name,
+    status: statusMap[check.status] ?? 'pending',
+    url: check.url,
+  };
+}
+
+async function queryPrChecks(provider: VcsProvider, prNumber: number): Promise<CiCheck[]> {
   try {
-    const output = execSync(
-      `gh pr checks ${prNumber} --json name,state,targetUrl`,
-      { encoding: 'utf-8', timeout: 30_000 },
-    );
-    const raw = JSON.parse(output) as GhCheckRaw[];
-    return raw.map(normalizeCiCheck);
+    const ciStatus: CiStatus = await provider.checkCi(String(prNumber));
+    return ciStatus.checks.map(mapCiCheck);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query checks');
@@ -103,27 +99,15 @@ function queryPrChecks(prNumber: number): CiCheck[] {
   }
 }
 
-function normalizeCiCheck(raw: GhCheckRaw): CiCheck {
-  const statusMap: Record<string, 'pass' | 'fail' | 'pending'> = {
-    SUCCESS: 'pass',
-    FAILURE: 'fail',
-    PENDING: 'pending',
-  };
-  return {
-    name: raw.name,
-    status: statusMap[raw.state] ?? 'pending',
-    url: raw.targetUrl || undefined,
-  };
-}
-
-function queryPrReviews(prNumber: number): PrReview[] {
+async function queryPrReviews(provider: VcsProvider, prNumber: number): Promise<PrReview[]> {
   try {
-    const output = execSync(
-      `gh pr view ${prNumber} --json reviews --jq '.reviews'`,
-      { encoding: 'utf-8', timeout: 30_000 },
-    );
-    const raw = JSON.parse(output) as Array<{ state: string; author: { login: string } }>;
-    return raw.map(r => ({ state: r.state, author: r.author.login }));
+    const reviewStatus = await provider.getReviewStatus(String(prNumber));
+    return reviewStatus.reviewers.map(r => ({
+      state: r.state === 'approved' ? 'APPROVED' :
+             r.state === 'changes_requested' ? 'CHANGES_REQUESTED' :
+             r.state === 'commented' ? 'COMMENTED' : 'PENDING',
+      author: r.login,
+    }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query reviews');
@@ -131,16 +115,15 @@ function queryPrReviews(prNumber: number): PrReview[] {
   }
 }
 
-function queryPrComments(prNumber: number): PrComment[] {
+async function queryPrComments(provider: VcsProvider, prNumber: number): Promise<PrComment[]> {
   try {
-    const output = execSync(
-      `gh pr view ${prNumber} --json comments --jq '.comments'`,
-      { encoding: 'utf-8', timeout: 30_000 },
-    );
-    const raw = JSON.parse(output) as GhCommentRaw[];
-    // Truncate bodies to limit context consumption — the agent sees enough
-    // to decide if a comment is actionable without consuming full bodies
-    return raw.map(c => ({ body: truncateBody(c.body), isResolved: false }));
+    const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
+    // All comments from VcsProvider are treated as unresolved
+    // (GitHub API doesn't provide isResolved for review comments)
+    return comments.map(c => ({
+      body: truncateBody(c.body),
+      isResolved: false,
+    }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');
@@ -155,10 +138,10 @@ function computeOverallCi(checks: readonly CiCheck[]): 'pass' | 'fail' | 'pendin
   return 'pass';
 }
 
-function queryPrStatus(prNumber: number): PrStatus {
-  const checks = queryPrChecks(prNumber);
-  const reviews = queryPrReviews(prNumber);
-  const allComments = queryPrComments(prNumber);
+async function queryPrStatus(provider: VcsProvider, prNumber: number): Promise<PrStatus> {
+  const checks = await queryPrChecks(provider, prNumber);
+  const reviews = await queryPrReviews(provider, prNumber);
+  const allComments = await queryPrComments(provider, prNumber);
   const unresolvedComments = allComments.filter(c => !c.isResolved);
 
   return {
@@ -346,13 +329,14 @@ async function emitShepherdApprovalRequested(
   });
 }
 
-function queryPrMergeState(prNumber: number): number | null {
+async function queryPrMergeState(provider: VcsProvider, prNumber: number): Promise<number | null> {
   try {
-    const output = execSync(
-      `gh pr view ${prNumber} --json state --jq '.state'`,
-      { encoding: 'utf-8', timeout: 30_000 },
-    );
-    return output.trim() === 'MERGED' ? prNumber : null;
+    const prs = await provider.listPrs({ head: undefined, state: 'all' });
+    const pr = prs.find(p => p.number === prNumber);
+    if (pr && pr.state === 'MERGED') {
+      return prNumber;
+    }
+    return null;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query PR merge state');
@@ -379,7 +363,11 @@ async function emitShepherdCompleted(
 export async function handleAssessStack(
   args: { featureId: string; prNumbers: number[] },
   stateDir: string,
+  provider?: VcsProvider,
 ): Promise<ToolResult> {
+  const vcsGuard = requiresGitHub(provider, 'assess_stack');
+  if (vcsGuard) return vcsGuard;
+
   // Input validation
   if (!args.featureId) {
     return {
@@ -395,6 +383,7 @@ export async function handleAssessStack(
     };
   }
 
+  const vcs = provider ?? await createVcsProvider();
   const eventStore = getOrCreateEventStore(stateDir);
 
   // Query current iteration count from event store
@@ -407,14 +396,19 @@ export async function handleAssessStack(
   }
 
   // Check if any PR is merged → emit shepherd.completed
-  const mergedPr = args.prNumbers.map(queryPrMergeState).find((pr) => pr !== null);
+  const mergeResults = await Promise.all(
+    args.prNumbers.map(pr => queryPrMergeState(vcs, pr)),
+  );
+  const mergedPr = mergeResults.find((pr) => pr !== null);
   const anyMerged = mergedPr !== undefined && mergedPr !== null;
   if (anyMerged) {
     await emitShepherdCompleted(eventStore, args.featureId, mergedPr);
   }
 
   // Query status for each PR
-  const prStatuses = args.prNumbers.map(queryPrStatus);
+  const prStatuses = await Promise.all(
+    args.prNumbers.map(pr => queryPrStatus(vcs, pr)),
+  );
 
   // Emit dual events
   await emitCiStatusEvents(eventStore, args.featureId, prStatuses, iterationCount);

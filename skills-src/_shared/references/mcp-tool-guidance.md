@@ -8,7 +8,7 @@ description: "Prefer specialized MCP tools over generic CLI approaches."
 Use specialized MCP tools over generic approaches:
 
 1. **Workflow state** — Exarchos MCP, never manual JSON
-2. **PR creation** — GitHub CLI (`gh pr create --base <base-branch> --title "..." --body "..."`)
+2. **PR creation** — VCS MCP action (`exarchos_orchestrate({ action: "create_pr", base: "<base-branch>", title: "...", body: "..." })`)
 3. **State management** — `exarchos_workflow` set/get, never edit JSON directly
 
 > Additional tool guidance (Serena, GitHub MCP, Context7) is provided by optional companions. Install: `npx create-exarchos`

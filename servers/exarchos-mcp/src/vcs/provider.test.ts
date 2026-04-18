@@ -13,22 +13,13 @@ describe('VcsProvider', () => {
       mergePr: async () => ({ merged: false }),
       addComment: async () => {},
       getReviewStatus: async () => ({ state: 'pending', reviewers: [] }),
+      listPrs: async () => [],
+      getPrComments: async () => [],
+      getPrDiff: async () => '',
+      createIssue: async () => ({ number: 0, url: '' }),
+      getRepository: async () => ({ nameWithOwner: '', defaultBranch: '' }),
     };
     expect(provider.name).toBe('github');
-  });
-
-  it('GitLabProvider_CreatePr_ThrowsNotImplemented', async () => {
-    const provider = new GitLabProvider({});
-    await expect(provider.createPr({
-      title: 'test', body: 'test', baseBranch: 'main', headBranch: 'feat'
-    })).rejects.toThrow(/not yet implemented/i);
-  });
-
-  it('AzureDevOpsProvider_CreatePr_ThrowsNotImplemented', async () => {
-    const provider = new AzureDevOpsProvider({});
-    await expect(provider.createPr({
-      title: 'test', body: 'test', baseBranch: 'main', headBranch: 'feat'
-    })).rejects.toThrow(/not yet implemented/i);
   });
 
   it('GitLabProvider_Name_IsGitlab', () => {
@@ -41,19 +32,45 @@ describe('VcsProvider', () => {
     expect(provider.name).toBe('azure-devops');
   });
 
-  it('GitLabProvider_AllMethods_ThrowNotImplemented', async () => {
+  it('GitLabProvider_ImplementsVcsProvider', async () => {
     const provider = new GitLabProvider({});
-    await expect(provider.checkCi('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    // Verify all VcsProvider methods exist on the implementation
+    expect(typeof provider.createPr).toBe('function');
+    expect(typeof provider.checkCi).toBe('function');
+    expect(typeof provider.mergePr).toBe('function');
+    expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.getReviewStatus).toBe('function');
+    expect(typeof provider.listPrs).toBe('function');
+    expect(typeof provider.getPrComments).toBe('function');
+    expect(typeof provider.getPrDiff).toBe('function');
+    expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.getRepository).toBe('function');
+    // Methods not yet implemented should throw
+    await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 
-  it('AzureDevOpsProvider_AllMethods_ThrowNotImplemented', async () => {
+  it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
     const provider = new AzureDevOpsProvider({});
-    await expect(provider.checkCi('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.mergePr('1', 'squash')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.addComment('1', 'test')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getReviewStatus('1')).rejects.toThrow(/not yet implemented/i);
+    // Verify all VcsProvider methods exist on the implementation
+    expect(typeof provider.createPr).toBe('function');
+    expect(typeof provider.checkCi).toBe('function');
+    expect(typeof provider.mergePr).toBe('function');
+    expect(typeof provider.addComment).toBe('function');
+    expect(typeof provider.getReviewStatus).toBe('function');
+    expect(typeof provider.listPrs).toBe('function');
+    expect(typeof provider.getPrComments).toBe('function');
+    expect(typeof provider.getPrDiff).toBe('function');
+    expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.getRepository).toBe('function');
+    // Methods not yet implemented should throw
+    await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 });

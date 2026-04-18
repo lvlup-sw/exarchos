@@ -12,6 +12,12 @@ import type {
   MergeResult,
   ReviewerStatus,
   ReviewStatus,
+  PrFilter,
+  PrSummary,
+  PrComment,
+  CreateIssueOpts,
+  IssueResult,
+  RepoInfo,
 } from './provider.js';
 import { exec } from './shell.js';
 
@@ -31,6 +37,20 @@ interface GhReviewResponse {
   readonly reviewDecision: string;
 }
 
+interface GhPrCommentEntry {
+  readonly id: number;
+  readonly user: { readonly login: string };
+  readonly body: string;
+  readonly created_at: string;
+  readonly path?: string;
+  readonly line?: number;
+}
+
+interface GhRepoViewResponse {
+  readonly nameWithOwner: string;
+  readonly defaultBranchRef: { readonly name: string };
+}
+
 function mapConclusion(conclusion: string | null): CiCheck['status'] {
   if (conclusion === null) return 'pending';
   switch (conclusion) {
@@ -39,6 +59,7 @@ function mapConclusion(conclusion: string | null): CiCheck['status'] {
     case 'failure':
       return 'fail';
     case 'skipped':
+    case 'neutral':
       return 'skipped';
     default:
       return 'pending';
@@ -188,6 +209,93 @@ export class GitHubProvider implements VcsProvider {
     return {
       state: mapReviewDecision(parsed.reviewDecision),
       reviewers,
+    };
+  }
+
+  async listPrs(filter?: PrFilter): Promise<PrSummary[]> {
+    const args = [
+      'pr',
+      'list',
+      '--json',
+      'number,url,title,headRefName,baseRefName,state',
+    ];
+
+    if (filter?.state && filter.state !== 'all') {
+      args.push('--state', filter.state);
+    } else if (filter?.state === 'all') {
+      args.push('--state', 'all');
+    }
+
+    if (filter?.head) {
+      args.push('--head', filter.head);
+    }
+
+    if (filter?.base) {
+      args.push('--base', filter.base);
+    }
+
+    const output = await exec('gh', args);
+    const entries = JSON.parse(output) as PrSummary[];
+    return entries;
+  }
+
+  async getPrComments(prId: string): Promise<PrComment[]> {
+    const output = await exec('gh', [
+      'api',
+      `repos/{owner}/{repo}/pulls/${prId}/comments`,
+      '--paginate',
+    ]);
+
+    const entries = JSON.parse(output) as readonly GhPrCommentEntry[];
+    return entries.map((entry) => ({
+      id: entry.id,
+      author: entry.user.login,
+      body: entry.body,
+      createdAt: entry.created_at,
+      path: entry.path,
+      line: entry.line,
+    }));
+  }
+
+  async getPrDiff(prId: string): Promise<string> {
+    return exec('gh', ['pr', 'diff', prId]);
+  }
+
+  async createIssue(opts: CreateIssueOpts): Promise<IssueResult> {
+    const args = [
+      'issue',
+      'create',
+      '--title',
+      opts.title,
+      '--body',
+      opts.body,
+    ];
+
+    if (opts.labels && opts.labels.length > 0) {
+      args.push('--label', opts.labels.join(','));
+    }
+
+    const output = await exec('gh', args);
+    const url = output.trim();
+    const match = url.match(/\/issues\/(\d+)/);
+    if (!match) {
+      throw new Error(`Failed to parse issue number from gh output: ${url}`);
+    }
+    return { url, number: parseInt(match[1], 10) };
+  }
+
+  async getRepository(): Promise<RepoInfo> {
+    const output = await exec('gh', [
+      'repo',
+      'view',
+      '--json',
+      'nameWithOwner,defaultBranchRef',
+    ]);
+
+    const parsed = JSON.parse(output) as GhRepoViewResponse;
+    return {
+      nameWithOwner: parsed.nameWithOwner,
+      defaultBranch: parsed.defaultBranchRef.name,
     };
   }
 }

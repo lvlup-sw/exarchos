@@ -11,6 +11,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (`check_ci`, `list_prs`, `merge_pr`, `get_pr_comments`, `add_pr_comment`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. Events (`shepherd.iteration`, `ci.status`) and the `shepherd_status` view track loop progress without requiring a phase transition.
@@ -35,8 +41,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in `synthesis.prUrl` or `artifacts.pr`)
-- PRs created and pushed (`gh pr create` already ran)
-- GitHub MCP tools available (preferred) or `gh` CLI authenticated
+- PRs created and pushed (`create_pr` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -126,7 +132,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 | `ci-fix` | Read logs, reproduce locally, fix, commit to stack branch |
 | `comment-reply` | Read context from `actionItem.context`, compose response, post via GitHub MCP |
 | `review-address` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| `restack` | Run `git rebase origin/<base>`, verify with `gh pr list` |
+| `restack` | Run `git rebase origin/<base>`, verify with `exarchos_orchestrate({ action: "list_prs" })` |
 | `escalate` | Consult `references/escalation-criteria.md` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -136,8 +142,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 ```bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+```
+
+Re-enable auto-merge if needed:
+```typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 ```
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching `request-approval`, escalate per `references/escalation-criteria.md`.

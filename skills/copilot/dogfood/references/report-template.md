@@ -94,13 +94,13 @@ Issues discovered solely through debug trace (not visible in conversation errors
 Ready-to-file issue bodies for Code Bugs and Documentation Issues:
 
 #### Issue: [CB-1 title]
-```
-gh issue create --title "bug: [summary]" --label "bug" --body "..."
+```typescript
+exarchos_orchestrate({ action: "create_issue", title: "bug: [summary]", body: "...", labels: ["bug"] })
 ```
 
 #### Issue: [DOC-1 title]
-```
-gh issue create --title "docs: [summary]" --label "bug" --body "..."
+```typescript
+exarchos_orchestrate({ action: "create_issue", title: "docs: [summary]", body: "...", labels: ["bug"] })
 ```
 
 ### Patterns & Trends

@@ -44,6 +44,46 @@ export interface ReviewStatus {
   readonly reviewers: readonly ReviewerStatus[];
 }
 
+export interface PrFilter {
+  readonly state?: 'open' | 'closed' | 'merged' | 'all';
+  readonly head?: string;
+  readonly base?: string;
+}
+
+export interface PrSummary {
+  readonly number: number;
+  readonly url: string;
+  readonly title: string;
+  readonly headRefName: string;
+  readonly baseRefName: string;
+  readonly state: string;
+}
+
+export interface PrComment {
+  readonly id: number;
+  readonly author: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly path?: string;
+  readonly line?: number;
+}
+
+export interface CreateIssueOpts {
+  readonly title: string;
+  readonly body: string;
+  readonly labels?: readonly string[];
+}
+
+export interface IssueResult {
+  readonly number: number;
+  readonly url: string;
+}
+
+export interface RepoInfo {
+  readonly nameWithOwner: string;
+  readonly defaultBranch: string;
+}
+
 export interface VcsProvider {
   readonly name: 'github' | 'gitlab' | 'azure-devops';
   createPr(opts: CreatePrOpts): Promise<PrResult>;
@@ -51,4 +91,24 @@ export interface VcsProvider {
   mergePr(prId: string, strategy: string): Promise<MergeResult>;
   addComment(prId: string, body: string): Promise<void>;
   getReviewStatus(prId: string): Promise<ReviewStatus>;
+  listPrs(filter?: PrFilter): Promise<PrSummary[]>;
+  getPrComments(prId: string): Promise<PrComment[]>;
+  getPrDiff(prId: string): Promise<string>;
+  createIssue(opts: CreateIssueOpts): Promise<IssueResult>;
+  getRepository(): Promise<RepoInfo>;
+}
+
+export class UnsupportedOperationError extends Error {
+  readonly operation: string;
+  readonly provider: string;
+  constructor(provider: string, operation: string) {
+    super(`${provider}: ${operation} is not yet supported`);
+    this.name = 'UnsupportedOperationError';
+    this.provider = provider;
+    this.operation = operation;
+  }
+}
+
+export function isUnsupportedOperation(err: unknown): err is UnsupportedOperationError {
+  return err instanceof UnsupportedOperationError;
 }

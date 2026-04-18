@@ -69,6 +69,14 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleCreatePr } from './vcs/create-pr.js';
+import { handleMergePr } from './vcs/merge-pr.js';
+import { handleCheckCi } from './vcs/check-ci.js';
+import { handleListPrs } from './vcs/list-prs.js';
+import { handleGetPrComments } from './vcs/get-pr-comments.js';
+import { handleAddPrComment } from './vcs/add-pr-comment.js';
+import { handleCreateIssue } from './vcs/create-issue.js';
+import { handleInit } from './init/index.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -77,6 +85,14 @@ type ActionHandler = (args: Record<string, unknown>, stateDir: string, ctx?: Dis
 /** Wraps a typed handler as an ActionHandler, narrowing Record<string, unknown> to T. */
 function adapt<T>(handler: (args: T, stateDir: string) => Promise<ToolResult>): ActionHandler {
   return (args, stateDir) => handler(args as unknown as T, stateDir);
+}
+
+/** Wraps a typed handler that receives (args, ctx: DispatchContext). */
+function adaptCtx<T>(handler: (args: T, ctx: DispatchContext) => Promise<ToolResult>): ActionHandler {
+  return async (args, _stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for this handler');
+    return handler(args as unknown as T, ctx);
+  };
 }
 
 /** Wraps a typed handler that takes only args (no stateDir) and may be sync or async. */
@@ -181,6 +197,14 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   prune_stale_workflows: handlePruneStaleWorkflows as ActionHandler,
   request_synthesize: adaptArgsWithStateDirAndEventStore(handleRequestSynthesize),
   finalize_oneshot: adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot),
+  // VCS actions — route through VcsProvider abstraction
+  create_pr: adaptCtx(handleCreatePr),
+  merge_pr: adaptCtx(handleMergePr),
+  check_ci: adaptCtx(handleCheckCi),
+  list_prs: adaptCtx(handleListPrs),
+  get_pr_comments: adaptCtx(handleGetPrComments),
+  add_pr_comment: adaptCtx(handleAddPrComment),
+  create_issue: adaptCtx(handleCreateIssue),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
@@ -222,6 +246,13 @@ export async function handleOrchestrate(
   // buildProbes.
   if (action === 'doctor') {
     return handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx);
+  }
+
+  // Handle init specially — like doctor, it needs the full
+  // DispatchContext because handleInit uses ctx.eventStore to emit
+  // init.executed and delegates deps/VCS detection internally.
+  if (action === 'init') {
+    return handleInit(rest as Parameters<typeof handleInit>[0], ctx);
   }
 
   // Handle runbook specially — it doesn't need stateDir

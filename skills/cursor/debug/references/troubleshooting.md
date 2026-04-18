@@ -36,7 +36,7 @@ When Exarchos MCP tools are available, emit events throughout the debug workflow
 1. **At workflow start (triage):** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` -> `workflow.started` with workflowType "debug", urgency
 2. **On track selection:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` -> `phase.transitioned` with selected track (hotfix/thorough)
 3. **On each phase transition:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` -> `phase.transitioned` from->to
-4. **Thorough track stacking:** Handled by `/exarchos:synthesize` (PR creation via `gh pr create`)
+4. **Thorough track stacking:** Handled by `/exarchos:synthesize` (PR creation via `exarchos_orchestrate({ action: "create_pr" })`)
 5. **Hotfix track commit:** Single `git commit -m "fix: <description>"` + `git push` -- no multi-branch stacking needed
 6. **On complete:** `mcp__plugin_exarchos_exarchos__exarchos_event` with `action: "append"` -> `phase.transitioned` to "completed"
 

@@ -11,6 +11,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge_pr`, `list_prs`, `check_ci`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The `prepare_synthesis` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -105,20 +111,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 ```
 
-**Do NOT call `gh pr create` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call `create_pr` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-```bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+```typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 ```
 
 After submission:
 1. **Apply benchmark label** -- If `verification.hasBenchmarks` is true, apply label: `gh pr edit <number> --add-label has-benchmarks`
-2. **Record PR URLs** -- Capture URLs from `gh pr list --json number,url,headRefName`
+2. **Record PR URLs** -- Capture URLs via `exarchos_orchestrate({ action: "list_prs", state: "open" })`
 3. **Update state:**
 
 ```typescript

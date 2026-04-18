@@ -15,6 +15,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import { detectTestCommands } from './detect-test-commands.js';
+import type { VcsProvider } from '../vcs/provider.js';
+import { createVcsProvider } from '../vcs/factory.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -334,13 +336,19 @@ function checkNoFixRequests(
 
 // ─── Check 6: PR stack exists ───────────────────────────────────────────────
 
-function checkPrStack(
+async function checkPrStack(
   ctx: CheckContext,
   repoRoot: string,
   skipStack: boolean,
-): void {
+  provider: VcsProvider,
+): Promise<void> {
   if (skipStack) {
     checkSkip(ctx, 'PR stack exists (--skip-stack)');
+    return;
+  }
+
+  if (provider && provider.name !== 'github') {
+    checkSkip(ctx, `PR stack exists (skipped: ${provider.name} provider — gh CLI required)`);
     return;
   }
 
@@ -363,18 +371,7 @@ function checkPrStack(
   }
 
   try {
-    const prJson = execFileSync(
-      'gh',
-      ['pr', 'list', '--state', 'open', '--head', currentBranch, '--json', 'number'],
-      {
-        cwd: repoRoot,
-        encoding: 'utf-8',
-        timeout: 15_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    ).trim();
-
-    const prs: unknown[] = JSON.parse(prJson || '[]');
+    const prs = await provider.listPrs({ state: 'open', head: currentBranch });
     if (prs.length < 1) {
       checkFail(ctx, 'PR stack exists', `No open PRs found for branch '${currentBranch}'`);
       return;
@@ -382,7 +379,7 @@ function checkPrStack(
 
     checkPass(ctx, `PR stack exists (${prs.length} open PRs for '${currentBranch}')`);
   } catch {
-    checkFail(ctx, 'PR stack exists', 'Failed querying GitHub PRs (gh pr list error)');
+    checkFail(ctx, 'PR stack exists', 'Failed querying PRs (VcsProvider error)');
   }
 }
 
@@ -443,8 +440,12 @@ function checkTestsPass(
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handlePreSynthesisCheck(args: PreSynthesisCheckArgs): ToolResult {
+export async function handlePreSynthesisCheck(
+  args: PreSynthesisCheckArgs,
+  provider?: VcsProvider,
+): Promise<ToolResult> {
   const { stateFile, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
+  const vcs = provider ?? await createVcsProvider();
 
   const ctx: CheckContext = {
     results: [],
@@ -469,7 +470,7 @@ export function handlePreSynthesisCheck(args: PreSynthesisCheckArgs): ToolResult
   }
 
   // Check 6: PR stack (independent of state file)
-  checkPrStack(ctx, repoRoot, skipStack);
+  await checkPrStack(ctx, repoRoot, skipStack, vcs);
 
   // Check 7: Tests (independent of state file)
   checkTestsPass(ctx, repoRoot, skipTests, testCommand);

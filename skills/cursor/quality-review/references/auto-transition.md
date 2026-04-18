@@ -34,7 +34,7 @@ Quality-review itself is NOT a human checkpoint — it auto-continues. However, 
 
 Gate events are automatically emitted by the orchestrate handlers — do NOT manually emit `gate.executed` events via `exarchos_event`.
 
-1. **Read CI status** via `gh pr checks <number>` (or GitHub MCP `pull_request_read` with method `get_status` if available)
+1. **Read CI status** via `exarchos_orchestrate({ action: "check_ci", prId: "<number>" })`
 2. **Gate events** — emitted automatically by `check_static_analysis`, `check_security_scan`, `check_context_economy`, `check_operational_resilience`, `check_workflow_determinism`, and `check_review_verdict` handlers
 3. **Read unified status** via `exarchos_view` with `action: "tasks"`, `fields: ["taskId", "status", "title"]`, `limit: 20`
 4. **Query convergence** via `exarchos_view` with `action: "convergence"`, `workflowId: "<featureId>"` for per-dimension gate results

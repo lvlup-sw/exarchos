@@ -61,6 +61,38 @@ vi.mock('./doctor/index.js', () => ({
   handleDoctor: vi.fn(),
 }));
 
+vi.mock('./vcs/create-pr.js', () => ({
+  handleCreatePr: vi.fn(),
+}));
+
+vi.mock('./vcs/merge-pr.js', () => ({
+  handleMergePr: vi.fn(),
+}));
+
+vi.mock('./vcs/check-ci.js', () => ({
+  handleCheckCi: vi.fn(),
+}));
+
+vi.mock('./vcs/list-prs.js', () => ({
+  handleListPrs: vi.fn(),
+}));
+
+vi.mock('./vcs/get-pr-comments.js', () => ({
+  handleGetPrComments: vi.fn(),
+}));
+
+vi.mock('./vcs/add-pr-comment.js', () => ({
+  handleAddPrComment: vi.fn(),
+}));
+
+vi.mock('./vcs/create-issue.js', () => ({
+  handleCreateIssue: vi.fn(),
+}));
+
+vi.mock('./init/index.js', () => ({
+  handleInit: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -88,6 +120,14 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleCreatePr } from './vcs/create-pr.js';
+import { handleMergePr } from './vcs/merge-pr.js';
+import { handleCheckCi } from './vcs/check-ci.js';
+import { handleListPrs } from './vcs/list-prs.js';
+import { handleGetPrComments } from './vcs/get-pr-comments.js';
+import { handleAddPrComment } from './vcs/add-pr-comment.js';
+import { handleCreateIssue } from './vcs/create-issue.js';
+import { handleInit } from './init/index.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -540,6 +580,159 @@ describe('handleOrchestrate', () => {
       // Assert
       const actionNames = orchestrate!.actions.map((a) => a.name);
       expect(actionNames).toContain('doctor');
+    });
+  });
+
+  // ─── VCS Actions ─────────────────────────────────────────────────────────
+
+  describe('VCS actions', () => {
+    it('OrchestrateComposite_CreatePr_RoutesToHandler', async () => {
+      const expected = successResult({ url: 'https://github.com/repo/pull/1', number: 1 });
+      vi.mocked(handleCreatePr).mockResolvedValue(expected);
+      const args = {
+        action: 'create_pr',
+        title: 'feat: test',
+        body: 'body',
+        base: 'main',
+        head: 'feat/test',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleCreatePr).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCreatePr).mock.calls[0];
+      expect(call[0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_MergePr_RoutesToHandler', async () => {
+      const expected = successResult({ merged: true, sha: 'abc' });
+      vi.mocked(handleMergePr).mockResolvedValue(expected);
+      const args = { action: 'merge_pr', prId: '42', strategy: 'squash' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleMergePr).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleMergePr).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42', strategy: 'squash' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_CheckCi_RoutesToHandler', async () => {
+      const expected = successResult({ status: 'pass', checks: [] });
+      vi.mocked(handleCheckCi).mockResolvedValue(expected);
+      const args = { action: 'check_ci', prId: '42' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleCheckCi).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCheckCi).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_ListPrs_RoutesToHandler', async () => {
+      const expected = successResult([]);
+      vi.mocked(handleListPrs).mockResolvedValue(expected);
+      const args = { action: 'list_prs', state: 'open' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleListPrs).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleListPrs).mock.calls[0];
+      expect(call[0]).toEqual({ state: 'open' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_GetPrComments_RoutesToHandler', async () => {
+      const expected = successResult([]);
+      vi.mocked(handleGetPrComments).mockResolvedValue(expected);
+      const args = { action: 'get_pr_comments', prId: '42' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleGetPrComments).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleGetPrComments).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_AddPrComment_RoutesToHandler', async () => {
+      const expected = successResult(undefined);
+      vi.mocked(handleAddPrComment).mockResolvedValue(expected);
+      const args = { action: 'add_pr_comment', prId: '42', body: 'comment' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleAddPrComment).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleAddPrComment).mock.calls[0];
+      expect(call[0]).toEqual({ prId: '42', body: 'comment' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateComposite_CreateIssue_RoutesToHandler', async () => {
+      const expected = successResult({ number: 1, url: 'https://github.com/repo/issues/1' });
+      vi.mocked(handleCreateIssue).mockResolvedValue(expected);
+      const args = { action: 'create_issue', title: 'Bug', body: 'Details' };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result).toBe(expected);
+      expect(handleCreateIssue).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleCreateIssue).mock.calls[0];
+      expect(call[0]).toEqual({ title: 'Bug', body: 'Details' });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesVcsActions', () => {
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('create_pr');
+      expect(actionNames).toContain('merge_pr');
+      expect(actionNames).toContain('check_ci');
+      expect(actionNames).toContain('list_prs');
+      expect(actionNames).toContain('get_pr_comments');
+      expect(actionNames).toContain('add_pr_comment');
+      expect(actionNames).toContain('create_issue');
+    });
+  });
+
+  // ─── Init Routing ──────────────────────────────────────────────────────
+
+  describe('init routing', () => {
+    it('OrchestrateComposite_DispatchInitAction_InvokesHandleInit', async () => {
+      // Arrange
+      const expected = successResult({
+        runtimes: [],
+        vcs: null,
+        durationMs: 42,
+      });
+      vi.mocked(handleInit).mockResolvedValue(expected);
+      const args = { action: 'init', runtime: 'copilot', nonInteractive: true };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — init handler called with args (minus the action) and ctx
+      expect(result).toBe(expected);
+      expect(handleInit).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleInit).mock.calls[0];
+      expect(call[0]).toEqual({ runtime: 'copilot', nonInteractive: true });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesInit', () => {
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('init');
     });
   });
 

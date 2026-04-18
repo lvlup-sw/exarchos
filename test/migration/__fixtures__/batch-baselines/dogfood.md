@@ -10,6 +10,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (`create_issue`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -144,8 +150,8 @@ Produce the report using the template from `references/report-template.md`. Incl
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-```bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+```typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 ```
 
 Only file issues with user confirmation — present the draft first.

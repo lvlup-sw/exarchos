@@ -478,6 +478,10 @@ async function installDev(
 // ─── New Install Orchestrator ───────────────────────────────────────────────
 
 export async function install(deps: InstallDeps): Promise<void> {
+  console.warn(
+    '\u26a0\ufe0f  exarchos install is deprecated and will be removed in v3.0. Use exarchos init instead. See: https://github.com/lvlup-sw/exarchos/issues/1115',
+  );
+
   const { claudeHome, repoRoot, manifestPath, claudeConfigPath, prompts, args } = deps;
 
   // Ensure ~/.claude exists

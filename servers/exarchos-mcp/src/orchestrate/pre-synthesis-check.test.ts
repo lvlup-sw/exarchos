@@ -1,6 +1,7 @@
 // ─── Pre-Synthesis Check Handler Tests ──────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { VcsProvider, PrSummary, PrFilter } from '../vcs/provider.js';
 
 // ─── Mock node:fs ───────────────────────────────────────────────────────────
 
@@ -11,10 +12,18 @@ vi.mock('node:fs', () => ({
 }));
 
 // ─── Mock node:child_process ────────────────────────────────────────────────
+// Still needed for git branch --show-current and test/typecheck commands
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
   execSync: vi.fn(),
+  execFile: vi.fn(),
+}));
+
+// ─── Mock VCS factory to avoid loading shell.ts/detector.ts ────────────────
+
+vi.mock('../vcs/factory.js', () => ({
+  createVcsProvider: vi.fn(),
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -49,32 +58,42 @@ function setupValidState(stateJson: string): void {
   vi.mocked(readFileSync).mockReturnValue(stateJson);
 }
 
+// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
+
+function createMockProvider(overrides: {
+  listPrs?: PrSummary[];
+  listPrsError?: Error;
+} = {}): VcsProvider {
+  return {
+    name: 'github',
+    createPr: vi.fn(),
+    checkCi: vi.fn(),
+    mergePr: vi.fn(),
+    addComment: vi.fn(),
+    getReviewStatus: vi.fn(),
+    listPrs: overrides.listPrsError
+      ? vi.fn().mockRejectedValue(overrides.listPrsError)
+      : vi.fn<(filter?: PrFilter) => Promise<PrSummary[]>>().mockResolvedValue(overrides.listPrs ?? []),
+    getPrComments: vi.fn(),
+    getPrDiff: vi.fn(),
+    createIssue: vi.fn(),
+    getRepository: vi.fn(),
+  };
+}
+
 /**
- * Mock execFileSync for check 6 (stack) + execSync for check 7 (tests).
- * git/gh calls use execFileSync with encoding:'utf-8' → return string.
- * Test/typecheck calls use execSync (shell command strings).
+ * Mock execFileSync for git branch --show-current (still uses git CLI, not VcsProvider).
+ * Also used for test/typecheck commands.
  */
-function mockStackAndTests(): void {
-  vi.mocked(execFileSync)
-    .mockReturnValueOnce('feature-branch\n' as unknown as Buffer)  // git branch --show-current
-    .mockReturnValueOnce('[{"number":1}]' as unknown as Buffer);   // gh pr list
-  vi.mocked(execSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // test command
-    .mockReturnValueOnce(Buffer.from(''));                           // typecheck command
+function mockGitBranch(branch: string = 'feature-branch'): void {
+  vi.mocked(execFileSync).mockReturnValueOnce(`${branch}\n` as unknown as Buffer);
 }
 
-/** Mock execFileSync for stack-only (when tests are skipped). */
-function mockStackOnly(): void {
-  vi.mocked(execFileSync)
-    .mockReturnValueOnce('feature-branch\n' as unknown as Buffer)  // git branch --show-current
-    .mockReturnValueOnce('[{"number":1}]' as unknown as Buffer);   // gh pr list
-}
-
-/** Mock execSync for tests-only (when stack is skipped). */
+/** Mock execSync for tests-only (test command + optional typecheck). */
 function mockTestsOnly(): void {
   vi.mocked(execSync)
-    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))           // test command
-    .mockReturnValueOnce(Buffer.from(''));                           // typecheck command
+    .mockReturnValueOnce(Buffer.from('Tests: 5 passed'))  // test command
+    .mockReturnValueOnce(Buffer.from(''));                  // typecheck command
 }
 
 describe('handlePreSynthesisCheck', () => {
@@ -84,15 +103,17 @@ describe('handlePreSynthesisCheck', () => {
 
   // ─── Test 1: All checks pass ────────────────────────────────────────────
 
-  it('AllChecksPass_ReturnsPassed', () => {
-    // Arrange
+  it('AllChecksPass_ReturnsPassed', async () => {
     setupValidState(makeState());
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: 'Test', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(true);
@@ -100,16 +121,30 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.checks.pass).toBeGreaterThanOrEqual(5);
   });
 
+  // ─── Uses VcsProvider for PR stack ────────────────────────────────────
+
+  it('UsesProviderListPrs_ForPrStackCheck', async () => {
+    setupValidState(makeState());
+    mockGitBranch('feat/my-branch');
+    mockTestsOnly();
+
+    const provider = createMockProvider({
+      listPrs: [{ number: 42, url: '', title: 'My PR', headRefName: 'feat/my-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
+
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
+    expect(result.success).toBe(true);
+    expect(provider.listPrs).toHaveBeenCalledWith({ state: 'open', head: 'feat/my-branch' });
+  });
+
   // ─── Test 2: State file not found ───────────────────────────────────────
 
-  it('StateFileNotFound_ReturnsError', () => {
-    // Arrange
+  it('StateFileNotFound_ReturnsError', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/missing.json' });
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/missing.json' });
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
@@ -117,17 +152,19 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('not found');
   });
 
-  // ─── Test 3: Phase not synthesize → passed: false with transition guidance
+  // ─── Test 3: Phase not synthesize ───────────────────────────────────────
 
-  it('PhaseNotSynthesize_ReturnsFailWithGuidance', () => {
-    // Arrange — feature workflow at review phase
+  it('PhaseNotSynthesize_ReturnsFailWithGuidance', async () => {
     setupValidState(makeState({ phase: 'review' }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
@@ -135,10 +172,9 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('allReviewsPassed');
   });
 
-  // ─── Test 4: Incomplete tasks → passed: false ──────────────────────────
+  // ─── Test 4: Incomplete tasks ───────────────────────────────────────────
 
-  it('IncompleteTasks_ReturnsFailWithDetails', () => {
-    // Arrange
+  it('IncompleteTasks_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
       tasks: [
         { id: 'T1', status: 'complete' },
@@ -146,12 +182,15 @@ describe('handlePreSynthesisCheck', () => {
         { id: 'T3', status: 'assigned' },
       ],
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
@@ -159,41 +198,45 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('T3');
   });
 
-  // ─── Test 5: Reviews not passed → passed: false ────────────────────────
+  // ─── Test 5: Reviews not passed ────────────────────────────────────────
 
-  it('ReviewsNotPassed_ReturnsFailWithDetails', () => {
-    // Arrange
+  it('ReviewsNotPassed_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
       reviews: { overall: { status: 'rejected' } },
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('overall');
   });
 
-  // ─── Test 6: Tasks with needs_fixes → passed: false ────────────────────
+  // ─── Test 6: Tasks with needs_fixes ────────────────────────────────────
 
-  it('TasksNeedsFixes_ReturnsFailWithDetails', () => {
-    // Arrange
+  it('TasksNeedsFixes_ReturnsFailWithDetails', async () => {
     setupValidState(makeState({
       tasks: [
         { id: 'T1', status: 'complete' },
         { id: 'T2', status: 'needs_fixes' },
       ],
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
@@ -201,43 +244,40 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('T2');
   });
 
-  // ─── Test 7: skipTests=true → skips test execution ─────────────────────
+  // ─── Test 7: skipTests=true ────────────────────────────────────────────
 
-  it('SkipTests_SkipsTestExecution', () => {
-    // Arrange
+  it('SkipTests_SkipsTestExecution', async () => {
     setupValidState(makeState());
-    mockStackOnly();
+    mockGitBranch();
 
-    // Act
-    const result = handlePreSynthesisCheck({
-      stateFile: '/tmp/state.json',
-      skipTests: true,
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
     });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({
+      stateFile: '/tmp/state.json',
+      skipTests: true,
+    }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(true);
     expect(data.checks.skip).toBeGreaterThanOrEqual(1);
     expect(data.report).toContain('SKIP');
-    // Verify test commands were NOT called via execSync
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
 
-  // ─── Test 8: skipStack=true → skips PR stack check ─────────────────────
+  // ─── Test 8: skipStack=true ────────────────────────────────────────────
 
-  it('SkipStack_SkipsPrStackCheck', () => {
-    // Arrange
+  it('SkipStack_SkipsPrStackCheck', async () => {
     setupValidState(makeState());
     mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({
+    const result = await handlePreSynthesisCheck({
       stateFile: '/tmp/state.json',
       skipStack: true,
     });
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(true);
@@ -245,10 +285,9 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('SKIP');
   });
 
-  // ─── Test 9: Multiple review shapes handled correctly ──────────────────
+  // ─── Test 9: Multiple review shapes ────────────────────────────────────
 
-  it('MultipleReviewShapes_AllHandledCorrectly', () => {
-    // Arrange — flat, nested, and legacy review shapes all passing
+  it('MultipleReviewShapes_AllHandledCorrectly', async () => {
     setupValidState(makeState({
       reviews: {
         overhaul: { status: 'approved' },
@@ -259,22 +298,24 @@ describe('handlePreSynthesisCheck', () => {
         T2: { passed: true },
       },
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(true);
     expect(data.report).not.toContain('FAIL');
   });
 
-  // ─── Test 10: Nested review shape with failures ────────────────────────
+  // ─── Test 10: Nested review failure ────────────────────────────────────
 
-  it('NestedReviewShape_FailingSubReview_Detected', () => {
-    // Arrange
+  it('NestedReviewShape_FailingSubReview_Detected', async () => {
     setupValidState(makeState({
       reviews: {
         T1: {
@@ -283,145 +324,174 @@ describe('handlePreSynthesisCheck', () => {
         },
       },
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('qualityReview');
   });
 
-  // ─── Test 11: Legacy review shape with passed: false ───────────────────
+  // ─── Test 11: Legacy review passed=false ───────────────────────────────
 
-  it('LegacyReviewShape_PassedFalse_Detected', () => {
-    // Arrange
+  it('LegacyReviewShape_PassedFalse_Detected', async () => {
     setupValidState(makeState({
       reviews: { T1: { passed: false } },
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('T1');
   });
 
-  // ─── Test 12: Invalid JSON state file ──────────────────────────────────
+  // ─── Test 12: Invalid JSON ────────────────────────────────────────────
 
-  it('InvalidJson_ReturnsFailWithDetail', () => {
-    // Arrange
+  it('InvalidJson_ReturnsFailWithDetail', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue('{ invalid json }');
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('Invalid JSON');
   });
 
-  // ─── Test 13: No tasks → fail ──────────────────────────────────────────
+  // ─── Test 13: No tasks ────────────────────────────────────────────────
 
-  it('NoTasks_ReturnsFailWithDetail', () => {
-    // Arrange
+  it('NoTasks_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ tasks: [] }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('No tasks found');
   });
 
-  // ─── Test 14: No reviews → fail ────────────────────────────────────────
+  // ─── Test 14: No reviews ──────────────────────────────────────────────
 
-  it('NoReviews_ReturnsFailWithDetail', () => {
-    // Arrange
+  it('NoReviews_ReturnsFailWithDetail', async () => {
     setupValidState(makeState({ reviews: {} }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('No review entries');
   });
 
-  // ─── Test 15: Refactor overhaul-update-docs phase → transition guidance
+  // ─── Test 15: Refactor overhaul-update-docs ────────────────────────────
 
-  it('RefactorOverhaulUpdateDocs_ShowsTransitionGuidance', () => {
-    // Arrange
+  it('RefactorOverhaulUpdateDocs_ShowsTransitionGuidance', async () => {
     setupValidState(makeState({
       phase: 'overhaul-update-docs',
       workflowType: 'refactor',
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('docsUpdated');
   });
 
-  // ─── Test 16: Debug workflow debug-review phase → transition guidance ──
+  // ─── Test 16: Debug review phase ──────────────────────────────────────
 
-  it('DebugReviewPhase_ShowsTransitionGuidance', () => {
-    // Arrange
+  it('DebugReviewPhase_ShowsTransitionGuidance', async () => {
     setupValidState(makeState({
       phase: 'debug-review',
       workflowType: 'debug',
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('reviewPassed');
   });
 
-  // ─── Test 17: Refactor polish track → not synthesis-eligible ───────────
+  // ─── Test 17: Refactor polish track ────────────────────────────────────
 
-  it('RefactorPolishTrack_NotSynthesisEligible', () => {
-    // Arrange
+  it('RefactorPolishTrack_NotSynthesisEligible', async () => {
     setupValidState(makeState({
       phase: 'polish-implement',
       workflowType: 'refactor',
     }));
-    mockStackAndTests();
+    mockGitBranch();
+    mockTestsOnly();
 
-    // Act
-    const result = handlePreSynthesisCheck({ stateFile: '/tmp/state.json' });
+    const provider = createMockProvider({
+      listPrs: [{ number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' }],
+    });
 
-    // Assert
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
     expect(result.success).toBe(true);
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('polish track');
+  });
+
+  // ─── PR Stack: No open PRs ────────────────────────────────────────────
+
+  it('NoPrsForBranch_ReturnsFailForStack', async () => {
+    setupValidState(makeState());
+    mockGitBranch();
+    mockTestsOnly();
+
+    const provider = createMockProvider({ listPrs: [] });
+
+    const result = await handlePreSynthesisCheck({ stateFile: '/tmp/state.json' }, provider);
+
+    expect(result.success).toBe(true);
+    const data = result.data as CheckReport;
+    expect(data.passed).toBe(false);
+    expect(data.report).toContain('No open PRs');
   });
 });

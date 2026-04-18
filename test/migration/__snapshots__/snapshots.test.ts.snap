@@ -200,6 +200,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -241,12 +247,12 @@ mcp__plugin_exarchos_exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -984,6 +990,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -1118,8 +1130,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -1714,6 +1726,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -1806,7 +1824,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -1985,7 +2003,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -2054,7 +2072,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -2184,6 +2202,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -3055,6 +3079,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -3079,8 +3109,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -3170,7 +3200,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -3180,8 +3210,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -3608,6 +3641,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -3702,20 +3741,33 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript
@@ -4273,6 +4325,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -4314,12 +4372,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -5053,6 +5111,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -5187,8 +5251,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -5783,6 +5847,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -5875,7 +5945,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -6054,7 +6124,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -6123,7 +6193,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -6253,6 +6323,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -7124,6 +7200,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -7148,8 +7230,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -7239,7 +7321,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -7249,8 +7331,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -7677,6 +7762,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -7771,20 +7862,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript
@@ -8342,6 +8446,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -8383,12 +8493,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -9114,6 +9224,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -9248,8 +9364,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -9844,6 +9960,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -9936,7 +10058,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -10115,7 +10237,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -10184,7 +10306,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -10314,6 +10436,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -11185,6 +11313,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -11209,8 +11343,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -11300,7 +11434,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -11310,8 +11444,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -11738,6 +11875,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -11832,20 +11975,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript
@@ -12403,6 +12559,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -12444,12 +12606,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -13181,6 +13343,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -13315,8 +13483,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -13911,6 +14079,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -14003,7 +14177,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -14182,7 +14356,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -14251,7 +14425,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -14381,6 +14555,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -15252,6 +15432,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -15276,8 +15462,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -15367,7 +15553,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -15377,8 +15563,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -15805,6 +15994,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -15899,20 +16094,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript
@@ -16470,6 +16678,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -16511,12 +16725,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -17242,6 +17456,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -17376,8 +17596,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -17972,6 +18192,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -18064,7 +18290,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -18243,7 +18469,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -18312,7 +18538,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -18442,6 +18668,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -19313,6 +19545,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -19337,8 +19575,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -19428,7 +19666,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -19438,8 +19676,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -19866,6 +20107,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -19960,20 +20207,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript
@@ -20531,6 +20791,12 @@ metadata:
 
 # Cleanup Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`list_prs\`, \`get_pr_comments\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Resolve merged workflows to \`completed\` state in a single operation. Replaces the manual multi-step process of navigating HSM guards after PR stacks merge.
@@ -20572,12 +20838,12 @@ mcp__exarchos__exarchos_view({ action: "pipeline" })
 
 For each PR associated with the workflow, verify it is merged.
 
-**Primary method** — gh CLI:
-\`\`\`bash
-gh pr view <number> --json state,mergedAt,headRefName
+**Primary method** — VCS MCP action:
+\`\`\`typescript
+exarchos_orchestrate({ action: "list_prs", state: "merged" })
 \`\`\`
 
-> Or use GitHub MCP \`pull_request_read\` if available.
+For individual PR details, use \`exarchos_orchestrate({ action: "get_pr_comments", prId: "<number>" })\` or the VCS provider's native API.
 
 Collect from merged PRs:
 - \`prUrl\`: The PR URL (or array of URLs for stacked PRs)
@@ -21311,6 +21577,12 @@ metadata:
 
 # Dogfood Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_issue\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Retrospective analysis of Exarchos MCP tool usage. Uses the MCP server's own self-service capabilities as the primary diagnostic instrument — describe APIs, views, playbooks, and runbooks turned inward to diagnose failures.
@@ -21445,8 +21717,8 @@ Produce the report using the template from \`references/report-template.md\`. In
 
 For findings in the **Code Bug** and **Documentation Issue** buckets, offer to create GitHub issues:
 
-\`\`\`bash
-gh issue create --title "<type>: <summary>" --body "<issue body>" --label "bug"
+\`\`\`typescript
+exarchos_orchestrate({ action: "create_issue", title: "<type>: <summary>", body: "<issue body>", labels: ["bug"] })
 \`\`\`
 
 Only file issues with user confirmation — present the draft first.
@@ -22041,6 +22313,12 @@ metadata:
 
 # Oneshot Workflow Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, etc.) when the synthesize path is taken.
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 A lean, four-phase workflow type for changes that are too small to justify the
 full \`feature\` flow (\`ideate → plan → plan-review → delegate → review → synthesize → completed\`)
 but still deserve event-sourced auditability and a planning step. The workflow is
@@ -22133,7 +22411,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
 | \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
-| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`gh pr create\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
+| \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
 \`cancelled\` is also reachable from any phase via the universal cancel
@@ -22312,7 +22590,7 @@ pipeline view.
 
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesis/SKILL.md\`. The same \`prepare_synthesis\` /
-\`validate_pr_body\` / \`gh pr create\` machinery used by the \`feature\`
+\`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
 workflow applies. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
@@ -22381,7 +22659,7 @@ Agent:
      → guard sees policy='on-request' + 1 synthesize.requested event
      → resolves to 'synthesize'
  10. hands off to @skills/synthesis/SKILL.md → prepare_synthesis →
-     validate_pr_body → gh pr create → merge
+     validate_pr_body → create_pr → merge
 \`\`\`
 
 ### Example C — \`synthesisPolicy: 'always'\` (PR mandatory)
@@ -22511,6 +22789,12 @@ metadata:
 ---
 
 # Prune Workflows Skill
+
+## VCS Provider
+
+This skill's safeguards use VCS operations internally (open PR detection).
+The orchestrate handler manages VCS provider dispatch automatically.
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
 
 ## Overview
 
@@ -23382,6 +23666,12 @@ metadata:
 
 # Shepherd Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`check_ci\`, \`list_prs\`, \`merge_pr\`, \`get_pr_comments\`, \`add_pr_comment\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the \`assess_stack\` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the \`synthesize\` phase. The workflow phase remains \`synthesize\` throughout the shepherd iteration cycle. Events (\`shepherd.iteration\`, \`ci.status\`) and the \`shepherd_status\` view track loop progress without requiring a phase transition.
@@ -23406,8 +23696,8 @@ Activate when:
 ## Prerequisites
 
 - Active workflow with PRs published (PR URLs in \`synthesis.prUrl\` or \`artifacts.pr\`)
-- PRs created and pushed (\`gh pr create\` already ran)
-- GitHub MCP tools available (preferred) or \`gh\` CLI authenticated
+- PRs created and pushed (\`create_pr\` already ran)
+- Exarchos MCP tools available for VCS operations
 
 ## Process
 
@@ -23497,7 +23787,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
 | \`comment-reply\` | Read context from \`actionItem.context\`, compose response, post via GitHub MCP |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
-| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`gh pr list\` |
+| \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
 
 Every inline review comment must get a reply. The goal is that a human scanning the PR sees every thread has a response.
@@ -23507,8 +23797,11 @@ Every inline review comment must get a reply. The goal is that a human scanning 
 After fixes are applied, resubmit the stack:
 \`\`\`bash
 git push --force-with-lease
-# Re-enable auto-merge if needed:
-gh pr merge <number> --auto --squash
+\`\`\`
+
+Re-enable auto-merge if needed:
+\`\`\`typescript
+exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })
 \`\`\`
 
 Return to Step 1 for the next iteration. Track iteration count against the limit (default 5). If the limit is reached without reaching \`request-approval\`, escalate per \`references/escalation-criteria.md\`.
@@ -23935,6 +24228,12 @@ metadata:
 
 # Synthesis Skill
 
+## VCS Provider
+
+This skill uses VCS operations through Exarchos MCP actions (\`create_pr\`, \`merge_pr\`, \`list_prs\`, \`check_ci\`, etc.).
+These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
+No \`gh\`/\`glab\`/\`az\` commands needed — the MCP server handles provider dispatch.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The \`prepare_synthesis\` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.
@@ -24029,20 +24328,33 @@ mcp__exarchos__exarchos_orchestrate({
 })
 \`\`\`
 
-**Do NOT call \`gh pr create\` until validation passes.** If validation fails, fix the body and re-validate.
+**Do NOT call \`create_pr\` until validation passes.** If validation fails, fix the body and re-validate.
 
 ### Step 3: Submit and Merge
 
-Create PRs using the validated body and enable auto-merge:
-\`\`\`bash
-# For each branch in the stack (bottom-up):
-gh pr create --base <parent-branch> --head <branch> --title "<type>: <what>" --body-file /tmp/pr-body.md
-gh pr merge <number> --auto --squash
+Create PRs using the validated body and enable auto-merge. For each branch in the stack (bottom-up):
+
+\`\`\`typescript
+// Create PR via VCS MCP action
+exarchos_orchestrate({
+  action: "create_pr",
+  base: "<parent-branch>",
+  head: "<branch>",
+  title: "<type>: <what>",
+  body: "<pr-body>"
+})
+
+// Enable auto-merge
+exarchos_orchestrate({
+  action: "merge_pr",
+  prId: "<number>",
+  strategy: "squash"
+})
 \`\`\`
 
 After submission:
 1. **Apply benchmark label** -- If \`verification.hasBenchmarks\` is true, apply label: \`gh pr edit <number> --add-label has-benchmarks\`
-2. **Record PR URLs** -- Capture URLs from \`gh pr list --json number,url,headRefName\`
+2. **Record PR URLs** -- Capture URLs via \`exarchos_orchestrate({ action: "list_prs", state: "open" })\`
 3. **Update state:**
 
 \`\`\`typescript

@@ -74,7 +74,9 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
           entry.name.endsWith('.ts') &&
           !entry.name.endsWith('.test.ts') &&
           !entry.name.endsWith('.d.ts') &&
-          fullPath !== path.resolve(srcDir, 'utils', 'paths.ts')
+          fullPath !== path.resolve(srcDir, 'utils', 'paths.ts') &&
+          // Init writers legitimately construct config entries with path values
+          !fullPath.includes(path.join('init', 'writers'))
         ) {
           const content = fs.readFileSync(fullPath, 'utf-8');
           const lines = content.split('\n');

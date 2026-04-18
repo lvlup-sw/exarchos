@@ -1,13 +1,10 @@
 // ─── Assess Stack Composite Action Tests ────────────────────────────────────
+//
+// Tests use a mock VcsProvider instead of mocking execSync for gh CLI calls.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-
-// ─── Mock child_process for gh CLI calls ─────────────────────────────────────
-
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
-}));
+import type { VcsProvider, CiStatus, ReviewStatus, PrComment } from '../vcs/provider.js';
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -21,27 +18,44 @@ vi.mock('../event-store/store.js', () => ({
   })),
 }));
 
-import { execSync } from 'node:child_process';
 import { handleAssessStack } from './assess-stack.js';
 
 const STATE_DIR = '/tmp/test-assess-stack';
 
-// ─── Test Helpers ────────────────────────────────────────────────────────────
+// ─── Mock VcsProvider Helper ────────────────────────────────────────────────
 
-function makeChecksOutput(checks: Array<{ name: string; status: string; url?: string }>): string {
-  return JSON.stringify(checks.map(c => ({
-    name: c.name,
-    state: c.status === 'pass' ? 'SUCCESS' : c.status === 'fail' ? 'FAILURE' : 'PENDING',
-    targetUrl: c.url ?? '',
-  })));
-}
+function createMockProvider(overrides: {
+  checkCi?: CiStatus;
+  reviewStatus?: ReviewStatus;
+  prComments?: PrComment[];
+  prState?: string;
+} = {}): VcsProvider {
+  const defaultCi: CiStatus = { status: 'pass', checks: [] };
+  const defaultReview: ReviewStatus = { state: 'pending', reviewers: [] };
 
-function makeReviewsOutput(reviews: Array<{ state: string; author: string }>): string {
-  return JSON.stringify(reviews);
-}
-
-function makeCommentsOutput(comments: Array<{ body: string; isResolved: boolean }>): string {
-  return JSON.stringify(comments);
+  return {
+    name: 'github',
+    createPr: vi.fn(),
+    checkCi: vi.fn<(prId: string) => Promise<CiStatus>>().mockResolvedValue(overrides.checkCi ?? defaultCi),
+    mergePr: vi.fn(),
+    addComment: vi.fn(),
+    getReviewStatus: vi.fn<(prId: string) => Promise<ReviewStatus>>().mockResolvedValue(overrides.reviewStatus ?? defaultReview),
+    listPrs: vi.fn().mockResolvedValue([
+      // Mock listPrs to return PR state for merge detection
+      ...(overrides.prState ? [{
+        number: 42,
+        url: '',
+        title: '',
+        headRefName: '',
+        baseRefName: '',
+        state: overrides.prState,
+      }] : []),
+    ]),
+    getPrComments: vi.fn<(prId: string) => Promise<PrComment[]>>().mockResolvedValue(overrides.prComments ?? []),
+    getPrDiff: vi.fn(),
+    createIssue: vi.fn(),
+    getRepository: vi.fn(),
+  };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -62,29 +76,82 @@ describe('handleAssessStack', () => {
 
   describe('input validation', () => {
     it('AssessStack_MissingFeatureId_ReturnsInvalidInput', async () => {
-      // Arrange
       const args = { featureId: '', prNumbers: [1] };
-
-      // Act
       const result = await handleAssessStack(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
     });
 
     it('AssessStack_MissingPrNumbers_ReturnsInvalidInput', async () => {
-      // Arrange
       const args = { featureId: 'test-feature', prNumbers: [] };
-
-      // Act
       const result = await handleAssessStack(args, STATE_DIR);
-
-      // Assert
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('prNumbers');
+    });
+  });
+
+  // ─── VcsProvider Integration ──────────────────────────────────────────────
+
+  describe('VcsProvider usage', () => {
+    it('AssessStack_UsesProviderCheckCi_ForCiStatus', async () => {
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pass',
+          checks: [
+            { name: 'ci/build', status: 'pass' },
+            { name: 'ci/test', status: 'pass' },
+          ],
+        },
+        reviewStatus: { state: 'approved', reviewers: [{ login: 'reviewer1', state: 'approved' }] },
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      expect(provider.checkCi).toHaveBeenCalledWith('42');
+    });
+
+    it('AssessStack_UsesProviderGetReviewStatus_ForReviews', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        reviewStatus: {
+          state: 'approved',
+          reviewers: [{ login: 'reviewer1', state: 'approved' }],
+        },
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      expect(provider.getReviewStatus).toHaveBeenCalledWith('42');
+    });
+
+    it('AssessStack_UsesProviderGetPrComments_ForComments', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'alice', body: 'Please fix this', createdAt: '2026-01-01T00:00:00Z' },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      expect(provider.getPrComments).toHaveBeenCalledWith('42');
     });
   });
 
@@ -92,31 +159,26 @@ describe('handleAssessStack', () => {
 
   describe('happy path', () => {
     it('AssessStack_ValidInput_ReturnsShepherdStatus', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-        { name: 'ci/test', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([
-        { state: 'APPROVED', author: 'reviewer1' },
-      ]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pass',
+          checks: [
+            { name: 'ci/build', status: 'pass' },
+            { name: 'ci/test', status: 'pass' },
+          ],
+        },
+        reviewStatus: {
+          state: 'approved',
+          reviewers: [{ login: 'reviewer1', state: 'approved' }],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         status: Record<string, unknown>;
@@ -133,29 +195,22 @@ describe('handleAssessStack', () => {
 
   describe('CI failure handling', () => {
     it('AssessStack_CiFailing_IncludesActionItem', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'fail' },
-        { name: 'ci/test', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'fail',
+          checks: [
+            { name: 'ci/build', status: 'fail' },
+            { name: 'ci/test', status: 'pass' },
+          ],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         actionItems: Array<{ type: string; pr: number; description: string; severity: string }>;
@@ -171,30 +226,19 @@ describe('handleAssessStack', () => {
 
   describe('comment handling', () => {
     it('AssessStack_UnresolvedComments_IncludesActionItems', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([
-        { body: 'Please fix this logic', isResolved: false },
-      ]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'alice', body: 'Please fix this logic', createdAt: '2026-01-01T00:00:00Z' },
+        ],
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         actionItems: Array<{ type: string; pr: number }>;
@@ -209,29 +253,20 @@ describe('handleAssessStack', () => {
 
   describe('comment body truncation', () => {
     it('AssessStack_LongCommentBody_TruncatedTo200Chars', async () => {
-      // Arrange
       const longBody = 'x'.repeat(500);
-      const checksOutput = makeChecksOutput([{ name: 'ci/build', status: 'pass' }]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([
-        { body: longBody, isResolved: false },
-      ]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'alice', body: longBody, createdAt: '2026-01-01T00:00:00Z' },
+        ],
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
@@ -242,29 +277,20 @@ describe('handleAssessStack', () => {
     });
 
     it('AssessStack_ShortCommentBody_NotTruncated', async () => {
-      // Arrange
       const shortBody = 'This is a short comment';
-      const checksOutput = makeChecksOutput([{ name: 'ci/build', status: 'pass' }]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([
-        { body: shortBody, isResolved: false },
-      ]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'alice', body: shortBody, createdAt: '2026-01-01T00:00:00Z' },
+        ],
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as {
         status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> };
@@ -278,96 +304,74 @@ describe('handleAssessStack', () => {
 
   describe('recommendation logic', () => {
     it('AssessStack_AllPassing_RecommendsApproval', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-        { name: 'ci/test', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([
-        { state: 'APPROVED', author: 'reviewer1' },
-      ]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pass',
+          checks: [
+            { name: 'ci/build', status: 'pass' },
+            { name: 'ci/test', status: 'pass' },
+          ],
+        },
+        reviewStatus: {
+          state: 'approved',
+          reviewers: [{ login: 'reviewer1', state: 'approved' }],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('request-approval');
     });
 
     it('AssessStack_BlockingIssues_RecommendsFixAndResubmit', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'fail' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([
-        { state: 'CHANGES_REQUESTED', author: 'reviewer1' },
-      ]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'fail',
+          checks: [{ name: 'ci/build', status: 'fail' }],
+        },
+        reviewStatus: {
+          state: 'changes_requested',
+          reviewers: [{ login: 'reviewer1', state: 'changes_requested' }],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('fix-and-resubmit');
     });
 
     it('AssessStack_PendingCi_RecommendsWait', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pending' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pending',
+          checks: [{ name: 'ci/build', status: 'pending' }],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('wait');
     });
 
     it('AssessStack_MaxIterations_RecommendsEscalate', async () => {
-      // Arrange — simulate max iterations via prior shepherd.iteration events
       const iterationEvents = Array.from({ length: 5 }, (_, i) => ({
         type: 'shepherd.iteration',
         streamId: 'test-feature',
@@ -377,27 +381,19 @@ describe('handleAssessStack', () => {
       }));
       mockQuery.mockResolvedValue(iterationEvents);
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'fail' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'fail',
+          checks: [{ name: 'ci/build', status: 'fail' }],
+        },
       });
 
-      // Act
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert
       expect(result.success).toBe(true);
       const data = result.data as { recommendation: string };
       expect(data.recommendation).toBe('escalate');
@@ -408,30 +404,18 @@ describe('handleAssessStack', () => {
 
   describe('shepherd lifecycle events', () => {
     it('HandleAssessStack_FirstInvocation_EmitsShepherdStarted', async () => {
-      // Arrange — no prior shepherd.started event
       mockQuery.mockResolvedValue([]);
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — shepherd.started event emitted
       const shepherdStartedCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.started',
       );
@@ -444,7 +428,6 @@ describe('handleAssessStack', () => {
     });
 
     it('HandleAssessStack_SubsequentInvocation_DoesNotReEmitShepherdStarted', async () => {
-      // Arrange — prior shepherd.started event exists
       mockQuery.mockImplementation(async (_streamId: string, opts?: { type?: string }) => {
         if (opts?.type === 'shepherd.started') {
           return [{
@@ -461,27 +444,16 @@ describe('handleAssessStack', () => {
         return [];
       });
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — NO shepherd.started event emitted
       const shepherdStartedCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.started',
       );
@@ -489,34 +461,29 @@ describe('handleAssessStack', () => {
     });
 
     it('HandleAssessStack_AllChecksPassing_EmitsApprovalRequested', async () => {
-      // Arrange — all checks pass, recommendation will be 'request-approval'
       mockQuery.mockResolvedValue([]);
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-        { name: 'ci/test', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([
-        { state: 'APPROVED', author: 'reviewer1' },
-      ]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pass',
+          checks: [
+            { name: 'ci/build', status: 'pass' },
+            { name: 'ci/test', status: 'pass' },
+          ],
+        },
+        reviewStatus: {
+          state: 'approved',
+          reviewers: [{ login: 'reviewer1', state: 'approved' }],
+        },
+        prState: 'OPEN',
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — shepherd.approval_requested event emitted
       const approvalCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
       );
@@ -528,31 +495,22 @@ describe('handleAssessStack', () => {
     });
 
     it('HandleAssessStack_ChecksFailing_DoesNotEmitApprovalRequested', async () => {
-      // Arrange — CI failing, recommendation will NOT be 'request-approval'
       mockQuery.mockResolvedValue([]);
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'fail' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'fail',
+          checks: [{ name: 'ci/build', status: 'fail' }],
+        },
+        prState: 'OPEN',
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — NO shepherd.approval_requested event emitted
       const approvalCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
       );
@@ -560,31 +518,19 @@ describe('handleAssessStack', () => {
     });
 
     it('HandleAssessStack_PrMerged_EmitsShepherdCompleted', async () => {
-      // Arrange — PR is merged
       mockQuery.mockResolvedValue([]);
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        if (cmdStr.includes('state')) return 'MERGED' as unknown as Buffer;
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prState: 'MERGED',
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — shepherd.completed event emitted
       const completedCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.completed',
       );
@@ -602,8 +548,6 @@ describe('handleAssessStack', () => {
     });
 
     it('HandleAssessStack_PriorCompleted_SkipsApprovalRequested', async () => {
-      // Arrange — PR is not merged, but shepherd.completed already exists in event store
-      // This covers transient merge query failures where the PR was previously detected as merged
       mockQuery.mockImplementation((_stream: string, filter?: { type: string }) => {
         if (filter?.type === 'shepherd.completed') {
           return Promise.resolve([{ type: 'shepherd.completed', data: { prUrl: 'https://github.com/test/42', outcome: 'merged' } }]);
@@ -611,30 +555,21 @@ describe('handleAssessStack', () => {
         return Promise.resolve([]);
       });
 
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([
-        { state: 'APPROVED', author: 'reviewer1' },
-      ]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        if (cmdStr.includes('gh pr view') && cmdStr.includes('state')) return Buffer.from('OPEN');
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        reviewStatus: {
+          state: 'approved',
+          reviewers: [{ login: 'reviewer1', state: 'approved' }],
+        },
+        prState: 'OPEN',
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — shepherd.approval_requested must NOT be emitted when shepherd.completed exists
       const approvalCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'shepherd.approval_requested',
       );
@@ -646,28 +581,19 @@ describe('handleAssessStack', () => {
 
   describe('event emission', () => {
     it('AssessStack_EmitsCiStatusEvents', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'pass',
+          checks: [{ name: 'ci/build', status: 'pass' }],
+        },
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — ci.status event emitted per PR with schema-mapped value
       const ciStatusCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'ci.status',
       );
@@ -679,39 +605,30 @@ describe('handleAssessStack', () => {
     });
 
     it('AssessStack_EmitsGateExecutedEvents', async () => {
-      // Arrange
-      const checksOutput = makeChecksOutput([
-        { name: 'ci/build', status: 'pass' },
-        { name: 'ci/test', status: 'fail' },
-      ]);
-      const reviewsOutput = makeReviewsOutput([]);
-      const commentsOutput = makeCommentsOutput([]);
-
-      vi.mocked(execSync).mockImplementation((cmd: string) => {
-        const cmdStr = String(cmd);
-        if (cmdStr.includes('checks')) return Buffer.from(checksOutput);
-        if (cmdStr.includes('reviews')) return Buffer.from(reviewsOutput);
-        if (cmdStr.includes('comments')) return Buffer.from(commentsOutput);
-        return Buffer.from('[]');
+      const provider = createMockProvider({
+        checkCi: {
+          status: 'fail',
+          checks: [
+            { name: 'ci/build', status: 'pass' },
+            { name: 'ci/test', status: 'fail' },
+          ],
+        },
       });
 
-      // Act
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        provider,
       );
 
-      // Assert — gate.executed events emitted per CI check (flywheel integration)
       const gateExecutedCalls = mockAppend.mock.calls.filter(
         (call: unknown[]) => (call[1] as { type: string }).type === 'gate.executed',
       );
       expect(gateExecutedCalls.length).toBe(2);
 
-      // Verify deterministic idempotency keys (iter-based, not Date.now)
       const gateIdempotencyKey = (gateExecutedCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
       expect(gateIdempotencyKey).toMatch(/iter-\d+$/);
 
-      // Verify flywheel metadata
       const firstGate = (gateExecutedCalls[0][1] as { data: Record<string, unknown> }).data;
       expect(firstGate.gateName).toBe('ci/build');
       expect((firstGate.details as Record<string, unknown>).skill).toBe('shepherd');

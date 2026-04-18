@@ -8,15 +8,15 @@ PR stacking creates a chain of dependent pull requests that merge bottom-up into
 
 ## 1. PR Chain Creation
 
-Create PRs that chain together by setting each PR's `--base` to the previous branch:
+Create PRs that chain together by setting each PR's base to the previous branch:
 
-```bash
-# First PR in chain targets main
-gh pr create --base main --head feat/step-1 --title "feat: step 1" --body "..."
+```typescript
+// First PR in chain targets main
+exarchos_orchestrate({ action: "create_pr", base: "main", head: "feat/step-1", title: "feat: step 1", body: "..." })
 
-# Subsequent PRs target the previous PR's branch
-gh pr create --base feat/step-1 --head feat/step-2 --title "feat: step 2" --body "..."
-gh pr create --base feat/step-2 --head feat/step-3 --title "feat: step 3" --body "..."
+// Subsequent PRs target the previous PR's branch
+exarchos_orchestrate({ action: "create_pr", base: "feat/step-1", head: "feat/step-2", title: "feat: step 2", body: "..." })
+exarchos_orchestrate({ action: "create_pr", base: "feat/step-2", head: "feat/step-3", title: "feat: step 3", body: "..." })
 ```
 
 The resulting chain looks like:
@@ -72,15 +72,14 @@ After rebasing a mid-stack branch, all downstream branches in the stack must als
 
 View the current PR chain and its state:
 
-```bash
-# List all open PRs with base/head branch relationships
-gh pr list --json number,baseRefName,headRefName,title,state \
-  --jq '.[] | "\(.number): \(.baseRefName) <- \(.headRefName) [\(.state)]"'
+```typescript
+// List all open PRs with base/head branch relationships
+exarchos_orchestrate({ action: "list_prs", state: "open" })
 
-# Example output:
-# 101: main <- feat/step-1 [OPEN]
-# 102: feat/step-1 <- feat/step-2 [OPEN]
-# 103: feat/step-2 <- feat/step-3 [OPEN]
+// Example output shows PR numbers, base/head branches, titles, and state:
+// 101: main <- feat/step-1 [OPEN]
+// 102: feat/step-1 <- feat/step-2 [OPEN]
+// 103: feat/step-2 <- feat/step-3 [OPEN]
 ```
 
 To validate stack integrity, use the `validate_pr_stack` action via orchestrate:
@@ -97,32 +96,29 @@ exarchos_orchestrate({
 GitHub's native merge queue ensures PRs pass CI before merging:
 
 - **Enable:** Repository Settings > Rules > Branch protection > Require merge queue
-- **Auto-merge:** `gh pr merge --auto --squash` enables auto-merge once checks pass
+- **Auto-merge:** `exarchos_orchestrate({ action: "merge_pr", prId: "<number>", strategy: "squash" })` enables auto-merge once checks pass
 - **For stacks:** Enable auto-merge on each PR, then merge bottom-up
 
-```bash
-# Enable auto-merge on all PRs in the stack
-gh pr merge 101 --auto --squash
-gh pr merge 102 --auto --squash
-gh pr merge 103 --auto --squash
-
-# Merge the first PR to start the cascade
-gh pr merge 101 --squash
+```typescript
+// Enable auto-merge on all PRs in the stack
+exarchos_orchestrate({ action: "merge_pr", prId: "101", strategy: "squash" })
+exarchos_orchestrate({ action: "merge_pr", prId: "102", strategy: "squash" })
+exarchos_orchestrate({ action: "merge_pr", prId: "103", strategy: "squash" })
 ```
 
 After PR 101 merges and its branch is deleted, GitHub retargets PR 102 to `main`. If auto-merge is enabled on PR 102, it merges automatically once CI passes.
 
-## 7. Graphite to GitHub-Native Equivalents
+## 7. Graphite to Exarchos MCP Equivalents
 
-| Graphite Command | GitHub-Native Equivalent |
+| Graphite Command | Exarchos MCP Equivalent |
 |---|---|
 | `gt create <branch> -m "feat: ..."` | `git checkout -b <branch> && git commit -m "feat: ..." && git push -u origin <branch>` |
-| `gt submit --no-interactive --publish --stack` | `gh pr create --base <base> --title "..." --body "..."` (per PR) |
-| `gt log` | `gh pr list --json number,baseRefName,headRefName` |
+| `gt submit --no-interactive --publish --stack` | `exarchos_orchestrate({ action: "create_pr", base: "<base>", title: "...", body: "..." })` (per PR) |
+| `gt log` | `exarchos_orchestrate({ action: "list_prs", state: "open" })` |
 | `gt modify -m "..."` | `git commit --amend -m "..." && git push --force-with-lease` |
 | `gt sync` | `git fetch --prune && git rebase origin/main` |
 | `gt restack` | `git rebase origin/<base-branch>` per branch in stack |
-| `mcp__graphite__run_gt_cmd` | `gh` CLI directly via Bash tool |
+| `mcp__graphite__run_gt_cmd` | `exarchos_orchestrate` VCS actions |
 
 ## 8. Error Handling
 

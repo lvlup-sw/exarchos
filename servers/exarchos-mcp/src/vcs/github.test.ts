@@ -288,4 +288,263 @@ describe('GitHubProvider', () => {
     expect(result.state).toBe('pending');
     expect(result.reviewers).toHaveLength(0);
   });
+
+  // ─── T6: listPrs with state filter ───────────────────────────────────────────
+
+  it('GitHubProvider_ListPrs_ReturnsFilteredResults', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 10,
+          url: 'https://github.com/test/repo/pull/10',
+          title: 'feat: open pr',
+          headRefName: 'feat/open',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs({ state: 'open' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'pr',
+        'list',
+        '--state',
+        'open',
+        '--json',
+        'number,url,title,headRefName,baseRefName,state',
+      ])
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      number: 10,
+      url: 'https://github.com/test/repo/pull/10',
+      title: 'feat: open pr',
+      headRefName: 'feat/open',
+      baseRefName: 'main',
+      state: 'OPEN',
+    });
+  });
+
+  // ─── T7: listPrs additional filter coverage ──────────────────────────────────
+
+  it('GitHubProvider_ListPrs_FiltersOpenByHead', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 11,
+          url: 'https://github.com/test/repo/pull/11',
+          title: 'feat: head filter',
+          headRefName: 'feat/specific',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs({ state: 'open', head: 'feat/specific' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'pr', 'list',
+        '--state', 'open',
+        '--head', 'feat/specific',
+        '--json', 'number,url,title,headRefName,baseRefName,state',
+      ])
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].headRefName).toBe('feat/specific');
+  });
+
+  it('GitHubProvider_ListPrs_NoFilter_ReturnsAll', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          number: 1,
+          url: 'https://github.com/test/repo/pull/1',
+          title: 'pr one',
+          headRefName: 'feat/one',
+          baseRefName: 'main',
+          state: 'OPEN',
+        },
+        {
+          number: 2,
+          url: 'https://github.com/test/repo/pull/2',
+          title: 'pr two',
+          headRefName: 'feat/two',
+          baseRefName: 'develop',
+          state: 'MERGED',
+        },
+      ])
+    );
+
+    const result = await provider.listPrs();
+
+    // No filter: should NOT include --state, --head, or --base flags
+    expect(mockExec).toHaveBeenCalledWith('gh', [
+      'pr', 'list',
+      '--json', 'number,url,title,headRefName,baseRefName,state',
+    ]);
+    expect(result).toHaveLength(2);
+  });
+
+  it('GitHubProvider_ListPrs_FilterByBase', async () => {
+    mockExec.mockResolvedValue(JSON.stringify([]));
+
+    await provider.listPrs({ base: 'develop' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['--base', 'develop'])
+    );
+  });
+
+  it('GitHubProvider_ListPrs_StateAll', async () => {
+    mockExec.mockResolvedValue(JSON.stringify([]));
+
+    await provider.listPrs({ state: 'all' });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['--state', 'all'])
+    );
+  });
+
+  // ─── T8: getPrComments + getRepository ────────────────────────────────────────
+
+  it('GitHubProvider_GetPrComments_ReturnsParsedComments', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: 100,
+          user: { login: 'reviewer1' },
+          body: 'Looks good!',
+          created_at: '2026-04-15T10:00:00Z',
+          path: 'src/main.ts',
+          line: 42,
+        },
+        {
+          id: 101,
+          user: { login: 'reviewer2' },
+          body: 'Needs a fix here',
+          created_at: '2026-04-15T11:00:00Z',
+        },
+      ])
+    );
+
+    const result = await provider.getPrComments('42');
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'api',
+        'repos/{owner}/{repo}/pulls/42/comments',
+        '--paginate',
+      ])
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({
+      id: 100,
+      author: 'reviewer1',
+      body: 'Looks good!',
+      createdAt: '2026-04-15T10:00:00Z',
+      path: 'src/main.ts',
+      line: 42,
+    });
+    expect(result[1]).toEqual({
+      id: 101,
+      author: 'reviewer2',
+      body: 'Needs a fix here',
+      createdAt: '2026-04-15T11:00:00Z',
+      path: undefined,
+      line: undefined,
+    });
+  });
+
+  it('GitHubProvider_GetRepository_ReturnsNameWithOwner', async () => {
+    mockExec.mockResolvedValue(
+      JSON.stringify({
+        nameWithOwner: 'lvlup-sw/exarchos',
+        defaultBranchRef: { name: 'main' },
+      })
+    );
+
+    const result = await provider.getRepository();
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'repo', 'view', '--json', 'nameWithOwner,defaultBranchRef',
+      ])
+    );
+    expect(result).toEqual({
+      nameWithOwner: 'lvlup-sw/exarchos',
+      defaultBranch: 'main',
+    });
+  });
+
+  // ─── T9: getPrDiff + createIssue ──────────────────────────────────────────────
+
+  it('GitHubProvider_GetPrDiff_ReturnsDiffString', async () => {
+    const diffOutput = `diff --git a/src/main.ts b/src/main.ts
+index abc123..def456 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,3 +1,4 @@
++import { foo } from './foo.js';
+ const x = 1;
+ const y = 2;
+ const z = 3;`;
+
+    mockExec.mockResolvedValue(diffOutput);
+
+    const result = await provider.getPrDiff('42');
+
+    expect(mockExec).toHaveBeenCalledWith('gh', ['pr', 'diff', '42']);
+    expect(result).toBe(diffOutput);
+  });
+
+  it('GitHubProvider_CreateIssue_ReturnsIssueResult', async () => {
+    mockExec.mockResolvedValue('https://github.com/test/repo/issues/99\n');
+
+    const result = await provider.createIssue({
+      title: 'Bug: something broke',
+      body: 'Steps to reproduce...',
+      labels: ['bug', 'priority'],
+    });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'issue', 'create',
+        '--title', 'Bug: something broke',
+        '--body', 'Steps to reproduce...',
+        '--label', 'bug,priority',
+      ])
+    );
+    const callArgs = mockExec.mock.calls[0][1];
+    expect(callArgs).not.toContain('--json');
+    expect(result).toEqual({
+      url: 'https://github.com/test/repo/issues/99',
+      number: 99,
+    });
+  });
+
+  it('GitHubProvider_CreateIssue_NoLabels', async () => {
+    mockExec.mockResolvedValue('https://github.com/test/repo/issues/100\n');
+
+    const result = await provider.createIssue({
+      title: 'Feature request',
+      body: 'Description',
+    });
+
+    // Should NOT include --label flag
+    const callArgs = mockExec.mock.calls[0][1];
+    expect(callArgs).not.toContain('--label');
+    expect(result.number).toBe(100);
+  });
 });

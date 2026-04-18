@@ -3,12 +3,15 @@
  *
  * Gate check for the synthesize -> cleanup boundary.
  * Verifies CI passed on the merge commit and runs the test suite
- * to detect regressions. Ported from scripts/check-post-merge.sh.
+ * to detect regressions. CI status is queried via VcsProvider.
  *
  * Exit code semantics (when used as a gate):
  *   0 = pass (CI green, tests pass)
  *   1 = findings (CI failure or test regression)
  */
+
+import type { VcsProvider, CiStatus, CiCheck as VcsCiCheck } from '../../vcs/provider.js';
+import { createVcsProvider } from '../../vcs/factory.js';
 
 // ============================================================
 // Types
@@ -23,11 +26,13 @@ export interface CommandResult {
 export interface PostMergeOptions {
   prUrl: string;
   mergeSha: string;
-  /** Dependency-injected command runner for testing. */
+  /** Dependency-injected command runner for testing (used for test suite check). */
   runCommand?: (
     cmd: string,
     args: readonly string[]
   ) => CommandResult;
+  /** VcsProvider for CI status queries. Falls back to createVcsProvider(). */
+  provider?: VcsProvider;
 }
 
 export interface PostMergeResult {
@@ -39,15 +44,6 @@ export interface PostMergeResult {
   results: string[];
   findings: string[];
   report: string;
-}
-
-// ============================================================
-// CI check types
-// ============================================================
-
-interface CICheck {
-  name: string;
-  state: string;
 }
 
 // ============================================================
@@ -76,12 +72,19 @@ function defaultCommandRunner(
 }
 
 // ============================================================
+// CI check status mapping
+// ============================================================
+
+const PASSING_STATUSES: ReadonlySet<VcsCiCheck['status']> = new Set(['pass', 'skipped']);
+
+// ============================================================
 // Core logic
 // ============================================================
 
-export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
+export async function checkPostMerge(options: PostMergeOptions): Promise<PostMergeResult> {
   const { prUrl, mergeSha } = options;
   const runCommand = options.runCommand ?? defaultCommandRunner;
+  const vcs = options.provider ?? await createVcsProvider();
 
   const results: string[] = [];
   const findings: string[] = [];
@@ -102,17 +105,17 @@ export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
   }
 
   // --------------------------------------------------------
-  // CHECK 1: CI Status via gh pr checks
+  // CHECK 1: CI Status via VcsProvider
   // --------------------------------------------------------
-  function checkCiStatus(): void {
-    const ghResult = runCommand('gh', [
-      'pr', 'checks', prUrl, '--json', 'name,state',
-    ]);
-
-    if (ghResult.exitCode !== 0) {
-      const evidence = ghResult.stderr.includes('command not found')
+  async function checkCiStatus(): Promise<void> {
+    let ciStatus: CiStatus;
+    try {
+      ciStatus = await vcs.checkCi(prUrl);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const evidence = message.includes('command not found')
         ? 'gh CLI not found in PATH'
-        : 'gh pr checks command failed';
+        : 'CI status query failed';
       findings.push(
         `FINDING [D4] [HIGH] criterion="ci-green" evidence="${evidence}"`
       );
@@ -120,21 +123,15 @@ export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
       return;
     }
 
-    let checks: CICheck[];
-    try {
-      checks = JSON.parse(ghResult.stdout) as CICheck[];
-    } catch {
-      findings.push(
-        'FINDING [D4] [HIGH] criterion="ci-green" evidence="Failed to parse CI check results"'
-      );
-      checkFail('CI green', 'Failed to parse CI check results');
+    if (ciStatus.checks.length === 0) {
+      // No checks found — treat as pass (no CI configured)
+      checkPass('CI green (no checks configured)');
       return;
     }
 
-    const PASSING_STATES = ['SUCCESS', 'SKIPPED', 'NEUTRAL'];
-    const failedChecks = checks
-      .filter((c) => !PASSING_STATES.includes(c.state))
-      .map((c) => `${c.name} (${c.state})`)
+    const failedChecks = ciStatus.checks
+      .filter((c) => !PASSING_STATUSES.has(c.status))
+      .map((c) => `${c.name} (${c.status.toUpperCase()})`)
       .join(', ');
 
     if (failedChecks.length > 0) {
@@ -166,7 +163,7 @@ export function checkPostMerge(options: PostMergeOptions): PostMergeResult {
   }
 
   // Execute checks
-  checkCiStatus();
+  await checkCiStatus();
   checkTestSuite();
 
   // Build structured report
