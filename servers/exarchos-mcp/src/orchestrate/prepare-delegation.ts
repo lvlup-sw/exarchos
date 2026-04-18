@@ -233,6 +233,18 @@ export async function handlePrepareDelegation(
     );
 
     if (ancestryResult.blocked) {
+      // Fire-and-forget: emit preflight.blocked event for ancestry failure
+      store.append(streamId, {
+        type: 'preflight.blocked',
+        data: {
+          reason: ancestryResult.reason,
+          details: {
+            ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
+            ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
+          },
+        },
+      }).catch(() => { /* fire-and-forget */ });
+
       return {
         success: true,
         data: {
@@ -249,6 +261,18 @@ export async function handlePrepareDelegation(
     if (!args.nativeIsolation) {
       const worktreeResult = assertMainWorktree();
       if (!worktreeResult.isMain) {
+        // Fire-and-forget: emit preflight.blocked event for worktree violation
+        store.append(streamId, {
+          type: 'preflight.blocked',
+          data: {
+            reason: 'worktree-location',
+            details: {
+              actual: worktreeResult.actual,
+              expected: worktreeResult.expected,
+            },
+          },
+        }).catch(() => { /* fire-and-forget */ });
+
         return {
           success: true,
           data: {
@@ -260,6 +284,16 @@ export async function handlePrepareDelegation(
         };
       }
     }
+
+    // Fire-and-forget: emit preflight.executed event — both checks passed
+    store.append(streamId, {
+      type: 'preflight.executed',
+      data: {
+        checks: ['ancestry', 'worktree'],
+        passed: true,
+        integrationBranch,
+      },
+    }).catch(() => { /* fire-and-forget */ });
 
     // Materialize delegation readiness from event stream
     const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
