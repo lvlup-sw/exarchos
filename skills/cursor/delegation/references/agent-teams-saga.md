@@ -103,7 +103,6 @@ exarchos_event append:
     teammateName: {name}
     worktreePath: {path}
     assignedTaskIds: [{taskIds}]
-    model: "opus"
 
 # Execute side effect
 # Note: teammates inherit the lead's permission mode (per Claude Code docs).
@@ -112,7 +111,6 @@ Task:
   subagent_type: "general-purpose"
   team_name: {featureId}
   name: {teammateName}
-  model: "opus"
   prompt: {spawnPrompt}  # See implementer-prompt.md template
 ```
 
@@ -199,7 +197,7 @@ If a compensating action itself fails after 3 retries, mark the workflow with `_
 | **Permissions inherit from lead** | Do NOT set `mode` at spawn -- not respected. All teammates inherit the lead's permission mode. |
 | **Teammates load MCP automatically** | Exarchos MCP tools are available without explicit instruction. The spawn prompt guides WHICH tools to use, not HOW to access them. |
 
-**CRITICAL:** Ensure your session is using the opus model for coding tasks. All teammates inherit the session model -- use Task tool dispatch if you need per-task model selection.
+**Model selection:** Teammates inherit the session model. Model is configured via `.exarchos.yml` and resolved by `prepare_delegation`. Use Task tool dispatch if you need per-task model override.
 
 ## Event Payload Conventions
 
