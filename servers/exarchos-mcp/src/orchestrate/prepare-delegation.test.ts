@@ -839,6 +839,155 @@ describe('handlePrepareDelegation', () => {
     expect(details.expected).toBeDefined();
   });
 
+  // ─── E2E Dispatch Guard Ordering (DR-1, DR-2, DR-10) ──────────────────────
+
+  describe('Dispatch guard ordering', () => {
+    it('prepareDelegation_FullPreflight_AncestryAndWorktreeCheckedInOrder', async () => {
+      // Arrange: both guards pass — verify ancestry runs first, then worktree
+      const state = readyWorkflowState();
+      const { mockStore } = setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+
+      const callOrder: string[] = [];
+      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
+        callOrder.push('ancestry');
+        return { passed: true, checks: ['ancestry'] };
+      });
+      vi.mocked(assertMainWorktree).mockImplementation(() => {
+        callOrder.push('worktree');
+        return {
+          isMain: true,
+          actual: '/repo',
+          expected: 'main worktree (no .claude/worktrees/ in path)',
+        };
+      });
+
+      const args = { featureId: 'test-feature' };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert: both checks called in correct order
+      expect(callOrder).toEqual(['ancestry', 'worktree']);
+      expect(validateBranchAncestry).toHaveBeenCalledOnce();
+      expect(assertMainWorktree).toHaveBeenCalledOnce();
+
+      // Assert: handler proceeded normally (not blocked)
+      expect(result.success).toBe(true);
+      const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+      expect(data.ready).toBe(true);
+      expect(data.readiness).toBeDefined();
+
+      // Assert: preflight.executed event emitted with both checks
+      const appendCalls = mockStore.append.mock.calls;
+      const executedEvent = appendCalls.find(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
+      );
+      expect(executedEvent).toBeDefined();
+      const eventData = (executedEvent![1] as { type: string; data: Record<string, unknown> }).data;
+      expect(eventData.checks).toContain('ancestry');
+      expect(eventData.checks).toContain('worktree');
+      expect(eventData.passed).toBe(true);
+    });
+
+    it('prepareDelegation_AncestryBlockedFirst_WorktreeNotChecked', async () => {
+      // Arrange: ancestry fails — worktree should NOT be called (short-circuit)
+      const state = readyWorkflowState();
+      const { mockStore } = setupMaterializer(state);
+
+      const callOrder: string[] = [];
+      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
+        callOrder.push('ancestry');
+        return {
+          passed: false,
+          blocked: true,
+          reason: 'ancestry',
+          missing: ['main'],
+        };
+      });
+      vi.mocked(assertMainWorktree).mockImplementation(() => {
+        callOrder.push('worktree');
+        return {
+          isMain: true,
+          actual: '/repo',
+          expected: 'main worktree (no .claude/worktrees/ in path)',
+        };
+      });
+
+      const args = { featureId: 'test-feature' };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert: only ancestry was called, worktree was short-circuited
+      expect(callOrder).toEqual(['ancestry']);
+      expect(validateBranchAncestry).toHaveBeenCalledOnce();
+      expect(assertMainWorktree).not.toHaveBeenCalled();
+
+      // Assert: result is blocked with ancestry reason
+      expect(result.success).toBe(true);
+      const data = result.data as { blocked: boolean; reason: string; missing: string[] };
+      expect(data.blocked).toBe(true);
+      expect(data.reason).toBe('ancestry');
+      expect(data.missing).toContain('main');
+
+      // Assert: preflight.blocked event emitted (not preflight.executed)
+      const appendCalls = mockStore.append.mock.calls;
+      const blockedEvent = appendCalls.find(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
+      );
+      expect(blockedEvent).toBeDefined();
+      const executedEvent = appendCalls.find(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
+      );
+      expect(executedEvent).toBeUndefined();
+    });
+
+    it('prepareDelegation_NativeIsolation_SkipsWorktreeCheck', async () => {
+      // Arrange: nativeIsolation=true, even with a worktree path — worktree check should be skipped
+      const state = readyWorkflowState();
+      const { mockStore } = setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+
+      const callOrder: string[] = [];
+      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
+        callOrder.push('ancestry');
+        return { passed: true, checks: ['ancestry'] };
+      });
+      vi.mocked(assertMainWorktree).mockImplementation(() => {
+        callOrder.push('worktree');
+        return {
+          isMain: false,
+          actual: '/repo/.claude/worktrees/agent-abc123',
+          expected: 'main worktree (no .claude/worktrees/ in path)',
+        };
+      });
+
+      const args = { featureId: 'test-feature', nativeIsolation: true };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert: ancestry was called, but worktree check was skipped entirely
+      expect(callOrder).toEqual(['ancestry']);
+      expect(validateBranchAncestry).toHaveBeenCalledOnce();
+      expect(assertMainWorktree).not.toHaveBeenCalled();
+
+      // Assert: handler proceeded normally (not blocked by worktree)
+      expect(result.success).toBe(true);
+      const data = result.data as { ready: boolean; isolation: string };
+      expect(data.ready).toBe(true);
+      expect(data.isolation).toBe('native');
+
+      // Assert: preflight.executed event emitted (both checks listed as passed)
+      const appendCalls = mockStore.append.mock.calls;
+      const executedEvent = appendCalls.find(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
+      );
+      expect(executedEvent).toBeDefined();
+    });
+  });
+
   // ─── Task Classification ─────────────────────────────────────────────────
 
   describe('Task classification', () => {
