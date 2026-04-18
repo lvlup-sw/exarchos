@@ -109,7 +109,16 @@ async function probeRuntime(
 
   if (name === 'claude-code') {
     const probed = await probeJsonMcpConfig(fs, configPath);
-    return { name, configPath, ...probed, skillsDir: path.join(home, '.claude', 'skills') };
+    const mcpRegistered =
+      probed.mcpRegistered || (await probeExarchosPluginInstall(fs, home));
+    return {
+      name,
+      configPath,
+      configPresent: probed.configPresent,
+      configValid: probed.configValid,
+      mcpRegistered,
+      skillsDir: path.join(home, '.claude', 'skills'),
+    };
   }
   if (name === 'cursor' || name === 'opencode') {
     const probed = await probeJsonMcpConfig(fs, configPath);
@@ -163,6 +172,66 @@ async function probeJsonMcpConfig(
     return { configPresent: true, configValid: true, mcpRegistered };
   } catch {
     return { configPresent: true, configValid: false, mcpRegistered: false };
+  }
+}
+
+/**
+ * Plugin-marketplace install is exarchos's primary distribution path for
+ * claude-code. When installed via marketplace, the MCP server is wired
+ * through the plugin manifest (`<installPath>/.claude-plugin/plugin.json`
+ * → `mcpServers.exarchos`), never through the top-level `~/.claude.json`.
+ * This probe inspects `installed_plugins.json` + the per-plugin manifest
+ * so `exarchos doctor` doesn't false-negative the common install path.
+ *
+ * Returns `true` iff at least one installed plugin named `exarchos@*` has
+ * a manifest declaring `mcpServers.exarchos`. Returns `false` on any
+ * failure (missing file, malformed JSON, etc.) — absence is never a
+ * runtime error.
+ */
+async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
+  const installedPluginsPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  const raw = await readOrNull(fs, installedPluginsPath);
+  if (raw === null) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return false;
+
+  const plugins = (parsed as { plugins?: unknown }).plugins;
+  if (typeof plugins !== 'object' || plugins === null) return false;
+
+  for (const [key, value] of Object.entries(plugins as Record<string, unknown>)) {
+    if (!key.startsWith('exarchos@')) continue;
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const installPath = (entry as { installPath?: unknown }).installPath;
+      if (typeof installPath !== 'string') continue;
+      const manifestPath = path.join(installPath, '.claude-plugin', 'plugin.json');
+      if (await manifestWiresExarchosMcp(fs, manifestPath)) return true;
+    }
+  }
+  return false;
+}
+
+async function manifestWiresExarchosMcp(fs: DetectorFs, manifestPath: string): Promise<boolean> {
+  const raw = await readOrNull(fs, manifestPath);
+  if (raw === null) return false;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return false;
+    const mcpServers = (parsed as { mcpServers?: unknown }).mcpServers;
+    return (
+      typeof mcpServers === 'object' &&
+      mcpServers !== null &&
+      'exarchos' in (mcpServers as Record<string, unknown>)
+    );
+  } catch {
+    return false;
   }
 }
 
