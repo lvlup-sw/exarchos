@@ -22,11 +22,10 @@ describe('buildConfigDescription', () => {
 
   it('DescribeConfig_AllSectionsPresent', () => {
     const result = buildConfigDescription(DEFAULTS);
-    expect(result).toHaveProperty('review');
-    expect(result).toHaveProperty('vcs');
-    expect(result).toHaveProperty('workflow');
-    expect(result).toHaveProperty('tools');
-    expect(result).toHaveProperty('hooks');
+    // Parity check — any top-level section added to DEFAULTS must appear
+    // in the description output (and vice versa), so future sections can't
+    // silently regress.
+    expect(Object.keys(result).sort()).toEqual(Object.keys(DEFAULTS).sort());
   });
 
   it('DescribeConfig_GateOverride_ShowsGateAndDimension', () => {
@@ -96,5 +95,73 @@ describe('buildConfigDescription', () => {
     const result = buildConfigDescription(config);
 
     expect(result.hooks.on.source).toBe('.exarchos.yml');
+  });
+
+  it('DescribeConfig_PruneDefaults_AllDefault', () => {
+    const result = buildConfigDescription(DEFAULTS);
+    expect(result.prune.staleAfterDays.value).toBe(14);
+    expect(result.prune.staleAfterDays.source).toBe('default');
+    expect(result.prune.maxBatchSize.value).toBe(25);
+    expect(result.prune.requireDryRun.value).toBe(true);
+    expect(result.prune.malformedHandling.value).toBe('report');
+    expect(result.prune.phaseExclusions.value).toEqual(['delegate', 'review', 'synthesize']);
+  });
+
+  it('DescribeConfig_PruneOverride_ShowsSource', () => {
+    const config = resolveConfig({ prune: { 'stale-after-days': 7 } });
+    const result = buildConfigDescription(config);
+
+    expect(result.prune.staleAfterDays.value).toBe(7);
+    expect(result.prune.staleAfterDays.source).toBe('.exarchos.yml');
+    expect(result.prune.maxBatchSize.source).toBe('default');
+  });
+
+  it('DescribeConfig_CheckpointDefaults_AllDefault', () => {
+    const result = buildConfigDescription(DEFAULTS);
+    expect(result.checkpoint.operationThreshold.value).toBe(20);
+    expect(result.checkpoint.operationThreshold.source).toBe('default');
+    expect(result.checkpoint.enforceOnPhaseTransition.value).toBe(true);
+    expect(result.checkpoint.enforceOnWaveDispatch.value).toBe(true);
+  });
+
+  it('DescribeConfig_CheckpointOverride_ShowsSource', () => {
+    const config = resolveConfig({ checkpoint: { 'operation-threshold': 10 } });
+    const result = buildConfigDescription(config);
+
+    expect(result.checkpoint.operationThreshold.value).toBe(10);
+    expect(result.checkpoint.operationThreshold.source).toBe('.exarchos.yml');
+  });
+
+  it('DescribeConfig_AgentsDefaults_AllDefault', () => {
+    const result = buildConfigDescription(DEFAULTS);
+    expect(result.agents.defaultModel.value).toBe('opus');
+    expect(result.agents.defaultModel.source).toBe('default');
+    expect(result.agents.models.source).toBe('default');
+  });
+
+  it('DescribeConfig_AgentsOverride_ShowsSource', () => {
+    const config = resolveConfig({
+      agents: { 'default-model': 'sonnet', models: { implementer: 'opus' } },
+    });
+    const result = buildConfigDescription(config);
+
+    expect(result.agents.defaultModel.value).toBe('sonnet');
+    expect(result.agents.defaultModel.source).toBe('.exarchos.yml');
+    expect(result.agents.models.source).toBe('.exarchos.yml');
+  });
+
+  it('DescribeConfig_PluginsDefaults_AllDefault', () => {
+    const result = buildConfigDescription(DEFAULTS);
+    expect(result.plugins.axiom.enabled.value).toBe(true);
+    expect(result.plugins.axiom.enabled.source).toBe('default');
+    expect(result.plugins.impeccable.enabled.value).toBe(true);
+  });
+
+  it('DescribeConfig_PluginsOverride_ShowsSource', () => {
+    const config = resolveConfig({ plugins: { axiom: { enabled: false } } });
+    const result = buildConfigDescription(config);
+
+    expect(result.plugins.axiom.enabled.value).toBe(false);
+    expect(result.plugins.axiom.enabled.source).toBe('.exarchos.yml');
   });
 });
