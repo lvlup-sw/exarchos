@@ -133,7 +133,8 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_complete: adapt(handleTaskComplete),
   task_fail: adapt(handleTaskFail),
   review_triage: handleReviewTriage,
-  prepare_delegation: adapt(handlePrepareDelegation),
+  prepare_delegation: ((args, stateDir, ctx) =>
+    handlePrepareDelegation(args as Parameters<typeof handlePrepareDelegation>[0], stateDir, ctx)) as ActionHandler,
   prepare_synthesis: adapt(handlePrepareSynthesis),
   assess_stack: adapt(handleAssessStack),
   check_design_completeness: adapt(handleDesignCompleteness),

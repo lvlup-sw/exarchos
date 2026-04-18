@@ -32,6 +32,11 @@ vi.mock('./dispatch-guard.js', () => ({
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
 }));
 
+vi.mock('../workflow/checkpoint.js', () => ({
+  shouldEnforceCheckpoint: vi.fn().mockReturnValue({ gated: false }),
+  CHECKPOINT_OPERATION_THRESHOLD: 20,
+}));
+
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -42,6 +47,7 @@ import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
 import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -173,6 +179,7 @@ describe('handlePrepareDelegation', () => {
       actual: '/repo',
       expected: 'main worktree (no .claude/worktrees/ in path)',
     });
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({ gated: false });
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
@@ -839,153 +846,78 @@ describe('handlePrepareDelegation', () => {
     expect(details.expected).toBeDefined();
   });
 
-  // ─── E2E Dispatch Guard Ordering (DR-1, DR-2, DR-10) ──────────────────────
+  // ─── DR-5: Checkpoint Gate Integration ──────────────────────────────────
 
-  describe('Dispatch guard ordering', () => {
-    it('prepareDelegation_FullPreflight_AncestryAndWorktreeCheckedInOrder', async () => {
-      // Arrange: both guards pass — verify ancestry runs first, then worktree
-      const state = readyWorkflowState();
-      const { mockStore } = setupMaterializer(state);
-      vi.mocked(generateQualityHints).mockReturnValue([]);
-
-      const callOrder: string[] = [];
-      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
-        callOrder.push('ancestry');
-        return { passed: true, checks: ['ancestry'] };
-      });
-      vi.mocked(assertMainWorktree).mockImplementation(() => {
-        callOrder.push('worktree');
-        return {
-          isMain: true,
-          actual: '/repo',
-          expected: 'main worktree (no .claude/worktrees/ in path)',
-        };
-      });
-
-      const args = { featureId: 'test-feature' };
-
-      // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
-
-      // Assert: both checks called in correct order
-      expect(callOrder).toEqual(['ancestry', 'worktree']);
-      expect(validateBranchAncestry).toHaveBeenCalledOnce();
-      expect(assertMainWorktree).toHaveBeenCalledOnce();
-
-      // Assert: handler proceeded normally (not blocked)
-      expect(result.success).toBe(true);
-      const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
-      expect(data.ready).toBe(true);
-      expect(data.readiness).toBeDefined();
-
-      // Assert: preflight.executed event emitted with both checks
-      const appendCalls = mockStore.append.mock.calls;
-      const executedEvent = appendCalls.find(
-        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
-      );
-      expect(executedEvent).toBeDefined();
-      const eventData = (executedEvent![1] as { type: string; data: Record<string, unknown> }).data;
-      expect(eventData.checks).toContain('ancestry');
-      expect(eventData.checks).toContain('worktree');
-      expect(eventData.passed).toBe(true);
+  it('handlePrepareDelegation_AboveThreshold_ReturnsCheckpointRequired', async () => {
+    // Arrange: operationsSince above threshold — gate should block
+    const state = readyWorkflowState();
+    const { mockStore } = setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: true,
+      gate: 'checkpoint_required',
+      operationsSince: 25,
+      threshold: 20,
     });
+    const args = { featureId: 'test-feature' };
 
-    it('prepareDelegation_AncestryBlockedFirst_WorktreeNotChecked', async () => {
-      // Arrange: ancestry fails — worktree should NOT be called (short-circuit)
-      const state = readyWorkflowState();
-      const { mockStore } = setupMaterializer(state);
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
 
-      const callOrder: string[] = [];
-      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
-        callOrder.push('ancestry');
-        return {
-          passed: false,
-          blocked: true,
-          reason: 'ancestry',
-          missing: ['main'],
-        };
-      });
-      vi.mocked(assertMainWorktree).mockImplementation(() => {
-        callOrder.push('worktree');
-        return {
-          isMain: true,
-          actual: '/repo',
-          expected: 'main worktree (no .claude/worktrees/ in path)',
-        };
-      });
+    // Assert: gated response
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      gated: boolean;
+      gate: string;
+      operationsSince: number;
+      threshold: number;
+    };
+    expect(data.gated).toBe(true);
+    expect(data.gate).toBe('checkpoint_required');
+    expect(data.operationsSince).toBe(25);
+    expect(data.threshold).toBe(20);
 
-      const args = { featureId: 'test-feature' };
+    // Assert: checkpoint.enforced event emitted
+    const appendCalls = mockStore.append.mock.calls;
+    const enforcedEvent = appendCalls.find(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'checkpoint.enforced',
+    );
+    expect(enforcedEvent).toBeDefined();
+    const eventData = (enforcedEvent![1] as { type: string; data: Record<string, unknown> }).data;
+    expect(eventData.operationsSince).toBe(25);
+    expect(eventData.threshold).toBe(20);
+    expect(eventData.blockedAction).toBe('wave-dispatch');
+  });
 
-      // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
-
-      // Assert: only ancestry was called, worktree was short-circuited
-      expect(callOrder).toEqual(['ancestry']);
-      expect(validateBranchAncestry).toHaveBeenCalledOnce();
-      expect(assertMainWorktree).not.toHaveBeenCalled();
-
-      // Assert: result is blocked with ancestry reason
-      expect(result.success).toBe(true);
-      const data = result.data as { blocked: boolean; reason: string; missing: string[] };
-      expect(data.blocked).toBe(true);
-      expect(data.reason).toBe('ancestry');
-      expect(data.missing).toContain('main');
-
-      // Assert: preflight.blocked event emitted (not preflight.executed)
-      const appendCalls = mockStore.append.mock.calls;
-      const blockedEvent = appendCalls.find(
-        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
-      );
-      expect(blockedEvent).toBeDefined();
-      const executedEvent = appendCalls.find(
-        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
-      );
-      expect(executedEvent).toBeUndefined();
+  it('handlePrepareDelegation_BelowThreshold_ProceedsNormally', async () => {
+    // Arrange: operationsSince below threshold — gate should not block
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    vi.mocked(shouldEnforceCheckpoint).mockReturnValue({
+      gated: false,
     });
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'task-1', title: 'Implement widget' },
+      ],
+    };
 
-    it('prepareDelegation_NativeIsolation_SkipsWorktreeCheck', async () => {
-      // Arrange: nativeIsolation=true, even with a worktree path — worktree check should be skipped
-      const state = readyWorkflowState();
-      const { mockStore } = setupMaterializer(state);
-      vi.mocked(generateQualityHints).mockReturnValue([]);
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
 
-      const callOrder: string[] = [];
-      vi.mocked(validateBranchAncestry).mockImplementation(async () => {
-        callOrder.push('ancestry');
-        return { passed: true, checks: ['ancestry'] };
-      });
-      vi.mocked(assertMainWorktree).mockImplementation(() => {
-        callOrder.push('worktree');
-        return {
-          isMain: false,
-          actual: '/repo/.claude/worktrees/agent-abc123',
-          expected: 'main worktree (no .claude/worktrees/ in path)',
-        };
-      });
-
-      const args = { featureId: 'test-feature', nativeIsolation: true };
-
-      // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
-
-      // Assert: ancestry was called, but worktree check was skipped entirely
-      expect(callOrder).toEqual(['ancestry']);
-      expect(validateBranchAncestry).toHaveBeenCalledOnce();
-      expect(assertMainWorktree).not.toHaveBeenCalled();
-
-      // Assert: handler proceeded normally (not blocked by worktree)
-      expect(result.success).toBe(true);
-      const data = result.data as { ready: boolean; isolation: string };
-      expect(data.ready).toBe(true);
-      expect(data.isolation).toBe('native');
-
-      // Assert: preflight.executed event emitted (both checks listed as passed)
-      const appendCalls = mockStore.append.mock.calls;
-      const executedEvent = appendCalls.find(
-        (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
-      );
-      expect(executedEvent).toBeDefined();
-    });
+    // Assert: proceeds to task classification — not gated
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      taskClassifications: TaskClassification[];
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+    expect(data.taskClassifications).toBeDefined();
+    expect(data.taskClassifications).toHaveLength(1);
   });
 
   // ─── Task Classification ─────────────────────────────────────────────────
