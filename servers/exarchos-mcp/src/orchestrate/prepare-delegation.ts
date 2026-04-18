@@ -9,6 +9,7 @@
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -216,6 +217,7 @@ function assembleQualityHints(
 export async function handlePrepareDelegation(
   args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
+  ctx?: DispatchContext,
 ): Promise<ToolResult> {
   // Validate input
   if (!args.featureId) {
@@ -314,7 +316,7 @@ export async function handlePrepareDelegation(
     } catch { /* fire-and-forget */ }
 
     // Compute task classifications when tasks are provided (advisory)
-    const agentConfig = DEFAULTS.agents;
+    const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
     const taskClassifications = args.tasks
       ? args.tasks.map(t => classifyTask(t, agentConfig))
       : undefined;

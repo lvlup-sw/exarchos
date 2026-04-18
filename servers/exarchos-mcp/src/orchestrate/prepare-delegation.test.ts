@@ -823,6 +823,95 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
+  describe('handler config threading', () => {
+    it('PrepareDelegation_WithTasks_ClassificationsIncludeRecommendedModel', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Implement widget' },
+          { id: 'task-2', title: 'Stub boilerplate' },
+        ],
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      expect(data.taskClassifications).toBeDefined();
+      for (const tc of data.taskClassifications) {
+        expect(tc.recommendedModel).toBeDefined();
+        expect(['opus', 'sonnet', 'haiku']).toContain(tc.recommendedModel);
+      }
+    });
+
+    it('PrepareDelegation_WithCtx_UsesProjectConfigForModelResolution', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Scaffold the interface' },
+          { id: 'task-2', title: 'Implement handler' },
+        ],
+      };
+      const ctx = {
+        stateDir: STATE_DIR,
+        eventStore: {} as never,
+        enableTelemetry: false,
+        projectConfig: {
+          agents: {
+            defaultModel: 'sonnet' as const,
+            models: { scaffolder: 'haiku' as const },
+          },
+        } as never,
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, ctx as never);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
+      const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
+      expect(scaffolderTask?.recommendedModel).toBe('haiku');
+      expect(implementerTask?.recommendedModel).toBe('sonnet');
+    });
+
+    it('PrepareDelegation_WithoutCtx_UsesDefaults', async () => {
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const args = {
+        featureId: 'test-feature',
+        tasks: [
+          { id: 'task-1', title: 'Scaffold boilerplate' },
+          { id: 'task-2', title: 'Implement handler' },
+        ],
+      };
+
+      // Act -- no ctx passed
+      const result = await handlePrepareDelegation(args, STATE_DIR);
+
+      // Assert -- uses DEFAULTS.agents
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      const scaffolderTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'scaffolder');
+      const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
+      expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
+      expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+    });
+  });
+
   describe('classifyTask model resolution', () => {
     it('classifyTask_WithAgentConfig_ScaffolderGetsConfiguredModel', () => {
       const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
