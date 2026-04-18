@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { serializeTopology, listWorkflowTypes } from './state-machine.js';
+import {
+  serializeTopology,
+  listWorkflowTypes,
+  getHSMDefinition,
+  getInitialPhase,
+  isBuiltInWorkflowType,
+  executeTransition,
+} from './state-machine.js';
 import type { SerializedTopology, WorkflowTypeSummary } from './state-machine.js';
 
 describe('serializeTopology', () => {
@@ -139,5 +146,57 @@ describe('listWorkflowTypes', () => {
     const refactor = result.workflowTypes.find((wt) => wt.name === 'refactor');
     expect(refactor).toBeDefined();
     expect(refactor!.trackCount).toBe(2);
+  });
+});
+
+// ─── Discovery Workflow Tests (#1080) ──────────────────────────────────────
+
+describe('Discovery workflow', () => {
+  it('getHSMDefinition_Discovery_ReturnsValidDefinition', () => {
+    const hsm = getHSMDefinition('discovery');
+    expect(hsm.id).toBe('discovery');
+    expect(Object.keys(hsm.states)).toContain('gathering');
+    expect(Object.keys(hsm.states)).toContain('synthesizing');
+    expect(Object.keys(hsm.states)).toContain('completed');
+    expect(Object.keys(hsm.states)).toContain('cancelled');
+  });
+
+  it('getInitialPhase_Discovery_ReturnsGathering', () => {
+    expect(getInitialPhase('discovery')).toBe('gathering');
+  });
+
+  it('isBuiltInWorkflowType_Discovery_ReturnsTrue', () => {
+    expect(isBuiltInWorkflowType('discovery')).toBe(true);
+  });
+
+  it('executeTransition_Discovery_GatheringToSynthesizing_PassesWithSources', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('synthesizing');
+  });
+
+  it('executeTransition_Discovery_GatheringToSynthesizing_FailsWithoutSources', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: {}, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(false);
+  });
+
+  it('executeTransition_Discovery_SynthesizingToCompleted_PassesWithReport', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'synthesizing', artifacts: { report: 'docs/report.md' }, _events: [] };
+    const result = executeTransition(hsm, state, 'completed');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('completed');
+  });
+
+  it('executeTransition_Discovery_CancelFromGathering_Succeeds', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', _events: [] };
+    const result = executeTransition(hsm, state, 'cancelled');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('cancelled');
   });
 });
