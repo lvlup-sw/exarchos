@@ -460,7 +460,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(69);
+    expect(EventTypes).toHaveLength(71);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
