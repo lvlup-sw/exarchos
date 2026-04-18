@@ -663,6 +663,26 @@ export async function handlePruneStaleWorkflows(
       : {}),
   };
 
+  // Emit prune.diagnostics event (fire-and-forget). Always emitted when
+  // an eventStore is available — even when malformedCount is 0, so dashboards
+  // and audit queries can track that a prune evaluation ran.
+  if (ctx?.eventStore) {
+    ctx.eventStore
+      .append('_prune', {
+        type: 'prune.diagnostics' as EventType,
+        data: {
+          malformedCount: diagnostics.malformedCount,
+          candidateCount: diagnostics.candidateCount,
+          malformedEntries: diagnostics.malformedEntries,
+          ...(diagnostics.advisory ? { advisory: diagnostics.advisory } : {}),
+        },
+      })
+      .catch(() => {
+        // Fire-and-forget: diagnostics event emission failure must not
+        // affect the prune pipeline outcome.
+      });
+  }
+
   // 3. Dry run short-circuit. Intentionally omit `pruned` — see type
   // comment on PruneHandlerResult. Callers can distinguish dry-run from
   // apply mode by the presence/absence of the field.

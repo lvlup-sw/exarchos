@@ -249,7 +249,11 @@ describe('handlePruneStaleWorkflows', () => {
     // apply mode". The design spec shape has `pruned?` for this reason.
     expect(data).not.toHaveProperty('pruned');
     expect(deps.cancelSpy).not.toHaveBeenCalled();
-    expect(ctx.eventStore.append).not.toHaveBeenCalled();
+    // No workflow.pruned events in dry-run (prune.diagnostics is fine)
+    const prunedEvents = ctx.eventStore.append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
+    );
+    expect(prunedEvents).toHaveLength(0);
   });
 
   it('apply mode calls handleCancel for each approved candidate', async () => {
@@ -369,8 +373,11 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId)).toEqual(['a']);
 
     // Emitted event carries the skippedSafeguards marker
-    expect(append).toHaveBeenCalledTimes(1);
-    const [streamId, payload] = append.mock.calls[0];
+    const prunedCalls = append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
+    );
+    expect(prunedCalls).toHaveLength(1);
+    const [streamId, payload] = prunedCalls[0];
     expect(streamId).toBe('a');
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.type).toBe('workflow.pruned');
@@ -395,8 +402,11 @@ describe('handlePruneStaleWorkflows', () => {
       deps,
     );
 
-    expect(append).toHaveBeenCalledTimes(2);
-    for (const call of append.mock.calls) {
+    const prunedCalls = append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
+    );
+    expect(prunedCalls).toHaveLength(2);
+    for (const call of prunedCalls) {
       const envelope = call[1] as { type: string; data: Record<string, unknown> };
       expect(envelope.type).toBe('workflow.pruned');
       expect(typeof envelope.data.featureId).toBe('string');
@@ -547,8 +557,11 @@ describe('handlePruneStaleWorkflows', () => {
     expect(data.pruned.map((p) => p.featureId).sort()).toEqual(['a', 'c']);
     const failed = data.skipped.find((s) => s.featureId === 'b');
     expect(failed?.reason).toBe('cancel-failed');
-    // Only successful cancels emit events.
-    expect(append).toHaveBeenCalledTimes(2);
+    // Only successful cancels emit workflow.pruned events.
+    const prunedCalls = append.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { type: string }).type === 'workflow.pruned',
+    );
+    expect(prunedCalls).toHaveLength(2);
   });
 
   // ─── F1: fail-closed malformed-entry validation ───────────────────────────
@@ -996,5 +1009,81 @@ describe('handlePruneStaleWorkflows', () => {
     };
     expect(data.diagnostics.malformedCount).toBe(4);
     expect(data.diagnostics.candidateCount).toBe(1);
+  });
+
+  // ─── Task 010: prune.diagnostics event emission ───────────────────────────
+
+  it('handlePrune_WithMalformed_EmitsPruneDiagnosticsEvent', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          featureId: 'valid-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/valid-1.state.json',
+          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+        },
+        // Malformed: missing _checkpoint
+        {
+          featureId: 'bad-1',
+          workflowType: 'feature',
+          phase: 'implementing',
+          stateFile: '/tmp/bad-1.state.json',
+        },
+      ],
+    });
+    vi.spyOn(orchestrateLogger, 'warn').mockImplementation((() => {}) as never);
+
+    await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    // Find the prune.diagnostics event among all appended events
+    const diagnosticsCall = append.mock.calls.find(
+      (call: unknown[]) => {
+        const envelope = call[1] as { type: string };
+        return envelope.type === 'prune.diagnostics';
+      },
+    );
+    expect(diagnosticsCall).toBeDefined();
+    const [, payload] = diagnosticsCall!;
+    const envelope = payload as { type: string; data: Record<string, unknown> };
+    expect(envelope.data.malformedCount).toBe(1);
+    expect(envelope.data.candidateCount).toBe(1);
+  });
+
+  it('handlePrune_NoMalformed_StillEmitsDiagnosticsEvent', async () => {
+    const { append, ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'valid-1', lastActivityTimestamp: staleIso(20_000) },
+      ]),
+    );
+
+    await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    const diagnosticsCall = append.mock.calls.find(
+      (call: unknown[]) => {
+        const envelope = call[1] as { type: string };
+        return envelope.type === 'prune.diagnostics';
+      },
+    );
+    expect(diagnosticsCall).toBeDefined();
+    const [, payload] = diagnosticsCall!;
+    const envelope = payload as { type: string; data: Record<string, unknown> };
+    expect(envelope.data.malformedCount).toBe(0);
+    expect(envelope.data.candidateCount).toBe(1);
   });
 });
