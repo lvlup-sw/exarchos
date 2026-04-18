@@ -140,6 +140,77 @@ describe('selectPruneCandidates', () => {
     expect(candidates.map((c) => c.featureId).sort()).toEqual(['f1', 'os1']);
     expect(excluded.filter((e) => e.reason === 'oneshot-excluded')).toEqual([]);
   });
+
+  // ─── Task 012: phaseExclusions filter ────────────────────────────────────
+
+  it('selectPruneCandidates_DelegatePhase_ExcludedByDefault', () => {
+    const stale = minutesAgo(30_000);
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'del', phase: 'delegate', lastActivityTimestamp: stale }),
+      makeEntry({ featureId: 'impl', phase: 'implementing', lastActivityTimestamp: stale }),
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      { phaseExclusions: ['delegate', 'review', 'synthesize'] },
+      NOW,
+    );
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['impl']);
+    expect(excluded.find((e) => e.featureId === 'del')?.reason).toBe('phase-excluded');
+  });
+
+  it('selectPruneCandidates_ReviewPhase_ExcludedByDefault', () => {
+    const stale = minutesAgo(30_000);
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'rev', phase: 'review', lastActivityTimestamp: stale }),
+      makeEntry({ featureId: 'impl', phase: 'implementing', lastActivityTimestamp: stale }),
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      { phaseExclusions: ['delegate', 'review', 'synthesize'] },
+      NOW,
+    );
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['impl']);
+    expect(excluded.find((e) => e.featureId === 'rev')?.reason).toBe('phase-excluded');
+  });
+
+  it('selectPruneCandidates_SynthesizePhase_ExcludedByDefault', () => {
+    const stale = minutesAgo(30_000);
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'synth', phase: 'synthesize', lastActivityTimestamp: stale }),
+      makeEntry({ featureId: 'impl', phase: 'implementing', lastActivityTimestamp: stale }),
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      { phaseExclusions: ['delegate', 'review', 'synthesize'] },
+      NOW,
+    );
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['impl']);
+    expect(excluded.find((e) => e.featureId === 'synth')?.reason).toBe('phase-excluded');
+  });
+
+  it('selectPruneCandidates_CustomExclusions_Honored', () => {
+    const stale = minutesAgo(30_000);
+    const entries: WorkflowListEntry[] = [
+      makeEntry({ featureId: 'plan', phase: 'plan', lastActivityTimestamp: stale }),
+      makeEntry({ featureId: 'impl', phase: 'implementing', lastActivityTimestamp: stale }),
+    ];
+
+    // Custom exclusions: only 'plan' excluded, 'implementing' is fine
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      { phaseExclusions: ['plan'] },
+      NOW,
+    );
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['impl']);
+    expect(excluded.find((e) => e.featureId === 'plan')?.reason).toBe('phase-excluded');
+  });
 });
 
 // ─── Handler Tests ──────────────────────────────────────────────────────────

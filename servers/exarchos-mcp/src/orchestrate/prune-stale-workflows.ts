@@ -47,10 +47,12 @@ export interface WorkflowListEntry {
 }
 
 export interface PruneConfig {
-  /** Minutes of inactivity before a workflow is considered stale. Default 10080 (7 days). */
+  /** Minutes of inactivity before a workflow is considered stale. Default 20160 (14 days). */
   thresholdMinutes?: number;
   /** When false, oneshot workflows are excluded from candidates. Default true. */
   includeOneShot?: boolean;
+  /** Phases to exclude from prune candidates. Entries in these phases are excluded with reason 'phase-excluded'. */
+  phaseExclusions?: readonly string[];
 }
 
 export interface PruneCandidate {
@@ -63,7 +65,7 @@ export interface PruneCandidate {
 
 export interface PruneExclusion {
   featureId: string;
-  reason: 'terminal' | 'fresh' | 'oneshot-excluded';
+  reason: 'terminal' | 'fresh' | 'oneshot-excluded' | 'phase-excluded';
 }
 
 export interface PruneSelection {
@@ -131,6 +133,9 @@ export function selectPruneCandidates(
 ): PruneSelection {
   const thresholdMinutes = config.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = config.includeOneShot ?? true;
+  const phaseExclusionSet = config.phaseExclusions
+    ? new Set(config.phaseExclusions)
+    : undefined;
 
   const candidates: PruneCandidate[] = [];
   const excluded: PruneExclusion[] = [];
@@ -138,6 +143,11 @@ export function selectPruneCandidates(
   for (const entry of entries) {
     if (isTerminalPhase(entry.phase)) {
       excluded.push({ featureId: entry.featureId, reason: 'terminal' });
+      continue;
+    }
+
+    if (phaseExclusionSet?.has(entry.phase)) {
+      excluded.push({ featureId: entry.featureId, reason: 'phase-excluded' });
       continue;
     }
 
