@@ -158,4 +158,49 @@ describe('ProjectConfigSchema', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe('agents section', () => {
+    it('ProjectConfigSchema_AgentsSection_AcceptsValidConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: {
+          'default-model': 'opus',
+          models: { implementer: 'opus', reviewer: 'sonnet', scaffolder: 'haiku' },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_AcceptsPartialConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'sonnet' },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidModel', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'gpt4' },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidAgentKey', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { models: { orchestrator: 'opus' } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_OmittedIsValid', () => {
+      const result = ProjectConfigSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsUnknownKeys', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'opus', extra: true },
+      });
+      expect(result.success).toBe(false);
+    });
+  });
 });
