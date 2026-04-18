@@ -150,7 +150,7 @@ function setupMaterializer(
 
   const mockStore = {
     query: vi.fn().mockResolvedValue([]),
-    append: vi.fn().mockResolvedValue(undefined),
+    append: vi.fn(),
     listStreams: vi.fn().mockReturnValue(null),
   };
   vi.mocked(getOrCreateEventStore).mockReturnValue(
@@ -166,13 +166,6 @@ function setupMaterializer(
 describe('handlePrepareDelegation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Re-set dispatch guard defaults after clearAllMocks
-    vi.mocked(validateBranchAncestry).mockResolvedValue({ passed: true, checks: ['ancestry'] });
-    vi.mocked(assertMainWorktree).mockReturnValue({
-      isMain: true,
-      actual: '/repo',
-      expected: 'main worktree (no .claude/worktrees/ in path)',
-    });
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
@@ -691,152 +684,6 @@ describe('handlePrepareDelegation', () => {
     expect(data.ready).toBe(true);
     expect(data.readiness).toBeDefined();
     expect(data.taskClassifications).toBeDefined();
-  });
-
-  // ─── DR-2: Worktree Assertion Integration ─────────────────────────────────
-
-  it('handlePrepareDelegation_InSubagentWorktree_ReturnsBlocked', async () => {
-    // Arrange: assertMainWorktree returns isMain=false (subagent worktree)
-    const state = readyWorkflowState();
-    setupMaterializer(state);
-    vi.mocked(assertMainWorktree).mockReturnValue({
-      isMain: false,
-      actual: '/repo/.claude/worktrees/agent-abc123',
-      expected: 'main worktree (no .claude/worktrees/ in path)',
-    });
-    const args = { featureId: 'test-feature' };
-
-    // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
-
-    // Assert
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      blocked: boolean;
-      reason: string;
-      actual: string;
-      expected: string;
-    };
-    expect(data.blocked).toBe(true);
-    expect(data.reason).toBe('worktree-location');
-    expect(data.actual).toBe('/repo/.claude/worktrees/agent-abc123');
-    expect(data.expected).toBeDefined();
-  });
-
-  it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
-    // Arrange: assertMainWorktree returns isMain=true
-    const state = readyWorkflowState();
-    setupMaterializer(state);
-    vi.mocked(assertMainWorktree).mockReturnValue({
-      isMain: true,
-      actual: '/home/user/repo',
-      expected: 'main worktree (no .claude/worktrees/ in path)',
-    });
-    vi.mocked(generateQualityHints).mockReturnValue([]);
-    const args = { featureId: 'test-feature' };
-
-    // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
-
-    // Assert — proceeds normally, returns readiness
-    expect(result.success).toBe(true);
-    const data = result.data as {
-      ready: boolean;
-      readiness: DelegationReadinessState;
-    };
-    expect(data.ready).toBe(true);
-    expect(data.readiness).toBeDefined();
-  });
-
-  // ─── DR-1/DR-2: Preflight Event Emissions ────────────────────────────────
-
-  it('handlePrepareDelegation_AncestryPasses_EmitsPreflightExecutedEvent', async () => {
-    // Arrange: ancestry and worktree checks pass, ready state
-    const state = readyWorkflowState();
-    const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
-      passed: true,
-      checks: ['ancestry'],
-    });
-    vi.mocked(assertMainWorktree).mockReturnValue({
-      isMain: true,
-      actual: '/home/user/repo',
-      expected: 'main worktree (no .claude/worktrees/ in path)',
-    });
-    vi.mocked(generateQualityHints).mockReturnValue([]);
-    const args = { featureId: 'test-feature' };
-
-    // Act
-    await handlePrepareDelegation(args, STATE_DIR);
-
-    // Assert: preflight.executed event emitted
-    const appendCalls = mockStore.append.mock.calls;
-    const preflightEvent = appendCalls.find(
-      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.executed',
-    );
-    expect(preflightEvent).toBeDefined();
-    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
-    expect(eventData.checks).toContain('ancestry');
-    expect(eventData.checks).toContain('worktree');
-    expect(eventData.passed).toBe(true);
-    expect(eventData.integrationBranch).toBeDefined();
-  });
-
-  it('handlePrepareDelegation_AncestryBlocked_EmitsPreflightBlockedEvent', async () => {
-    // Arrange: ancestry check fails
-    const state = readyWorkflowState();
-    const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
-      passed: false,
-      blocked: true,
-      reason: 'ancestry',
-      missing: ['main'],
-    });
-    const args = { featureId: 'test-feature' };
-
-    // Act
-    await handlePrepareDelegation(args, STATE_DIR);
-
-    // Assert: preflight.blocked event emitted
-    const appendCalls = mockStore.append.mock.calls;
-    const preflightEvent = appendCalls.find(
-      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
-    );
-    expect(preflightEvent).toBeDefined();
-    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
-    expect(eventData.reason).toBe('ancestry');
-    expect((eventData.details as { missing: string[] }).missing).toContain('main');
-  });
-
-  it('handlePrepareDelegation_WorktreeBlocked_EmitsPreflightBlockedEvent', async () => {
-    // Arrange: ancestry passes but worktree check fails
-    const state = readyWorkflowState();
-    const { mockStore } = setupMaterializer(state);
-    vi.mocked(validateBranchAncestry).mockResolvedValue({
-      passed: true,
-      checks: ['ancestry'],
-    });
-    vi.mocked(assertMainWorktree).mockReturnValue({
-      isMain: false,
-      actual: '/repo/.claude/worktrees/agent-xyz',
-      expected: 'main worktree (no .claude/worktrees/ in path)',
-    });
-    const args = { featureId: 'test-feature' };
-
-    // Act
-    await handlePrepareDelegation(args, STATE_DIR);
-
-    // Assert: preflight.blocked event emitted
-    const appendCalls = mockStore.append.mock.calls;
-    const preflightEvent = appendCalls.find(
-      (call: unknown[]) => (call[1] as { type: string }).type === 'preflight.blocked',
-    );
-    expect(preflightEvent).toBeDefined();
-    const eventData = (preflightEvent![1] as { type: string; data: Record<string, unknown> }).data;
-    expect(eventData.reason).toBe('worktree-location');
-    const details = eventData.details as { actual: string; expected: string };
-    expect(details.actual).toBe('/repo/.claude/worktrees/agent-xyz');
-    expect(details.expected).toBeDefined();
   });
 
   // ─── Task Classification ─────────────────────────────────────────────────

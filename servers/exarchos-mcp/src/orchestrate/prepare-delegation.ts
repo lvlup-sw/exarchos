@@ -13,7 +13,7 @@ import {
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
-import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import { validateBranchAncestry } from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
 import {
   WORKFLOW_STATE_VIEW,
@@ -233,18 +233,6 @@ export async function handlePrepareDelegation(
     );
 
     if (ancestryResult.blocked) {
-      // Fire-and-forget: emit preflight.blocked event for ancestry failure
-      store.append(streamId, {
-        type: 'preflight.blocked',
-        data: {
-          reason: ancestryResult.reason,
-          details: {
-            ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
-            ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
-          },
-        },
-      }).catch(() => { /* fire-and-forget */ });
-
       return {
         success: true,
         data: {
@@ -255,45 +243,6 @@ export async function handlePrepareDelegation(
         },
       };
     }
-
-    // ─── DR-2: Worktree Location Assertion ──────────────────────────────
-    // Skip worktree check when nativeIsolation is true (Claude Code manages isolation)
-    if (!args.nativeIsolation) {
-      const worktreeResult = assertMainWorktree();
-      if (!worktreeResult.isMain) {
-        // Fire-and-forget: emit preflight.blocked event for worktree violation
-        store.append(streamId, {
-          type: 'preflight.blocked',
-          data: {
-            reason: 'worktree-location',
-            details: {
-              actual: worktreeResult.actual,
-              expected: worktreeResult.expected,
-            },
-          },
-        }).catch(() => { /* fire-and-forget */ });
-
-        return {
-          success: true,
-          data: {
-            blocked: true,
-            reason: 'worktree-location',
-            actual: worktreeResult.actual,
-            expected: worktreeResult.expected,
-          },
-        };
-      }
-    }
-
-    // Fire-and-forget: emit preflight.executed event — both checks passed
-    store.append(streamId, {
-      type: 'preflight.executed',
-      data: {
-        checks: ['ancestry', 'worktree'],
-        passed: true,
-        integrationBranch,
-      },
-    }).catch(() => { /* fire-and-forget */ });
 
     // Materialize delegation readiness from event stream
     const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
