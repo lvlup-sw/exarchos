@@ -280,7 +280,6 @@ When done, report:
 ```typescript
 Task({
   subagent_type: "general-purpose",
-  model: "opus",
   description: "Implement user validation",
   prompt: `
 # Task: Implement User Email Validation

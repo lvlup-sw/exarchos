@@ -64,7 +64,7 @@ When using native isolation:
 | Don't | Do Instead |
 |-------|------------|
 | Make subagents read plan files | Provide full task text in prompt |
-| Use default model for coding | Specify `model: "opus"` |
+| Use default model for coding | Use configured model from `prepare_delegation` |
 | Send sequential Task calls | Batch parallel tasks in one message |
 | Skip worktree for parallel work | Create isolated worktrees |
 | Forget to track in TodoWrite | Update status for every task |
