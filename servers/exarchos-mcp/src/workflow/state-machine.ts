@@ -5,6 +5,7 @@ import {
   createDebugHSM,
   createRefactorHSM,
   createOneshotHSM,
+  createDiscoveryHSM,
 } from './hsm-definitions.js';
 
 // Re-export guard types for consumers
@@ -107,13 +108,14 @@ export interface WorkflowTypeSummary {
 
 // ─── HSM Registry ───────────────────────────────────────────────────────────
 
-const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor', 'oneshot']);
+const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor', 'oneshot', 'discovery']);
 
 const hsmRegistry: Record<string, HSMDefinition> = {
   feature: createFeatureHSM(),
   debug: createDebugHSM(),
   refactor: createRefactorHSM(),
   oneshot: createOneshotHSM(),
+  discovery: createDiscoveryHSM(),
 };
 
 const initialPhaseRegistry: Record<string, string> = {
@@ -121,6 +123,7 @@ const initialPhaseRegistry: Record<string, string> = {
   debug: 'triage',
   refactor: 'explore',
   oneshot: 'plan',
+  discovery: 'gathering',
 };
 
 export function isBuiltInWorkflowType(workflowType: string): boolean {

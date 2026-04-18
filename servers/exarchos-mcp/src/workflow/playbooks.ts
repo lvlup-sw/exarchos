@@ -1069,6 +1069,68 @@ for (const pb of oneshotPlaybook) {
   register(pb);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Discovery Workflow Playbooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+register({
+  phase: 'gathering',
+  workflowType: 'discovery',
+  skill: 'discovery',
+  skillRef: '@skills/discovery/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record research sources and artifacts',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Sources collected → synthesizing',
+  guardPrerequisites: 'artifacts.sources is a non-empty array',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are gathering research sources and materials. Use exarchos_workflow set to record sources in artifacts.sources (array of paths/URLs). No TDD requirement — this workflow produces documents, not code. Transition to synthesizing when sources are collected. Key decision: breadth vs depth of research. Anti-pattern: starting to write the deliverable before gathering sufficient sources.',
+});
+
+register({
+  phase: 'synthesizing',
+  workflowType: 'discovery',
+  skill: 'discovery',
+  skillRef: '@skills/discovery/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_workflow',
+      action: 'set',
+      purpose: 'Record report artifact path',
+    },
+  ],
+  events: [],
+  transitionCriteria: 'Report artifact created → completed',
+  guardPrerequisites: 'artifacts.report exists',
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'You are synthesizing gathered sources into a deliverable document. Write the report and commit it to the repo. Use exarchos_workflow set to record the report path in artifacts.report. Transition to completed when the report is committed. Optional: if discovery surfaces implementation needs, bridge to /exarchos:ideate with the report as design input.',
+});
+
+register(
+  terminalPlaybook(
+    'discovery',
+    'completed',
+    'Discovery workflow is complete. Report artifact has been committed.',
+  ),
+);
+
+register(
+  terminalPlaybook(
+    'discovery',
+    'cancelled',
+    'Discovery workflow was cancelled.',
+  ),
+);
+
 // ─── Aggregate Export: workflowPlaybooks ─────────────────────────────────────
 //
 // Map of workflow type → the declared playbook entries for that type, for
@@ -1091,6 +1153,7 @@ export const workflowPlaybooks: ReadonlyMap<string, readonly PhasePlaybook[]> =
     ['debug', collectRegisteredForType('debug')],
     ['refactor', collectRegisteredForType('refactor')],
     ['oneshot', oneshotPlaybook],
+    ['discovery', collectRegisteredForType('discovery')],
   ]);
 
 // ─── Serialization Types ─────────────────────────────────────────────────────

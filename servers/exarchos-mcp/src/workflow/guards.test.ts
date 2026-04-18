@@ -1005,3 +1005,40 @@ describe('oneshotPlanSet', () => {
     expect(result).not.toBe(true);
   });
 });
+
+// ─── Discovery Workflow Guard Tests (#1080) ────────────────────────────────
+
+describe('sourcesCollected', () => {
+  it('sourcesCollected_PassesWhenArtifactsSourcesNonEmpty', () => {
+    const state = { artifacts: { sources: ['doc1.md', 'doc2.md'] } };
+    expect(guards.sourcesCollected.evaluate(state)).toBe(true);
+  });
+
+  it('sourcesCollected_FailsWhenArtifactsSourcesMissing', () => {
+    const state = { artifacts: {} };
+    const result = guards.sourcesCollected.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).passed).toBe(false);
+  });
+
+  it('sourcesCollected_FailsWhenArtifactsSourcesEmptyArray', () => {
+    const state = { artifacts: { sources: [] } };
+    const result = guards.sourcesCollected.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).passed).toBe(false);
+  });
+});
+
+describe('reportArtifactExists', () => {
+  it('reportArtifactExists_PassesWhenArtifactsReportSet', () => {
+    const state = { artifacts: { report: 'docs/research/analysis.md' } };
+    expect(guards.reportArtifactExists.evaluate(state)).toBe(true);
+  });
+
+  it('reportArtifactExists_FailsWhenArtifactsReportMissing', () => {
+    const state = { artifacts: {} };
+    const result = guards.reportArtifactExists.evaluate(state);
+    expect(result).not.toBe(true);
+    expect((result as GuardFailure).passed).toBe(false);
+  });
+});

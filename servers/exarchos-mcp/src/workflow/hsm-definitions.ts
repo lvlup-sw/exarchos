@@ -206,6 +206,24 @@ export function createOneshotHSM(): HSMDefinition {
   return { id: 'oneshot', states, transitions: [...oneshotTransitions] };
 }
 
+// ─── Discovery Workflow HSM ─────────────────────────────────────────────────
+
+export function createDiscoveryHSM(): HSMDefinition {
+  const states: Record<string, State> = {
+    gathering:    { id: 'gathering', type: 'atomic' },
+    synthesizing: { id: 'synthesizing', type: 'atomic' },
+    completed:    { id: 'completed', type: 'final' },
+    cancelled:    { id: 'cancelled', type: 'final' },
+  };
+
+  const transitions: Transition[] = [
+    { from: 'gathering', to: 'synthesizing', guard: guards.sourcesCollected },
+    { from: 'synthesizing', to: 'completed', guard: guards.reportArtifactExists },
+  ];
+
+  return { id: 'discovery', states, transitions };
+}
+
 // ─── Refactor Workflow HSM ──────────────────────────────────────────────────
 
 export function createRefactorHSM(): HSMDefinition {

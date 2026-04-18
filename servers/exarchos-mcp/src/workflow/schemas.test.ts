@@ -4,6 +4,7 @@ import {
   SynthesisSchema,
   TaskStatusSchema,
   OneshotPhaseSchema,
+  WorkflowTypeSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -534,5 +535,13 @@ describe('WorkflowState integration', () => {
       const task0 = result.data.tasks[0] as Record<string, unknown>;
       expect(task0.testingStrategy).toBeDefined();
     }
+  });
+});
+
+// ─── Discovery Workflow Type Schema Tests (#1080) ──────────────────────────
+
+describe('Discovery workflow type schema', () => {
+  it('WorkflowTypeSchema_Discovery_Accepted', () => {
+    expect(WorkflowTypeSchema.safeParse('discovery').success).toBe(true);
   });
 });
