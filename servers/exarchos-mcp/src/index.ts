@@ -306,10 +306,13 @@ async function main() {
     if (actionCommand.name() !== 'mcp') return;
 
     if (!ctx.eventStore.inSidecarMode) {
-      const { mergeSidecarEvents } = await import('./storage/sidecar-merger.js');
-      await mergeSidecarEvents(stateDir, ctx.eventStore).catch((err) => {
-        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar merge failed');
-      });
+      const { startPeriodicMerge } = await import('./storage/sidecar-scheduler.js');
+      try {
+        const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
+        process.on('exit', () => drainHandle.stop());
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar drain scheduler failed to start');
+      }
     }
 
     // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
