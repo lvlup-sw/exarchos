@@ -27,6 +27,11 @@ vi.mock('../telemetry/telemetry-queries.js', () => ({
   queryTelemetryState: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock('./dispatch-guard.js', () => ({
+  validateBranchAncestry: vi.fn().mockResolvedValue({ passed: true, checks: ['ancestry'] }),
+  assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
+}));
+
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -36,6 +41,7 @@ import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
+import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -618,6 +624,66 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.worktrees.expected).toBe(3);
     expect(data.readiness.worktrees.ready).toBe(3);
     expect(data.readiness.worktrees.failed).toHaveLength(0);
+  });
+
+  // ─── DR-1: Ancestry Check Integration ───────────────────────────────────
+
+  it('handlePrepareDelegation_AncestryCheckFails_ReturnsBlocked', async () => {
+    // Arrange: ancestry check returns blocked
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: false,
+      blocked: true,
+      reason: 'ancestry',
+      missing: ['main'],
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      missing: string[];
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('ancestry');
+    expect(data.missing).toContain('main');
+  });
+
+  it('handlePrepareDelegation_AncestryCheckPasses_ProceedsToClassification', async () => {
+    // Arrange: ancestry check passes
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(validateBranchAncestry).mockResolvedValue({
+      passed: true,
+      checks: ['ancestry'],
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'task-1', title: 'Implement widget' },
+      ],
+    };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — proceeds past ancestry check, returns readiness data
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      taskClassifications: TaskClassification[];
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+    expect(data.taskClassifications).toBeDefined();
   });
 
   // ─── Task Classification ─────────────────────────────────────────────────

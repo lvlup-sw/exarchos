@@ -6,12 +6,15 @@
 // prompt assembly.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
+import { validateBranchAncestry } from './dispatch-guard.js';
+import type { AncestryResult } from './dispatch-guard.js';
 import {
   WORKFLOW_STATE_VIEW,
 } from '../views/workflow-state-projection.js';
@@ -182,6 +185,17 @@ function assembleQualityHints(
   }));
 }
 
+// ─── Git Exec Helper ───────────────────────────────────────────────────────
+
+function createGitExec(): (args: readonly string[]) => string {
+  return (args: readonly string[]): string => {
+    return execFileSync('git', [...args], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  };
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handlePrepareDelegation(
@@ -201,20 +215,41 @@ export async function handlePrepareDelegation(
     const store = getOrCreateEventStore(stateDir);
     const streamId = args.featureId;
 
+    // ─── DR-1: Branch Ancestry Preflight ────────────────────────────────
+    // Materialize workflow state early to get integrationBranch
+    const wsEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
+    const workflowState = materializer.materialize<WorkflowStateView>(
+      streamId,
+      WORKFLOW_STATE_VIEW,
+      wsEvents,
+    );
+
+    const integrationBranch = workflowState.synthesis?.integrationBranch ?? args.featureId;
+    const gitExec = createGitExec();
+    const ancestryResult = await validateBranchAncestry(
+      integrationBranch,
+      ['main'],
+      gitExec,
+    );
+
+    if (ancestryResult.blocked) {
+      return {
+        success: true,
+        data: {
+          blocked: true,
+          reason: ancestryResult.reason,
+          ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
+          ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
+        },
+      };
+    }
+
     // Materialize delegation readiness from event stream
     const drEvents = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
     const readiness = materializer.materialize<DelegationReadinessState>(
       streamId,
       DELEGATION_READINESS_VIEW,
       drEvents,
-    );
-
-    // Materialize workflow state (needed for plan artifact check and task count)
-    const wsEvents = await queryDeltaEvents(store, materializer, streamId, WORKFLOW_STATE_VIEW);
-    const workflowState = materializer.materialize<WorkflowStateView>(
-      streamId,
-      WORKFLOW_STATE_VIEW,
-      wsEvents,
     );
 
     // Supplementary check: plan artifact existence (not tracked by the readiness view)
