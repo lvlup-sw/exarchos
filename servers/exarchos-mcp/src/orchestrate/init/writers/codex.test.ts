@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { CodexWriter } from './codex.js';
 import type { ConfigWriteResult } from '../schema.js';
+import { makeStubWriterDeps } from '../probes.js';
+import type { WriteOptions } from './writer.js';
+
+const stubDeps = makeStubWriterDeps();
+const defaultOptions: WriteOptions = { projectRoot: '/project', nonInteractive: false, forceOverwrite: false };
 
 describe('CodexWriter', () => {
   it('CodexWriter_Write_ReturnsStub', async () => {
     const writer = new CodexWriter();
-    const result: ConfigWriteResult = await writer.write('/project');
+    const result: ConfigWriteResult = await writer.write(stubDeps, defaultOptions);
 
     expect(result.runtime).toBe('codex');
     expect(result.status).toBe('stub');

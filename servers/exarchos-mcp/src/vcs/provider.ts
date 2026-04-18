@@ -97,3 +97,18 @@ export interface VcsProvider {
   createIssue(opts: CreateIssueOpts): Promise<IssueResult>;
   getRepository(): Promise<RepoInfo>;
 }
+
+export class UnsupportedOperationError extends Error {
+  readonly operation: string;
+  readonly provider: string;
+  constructor(provider: string, operation: string) {
+    super(`${provider}: ${operation} is not yet supported`);
+    this.name = 'UnsupportedOperationError';
+    this.provider = provider;
+    this.operation = operation;
+  }
+}
+
+export function isUnsupportedOperation(err: unknown): err is UnsupportedOperationError {
+  return err instanceof UnsupportedOperationError;
+}

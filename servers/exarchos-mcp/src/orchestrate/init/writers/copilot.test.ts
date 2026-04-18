@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CopilotWriter } from './copilot.js';
 import type { ConfigWriteResult } from '../schema.js';
+import { makeStubWriterDeps } from '../probes.js';
+import type { WriteOptions } from './writer.js';
+
+const stubDeps = makeStubWriterDeps();
+const defaultOptions: WriteOptions = { projectRoot: '/project', nonInteractive: false, forceOverwrite: false };
 
 // ─── In-memory fs stub ─────────────────────────────────────────────────────
 
@@ -67,7 +72,7 @@ describe('CopilotWriter', () => {
     fs.dirs.add('/project/.vscode');
 
     const writer = new CopilotWriter({ fs });
-    const result: ConfigWriteResult = await writer.write('/project');
+    const result: ConfigWriteResult = await writer.write(stubDeps, defaultOptions);
 
     expect(result.runtime).toBe('copilot');
     expect(result.status).toBe('written');
@@ -106,7 +111,7 @@ describe('CopilotWriter', () => {
     fs.files.set('/project/.vscode/mcp.json', existing);
 
     const writer = new CopilotWriter({ fs });
-    const result = await writer.write('/project');
+    const result = await writer.write(stubDeps, defaultOptions);
 
     expect(result.status).toBe('written');
 
@@ -126,7 +131,7 @@ describe('CopilotWriter', () => {
   it('CopilotWriter_Write_CreatesVscodeDir', async () => {
     // No .vscode directory exists
     const writer = new CopilotWriter({ fs });
-    const result = await writer.write('/project');
+    const result = await writer.write(stubDeps, defaultOptions);
 
     expect(result.status).toBe('written');
     expect(result.componentsWritten).toContain('mcp-config');

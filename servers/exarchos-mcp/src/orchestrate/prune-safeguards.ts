@@ -79,8 +79,13 @@ async function defaultHasRecentCommits(
  * @param provider - Optional VcsProvider for testability. Falls back to createVcsProvider().
  */
 export function defaultSafeguards(provider?: VcsProvider): PruneSafeguards {
-  // Lazily resolve the provider so we don't block on async in the factory.
-  // The hasOpenPR function is async anyway.
+  if (provider && provider.name !== 'github') {
+    return {
+      hasOpenPR: async () => false,
+      hasRecentCommits: defaultHasRecentCommits,
+    };
+  }
+
   let resolvedProvider: VcsProvider | undefined = provider;
 
   return {

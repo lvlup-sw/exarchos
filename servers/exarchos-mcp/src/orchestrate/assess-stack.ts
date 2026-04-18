@@ -8,6 +8,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../vcs/provider.js';
+import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
 import { getOrCreateEventStore } from '../views/tools.js';
@@ -364,6 +365,9 @@ export async function handleAssessStack(
   stateDir: string,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
+  const vcsGuard = requiresGitHub(provider, 'assess_stack');
+  if (vcsGuard) return vcsGuard;
+
   // Input validation
   if (!args.featureId) {
     return {

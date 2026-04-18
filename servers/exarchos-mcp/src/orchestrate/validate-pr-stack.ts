@@ -5,6 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { VcsProvider, PrSummary } from '../vcs/provider.js';
+import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { ToolResult } from '../format.js';
 
@@ -34,6 +35,9 @@ export async function handleValidatePrStack(
   args: ValidatePrStackArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
+  const vcsGuard = requiresGitHub(provider, 'validate_pr_stack');
+  if (vcsGuard) return vcsGuard;
+
   // 1. Validate args
   if (!args.baseBranch) {
     return {

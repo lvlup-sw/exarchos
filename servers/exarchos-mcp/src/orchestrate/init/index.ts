@@ -32,6 +32,10 @@ import {
 // ─── Canonical writer list (lazy — populated by handleInit) ──────────────
 
 import { ClaudeCodeWriter } from './writers/claude-code.js';
+import { CopilotWriter } from './writers/copilot.js';
+import { CursorWriter } from './writers/cursor.js';
+import { CodexWriter } from './writers/codex.js';
+import { OpenCodeWriter } from './writers/opencode.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -152,8 +156,10 @@ async function emitInitEvent(
 function getAllWriters(): ReadonlyArray<RuntimeConfigWriter> {
   return [
     new ClaudeCodeWriter(),
-    // Additional writers (copilot, cursor, codex, opencode) will be added
-    // once they implement the RuntimeConfigWriter interface.
+    new CopilotWriter(),
+    new CursorWriter(),
+    new CodexWriter(),
+    new OpenCodeWriter(),
   ];
 }
 

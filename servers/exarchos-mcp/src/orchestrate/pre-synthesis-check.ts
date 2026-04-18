@@ -347,6 +347,11 @@ async function checkPrStack(
     return;
   }
 
+  if (provider && provider.name !== 'github') {
+    checkSkip(ctx, `PR stack exists (skipped: ${provider.name} provider — gh CLI required)`);
+    return;
+  }
+
   let currentBranch: string;
   try {
     currentBranch = execFileSync('git', ['branch', '--show-current'], {

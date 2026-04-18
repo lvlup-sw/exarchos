@@ -20,6 +20,7 @@ import type {
   IssueResult,
   RepoInfo,
 } from './provider.js';
+import { UnsupportedOperationError } from './provider.js';
 import { exec } from './shell.js';
 
 interface GlabPipelineJob {
@@ -201,32 +202,22 @@ export class GitLabProvider implements VcsProvider {
   }
 
   async listPrs(_filter?: PrFilter): Promise<PrSummary[]> {
-    throw new Error(
-      'GitLab support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
-    );
+    throw new UnsupportedOperationError('gitlab', 'listPrs');
   }
 
   async getPrComments(_prId: string): Promise<PrComment[]> {
-    throw new Error(
-      'GitLab support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
-    );
+    throw new UnsupportedOperationError('gitlab', 'getPrComments');
   }
 
   async getPrDiff(_prId: string): Promise<string> {
-    throw new Error(
-      'GitLab support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
-    );
+    throw new UnsupportedOperationError('gitlab', 'getPrDiff');
   }
 
   async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
-    throw new Error(
-      'GitLab support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
-    );
+    throw new UnsupportedOperationError('gitlab', 'createIssue');
   }
 
   async getRepository(): Promise<RepoInfo> {
-    throw new Error(
-      'GitLab support is not yet implemented. Track progress at https://github.com/lvlup-sw/exarchos/issues/1024'
-    );
+    throw new UnsupportedOperationError('gitlab', 'getRepository');
   }
 }

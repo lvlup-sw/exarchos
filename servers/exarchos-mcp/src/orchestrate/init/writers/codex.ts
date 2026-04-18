@@ -5,12 +5,14 @@
  * with a warning directing the user to re-run init once support lands.
  */
 
-import type { ConfigWriteResult, ConfigWriter } from '../schema.js';
+import type { ConfigWriteResult } from '../schema.js';
+import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
+import type { WriterDeps } from '../probes.js';
 
-export class CodexWriter implements ConfigWriter {
+export class CodexWriter implements RuntimeConfigWriter {
   readonly runtime = 'codex';
 
-  async write(_projectRoot: string): Promise<ConfigWriteResult> {
+  async write(_deps: WriterDeps, _options: WriteOptions): Promise<ConfigWriteResult> {
     return {
       runtime: this.runtime,
       status: 'stub',

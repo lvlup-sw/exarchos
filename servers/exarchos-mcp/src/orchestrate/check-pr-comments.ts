@@ -6,6 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { VcsProvider, PrComment as VcsPrComment } from '../vcs/provider.js';
+import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { ToolResult } from '../format.js';
 
@@ -29,6 +30,9 @@ export async function handleCheckPrComments(
   args: CheckPrCommentsArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
+  const vcsGuard = requiresGitHub(provider, 'check_pr_comments');
+  if (vcsGuard) return vcsGuard;
+
   // Guard: validate PR number
   if (!args.pr) {
     return {

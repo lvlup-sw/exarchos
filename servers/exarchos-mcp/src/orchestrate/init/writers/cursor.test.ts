@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CursorWriter } from './cursor.js';
 import type { ConfigWriteResult } from '../schema.js';
+import { makeStubWriterDeps } from '../probes.js';
+import type { WriteOptions } from './writer.js';
+
+const stubDeps = makeStubWriterDeps();
+const defaultOptions: WriteOptions = { projectRoot: '/project', nonInteractive: false, forceOverwrite: false };
 
 // ─── In-memory fs stub ─────────────────────────────────────────────────────
 
@@ -59,7 +64,7 @@ describe('CursorWriter', () => {
     fs.dirs.add('/project/.cursor');
 
     const writer = new CursorWriter({ fs });
-    const result: ConfigWriteResult = await writer.write('/project');
+    const result: ConfigWriteResult = await writer.write(stubDeps, defaultOptions);
 
     expect(result.runtime).toBe('cursor');
     expect(result.status).toBe('written');
@@ -96,7 +101,7 @@ describe('CursorWriter', () => {
     fs.files.set('/project/.cursor/mcp.json', existing);
 
     const writer = new CursorWriter({ fs });
-    const result = await writer.write('/project');
+    const result = await writer.write(stubDeps, defaultOptions);
 
     expect(result.status).toBe('written');
 

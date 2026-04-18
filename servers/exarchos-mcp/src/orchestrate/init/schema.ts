@@ -52,8 +52,3 @@ export type ConfigWriteResult = z.infer<typeof ConfigWriteResultSchema>;
 export type InitInput = z.infer<typeof InitInputSchema>;
 export type InitOutput = z.infer<typeof InitOutputSchema>;
 
-/** Interface that all runtime config writers implement. */
-export interface ConfigWriter {
-  readonly runtime: string;
-  write(projectRoot: string): Promise<ConfigWriteResult>;
-}

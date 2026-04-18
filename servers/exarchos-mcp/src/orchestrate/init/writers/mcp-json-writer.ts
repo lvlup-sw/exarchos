@@ -9,7 +9,10 @@
 
 import { join } from 'node:path';
 import { promises as nodeFs } from 'node:fs';
-import type { ConfigWriteResult, ConfigWriter } from '../schema.js';
+import type { ConfigWriteResult } from '../schema.js';
+import type { AgentRuntimeName } from '../../../runtime/agent-environment-detector.js';
+import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
+import type { WriterDeps } from '../probes.js';
 
 // ─── Shared types ───────────────────────────────────────────────────────────
 
@@ -47,8 +50,8 @@ const DEFAULT_FS: McpJsonWriterFs = {
  * `{ mcpServers: { ... } }`. Subclasses set `runtime` and `configDir`
  * (relative to project root).
  */
-export abstract class McpJsonWriter implements ConfigWriter {
-  abstract readonly runtime: string;
+export abstract class McpJsonWriter implements RuntimeConfigWriter {
+  abstract readonly runtime: AgentRuntimeName;
   /** Directory relative to project root (e.g. '.vscode', '.cursor'). */
   protected abstract readonly configDir: string;
 
@@ -58,8 +61,8 @@ export abstract class McpJsonWriter implements ConfigWriter {
     this.fs = deps?.fs ?? DEFAULT_FS;
   }
 
-  async write(projectRoot: string): Promise<ConfigWriteResult> {
-    const dirPath = join(projectRoot, this.configDir);
+  async write(_deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
+    const dirPath = join(options.projectRoot, this.configDir);
     const configPath = join(dirPath, 'mcp.json');
     const tmpPath = join(dirPath, 'mcp.json.tmp');
 

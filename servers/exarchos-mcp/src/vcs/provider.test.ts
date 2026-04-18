@@ -46,11 +46,11 @@ describe('VcsProvider', () => {
     expect(typeof provider.createIssue).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
     // Methods not yet implemented should throw
-    await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 
   it('AzureDevOpsProvider_ImplementsVcsProvider', async () => {
@@ -67,10 +67,10 @@ describe('VcsProvider', () => {
     expect(typeof provider.createIssue).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
     // Methods not yet implemented should throw
-    await expect(provider.listPrs()).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet implemented/i);
-    await expect(provider.getRepository()).rejects.toThrow(/not yet implemented/i);
+    await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
+    await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 });
