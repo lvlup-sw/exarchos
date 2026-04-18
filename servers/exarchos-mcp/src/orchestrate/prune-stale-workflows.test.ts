@@ -1513,4 +1513,114 @@ describe('handlePruneStaleWorkflows', () => {
     // No diagnostics field in skip mode
     expect(data.diagnostics).toBeUndefined();
   });
+
+  // ─── Task 015: requireDryRun enforcement ──────────────────────────────────
+
+  it('handlePrune_ApplyWithoutPriorDryRun_RejectsWhenRequired', async () => {
+    const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
+    const query = vi.fn().mockResolvedValue([]); // No prior dry-run events
+    const ctx = {
+      eventStore: { append, query },
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: true,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('dry-run');
+  });
+
+  it('handlePrune_ApplyAfterDryRun_Succeeds', async () => {
+    const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
+    // Simulate a prior prune.diagnostics event (from a previous dry-run)
+    const query = vi.fn().mockResolvedValue([
+      {
+        type: 'prune.diagnostics',
+        data: { malformedCount: 0, candidateCount: 1 },
+        timestamp: new Date().toISOString(),
+        sequence: 1,
+      },
+    ]);
+    const ctx = {
+      eventStore: { append, query },
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: true,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('handlePrune_RequireDryRunFalse_SkipsEnforcement', async () => {
+    const append = vi.fn().mockResolvedValue({ sequence: 1, type: 'workflow.pruned' });
+    const query = vi.fn().mockResolvedValue([]); // No prior dry-run events
+    const ctx = {
+      eventStore: { append, query },
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    // Should succeed without prior dry-run
+    expect(result.success).toBe(true);
+    // query should not have been called for enforcement
+    expect(query).not.toHaveBeenCalled();
+  });
 });

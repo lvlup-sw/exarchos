@@ -625,6 +625,42 @@ export async function handlePruneStaleWorkflows(
     };
   }
 
+  // requireDryRun enforcement (DR-4): when config requires a prior dry-run
+  // before apply mode, check the event store for a recent prune.diagnostics
+  // event. If none found, reject with a structured error. Skip enforcement
+  // when eventStore is unavailable (already guarded above) or when the
+  // eventStore lacks a `query` method (e.g., minimal test stubs).
+  if (
+    !dryRun &&
+    pruneConfig?.requireDryRun === true &&
+    ctx?.eventStore &&
+    typeof (ctx.eventStore as Record<string, unknown>).query === 'function'
+  ) {
+    try {
+      const recentDiagnostics = await (
+        ctx.eventStore as unknown as {
+          query: (
+            streamId: string,
+            filters: { type: string; limit: number },
+          ) => Promise<unknown[]>;
+        }
+      ).query('_prune', { type: 'prune.diagnostics', limit: 1 });
+      if (!Array.isArray(recentDiagnostics) || recentDiagnostics.length === 0) {
+        return {
+          success: false,
+          error: {
+            code: 'DRY_RUN_REQUIRED',
+            message:
+              'Apply mode requires a prior dry-run. Run with dryRun: true first.',
+          },
+        };
+      }
+    } catch {
+      // If querying the event store fails, skip enforcement rather than
+      // blocking prune operations. The enforcement is best-effort.
+    }
+  }
+
   // 1. Fetch the full workflow list.
   const listResult = await deps.handleList(stateDir);
   if (!listResult.success) {
