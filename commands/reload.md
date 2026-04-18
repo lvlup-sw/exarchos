@@ -1,5 +1,4 @@
 ---
-name: reload
 description: "Manually trigger context reload to recover from context degradation."
 ---
 
