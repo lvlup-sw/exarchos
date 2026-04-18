@@ -76,5 +76,38 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
     hooks: {
       on: annotate(config.hooks.on, DEFAULTS.hooks.on),
     },
+    prune: {
+      staleAfterDays: annotate(config.prune.staleAfterDays, DEFAULTS.prune.staleAfterDays),
+      maxBatchSize: annotate(config.prune.maxBatchSize, DEFAULTS.prune.maxBatchSize),
+      phaseExclusions: annotate(config.prune.phaseExclusions, DEFAULTS.prune.phaseExclusions),
+      malformedHandling: annotate(config.prune.malformedHandling, DEFAULTS.prune.malformedHandling),
+      requireDryRun: annotate(config.prune.requireDryRun, DEFAULTS.prune.requireDryRun),
+    },
+    checkpoint: {
+      operationThreshold: annotate(
+        config.checkpoint.operationThreshold,
+        DEFAULTS.checkpoint.operationThreshold,
+      ),
+      enforceOnPhaseTransition: annotate(
+        config.checkpoint.enforceOnPhaseTransition,
+        DEFAULTS.checkpoint.enforceOnPhaseTransition,
+      ),
+      enforceOnWaveDispatch: annotate(
+        config.checkpoint.enforceOnWaveDispatch,
+        DEFAULTS.checkpoint.enforceOnWaveDispatch,
+      ),
+    },
+    agents: {
+      defaultModel: annotate(config.agents.defaultModel, DEFAULTS.agents.defaultModel),
+      models: annotate(config.agents.models, DEFAULTS.agents.models),
+    },
+    plugins: {
+      axiom: {
+        enabled: annotate(config.plugins.axiom.enabled, DEFAULTS.plugins.axiom.enabled),
+      },
+      impeccable: {
+        enabled: annotate(config.plugins.impeccable.enabled, DEFAULTS.plugins.impeccable.enabled),
+      },
+    },
   };
 }
