@@ -39,3 +39,21 @@ cd servers/exarchos-mcp && npm run test:run
 - **Skill frontmatter** — `name` (kebab-case), `description` (<=1,024 chars), `metadata`
 - **Skill metadata** — Skills invoking Exarchos MCP tools MUST include `metadata.mcp-server: exarchos` in frontmatter. Utility/standards skills without MCP dependency are exempt.
 - **Skills source-of-truth** — Edit `skills-src/<name>/SKILL.md`, then run `npm run build:skills` and commit both the source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` will fail the `skills:guard` CI check.
+
+## Workflow Dispatch Conventions
+
+- Always dispatch parallel sub-agents from the correct feature/phase branch, never from `main`. Verify base branch topology before launching waves.
+- When running merge commands, confirm you are in the main worktree (not a sub-agent worktree) before executing.
+- For workflow pruning/archiving, do not rely solely on the prune tool — verify stale counts and fall back to manual shell archival when the tool under-reports.
+- Insert explicit checkpoints every ~10 tasks or before any phase transition, not just at session end.
+
+## Design Philosophy
+
+- Exarchos ships as a **standalone CLI** with optional MCP subcommand and plugin packaging — not as a Claude Code plugin with MCP tools only.
+- New feature designs must follow **agent-first CLI patterns (Aspire-inspired)**, not config-file-centric or human-first designs.
+- Validate all designs against axiom/Aspire/roadmap conventions before presenting.
+
+## Local Repro & Verification
+
+- Before claiming local repro requires new seeding/test accounts, check for existing demo admin credentials and wired databases (e.g., Turso).
+- For browser automation, use `playwright-cli` as the default tool — do not attempt the Chrome extension first.
