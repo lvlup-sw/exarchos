@@ -22,15 +22,10 @@ describe('buildConfigDescription', () => {
 
   it('DescribeConfig_AllSectionsPresent', () => {
     const result = buildConfigDescription(DEFAULTS);
-    expect(result).toHaveProperty('review');
-    expect(result).toHaveProperty('vcs');
-    expect(result).toHaveProperty('workflow');
-    expect(result).toHaveProperty('tools');
-    expect(result).toHaveProperty('hooks');
-    expect(result).toHaveProperty('prune');
-    expect(result).toHaveProperty('checkpoint');
-    expect(result).toHaveProperty('agents');
-    expect(result).toHaveProperty('plugins');
+    // Parity check — any top-level section added to DEFAULTS must appear
+    // in the description output (and vice versa), so future sections can't
+    // silently regress.
+    expect(Object.keys(result).sort()).toEqual(Object.keys(DEFAULTS).sort());
   });
 
   it('DescribeConfig_GateOverride_ShowsGateAndDimension', () => {
