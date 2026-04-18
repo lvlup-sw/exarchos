@@ -71,14 +71,14 @@ If discovery surfaces an implementation need:
 
 1. Note the finding in the report
 2. After completing the discovery workflow, start a new workflow:
-   ```
+   ```bash
    ideate <implementation-topic>
    ```
    Reference the discovery report as design input.
 
 ## Event Emissions
 
-Emit events at key moments:
+Optionally emit events at key moments for observability:
 
 ```typescript
 mcp__exarchos__exarchos_event({

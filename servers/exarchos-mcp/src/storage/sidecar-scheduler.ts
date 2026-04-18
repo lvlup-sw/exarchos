@@ -83,9 +83,9 @@ export async function startPeriodicMerge(
     }
   };
 
-  // Immediate drain: await one cycle before returning the handle
+  // Immediate drain: best-effort first cycle before arming the interval
   if (opts?.immediate) {
-    await runDrain();
+    await runDrain().catch(() => {});
   }
 
   // Set up periodic interval
@@ -127,8 +127,11 @@ async function drainOnce(
   let entries: string[];
   try {
     entries = await fs.readdir(stateDir);
-  } catch {
-    return { merged: 0, skipped: 0, errors: 0, durationMs: Date.now() - start };
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { merged: 0, skipped: 0, errors: 0, durationMs: Date.now() - start };
+    }
+    return { merged: 0, skipped: 0, errors: 1, durationMs: Date.now() - start };
   }
 
   const sidecarFiles = entries.filter((f) => f.endsWith(SIDECAR_SUFFIX));
@@ -159,6 +162,8 @@ async function drainOnce(
     try {
       content = await fs.readFile(drainPath, 'utf-8');
     } catch {
+      // Rename back so events are not orphaned in an unprocessable drain file
+      await fs.rename(drainPath, sidecarPath).catch(() => {});
       totalErrors++;
       continue;
     }

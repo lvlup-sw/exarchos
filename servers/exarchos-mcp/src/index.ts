@@ -307,12 +307,8 @@ async function main() {
 
     if (!ctx.eventStore.inSidecarMode) {
       const { startPeriodicMerge } = await import('./storage/sidecar-scheduler.js');
-      try {
-        const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
-        process.on('exit', () => drainHandle.stop());
-      } catch (err) {
-        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Sidecar drain scheduler failed to start');
-      }
+      const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
+      process.on('exit', () => drainHandle.stop());
     }
 
     // Lifecycle management: compact old workflows and rotate telemetry (fire-and-forget)
