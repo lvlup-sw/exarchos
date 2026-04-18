@@ -1222,4 +1222,130 @@ describe('handlePruneStaleWorkflows', () => {
     const data = result.data as { candidates: Array<{ featureId: string }> };
     expect(data.candidates.map((c) => c.featureId)).toEqual(['just-over-14d']);
   });
+
+  // ─── Task 013: maxBatchSize cap ───────────────────────────────────────────
+
+  it('handlePrune_ExceedsBatchSize_TruncatesCandidates', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 3,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    // Create 10 stale entries with different staleness values
+    const items = Array.from({ length: 10 }, (_, i) => ({
+      featureId: `stale-${i}`,
+      lastActivityTimestamp: staleIso(30_000 + i * 100),
+    }));
+    deps.listSpy.mockResolvedValue(makeListResult(items));
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      pruned: Array<{ featureId: string }>;
+      truncated?: boolean;
+      totalCandidates?: number;
+    };
+    // Only 3 should be pruned due to maxBatchSize
+    expect(data.pruned).toHaveLength(3);
+    expect(data.truncated).toBe(true);
+    expect(data.totalCandidates).toBe(10);
+  });
+
+  it('handlePrune_UnderBatchSize_PrunesAll', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_100) },
+        { featureId: 'c', lastActivityTimestamp: staleIso(30_200) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: false, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      pruned: Array<{ featureId: string }>;
+      truncated?: boolean;
+    };
+    expect(data.pruned).toHaveLength(3);
+    // No truncation when under the limit
+    expect(data.truncated).toBeUndefined();
+  });
+
+  it('handlePrune_BatchSizeFromConfig_Honored', async () => {
+    const { ctx: baseCtx } = makeEventStoreStub();
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 14,
+          maxBatchSize: 2,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_100) },
+        { featureId: 'c', lastActivityTimestamp: staleIso(30_200) },
+        { featureId: 'd', lastActivityTimestamp: staleIso(30_300) },
+        { featureId: 'e', lastActivityTimestamp: staleIso(30_400) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      candidates: Array<{ featureId: string }>;
+      truncated?: boolean;
+      totalCandidates?: number;
+    };
+    expect(data.candidates).toHaveLength(2);
+    expect(data.truncated).toBe(true);
+    expect(data.totalCandidates).toBe(5);
+  });
 });

@@ -288,6 +288,10 @@ export interface PruneHandlerResult {
    * per-entry reasons and an advisory string when malformed entries exist.
    */
   diagnostics: PruneDiagnostics;
+  /** Present when candidates were truncated by maxBatchSize. */
+  truncated?: boolean;
+  /** Total candidate count before truncation. Present when `truncated === true`. */
+  totalCandidates?: number;
 }
 
 /** Default branch-name reader: reads the state JSON and returns a top-level
@@ -659,14 +663,31 @@ export async function handlePruneStaleWorkflows(
   }));
 
   // 2. Pure selection.
-  const { candidates } = selectPruneCandidates(
+  const { candidates: rawCandidates } = selectPruneCandidates(
     entries,
     {
       thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
+      ...(pruneConfig?.phaseExclusions ? { phaseExclusions: pruneConfig.phaseExclusions } : {}),
     },
     now,
   );
+
+  // 2b. maxBatchSize cap — sort by staleness descending (oldest first)
+  // and truncate to the configured limit. When truncated, add markers
+  // to the response so callers know the full scope.
+  const maxBatchSize = pruneConfig?.maxBatchSize;
+  const totalCandidates = rawCandidates.length;
+  let candidates = rawCandidates;
+  let truncated = false;
+
+  if (maxBatchSize !== undefined && rawCandidates.length > maxBatchSize) {
+    truncated = true;
+    // Sort descending by stalenessMinutes (oldest/most stale first)
+    candidates = [...rawCandidates]
+      .sort((a, b) => b.stalenessMinutes - a.stalenessMinutes)
+      .slice(0, maxBatchSize);
+  }
 
   // Build the diagnostics object — always present in the response.
   const diagnostics: PruneDiagnostics = {
@@ -708,6 +729,7 @@ export async function handlePruneStaleWorkflows(
       candidates,
       skipped: [],
       diagnostics,
+      ...(truncated ? { truncated: true, totalCandidates } : {}),
       ...(malformed.length > 0 ? { malformed } : {}),
     };
     return { success: true, data: result };
@@ -733,6 +755,7 @@ export async function handlePruneStaleWorkflows(
     skipped,
     pruned,
     diagnostics,
+    ...(truncated ? { truncated: true, totalCandidates } : {}),
     ...(malformed.length > 0 ? { malformed } : {}),
   };
   return { success: true, data: result };
