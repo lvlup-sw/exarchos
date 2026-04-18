@@ -13,7 +13,7 @@ import {
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
-import { validateBranchAncestry } from './dispatch-guard.js';
+import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
 import {
   WORKFLOW_STATE_VIEW,
@@ -242,6 +242,23 @@ export async function handlePrepareDelegation(
           ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
         },
       };
+    }
+
+    // ─── DR-2: Worktree Location Assertion ──────────────────────────────
+    // Skip worktree check when nativeIsolation is true (Claude Code manages isolation)
+    if (!args.nativeIsolation) {
+      const worktreeResult = assertMainWorktree();
+      if (!worktreeResult.isMain) {
+        return {
+          success: true,
+          data: {
+            blocked: true,
+            reason: 'worktree-location',
+            actual: worktreeResult.actual,
+            expected: worktreeResult.expected,
+          },
+        };
+      }
     }
 
     // Materialize delegation readiness from event stream

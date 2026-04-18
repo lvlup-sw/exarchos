@@ -686,6 +686,61 @@ describe('handlePrepareDelegation', () => {
     expect(data.taskClassifications).toBeDefined();
   });
 
+  // ─── DR-2: Worktree Assertion Integration ─────────────────────────────────
+
+  it('handlePrepareDelegation_InSubagentWorktree_ReturnsBlocked', async () => {
+    // Arrange: assertMainWorktree returns isMain=false (subagent worktree)
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: false,
+      actual: '/repo/.claude/worktrees/agent-abc123',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      actual: string;
+      expected: string;
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('worktree-location');
+    expect(data.actual).toBe('/repo/.claude/worktrees/agent-abc123');
+    expect(data.expected).toBeDefined();
+  });
+
+  it('handlePrepareDelegation_InMainWorktree_ProceedsNormally', async () => {
+    // Arrange: assertMainWorktree returns isMain=true
+    const state = readyWorkflowState();
+    setupMaterializer(state);
+    vi.mocked(assertMainWorktree).mockReturnValue({
+      isMain: true,
+      actual: '/home/user/repo',
+      expected: 'main worktree (no .claude/worktrees/ in path)',
+    });
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR);
+
+    // Assert — proceeds normally, returns readiness
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+    };
+    expect(data.ready).toBe(true);
+    expect(data.readiness).toBeDefined();
+  });
+
   // ─── Task Classification ─────────────────────────────────────────────────
 
   describe('Task classification', () => {
