@@ -21,6 +21,21 @@ export interface WorktreeAssertionResult {
   readonly expected: string;
 }
 
+export interface CurrentBranchProtectionResult {
+  readonly blocked: boolean;
+  readonly reason?: 'current-branch-protected';
+  readonly currentBranch?: string;
+}
+
+export type GitExec = (args: readonly string[]) => string;
+
+/**
+ * Branches that dispatch must never run *from*. The guard refuses
+ * `prepare_delegation` when HEAD points at any of these — you must
+ * check out a feature branch first.
+ */
+const PROTECTED_CURRENT_BRANCHES: ReadonlySet<string> = new Set(['main', 'master']);
+
 // ─── Branch Ancestry Validation ─────────────────────────────────────────────
 
 /**
@@ -74,6 +89,44 @@ export async function validateBranchAncestry(
   }
 
   return { passed: true, checks: ['ancestry'] };
+}
+
+// ─── Current Branch ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve the current checked-out branch via `git rev-parse --abbrev-ref
+ * HEAD`. Returns `null` on any git failure — callers treat absence as a
+ * non-signal, not as a block.
+ */
+export function getCurrentBranch(gitExec: GitExec): string | null {
+  try {
+    return gitExec(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuse dispatch when HEAD is on a protected base branch (main / master).
+ * Distinct from the ancestry check: ancestry tests "does integrationBranch
+ * descend from main?" which trivially passes when integrationBranch IS
+ * main. The stated "never dispatch from main" rule needs to inspect
+ * current HEAD, not workflow-state metadata.
+ *
+ * Accepts `null` (current branch unknown) and returns "not blocked" — the
+ * absence of a signal is not grounds to escalate to a refusal.
+ */
+export function assertCurrentBranchNotProtected(
+  currentBranch: string | null,
+): CurrentBranchProtectionResult {
+  if (currentBranch !== null && PROTECTED_CURRENT_BRANCHES.has(currentBranch)) {
+    return {
+      blocked: true,
+      reason: 'current-branch-protected',
+      currentBranch,
+    };
+  }
+  return { blocked: false };
 }
 
 // ─── Worktree Assertion ─────────────────────────────────────────────────────
