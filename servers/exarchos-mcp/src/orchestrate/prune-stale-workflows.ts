@@ -758,7 +758,9 @@ export async function handlePruneStaleWorkflows(
           candidateCount: candidates.length,
           ...(malformed.length > 0
             ? {
-                advisory: `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
+                advisory: malformedHandling === 'include'
+                  ? `${malformed.length} handleList entries failed structural validation and were promoted into candidates. Inspect the malformedEntries for details.`
+                  : `${malformed.length} handleList entries failed structural validation and were excluded from prune consideration. Inspect the malformedEntries for details.`,
               }
             : {}),
         };

@@ -321,11 +321,11 @@ export async function handlePrepareDelegation(
       }
     }
 
-    // Fire-and-forget: emit preflight.executed event — both checks passed
+    const checksRun = args.nativeIsolation ? ['ancestry'] : ['ancestry', 'worktree'];
     store.append(streamId, {
       type: 'preflight.executed',
       data: {
-        checks: ['ancestry', 'worktree'],
+        checks: checksRun,
         passed: true,
         integrationBranch,
       },
@@ -343,6 +343,8 @@ export async function handlePrepareDelegation(
       checkpointConfig,
       'wave-dispatch',
     );
+
+    const checkpointWarnings: string[] = [];
 
     if (gateResult.gated) {
       // Emit checkpoint.enforced event (best-effort)
@@ -364,6 +366,10 @@ export async function handlePrepareDelegation(
           threshold: gateResult.threshold,
         },
       };
+    }
+
+    if (gateResult.warning) {
+      checkpointWarnings.push(`checkpoint: ${gateResult.warning}`);
     }
 
     // Materialize delegation readiness from event stream
@@ -406,7 +412,11 @@ export async function handlePrepareDelegation(
         blockers: effectiveBlockers,
         ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
-      return { success: true, data: result };
+      return {
+        success: true,
+        data: result,
+        ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+      };
     }
 
     // Query telemetry state for hint generation (graceful degradation)
@@ -454,7 +464,11 @@ export async function handlePrepareDelegation(
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       ...(taskClassifications ? { taskClassifications } : {}),
     };
-    return { success: true, data: result };
+    return {
+      success: true,
+      data: result,
+      ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+    };
   } catch (err) {
     return {
       success: false,
