@@ -12,9 +12,10 @@ description: |
   </commentary>
   </example>
 tools: ["Read", "Grep", "Glob", "Bash"]
-model: opus
+model: inherit
 color: green
 disallowedTools: ["Write", "Edit", "Agent"]
+mcpServers: ["exarchos"]
 ---
 
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.

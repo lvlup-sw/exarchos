@@ -21,7 +21,8 @@
   "agents": [
     "./agents/implementer.md",
     "./agents/fixer.md",
-    "./agents/reviewer.md"
+    "./agents/reviewer.md",
+    "./agents/scaffolder.md"
   ],
   "commands": "./commands/",
   "skills": "./skills/",

@@ -12,9 +12,10 @@ description: |
   </commentary>
   </example>
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-model: opus
+model: inherit
 color: red
 disallowedTools: ["Agent"]
+mcpServers: ["exarchos"]
 skills:
   - tdd-patterns
 hooks:
