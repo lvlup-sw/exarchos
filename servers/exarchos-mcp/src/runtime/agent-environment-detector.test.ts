@@ -114,6 +114,98 @@ describe('detectAgentEnvironments — claude-code', () => {
     expect(claude.mcpRegistered).toBe(false);
   });
 
+  it('DetectAgentEnvironments_ExarchosPluginInstalledAndManifestWiresMcp_ReturnsMcpRegisteredTrue', async () => {
+    // Regression: #1128. Plugin-marketplace install is exarchos's primary
+    // distribution path — the claude-code MCP is wired via the plugin
+    // manifest, not the top-level `~/.claude.json`. The detector must
+    // consult `installed_plugins.json` + the per-plugin manifest.
+    const home = '/tmp/home-plugin-installed';
+    const claudeJson = `${home}/.claude.json`;
+    const installedPluginsJson = `${home}/.claude/plugins/installed_plugins.json`;
+    const pluginInstallPath = `${home}/.claude/plugins/cache/lvlup-sw/exarchos/2.8.0`;
+    const pluginManifest = `${pluginInstallPath}/.claude-plugin/plugin.json`;
+
+    const claudeJsonBody = JSON.stringify({ mcpServers: {} });
+    const installedPluginsBody = JSON.stringify({
+      version: 2,
+      plugins: {
+        'exarchos@lvlup-sw': [
+          { scope: 'user', installPath: pluginInstallPath, version: '2.8.0' },
+        ],
+      },
+    });
+    const manifestBody = JSON.stringify({
+      name: 'exarchos',
+      version: '2.8.0',
+      mcpServers: { exarchos: { command: 'node' } },
+    });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({
+        [claudeJson]: claudeJsonBody,
+        [installedPluginsJson]: installedPluginsBody,
+        [pluginManifest]: manifestBody,
+      }),
+      home: () => home,
+      cwd: () => '/tmp/proj',
+    });
+
+    const claude = result.find((r) => r.name === 'claude-code')!;
+    expect(claude.configPresent).toBe(true);
+    expect(claude.configValid).toBe(true);
+    expect(claude.mcpRegistered).toBe(true);
+  });
+
+  it('DetectAgentEnvironments_ExarchosPluginInstalledButManifestMissingMcp_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-no-mcp';
+    const claudeJson = `${home}/.claude.json`;
+    const installedPluginsJson = `${home}/.claude/plugins/installed_plugins.json`;
+    const pluginInstallPath = `${home}/.claude/plugins/cache/lvlup-sw/exarchos/2.8.0`;
+    const pluginManifest = `${pluginInstallPath}/.claude-plugin/plugin.json`;
+
+    const installedPluginsBody = JSON.stringify({
+      version: 2,
+      plugins: {
+        'exarchos@lvlup-sw': [
+          { scope: 'user', installPath: pluginInstallPath, version: '2.8.0' },
+        ],
+      },
+    });
+    const manifestBody = JSON.stringify({ name: 'exarchos', version: '2.8.0' });
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({
+        [claudeJson]: JSON.stringify({ mcpServers: {} }),
+        [installedPluginsJson]: installedPluginsBody,
+        [pluginManifest]: manifestBody,
+      }),
+      home: () => home,
+      cwd: () => '/tmp/proj',
+    });
+
+    const claude = result.find((r) => r.name === 'claude-code')!;
+    expect(claude.mcpRegistered).toBe(false);
+  });
+
+  it('DetectAgentEnvironments_InstalledPluginsJsonMalformed_DoesNotThrowAndMcpStaysFalse', async () => {
+    const home = '/tmp/home-plugin-bad-json';
+    const claudeJson = `${home}/.claude.json`;
+    const installedPluginsJson = `${home}/.claude/plugins/installed_plugins.json`;
+
+    const result = await detectAgentEnvironments({
+      fs: mapFs({
+        [claudeJson]: JSON.stringify({ mcpServers: {} }),
+        [installedPluginsJson]: '{not-json',
+      }),
+      home: () => home,
+      cwd: () => '/tmp/proj',
+    });
+
+    const claude = result.find((r) => r.name === 'claude-code')!;
+    expect(claude.configPresent).toBe(true);
+    expect(claude.mcpRegistered).toBe(false);
+  });
+
   it('DetectAgentEnvironments_ClaudeJsonMalformed_ReturnsConfigValidFalse', async () => {
     const home = '/tmp/home-claude-bad';
     const claudeJson = `${home}/.claude.json`;
