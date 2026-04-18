@@ -102,6 +102,57 @@ describe('ProjectConfigSchema', () => {
     expect(ProjectConfigSchema.safeParse({ tools: { 'pr-strategy': 'invalid' } }).success).toBe(false);
   });
 
+  describe('prune section', () => {
+    it('PruneConfigSchema_ValidFullConfig_Parses', () => {
+      const result = ProjectConfigSchema.safeParse({
+        prune: {
+          'stale-after-days': 30,
+          'max-batch-size': 50,
+          'phase-exclusions': ['delegate', 'review'],
+          'malformed-handling': 'include',
+          'require-dry-run': false,
+        },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prune?.['stale-after-days']).toBe(30);
+        expect(result.data.prune?.['max-batch-size']).toBe(50);
+        expect(result.data.prune?.['phase-exclusions']).toEqual(['delegate', 'review']);
+        expect(result.data.prune?.['malformed-handling']).toBe('include');
+        expect(result.data.prune?.['require-dry-run']).toBe(false);
+      }
+    });
+
+    it('PruneConfigSchema_EmptyObject_UsesDefaults', () => {
+      const result = ProjectConfigSchema.parse({ prune: {} });
+      expect(result.prune?.['stale-after-days']).toBe(14);
+      expect(result.prune?.['max-batch-size']).toBe(25);
+      expect(result.prune?.['phase-exclusions']).toEqual(['delegate', 'review', 'synthesize']);
+      expect(result.prune?.['malformed-handling']).toBe('report');
+      expect(result.prune?.['require-dry-run']).toBe(true);
+    });
+
+    it('PruneConfigSchema_InvalidStaleAfterDays_Rejects', () => {
+      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': -1 } }).success).toBe(false);
+      expect(ProjectConfigSchema.safeParse({ prune: { 'stale-after-days': 0 } }).success).toBe(false);
+    });
+
+    it('PruneConfigSchema_InvalidMalformedHandling_Rejects', () => {
+      const result = ProjectConfigSchema.safeParse({ prune: { 'malformed-handling': 'invalid' } });
+      expect(result.success).toBe(false);
+    });
+
+    it('PruneConfigSchema_PhaseExclusions_AcceptsStringArray', () => {
+      const result = ProjectConfigSchema.safeParse({
+        prune: { 'phase-exclusions': ['plan', 'implement', 'review'] },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.prune?.['phase-exclusions']).toEqual(['plan', 'implement', 'review']);
+      }
+    });
+  });
+
   describe('plugins section', () => {
     it('ProjectConfigSchema_Plugins_AcceptsValidConfig', () => {
       const result = ProjectConfigSchema.safeParse({

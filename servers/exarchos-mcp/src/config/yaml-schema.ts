@@ -102,6 +102,16 @@ const PluginsConfig = z.object({
   impeccable: PluginConfig.optional(),
 }).strict();
 
+// ─── Prune Configuration ──────────────────────────────────────────────────
+
+const PruneConfig = z.object({
+  'stale-after-days': z.number().int().min(1).default(14),
+  'max-batch-size': z.number().int().min(1).max(100).default(25),
+  'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
+  'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),
+  'require-dry-run': z.boolean().default(true),
+}).strict();
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
@@ -111,6 +121,7 @@ export const ProjectConfigSchema = z.object({
   tools: ToolsConfig.optional(),
   hooks: HooksConfig.optional(),
   plugins: PluginsConfig.optional(),
+  prune: PruneConfig.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
