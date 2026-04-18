@@ -239,6 +239,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'pr.commented': 'auto',
   'issue.created': 'auto',
 
+  // auto — emitted by checkpoint enforcement gate
+  'checkpoint.enforced': 'auto',
+  'checkpoint.state_missing': 'auto',
+
   // planned — schema exists, not yet emitted in production
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
